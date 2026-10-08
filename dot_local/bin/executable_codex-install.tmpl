@@ -1,4 +1,23 @@
 #!/bin/bash
-# Legacy entry point retained for existing managed installations.
 set -euo pipefail
+{{ if and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64") -}}
+{{ if .dotfiles_ai.state.root -}}
+export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
+export CODEX_HOME={{ printf "%s/codex" .dotfiles_ai.state.root | quote }}
+"$HOME/.local/bin/codex-project" --validate-home "$CODEX_HOME" "$DOTFILES_AI_STATE_ROOT" || exit 75
+{{ else -}}
+export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
+"$HOME/.local/bin/codex-project" --validate-home "$CODEX_HOME" || exit 75
+{{ end -}}
+export CODEX_INSTALL_DIR="$HOME/.local/libexec/dotfiles-ai/codex-native"
+"$HOME/.local/bin/codex-project" --prepare-native "$CODEX_HOME" "$CODEX_INSTALL_DIR" || exit 75
+if [[ ! -e "$CODEX_INSTALL_DIR/codex" && ! -L "$CODEX_INSTALL_DIR/codex" ]]; then
+    installer=$(mktemp)
+    trap 'rm -f "$installer"' EXIT
+    curl -fsSL --connect-timeout 10 --max-time 60 https://chatgpt.com/codex/install.sh -o "$installer"
+    PATH="$CODEX_INSTALL_DIR:$PATH" CODEX_NON_INTERACTIVE=1 /bin/sh "$installer"
+fi
+"$HOME/.local/bin/codex-project" --resolve-native "$CODEX_HOME" "$CODEX_INSTALL_DIR" >/dev/null || exit 75
+{{ else -}}
 exit 0
+{{ end -}}

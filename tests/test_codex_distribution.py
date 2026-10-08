@@ -28,6 +28,148 @@ def load_projector():
     return module
 
 
+def native_installation(tmp_path):
+    home = tmp_path / 'codex-home'
+    home.mkdir(mode=0o700)
+    release = home / 'packages/standalone/releases/0.161.0-aarch64-apple-darwin'
+    (release / 'bin').mkdir(parents=True)
+    binary = release / 'bin/codex'
+    binary.write_text('#!/bin/sh\nprintf "codex-cli 0.161.0\\n"\n')
+    binary.chmod(0o755)
+    (home / 'packages/standalone/current').symlink_to(release)
+    install = tmp_path / 'native-bin'
+    install.mkdir()
+    (install / 'codex').symlink_to(home / 'packages/standalone/current/bin/codex')
+    return home, install, binary
+
+
+def test_native_policy_preserves_unrelated_settings_and_selection(tmp_path):
+    helper = load_projector()
+    home, install, binary = native_installation(tmp_path)
+    settings = home / 'app-server-daemon/settings.json'
+    settings.parent.mkdir(mode=0o700)
+    settings.write_text(json.dumps({'updater': {'autoUpdateEnabled': True, 'intervalMinutes': 120},
+                                    'fixture': {'preserve': True}}))
+    settings.chmod(0o600)
+    helper.prepare_native(home, install)
+    before = settings.read_bytes()
+    helper.prepare_native(home, install)
+    assert settings.read_bytes() == before
+    assert json.loads(before) == {'updater': {'autoUpdateEnabled': False, 'intervalMinutes': 120},
+                                 'fixture': {'preserve': True}}
+    assert helper.resolve_native(home, install) == binary
+    settings.write_text('{"updater":{"autoUpdateEnabled":true}}')
+    with pytest.raises(ValueError, match='policy'):
+        helper.resolve_native(home, install)
+
+
+@pytest.mark.parametrize('fault', ['escaping-link', 'writable-binary', 'settings-link', 'invalid-settings'])
+def test_native_selection_and_policy_fail_closed(tmp_path, fault):
+    helper = load_projector()
+    home, install, binary = native_installation(tmp_path)
+    helper.prepare_native(home, install)
+    settings = home / 'app-server-daemon/settings.json'
+    if fault == 'escaping-link':
+        (install / 'codex').unlink()
+        (install / 'codex').symlink_to('/bin/sh')
+    elif fault == 'writable-binary':
+        binary.chmod(0o777)
+    elif fault == 'settings-link':
+        settings.unlink()
+        settings.symlink_to(tmp_path / 'unrelated')
+    else:
+        settings.write_text('[]')
+    with pytest.raises((ValueError, OSError)):
+        helper.resolve_native(home, install)
+
+
+def test_native_host_default_updater_refuses_fleet_mutation(monkeypatch):
+    helper = load_updater()
+    monkeypatch.setattr(helper, 'platform_id', lambda: 'darwin-aarch64')
+    monkeypatch.setattr(helper, 'host_update', lambda: pytest.fail('fleet mutation'))
+    assert helper.main([]) == 75
+
+
+def test_native_host_wrapper_and_bootstrap_keep_installed_release(tmp_path, monkeypatch):
+    from test_portable_distribution import chezmoi
+    helper = load_projector()
+    codex_home, _, binary = native_installation(tmp_path)
+    user = tmp_path / 'user'
+    managed = user / '.local/bin'
+    managed.mkdir(parents=True)
+    state = tmp_path / 'external'
+    state.mkdir()
+    (state / '.dotfiles-ai-state').touch()
+    # Rename before constructing the native symlinks so they remain accurate.
+    codex_home.rename(state / 'codex')
+    codex_home = state / 'codex'
+    release = codex_home / 'packages/standalone/releases/0.161.0-aarch64-apple-darwin'
+    (release / 'bin/codex').write_text(f'''#!{sys.executable}
+import json, os, sys
+if sys.argv[1:] == ["--version"]:
+    print("codex-cli 0.161.0")
+else:
+    print(json.dumps({{"args": sys.argv[1:], "home": os.environ["CODEX_HOME"],
+                      "install": os.environ["CODEX_INSTALL_DIR"], "path": os.environ["PATH"],
+                      "input": sys.stdin.read()}}))
+''')
+    current = codex_home / 'packages/standalone/current'
+    current.unlink()
+    current.symlink_to(release)
+    install = user / '.local/libexec/dotfiles-ai/codex-native'
+    install.mkdir(parents=True)
+    (install / 'codex').symlink_to(current / 'bin/codex')
+    projector = managed / 'codex-project'
+    projector.write_bytes(PROJECTOR.read_bytes())
+    projector.chmod(0o700)
+    scripts = {}
+    for name in ('codex', 'codex-install'):
+        script = managed / name
+        script.write_text(chezmoi('execute-template', state_root=str(state),
+                                  template=(ROOT / f'dot_local/bin/executable_{name}.tmpl').read_text()).stdout)
+        script.chmod(0o700)
+        scripts[name] = script
+    curl = managed / 'curl'
+    curl.write_text('#!/bin/sh\necho unexpected download >&2\nexit 99\n')
+    curl.chmod(0o700)
+    env = {**os.environ, 'HOME': str(user), 'PATH': f'{managed}:' + os.environ['PATH']}
+    for _ in range(2):
+        r = subprocess.run([str(scripts['codex-install'])], env=env, capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+    r = subprocess.run([str(scripts['codex']), '--version'], env=env, capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout.strip() == 'codex-cli 0.161.0', r.stderr
+    r = subprocess.run([str(scripts['codex']), 'update', 'argument with spaces'], env=env,
+                       input='preserved stdin', capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    call = json.loads(r.stdout)
+    assert call['args'] == ['update', 'argument with spaces']
+    assert call['home'] == str(codex_home) and call['install'] == str(install)
+    assert str(install) in call['path'].split(os.pathsep)
+    assert call['input'] == 'preserved stdin'
+    (state / '.dotfiles-ai-state').unlink()
+    r = subprocess.run([str(scripts['codex'])], env=env, capture_output=True)
+    assert r.returncode == 75
+    assert not (user / '.codex').exists()
+
+
+@pytest.mark.parametrize('system,architecture,native', [('darwin', 'arm64', True),
+                                                      ('linux', 'arm64', False),
+                                                      ('linux', 'amd64', False)])
+def test_native_codex_platform_routing(system, architecture, native):
+    from test_portable_distribution import data
+    values = data()
+    values['chezmoi'] = {'os': system, 'arch': architecture}
+    for path in ('dot_local/bin/executable_codex.tmpl', 'run_after_update-codex.sh.tmpl'):
+        rendered = subprocess.check_output(['chezmoi', '-S', str(ROOT), '--config', '/dev/null',
+                                            '--config-format', 'toml', '--override-data', json.dumps(values),
+                                            'execute-template'], input=(ROOT / path).read_text(), text=True)
+        subprocess.run(['/bin/bash', '-n'], input=rendered, text=True, check=True)
+        expected = '--resolve-native' if path.startswith('dot_local') else '/codex-install"'
+        assert (expected in rendered) is native
+        if not native:
+            assert 'codex-update-all' in rendered
+
+
 def load_archive():
     loader = importlib.machinery.SourceFileLoader("codex_archive", str(ARCHIVE))
     spec = importlib.util.spec_from_loader(loader.name, loader)

@@ -1040,6 +1040,9 @@ def main(argv=None):
     parser.add_argument("mode", nargs="?", choices=(
         "guest-stage", "guest-activate", "guest-rollback", "recover-local"))
     args = parser.parse_args(argv)
+    if args.mode is None and platform_id() == "darwin-aarch64":
+        print("Codex fleet update disabled on native-owned hosts; use codex update and coordinated daemon update", file=sys.stderr)
+        return 75
     try:
         if args.mode == "guest-stage":
             candidate = parse_candidate(sys.stdin.buffer.read(MAX_METADATA + 1))
