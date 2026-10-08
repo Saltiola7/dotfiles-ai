@@ -11,7 +11,8 @@ The earlier receipt is historical, not current implementation authority.
 Delivery: source-only draft PR; live
 cutover remains a separately qualified deployment. Applies to INT-022–INT-030 in
 the OpenCode rolling-stable Initiative and its WORKTREE-BASELINE decision.
-INT-031 additionally governs the interactive Initiative approval boundary.
+INT-031 established the interactive Initiative approval boundary. CHAT-APPROVED-BEGIN
+extends only its consent transport with the explicit agent-confirmed path below.
 
 This replaces allocation and transparent continuation, not the development gates.
 Native Worktrunk manages Git worktrees; OpenCode and Codex own native sessions;
@@ -117,15 +118,22 @@ an unrestricted permission profile to compensate for removed wrappers.
 
 ### Exact Initiative approval in the CLI
 
-Operator decision: replace the custom wrapper's exact Initiative approval
-checkpoint with interactive CLI confirmation. Native shell approval remains a
-separate permission boundary; supplied digests bind state but do not themselves
-constitute operator confirmation. This applies to both supported harnesses.
+Operator decision: retain interactive CLI confirmation and add chat-approved
+agent registration. Native shell approval remains a separate permission boundary;
+supplied digests bind state but do not themselves constitute consent. This
+applies to both supported harnesses and changes no actor-attribution authority.
 
 `dbsctrctl begin ... --preflight` prepares the existing digest-bound launch plan
-without creating a cycle or importing artifacts. The agent presents that plan
-and prepares the exact operator command. The operator runs registration in the
-selected native checkout with `--expected-launch-digest DIGEST` and confirms:
+without creating a cycle or importing artifacts. The agent presents scope, risk,
+delivery target and launch digest and asks for explicit approval of that plan.
+After affirmative chat approval, Build may run registration in the selected
+checkout with `--expected-launch-digest DIGEST --approval agent-confirmed`.
+The flag records the caller's assertion that approval was obtained; the CLI
+cannot independently verify the conversation. General continuation instructions,
+shell grants and approvals of different/stale plans are insufficient.
+
+Without that flag, the operator runs registration with the expected digest and
+confirms in a terminal:
 
 ```text
 BEGIN CYCLE_ID LAUNCH_DIGEST
@@ -134,11 +142,12 @@ BEGIN CYCLE_ID LAUNCH_DIGEST
 Before prompting, validate the supplied receipt, plan, repository, checkout,
 base and launch digest. Display the exact Initiative/slice, cycle, risk,
 delivery target, relevant digests and proposed authority-import paths. Require
-interactive stdin and an exact confirmation line. Wrong input, EOF or
-noninteractive input refuses before cycle creation, artifact import or checkout
-mutation. No `--yes`, approval environment variable, caller assertion or old
-receipt bypasses confirmation. Agents must not create a pseudo-terminal or
-synthesize operator input to defeat this boundary.
+interactive stdin and an exact confirmation line in the default `interactive`
+mode. Wrong input, EOF or noninteractive input refuses before cycle creation,
+artifact import or checkout mutation. `agent-confirmed` does not read stdin and
+is valid only for Initiative registration. No `--yes` or approval environment
+variable is introduced. Agents must not create a pseudo-terminal or synthesize
+operator input. Plan and subagents still cannot register cycles.
 
 After confirmation, re-evaluate the same receipt, plan, repository, checkout,
 HEAD, target base and import set. Any changed launch digest refuses and requires
@@ -152,6 +161,13 @@ Cycle Record creation:
 ```json
 {"initiative_approval":{"schema_version":1,"method":"interactive_cli","launch_digest":"<64 lowercase hex characters>","confirmed_at":"<UTC timestamp>"}}
 ```
+
+For chat-approved launches only, `method` is `agent_confirmed`. Schema 1 otherwise
+retains the same fields; no transcript, identity claim or chat text is stored.
+This is deliberately reported consent, not cryptographic or independent proof.
+Older helpers that only recognize `interactive_cli` cannot read new-method
+records; deploy the CLI reader before enabling the new instructions. Rollback
+must retain a compatible reader and never relabel existing approval history.
 
 Native actor attribution remains unavailable. Existing approval history is not
 rewritten into this new method. Read-only inspection/resumption of an already
@@ -300,6 +316,8 @@ unchanged original cycle IDs. Busy-check tests cover simultaneous starts, separa
 worktrees, process exit, signal handling and explicit override without lock theft.
 
 Initiative approval checks cover read-only preflight, exact interactive input,
+agent-confirmed registration without stdin or identity claims, retained approval
+on resume, rejection outside Initiative registration, and mandatory launch digests;
 noninteractive/wrong-input/EOF refusal, stale digests before and after prompting,
 missing-record resume attempts, unchanged historical approval, atomic confirmation
 provenance, and no cycle/artifact writes on refusal. Validate native shell
@@ -324,14 +342,15 @@ their rollout obligations remain explicitly open. No Gate Exceptions.
 | Step | Owner | Guard and outcome |
 | --- | --- | --- |
 | Preflight | CLI, invoked by agent or operator | Validate fresh authority; return launch digest; create no cycle |
-| Present | Agent | Show exact plan and prepare operator command; do not supply confirmation |
-| Confirm | Operator in selected checkout | Interactive exact `BEGIN CYCLE_ID LAUNCH_DIGEST`; absence or mismatch refuses |
+| Present | Agent | Show exact scope/risk/target/digest and ask for explicit chat approval or prepare operator command |
+| Confirm | Operator in terminal or Build after explicit chat approval | Default exact `BEGIN` or `--approval agent-confirmed`; provenance distinguishes both |
 | Recheck | CLI | Any authority, checkout or target change refuses and returns to preflight |
 | Register | CLI | Atomically retain confirmation provenance in new record; native actor remains unavailable |
 | Resume | Agent in native checkout | Use original cycle and preserved gates; no implied renewed approval |
 
-Text Equivalent: the agent prepares preflight and hands the exact registration
-command to the operator. The operator confirms the digest interactively. The
+Text Equivalent: the agent prepares preflight and presents the exact plan. The
+operator confirms in chat and Build declares agent-confirmed consent, or the
+operator confirms the digest interactively in the terminal. The
 CLI rechecks authority before creating the record; changed state requires a new
 preflight. The agent then resumes that cycle. Source: the approval contract above;
 owner: project maintainers; update trigger: any approval or handoff change.

@@ -21,5 +21,6 @@ conversation and native directory. Never cross provider families. This agent's e
 `build-claude`; model selection alone does not change the primary.
 
 Use the lifecycle CLI in the explicit native task checkout. Worktrunk owns task
-creation/navigation/removal. Prepare Initiative preflight and the exact operator
-command; never supply interactive confirmation or simulate an operator terminal.
+creation/navigation/removal. Present Initiative preflight and obtain explicit
+chat approval before `--approval agent-confirmed` registration. Preserve the
+exact launch digest; never synthesize terminal confirmation or actor identity.

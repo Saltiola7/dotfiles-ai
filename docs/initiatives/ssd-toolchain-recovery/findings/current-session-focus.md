@@ -1,5 +1,12 @@
 # Confirmed migration/update focus
 
+The operator renewed completion of PR delivery, managed/deployed migration
+reconciliation and signed Host binding, with hibernation still last. Bounded
+test-only fixture/assertion corrections may use the existing PRs and focused
+validation; runtime behavior changes retain Discovery and exact-plan approval.
+The signed Host repair now uses a retained one-time journaled procedure rather
+than completing the permanent helper; preserve its unfinished source and cycle.
+
 The operator visually confirmed recovered Herdr conversations and narrowed the
 remaining session to migration and OpenCode/Codex/Herdr updates. Python and guest
 work stay paused. Revisit hibernation options after migration/update completion;

@@ -3049,7 +3049,7 @@ def validate_initiative_approval(value):
     if (not isinstance(value, dict)
             or set(value) != {"schema_version", "method", "launch_digest", "confirmed_at"}
             or type(value["schema_version"]) is not int or value["schema_version"] != 1
-            or value["method"] != "interactive_cli"
+            or value["method"] not in ("interactive_cli", "agent_confirmed")
             or not isinstance(value["launch_digest"], str)
             or not re.fullmatch(r"[0-9a-f]{64}", value["launch_digest"])
             or not isinstance(value["confirmed_at"], str)):
@@ -4310,6 +4310,8 @@ def begin_registration(args):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
         fail("context must be a simple bounded-context name")
     initiative_values = (args.initiative_manifest, args.initiative_slice, args.initiative_digest)
+    if getattr(args, "approval", "interactive") == "agent-confirmed" and not all(initiative_values):
+        fail("agent-confirmed approval requires Initiative registration")
     if any(value is not None for value in initiative_values) and not all(
             value is not None for value in initiative_values):
         fail("Initiative begin requires manifest, slice, and digest together")
@@ -4434,7 +4436,8 @@ def begin_registration(args):
         fail("registration requires a checkout at the configured upstream base")
     initiative_approval = None
     if initiative is not None:
-        if not sys.stdin.isatty():
+        agent_confirmed = getattr(args, "approval", "interactive") == "agent-confirmed"
+        if not agent_confirmed and not sys.stdin.isatty():
             fail("Initiative registration requires interactive operator confirmation")
         approval_view = {"initiative": initiative["initiative_id"], "slice": initiative["slice_id"],
             "cycle_id": args.cycle_id, "risk": args.risk, "delivery_intent": args.delivery_intent,
@@ -4443,10 +4446,15 @@ def begin_registration(args):
             "launch_digest": launch_digest, "base_head": launch_plan["base_head"],
             "github_account": args.github_account, "import_paths": [entry["path"] for entry in launch_plan["artifacts"]]}
         confirmation = f"BEGIN {args.cycle_id} {launch_digest}"
-        print(json.dumps(approval_view, sort_keys=True) + f"\nType {confirmation}: ",
-              end="", file=sys.stderr, flush=True)
-        if sys.stdin.readline(512).strip() != confirmation:
-            fail("Initiative confirmation declined")
+        if agent_confirmed:
+            # Caller reports explicit chat approval; this does not authenticate an actor.
+            print(json.dumps(approval_view, sort_keys=True) + "\nApproval: agent-confirmed (caller assertion)",
+                  file=sys.stderr, flush=True)
+        else:
+            print(json.dumps(approval_view, sort_keys=True) + f"\nType {confirmation}: ",
+                  end="", file=sys.stderr, flush=True)
+            if sys.stdin.readline(512).strip() != confirmation:
+                fail("Initiative confirmation declined")
         confirmed_at = now()
         fresh_plan = read_plan(args.plan, args.expected_plan_digest)
         require_native_checkout(source, args)
@@ -4468,7 +4476,7 @@ def begin_registration(args):
         fresh_launch = initiative_launch_plan(source, initiative_source, current, fresh_plan, target, args)
         if continuation_digest(fresh_launch) != launch_digest:
             fail("Initiative launch plan changed during confirmation; request fresh preflight")
-        initiative_approval = {"schema_version": 1, "method": "interactive_cli",
+        initiative_approval = {"schema_version": 1, "method": "agent_confirmed" if agent_confirmed else "interactive_cli",
                                "launch_digest": launch_digest, "confirmed_at": confirmed_at}
     discovery_import = None
     if launch_plan and launch_plan["artifacts"]:
@@ -16165,6 +16173,8 @@ def parser():
     begin.add_argument("--expected-repository")
     begin.add_argument("--preflight", action="store_true")
     begin.add_argument("--expected-launch-digest")
+    begin.add_argument("--approval", choices=("interactive", "agent-confirmed"), default="interactive",
+                       help="Initiative confirmation mode; agent-confirmed reports explicit chat approval, not verified identity")
     begin.add_argument("--resume-existing", action="store_true")
     begin.set_defaults(func=command_begin)
     portabilize = commands.add_parser("cycle-portabilize")
