@@ -97,6 +97,22 @@ Risk may rise with new evidence and never falls silently.
 
 ## Development Kernel
 
+### Bounded validation remediation
+
+Editorial corrections that preserve requirements, behavior, acceptance criteria,
+risk and dependencies are validation remediation, not automatically new Discovery.
+Keep them inside approved writable scope; otherwise obtain one explicit scope
+amendment from the operator before editing. Preserve the original import and cycle
+history; append the correction and preserve failed evidence. Material changes still
+reopen readiness. Exact digest and renewed-approval rules remain in force whenever
+the launch plan changes; an editorial label does not override them.
+
+When shared instructions change, include tests that read each changed instruction file,
+even across context directories. Use source search and the project's validation
+mapping rather than only the feature's nearest test file. Run cheap publication
+and instruction checks before expensive runtime checks. Record passing replacement
+evidence in the existing cycle instead of leaving a stale red result after repair.
+
 Consider phases in dependency order; each consumes the prior artifact. Iterate
 back when examples or tests reveal a domain, behavior, interface, or contract
 error. Routine work may compress adjacent artifacts when existing stable context
