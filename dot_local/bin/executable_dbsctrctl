@@ -7256,7 +7256,7 @@ def continuation_guard(args):
     if args.command.startswith("continuation-") or args.command in {
             "attach-runtime", "cleanup", "cycle-retire", "cycle-retire-worktree", "cycle-portabilize"}:
         fail("workspace continuation commands are retired; use workspace-adopt and the native checkout")
-    if args.command == "workspace-adopt" or args.command in CONTINUATION_READ_COMMANDS:
+    if args.command in {"workspace-adopt", "workspace-recover-orphan"} or args.command in CONTINUATION_READ_COMMANDS:
         return
     found = subprocess.run(["git", "rev-parse", "--show-toplevel"], env=INSPECT_ENV,
                            text=True, capture_output=True)
@@ -7612,6 +7612,104 @@ def command_workspace_remove_check(args):
     print(json.dumps(result, sort_keys=True))
     if not result["eligible"]:
         raise SystemExit(1)
+
+
+def orphan_recovery_snapshot(root, cycle_id, successor_id):
+    for identifier in (cycle_id, successor_id):
+        if not isinstance(identifier, str) or not OPAQUE_ID.fullmatch(identifier):
+            fail("invalid orphan recovery cycle ID")
+    if cycle_id == successor_id:
+        fail("orphan recovery requires a different completed successor")
+    directory = cycle_dir(root) / "cycles"
+    managed_directory(root, directory)
+    paths = [directory / f"{identifier}.json" for identifier in (cycle_id, successor_id)]
+    raw = []
+    records = []
+    for path in paths:
+        continuation_private(path)
+        with path.open("rb") as stream:
+            data = stream.read(8 * 1024 * 1024 + 1)
+        if len(data) > 8 * 1024 * 1024:
+            fail("orphan recovery record exceeds its bound")
+        raw.append(data)
+        records.append(json.loads(data, object_pairs_hook=no_duplicate_keys))
+    record, successor = records
+    details = record.get("worktree", {})
+    if (record.get("cycle_id") != cycle_id or record.get("schema_version") != 4
+            or record.get("state") != "active" or record.get("execution") is not None
+            or record.get("commits") != [] or record.get("retirement") is not None
+            or details.get("branch") is not None or details.get("created_by_dbsctr") is not False
+            or details.get("locator") != {"root": "cycle_worktree", "path": "."}
+            or record.get("source") is not None):
+        fail("orphan recovery requires an unbound empty legacy detached record")
+    baseline = details.get("base_commit")
+    if (not isinstance(baseline, str) or not re.fullmatch(r"[0-9a-f]{40}", baseline)
+            or record.get("git", {}).get("head") != baseline):
+        fail("orphan recovery baseline is invalid")
+    if (successor.get("cycle_id") != successor_id or successor.get("state") != "completed"
+            or not record.get("context") or successor.get("context") != record["context"]
+            or not successor.get("commits")):
+        fail("orphan recovery requires a completed same-context successor")
+    for commit in successor["commits"]:
+        value = commit.get("id")
+        if (not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}", value)
+                or git(root, "merge-base", "--is-ancestor", value, "HEAD", check=False).returncode):
+            fail("orphan recovery successor is not integrated into this checkout")
+    worktrees = git_worktrees(root)
+    if any(not item.get("branch") and item.get("HEAD") == baseline for item in worktrees):
+        fail("orphan recovery found a possible original detached checkout")
+    digest = continuation_digest({"before": hashlib.sha256(raw[0]).hexdigest(),
+        "successor": hashlib.sha256(raw[1]).hexdigest(), "worktrees": worktrees})
+    return paths[0], record, raw[0], digest
+
+
+def command_workspace_recover_orphan(args):
+    root = root_dir().resolve()
+    path, record, raw, digest = orphan_recovery_snapshot(root, args.cycle_id, args.superseded_by)
+    if args.preview:
+        print(json.dumps({"cycle_id": args.cycle_id, "superseded_by": args.superseded_by,
+            "state_digest": digest, "requires_operator_confirmation": True,
+            "effect": "retire_record_only_preserve_all_worktrees_and_evidence"}, sort_keys=True))
+        return
+    if args.expected_state != digest:
+        fail("orphan recovery state changed; request a fresh preview")
+    if not sys.stdin.isatty():
+        fail("orphan recovery requires interactive operator confirmation")
+    confirmation = f"RETIRE-ORPHAN {args.cycle_id} {digest}"
+    print("Confirm this empty detached registration was superseded, and its old writers/jobs "
+          "cannot write. No worktree, branch, history or failed evidence will be removed.\n"
+          f"Type {confirmation}: ", end="", file=sys.stderr, flush=True)
+    if sys.stdin.readline(512).strip() != confirmation:
+        fail("orphan recovery confirmation declined")
+    with evidence_lock(root, args.cycle_id, timeout=2):
+        path, record, raw, current = orphan_recovery_snapshot(root, args.cycle_id, args.superseded_by)
+        if current != digest:
+            fail("orphan recovery state changed; request a fresh preview")
+        before = hashlib.sha256(raw).hexdigest()
+        backup = cycle_dir(root) / "migrations" / f"{args.cycle_id}.{before}.orphan-before.json"
+        managed_directory(root, backup.parent, create=True)
+        try:
+            descriptor = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError:
+            continuation_private(backup)
+            if backup.read_bytes() != raw:
+                fail("orphan recovery preimage conflicts")
+        else:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+        fsync_directory(backup.parent)
+        record["state"] = "retired"
+        record["retired_at"] = now()
+        record["retirement"] = {"state": "retired", "disposition": "superseded",
+            "method": "interactive_orphan_recovery", "superseded_by": args.superseded_by,
+            "state_digest": digest, "before_sha256": before,
+            "record_backup": backup.relative_to(common_git_dir(root)).as_posix(),
+            "worktree_removed": False}
+        private_json(path, record)
+        fsync_directory(path.parent)
+    print(json.dumps({"cycle_id": args.cycle_id, "state": "retired", "worktree_removed": False}))
 
 
 def command_workspace_adopt(args):
@@ -16083,6 +16181,12 @@ def parser():
     adoption.add_argument("--json", action="store_true")
     adoption.add_argument("--expected-state")
     adoption.set_defaults(func=command_workspace_adopt)
+    orphan = commands.add_parser("workspace-recover-orphan")
+    orphan.add_argument("--cycle-id", required=True)
+    orphan.add_argument("--superseded-by", required=True)
+    orphan.add_argument("--preview", action="store_true")
+    orphan.add_argument("--expected-state")
+    orphan.set_defaults(func=command_workspace_recover_orphan)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=command_status)
