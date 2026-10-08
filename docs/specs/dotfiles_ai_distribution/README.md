@@ -24,6 +24,21 @@ Native inventory reported 31 history records, while the resume picker exposed
 two sessions; canary evidence covers one of those sessions, not universal recovery.
 Private preimages, failed attempts and recovery evidence remain retained.
 
+**SSD-NATIVE-OPENCODE-HOST:** The macOS ARM64 launcher uses the native executable,
+missing-install bootstrap and existing external-state guards. Native maintenance
+arguments remain unchanged; default interactive launches require a healthy,
+matching-version shared server and pin its authenticated endpoint. An absent or
+mismatched service requires coordinated explicit service startup/restart.
+Explicit server and standalone modes remain available. The native registration
+credential remains local and is passed only in the client process environment.
+
+Native 2.0.24 update, isolated cross-version refusal, matching-version TUI startup,
+live exact-conversation canary and two targeted reapplications passed. An earlier
+unguarded cross-version startup replaced the server and detached client views;
+all 75 original mappings were subsequently restored and independently verified.
+No database rollback was performed. Preserve legacy package/admission artifacts
+and deferred-platform routes; the host's legacy fleet update now refuses mutation.
+
 **OPENCODE-V2-SESSION-RECOVERY source implementation:** Recovery now probes the
 selected managed wrapper's version with bounded output/time and selects the
 matching native history schema. V2 requires current `session_v2` identities,

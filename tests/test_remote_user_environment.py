@@ -14,6 +14,7 @@ BOOTSTRAP = ROOT / "dot_local/bin/executable_remote-user-bootstrap"
 
 def _render(path: str) -> str:
     data = {
+        "chezmoi": {"os": "linux", "arch": "amd64"},
         "dotfiles_ai": {
             "remote_user_environment": {"enabled": True},
             "state": {"root": "/shared/state"},
