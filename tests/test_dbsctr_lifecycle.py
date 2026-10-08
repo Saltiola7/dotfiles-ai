@@ -29,6 +29,27 @@ def test_public_lifecycle_commands_are_unversioned_and_thin():
     assert not (COMMANDS / "dbsctr2.md").exists()
 
 
+def test_early_publication_and_editorial_remediation_contract():
+    workflow = text(".github/workflows/test.yml")
+    early = workflow.index("- name: Check publication and instruction contracts")
+    full = workflow.index("- run: uv run --group test pytest\n")
+    assert early < full
+    command = workflow[early:full]
+    for authority in ("tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers",
+                      "tests/test_opencode_control_plane.py", "tests/test_dbsctr_lifecycle.py"):
+        assert authority in command
+    discovery = text(SKILLS / "discovery/SKILL.md")
+    assert "publication checks before receipt, preflight, or push" in discovery
+    assert "exact candidate artifact set" in discovery
+    dbsctr = text(SKILLS / "dbsctr/SKILL.md")
+    assert "tests that read each changed instruction file" in dbsctr
+    for path in (SKILLS / "dbsctr/SKILL.md", Path("private_dot_config/opencode/AGENTS.md")):
+        policy = " ".join(text(path).split())
+        for requirement in ("Editorial corrections", "explicit scope amendment",
+                            "Material changes still reopen readiness", "preserve failed evidence"):
+            assert requirement in policy
+
+
 def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     discovery = text(SKILLS / "discovery/SKILL.md")
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")

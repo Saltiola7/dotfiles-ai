@@ -340,7 +340,14 @@ else:
     wrapper.chmod(0o755)
     helper = tmp_path / "home/.local/bin/herdr-opencode-restore"
     helper.parent.mkdir(parents=True)
-    helper.write_text(SCRIPT.read_text().replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1))
+    helper.write_text(f'''#!{sys.executable}
+import runpy, sys, time
+def trace_exec(event, args):
+    if event == "os.exec":
+        print("pacing-exec:", time.monotonic(), file=sys.stderr, flush=True)
+sys.addaudithook(trace_exec)
+runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
+''')
     helper.chmod(0o755)
     env = {"HOME": str(tmp_path / "home"), "PATH": "/usr/bin:/bin", "HERDR_ENV": "1"}
     return wrapper, state / "herdr", env
@@ -359,7 +366,16 @@ def test_eighty_concurrent_resumes_drain_with_spacing(tmp_path):
         assert all(row[0][-1] == "--auto" for row in starts)
         times = sorted(row[1] for row in starts)
         gaps = [right - left for left, right in zip(times, times[1:])]
-        assert all(gap >= 4.8 for gap in gaps), {"minimum_gap": min(gaps), "gaps": gaps}
+        launches = sorted((float(next(line.removeprefix("pacing-exec:")
+                                     for line in output[1].splitlines()
+                                     if line.startswith("pacing-exec:"))),
+                           json.loads(output[0])[1]) for output, _ in results)
+        exec_gaps = [right[0] - left[0] for left, right in zip(launches, launches[1:])]
+        assert all(gap >= 4.8 for gap in gaps), {
+            "minimum_gap": min(gaps), "minimum_exec_gap": min(exec_gaps),
+            "first_client_gaps": gaps[:3], "first_exec_gaps": exec_gaps[:3],
+            "first_startup_delays": [client - launch for launch, client in launches[:4]],
+        }
     finally:
         for process in processes:
             if process.poll() is None:
