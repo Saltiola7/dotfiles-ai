@@ -1,5 +1,19 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-08 — EARLY-DELIVERY-CHECKS
+
+- Reuse repository publication validation before Discovery handoff and run cheap
+  publication/instruction contracts before the full CI suite. Include downstream
+  instruction consumers when selecting affected tests.
+- Distinguish nonsemantic editorial remediation from material Discovery changes;
+  retain explicit writable-scope amendments, exact changed-plan approval, import
+  provenance, failed evidence and passing replacement evidence.
+- Validation: 58 affected publication/instruction tests passed after the intended
+  red check; full supported-Python CI remains required. No Gate Exceptions.
+- Source-only delivery; no live activation or release. Intended target: feature
+  branch and draft PR into `main`. Gate Commit and actual Final Push identity
+  remain in the Cycle Record. Import narrowing remains deferred.
+
 ## 2026-10-07 — CHAT-APPROVED-BEGIN
 
 - Added `begin --approval agent-confirmed` for explicit chat-approved Initiative
