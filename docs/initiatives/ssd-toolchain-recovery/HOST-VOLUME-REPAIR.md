@@ -25,6 +25,10 @@ hook installs or reruns this procedure. Source write scope is completion evidenc
 in shell_auth_startup README.md, CHANGELOG.md and OPERATION.md. New normative
 behavior or additional production paths reopen readiness.
 
+The receipt also carries shared native-update precedence, distribution/Codex
+profiles, Product Intent and rolling-stable pointers from the existing Discovery
+branch. These are read-only imported authority, not writable runtime scope.
+
 ## Ordered operation and recovery contract
 
 | State | Guard | Operation and next state |
