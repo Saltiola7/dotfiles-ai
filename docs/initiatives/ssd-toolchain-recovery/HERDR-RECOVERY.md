@@ -1,5 +1,9 @@
 # Herdr Host replacement-volume recovery
 
+Current repair decision: HOST-VOLUME-REPAIR.md selects a retained one-time
+procedure. The permanent-helper scope below and its unfinished registered cycle
+are retained historical work, not a prerequisite for that repair.
+
 Home: shell_auth_startup. Profile: docs/specs/shell_auth_startup/PROFILE.md.
 Risk: elevated. Source authority: matching README.md and OPERATION.md, signed-host
 build assets and session-recovery helpers. Preserve native Herdr layout and exact

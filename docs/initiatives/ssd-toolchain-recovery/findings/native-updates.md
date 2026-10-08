@@ -175,3 +175,31 @@ Affected check candidates: existing distribution, Codex control-plane, OpenCode 
 authority, Herdr session-recovery and Lima suites; template/shell validation; native
 update/service/path probes; operator UI recovery. No configured gate is marked
 passed by this research note. Private raw logs remain outside Git.
+
+## Codex host follow-up — 2026-10-08
+
+The managed live CLI remains 0.160.1. A fresh credential-free macOS ARM64 probe
+installed 0.160.1 through the official standalone installer, then native
+`codex update` selected stable 0.161.0. The separate install directory, synthetic
+state marker and disabled automatic-update setting survived. Two explicit
+0.161.0 reinstallations preserved them; no default command or shell-profile
+modification appeared. Installer SHA-256:
+`150e3cf675682efeaac115aa3747add3f27887896d04ce6d0b56478d8b428bf6`.
+
+Native doctor reported consistent installation and automatic updates disabled.
+Its overall result failed because this deliberately credential-free fixture had
+no login; other diagnostic warnings remain retained. This is not authenticated
+health or exact-conversation recovery evidence.
+
+**Separate daemon ownership:** starting the old daemon and then invoking
+`codex app-server daemon restart` from CLI 0.161.0 retained app-server 0.160.1.
+Native daemon packages live under the separate `packages/app-server-daemon`
+selection. Restart alone does not activate the CLI update. The live plan must
+qualify `codex app-server daemon update`, report both versions, and preserve the
+disabled scheduler setting. The first explicit-update probe failed because its
+isolated socket path exceeded macOS SUN_LEN; that attempt is retained. Repeating
+in a shorter isolated path passed: explicit daemon update selected 0.161.0 for
+both CLI and daemon, and disabled scheduled updates survived. The isolated daemon
+was stopped afterward. No live Codex executable, daemon, settings or histories
+changed during these probes. Managed projection and exact-session checks remain
+Build deployment gates under NATIVE-CODEX-HOST.md.

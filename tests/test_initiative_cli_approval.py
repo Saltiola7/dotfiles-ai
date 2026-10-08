@@ -1,4 +1,4 @@
-"""Exact operator confirmation is independent of native permission enforcement."""
+"""Digest-bound approval provenance is independent of native permissions."""
 import hashlib
 import importlib.machinery
 import importlib.util
@@ -72,6 +72,77 @@ def test_confirmed_registration_records_truthful_provenance(initiative, monkeypa
     assert record["initiative_approval"]["launch_digest"] == prepared["launch_digest"]
     assert record["execution"]["attribution"]["status"] == "unavailable"
     assert record["runtime"] == {"adapters": {}}
+
+
+def test_agent_confirmed_registration_does_not_read_stdin_or_claim_identity(initiative, monkeypatch, capsys):
+    core, target, path, argv, prepared, _ = initiative
+
+    class NoInput(io.StringIO):
+        def readline(self, *_):
+            raise AssertionError("agent-confirmed must not consume terminal input")
+
+    monkeypatch.setattr(core.sys, "stdin", NoInput())
+    core.command_begin(core.parser().parse_args([*argv, "--approval", "agent-confirmed"]))
+    record = core.read_cycle_record(target, path)
+    assert record["initiative_approval"]["method"] == "agent_confirmed"
+    assert record["initiative_approval"]["launch_digest"] == prepared["launch_digest"]
+    assert record["execution"]["attribution"]["status"] == "unavailable"
+    assert record["runtime"] == {"adapters": {}}
+    before = path.read_bytes()
+    core.command_begin(core.parser().parse_args([*argv, "--resume-existing"]))
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("change", ["digest", "plan", "branch", "head", "target"])
+def test_agent_approval_does_not_accept_stale_launch(initiative, fixture, monkeypatch, change):
+    core, target, path, argv, _, plan = initiative
+    monkeypatch.setattr(core.sys, "stdin", io.StringIO(""))
+    if change == "digest":
+        argv = [*argv[:-1], "0" * 64]
+    elif change == "plan":
+        plan.write_text(plan.read_text() + "\n")
+    elif change == "branch":
+        git(target, "switch", "-c", "changed-task")
+        git(target, "branch", "--set-upstream-to", "upstream/base")
+    elif change == "head":
+        git(target, "commit", "--allow-empty", "-m", "intervening commit")
+    else:
+        git(fixture.repo, "commit", "--allow-empty", "-m", "target advance")
+        git(fixture.repo, "push", "upstream", "HEAD:refs/heads/base")
+    with pytest.raises(RuntimeError):
+        core.command_begin(core.parser().parse_args([*argv, "--approval", "agent-confirmed"]))
+    assert not path.exists()
+
+
+def test_agent_approval_rechecks_target_after_initial_preflight(initiative, fixture, monkeypatch):
+    core, target, path, argv, _, _ = initiative
+    initial_now = core.now
+
+    def advance_target():
+        git(fixture.repo, "commit", "--allow-empty", "-m", "advance after initial validation")
+        git(fixture.repo, "push", "upstream", "HEAD:refs/heads/base")
+        return initial_now()
+
+    monkeypatch.setattr(core, "now", advance_target)
+    with pytest.raises(RuntimeError, match="changed"):
+        core.command_begin(core.parser().parse_args([*argv, "--approval", "agent-confirmed"]))
+    assert not path.exists()
+
+
+def test_agent_approval_requires_exact_digest(initiative):
+    core, _, path, argv, _, _ = initiative
+    with pytest.raises(RuntimeError, match="changed"):
+        core.command_begin(core.parser().parse_args([*argv[:-2], "--approval", "agent-confirmed"]))
+    assert not path.exists()
+
+
+def test_agent_approval_is_not_an_ordinary_registration_option(initiative):
+    core, _, path, argv, _, _ = initiative
+    args = core.parser().parse_args([*argv, "--approval", "agent-confirmed"])
+    args.initiative_manifest = args.initiative_slice = args.initiative_digest = None
+    with pytest.raises(RuntimeError, match="requires Initiative"):
+        core.command_begin(args)
+    assert not path.exists()
 
 
 def test_changed_plan_during_confirmation_refuses(initiative, monkeypatch):

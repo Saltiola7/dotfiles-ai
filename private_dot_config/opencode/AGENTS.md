@@ -30,10 +30,14 @@ ownership and satisfied dependencies. Loading Discovery never selects that agent
 Discovery and DBSCTR never create or read PM Kernel tickets. Use the lifecycle
 CLI through native shell permissions in the selected task checkout. For an
 Initiative, prepare a fresh receipt and `dbsctrctl begin ... --preflight`, present
-the exact plan, and hand the registration command to the operator. The operator
-must confirm `BEGIN CYCLE_ID LAUNCH_DIGEST` interactively. Never supply that input,
-simulate an operator terminal, or replace exact consent with a general shell
-grant. Late material intent reopens readiness. Ordinary begin cannot substitute
+the exact plan (scope, risk, target and launch digest), and ask for explicit chat
+approval. After approval for that plan, Build may run registration with
+`--expected-launch-digest DIGEST --approval agent-confirmed`. This records an
+agent assertion of consent, not authenticated operator identity. Changed plans
+require fresh preflight and renewed approval; a general request to continue or
+a shell grant is not plan-specific consent. Interactive terminal confirmation
+remains available. Never supply its `BEGIN` input or simulate an operator terminal.
+Late material intent reopens readiness. Ordinary begin cannot substitute
 for Initiative registration. Plan and subagents do not register or own cycles.
 Custom task launch, continuation and VM-handoff tools are retired. Identity-
 dependent automation without a qualified native route remains unavailable;

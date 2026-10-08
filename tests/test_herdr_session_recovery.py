@@ -358,7 +358,8 @@ def test_eighty_concurrent_resumes_drain_with_spacing(tmp_path):
         assert {row[0][row[0].index('--session') + 1] for row in starts} == {f"ses_{index}" for index in range(80)}
         assert all(row[0][-1] == "--auto" for row in starts)
         times = sorted(row[1] for row in starts)
-        assert all(right - left >= 4.8 for left, right in zip(times, times[1:]))
+        gaps = [right - left for left, right in zip(times, times[1:])]
+        assert all(gap >= 4.8 for gap in gaps), {"minimum_gap": min(gaps), "gaps": gaps}
     finally:
         for process in processes:
             if process.poll() is None:

@@ -1,5 +1,21 @@
 # Shell Auth Startup Changelog
 
+## 2026-10-08 — SSD-HOST-VOLUME-REPAIR
+
+- Completed the approved one-time signed Host volume-binding repair. Native
+  registration is enabled; fresh doctor and probe verify the configured volume
+  and probe-only ownership. No Herdr server restart or active-owner transition.
+- Passed 16 synthetic operation/recovery checks and the existing affected
+  signed-host validation, including shell/Swift and managed-rendering authorities.
+  All 75 exact pane/terminal/session mappings and the server PID were preserved.
+- Preserved the initial failed Deploy evidence: the new bundle rejected an
+  old-volume health record. Separately approved narrow recovery archived that
+  record intact while the probe agent was unregistered, then obtained fresh native
+  health. Both signed bundles, all journals and failed attempts remain retained.
+- No Gate Exceptions. No permanent promotion helper installed; its prior unfinished
+  cycle remains preserved. Intended Final Push is this cycle's feature branch and
+  draft PR to main; the Cycle Record owns Gate Commit and actual delivery evidence.
+
 ## 2026-09-29 - Pacing Cancellation Ownership
 
 - Defer SIGINT/SIGTERM across native lock acquisition until ownership is recorded;

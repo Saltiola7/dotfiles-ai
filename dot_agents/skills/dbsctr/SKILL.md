@@ -46,11 +46,14 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
 For an Initiative, issue a fresh `dbsctrctl initiative-receipt` and run
 `dbsctrctl begin` with its Initiative arguments and `--preflight`. This validates
 the exact launch plan without registering a cycle or collecting consent. Present
-that plan and the exact operator command with `--expected-launch-digest DIGEST`.
-The operator runs it in the selected checkout and enters
-`BEGIN CYCLE_ID LAUNCH_DIGEST` interactively. Never synthesize that input, create
-a pseudo-terminal, or treat shell approval as this separate confirmation. The
-CLI rechecks authority after confirmation; changed state requires fresh preflight.
+that plan's scope, risk, target and launch digest, then ask for explicit chat
+approval. A Build primary may run the exact command with
+`--expected-launch-digest DIGEST --approval agent-confirmed` after the user
+approves that plan. This is caller-reported consent, not authenticated identity.
+The default terminal path still accepts `BEGIN CYCLE_ID LAUNCH_DIGEST` from the
+operator. Never synthesize that input, create a pseudo-terminal, or treat general
+continuation or shell permission as plan-specific approval. The CLI rechecks
+authority before mutation; changed state requires fresh preflight and approval.
 Resume an already registered matching cycle without renewed registration consent.
 Local same-repository Discovery does not need its own published upstream or
 separate documentation PR for draft delivery.
