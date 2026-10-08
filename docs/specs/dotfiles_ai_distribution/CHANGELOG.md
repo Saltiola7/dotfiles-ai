@@ -1,5 +1,24 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-08 — SSD-NATIVE-CODEX-HOST
+
+- Activated native Codex CLI 0.161.0 on macOS ARM64 through managed bootstrap,
+  launcher selection validation, disabled daemon scheduled updates and host
+  fleet-mutation refusal. Deferred platforms keep their existing owner.
+- Passed 135 scoped tests, with one opt-in skip; real managed-wrapper CLI update,
+  separate isolated daemon update, authenticated live doctor, exact conversation
+  recovery and two targeted reapplications. All 75 OpenCode mappings survived.
+- Fixed an initial safe refusal of native-owned 0755 daemon directories; retained
+  failure evidence and added a permissions regression. Configuration, credentials,
+  GUI separation, legacy binaries, locks and archives remain preserved. No live
+  dedicated daemon was running or upgraded. Native picker visibility is narrower
+  than historical inventory; no universal session-recovery claim is made.
+- Gate Commits `9e7d51a` and `e5f6db4`; no Gate Exceptions. Intended Final Push:
+  cycle feature branch and draft PR into `main`; actual delivery lives in the
+  private Cycle Record. Runtime updates are platform-local, and daemon upgrades
+  require explicit coordination. The temporary recovery pane was closed after
+  clean process exit, restoring the original layout.
+
 ## 2026-10-04 — OPENCODE-V2-SESSION-RECOVERY
 
 - Fixed V2 restoration accepting stale legacy session identities. Recovery now
