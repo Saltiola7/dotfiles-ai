@@ -1106,7 +1106,8 @@ def test_centralized_state_scopes_opencode_runtime_environment() -> None:
     ).stdout
     assert 'export HERMES_HOME="/Volumes/ext/state/hermes"' in rendered
     assert 'export XDG_DATA_HOME="/Volumes/ext/state/xdg/data"' in rendered
-    assert "start_opencode /opt/homebrew/bin/opencode" in rendered
+    assert 'target="$HOME/.opencode/bin/opencode"' in rendered
+    assert 'start_opencode "$target" "$@"' in rendered
     assert 'exec "$@"' in rendered
     assert ".dotfiles-ai-state" in rendered
 
@@ -1117,7 +1118,8 @@ def test_opencode_wrapper_preserves_explicit_worktree_root(tmp_path) -> None:
     (state / ".dotfiles-ai-state").touch()
     home = tmp_path / "home"
     home.mkdir()
-    capture = tmp_path / "capture"
+    capture = home / ".opencode/bin/opencode"
+    capture.parent.mkdir(parents=True)
     capture.write_text(
         f"#!{sys.executable}\n"
         "import json, os, sys\n"
@@ -1131,12 +1133,10 @@ def test_opencode_wrapper_preserves_explicit_worktree_root(tmp_path) -> None:
     for centralized in (False, True):
         values = {"dotfiles_ai": {"state": {"root": str(state)}}} if centralized else {}
         wrapper = tmp_path / ("central" if centralized else "native")
-        wrapper.write_text(_render_herdr_script(".local/bin/opencode", values).replace(
-            "/opt/homebrew/bin/opencode", str(capture)
-        ))
+        wrapper.write_text(_render_herdr_script(".local/bin/opencode", values))
         wrapper.chmod(0o755)
         for incoming in (None, "", str(tmp_path / "explicit root"), explicit):
-            env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "XDG_DATA_HOME": "incoming-data",
+            env = {"HOME": str(home), "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "XDG_DATA_HOME": "incoming-data",
                    "DBSCTR_STATE_ROOT": "incoming-state"}
             if incoming is not None:
                 env["DBSCTR_WORKTREE_ROOT"] = incoming
@@ -1156,12 +1156,13 @@ def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
     state = tmp_path / "state"
     state.mkdir()
     (state / ".dotfiles-ai-state").touch()
-    target = tmp_path / "opencode"
+    target = tmp_path / "home/.opencode/bin/opencode"
+    target.parent.mkdir(parents=True)
     target.write_text('#!/bin/bash\nprintf "%s\\n" "$@"\n')
     target.chmod(0o755)
     rendered = _render_herdr_script(".local/bin/opencode", {
         "dotfiles_ai": {"state": {"root": str(state)}}
-    }).replace("/opt/homebrew/bin/opencode", str(target))
+    })
     wrapper = tmp_path / "wrapper"
     wrapper.write_text(rendered)
     wrapper.chmod(0o755)
@@ -1173,15 +1174,15 @@ def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
     helper.chmod(0o755)
 
     plain = subprocess.run(
-        [wrapper, "plain"], text=True, capture_output=True, check=True,
+        [wrapper, "--standalone", "run", "plain"], text=True, capture_output=True, check=True,
         env={key: value for key, value in environment.items() if key != "HERDR_ENV"},
     )
     herdr = subprocess.run(
-        [wrapper, "herdr"], text=True, capture_output=True, check=True,
+        [wrapper, "--standalone", "run", "herdr"], text=True, capture_output=True, check=True,
         env={**environment, "HERDR_ENV": "1"},
     )
     explicit = subprocess.run(
-        [wrapper, "--auto"], text=True, capture_output=True, check=True,
+        [wrapper, "--standalone", "--auto"], text=True, capture_output=True, check=True,
         env={**environment, "HERDR_ENV": "1"},
     )
     administrative = subprocess.run(
@@ -1189,9 +1190,9 @@ def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
         env={**environment, "HERDR_ENV": "1"},
     )
 
-    assert plain.stdout.splitlines() == ["plain"]
-    assert herdr.stdout.splitlines() == ["herdr", "--auto"]
-    assert explicit.stdout.splitlines() == ["--auto"]
+    assert plain.stdout.splitlines() == ["--standalone", "run", "plain"]
+    assert herdr.stdout.splitlines() == ["--standalone", "run", "herdr", "--auto"]
+    assert explicit.stdout.splitlines() == ["--standalone", "--auto"]
     assert administrative.stdout.splitlines() == ["session", "list"]
 
     startup_dir = state / "herdr"
@@ -1200,18 +1201,18 @@ def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
     (startup_dir / "opencode-startup.timestamp").write_text(str(int(time.time()) + 3600))
     started = time.monotonic()
     subprocess.run(
-        [wrapper, "--session", "ses_first"], capture_output=True, check=True,
+        [wrapper, "--standalone", "--session", "ses_first"], capture_output=True, check=True,
         env={**environment, "HERDR_ENV": "1"},
     )
     assert time.monotonic() - started < 2
     started = time.monotonic()
     resumed = subprocess.run(
-        [wrapper, "--session", "ses_second"], text=True, capture_output=True, check=True,
+        [wrapper, "--standalone", "--session", "ses_second"], text=True, capture_output=True, check=True,
         env={**environment, "HERDR_ENV": "1"},
     )
 
     assert time.monotonic() - started >= 5
-    assert resumed.stdout.splitlines() == ["--session", "ses_second", "--auto"]
+    assert resumed.stdout.splitlines() == ["--standalone", "--session", "ses_second", "--auto"]
 
 
 def test_session_detection_ignores_unrelated_processes(monkeypatch) -> None:
