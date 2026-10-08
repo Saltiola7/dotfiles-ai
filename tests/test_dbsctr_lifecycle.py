@@ -43,7 +43,8 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "without Task or child sessions" in discovery
     assert "without Task or child sessions" in dbsctr
     for term in ("Initiative", "MANIFEST.json", "PROFILE.md", "initiative-check",
-                 "initiative-receipt", "exact operator confirmation", "BEGIN CYCLE_ID LAUNCH_DIGEST"):
+                 "initiative-receipt", "explicit approval", "--approval agent-confirmed",
+                 "BEGIN CYCLE_ID LAUNCH_DIGEST"):
         assert term in discovery
 
     coordinator = text("private_dot_config/opencode/agents/discovery-coordinator.md")
@@ -58,7 +59,8 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "dbsctr_initiative_launch" not in coordinator
     for agent in ("build-gpt", "build-claude"):
         build = text(f"private_dot_config/opencode/agents/{agent}.md")
-        assert "operator" in build and "never supply interactive confirmation" in build
+        assert "chat approval" in build and "--approval agent-confirmed" in build
+        assert "never synthesize terminal confirmation or actor identity" in build
     assert "explore-openai: allow" in coordinator
     assert "scout-openai: allow" in coordinator
     for agent in ("explore-openai", "scout-openai"):
