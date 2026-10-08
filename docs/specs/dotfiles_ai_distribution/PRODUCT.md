@@ -15,14 +15,13 @@ target files.
 
 1. A developer copies the documented local TOML example, supplies machine-local
    values, initializes the independent chezmoi source, previews, and applies it.
-2. On every apply, the source checks the official stable OpenCode release, stages
-   one compatible digest-verified candidate across host and guests, and activates
-   it for later launches without interrupting active processes; OpenCode then
-   loads the managed control plane and DBSCTR tools from rendered configuration.
-3. On every apply, the source checks the official stable Codex release, stages
-   one digest-verified compatible candidate on the host and registered guests,
-   and activates it for later launches without interrupting active processes;
-   desktop state remains untouched.
+2. A developer bootstraps OpenCode through one supported native installer, then
+   updates only the invoked platform through native notification/manual update.
+   Chezmoi preserves state routing and configuration without downgrading a newer
+   installation. Explicit service restart activates an installed update.
+3. A developer installs and updates Codex through one supported platform-local
+   native owner while chezmoi preserves the dedicated CLI home, configuration and
+   launch guard; desktop state remains untouched.
 4. Herdr runs on macOS with optional 1Password integration; absence of
    1Password never blocks Herdr or shell startup.
 5. An existing user verifies parity, transfers ownership, and can roll back
@@ -110,6 +109,11 @@ approval outcome changes.
 
 ## Constraints And Trust
 
+- Journeys 2/3 describe the approved successor policy in
+  [native platform updates](features/native-platform-updates.md). Live ownership
+  remains with the deployed updater until transition qualification passes;
+  historical fleet evidence and registered-cycle authority remain preserved.
+
 - Public Git history contains no credentials or machine-local identifiers.
 - Tailnet policy, tags, peer names, and enrollment credentials remain external
   private state; shared Tailscale defaults are disabled.
@@ -138,9 +142,10 @@ approval outcome changes.
 - OpenCode resolves the expected agents, commands, skills, and DBSCTR tools.
 - Codex resolves the dedicated CLI home, managed wrapper, shared skills, and
   captured adapter contracts without changing desktop state.
-- Codex update infrastructure failure retains one healthy release everywhere and
-  does not block unrelated chezmoi apply work; bootstrap without a healthy binary
-  remains fail-closed.
+- Native updates preserve local state and report installed/running versions and
+  failures honestly. An unavailable unrelated platform does not block local update;
+  bootstrap without a healthy executable remains fail-closed. Reapply neither
+  downgrades a newer native release nor creates competing executable ownership.
 - Herdr configuration and LaunchAgent plists parse and run without embedded
   credentials.
 - Personal and `dotfiles-ai` chezmoi managed-target sets do not overlap after
