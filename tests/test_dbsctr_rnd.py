@@ -186,8 +186,8 @@ def test_hermes_templates_are_profile_local_and_valid_bash():
     assert 'hermes_agent-0.19.0-py3-none-any.whl' in installer
     assert 'UV_TOOL_DIR="$HOME/.local/share/uv/tools"' in installer
     assert 'UV_PYTHON_INSTALL_DIR="$HOME/.local/share/uv/python"' in installer
-    assert 'uv python install 3.13.2' in installer
-    assert 'uv tool install --force --python 3.13.2 "$wheel"' in installer
+    assert 'uv python install 3.13.16' in installer
+    assert 'uv tool install --force --python 3.13.16 "$wheel"' in installer
     assert '"$target" != /Volumes/*' in installer
     assert '"$runtime" != /Volumes/*' in installer
     assert 'retire_job "$state/catalog-cron-id" "dotfiles-ai project catalog"' in configure
