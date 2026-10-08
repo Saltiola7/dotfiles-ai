@@ -1,5 +1,25 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-08 — SSD-NATIVE-OPENCODE-HOST
+
+- Adopted native macOS ARM64 executable ownership, guarded missing-install
+  bootstrap, platform-local maintenance forwarding and bootstrap-only apply.
+  Removed competing Brewfile ownership; retained legacy artifacts and guest routes.
+- Preserved deployed recovery safeguards in managed source. Added authenticated
+  matching-version endpoint pinning to prevent automatic shared-service replacement;
+  preserved stdin, explicit server/standalone modes and resume pacing.
+- Scoped validation: 209 passed, 1 skipped across final focused runs, including
+  the 80-client pacing check; 54 launcher checks passed with final stdin handling.
+  An earlier pacing failure remains retained; its cause is not established.
+- Isolated native update and cross-version TUI checks passed. Live 2.0.24 canary
+  preserved exact session/terminal/metadata and server PID; two targeted launcher
+  reapplications had no drift. Earlier unguarded startup replaced the service;
+  all 75 conversations were recovered without database rollback. Failed attempts
+  and private recovery evidence remain retained. No Gate Exceptions.
+- Gate Commits include `bce7968`, `5e97095`, and `9966d88`. Intended delivery:
+  feature branch and draft PR into `main`; actual Final Push remains in the Cycle
+  Record. Codex, guests, Python activation and hibernation remain separate work.
+
 ## 2026-10-04 — OPENCODE-V2-SESSION-RECOVERY
 
 - Fixed V2 restoration accepting stale legacy session identities. Recovery now

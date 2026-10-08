@@ -32,14 +32,56 @@ fi
 {{ end -}}
 
 pace=0
-if [[ -n ${HERDR_ENV:-} ]]; then
     auto=0
     session=0
+    {{ if and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64") -}}
+    interactive=1
+    positional=0
+    value=0
+    explicit_server=0
+    argument_index=0
+    command_index=0
+    for argument in "$@"; do
+        argument_index=$((argument_index + 1))
+        if [[ $value == 1 ]]; then value=0; continue; fi
+        case "$argument" in
+            --help|-h|--version|-v|--completions|--wizard) interactive=0 ;;
+            --auto) auto=1 ;;
+            --session|-s) session=1; value=1 ;;
+            --session=*) session=1 ;;
+            --standalone|--server=*) explicit_server=1 ;;
+            --server) explicit_server=1; value=1 ;;
+            --model|-m|--agent|--prompt|--log-level|--port|--hostname) value=1 ;;
+            --continue|-c) ;;
+            --*) ;;
+            -*) interactive=0 ;;
+            *)
+                if [[ $positional == 0 ]]; then
+                    positional=1
+                    case "$argument" in
+                        upgrade|update|uninstall|acp|api|debug|auth|mcp|plugin|models|stats|session|service|reload|pair|serve)
+                            interactive=0 ;;
+                        run|mini) command_index=$argument_index ;;
+                        *) [[ -d $argument ]] || interactive=0 ;;
+                    esac
+                fi
+                ;;
+        esac
+    done
+if [[ -n ${HERDR_ENV:-} ]]; then
+    if [[ $interactive == 1 ]]; then
+        [[ $auto == 1 ]] || set -- "$@" --auto
+    else
+        session=0
+    fi
+    {{ else -}}
+if [[ -n ${HERDR_ENV:-} ]]; then
     for argument in "$@"; do
         [[ $argument == --auto ]] && auto=1
         [[ $argument == --session || $argument == --session=* ]] && session=1
     done
     [[ $auto == 1 || ( ${1:-} == session && ${2:-} == list ) ]] || set -- "$@" --auto
+    {{ end -}}
 
     {{ if eq .chezmoi.os "darwin" -}}
     if [[ $session == 1 ]]; then
@@ -57,7 +99,68 @@ start_opencode() {
     fi
     exec "$@"
 }
-{{ if eq .chezmoi.os "linux" -}}
+{{ if and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64") -}}
+target="$HOME/.opencode/bin/opencode"
+python3 - "$target" <<'PY' || exit 75
+import os, pathlib, stat, sys
+p = pathlib.Path(sys.argv[1])
+for path in (p.parent.parent, p.parent, p):
+    try:
+        s = path.lstat()
+    except OSError:
+        sys.exit("native OpenCode is unavailable; run opencode-install")
+    kind = stat.S_ISREG if path == p else stat.S_ISDIR
+    if not kind(s.st_mode) or s.st_uid != os.getuid() or s.st_mode & 0o022:
+        sys.exit("native OpenCode target is unsafe")
+PY
+[[ -x $target ]] || { echo "native OpenCode is not executable" >&2; exit 75; }
+if [[ $interactive == 1 && $explicit_server == 0 ]]; then
+    exec python3 -c '
+import json, os, pathlib, stat, subprocess, sys
+from urllib.parse import urlsplit
+target = sys.argv[1]
+environment = os.environ.copy()
+def read(*args):
+    return subprocess.check_output([target, *args], env=environment, text=True,
+                                   stderr=subprocess.DEVNULL, timeout=10).strip()
+try:
+    server = read("service", "status")
+    url = urlsplit(server)
+    if url.scheme not in {"http", "https"} or url.hostname not in {"127.0.0.1", "localhost", "::1"} or not url.port:
+        raise ValueError("shared service unavailable")
+    registration = pathlib.Path(read("debug", "paths", "state")) / "service.json"
+    with os.fdopen(os.open(registration, os.O_RDONLY | os.O_NOFOLLOW)) as stream:
+        metadata = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or metadata.st_mode & 0o077 or metadata.st_size > 65536):
+            raise ValueError("unsafe native service registration")
+        service = json.load(stream)
+    if (service.get("url") != server or type(service.get("pid")) is not int
+            or not isinstance(service.get("password"), str) or not service["password"]):
+        raise ValueError("invalid native service registration")
+    # Keep native service credentials in this child environment, never argv/output.
+    environment["OPENCODE_PASSWORD"] = service["password"]
+    # Explicit server selection never asks native discovery to replace a service.
+    info = json.loads(read("api", "--server", server, "get", "/api/info"))
+    version = read("--version").removeprefix("opencode v")
+    if info.get("version") != version or info.get("pid") != service["pid"]:
+        raise ValueError("shared service version mismatch")
+    arguments = sys.argv[4:]
+    index = int(sys.argv[3])
+    arguments[index:index] = ["--server", server]
+    launch = [target, *arguments]
+    if sys.argv[2] == "1":
+        launch = [str(pathlib.Path.home() / ".local/bin/herdr-opencode-restore"), "--pace-start", *launch]
+    # An explicit authenticated endpoint cannot enter native service replacement.
+    os.execvpe(launch[0], launch, environment)
+except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
+    print("OpenCode start blocked: shared service unavailable or version mismatch; "
+          "use a coordinated opencode service start/restart, or explicit --standalone/--server.", file=sys.stderr)
+    sys.exit(75)
+' "$target" "$pace" "$command_index" "$@"
+fi
+start_opencode "$target" "$@"
+{{ else if eq .chezmoi.os "linux" -}}
 start_opencode "$HOME/.local/bin/opencode-update-all" exec-managed "$@"
 {{ else -}}
 package="$HOME/.local/state/dotfiles-ai/opencode-package"

@@ -159,6 +159,10 @@ def preflight_host(*, cached: bool = False) -> None:
 
 
 def capture_failure_message(error: Exception) -> str:
+    if (type(error) is RuntimeError and len(error.args) == 1 and isinstance(error.args[0], str)
+            and error.args[0] in {"session or directory unavailable", "session is running in another pane",
+                                 "pane is occupied", "pane directory mismatch", "restored session identity mismatch"}):
+        return error.args[0]
     if isinstance(error, OSError):
         return f"operating-system error {error.errno if error.errno is not None else 'unknown'}"
     if isinstance(error, subprocess.SubprocessError):
@@ -203,13 +207,32 @@ def opencode_session(argv: list[str], pane: dict) -> str | None:
     return identity or explicit
 
 
-def pane_state(pane: str) -> tuple[str | None, bool]:
+def pane_state(pane: str, *, qualified_shells: dict[str, int] | None = None) -> tuple[str | None, bool]:
     current = run("pane", "get", pane)["result"]["pane"]
-    processes = run("pane", "process-info", "--pane", pane)["result"]["process_info"]["foreground_processes"]
+    info = run("pane", "process-info", "--pane", pane)["result"]["process_info"]
+    processes = info["foreground_processes"]
     for process in processes:
         argv = process.get("argv", [])
         if session := opencode_session(argv, current):
             return session, True
+    if qualified_shells is not None and len(processes) == 1:
+        process = processes[0]
+        shell_pid = info.get("shell_pid")
+        argv = process.get("argv", [])
+        shells = {"bash", "zsh", "fish", "sh", "dash", "ksh"}
+        if (type(shell_pid) is int and shell_pid > 1 and qualified_shells.get(pane) == shell_pid
+                and process.get("pid") == shell_pid
+                and info.get("foreground_process_group_id") == shell_pid
+                and process.get("name") in shells and len(argv) == 1
+                and isinstance(argv[0], str)
+                and Path(argv[0]).name.removeprefix("-") == process["name"]):
+            # The one-time maintenance controller binds these exact pane/shell IDs.
+            # A root shell alone can still be running read or another builtin.
+            visible = subprocess.run([HERDR, "pane", "read", pane, "--source", "visible", "--lines", "5"],
+                                     check=True, capture_output=True, text=True, timeout=10).stdout
+            lines = [line.strip() for line in visible.splitlines() if line.strip()]
+            if len(visible) <= 65536 and lines and lines[-1] == "❯":
+                return None, False
     return None, bool(processes)
 
 
@@ -444,13 +467,14 @@ def recovery_sessions(database: Path, entries: list[dict], major: int) -> dict:
         return known
 
 
-def restore(manifest: Path, entries: list[dict], database: Path, opencode: Path, check: bool) -> int:
+def restore(manifest: Path, entries: list[dict], database: Path, opencode: Path, check: bool,
+            *, qualified_shells: dict[str, int] | None = None) -> int:
     known = recovery_sessions(database, entries, runtime_major(opencode))
 
     agents = run("agent", "list")["result"]["agents"]
     running = {agent.get("agent_session", {}).get("value") for agent in agents}
     failures = []
-    for entry in entries:
+    for index, entry in enumerate(entries, 1):
         session, pane, directory = entry["session_id"], entry["pane_id"], Path(entry["directory"])
         try:
             if (session not in known or not directory.is_dir()
@@ -458,7 +482,8 @@ def restore(manifest: Path, entries: list[dict], database: Path, opencode: Path,
                     or Path(known[session]).resolve() != directory.resolve()):
                 raise RuntimeError("session or directory unavailable")
             current = run("pane", "get", pane)["result"]["pane"]
-            active_session, occupied = pane_state(pane)
+            active_session, occupied = (pane_state(pane, qualified_shells=qualified_shells)
+                                       if qualified_shells is not None else pane_state(pane))
             if active_session == session:
                 if not check:
                     entry["recovery_state"] = "observed"
@@ -486,6 +511,7 @@ def restore(manifest: Path, entries: list[dict], database: Path, opencode: Path,
                 raise RuntimeError("restored session identity mismatch")
             entry["recovery_state"] = "observed"
             save_manifest(manifest, entries)
+            print(json.dumps({"recovery_sessions_observed": index, "total": len(entries)}), flush=True)
         except subprocess.CalledProcessError as error:
             failures.append("Herdr command failed")
         except Exception as error:
