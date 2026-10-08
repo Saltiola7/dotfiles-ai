@@ -276,18 +276,67 @@ def test_progress_does_not_remove_total_admission_deadline(monkeypatch, tmp_path
     assert lock.read_text() == f"{os.getpid()}\n"
 
 
+@pytest.mark.parametrize('qualified,group,argv,prompt,occupied', [
+    ({'pane': 123}, 123, ['-zsh'], '❯\n', False),
+    (None, 123, ['-zsh'], '❯\n', True),
+    ({'pane': 456}, 123, ['-zsh'], '❯\n', True),
+    ({'pane': 123}, 456, ['-zsh'], '❯\n', True),
+    ({'pane': 123}, 123, ['zsh', '-c', 'read'], '❯\n', True),
+    ({'pane': 123}, 123, ['-zsh'], 'Password:\n', True),
+])
+def test_preserved_live_shell_qualification(monkeypatch, qualified, group, argv, prompt, occupied):
+    from types import SimpleNamespace
+    script = runpy.run_path(str(SCRIPT))
+    info = {'shell_pid': 123, 'foreground_process_group_id': group,
+            'foreground_processes': [{'pid': 123, 'name': 'zsh', 'argv': argv}]}
+    def run(*args):
+        if args == ('pane', 'get', 'pane'):
+            return {'result': {'pane': {}}}
+        assert args == ('pane', 'process-info', '--pane', 'pane')
+        return {'result': {'process_info': info}}
+    monkeypatch.setitem(script['pane_state'].__globals__, 'run', run)
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: SimpleNamespace(stdout=prompt))
+    assert script['pane_state']('pane', qualified_shells=qualified) == (None, occupied)
+
+
+def test_preserved_recovery_failure_messages_remain_bounded():
+    script = runpy.run_path(str(SCRIPT))
+    message = script['capture_failure_message']
+    assert message(RuntimeError('pane is occupied')) == 'pane is occupied'
+    assert 'private fixture detail' not in message(RuntimeError('private fixture detail'))
+
+
 def wrapper_fixture(tmp_path):
     state = tmp_path / "state"
     state.mkdir()
     (state / ".dotfiles-ai-state").touch()
-    target = tmp_path / "target"
-    target.write_text(f"#!{sys.executable}\nimport json,sys,time\n"
-                      "print(json.dumps([sys.argv[1:],time.monotonic()]))\n")
+    registration = state / 'xdg/state/opencode/service.json'
+    registration.parent.mkdir(parents=True)
+    registration.write_text(json.dumps({'url': 'http://127.0.0.1:12345', 'pid': 123,
+                                       'password': 'synthetic-private'}))
+    registration.chmod(0o600)
+    target = tmp_path / "home/.opencode/bin/opencode"
+    target.parent.mkdir(parents=True)
+    target.write_text(f'''#!{sys.executable}
+import json, sys, time
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("opencode v2.0.24")
+elif args == ["service", "status"]:
+    print("http://127.0.0.1:12345")
+elif args == ["debug", "paths", "state"]:
+    print({str(state / 'xdg/state/opencode')!r})
+elif args == ["api", "--server", "http://127.0.0.1:12345", "get", "/api/info"]:
+    print(json.dumps({{"version": "2.0.24", "pid": 123}}))
+else:
+    print(json.dumps([args, time.monotonic()]))
+''')
     target.chmod(0o755)
     wrapper = tmp_path / "wrapper"
     wrapper.write_text(_render_herdr_script(".local/bin/opencode", {
+        "chezmoi": {"os": "darwin", "arch": "arm64"},
         "dotfiles_ai": {"state": {"root": str(state)}, "herdr": {"host_enabled": False}},
-    }).replace("/opt/homebrew/bin/opencode", str(target)))
+    }).replace("python3 -", f'"{sys.executable}" -'))
     wrapper.chmod(0o755)
     helper = tmp_path / "home/.local/bin/herdr-opencode-restore"
     helper.parent.mkdir(parents=True)
@@ -306,10 +355,11 @@ def test_eighty_concurrent_resumes_drain_with_spacing(tmp_path):
         results = [(process.communicate(timeout=600), process.returncode) for process in processes]
         assert all(code == 0 for _, code in results), results
         starts = sorted(json.loads(output[0]) for output, _ in results)
-        assert {row[0][1] for row in starts} == {f"ses_{index}" for index in range(80)}
+        assert {row[0][row[0].index('--session') + 1] for row in starts} == {f"ses_{index}" for index in range(80)}
         assert all(row[0][-1] == "--auto" for row in starts)
         times = sorted(row[1] for row in starts)
-        assert all(right - left >= 4.8 for left, right in zip(times, times[1:]))
+        gaps = [right - left for left, right in zip(times, times[1:])]
+        assert all(gap >= 4.8 for gap in gaps), {"minimum_gap": min(gaps), "gaps": gaps}
     finally:
         for process in processes:
             if process.poll() is None:
