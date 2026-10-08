@@ -3,8 +3,9 @@
 Status: Discovery contract; implementation readiness remains open.
 The macOS ARM64 OpenCode portion is separately specified in
 [NATIVE-OPENCODE-HOST.md](NATIVE-OPENCODE-HOST.md) and its Build-owned slice.
-That slice exclusively owns its listed paths while active. The parent retains
-Codex and cross-tool closure discovery; it cannot launch overlapping writers.
+That slice exclusively owns its listed paths while active. The macOS ARM64 Codex
+portion is specified in [NATIVE-CODEX-HOST.md](NATIVE-CODEX-HOST.md). The parent
+retains cross-tool closure discovery; it cannot launch overlapping writers.
 Successor policy and historical-requirement precedence:
 [native platform-local updates](../../specs/dotfiles_ai_distribution/features/native-platform-updates.md).
 Context: dotfiles_ai_distribution, with Codex/OpenCode control-plane interfaces.
