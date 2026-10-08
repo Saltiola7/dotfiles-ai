@@ -38,6 +38,18 @@ blocked until affected gates and explicit session-maintenance checks pass.
 - No automatic shared-service restart. A live transition uses a saved exact
   inventory, canary, independently verified conversation UI, bounded client
   restart sequence and operator coordination for this maintenance conversation.
+- Operator-approved correction after cross-version TUI startup replaced the live
+  server: default interactive/run launches require an available, matching-version
+  shared server. Probe through explicit `--server`, then pin the client to that
+  endpoint so it cannot re-enter automatic replacement. Absent or mismatched
+  service refuses with coordinated `opencode service start/restart` guidance;
+  this includes first startup after bootstrap. Explicit `--standalone` and
+  `--server` launches remain available. Maintenance argument vectors stay unchanged.
+  Explicit local attachment reuses the native service registration password only
+  in the child environment, never arguments or evidence. Require an owned private
+  regular registration file, matching endpoint/PID and matching client/server
+  versions; unsafe or changed registration fails closed. Qualify cross-version
+  refusal and matching-version TUI attachment in isolated state before deployment.
 
 ## Writable source scope
 
