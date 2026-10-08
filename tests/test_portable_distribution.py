@@ -174,7 +174,8 @@ def test_macos_installs_official_opencode_tap() -> None:
     assert 'tap "anomalyco/tap"' in brewfile
     assert 'brew "anomalyco/tap/opencode"' in brewfile
     assert 'brew "mise"' in brewfile
-    assert 'cask "google-cloud-sdk"' in brewfile
+    assert 'cask "google-cloud-sdk"' not in brewfile
+    assert 'cask "gcloud-cli"' not in brewfile
     assert '{{ include "Brewfile" | sha256sum }}' in installer
     assert '{{ if ne .chezmoi.os "darwin" -}}\nexit 0' in installer
     assert "Homebrew is required to install managed agent packages" in installer

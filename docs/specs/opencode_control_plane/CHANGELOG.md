@@ -1,5 +1,19 @@
 # OpenCode Control Plane Changelog
 
+## 2026-10-06 — SSD-OPENCODE-PREFERENCES-1
+
+- Deployed native Tab/Shift+Tab agent cycling and disabled-by-default Chrome
+  DevTools 1.10.1 / Playwright MCP 0.0.83 declarations. Operator confirmed agent
+  cycling and slash-command autocomplete; live browser MCP status was disabled.
+- Preserved unrelated local preferences, MCPs and the Herdr plugin; malformed
+  CLI input fails without overwrite. Focused validation passed 28 tests, including
+  isolated native V2 disabled-transport startup and idempotent rendering.
+- Retained pre-apply configuration for rollback. Maintenance requalification and
+  ownership are recorded in README; no histories, credentials or archives retired.
+- Implementation Gate Commit: `2481320`; Discovery import: `d614ada`. Gate Exceptions:
+  none. Intended Final Push: recorded feature branch and draft PR into `main`;
+  actual push and final completion commit belong to the Cycle Record.
+
 ## 2026-10-03 — OPENCODE-V2-CONTROL-PLANE
 
 - Fixed a permission regression: the old JSON projection sorted last-match-wins
