@@ -4,6 +4,9 @@ Context: dotfiles_ai_distribution. Risk: elevated. Profile:
 `docs/specs/dotfiles_ai_distribution/PROFILE.md`; adjacent Codex profile:
 `docs/specs/codex_control_plane/PROFILE.md`. Product Intent: distribution PRODUCT.md,
 journey 3. Parent: NATIVE-UPDATES.md; requirements INT-002/003/010/012/014/015/023.
+The receipt also carries the historical rolling-stable Initiative/feature pointers
+referenced by the shared native-platform successor contract; these are precedence
+authority, not permission to modify OpenCode implementation.
 Status: specification-ready; fresh receipt/preflight and exact chat approval are
 required before Build. Live activation remains gated by managed-wrapper and
 exact-session qualification.
