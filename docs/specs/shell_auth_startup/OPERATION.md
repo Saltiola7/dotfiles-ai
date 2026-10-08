@@ -390,12 +390,34 @@ codesign --display --requirements - \
   ~/Applications/'Herdr Host.pending.<exact-candidate>.app'
 ```
 
-There is no approved pending-to-canonical promotion command in this probe-only
+There is no general-purpose pending-to-canonical promotion command in this probe-only
 slice. Do not replace a registered canonical bundle by hand. After review, an
 unwanted exact candidate may be moved to Trash for recovery; never use a broad
 glob for removal. A future updater must preserve the canonical bundle for
 rollback, prove mutual designated requirements, and separately coordinate
 probe-only unregister/promote/re-register before activation is available.
+
+### Completed one-time replacement-volume repair
+
+SSD-HOST-VOLUME-REPAIR used an explicitly approved, retained journaled procedure,
+not an installed updater. Strict signatures, mutual designated requirements,
+configuration equivalence, native registration and replacement-volume identity
+were qualified before mutation. Six rename/recovery interruption points and
+post-success native-operation errors were exercised with synthetic bundles.
+
+The signed candidate became canonical and the exact old signed bundle was retained
+as rollback. Initial health verification stopped because the prior health record
+still named the old volume. The operator separately approved a narrow one-time
+recovery: unregister only the probe agent, archive the validated old-volume health
+record intact, re-register the current signed bundle, and require a fresh probe.
+This did not edit a health record to manufacture success or restore any database.
+
+Fresh native doctor/probe checks passed with healthy exact-volume access and
+probe-only ownership. The existing Herdr server PID and all 75 pane/terminal/session
+bindings remained unchanged. Private evidence retains both signed identities,
+rollback bundle, old health record, operation/recovery journals and failed attempts.
+The procedure is not an apply hook; future replacement operations need their own
+qualified plan. The unfinished permanent-helper implementation remains preserved.
 
 ## Manual Recovery and Restart Policy
 
