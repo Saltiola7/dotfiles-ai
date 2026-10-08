@@ -276,6 +276,36 @@ def test_progress_does_not_remove_total_admission_deadline(monkeypatch, tmp_path
     assert lock.read_text() == f"{os.getpid()}\n"
 
 
+@pytest.mark.parametrize('qualified,group,argv,prompt,occupied', [
+    ({'pane': 123}, 123, ['-zsh'], '❯\n', False),
+    (None, 123, ['-zsh'], '❯\n', True),
+    ({'pane': 456}, 123, ['-zsh'], '❯\n', True),
+    ({'pane': 123}, 456, ['-zsh'], '❯\n', True),
+    ({'pane': 123}, 123, ['zsh', '-c', 'read'], '❯\n', True),
+    ({'pane': 123}, 123, ['-zsh'], 'Password:\n', True),
+])
+def test_preserved_live_shell_qualification(monkeypatch, qualified, group, argv, prompt, occupied):
+    from types import SimpleNamespace
+    script = runpy.run_path(str(SCRIPT))
+    info = {'shell_pid': 123, 'foreground_process_group_id': group,
+            'foreground_processes': [{'pid': 123, 'name': 'zsh', 'argv': argv}]}
+    def run(*args):
+        if args == ('pane', 'get', 'pane'):
+            return {'result': {'pane': {}}}
+        assert args == ('pane', 'process-info', '--pane', 'pane')
+        return {'result': {'process_info': info}}
+    monkeypatch.setitem(script['pane_state'].__globals__, 'run', run)
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: SimpleNamespace(stdout=prompt))
+    assert script['pane_state']('pane', qualified_shells=qualified) == (None, occupied)
+
+
+def test_preserved_recovery_failure_messages_remain_bounded():
+    script = runpy.run_path(str(SCRIPT))
+    message = script['capture_failure_message']
+    assert message(RuntimeError('pane is occupied')) == 'pane is occupied'
+    assert 'private fixture detail' not in message(RuntimeError('private fixture detail'))
+
+
 def wrapper_fixture(tmp_path):
     state = tmp_path / "state"
     state.mkdir()
