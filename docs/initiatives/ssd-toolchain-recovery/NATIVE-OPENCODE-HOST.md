@@ -44,6 +44,8 @@ blocked until affected gates and explicit session-maintenance checks pass.
 `Brewfile`; `.chezmoiignore`; `dot_local/bin/executable_opencode.tmpl`;
 `dot_local/bin/executable_opencode-install.tmpl`;
 `dot_local/bin/executable_opencode-update-all`;
+`dot_local/bin/executable_herdr-opencode-restore` (operator-approved source
+reconciliation of the existing live safeguards; preserve deployed behavior);
 `run_after_update-opencode.sh.tmpl`;
 affected cases in `tests/test_opencode_distribution.py`,
 `tests/test_portable_distribution.py`, `tests/test_herdr_session_recovery.py`
