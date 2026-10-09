@@ -34,6 +34,8 @@ ARCHIVE_MEMBERS = {
 DOWNLOAD_HOSTS = {"github.com", "release-assets.githubusercontent.com"}
 MAX_METADATA = 1024 * 1024
 MAX_ASSET = 256 * 1024 * 1024
+# Compressed release assets and extracted executable sizes have separate limits.
+MAX_BINARY = 512 * 1024 * 1024
 MAX_OUTPUT = 20 * 1024 * 1024
 VALIDATOR_REVISION = "codex-release-validator-1"
 LEGACY_RELEASE = "0.151.0"
@@ -322,7 +324,7 @@ def extract(archive, destination, expected):
         with tarfile.open(archive, "r:gz") as bundle:
             members = bundle.getmembers()
             if (len(members) != 1 or members[0].name != expected or not members[0].isreg()
-                    or not 0 < members[0].size <= MAX_ASSET):
+                    or not 0 < members[0].size <= MAX_BINARY):
                 raise UpdateError
             source = bundle.extractfile(members[0])
             if source is None:
@@ -337,7 +339,7 @@ def extract(archive, destination, expected):
         raise UpdateError
 
 
-def run(argv, timeout=30, environment=None, maximum=MAX_OUTPUT):
+def run(argv, timeout=30, environment=None, maximum=MAX_OUTPUT, logged_out_ok=False):
     process = subprocess.Popen(
         argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
         env=environment,
@@ -371,7 +373,9 @@ def run(argv, timeout=30, environment=None, maximum=MAX_OUTPUT):
     finally:
         selector.close()
     if code:
-        raise UpdateError("validation_failed")
+        message = bytes(output[process.stdout] + output[process.stderr]).strip()
+        if not (logged_out_ok and code == 1 and message == b"Not logged in"):
+            raise UpdateError("validation_failed")
     return bytes(output[process.stdout])
 
 
@@ -389,7 +393,7 @@ def validate_binary(binary, release, codex_home=None):
         raise UpdateError("validation_failed")
     if not run([str(binary), "--help"], environment=environment).strip():
         raise UpdateError("validation_failed")
-    run([str(binary), "login", "status"], environment=environment)
+    run([str(binary), "login", "status"], environment=environment, logged_out_ok=True)
     with tempfile.TemporaryDirectory(prefix="codex-schema-") as temporary:
         run([str(binary), "app-server", "generate-json-schema", "--out", temporary],
             environment=environment)

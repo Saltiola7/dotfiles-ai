@@ -10,7 +10,7 @@ export CODEX_HOME={{ printf "%s/codex" .dotfiles_ai.state.root | quote }}
 {{ else -}}
 export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"
 {{ end -}}
-{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+{{ if or .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.linux_workstation.enabled -}}
 export DOTFILES_AI_REMOTE_USER_ENVIRONMENT=1
 {{ end -}}
 exec "$HOME/.local/bin/codex-update-all"
