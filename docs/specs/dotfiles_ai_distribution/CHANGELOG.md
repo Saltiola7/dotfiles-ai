@@ -1,5 +1,44 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-08 — SSD-NATIVE-CODEX-HOST
+
+- Activated native Codex CLI 0.161.0 on macOS ARM64 through managed bootstrap,
+  launcher selection validation, disabled daemon scheduled updates and host
+  fleet-mutation refusal. Deferred platforms keep their existing owner.
+- Passed 135 scoped tests, with one opt-in skip; real managed-wrapper CLI update,
+  separate isolated daemon update, authenticated live doctor, exact conversation
+  recovery and two targeted reapplications. All 75 OpenCode mappings survived.
+- Fixed an initial safe refusal of native-owned 0755 daemon directories; retained
+  failure evidence and added a permissions regression. Configuration, credentials,
+  GUI separation, legacy binaries, locks and archives remain preserved. No live
+  dedicated daemon was running or upgraded. Native picker visibility is narrower
+  than historical inventory; no universal session-recovery claim is made.
+- Gate Commits `9e7d51a` and `e5f6db4`; no Gate Exceptions. Intended Final Push:
+  cycle feature branch and draft PR into `main`; actual delivery lives in the
+  private Cycle Record. Runtime updates are platform-local, and daemon upgrades
+  require explicit coordination. The temporary recovery pane was closed after
+  clean process exit, restoring the original layout.
+
+## 2026-10-08 — SSD-NATIVE-OPENCODE-HOST
+
+- Adopted native macOS ARM64 executable ownership, guarded missing-install
+  bootstrap, platform-local maintenance forwarding and bootstrap-only apply.
+  Removed competing Brewfile ownership; retained legacy artifacts and guest routes.
+- Preserved deployed recovery safeguards in managed source. Added authenticated
+  matching-version endpoint pinning to prevent automatic shared-service replacement;
+  preserved stdin, explicit server/standalone modes and resume pacing.
+- Scoped validation: 209 passed, 1 skipped across final focused runs, including
+  the 80-client pacing check; 54 launcher checks passed with final stdin handling.
+  An earlier pacing failure remains retained; its cause is not established.
+- Isolated native update and cross-version TUI checks passed. Live 2.0.24 canary
+  preserved exact session/terminal/metadata and server PID; two targeted launcher
+  reapplications had no drift. Earlier unguarded startup replaced the service;
+  all 75 conversations were recovered without database rollback. Failed attempts
+  and private recovery evidence remain retained. No Gate Exceptions.
+- Gate Commits include `bce7968`, `5e97095`, and `9966d88`. Intended delivery:
+  feature branch and draft PR into `main`; actual Final Push remains in the Cycle
+  Record. Codex, guests, Python activation and hibernation remain separate work.
+
 ## 2026-10-04 — OPENCODE-V2-SESSION-RECOVERY
 
 - Fixed V2 restoration accepting stale legacy session identities. Recovery now

@@ -1,5 +1,17 @@
 # OpenCode Rolling Stable
 
+## Successor maintenance policy
+
+The SSD recovery Initiative now owns approved native platform-local updates under
+[the successor contract](../../specs/dotfiles_ai_distribution/features/native-platform-updates.md).
+Its precedence map reconciles original fleet requirements with the new direction.
+The manifest and registered migration slices here retain original authority and
+history; they do not grant permission to implement the successor or rerun completed
+conversion. Periodic/idle update automation remains deferred. Live native ownership
+transition is still pending qualification.
+
+## Original scope and retained migration record
+
 This Initiative removes the moving Homebrew formula from OpenCode runtime
 authority and applies the delivered transactional Codex update pattern to
 OpenCode-specific assets and semantic compatibility checks.

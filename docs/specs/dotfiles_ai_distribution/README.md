@@ -1,5 +1,44 @@
 # dotfiles-ai Distribution
 
+**Approved maintenance successor:** [native platform-local updates](features/native-platform-updates.md)
+supersedes fleet update-on-apply and custom package-lock ownership for future
+OpenCode/Codex maintenance. Platform-specific transition evidence follows.
+Existing deployed behavior and historical evidence below remain until qualified
+transition; registered cycles retain their committed authority.
+
+**SSD-NATIVE-CODEX-HOST implementation and deployment:** macOS ARM64 uses the
+official standalone installer with a distinct native install directory and the
+existing managed CLI home. The launcher validates native selection and disabled
+daemon auto-update policy; bootstrap preserves installed versions, and default
+host fleet mutation refuses. Deferred platforms retain their existing route.
+CLI and dedicated daemon packages have independent native update ownership.
+
+Qualification passed a real managed-wrapper 0.160.1-to-0.161.0 update, isolated
+explicit daemon update, 135 scoped tests (one opt-in test skipped), authenticated
+live doctor, exact saved-conversation resume on 0.161.0, and two drift-free targeted
+reapplies. Existing native daemon directories with safe owner-controlled 0755
+permissions are accepted; new policy files remain private and atomically written.
+The host has no running dedicated daemon. CLI/GUI state separation, configuration,
+credentials, legacy packages and all 75 OpenCode session mappings were preserved.
+Native inventory reported 31 history records, while the resume picker exposed
+two sessions; canary evidence covers one of those sessions, not universal recovery.
+Private preimages, failed attempts and recovery evidence remain retained.
+
+**SSD-NATIVE-OPENCODE-HOST:** The macOS ARM64 launcher uses the native executable,
+missing-install bootstrap and existing external-state guards. Native maintenance
+arguments remain unchanged; default interactive launches require a healthy,
+matching-version shared server and pin its authenticated endpoint. An absent or
+mismatched service requires coordinated explicit service startup/restart.
+Explicit server and standalone modes remain available. The native registration
+credential remains local and is passed only in the client process environment.
+
+Native 2.0.24 update, isolated cross-version refusal, matching-version TUI startup,
+live exact-conversation canary and two targeted reapplications passed. An earlier
+unguarded cross-version startup replaced the server and detached client views;
+all 75 original mappings were subsequently restored and independently verified.
+No database rollback was performed. Preserve legacy package/admission artifacts
+and deferred-platform routes; the host's legacy fleet update now refuses mutation.
+
 **OPENCODE-V2-SESSION-RECOVERY source implementation:** Recovery now probes the
 selected managed wrapper's version with bounded output/time and selects the
 matching native history schema. V2 requires current `session_v2` identities,

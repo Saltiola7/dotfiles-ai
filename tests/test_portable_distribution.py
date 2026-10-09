@@ -167,12 +167,12 @@ def chezmoi(
     )
 
 
-def test_macos_installs_official_opencode_tap() -> None:
+def test_macos_retains_other_brew_tools_without_competing_opencode_owner() -> None:
     brewfile = (ROOT / "Brewfile").read_text()
     installer = (ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text()
 
     assert 'tap "anomalyco/tap"' in brewfile
-    assert 'brew "anomalyco/tap/opencode"' in brewfile
+    assert 'brew "anomalyco/tap/opencode"' not in brewfile
     assert 'brew "mise"' in brewfile
     assert 'cask "google-cloud-sdk"' not in brewfile
     assert 'cask "gcloud-cli"' not in brewfile
@@ -369,6 +369,7 @@ def test_codex_distribution_uses_rolling_stable_direct_binary() -> None:
         ".config/dotfiles-ai/codex-managed/config.toml",
         ".config/dotfiles-ai/codex-managed/AGENTS.md",
         ".local/bin/codex", ".local/bin/codex-project", ".local/bin/codex-update-all",
+        ".local/bin/codex-install",
     } <= managed
     ignore = (ROOT / ".chezmoiignore").read_text()
     assert "!.config/dotfiles-ai/codex-managed/**" in ignore
@@ -470,6 +471,17 @@ printf '%s\n' "$CODEX_HOME" "$@" >"$HOME/codex-call"
         "validator_revision": "codex-release-validator-1", "previous": None,
     }))
     record.chmod(0o600)
+    # Keep the legacy generation as rollback evidence while native owns launch.
+    release = codex_home / 'packages/standalone/releases/0.151.0-aarch64-apple-darwin'
+    (release / 'bin').mkdir(parents=True)
+    native = release / 'bin/codex'
+    native.write_bytes(real.read_bytes())
+    native.chmod(0o755)
+    (codex_home / 'packages/standalone/current').symlink_to(release)
+    install = home / '.local/libexec/dotfiles-ai/codex-native'
+    install.mkdir()
+    (install / 'codex').symlink_to(codex_home / 'packages/standalone/current/bin/codex')
+    subprocess.run([str(projector), '--prepare-native', str(codex_home), str(install)], check=True)
     desktop = home / ".codex/sentinel"
     desktop.parent.mkdir()
     desktop.write_text("desktop")
