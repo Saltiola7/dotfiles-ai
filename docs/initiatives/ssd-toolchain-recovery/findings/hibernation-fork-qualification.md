@@ -68,16 +68,57 @@ shared-server work needs an authoritative OpenCode-side admission check too.
 This is an unresolved interface requirement, not a claim that a Herdr-only patch
 would solve every concurrency boundary.
 
-## Readiness and next decision
+## Initial readiness and decision point
 
 **Readiness blocked.** Plugin-only repair of the four original defects cannot
 yet substantiate the retained never-sleep-focused/working/blocked contract.
 Do not weaken that contract by silently calling a final read atomic.
 
-Next decision: authorize broader native Herdr/OpenCode interlock Discovery, or
+The initial decision point was broader native Herdr/OpenCode interlock Discovery, or
 leave activation deferred. Broader work requires an approved context/repository
 map and fresh interface investigation before implementation scope can be fixed.
 No native fork, upstream issue, hosted fork or live canary has been created.
+
+### Expanded investigation and subsequent deferral
+
+INT-040 authorized expanded native coordination investigation. Read-only source
+inspection pinned Herdr v0.9.3 at
+`7b116c05bfda646af39d2524c54e70c751f57ee8` and OpenCode v2.0.24 at
+`e7a34f09bfd9134dfade5a8ddb843f7030bc9a69`. Neither upstream source was edited,
+built, installed or activated. Relevant boundaries:
+
+- Herdr `src/app/creation.rs:307–356` derives public pane focus from the shared
+  active workspace/tab/pane. `src/server/headless/client_views.rs:389–408`
+  separately tracks client-specific focus targets. A safe eligibility contract
+  needs the appropriate all-client authority, not an assumed single focus flag.
+- Herdr's `src/integration/assets/opencode/herdr-tui-session.js:435–450,509–588`
+  reports the selected root session through an asynchronous queue. This is
+  observation, not a synchronous barrier against server-side work starting.
+- OpenCode `packages/core/src/session/run-coordinator.ts:87–145` owns process-local
+  execution admission through `run` and `wake`; `awaitIdle` at lines 169–175 waits
+  for current work without reserving the subsequent idle interval.
+- OpenCode `packages/core/src/session/session.ts:145–178,179–221,246–313` admits
+  prompts, starts shell work, and handles compaction and synthetic input through
+  distinct paths. `packages/core/src/session/inbox.ts:59–63` exposes an internal
+  keyed serialization helper, not a public client-sleep reservation.
+- The V2 plugin documentation explicitly excludes synthetic, shell, compaction
+  and move controls from prompt hooks. CLI cached state and those hooks cannot
+  alone qualify the required cross-process interlock. TUI exit lives separately
+  in `packages/tui/src/app.tsx:282–301`.
+
+These observations identify native change candidates; they do not prove a
+complete coordinated protocol or establish implementation readiness. A proposed
+map assigned recovery integration to dotfiles-ai, focus/process coordination to
+Herdr, and work admission/TUI exit to OpenCode. Official-release versus maintained
+custom-fork delivery was presented because custom runtime ownership would alter
+the selected native update strategy.
+
+**Latest operator decision INT-041:** defer the feature rather than edit
+OpenCode and Herdr directly for it now. The proposed expanded context map and
+delivery strategy were not selected. No new implementation contexts, Build
+slices, launch receipts or external submissions are created. Preserve the
+investigation; reconsider only on explicit resumption or official capability
+changes. No live plugin registration occurred.
 
 Reviewed the context README and CHANGELOG. Neither receives a completed-cycle
 entry: this is unfinished Discovery, not a delivered behavior change. Existing

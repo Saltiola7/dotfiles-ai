@@ -1,15 +1,19 @@
-# Hibernation — bounded fork qualification, activation blocked
+# Hibernation — deferred after native coordination investigation
 
-Latest decision INT-039 selects bounded OpenCode-only fork qualification after
-host delivery and source reconciliation. This supersedes the undecided fork
-scope and blanket pause in INT-017/020; guest and Python deferrals still apply.
-Qualification found a native eligibility-interlock gap. The slice remains
-Discovery-owned: no Build readiness, launch approval, or activation is implied.
+Latest decision INT-041 defers hibernation after INT-040 expanded investigation
+to native Herdr/OpenCode coordination. The operator declines native-tool edits
+for this feature for now. Retain INT-039 qualification and the contracts below
+for a future explicit resumption; no native fork or delivery strategy was selected.
+The slice remains Discovery-owned and deferred. No Build readiness, launch
+approval, or activation is implied. Guest and Python deferrals still apply.
 See [pinned candidate findings](findings/hibernation-fork-qualification.md).
 
 Home: shell_auth_startup. Existing PROFILE.md remains authoritative. Owner: primary
 maintainer. Review trigger: completion report for all non-deferred workstreams,
-or earlier explicit operator request. No expiry date is invented.
+or explicit operator request. Following INT-041, resumption requires an explicit
+operator request or reconsideration of newly available official capabilities;
+other work completing does not automatically resume implementation. No expiry
+date is invented.
 
 ## Retained requirements for resumption
 
