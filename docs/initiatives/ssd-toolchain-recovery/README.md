@@ -36,10 +36,11 @@ operator goal or a prerequisite for native executable migration.
   including allowed major versions. Resolve and exercise compatibility before activation.
 - Configure browser MCP servers disconnected by default and manually connectable.
   Restore Tab next-agent and Shift+Tab previous-agent bindings using native V2 IDs.
-- Hibernation is explicitly paused until the rest completes; surface it then.
+- Hibernation is deferred under INT-041 after native coordination investigation;
+  the operator declines changes to Herdr/OpenCode themselves for this feature now.
   Retain the OpenCode-only, fifteen-minute idle/unfocused, exact-session and
   working/focused/blocked exclusion requirements for resumption. Draft and exact
-  scroll-position loss remain accepted. See [deferral](HIBERNATION.md).
+  scroll-position loss remain accepted. See [qualification](HIBERNATION.md).
 - Restarts are authorized with recovery evidence. Permission boundaries remain
   enforced; configured-deny changes require explicit operator approval.
 - Complete the existing V2 delivery under its original Initiative and cycle.
@@ -76,7 +77,7 @@ must reference each owning repository before implementation.
 | Native OpenCode/Codex updates and chezmoi/external-state compatibility | [Native updates](NATIVE-UPDATES.md) |
 | Non-production personal/client/tool/guest Python environments and SDS boundaries | [Python upgrades](PYTHON-UPGRADES.md) |
 | Original V2 migration closure, preferences delivery and lifecycle/source reconciliation | [Delivery closure](DELIVERY-CLOSURE.md) |
-| Paused OpenCode hibernation and mandatory end-of-work reminder | [Hibernation deferral](HIBERNATION.md) |
+| Deferred OpenCode hibernation, retained qualification and activation prerequisites | [Hibernation qualification](HIBERNATION.md) |
 
 [Gates](GATES.md) records profile authorities and promotion gaps across all slices.
 These contracts cover the full session scope; technical qualification still governs
