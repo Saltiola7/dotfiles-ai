@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Worktrunk 0.80.0, official Linux x86_64 release.
+set -euo pipefail
+{{ if not .dotfiles_ai.linux_workstation.enabled -}}
+exit 0
+{{ end -}}
+[[ $(uname -m) == x86_64 ]] || { echo "This workstation profile requires x86_64." >&2; exit 1; }
+version=0.80.0
+if [[ -x $HOME/.local/bin/wt && $($HOME/.local/bin/wt --version) == "wt v$version" ]]; then exit 0; fi
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+asset=worktrunk-x86_64-unknown-linux-musl
+curl -fsSL --retry 3 --connect-timeout 10 --max-time 180 \
+  "https://github.com/max-sixty/worktrunk/releases/download/v$version/$asset.tar.xz" -o "$stage/worktrunk.tar.xz"
+printf '%s  %s\n' '532ce3ed5eecb1be274c925b5887f61671e2434a4ca2561b9a8ac9379dbba199' "$stage/worktrunk.tar.xz" | sha256sum -c -
+tar -xJf "$stage/worktrunk.tar.xz" -C "$stage" "$asset/wt"
+[[ $("$stage/$asset/wt" --version) == "wt v$version" ]]
+install -Dm755 "$stage/$asset/wt" "$HOME/.local/bin/wt"

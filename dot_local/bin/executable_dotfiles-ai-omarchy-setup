@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ -t 0 ]] || { echo "Run in a terminal for sudo prompts." >&2; exit 1; }
+omarchy pkg add lsof
+config="${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles-ai/chezmoi.toml"
+root=$(chezmoi -c "$config" execute-template '{{ .dotfiles_ai.state.root }}')
+[[ $root == "/var/lib/dotfiles-ai/$(id -un)" ]] || { echo "Configure state.root as /var/lib/dotfiles-ai/$(id -un) first." >&2; exit 1; }
+sudo install -d -m 0700 -o "$(id -un)" -g "$(id -gn)" "$root"
+[[ -e $root/.dotfiles-ai-state ]] || (umask 077; touch "$root/.dotfiles-ai-state")
+chezmoi -c "$config" apply
+herdr --version
+opencode --version
+codex --version
+printf '\nAuthenticate each provider locally: codex login; opencode auth login\n'

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-{{ if not .dotfiles_ai.remote_user_environment.enabled -}}
+{{ if not (or .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.linux_workstation.enabled) -}}
 exit 0
 {{ end -}}
 [[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || {

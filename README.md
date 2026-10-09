@@ -268,3 +268,19 @@ current guidance. Public lifecycle entry points are `/discovery`, `/dbsctr`, and
 ## License
 
 [MIT](LICENSE)
+
+## Omarchy native workbench
+
+Copy `config.omarchy.example.toml` to `~/.config/dotfiles-ai/chezmoi.toml`
+and replace `/home/you` with your home path. Use this independent config for
+`chezmoi -c ~/.config/dotfiles-ai/chezmoi.toml diff` and `apply`.
+The opt-in `linux_workstation.enabled` profile installs native x86_64 Herdr,
+OpenCode and Codex and deploys the shared agent configuration. It preserves
+Omarchy shell configuration and disables guest VMs in the example. It does not
+use the CentOS remote-user role. Authenticate providers separately on the laptop.
+
+On Omarchy, `dotfiles-ai-omarchy-setup` creates a private user-owned state root
+at `/var/lib/dotfiles-ai/<username>` and applies the profile. This avoids placing
+provider credentials under a home directory that may itself be a Git worktree.
+Set the matching `state.root` in the local configuration. Existing user files
+should be backed up before the first apply; authentication remains interactive.
