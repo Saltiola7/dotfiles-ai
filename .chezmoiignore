@@ -5,6 +5,7 @@ uv.lock
 README.md
 LICENSE
 config.example.toml
+config.omarchy.example.toml
 config.remote-user.example.toml
 .github/
 **/.DS_Store
@@ -139,7 +140,7 @@ build-herdr-host.sh
 .local/bin/herdr-host
 load-dbsctr-rnd-launchagents.sh
 .local/bin/sandbox-vm
-{{ if not .dotfiles_ai.remote_user_environment.enabled }}
+{{ if not (or .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.linux_workstation.enabled) }}
 .local/bin/opencode
 .local/bin/opencode-install
 .local/bin/remote-user-bootstrap
@@ -180,4 +181,25 @@ load-dbsctr-reranker.sh
 .local/bin/pm-postgres-image-build
 .local/bin/pm-postgres-image-verify
 .local/share/pm-kernel/Containerfile.pgvector
+{{ end }}
+
+{{ if .dotfiles_ai.linux_workstation.enabled }}
+# Omarchy owns shell setup; keep this source focused on the AI workbench.
+.bashrc
+.bash_profile
+.common_profile
+.config/starship.toml
+.config/atuin/config.toml
+install-starship.sh
+install-atuin.sh
+install-bash-preexec.sh
+install-guest-development-tools.sh
+.local/bin/docker
+.local/bin/remote-user-bootstrap
+.local/bin/remote-user-foundation
+.local/bin/remote-agent-readiness
+{{ end }}
+
+{{ if not .dotfiles_ai.linux_workstation.enabled }}
+.local/bin/dotfiles-ai-omarchy-setup
 {{ end }}

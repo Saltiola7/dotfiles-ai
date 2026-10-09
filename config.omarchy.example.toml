@@ -1,0 +1,19 @@
+# Native Omarchy AI workbench. Credentials and runtime state stay out of Git.
+sourceDir = "/home/you/Projects/dotfiles-ai"
+persistentState = "/home/you/.config/dotfiles-ai/chezmoi.boltdb"
+
+[data.dotfiles_ai.state]
+root = "/var/lib/dotfiles-ai/you"
+
+[data.dotfiles_ai.linux_workstation]
+enabled = true
+
+[data.dotfiles_ai.herdr]
+launchagent = false
+host_enabled = false
+
+[data.dotfiles_ai.sandbox]
+enabled = false
+
+[data.dotfiles_ai.remote_user_environment]
+enabled = false

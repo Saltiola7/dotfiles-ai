@@ -1285,3 +1285,46 @@ def test_guest_rollback_preflights_config_before_source_reset(tmp_path: Path) ->
         ["git", "rev-parse", "HEAD"], cwd=source, check=True, text=True,
         capture_output=True).stdout.strip() == new_revision
     assert victim.read_text() == "external"
+
+@pytest.mark.parametrize("code,message,accepted", [
+    (1, "Not logged in", True),
+    (1, "credential store unreadable", False),
+    (2, "Not logged in", False),
+])
+def test_fresh_install_accepts_only_normal_logged_out_status(tmp_path, code, message, accepted):
+    loader = importlib.machinery.SourceFileLoader("codex_bootstrap_updater", str(UPDATER))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    helper = importlib.util.module_from_spec(spec)
+    loader.exec_module(helper)
+    command = [sys.executable, "-c", f"import sys; print({message!r}, file=sys.stderr); sys.exit({code})"]
+    if accepted:
+        assert helper.run(command, logged_out_ok=True) == b""
+    else:
+        with pytest.raises(helper.UpdateError):
+            helper.run(command, logged_out_ok=True)
+    with pytest.raises(helper.UpdateError):
+        helper.run(command)
+
+
+@pytest.mark.parametrize("size,accepted", [(10, True), (17, False)])
+def test_rolling_extract_uses_separate_binary_size_limit(tmp_path, size, accepted):
+    loader = importlib.machinery.SourceFileLoader("codex_size_updater", str(UPDATER))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    helper = importlib.util.module_from_spec(spec)
+    loader.exec_module(helper)
+    helper.MAX_ASSET = 4
+    helper.MAX_BINARY = 16
+    archive = tmp_path / "candidate.tar.gz"
+    expected = "codex-x86_64-unknown-linux-musl"
+    with tarfile.open(archive, "w:gz") as bundle:
+        member = tarfile.TarInfo(expected)
+        member.size = size
+        bundle.addfile(member, io.BytesIO(b"x" * size))
+    destination = tmp_path / "candidate-codex"
+    if accepted:
+        helper.extract(archive, destination, expected)
+        assert destination.read_bytes() == b"x" * size
+    else:
+        with pytest.raises(helper.UpdateError):
+            helper.extract(archive, destination, expected)
+        assert not destination.exists()

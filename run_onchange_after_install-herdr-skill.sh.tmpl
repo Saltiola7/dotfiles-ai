@@ -1,7 +1,9 @@
 #!/bin/bash
 
 set -euo pipefail
-[[ "$(uname)" == "Darwin" ]] || exit 0
+{{ if not (or (eq .chezmoi.os "darwin") .dotfiles_ai.linux_workstation.enabled) -}}
+exit 0
+{{ end -}}
 
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
 VERSION={{ .dotfiles_ai.herdr.version | quote }}
