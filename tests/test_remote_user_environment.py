@@ -93,7 +93,9 @@ def test_remote_user_environment_has_distinct_pinned_assets() -> None:
     assert "install-00-remote-herdr.sh" in ignore
     assert "install-01-remote-opencode.sh" in ignore
     wrapper = (ROOT / "dot_local/bin/executable_opencode.tmpl").read_text()
-    assert '{{ if eq .chezmoi.os "darwin" -}}\n    if [[ $session == 1 ]]' in wrapper
+    assert 'herdr-opencode-restore' not in wrapper
+    assert 'herdr_host' not in wrapper
+    assert 'exec "$HOME/.local/bin/opencode-update-all" exec-managed "$@"' in wrapper
 
 
 def test_opencode_bootstrap_preserves_locked_binary_and_rejects_unsafe_lock(tmp_path: Path) -> None:

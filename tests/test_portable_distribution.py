@@ -395,8 +395,8 @@ def test_opencode_distribution_uses_rolling_managed_binary() -> None:
     assert 'exec "$HOME/.local/bin/opencode-update-all"' in run_after
     assert '"$HOME/.local/bin/opencode-update-all"' in pm_configure
     assert "$HOME/.local/libexec/dotfiles-ai/opencode" in wrapper
-    assert 'start_opencode "$HOME/.local/bin/opencode-update-all" exec-managed' in wrapper
-    assert 'exec "$@"' in wrapper
+    assert 'exec "$HOME/.local/bin/opencode-update-all" exec-managed "$@"' in wrapper
+    assert 'herdr-opencode-restore' not in wrapper
     assert "/opt/homebrew/bin/opencode" in wrapper
     assert "/usr/local/libexec/opencode" in updater
     assert "opencode-linux-arm64.tar.gz" not in lima

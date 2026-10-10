@@ -777,8 +777,8 @@ def test_opencode_restore_and_owner_preflight_active_herdr_host() -> None:
     owner = (ROOT / "dot_local/bin/executable_herdr-server-owner.tmpl").read_text()
     guard = (ROOT / "dot_local/bin/executable_state-root-exec").read_text()
 
-    assert "preflight --if-active" in wrapper
-    assert wrapper.index("preflight --if-active") < wrapper.index(".dotfiles-ai-state")
+    assert "preflight --if-active" not in wrapper
+    assert '[[ -f "$DOTFILES_AI_STATE_ROOT/.dotfiles-ai-state" ]]' in wrapper
     assert "preflight_host" in restore
     assert restore.index("preflight_host") < restore.index("opencode-sessions.json")
     assert "preflight --if-active" in owner

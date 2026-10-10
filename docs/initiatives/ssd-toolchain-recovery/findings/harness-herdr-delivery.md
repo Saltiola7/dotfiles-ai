@@ -50,6 +50,16 @@ Draft-PR delivery does not itself claim protected-base merge or full-fleet closu
 
 ## Closure and retained work
 
+Hosted CI subsequently blocked merge on three stale source-string assertions:
+ordinary Host preflight, the removed exec helper and implicit wrapper pacing.
+These required the coupling INT-047 deliberately removed; they were not flaky
+runtime failures. Bounded test-only remediation asserts the new launcher boundary
+while retaining recovery/owner/state-root protections. Broader affected-file
+validation passed 214 tests (the already-qualified 80-session fixture was not
+repeated). No runtime code or deployed artifact changed. The original completed
+cycle, failed hosted run and delivery snapshot remain historical evidence;
+updated-head CI must pass independently before merge.
+
 Host diagnostics remain prepared but not implementation-approved. Hibernation,
 guests, Python and other existing deferrals stay paused. Resource release stopped
 on re-creation; retained migration checkouts and the failed helper cycle must not
