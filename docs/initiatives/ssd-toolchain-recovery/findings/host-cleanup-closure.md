@@ -96,3 +96,34 @@ these paths. **Root cause remains unproven; no speculative runtime fix applied.*
 On recurrence, preserve fresh failing health and registered-agent evidence before
 recovery. Any stage-specific diagnostic change requires its own affected-scope
 contract and qualification; this cleanup does not authorize automatic restarts.
+
+## Subsequent follow-up
+
+Documentation delivery completed through PR #209 with all three hosted Python
+checks passing. Privately archived the remaining five checkouts, including the
+unfinished helper bundle, patch and failed cycle copy; originals remain preserved.
+The preferences delivery-verification blocker cleared after refreshing its stale
+remote-tracking ref. No active/failed cycle evidence was rewritten.
+
+INT-045 approved bounded release of four unused migration-location caches. Fresh
+native session queries and Herdr metadata found no session/pane assigned to those
+directories. The first preferences-location eviction succeeded, but replacement
+services immediately booted and reacquired resources. The operation stopped;
+remaining targets and all checkouts stayed untouched. Exact conversation/layout
+and cwd identities remained intact.
+
+Pinned OpenCode source shows global location events can trigger client catalog
+refreshes without a selected session there. An isolated installed-server check
+confirmed that eviction remains effective without consumers, while a catalog GET
+recreates a session-empty location. This proves the server re-acquisition path,
+not the exact live initiating client. Successful-request metadata is absent from
+the normal server log. Zero sessions/panes is therefore insufficient retirement
+admission; require consumer quiescence or a qualified admission barrier. Do not
+repeat eviction, kill MCP processes or remove referenced directories.
+
+A later registered-agent observation remains degraded after recurrence on
+2026-10-09, despite enabled registration and valid signature. Prior healthy
+evidence above remains historical, not current recovery proof. Preserve private
+recurrence evidence; cause remains undetermined. INT-044 selects preparation of
+[bounded diagnostics](../HOST-DIAGNOSTICS.md), with implementation and signed
+deployment still subject to fresh readiness and exact-plan approval.
