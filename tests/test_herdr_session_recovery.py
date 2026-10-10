@@ -1,6 +1,7 @@
 import json
 import os
 import runpy
+import shlex
 import signal
 import sqlite3
 import subprocess
@@ -306,7 +307,7 @@ def test_preserved_recovery_failure_messages_remain_bounded():
     assert 'private fixture detail' not in message(RuntimeError('private fixture detail'))
 
 
-def wrapper_fixture(tmp_path):
+def wrapper_fixture(tmp_path, *, explicit_recovery=True):
     state = tmp_path / "state"
     state.mkdir()
     (state / ".dotfiles-ai-state").touch()
@@ -335,7 +336,7 @@ else:
     wrapper = tmp_path / "wrapper"
     wrapper.write_text(_render_herdr_script(".local/bin/opencode", {
         "chezmoi": {"os": "darwin", "arch": "arm64"},
-        "dotfiles_ai": {"state": {"root": str(state)}, "herdr": {"host_enabled": False}},
+        "dotfiles_ai": {"state": {"root": str(state)}, "herdr": {"host_enabled": True}},
     }).replace("python3 -", f'"{sys.executable}" -'))
     wrapper.chmod(0o755)
     helper = tmp_path / "home/.local/bin/herdr-opencode-restore"
@@ -349,8 +350,103 @@ sys.addaudithook(trace_exec)
 runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
 ''')
     helper.chmod(0o755)
+    if explicit_recovery:
+        ordinary_wrapper = wrapper
+        wrapper = tmp_path / "recovery-launch"
+        wrapper.write_text('#!/bin/bash\nexec ' + shlex.join([
+            'env', f'DOTFILES_AI_STATE_ROOT={state}', str(helper), '--pace-start',
+            str(ordinary_wrapper)]) + ' "$@"\n')
+        wrapper.chmod(0o755)
     env = {"HOME": str(tmp_path / "home"), "PATH": "/usr/bin:/bin", "HERDR_ENV": "1"}
     return wrapper, state / "herdr", env
+
+
+@pytest.mark.parametrize("herdr", [False, True])
+@pytest.mark.parametrize("helper_state", ["missing", "failing"])
+@pytest.mark.parametrize("route", ["standalone", "shared", "administrative"])
+def test_ordinary_resume_ignores_herdr_health_and_recovery_helpers(tmp_path, herdr, helper_state, route):
+    wrapper, _, env = wrapper_fixture(tmp_path, explicit_recovery=False)
+    if not herdr:
+        env.pop("HERDR_ENV")
+    home = Path(env["HOME"])
+    helper = home / ".local/bin/herdr-opencode-restore"
+    host = home / ".local/bin/herdr-host"
+    calls = tmp_path / "herdr-calls"
+    helper.unlink()
+    if helper_state == "failing":
+        for path in (helper, host):
+            path.write_text(f'#!/bin/bash\necho called >> {shlex.quote(str(calls))}\nexit 75\n')
+            path.chmod(0o755)
+    arguments = ["--session", "ses_exact", "--model", "literal/model"]
+    if route == "standalone":
+        arguments.append("--standalone")
+    if route == "administrative":
+        arguments = ["service", "status"]
+    result = subprocess.run([wrapper, *arguments], env=env, capture_output=True,
+                            text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    if route == "administrative":
+        assert result.stdout.strip() == "http://127.0.0.1:12345"
+    else:
+        expected = arguments + (["--auto"] if herdr else [])
+        if route == "shared":
+            expected = ["--server", "http://127.0.0.1:12345", *expected]
+        assert json.loads(result.stdout)[0] == expected
+    assert not calls.exists()
+
+
+def test_explicit_restore_owns_pacing_and_exact_arguments(tmp_path, monkeypatch):
+    directory = tmp_path / "state ; 'literal'" / "herdr"
+    directory.mkdir(parents=True)
+    manifest = seed(directory)
+    script = runpy.run_path(str(SCRIPT))
+    globals_ = script["restore"].__globals__
+    monkeypatch.setitem(globals_, "runtime_major", lambda _: 2)
+    monkeypatch.setitem(globals_, "recovery_sessions", lambda *_: {"ses_saved": str(directory)})
+    monkeypatch.setitem(globals_, "pane_state", lambda *_ , **__: (None, False))
+    monkeypatch.setitem(globals_, "pane_session", lambda _: "ses_saved")
+    def run(*args):
+        if args == ("agent", "list"):
+            return {"result": {"agents": []}}
+        assert args == ("pane", "get", "w1:p1")
+        return {"result": {"pane": {"cwd": str(directory)}}}
+    monkeypatch.setitem(globals_, "run", run)
+    launches = []
+    monkeypatch.setattr(subprocess, "run", lambda args, **kwargs: launches.append((args, kwargs)))
+    opencode = tmp_path / "opencode ; 'literal'"
+    assert script["restore"](manifest, [entry(directory)], tmp_path / "unused.db", opencode, False) == 0
+    assert len(launches) == 1
+    args, kwargs = launches[0]
+    assert args[:4] == [globals_["HERDR"], "pane", "run", "w1:p1"]
+    assert shlex.split(args[4]) == ["exec", "env", f"DOTFILES_AI_STATE_ROOT={directory.parent}",
+                                    str(SCRIPT.resolve()), "--pace-start", str(opencode),
+                                    "--session", "ses_saved", "--auto"]
+    assert kwargs["cwd"] == directory
+
+
+def test_explicit_restore_still_requires_host_preflight(tmp_path, monkeypatch, capsys):
+    script = runpy.run_path(str(SCRIPT))
+    monkeypatch.setenv("DOTFILES_AI_STATE_ROOT", str(tmp_path))
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT)])
+    def blocked(**_):
+        raise script["HostPreflightError"](75, "Host recovery blocked")
+    monkeypatch.setitem(script["main"].__globals__, "preflight_host", blocked)
+    assert script["main"]() == 75
+    assert "Host recovery blocked" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("fault", ["missing_state", "unsafe_service"])
+def test_ordinary_resume_retains_native_admission(tmp_path, fault):
+    wrapper, _, env = wrapper_fixture(tmp_path, explicit_recovery=False)
+    state = tmp_path / "state"
+    if fault == "missing_state":
+        (state / ".dotfiles-ai-state").unlink()
+    else:
+        (state / "xdg/state/opencode/service.json").chmod(0o644)
+    result = subprocess.run([wrapper, "--session", "ses_exact"], env=env,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 75
+    assert ("centralized state root" if fault == "missing_state" else "shared service") in result.stderr
 
 
 def test_eighty_concurrent_resumes_drain_with_spacing(tmp_path):

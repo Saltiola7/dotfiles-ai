@@ -11,9 +11,16 @@ separate project slices; it does not own their implementation.
 
 ## Outcomes and constraints
 
-Latest operator steering: recovered workspaces are visually confirmed. Finish
-migration and OpenCode/Codex/Herdr updates, then revisit hibernation options.
-Python and guests remain paused. See [current session focus](findings/current-session-focus.md).
+Latest operator steering: finish host reliability investigation and bounded
+migration-checkout cleanup. Hibernation, Python, guests and the other recorded
+deferrals remain paused. Prepare [Host diagnostics](HOST-DIAGNOSTICS.md), but do
+not implement or deploy without fresh readiness and exact-plan approval. Cache
+release stopped after location re-creation; preserve referenced checkouts. See
+[closure findings](findings/host-cleanup-closure.md) and the historical
+[session focus](findings/current-session-focus.md).
+INT-047 additionally selects [harness/Herdr independence](HARNESS-HERDR-INDEPENDENCE.md):
+ordinary coding and lifecycle preflight do not depend on Herdr presentation or
+Host metadata. Explicit recovery retains operation-specific preservation and pacing.
 Preserve unfinished Host-promotion work; a permanent helper is not itself an
 operator goal or a prerequisite for native executable migration.
 

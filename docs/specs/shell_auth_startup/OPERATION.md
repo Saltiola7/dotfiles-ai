@@ -22,6 +22,13 @@ remains pending that separate permission decision; Homebrew copies are distinct.
 
 ## Qualified Source Repair: Operator Hold
 
+HARNESS-HERDR-INDEPENDENCE moves pacing ownership to explicit restoration, under
+the [approved boundary](../../initiatives/ssd-toolchain-recovery/HARNESS-HERDR-INDEPENDENCE.md).
+Ordinary harness continuation and native lifecycle preflight do not require Herdr
+presentation/Host metadata. Deploy wrapper/helper together; retain their preimages
+for paired rollback. Recovery's Host, pane-identity and occupancy checks remain
+unchanged. No live restore or server restart is part of this source change.
+
 HERDR-SESSION-RECOVERY source qualification covers the wrapper and
 `herdr-opencode-restore` as one deployment unit. Its internal `--pace-start
 COMMAND...` mode shares the existing startup lock/timestamp, uses a twenty-second

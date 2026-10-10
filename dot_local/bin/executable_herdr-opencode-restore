@@ -498,7 +498,11 @@ def restore(manifest: Path, entries: list[dict], database: Path, opencode: Path,
                 raise RuntimeError("pane directory mismatch")
             if check:
                 continue
-            command = "exec " + shlex.join([str(opencode), "--session", session, "--auto"])
+            command = "exec " + shlex.join([
+                "env", f"DOTFILES_AI_STATE_ROOT={manifest.parent.parent}",
+                str(Path(__file__).resolve()), "--pace-start",
+                str(opencode), "--session", session, "--auto",
+            ])
             subprocess.run(
                 [HERDR, "pane", "run", pane, command],
                 cwd=directory, check=True, capture_output=True, text=True, timeout=10,

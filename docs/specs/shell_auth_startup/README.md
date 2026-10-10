@@ -41,6 +41,14 @@ This source repair does not activate the helper or restart existing sessions.
 
 ## Session Recovery Repair Evidence
 
+HARNESS-HERDR-INDEPENDENCE implements the
+[approved launcher/recovery boundary](../../initiatives/ssd-toolchain-recovery/HARNESS-HERDR-INDEPENDENCE.md).
+Ordinary OpenCode commands no longer consult Herdr Host or invoke recovery pacing.
+Explicit restore invokes the existing paced-start helper before the wrapper,
+retaining state-root routing and exact session arguments. This supersedes the
+wrapper-owned pacing described below; native storage/service admission remains
+unchanged. Source qualification alone is not deployment evidence.
+
 HERDR-SESSION-RECOVERY implements the
 [approved paced-start and pending-entry contract](../../initiatives/gpt6-herdr-recovery/recovery.md).
 The wrapper delegates paced launches through the existing Python recovery helper,

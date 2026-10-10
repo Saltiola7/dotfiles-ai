@@ -777,8 +777,8 @@ def test_opencode_restore_and_owner_preflight_active_herdr_host() -> None:
     owner = (ROOT / "dot_local/bin/executable_herdr-server-owner.tmpl").read_text()
     guard = (ROOT / "dot_local/bin/executable_state-root-exec").read_text()
 
-    assert "preflight --if-active" in wrapper
-    assert wrapper.index("preflight --if-active") < wrapper.index(".dotfiles-ai-state")
+    assert "preflight --if-active" not in wrapper
+    assert '[[ -f "$DOTFILES_AI_STATE_ROOT/.dotfiles-ai-state" ]]' in wrapper
     assert "preflight_host" in restore
     assert restore.index("preflight_host") < restore.index("opencode-sessions.json")
     assert "preflight --if-active" in owner
@@ -1107,8 +1107,8 @@ def test_centralized_state_scopes_opencode_runtime_environment() -> None:
     assert 'export HERMES_HOME="/Volumes/ext/state/hermes"' in rendered
     assert 'export XDG_DATA_HOME="/Volumes/ext/state/xdg/data"' in rendered
     assert 'target="$HOME/.opencode/bin/opencode"' in rendered
-    assert 'start_opencode "$target" "$@"' in rendered
-    assert 'exec "$@"' in rendered
+    assert 'exec "$target" "$@"' in rendered
+    assert 'herdr-opencode-restore' not in rendered
     assert ".dotfiles-ai-state" in rendered
 
 
@@ -1205,13 +1205,14 @@ def test_opencode_wrapper_adds_auto_only_for_herdr(tmp_path) -> None:
         env={**environment, "HERDR_ENV": "1"},
     )
     assert time.monotonic() - started < 2
+    assert (startup_dir / "opencode-startup.lock").read_text() == "999999\n"
     started = time.monotonic()
     resumed = subprocess.run(
         [wrapper, "--standalone", "--session", "ses_second"], text=True, capture_output=True, check=True,
         env={**environment, "HERDR_ENV": "1"},
     )
 
-    assert time.monotonic() - started >= 5
+    assert time.monotonic() - started < 2
     assert resumed.stdout.splitlines() == ["--standalone", "--session", "ses_second", "--auto"]
 
 
@@ -1491,4 +1492,5 @@ def test_session_restore_skips_running_and_restores_exact_identity(tmp_path) -> 
     assert results == [(0, ""), (0, "")]
     calls = (tmp_path / "calls").read_text()
     assert "ses_running" not in calls
-    assert calls.count(f"pane run w1:p2 exec {wrapper} --session ses_restore --auto") == 1
+    helper = ROOT / "dot_local/bin/executable_herdr-opencode-restore"
+    assert calls.count(f"pane run w1:p2 exec env DOTFILES_AI_STATE_ROOT={state} {helper} --pace-start {wrapper} --session ses_restore --auto") == 1
