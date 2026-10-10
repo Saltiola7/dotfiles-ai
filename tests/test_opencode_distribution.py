@@ -73,15 +73,15 @@ else:
     (['mini', '--help'], False, False),
     (['--version'], False, False),
     (['--session', 'ses_test', '--help'], False, False),
-    (['--session', 'ses_test'], True, True),
-    (['--session=ses_test'], True, True),
-    (['-s', 'ses_test'], True, True),
+    (['--session', 'ses_test'], True, False),
+    (['--session=ses_test'], True, False),
+    (['-s', 'ses_test'], True, False),
     (['-c'], True, False),
-    (['mini', '--session', 'ses_test', '--auto'], True, True),
+    (['mini', '--session', 'ses_test', '--auto'], True, False),
     (['run', 'a prompt'], True, False),
     ([], True, False),
 ])
-def test_native_host_routes_maintenance_unchanged_and_paces_sessions(tmp_path, argv, interactive, paced):
+def test_native_host_routes_without_implicit_recovery_pacing(tmp_path, argv, interactive, paced):
     _, _, scripts = native_host_fixture(tmp_path)
     result = subprocess.run(['/bin/bash', str(scripts['opencode']), *argv],
                             env={**os.environ, 'HERDR_ENV':'1'}, text=True, capture_output=True)

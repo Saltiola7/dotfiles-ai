@@ -1,5 +1,15 @@
 # Shell Auth Startup Changelog
 
+## 2026-10-10 — HARNESS-HERDR-INDEPENDENCE
+
+- Removed implicit Herdr Host and pacing-helper admission from ordinary OpenCode
+  launch/resume; native storage, executable and shared-service safety stay intact.
+- Explicit Herdr recovery now invokes existing paced-start admission around the
+  managed wrapper, preserving exact session/cwd/options and recovery checks.
+- Regression fixtures cover absent/failing optional helpers and shell quoting;
+  pacing, cancellation and unsafe-lock authorities remain scoped to recovery.
+- Deployment and final delivery remain pending; no live restore or restart claimed.
+
 ## 2026-10-08 — SSD-HOST-VOLUME-REPAIR
 
 - Completed the approved one-time signed Host volume-binding repair. Native
