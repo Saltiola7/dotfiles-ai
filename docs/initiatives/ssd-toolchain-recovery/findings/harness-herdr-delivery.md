@@ -28,12 +28,31 @@ context completion evidence links that boundary. No context BACKLOG exists.
 
 ## Delivery status
 
-Live pair deployment, preservation smoke and Final Push are pending. Only the
-two managed executable paths may be applied; no live capture/restore, permission
-grant, service restart, database write or checkout cleanup is part of this cycle.
-Private pair preimages and prior/source hashes are retained for rollback.
+The exact pair was deployed using targeted chezmoi apply with scripts excluded.
+Installed checksums/modes match the qualified candidates. Ordinary version and
+service-status commands passed against native OpenCode 2.0.26; this cycle did not
+update the native executable. Shared-server PID remained unchanged, and all 77
+original pane/session/directory tuples remain in newer recovery state. No live
+capture/restore, permission grant, service restart, conversation/database write
+or checkout cleanup occurred. Private pair preimages, candidate/source hashes,
+deployment record and recovery preimage remain retained and SHA-256 verified.
+
+The earlier failing regression envelope remains historical; successful remediation
+does not erase it. Release is not applicable for these managed local scripts.
+Normal feature-branch delivery targets a draft PR into protected `main`; the native
+Cycle Record owns exact Gate Commits, Final Push and hosted PR identity. Hosted CI
+and protected-base merge are separate downstream evidence, not inferred here.
 
 The task checkout is the candidate deployment source. Canonical configured-source
 convergence follows human-reviewed PR integration; retain this task checkout and
 do not reapply the older canonical pair or remove the candidate before convergence.
 Draft-PR delivery does not itself claim protected-base merge or full-fleet closure.
+
+## Closure and retained work
+
+Host diagnostics remain prepared but not implementation-approved. Hibernation,
+guests, Python and other existing deferrals stay paused. Resource release stopped
+on re-creation; retained migration checkouts and the failed helper cycle must not
+be removed or marked complete. Host recovery observations remain historical and
+do not establish recurrence cause. No new investigation or cycle is required to
+finish this approved harness delivery.

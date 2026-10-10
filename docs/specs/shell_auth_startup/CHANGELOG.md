@@ -8,7 +8,14 @@
   managed wrapper, preserving exact session/cwd/options and recovery checks.
 - Regression fixtures cover absent/failing optional helpers and shell quoting;
   pacing, cancellation and unsafe-lock authorities remain scoped to recovery.
-- Deployment and final delivery remain pending; no live restore or restart claimed.
+- Passed affected source/fixture authorities, including 80-session paced recovery,
+  and deployed only the paired managed scripts from the approved task checkout.
+  Native administrative smoke preserved the shared server and all 77 original
+  recovery identity tuples. No live restore or restart occurred.
+- Private preimages and rollback qualification remain retained. Canonical source
+  convergence follows human-reviewed PR integration; do not reapply its older
+  pair or remove the candidate checkout before convergence. The Cycle Record
+  owns Gate Commits, Final Push and actual draft-PR delivery evidence.
 
 ## 2026-10-08 — SSD-HOST-VOLUME-REPAIR
 
