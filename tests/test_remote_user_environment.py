@@ -1,8 +1,10 @@
 import json
 import os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import stat
 import subprocess
+import threading
 
 import pytest
 
@@ -172,46 +174,82 @@ def test_remote_agent_wrappers_force_per_user_state_and_adc() -> None:
     }
 
 
-@pytest.mark.parametrize("failed", [None, "opencode", "codex", "vertex-reauth", "op"])
-def test_remote_agent_readiness_is_content_free(tmp_path: Path, failed: str | None) -> None:
+@pytest.fixture
+def local_readiness(tmp_path):
     script = tmp_path / "remote-agent-readiness"
     script.write_text(_render("dot_local/bin/executable_remote-agent-readiness.tmpl"))
     script.chmod(0o755)
-    (tmp_path / ".config/opencode").mkdir(parents=True)
-    (tmp_path / ".config/opencode/opencode.json").write_text("{}\n")
-    (tmp_path / ".local/state/dotfiles-ai/codex").mkdir(parents=True)
-    (tmp_path / ".local/state/dotfiles-ai/codex/config.toml").write_text("\n")
+    paths = [".config/opencode/opencode.json", ".local/state/dotfiles-ai/codex/config.toml",
+             ".local/state/dotfiles-ai/codex/auth.json", ".config/gcloud/application_default_credentials.json",
+             ".config/op/config"]
+    for name in paths:
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n")
+        path.chmod(0o600)
     binary = tmp_path / "bin"
     binary.mkdir()
     private = "private-account private-token private-path private-session private-content"
-    commands = {
-        "opencode": f'''#!/bin/bash
-[[ $1 == --version ]] && {{ echo 1.18.25; exit; }}
-[[ {failed!r} == opencode ]] && exit 1
-echo "OpenAI {private}"
-''',
-        "codex": f'''#!/bin/bash
-[[ $1 == --version ]] && {{ echo "codex-cli 0.151.0"; exit; }}
-[[ {failed!r} == codex ]] && exit 1
-echo "{private}"
-''',
-        "vertex-reauth": f'''#!/bin/bash
-[[ {failed!r} == vertex-reauth ]] && exit 1
-echo "{private}"
-''',
-        "op": f'''#!/bin/bash
-[[ {failed!r} == op ]] && exit 1
-echo "{private}"
-''',
-    }
-    for name, source in commands.items():
+    for name in ("opencode", "codex", "vertex-reauth", "op"):
         path = binary / name
-        path.write_text(source)
+        path.write_text('#!/bin/sh\n'
+                        + ('[ "$1" = --version ] && { echo "opencode v2.0.99"; exit; }\n'
+                           if name == "opencode" else "")
+                        + f'touch "{tmp_path}/unexpected-command"\necho "{private}"\nexit 99\n')
         path.chmod(0o755)
+    state = {"connections": [{"type": "credential", "id": "synthetic"}], "pid": 123,
+             "version": "2.0.99", "requests": [], "fault": None}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            state["requests"].append(self.path)
+            assert self.headers.get("Authorization", "").startswith("Basic ")
+            payload = ({"pid": state["pid"], "version": state["version"]}
+                       if self.path == "/api/info" else
+                       {"data": [{"id": "openai", "connections": state["connections"]}]})
+            body = json.dumps(payload).encode()
+            if state["fault"] == "bad-json":
+                body = b"private-token invalid json"
+            elif state["fault"] == "overflow":
+                body = b" " * 65537
+            self.send_response(302 if state["fault"] == "redirect" else 200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    registration = tmp_path / ".local/state/opencode/service.json"
+    registration.parent.mkdir(parents=True)
+    registration.write_text(json.dumps({"url": f"http://127.0.0.1:{server.server_port}",
+                                        "pid": 123, "password": "synthetic-private"}))
+    registration.chmod(0o600)
+    try:
+        yield tmp_path, script, binary, registration, state
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+@pytest.mark.parametrize("failed", [None, "opencode", "codex", "vertex-reauth", "op"])
+def test_remote_agent_readiness_is_content_free(local_readiness, failed):
+    tmp_path, script, binary, _, state = local_readiness
+    if failed == "opencode":
+        state["connections"] = []
+    elif failed:
+        path = {"codex": ".local/state/dotfiles-ai/codex/auth.json",
+                "vertex-reauth": ".config/gcloud/application_default_credentials.json",
+                "op": ".config/op/config"}[failed]
+        (tmp_path / path).unlink()
 
     result = subprocess.run(
         [str(script)], text=True, capture_output=True,
-        env={"HOME": str(tmp_path), "PATH": f"{binary}:/usr/bin:/bin"},
+        env={"HOME": str(tmp_path), "PATH": f"{binary}:{os.environ['PATH']}"},
     )
 
     expected_state = "ready" if failed is None else "auth_pending"
@@ -225,7 +263,39 @@ echo "{private}"
     assert json.loads(result.stdout) == expected
     assert result.returncode == (0 if failed is None else 1)
     assert result.stderr == ""
-    assert not any(value in result.stdout for value in private.split())
+    assert "private-" not in result.stdout
+    assert not (tmp_path / "unexpected-command").exists()
+    assert len(state["requests"]) == 2
+
+
+@pytest.mark.parametrize("fault", ["missing", "public", "symlink", "remote-url", "pid", "version",
+                                   "bad-json", "overflow", "redirect"])
+def test_readiness_never_starts_or_repairs_unavailable_native_service(local_readiness, fault):
+    home, script, binary, registration, state = local_readiness
+    if fault == "missing":
+        registration.unlink()
+    elif fault == "public":
+        registration.chmod(0o644)
+    elif fault == "symlink":
+        saved = home / "saved-registration"
+        registration.rename(saved)
+        registration.symlink_to(saved)
+    elif fault == "remote-url":
+        value = json.loads(registration.read_text())
+        value["url"] = "https://example.invalid"
+        registration.write_text(json.dumps(value))
+    elif fault in {"pid", "version"}:
+        state[fault] = 999 if fault == "pid" else "2.0.22"
+    else:
+        state["fault"] = fault
+    result = subprocess.run([script], text=True, capture_output=True,
+                            env={"HOME": str(home), "PATH": f"{binary}:{os.environ['PATH']}"})
+    assert result.returncode == 1
+    assert json.loads(result.stdout)["state"] == "auth_pending"
+    assert result.stderr == ""
+    assert "private" not in result.stdout
+    assert not (home / "unexpected-command").exists()
+    assert all(path == "/api/info" for path in state["requests"])
 
 
 def _commit(repository: Path, content: str) -> str:
@@ -434,6 +504,28 @@ def test_foundation_refresh_auth_distinguishes_integrity_and_login_state(tmp_pat
     bashrc.symlink_to(tmp_path / "private-history")
     damaged = _foundation(tmp_path, "refresh-auth")
     assert damaged.returncode != 0
+    assert json.loads(state_path.read_text())["state"] == "failed_retryable"
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("version", ["1.18.25", "opencode v2.0.30", "opencode v2.99.999"])
+def test_foundation_accepts_native_updates_without_release_pin(tmp_path, version):
+    home, state_path = _refreshable_foundation(tmp_path)
+    marker = _install_foundation_targets(tmp_path, "ready")
+    (home / ".local/bin/opencode").write_text(f"#!/bin/sh\nprintf '%s\\n' '{version}'\n")
+    result = _foundation(tmp_path, "refresh-auth")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(state_path.read_text())["state"] == "ready"
+    assert marker.exists()
+
+
+@pytest.mark.parametrize("body", [b"invalid", b"[]", b'"not-config"', b"\xff"])
+def test_foundation_rejects_malformed_configuration_before_local_readiness(tmp_path, body):
+    home, state_path = _refreshable_foundation(tmp_path)
+    marker = _install_foundation_targets(tmp_path, "ready")
+    (home / ".config/opencode/opencode.json").write_bytes(body)
+    result = _foundation(tmp_path, "refresh-auth")
+    assert result.returncode != 0
     assert json.loads(state_path.read_text())["state"] == "failed_retryable"
     assert not marker.exists()
 

@@ -226,6 +226,10 @@ def validate_integrity(state: dict) -> Path:
     for target in state["managed_targets"]:
         if os.path.lexists(HOME / target):
             safe_path(HOME / target)
+    opencode_config = HOME / ".config/opencode/opencode.json"
+    safe_path(opencode_config, "file")
+    if not isinstance(json.loads(opencode_config.read_text()), dict):
+        raise RuntimeError("foundation configuration is invalid")
     data_path = SOURCE / ".chezmoidata.toml"
     safe_path(data_path, "file")
     data = tomllib.loads(data_path.read_text())["dotfiles_ai"]
@@ -241,7 +245,7 @@ def validate_integrity(state: dict) -> Path:
         if output != expected:
             raise RuntimeError("foundation runtime version changed")
     opencode = command(str(binaries / "opencode"), "--version", capture=True).stdout.strip()
-    if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", opencode):
+    if not re.fullmatch(r"(?:(?:0|[1-9][0-9]*)|opencode v2)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", opencode):
         raise RuntimeError("foundation runtime version changed")
     return binaries / "remote-agent-readiness"
 
@@ -268,7 +272,7 @@ def refresh_auth() -> None:
             raise SystemExit(1)
     except SystemExit:
         raise
-    except (KeyError, OSError, RuntimeError, subprocess.CalledProcessError,
+    except (KeyError, OSError, UnicodeError, RuntimeError, subprocess.CalledProcessError,
             subprocess.TimeoutExpired, tomllib.TOMLDecodeError, json.JSONDecodeError):
         write_state({**current, "state": "failed_retryable"})
         raise SystemExit("foundation integrity check failed") from None
