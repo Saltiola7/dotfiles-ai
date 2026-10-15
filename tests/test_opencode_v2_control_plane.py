@@ -111,8 +111,9 @@ class Provider(BaseHTTPRequestHandler):
         request = json.loads(self.rfile.read(size))
         self.server.requests.append(request)
         completed = sum(item.get("role") == "tool" for item in request.get("messages", []))
-        if completed < len(self.server.steps):
-            name, args = self.server.steps[completed]
+        steps = self.server.steps(request) if callable(self.server.steps) else self.server.steps
+        if completed < len(steps):
+            name, args = steps[completed]
             delta = {"tool_calls": [{"index": 0, "id": f"fixture_{completed}", "type": "function",
                                     "function": {"name": name, "arguments": json.dumps(args)}}]}
             reason = "tool_calls"

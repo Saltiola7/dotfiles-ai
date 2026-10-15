@@ -65,7 +65,7 @@ Private client/session evidence remains local under existing privacy rules.
 ## Validation, deployment and maintenance
 
 Authorities: focused pytest rendering/preservation/permission/instruction tests,
-native resolved agent inspection, and isolated synthetic native permission checks.
+native resolved agent inspection, and isolated synthetic native child/permission checks.
 Check positive helper visibility and negative provider/role/recursion cases, plus
 exact model assignments and inheritance after a parent model change. Synthetic
 fixtures use no client prompts, credentials, production session history or paid
@@ -73,6 +73,11 @@ inference. Missing executable/tool capabilities are unavailable, never passing.
 Fresh native session smoke is required after deployment; an already-running
 conversation may retain its old tool catalog. Do not forge a child launch through
 an API/shell substitute when the current agent's native capability is denied.
+The isolated 2.0.30 fixture creates fresh native parent/child sessions against a
+loopback-only provider. It proves inherited-model General/Explore launches,
+Plan writing-helper denial, wrong-provider helper denial, and docs-only child
+writes. Live metadata inspection after reload confirms the deployed allowlists;
+no real-provider child inference is claimed.
 
 Project only affected configuration, agents, commands and shared skills after
 passing checks and explicit deployment approval. Preserve unrelated local values,

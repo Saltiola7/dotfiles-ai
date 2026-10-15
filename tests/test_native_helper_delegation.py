@@ -6,11 +6,14 @@ import re
 import shutil
 import socket
 import subprocess
+import threading
 import time
+from http.server import ThreadingHTTPServer
 
 import pytest
 
 from test_opencode_control_plane import OC, ROOT, rendered_config
+from test_opencode_v2_control_plane import Provider
 
 
 def task_permissions(name):
@@ -74,6 +77,10 @@ def test_shared_instructions_allow_helpers_but_keep_primary_cycle_ownership():
         assert "bounded helpers" in body and "primary" in body
         assert "independent" in body and "slice" in body
     assert "never Task delegation in an ordinary session" not in (ROOT / "dot_agents/skills/dbsctr/SKILL.md").read_text()
+    for family in ('anthropic', 'openai'):
+        overlay = (ROOT / f'dot_agents/skills/dbsctr/references/{family}.md').read_text()
+        assert 'without automatic helper model or' in overlay
+        assert 'Retry a failed optimized route' not in overlay
     contract = (ROOT / "docs/specs/opencode_control_plane/features/native-helper-delegation.md").read_text()
     for term in ("## Domain", "## Behavior", "## Native configuration", "## Validation",
                  "## Visual Evidence", "accTitle:", "accDescr:", "**Text Equivalent:**"):
@@ -98,11 +105,22 @@ def test_deployed_host_helper_configuration_matches_source():
         assert (home / '.config/opencode' / source.relative_to(OC)).read_bytes() == source.read_bytes()
     for name in ('discovery', 'dbsctr'):
         assert (home / '.agents/skills' / name / 'SKILL.md').read_bytes() == (ROOT / 'dot_agents/skills' / name / 'SKILL.md').read_bytes()
+    for family in ('anthropic', 'openai'):
+        relative = Path(f'dbsctr/references/{family}.md')
+        assert (home / '.agents/skills' / relative).read_bytes() == (ROOT / 'dot_agents/skills' / relative).read_bytes()
+    for name in ('build-claude', 'build-gpt', 'build', 'plan', 'discovery-coordinator'):
+        result = subprocess.run(['opencode', 'api', 'agent.get', '--param', f'agentID={name}',
+                                 '--param', f'location[directory]={ROOT}'], capture_output=True, text=True, timeout=30)
+        assert result.returncode == 0, 'Deployed native role lookup failed'
+        role = json.loads(result.stdout)['data']
+        actual = {rule['resource']: rule['effect'] for rule in role['permissions'] if rule['action'] == 'subagent'}
+        assert actual == (task_permissions(name) if name in ('build-claude', 'build-gpt', 'discovery-coordinator')
+                          else expected[name]['permission']['task'])
 
 
 @pytest.mark.skipif(not os.environ.get("OPENCODE_HELPER_BINARY"), reason="native helper resolution authority not selected")
 def test_native_v2_resolves_helper_permissions_and_model_inheritance(tmp_path):
-    """Resolve native roles in isolated state; no inference or child launch."""
+    """Resolve roles and launch synthetic children; no external inference."""
     binary = Path(os.environ["OPENCODE_HELPER_BINARY"]).resolve(strict=True)
     env = {"PATH": os.defpath, "TERM": "dumb", "NO_COLOR": "1"}
     for key, name in {"HOME": "home", "OPENCODE_TEST_HOME": "home", "XDG_CONFIG_HOME": "config",
@@ -114,7 +132,13 @@ def test_native_v2_resolves_helper_permissions_and_model_inheritance(tmp_path):
     config_dir = tmp_path / "config/opencode"
     config = rendered_config()
     # Keep exact role configuration; disable external integrations in this fixture.
-    config.update({"plugin": [], "mcp": {"servers": {}}, "update": "disable"})
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
+    server.steps, server.requests = [], []
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    config.update({"plugin": [], "mcp": {"servers": {}}, "update": "disable",
+        "enabled_providers": ["probe"], "provider": {"probe": {
+            "npm": "@ai-sdk/openai-compatible", "options": {"baseURL": f"http://127.0.0.1:{server.server_port}/v1"},
+            "models": {name: {"limit": {"context": 32000, "output": 1000}} for name in ("first", "second")}}}})
     config.pop("references", None)
     (config_dir / "opencode.json").write_text(json.dumps(config))
     shutil.copytree(OC / "agents", config_dir / "agents")
@@ -170,5 +194,40 @@ def test_native_v2_resolves_helper_permissions_and_model_inheritance(tmp_path):
             for name, model in models.items():
                 resolved = agent(f"{name}-{family}")["model"]
                 assert (resolved["providerID"], resolved["id"]) == (provider, model)
+        for parent, helper, model, allowed in (("build", "general", "first", True),
+                                              ("build", "general", "second", True),
+                                              ("plan", "explore", "first", True),
+                                              ("plan", "general", "first", False),
+                                              ("plan", "discovery-writer", "first", False),
+                                              ("build-claude", "builder-openai", "first", False),
+                                              ("build-gpt", "builder-vertex", "first", False)):
+            server.requests.clear()
+            server.steps = lambda request: [] if any(
+                item.get("role") == "user" and "SYNTHETIC_CHILD" in json.dumps(item.get("content"))
+                for item in request.get("messages", [])
+            ) else [("subagent", {"agent": helper, "description": "Synthetic helper smoke",
+                                  "prompt": "SYNTHETIC_CHILD: return a short synthetic response."})]
+            run("run", "--agent", parent, "--model", f"probe/{model}", "--format", "json", "Run synthetic helper fixture.")
+            children = [request for request in server.requests if any(
+                item.get("role") == "user" and "SYNTHETIC_CHILD" in json.dumps(item.get("content"))
+                for item in request.get("messages", []))]
+            assert len(children) == int(allowed), (parent, helper)
+            assert all(request["model"] == model for request in server.requests)
+        for relative, allowed in (("docs/helper.md", True), ("source/helper.py", False)):
+            target = tmp_path / relative
+            server.steps = lambda request: [
+                ("write", {"path": str(target), "content": "synthetic docs"})
+            ] if any(item.get("role") == "user" and "SYNTHETIC_CHILD" in json.dumps(item.get("content"))
+                     for item in request.get("messages", [])) else [
+                ("subagent", {"agent": "discovery-writer", "description": "Synthetic docs boundary",
+                              "prompt": "SYNTHETIC_CHILD: write the requested synthetic artifact."})]
+            run("run", "--agent", "discovery-coordinator", "--model", "probe/first", "--format", "json", "Run synthetic docs fixture.")
+            assert target.exists() == allowed
+            if allowed:
+                assert target.read_text() == "synthetic docs"
     finally:
-        run("service", "stop")
+        try:
+            run("service", "stop")
+        finally:
+            server.shutdown()
+            server.server_close()

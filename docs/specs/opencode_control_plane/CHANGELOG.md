@@ -1,6 +1,6 @@
 # OpenCode Control Plane Changelog
 
-## 2026-10-15 — NATIVE-HELPER-DELEGATION (source)
+## 2026-10-15 — NATIVE-HELPER-DELEGATION
 
 - Restored role-bounded native helper allowlists. Build-Claude pins Vertex Opus
   5.5/Sonnet 5.5; Build-GPT defaults to Sol 6.1 Fast with OpenAI Sol 6.1/Terra
@@ -10,12 +10,19 @@
   instructions. Primary retains lifecycle state, review, integration and delivery;
   independent slice orchestration remains deferred. Managed helper maps replace
   stale grants rather than merging extra machine-local helper permissions.
-- Regression and isolated native 2.0.30 agent-resolution checks cover model
-  assignments, inheritance and permission boundaries. No paid inference or
-  production child launch is claimed. Live apply and fresh-session smoke remain
-  pending operator deployment approval; no Gate Exceptions approved.
+- Passed 80 affected checks, including host deployment verification and fresh
+  synthetic native 2.0.30 parent/child sessions. Verified model inheritance,
+  Plan and cross-provider helper denials, and docs-only child writes. Two older
+  exact-candidate checks were not selected; no paid inference or real-provider
+  child launch is claimed.
+- Operator approved targeted host apply and configuration reload without shared
+  service restart. Preserved Vertex options, repository references and unrelated
+  settings; retained private rollback backup. Initial apply stopped safely on
+  missing host rendering data; original failure and passing replacement evidence
+  remain recorded. Provider overlays no longer suggest flagship child fallback.
+- Implementation Gate Commits: `ac869d7`, `c52e7ea`. No Gate Exceptions approved.
 - Intended delivery: feature branch and draft PR into `main`, after required
-  gates pass. Gate Commits and actual Final Push remain in the Cycle Record.
+  gates pass. Final Gate Commit and actual Final Push remain in the Cycle Record.
 
 ## 2026-10-06 — SSD-OPENCODE-PREFERENCES-1
 
