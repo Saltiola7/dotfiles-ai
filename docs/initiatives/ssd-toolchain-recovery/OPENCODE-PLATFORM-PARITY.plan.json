@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Distribution Profile consumes official upstream binaries; this source-only slice publishes no independent package."},
+    "deploy": {"applicability": "not_applicable", "reason": "Source-only PR changes no environment: no live apply, boot, native install or service restart. Separate activation slice retains required Deploy."},
+    "operate": {"applicability": "not_applicable", "reason": "No live service changes or runtime qualification in this source-only slice. Separate activation slice retains required Operate and conversation continuity evidence."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

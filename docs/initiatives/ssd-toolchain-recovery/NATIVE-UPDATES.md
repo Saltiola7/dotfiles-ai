@@ -1,5 +1,13 @@
 # Native updates with preserved external state
 
+Successor INT-048/049 resumes **OpenCode source preparation only** in
+[OPENCODE-PLATFORM-PARITY.md](OPENCODE-PLATFORM-PARITY.md): supported Linux
+arm64/amd64 wrapper/bootstrap parity, retaining macOS and workstation behavior.
+Its Build-owned source slice is separate from Discovery-owned OPEN activation;
+serialize overlapping host paths. The live guest/x86_64 holds below remain until
+identity, retained provisioning drift, consumers and runtime continuity qualify.
+No scheduled updates, Codex, OS, Python or hibernation changes are resumed.
+
 Status: Discovery contract; implementation readiness remains open.
 The macOS ARM64 OpenCode portion is separately specified in
 [NATIVE-OPENCODE-HOST.md](NATIVE-OPENCODE-HOST.md) and its Build-owned slice.
