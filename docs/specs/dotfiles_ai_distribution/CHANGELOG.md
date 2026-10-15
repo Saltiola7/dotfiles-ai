@@ -1,5 +1,23 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-15 — OPENCODE-PLATFORM-PARITY source
+
+- Extended existing native OpenCode bootstrap, manual-update routing and authenticated
+  matching-service launch guard to supported Linux ARM64/AMD64 guest, remote-user
+  and workstation roles. Preserved state boundaries, maintenance arguments and
+  unsupported routes; no new updater, dependency or scheduler.
+- Root sandbox guards preserve exact arguments. Legacy mutation, recovery and
+  admission entrypoints refuse before guest boot or helper copying. OpenCode
+  versions may differ without triggering unrelated Codex rollback; existing Codex
+  checks and historical artifacts remain intact.
+- Affected validation: 553 passed, one opt-in artifact smoke skipped, including
+  the 80-client recovery stress check. Earlier red and timeout evidence retained.
+  Publication/instruction checks passed; Dependabot alerts unavailable (disabled).
+- Source Gate Commits: `454ba4c`, `ed3369e`. No Gate Exceptions. Release, Deploy
+  and Operate are not applicable to this source-only slice. No live installation,
+  apply, boot or restart; target activation still needs separate qualification.
+  Intended delivery: normal feature-branch push and draft PR into `main`.
+
 ## 2026-10-08 — SSD-NATIVE-CODEX-HOST
 
 - Activated native Codex CLI 0.161.0 on macOS ARM64 through managed bootstrap,
