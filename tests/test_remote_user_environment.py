@@ -98,21 +98,23 @@ def test_remote_user_environment_has_distinct_pinned_assets() -> None:
     assert 'exec "$HOME/.local/bin/opencode-update-all" exec-managed "$@"' in wrapper
 
 
-def test_opencode_bootstrap_preserves_locked_binary_and_rejects_unsafe_lock(tmp_path: Path) -> None:
+def test_opencode_bootstrap_ignores_legacy_lock_and_preserves_native_binary(tmp_path: Path) -> None:
     home = tmp_path / "home"
-    binary = home / ".local/libexec/dotfiles-ai/opencode"
+    binary = home / ".opencode/bin/opencode"
     lock = home / ".local/state/dotfiles-ai/opencode-package/release-lock.json"
     binary.parent.mkdir(parents=True)
     lock.parent.mkdir(parents=True)
-    binary.write_text("managed")
+    binary.write_text('#!/bin/sh\nprintf "opencode v2.0.99\\n"\n')
+    binary.chmod(0o700)
+    before = binary.read_bytes()
     script = tmp_path / "opencode-install"
     script.write_text(_render("dot_local/bin/executable_opencode-install.tmpl"))
     script.chmod(0o755)
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
-    uname = fake_bin / "uname"
-    uname.write_text("#!/bin/sh\n[ \"$1\" = -m ] && echo x86_64 || echo Linux\n")
-    uname.chmod(0o755)
+    curl = fake_bin / "curl"
+    curl.write_text('#!/bin/sh\nexit 93\n')
+    curl.chmod(0o755)
     environment = {**os.environ, "HOME": str(home),
                    "PATH": f"{fake_bin}:{os.environ['PATH']}"}
     lock.write_text("{}")
@@ -120,20 +122,21 @@ def test_opencode_bootstrap_preserves_locked_binary_and_rejects_unsafe_lock(tmp_
     result = subprocess.run([script], text=True, capture_output=True,
                             env=environment)
     assert result.returncode == 0
-    assert binary.read_text() == "managed"
+    assert binary.read_bytes() == before
 
     lock.unlink()
     lock.symlink_to(tmp_path / "missing")
     result = subprocess.run([script], text=True, capture_output=True,
                             env=environment)
-    assert result.returncode == 1
-    assert "release lock is unsafe" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert binary.read_bytes() == before
     lock.unlink()
     lock.mkdir()
     result = subprocess.run([script], text=True, capture_output=True,
                             env=environment)
-    assert result.returncode == 1
-    assert "release lock is unsafe" in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert binary.read_bytes() == before
+    assert not (home / '.local/state/opencode').exists()
 
 
 def test_remote_smoke_expects_both_always_run_updaters() -> None:
@@ -155,6 +158,11 @@ def test_remote_agent_wrappers_force_per_user_state_and_adc() -> None:
     assert 'export XDG_DATA_HOME="$HOME/.local/share"' in opencode
     assert 'export XDG_STATE_HOME="$HOME/.local/state"' in opencode
     assert 'export XDG_CACHE_HOME="$HOME/.cache"' in opencode
+    installer = _render('dot_local/bin/executable_opencode-install.tmpl')
+    assert '/shared/state' not in installer
+    assert 'export XDG_STATE_HOME="$HOME/.local/state"' in installer
+    assert 'target="$HOME/.opencode/bin/opencode"' in opencode + installer
+    assert 'exec-managed' not in opencode
     assert "/shared/state" not in opencode + codex
     assert 'export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"' in codex
     assert 'ADC="$HOME/.config/gcloud/application_default_credentials.json"' in vertex
