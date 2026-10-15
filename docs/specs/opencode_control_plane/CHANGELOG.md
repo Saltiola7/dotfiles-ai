@@ -1,5 +1,15 @@
 # OpenCode Control Plane Changelog
 
+## 2026-10-15 — NATIVE-HELPER-ROUTE-FIXTURE
+
+- Corrected the CI route fixture to exercise committed provider/model routes
+  against V2 session/message tables. Retained separate V1 provider-alias coverage;
+  both schemas reject foreign providers and mismatched Vertex namespaces.
+- Production admission and installed configuration remain unchanged. The original
+  Claude fixture failure is preserved in cycle evidence; focused activation,
+  native authority and helper checks provide replacement evidence. No deployment
+  or Gate Exceptions required. Intended delivery: existing feature PR into `main`.
+
 ## 2026-10-15 — NATIVE-HELPER-DELEGATION
 
 - Restored role-bounded native helper allowlists. Build-Claude pins Vertex Opus
