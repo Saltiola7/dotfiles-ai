@@ -1477,9 +1477,10 @@ def main(argv=None):
         "recover-local", "exec-managed", "stage-v2", "activate-v2", "admit-v2"))
     parser.add_argument("arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
-    if args.mode is None and sys.platform == "darwin" and platform.machine() == "arm64":
-        print("OpenCode fleet update refused: this host uses native ownership; "
-              "run opencode upgrade for this host only. Guest provisioning remains deferred.",
+    if ((sys.platform == "darwin" and platform.machine() == "arm64")
+            or (sys.platform == "linux" and platform.machine() in {"aarch64", "arm64", "x86_64", "amd64"})):
+        print("OpenCode legacy update refused: this platform uses native ownership; "
+              "run opencode upgrade locally, then coordinate an explicit service restart.",
               file=sys.stderr)
         return 75
     if args.mode == "exec-managed":

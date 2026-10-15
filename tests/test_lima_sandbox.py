@@ -206,7 +206,7 @@ def test_fedora_templates_pin_runtime_and_sparse_disk(tmp_path: Path) -> None:
     assert "opencode-linux-arm64.tar.gz" not in template
     assert 'managed="$agent_home/.local/bin/opencode"' in template
     assert "/usr/local/libexec/opencode --auto" not in template
-    assert 'exec "\\$managed" --auto' in template
+    assert 'exec "\\$managed" "\\$@"' in template
     assert "configparser.ConfigParser" in template
     assert "opencode-real" not in template
     assert "chmod 4755 /usr/bin/sudo" in template
@@ -222,7 +222,7 @@ def test_fedora_templates_pin_runtime_and_sparse_disk(tmp_path: Path) -> None:
     assert helper.OPENCODE_GUARD_SCRIPT.startswith(helper.OPENCODE_GUARD_MARKER + "\n")
     guard = helper.OPENCODE_GUARD_SCRIPT.replace("$agent_home", "/home/agent.guest")
     assert 'managed="/home/agent.guest/.local/bin/opencode"' in guard
-    assert 'exec "\\$managed" --auto' in guard
+    assert 'exec "\\$managed" "\\$@"' in guard
     assert "grep -q \".local/bin/opencode\"" in helper.OPENCODE_GUARD_PROBE
 
 
@@ -418,8 +418,8 @@ def test_opencode_transaction_preserves_guest_state_and_forwards_request(tmp_pat
             return '{"status":"staged"}'
         raise AssertionError(argv)
 
-    assert helper.opencode_transaction(values, workspace, "stage", raw, execute) == \
-        '{"status":"staged"}'
+    with pytest.raises(RuntimeError, match="native"):
+        helper.opencode_transaction(values, workspace, "stage", raw, execute)
     assert running is False
 
 
@@ -453,6 +453,69 @@ def test_update_can_apply_exact_temporary_source_without_changing_guest_checkout
     assert '"$HOME/.config/dotfiles-ai/codex-managed"' in deployment[-5]
     assert not any("pull" in call for call in argv)
     assert not archive.exists()
+
+
+@pytest.mark.parametrize("action", ["stage", "activate", "rollback"])
+def test_native_opencode_transaction_refuses_before_guest_boot_or_helper_copy(tmp_path, action):
+    helper = load_helper()
+    values = config(tmp_path)
+    with pytest.raises(RuntimeError, match="native"):
+        helper.opencode_transaction(values, values["workspaces"][0], action, b"",
+                                    execute=lambda *_args, **_kwargs: pytest.fail("guest mutation"))
+
+
+def test_native_opencode_retirement_refuses_before_guard_refresh(tmp_path):
+    helper = load_helper()
+    values = config(tmp_path)
+    with pytest.raises(RuntimeError, match="native"):
+        helper.retire_opencode_provision(values, values["workspaces"][0], "2.0.26",
+                                        execute=lambda *_args, **_kwargs: pytest.fail("guest mutation"))
+
+
+def test_root_opencode_guard_delegates_argv_without_auto_injection():
+    helper = load_helper()
+    template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
+    for source in (helper.OPENCODE_GUARD_SCRIPT, template):
+        assert 'test -e /run/opencode-sandbox-ready' in source
+        assert 'exec "\\$managed" "\\$@"' in source
+        assert '"\\$managed" --auto' not in source
+
+
+@pytest.mark.parametrize("argv", [["service", "restart"], ["update"], ["--version"],
+                                  ["--session", "ses_saved"], ["run", "synthetic input"]])
+def test_root_opencode_guard_preserves_native_arguments(tmp_path, argv):
+    helper = load_helper()
+    marker = tmp_path / "ready"
+    marker.touch()
+    managed = tmp_path / ".local/bin/opencode"
+    managed.parent.mkdir(parents=True)
+    managed.write_text(f"#!{sys.executable}\nimport json,sys; print(json.dumps(sys.argv[1:]))\n")
+    managed.chmod(0o700)
+    wrapper = helper.OPENCODE_GUARD_SCRIPT.split("#!/bin/sh\n", 1)[1].split("\nEOF", 1)[0]
+    wrapper = wrapper.replace("\\$", "$").replace("$agent_home", str(tmp_path))
+    wrapper = wrapper.replace("/run/opencode-sandbox-ready", str(marker))
+    result = subprocess.run(["sh", "-c", wrapper, "opencode", *argv], text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == argv
+    marker.unlink()
+    refused = subprocess.run(["sh", "-c", wrapper, "opencode", *argv], text=True, capture_output=True)
+    assert refused.returncode != 0
+    assert not refused.stdout
+
+
+def test_native_opencode_version_probes_use_managed_route(tmp_path):
+    helper = load_helper()
+    workspace = config(tmp_path)["workspaces"][0]
+    calls = []
+
+    def execute(argv, **_kwargs):
+        calls.append(argv)
+        return "opencode v2.0.26\n"
+
+    assert helper.host_opencode_version(execute) == "2.0.26"
+    assert helper.guest_opencode_version(workspace, execute) == "2.0.26"
+    assert calls[0][0].endswith("/.local/bin/opencode")
+    assert calls[1][-1] == 'exec "$HOME/.local/bin/opencode" --version'
 
 
 def test_update_can_deploy_only_exact_lifecycle_helper(tmp_path: Path, monkeypatch) -> None:
@@ -593,8 +656,9 @@ def test_retire_opencode_provision_waits_for_verified_guard(tmp_path: Path) -> N
             return "1.18.29" if argv[-1].endswith("--version") else ""
         raise AssertionError(argv)
 
-    assert helper.retire_opencode_provision(values, workspace, "1.18.29", execute) == "updated"
-    assert state == {"running": False, "provision": [helper.OPENCODE_GUARD_PROVISION]}
+    with pytest.raises(RuntimeError, match="native"):
+        helper.retire_opencode_provision(values, workspace, "1.18.29", execute)
+    assert state == {"running": False, "provision": [legacy, helper.OPENCODE_GUARD_PROVISION]}
 
 
 @pytest.mark.parametrize("running", [False, True])
@@ -742,10 +806,11 @@ def test_update_all_preserves_mixed_states_and_reports_exact_parity(tmp_path: Pa
     def stale_host(argv, **kwargs):
         return "1.18.21" if argv == [helper.HOST_OPENCODE, "--version"] else execute(argv, **kwargs)
 
-    with pytest.raises(RuntimeError, match="OpenCode fleet version mismatch"):
-        helper.update_all_workspaces(
-            values, execute=stale_host, updater=updater,
-            snapshotter=snapshotter, restorer=restorer, discarder=discarder)
+    result = helper.update_all_workspaces(
+        values, execute=stale_host, updater=updater,
+        snapshotter=snapshotter, restorer=restorer, discarder=discarder)
+    assert result["host"] == "1.18.21"
+    assert result["workspaces"]["workspace1"] == guest_version
 
     updated.clear()
     monkeypatch.setattr(helper, "update_workspace", updater)
@@ -804,7 +869,7 @@ def test_update_all_rolls_back_prior_guests_when_second_guest_fails(tmp_path: Pa
     assert states == {"workspace1-sandbox": True, "workspace2-sandbox": False}
 
 
-def test_parity_restores_stopped_guest_and_rejects_stale_version(tmp_path: Path) -> None:
+def test_parity_restores_stopped_guest_and_reports_independent_versions(tmp_path: Path) -> None:
     helper = load_helper()
     values = config(tmp_path)
     workspace = values["workspaces"][0]
@@ -829,8 +894,7 @@ def test_parity_restores_stopped_guest_and_rejects_stale_version(tmp_path: Path)
         "instance": workspace["instance"]}
     assert not running
     guest = "1.18.21"
-    with pytest.raises(RuntimeError, match="workspace1 OpenCode version mismatch"):
-        helper.verify_opencode_parity(values, workspace, execute)
+    assert helper.verify_opencode_parity(values, workspace, execute)["guest"] == guest
     assert not running
 
 
