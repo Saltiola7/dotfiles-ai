@@ -1,5 +1,22 @@
 # OpenCode Control Plane Changelog
 
+## 2026-10-15 — NATIVE-HELPER-DELEGATION (source)
+
+- Restored role-bounded native helper allowlists. Build-Claude pins Vertex Opus
+  5.5/Sonnet 5.5; Build-GPT defaults to Sol 6.1 Fast with OpenAI Sol 6.1/Terra
+  helpers. Native Build/Plan helpers inherit the selected model; Plan defaults
+  to Sol 6.1 Fast and cannot launch writing helpers. Reviewer profile retained.
+- Added docs-only Discovery helpers and aligned global/Discovery/DBSCTR
+  instructions. Primary retains lifecycle state, review, integration and delivery;
+  independent slice orchestration remains deferred. Managed helper maps replace
+  stale grants rather than merging extra machine-local helper permissions.
+- Regression and isolated native 2.0.30 agent-resolution checks cover model
+  assignments, inheritance and permission boundaries. No paid inference or
+  production child launch is claimed. Live apply and fresh-session smoke remain
+  pending operator deployment approval; no Gate Exceptions approved.
+- Intended delivery: feature branch and draft PR into `main`, after required
+  gates pass. Gate Commits and actual Final Push remain in the Cycle Record.
+
 ## 2026-10-06 — SSD-OPENCODE-PREFERENCES-1
 
 - Deployed native Tab/Shift+Tab agent cycling and disabled-by-default Chrome

@@ -60,9 +60,10 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     assert "Gate Ledger" in discovery
     assert "V3.2 applicability plan" not in discovery
     assert "DBSCTR V3 applicability plan" in discovery
-    assert "explicitly selected Discovery-Coordinator" in discovery
-    assert "without Task or child sessions" in discovery
-    assert "without Task or child sessions" in dbsctr
+    for body in (discovery, dbsctr):
+        assert "bounded helpers" in body
+        assert "Independent slice orchestration is" in body
+        assert "without Task or child sessions" not in body
     for term in ("Initiative", "MANIFEST.json", "PROFILE.md", "initiative-check",
                  "initiative-receipt", "explicit approval", "--approval agent-confirmed",
                  "BEGIN CYCLE_ID LAUNCH_DIGEST"):
@@ -88,8 +89,8 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
         for term in ("--expected-launch-digest DIGEST", "--approval agent-confirmed",
                      "`BEGIN`", "not authenticated operator identity"):
             assert term in instructions
-    assert "explore-openai: allow" in coordinator
-    assert "scout-openai: allow" in coordinator
+    assert "explore: allow" in coordinator
+    assert "scout: allow" in coordinator
     for agent in ("explore-openai", "scout-openai"):
         assert "bash: deny" in text(f"private_dot_config/opencode/agents/{agent}.md")
 

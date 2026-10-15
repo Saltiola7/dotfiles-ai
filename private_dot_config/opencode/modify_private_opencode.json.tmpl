@@ -17,7 +17,8 @@ def merge(local, managed):
     if not isinstance(local, dict) or not isinstance(managed, dict):
         return managed
     # Permission matching is last-match-wins: never sort managed rule maps.
-    result = {key: merge(local.get(key), value) for key, value in managed.items()}
+    result = {key: value if key == "task" else merge(local.get(key), value)
+              for key, value in managed.items()}
     result.update((key, value) for key, value in local.items() if key not in managed)
     return result
 

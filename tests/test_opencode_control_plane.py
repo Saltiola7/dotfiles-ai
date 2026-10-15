@@ -67,7 +67,8 @@ def test_opencode_modifier_preserves_machine_local_values_and_mode(tmp_path):
     assert "dbsctr_begin" not in merged["permission"] and "dbsctr_continuation_bind" not in merged["permission"]
     assert merged["permission"]["dbsctr_local_extension"] == "ask"
     for name in ("build", "build-rnd", "plan"):
-        assert merged["agent"][name]["permission"]["task"] == "deny"
+        assert merged["agent"][name]["permission"]["task"] == rendered_config()["agent"][name]["permission"]["task"]
+        assert "builder-openai" not in merged["agent"][name]["permission"]["task"]
         assert "dbsctr_begin" not in merged["agent"][name]["permission"]
     assert merged["permission"]["external_directory"] == "allow"
     assert merged["permission"]["bash"]["machine-local *"] == "allow"
@@ -125,7 +126,8 @@ def test_provider_and_primary_contracts():
     assert {"google-vertex-anthropic", "lmstudio"} <= set(config["provider"])
     assert not {"headroom", "headroom-lmstudio"} & set(config["provider"])
     assert "gpt-5.6-sol-pro" not in config["provider"]["openai"]["models"]
-    assert config["model"] == config["agent"]["plan"]["model"] == "openai/gpt-6-astra"
+    assert config["model"] == "openai/gpt-6-astra"  # Native Build remains a model-flexible control.
+    assert config["agent"]["plan"]["model"] == "openai/gpt-6.1-sol-fast"
     assert config["agent"]["plan"]["variant"] == "medium" and config["small_model"] == "openai/gpt-6-luna"
     assert {"effect": "deny", "action": "provider.use", "resource": "anthropic"} in config["experimental"]["policies"]
 
@@ -147,7 +149,10 @@ def test_active_managed_routes_do_not_select_gpt56():
         "private_dot_hermes/private_managed/private_scripts/executable_dbsctr-catalog.py.tmpl")]
     paths += list((OC / "agents").glob("*.md")) + list((OC / "commands").glob("*.md"))
     for path in paths:
-        assert "gpt-5.6" not in path.read_text(), path.relative_to(ROOT)
+        body = path.read_text()
+        if path.name == "explore-openai.md":
+            body = body.replace("openai/gpt-5.6-terra", "")  # Current catalog's Terra ID.
+        assert "gpt-5.6" not in body, path.relative_to(ROOT)
 
 
 def test_context7_is_remote_optional_key_and_scout_only():
@@ -179,11 +184,11 @@ def test_official_1password_mcp_is_host_only_and_path_pinned():
 def test_oauth_incompatible_pro_agents_are_absent():
     for name in ("plan-gpt-pro.md", "plan-gpt-pro-max.md", "build-gpt-pro.md"):
         assert not (OC / "agents" / name).exists()
-    expected = {"build-gpt.md": ("openai/gpt-6-astra", "medium"),
-                "build-claude.md": ("google-vertex-anthropic/claude-opus-5-5@default", "high"),
-                "explore-openai.md": ("openai/gpt-6-luna", "low"),
-                "scout-openai.md": ("openai/gpt-6-sol", "medium"),
-                "builder-openai.md": ("openai/gpt-6-sol", "medium")}
+    expected = {"build-gpt.md": ("openai/gpt-6.1-sol-fast", "medium"),
+                "build-claude.md": ("google-vertex/claude-opus-5-5@default", "high"),
+                "explore-openai.md": ("openai/gpt-5.6-terra", "low"),
+                "scout-openai.md": ("openai/gpt-6.1-sol", "medium"),
+                "builder-openai.md": ("openai/gpt-6.1-sol", "medium")}
     for name, (model, variant) in expected.items():
         body = (OC / "agents" / name).read_text()
         assert f"model: {model}" in body and f"variant: {variant}" in body
@@ -194,8 +199,8 @@ def test_commands_inherit_current_agent():
     for name in ("discovery", "dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit"):
         body = (OC / f"commands/{name}.md").read_text()
         assert "\nagent:" not in body and "\nsubtask:" not in body
-    for name, agent, model in (("dbsctr-gpt", "build-gpt", "openai/gpt-6-astra"),
-                               ("dbsctr-claude", "build-claude", "google-vertex-anthropic/claude-opus-5-5@default")):
+    for name, agent, model in (("dbsctr-gpt", "build-gpt", "openai/gpt-6.1-sol-fast"),
+                               ("dbsctr-claude", "build-claude", "google-vertex/claude-opus-5-5@default")):
         body = (OC / f"commands/{name}.md").read_text()
         assert f"agent: {agent}" in body and f"model: {model}" in body
 
@@ -203,15 +208,17 @@ def test_commands_inherit_current_agent():
 def test_provider_affine_task_permissions():
     for name in ("build-gpt.md", "build-claude.md"):
         body = (OC / "agents" / name).read_text()
-        assert "\nname:" not in body and "\n  task: deny\n" in body
-        assert not re.search(r"(?:explore|scout|builder|reviewer)-\w+: allow", body)
+        assert "\nname:" not in body and '\n  task:\n    "*": deny\n' in body
+        family = "openai" if name == "build-gpt.md" else "vertex"
+        assert f"builder-{family}: allow" in body
+        assert not re.search(rf"(?:explore|scout|builder|reviewer)-{'vertex' if family == 'openai' else 'openai'}: allow", body)
         assert f"exact runtime ID is\n`{name[:-3]}`" in body
     config = rendered_config()
     for name in ("build", "plan", "build-rnd"):
-        assert config["agent"][name]["permission"]["task"] == "deny"
+        assert config["agent"][name]["permission"]["task"]["*"] == "deny"
     coordinator = (OC / "agents/discovery-coordinator.md").read_text()
     assert "dbsctr_initiative_launch" not in coordinator
-    assert "operator" in coordinator and "--preflight" in coordinator and "explore-openai: allow" in coordinator
+    assert "operator" in coordinator and "--preflight" in coordinator and "explore: allow" in coordinator
     for command in ("*dbsctrctl*", "*dbsctr-rnd*", "*dksctl *", "*wt *", "*agent-worktree*"):
         assert f'"{command}": deny' in coordinator
     assert coordinator.index('"*dbsctrctl*": deny') < coordinator.index('"*dbsctrctl begin*--preflight*": allow')
@@ -241,7 +248,8 @@ def test_primary_external_access_preserves_lifecycle_permissions():
     assert config["agent"]["build"]["permission"] == {
         "bash": {f"*dbsctrctl {command}*": "allow" for command in
                  ("begin", "start", "reconcile-target", "phase-span", "execution-benchmark", "execution-dag")},
-        "1password_*": "ask", "task": "deny"}
+        "1password_*": "ask", "task": {"*": "deny", "general": "allow", "explore": "allow",
+                                          "scout": "allow", "discovery-writer": "allow"}}
     centralized = json.loads(json.dumps(DATA))
     centralized["dotfiles_ai"]["state"]["root"] = "/Volumes/ext/state"
     for data in (DATA, centralized):

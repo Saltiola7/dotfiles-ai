@@ -12,9 +12,10 @@ Reach implementation readiness for one bounded context or an Initiative delivery
 slice, then persist the authoritative specifications so DBSCTR can proceed
 without repeating discovery.
 
-Ordinary Discovery runs in the current primary without Task or child sessions.
-Only the explicitly selected Discovery-Coordinator may orchestrate children.
-Loading this skill never selects that agent or grants its permissions.
+Discovery retains the current primary and may delegate bounded helpers under
+native permissions. Helpers research or write explicitly owned docs artifacts;
+they never implement source or own independent DBSCTR slices. Loading this skill
+never selects another agent or grants its permissions.
 
 Readiness means no unresolved question can materially change scope, behavior,
 interfaces, safety, delivery, or validation. Skip the interview when existing
@@ -73,8 +74,8 @@ The custom child-session launcher is retired. Continue the registered cycle in
 its native checkout; do not infer that changing shell cwd retargets a session.
 Plan records a handoff and never implements. Ordinary begin, compressed prose,
 and Herdr state are never readiness authority. Discovery continues for unfinished
-slices serially in the ordinary primary; only the explicitly selected coordinator
-may overlap approved, ownership-disjoint child work.
+slices serially in the primary. Independent slice orchestration is deferred;
+bounded helper delegation does not register or launch another cycle.
 
 ## Retrieve
 
@@ -200,12 +201,14 @@ assumptions, non-goals, and open risks distinct. Active Cycle Records live under
 ## OpenCode Execution
 
 Use todos for current interview/artifact state and specs/Git for durable state.
-Ordinary primaries research, define and review directly without Task or child
-sessions. The explicitly selected Discovery-Coordinator alone may delegate
-independent research or ownership-disjoint Context Discovery under its actual
-permissions. It uses Explore for local evidence and Scout for bounded privacy-safe
-external facts, never governed private content. Log those routes and preserve
-provider affinity. No skill invocation, model choice or tab label changes authority.
+Primaries may delegate bounded helpers under actual native permissions: Explore
+for local evidence, Scout for bounded privacy-safe external facts, and a matching
+discovery-writer for explicitly owned docs artifacts. Plan permits only read-only
+research. Preserve Build-Claude's Vertex-only and Build-GPT's OpenAI-only routes;
+native Plan/Build and Discovery-Coordinator helpers inherit the selected model.
+Never send governed private content. The primary verifies artifacts and owns
+readiness; helpers never register or own independent slices. Log routes and do
+not infer authority from skill invocation, model choice or tab label.
 
 Plan is read-only. When writes are unavailable, return artifact-ready decisions
 and a Build Handoff without claiming files changed. Build verifies freshness

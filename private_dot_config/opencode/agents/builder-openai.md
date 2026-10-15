@@ -1,7 +1,7 @@
 ---
 description: Bounded implementation for explicitly owned files under an OpenAI primary.
 mode: subagent
-model: openai/gpt-6-sol
+model: openai/gpt-6.1-sol
 variant: medium
 permission:
   task: deny
