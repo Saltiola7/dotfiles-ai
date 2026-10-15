@@ -1,5 +1,20 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-15 — OPENCODE-READINESS-CI
+
+- Repaired remote foundation's V1-only version check for native V2 updates without
+  a fixed OpenCode pin. Malformed managed JSON remains structural damage; missing
+  local authentication evidence remains `auth_pending`, not a broken installation.
+- Default readiness uses existing local service metadata and file/environment
+  presence only: no service startup, provider/model calls, token refresh or raw
+  credential-file parsing. Synthetic probes cover unavailable/unsafe metadata;
+  CentOS smoke verifies executable/config preservation across repeated apply.
+- Reproduced native-version failures against the original PR helper; 248 affected
+  local checks pass. Original failed hosted smoke is retained; replacement CI owns
+  Linux runtime evidence and merge eligibility. Gate Commits: `9710d4c`, `cacc936`.
+  No Gate Exceptions; no host/guest/remote deployment or restart. Intended delivery
+  is a normal follow-up push to existing draft PR #213; merge requires passing CI.
+
 ## 2026-10-15 — OPENCODE-PLATFORM-PARITY source
 
 - Extended existing native OpenCode bootstrap, manual-update routing and authenticated

@@ -1123,10 +1123,15 @@ feature branch with a draft pull request; the operator retains merge authority.
   the existing foundation apply at that exact revision.
 - `remote-user-foundation refresh-auth` verifies the recorded source revision,
   clean checkout, chezmoi target integrity, owned non-symlinked managed paths,
-  private config, required executables, and exact OpenCode, Codex, and Herdr
-  versions before running the content-free readiness probe. Integrity failure is
-  `failed_retryable`; incomplete user login is `auth_pending`; complete probes
-  are `ready`. It never starts authentication or emits provider output.
+  private config, required executables, supported OpenCode/Codex version formats
+  and pinned Herdr/Worktrunk versions before local readiness. Native OpenCode V2
+  updates need no fixed release pin. Malformed managed JSON or integrity failure is
+  `failed_retryable`; missing local auth evidence is `auth_pending`; complete
+  local evidence is `ready`, not proof of online validity. Readiness never starts
+  a service, authenticates, refreshes tokens or sends provider/model requests.
+  OpenCode uses only an existing authenticated loopback service's metadata;
+  other probes check local file/environment presence without credential contents.
+  See [readiness compatibility](features/remote-user-rollout-runtime.md).
 - Remote lifecycle behavior remains owned by the configured repository's mise
   tasks. This repository does not duplicate infrastructure commands, store
   credentials, enroll a node, or define tailnet policy.

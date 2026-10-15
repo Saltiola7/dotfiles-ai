@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -203,7 +204,10 @@ def local_readiness(tmp_path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             state["requests"].append(self.path)
-            assert self.headers.get("Authorization", "").startswith("Basic ")
+            expected = "Basic " + base64.b64encode(b"opencode:synthetic-private").decode()
+            if self.headers.get("Authorization") != expected:
+                self.send_error(401)
+                return
             payload = ({"pid": state["pid"], "version": state["version"]}
                        if self.path == "/api/info" else
                        {"data": [{"id": "openai", "connections": state["connections"]}]})
@@ -268,7 +272,7 @@ def test_remote_agent_readiness_is_content_free(local_readiness, failed):
     assert len(state["requests"]) == 2
 
 
-@pytest.mark.parametrize("fault", ["missing", "public", "symlink", "remote-url", "pid", "version",
+@pytest.mark.parametrize("fault", ["missing", "public", "symlink", "remote-url", "password", "pid", "version",
                                    "bad-json", "overflow", "redirect"])
 def test_readiness_never_starts_or_repairs_unavailable_native_service(local_readiness, fault):
     home, script, binary, registration, state = local_readiness
@@ -280,9 +284,10 @@ def test_readiness_never_starts_or_repairs_unavailable_native_service(local_read
         saved = home / "saved-registration"
         registration.rename(saved)
         registration.symlink_to(saved)
-    elif fault == "remote-url":
+    elif fault in {"remote-url", "password"}:
         value = json.loads(registration.read_text())
-        value["url"] = "https://example.invalid"
+        value["url" if fault == "remote-url" else "password"] = (
+            "https://example.invalid" if fault == "remote-url" else "wrong-password")
         registration.write_text(json.dumps(value))
     elif fault in {"pid", "version"}:
         state[fault] = 999 if fault == "pid" else "2.0.22"
@@ -296,6 +301,21 @@ def test_readiness_never_starts_or_repairs_unavailable_native_service(local_read
     assert "private" not in result.stdout
     assert not (home / "unexpected-command").exists()
     assert all(path == "/api/info" for path in state["requests"])
+
+
+@pytest.mark.parametrize("connections,ready", [
+    (["invalid"], False), ({"type": "credential"}, False),
+    ([{"type": "unknown", "id": "synthetic"}], False),
+    ([{"type": "env", "name": "OPENAI_API_KEY"}], True),
+])
+def test_readiness_validates_local_connection_metadata(local_readiness, connections, ready):
+    home, script, binary, _, state = local_readiness
+    state["connections"] = connections
+    result = subprocess.run([script], text=True, capture_output=True,
+                            env={"HOME": str(home), "PATH": f"{binary}:{os.environ['PATH']}"})
+    assert result.returncode == (0 if ready else 1)
+    assert json.loads(result.stdout)["openai"] == ("success" if ready else "failure")
+    assert result.stderr == ""
 
 
 def _commit(repository: Path, content: str) -> str:
