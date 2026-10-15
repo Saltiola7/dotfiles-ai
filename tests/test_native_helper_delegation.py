@@ -62,6 +62,8 @@ def test_discovery_delegates_docs_not_implementation():
         body = (OC / "agents" / f"{name}.md").read_text()
         for boundary in ('"*": deny', '"docs/**": allow', "bash: deny", "task: deny", "external_directory: deny"):
             assert boundary in body
+    ignored = (ROOT / ".chezmoiignore").read_text().split('{{ if not .dotfiles_ai.opencode.vertex_project }}', 1)[1].split('{{ end }}', 1)[0]
+    assert '.config/opencode/agents/discovery-writer-vertex.md' in ignored
 
 
 def test_shared_instructions_allow_helpers_but_keep_primary_cycle_ownership():
@@ -77,6 +79,25 @@ def test_shared_instructions_allow_helpers_but_keep_primary_cycle_ownership():
                  "## Visual Evidence", "accTitle:", "accDescr:", "**Text Equivalent:**"):
         assert term in contract
     assert "features/native-helper-delegation.md" in (ROOT / "docs/specs/opencode_control_plane/README.md").read_text()
+
+
+@pytest.mark.skipif(os.environ.get("OPENCODE_HELPER_LIVE") != "1", reason="host deployment smoke not selected")
+def test_deployed_host_helper_configuration_matches_source():
+    home = Path.home()
+    installed = json.loads((home / '.config/opencode/opencode.json').read_text())
+    expected = rendered_config()["agent"]
+    for name in ("build", "build-rnd", "plan", "general"):
+        assert installed["agent"][name]["permission"]["task"] == expected[name]["permission"]["task"]
+    assert installed["agent"]["plan"]["model"] == "openai/gpt-6.1-sol-fast"
+    sources = [OC / 'AGENTS.md', *[OC / 'agents' / f'{name}.md' for name in (
+        'build-claude', 'build-gpt', 'builder-openai', 'builder-vertex', 'explore-openai', 'explore-vertex',
+        'scout-openai', 'scout-vertex', 'discovery-coordinator', 'discovery-writer',
+        'discovery-writer-openai', 'discovery-writer-vertex')]]
+    sources += [OC / 'commands' / f'dbsctr-{family}.md' for family in ('gpt', 'claude')]
+    for source in sources:
+        assert (home / '.config/opencode' / source.relative_to(OC)).read_bytes() == source.read_bytes()
+    for name in ('discovery', 'dbsctr'):
+        assert (home / '.agents/skills' / name / 'SKILL.md').read_bytes() == (ROOT / 'dot_agents/skills' / name / 'SKILL.md').read_bytes()
 
 
 @pytest.mark.skipif(not os.environ.get("OPENCODE_HELPER_BINARY"), reason="native helper resolution authority not selected")
