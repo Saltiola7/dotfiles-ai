@@ -13,6 +13,39 @@ The stable Engineering Profile is
 
 ## Scope And Boundaries
 
+### Native-update CI compatibility follow-up
+
+`OPENCODE-READINESS-CI` is a source-only compatibility repair on the existing
+feature PR, not a live rollout. Foundation integrity accepts strict legacy bare
+semantic versions and native `opencode v2.MINOR.PATCH` without a fixed OpenCode
+release pin. Malformed managed JSON configuration, unsafe files and unusable
+executables remain structural failures (`failed_retryable`).
+
+Default authentication readiness is **local evidence, not online validity**:
+
+- OpenCode uses only connection metadata from an already running, authenticated,
+  matching-PID/version loopback service. Missing service or connections means
+  `auth_pending`. No automatic service discovery/start, standalone server,
+  model-default request, provider request, login or token refresh is allowed.
+- Codex checks local configuration and owned authentication-file or API-key
+  environment presence; Vertex checks local ADC-file presence; 1Password checks
+  token-environment or local account-metadata presence. Credential file contents
+  are not read. Existing state keys and content-free success/failure output remain.
+- `ready` means all local evidence is present, not that credentials work online.
+  Missing evidence is `auth_pending`, distinct from structural damage.
+- Native service registration must be bounded, owned, private and non-symlinked;
+  API requests target its explicit loopback endpoint. Authentication stays in the
+  child environment, never command arguments or diagnostic output.
+
+Writable implementation scope: `dot_local/bin/executable_remote-user-foundation`,
+`dot_local/bin/executable_remote-agent-readiness.tmpl`,
+`tests/test_remote_user_environment.py`, and `tests/remote_user_environment_smoke.sh`.
+Synthetic tests cover missing/invalid evidence, V2 versions and no online probes;
+disposable CentOS CI covers native installation and preservation across reapply.
+No host deployment/restart, guest/remote access, schedules or updater changes.
+Kernel, Review/Integrate and Maintain/Retire apply; Release, Deploy and Operate
+are not applicable to this follow-up. Historical rollout obligations below remain.
+
 - `remote-user-bootstrap bootstrap REVISION` runs as the invoking user, validates
   an owned non-symlinked home, clones or verifies the public source, verifies the
   full commit, installs pinned chezmoi user-locally, creates only non-secret local
@@ -127,7 +160,7 @@ flowchart LR
     B -->|structural failure| F[failed_retryable]
     B -->|foundation valid| R[Content-free auth refresh]
     R -->|login incomplete| P[auth_pending]
-    R -->|all probes pass| D[ready]
+    R -->|all local evidence present| D[ready]
     U[Unix user] -->|interactive login| A[Per-user provider stores]
     A --> R
     O[Private observer] -. aggregate state only .-> F
@@ -138,7 +171,9 @@ flowchart LR
 **Text Equivalent:** Private infrastructure supplies one immutable public
 revision to a user-owned bootstrap. Structural failure is retryable. A valid
 foundation runs content-free authentication checks: incomplete login waits in
-`auth_pending`, while complete checks reach `ready`. Each Unix user performs
+`auth_pending`, while complete local checks reach `ready`, without proving online
+credential validity. No provider request, token refresh or service start occurs
+during the compatibility follow-up. Each Unix user performs
 interactive login directly into private stores. The private observer receives
 only aggregate state.
 
