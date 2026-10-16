@@ -1,5 +1,24 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-16 — WORKFLOW-STORAGE-CONFIG source
+
+- Added shared schema-1 workspace policy validation and source-bound private
+  rendering, centralized native Worktrunk templates and exact-repository roots,
+  cache namespaces and naming overrides. Existing registered work stays reachable;
+  invalid/missing activation, mount replacement and collisions block new allocation.
+- Validation authorities: scoped distribution/remote-user/control-plane/lifecycle
+  pytest, native disposable Worktrunk fixtures, publication checks, Python/TOML
+  syntax and independent read-only review. Initial red evidence and corrected
+  second-allocation, preservation-version and ancestor-permission findings remain
+  in the cycle history. The Cycle Record owns final gate results and Gate Commit.
+- Explicit scope amendment added one policy helper/shared template; chezmoi's
+  private filename attribute provides mode-0600 JSON without changing its target.
+  No Gate Exceptions, new dependencies, host apply/restart, root/cache migration,
+  DVC hydration/upload, PR merge or production removal. Intended Final Push:
+  normal feature branch and draft PR into `Saltiola7/dotfiles-ai:main`.
+- Live activation, coherent rollback and filesystem qualification remain separately
+  approved runtime work; read-only snapshot output never installs or activates it.
+
 ## Unreleased — workflow-convergence Discovery
 
 - Specified portable central roots, native collision-refusing allocation,

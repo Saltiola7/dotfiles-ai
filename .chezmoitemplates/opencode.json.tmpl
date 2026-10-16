@@ -2,6 +2,15 @@
 {{- $worktrees := printf "%s/.local/state/dbsctr/worktrees" .chezmoi.homeDir -}}
 {{- if .dotfiles_ai.state.root }}{{ $worktrees = printf "%s/dbsctr/worktrees" .dotfiles_ai.state.root }}{{ end -}}
 {{- $_ := set $references "legacy-worktrees" (dict "path" $worktrees "description" "Retained pre-transition worktrees for explicit in-place adoption. Use native Git/Worktrunk inventory; this directory does not allocate or redirect tasks.") -}}
+{{- $newRoot := printf "%s/Worktrees" .chezmoi.homeDir -}}
+{{- $workspacePolicy := index .dotfiles_ai "workspaces" | default dict -}}
+{{- if hasKey $workspacePolicy "root" -}}
+  {{- $newRoot = $workspacePolicy.root -}}
+  {{- if hasPrefix "~/" $newRoot }}{{ $newRoot = joinPath .chezmoi.homeDir (trimPrefix "~/" $newRoot) }}{{ end -}}
+{{- end -}}
+{{- if hasKey .dotfiles_ai "workspaces" -}}
+{{- $_ := set $references "workflow-worktrees" (dict "path" $newRoot "description" "Configured parent for new native worktrees; reference only, not activation or allocation authority. Exact repository overrides are resolved by workflow-policy.") -}}
+{{- end -}}
 {{- range .dotfiles_ai.sandbox.workspaces -}}
   {{- range .mounts -}}
     {{- if ne .reference_name "" -}}
