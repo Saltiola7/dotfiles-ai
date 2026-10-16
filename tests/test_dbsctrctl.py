@@ -520,7 +520,7 @@ class DbsctrctlTest(unittest.TestCase):
 
     def start_dvc_cycle(self):
         self.prepare_native_checkout()
-        cache = Path(self.temp.name) / "shared-cache"
+        cache = (Path(self.temp.name) / "shared-cache").resolve()
         (self.repo / ".dvc/config.local").write_text(f"[cache]\n dir = {cache}\n type = reflink\n")
         with (self.git_common / "info/exclude").open("a") as stream:
             stream.write("\n.dvc/config.local\n")

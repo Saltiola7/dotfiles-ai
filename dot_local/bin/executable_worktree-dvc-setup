@@ -2,11 +2,16 @@
 """Configure or check an explicit shared DVC cache without hydrating data."""
 import argparse
 import configparser
+import ctypes
+import json
+import hashlib
+import itertools
 import os
 from pathlib import Path
 import stat
 import subprocess
 import sys
+import tempfile
 
 
 def run(args, cwd):
@@ -16,11 +21,140 @@ def run(args, cwd):
     return result.stdout.strip()
 
 
+def existing_parent(path):
+    while not path.exists():
+        path = path.parent
+    return path
+
+
+def device(path):
+    return existing_parent(path).stat().st_dev
+
+
+def checked_cache(path, *, configured=False):
+    path = path.expanduser()
+    if not path.is_absolute() or ".." in path.parts and not configured:
+        raise ValueError("cache must have an unambiguous absolute identity")
+    for parent in (path, *path.parents):
+        if parent.is_symlink():
+            raise ValueError("cache aliases require explicit migration")
+        if parent.exists():
+            item = parent.stat()
+            if (item.st_uid not in {0, os.getuid()}
+                    or item.st_mode & 0o022 and not item.st_mode & stat.S_ISVTX):
+                raise ValueError("cache ancestors permit unsafe replacement")
+    present = existing_parent(path)
+    details = present.stat()
+    if (not stat.S_ISDIR(details.st_mode) or details.st_uid != os.getuid()
+            or details.st_mode & 0o022):
+        raise ValueError("cache parent must be an owned non-writable-by-others directory")
+    return path.resolve()
+
+
+def policy_cache(root):
+    config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    path = config / "dotfiles-ai/workflow-policy.json"
+    if not os.path.lexists(path):
+        return None
+    item = path.lstat()
+    if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid() or item.st_nlink != 1
+            or item.st_mode & 0o077 or item.st_size > 256 * 1024):
+        raise ValueError("trusted generated workflow policy unavailable")
+    raw = path.read_bytes()
+    helper = Path.home() / ".local/bin/workflow-policy"
+    item = helper.lstat()
+    if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid() or item.st_nlink != 1 or item.st_mode & 0o022):
+        raise ValueError("trusted workflow policy validator unavailable")
+    if json.loads(run([str(helper), "check"], root)) != {"status": "passed"} or path.read_bytes() != raw:
+        raise ValueError("workflow policy changed or is not activated")
+    value = json.loads(raw)
+    common = Path(run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], root)).resolve()
+    entries = [e for e in value["repositories"] if (Path(e["repository"]) / ".git").resolve() == common]
+    if len(entries) > 1:
+        raise ValueError("ambiguous exact repository policy")
+    selected = entries[0] if entries else {}
+    return Path(selected.get("cache_root", value["cache_root"])) / hashlib.sha256(str(common).encode()).hexdigest()
+
+
+def independent_state(metadata):
+    state = metadata / "tmp"
+    if not state.exists():
+        return
+    for count, path in enumerate(itertools.chain([state], state.rglob("*"))):
+        if count >= 4096:
+            raise ValueError("mutable DVC state inventory exceeds its bound")
+        item = path.lstat()
+        if (path.is_symlink() or item.st_uid != os.getuid() or item.st_mode & 0o022
+                or not (stat.S_ISDIR(item.st_mode) or stat.S_ISREG(item.st_mode))
+                or stat.S_ISREG(item.st_mode) and item.st_nlink != 1):
+            raise ValueError("mutable DVC state must be independent, not aliased")
+
+
+def unchanged_outputs(root):
+    try:
+        value = json.loads(run(["dvc", "data", "status", "--json"], root))
+        if (not isinstance(value, dict) or set(value) - {
+                "committed", "uncommitted", "unchanged", "not_in_cache", "untracked"}
+                or value.get("committed") or value.get("untracked")):
+            raise ValueError()
+        changes = value.get("uncommitted", {})
+        if not isinstance(changes, dict) or set(changes) - {"deleted"}:
+            raise ValueError()
+        if not isinstance(value.get("committed", {}), dict):
+            raise ValueError()
+        for names in (value.get("untracked", []), value.get("unchanged", [])):
+            if not isinstance(names, list) or len(names) > 10000 or any(not isinstance(n, str) for n in names):
+                raise ValueError()
+        for names in (changes.get("deleted", []), value.get("not_in_cache", [])):
+            if not isinstance(names, list) or len(names) > 10000:
+                raise ValueError()
+            for name in names:
+                if (not isinstance(name, str) or not name or Path(name).is_absolute()
+                        or ".." in Path(name).parts or os.path.lexists(root / name)):
+                    raise ValueError()
+    except (ValueError, TypeError):
+        raise ValueError("dirty or unclassifiable outputs require explicit preservation before cache redirection") from None
+
+
+def qualify_reflink(root, cache):
+    """Clone only a tiny disposable probe, never an output or existing cache object."""
+    try:
+        with tempfile.NamedTemporaryFile(dir=root / ".dvc", prefix="reflink-probe-") as source:
+            source.write(b"reflink qualification\n")
+            source.flush()
+            with tempfile.TemporaryDirectory(dir=existing_parent(cache), prefix=".reflink-probe-") as directory:
+                target = Path(directory) / "clone"
+                if sys.platform == "darwin":
+                    clone = ctypes.CDLL(None, use_errno=True).clonefile
+                    clone.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+                    clone.restype = ctypes.c_int
+                    if clone(os.fsencode(source.name), os.fsencode(target), 0):
+                        raise OSError(ctypes.get_errno(), "clonefile refused")
+                elif sys.platform == "linux":
+                    import fcntl
+                    with target.open("xb") as destination:
+                        fcntl.ioctl(destination.fileno(), 0x40049409, source.fileno())  # Linux FICLONE
+                else:
+                    raise ValueError("reflink qualification unavailable on this platform")
+                if target.read_bytes() != b"reflink qualification\n" or target.stat().st_ino == Path(source.name).stat().st_ino:
+                    raise ValueError("reflink qualification failed")
+    except (OSError, AttributeError):
+        raise ValueError("reflink unavailable; no copy or other link fallback") from None
+
+
 def configure(root, cache, *, check=False):
+    if any(key.startswith("DVC_") and key != "DVC_NO_ANALYTICS" for key in os.environ):
+        raise ValueError("DVC environment overrides require explicit reconciliation")
     root = root.resolve()
     metadata = root / ".dvc"
     if metadata.is_symlink() or not metadata.is_dir():
         raise ValueError("a local DVC metadata directory is required")
+    item = metadata.stat()
+    if item.st_uid != os.getuid() or item.st_mode & 0o022:
+        raise ValueError("local DVC metadata must be owned and protected from other writers")
+    if any((metadata / name).is_symlink() for name in ("tmp", "config", "config.local")):
+        raise ValueError("mutable DVC state must be independent, not aliased")
+    independent_state(metadata)
     worktrees = [Path(part[9:]).resolve() for part in run(
         ["git", "worktree", "list", "--porcelain", "-z"], root).split("\0") if part.startswith("worktree ")]
     if not worktrees or root not in worktrees[1:]:
@@ -29,7 +163,8 @@ def configure(root, cache, *, check=False):
     config = configparser.ConfigParser(interpolation=None)
     if os.path.lexists(local):
         item = local.lstat()
-        if not stat.S_ISREG(item.st_mode) or item.st_nlink != 1 or item.st_uid != os.getuid():
+        if (not stat.S_ISREG(item.st_mode) or item.st_nlink != 1
+                or item.st_uid != os.getuid() or item.st_mode & 0o022):
             raise ValueError("local DVC configuration must be an owned regular file without aliases")
         if item.st_size > 65536:
             raise ValueError("local DVC configuration exceeds its size bound")
@@ -46,12 +181,17 @@ def configure(root, cache, *, check=False):
         selected = Path(configured.strip('"')).expanduser()
         if not selected.is_absolute():
             selected = metadata / selected
-        selected = selected.resolve()
+        selected = checked_cache(selected, configured=True)
     if check and (selected is None or link_type is None):
         raise ValueError("run worktree-dvc-setup --cache PATH before lifecycle registration")
-    cache = cache.expanduser().resolve() if cache is not None else selected
+    cache = checked_cache(cache) if cache is not None else checked_cache(selected) if selected is not None else None
     if cache is None:
         raise ValueError("select an explicit repository-scoped external cache with --cache")
+    expected = policy_cache(root)
+    if expected is not None and cache != expected:
+        raise ValueError("explicit cache differs from the activated repository namespace")
+    if device(root) != device(cache):
+        raise ValueError("reflink-only cache and worktree must share a filesystem")
     if any(cache == tree or tree in cache.parents or cache in tree.parents for tree in worktrees):
         raise ValueError("shared cache must be separate from every checkout")
     if cache.exists() and not cache.is_dir():
@@ -68,9 +208,19 @@ def configure(root, cache, *, check=False):
         return
     if current != cache and current.exists() and any(current.iterdir()):
         raise ValueError("existing cached data requires explicit migration; nothing was moved")
+    unchanged_outputs(root)
+    qualify_reflink(root, cache)
+    if policy_cache(root) != expected:
+        raise ValueError("workflow policy changed before configuration")
     # Set strict linking first: a later failure cannot enable a copying fallback.
     run(["dvc", "config", "--local", "cache.type", "reflink"], root)
     run(["dvc", "cache", "dir", "--local", str(cache)], root)
+    configured_cache = Path(run(["dvc", "cache", "dir"], root)).expanduser()
+    if not configured_cache.is_absolute():
+        configured_cache = root / configured_cache
+    if (checked_cache(configured_cache, configured=True) != cache
+            or run(["dvc", "config", "cache.type"], root) != "reflink"):
+        raise ValueError("effective DVC configuration differs after bootstrap; inspect local configuration")
 
 
 def main():
