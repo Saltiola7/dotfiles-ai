@@ -96,7 +96,8 @@ not require DVC push evidence.
 Broad Git-root sessions coordinate and navigate. Select a canonical repository
 from the configured references before searching; scope glob/grep to that project.
 Use native Git and `wt list` for inventory, not a duplicate task registry.
-Worktrunk creates sibling `<primary>.worktrees/<sanitized-branch>` checkouts.
+Worktrunk owns the qualified native layout. Existing legacy/sibling checkouts stay
+in place; activated storage identity failures retain work without fallback.
 Keep primary paths and branches stable. Independent writers use distinct task
 worktrees and native sessions; changing a shell directory does not retarget a
 resumed conversation. Prepare an operator handoff when a new native session is
@@ -113,6 +114,48 @@ Remove only through Worktrunk after operator authorization and its managed user
 pre-remove check. Leave the target checkout and stop its writers first. Never
 bypass hooks, use clobber/force removal, merge/promote automatically, delete
 branches automatically or run shared-cache GC as part of removal.
+
+### Current-conversation handoff
+
+For return to primary before any separately authorized retirement:
+
+1. Finish or explicitly pause checkout-owned work; preserve Git delivery,
+   applicable DVC data, private plans, approvals and recovery evidence.
+2. Resolve the unique canonical primary through native Git membership. Verify its
+   approved default branch, tracking destination, cleanliness and compatibility;
+   fetch the exact approved remote default and synchronize fast-forward only.
+   Dirty, diverged, ambiguous or incompatible state means retain both checkout and evidence;
+   no reset or branch swap. Reconcile material intent before changing that state.
+3. Use native `session_move` for the current conversation without supplying a session identity.
+   Check unchanged native identity and returned canonical directory; qualify preserved
+   messages, attachments and saved compaction through the approved native route.
+   Missing/denied route or required proof is `native_handoff_unavailable`: retain,
+   with no new session, HTTP/CLI identity workaround or raw transcript/database transport.
+4. Wait for remaining writers and in-flight tools, then run the preservation hook
+   from outside the former checkout. Worktrunk may remove only after all fresh
+   predicates and separate authority hold; never signal consumers. Verify native
+   membership and branch outcomes separately, using existing native permissions.
+
+If movement succeeds but later cleanup fails, preserve successful move evidence
+and the retained checkout; do not move back or replay removal. If movement fails,
+retain the session and checkout at their observed locations. A shell `cwd` change
+is not a session move or authenticated actor proof. Idle completed checkouts need
+no fabricated conversation or revival of historical sessions. Preserve their
+source-independent evidence readers. Source guidance does not qualify live history.
+
+### Authorized task bootstrap
+
+Reuse an eligible clean linked checkout when registration, writer, repository and
+fresh-base constraints hold. Discovery-to-Build is not a phase boundary requiring
+new environments/data: keep unmerged Discovery authority and private evidence.
+Current registration requires `HEAD == approved remote base` before import. If
+Discovery commits prevent reuse, retain them and prepare one code-only Build checkout
+through Worktrunk from the freshly fetched approved base, with its intended upstream.
+Use the retained authority with the complete changed-document closure and fresh
+receipt/preflight/exact approval. Never reset authority, publish it prematurely,
+invent a resume flag or duplicate environments/data to bypass registration.
+
+### Work boundaries
 
 For requests to explain, review, diagnose, or plan, inspect relevant materials
 and report the result without implementing unless requested. For requests to

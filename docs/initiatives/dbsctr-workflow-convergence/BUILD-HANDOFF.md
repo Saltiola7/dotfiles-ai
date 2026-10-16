@@ -37,6 +37,16 @@ published in PR #216 but not verified integrated here; retain its ready state.
 These delivery facts supersede earlier checkpoint descriptions above without
 changing requirements, risk, acceptance, source ownership or dependency edges.
 
+`prompt-authority` subsequently delivered through
+[PR #216](https://github.com/Saltiola7/dotfiles-ai/pull/216), merged as
+`407c28bb1ed587c09e19521ab31c699f39270728` into `main` from base
+`8b3d46fc6a9510d9ea75f79dcd9b08613aa82e8e`. The exact reconciled head is its
+second Git parent; all three configured Python checks passed before the approved
+merge. Mark prompt delivered and its compression-evaluation dependent ready;
+evaluation remains default-off and no activation is implied. The earlier prompt
+checkpoint above remains historical. DVC preservation source is published in
+PR #218 but not verified merged here, so it remains ready, not delivered.
+
 ## Invariants
 
 - Public generic contracts only. Private repository identity, content, branches,
