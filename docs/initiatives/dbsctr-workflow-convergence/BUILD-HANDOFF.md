@@ -47,6 +47,33 @@ evaluation remains default-off and no activation is implied. The earlier prompt
 checkpoint above remains historical. DVC preservation source is published in
 PR #218 but not verified merged here, so it remains ready, not delivered.
 
+`dvc-preservation` subsequently delivered through
+[PR #218](https://github.com/Saltiola7/dotfiles-ai/pull/218), exact head
+`a00d7de27059a67da72497f08568e5ea7daa59c4`, merged into `main` as
+`9989a649bd220a9eabc2b1c7e12062b1ce39f293` from base
+`407c28bb1ed587c09e19521ab31c699f39270728`. All three Python jobs and remote-user
+smoke passed; native current-base/admin enforcement and returned merge parents
+were verified. Mark DVC delivered; merge-cleanup still waits for native-handoff.
+Native-handoff is published in PR #219 and integration-review in PR #220, neither
+verified merged here. No host activation, upload, migration or retirement occurred.
+These facts supersede the earlier published-not-merged checkpoints without changing
+requirements, risk or dependency edges. Dependency maintenance now selects compatible
+updates first; major/data-format migrations remain separately approved follow-up.
+
+`native-handoff` subsequently delivered through
+[PR #219](https://github.com/Saltiola7/dotfiles-ai/pull/219), exact reconciled head
+`494c83b5cd8f893dfc92a6fcd6058141b3319083`, merged into `main` as
+`33ab395135b937f122e948fdc166695737289437` from base
+`9989a649bd220a9eabc2b1c7e12062b1ce39f293`. All three freshly configured Python
+checks passed; native current-base/admin enforcement and exact merge parents were
+verified. Mark native handoff delivered and merge-cleanup ready for its separate
+source launch. Live history/attachment/compaction qualification remains unavailable.
+Integration-review (#220), compression evaluation (#221) and compatible Pluggy
+maintenance (#217) were refreshed against this base and await fresh CI; no merge
+or deployment is inferred. Regression telemetry is registered source work, not
+delivered or activated. No host apply, live diagnostic publication, migration,
+production removal, service restart or shared-cache GC occurred.
+
 ## Invariants
 
 - Public generic contracts only. Private repository identity, content, branches,
