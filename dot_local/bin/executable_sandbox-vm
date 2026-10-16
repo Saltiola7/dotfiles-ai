@@ -47,12 +47,7 @@ cat >/usr/local/bin/opencode <<EOF
 test -e /run/opencode-sandbox-ready || { echo "opencode: sandbox protection is not ready" >&2; exit 1; }
 managed="$agent_home/.local/bin/opencode"
 test -x "\$managed" || { echo "opencode: managed wrapper is unavailable" >&2; exit 75; }
-case "\${1:-}" in
-  acp|attach|completion|mcp|debug|providers|auth|agent|upgrade|uninstall|serve|web|models|stats|export|import|github|pr|plugin|db)
-    exec "\$managed" "\$@" ;;
-  *)
-    exec "\$managed" --auto "\$@" ;;
-esac
+exec "\$managed" "\$@"
 EOF
 chmod 0755 /usr/local/bin/opencode
 """
@@ -61,7 +56,7 @@ OPENCODE_GUARD_PROBE = ('if test -x /usr/local/bin/opencode && grep -q ".local/b
                         '/usr/local/bin/opencode 2>/dev/null; then printf present; else printf missing; fi')
 OPENCODE_GUARD_VERIFY = ('test -x /usr/local/bin/opencode && grep -q '
                          '".local/bin/opencode" /usr/local/bin/opencode')
-HOST_OPENCODE = str(Path.home() / ".local/libexec/dotfiles-ai/opencode")
+HOST_OPENCODE = str(Path.home() / ".local/bin/opencode")
 CODEX_VERSION = "0.151.0"
 CODEX_LINUX_ASSET_URL = "https://github.com/openai/codex/releases/download/rust-v0.151.0/codex-aarch64-unknown-linux-musl.tar.gz"
 CODEX_LINUX_ASSET_SHA256 = "c1cf2baf375e261c1469381a52dc2c8fd05b6fb45cfff83fed0988fd6c5369b6"
@@ -907,55 +902,11 @@ def refresh_opencode_guard(config, workspace, execute=command):
 
 
 def retire_opencode_provision(config, workspace, expected_release, execute=command):
-    if not isinstance(expected_release, str) or not re.fullmatch(r"\d+\.\d+\.\d+", expected_release):
-        raise ValueError("invalid OpenCode retirement release")
-    refresh_opencode_guard(config, workspace, execute)
-    instance = workspace["instance"]
-    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
-    with _instance_lock(lock_root, instance):
-        running, current = _instance_state(execute, instance)
-        try:
-            if not running:
-                execute(["limactl", "start", instance], timeout=120)
-            verified = execute([
-                "limactl", "shell", instance, "--", "sh", "-ceu",
-                'exec "$HOME/.local/bin/opencode-update-all" guest-verify',
-            ], timeout=120, input_data=json.dumps({
-                "schema_version": 1, "release": expected_release,
-            }, separators=(",", ":")).encode())
-            identity = json.loads(verified)
-            if (not isinstance(identity, dict) or identity.get("schema_version") != 1
-                    or identity.get("status") != "current"
-                    or identity.get("release") != expected_release
-                    or identity.get("target_count") != 1 or identity.get("reason") != "none"):
-                raise RuntimeError("guest OpenCode identity mismatch")
-            if guest_opencode_version(workspace, execute) != expected_release:
-                raise RuntimeError("guest OpenCode version mismatch")
-        finally:
-            _restore_instance_state(execute, instance, running)
-        provisions = current.get("config", {}).get("provision", [])
-        legacy = [item for item in provisions if isinstance(item, dict) and str(
-            item.get("script", "")).startswith(f"{LEGACY_OPENCODE_PROVISION_MARKER}\n")]
-        if len(legacy) > 1:
-            raise RuntimeError("duplicate legacy OpenCode provision")
-        if not legacy:
-            return "current"
-        if running:
-            raise RuntimeError("OpenCode provision retirement requires a stopped guest")
-        desired = [item for item in provisions if item not in legacy]
-        rule = f".provision = {json.dumps(desired, separators=(',', ':'))}"
-        try:
-            execute(["limactl", "edit", "--yes", "--set", rule, instance], timeout=120)
-            execute(["limactl", "start", instance], timeout=300)
-            if guest_opencode_version(workspace, execute) != expected_release:
-                raise RuntimeError("guest OpenCode version mismatch")
-        finally:
-            _restore_instance_state(execute, instance, running)
-        return "updated"
+    raise RuntimeError("OpenCode native ownership requires separately qualified provisioning retirement")
 
 
 def _opencode_version(value, source):
-    version = value.strip()
+    version = value.strip().removeprefix("opencode v")
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise RuntimeError(f"{source} OpenCode version mismatch")
     return version
@@ -967,7 +918,7 @@ def host_opencode_version(execute=command):
 
 def guest_opencode_version(workspace, execute=command):
     value = execute(["limactl", "shell", workspace["instance"], "--", "sh", "-ceu",
-                     'exec "$HOME/.local/libexec/dotfiles-ai/opencode" --version'], timeout=120)
+                     'exec "$HOME/.local/bin/opencode" --version'], timeout=120)
     return _opencode_version(value, workspace["name"])
 
 
@@ -1001,8 +952,6 @@ def verify_opencode_parity(config, workspace, execute=command):
             guest = guest_opencode_version(workspace, execute)
         finally:
             _restore_instance_state(execute, instance, running)
-    if guest != host:
-        raise RuntimeError(f"{workspace['name']} OpenCode version mismatch")
     return {"host": host, "guest": guest, "instance": instance}
 
 
@@ -1040,16 +989,6 @@ def _codex_updater_code():
     value = path.read_bytes()
     if not value or len(value) > 256 * 1024:
         raise RuntimeError("Codex updater helper is unavailable")
-    return value
-
-
-def _opencode_updater_code():
-    installed = Path(__file__).with_name("opencode-update-all")
-    source = Path(__file__).with_name("executable_opencode-update-all")
-    path = installed if installed.exists() else source
-    value = path.read_bytes()
-    if not value or len(value) > 256 * 1024:
-        raise RuntimeError("OpenCode updater helper is unavailable")
     return value
 
 
@@ -1112,40 +1051,7 @@ trap - EXIT
 
 
 def opencode_transaction(config, workspace, action, raw, execute=command):
-    if len(raw) > 1024 * 1024:
-        raise ValueError("OpenCode transaction request is too large")
-    if action == "stage":
-        value = json.loads(raw)
-        if not isinstance(value, dict) or value.get("schema_version") != 1:
-            raise ValueError("invalid OpenCode transaction request")
-    elif raw:
-        raise ValueError("unexpected OpenCode transaction request")
-    instance = workspace["instance"]
-    lock_root = Path(config["template"]).parent / ".sandbox-lifecycle-locks"
-    with _instance_lock(lock_root, instance):
-        running, _ = _instance_state(execute, instance)
-        try:
-            if not running:
-                execute(["limactl", "start", instance], timeout=120)
-            execute([
-                "limactl", "shell", instance, "--", "sh", "-ceu", '''
-target="$HOME/.local/bin/opencode-update-all"
-install -d -m 0700 "$HOME/.local/bin"
-tmp=$(mktemp "$HOME/.local/bin/.opencode-update-all.XXXXXX")
-trap 'rm -f "$tmp"' EXIT
-cat >"$tmp"
-chmod 0700 "$tmp"
-python3 "$tmp" --help >/dev/null
-mv -f "$tmp" "$target"
-trap - EXIT
-''', "install-opencode-updater"], timeout=120, input_data=_opencode_updater_code())
-            output = execute([
-                "limactl", "shell", instance, "--", "sh", "-ceu",
-                f'exec "$HOME/.local/bin/opencode-update-all" guest-{action}',
-            ], timeout=600, input_data=raw)
-        finally:
-            _restore_instance_state(execute, instance, running)
-    return output
+    raise RuntimeError("OpenCode native updates are platform-local; legacy guest transactions are disabled")
 
 
 def _snapshot_action(config, workspace, token, action, execute):
@@ -1219,10 +1125,6 @@ def update_all_workspaces(config, execute=command, updater=None,
         if rollback_errors:
             raise RuntimeError("ordered Codex rollout and rollback failed") from error
         raise
-    if any(value["opencode"] != host for value in versions.values()):
-        for workspace, token in reversed(retained):
-            _snapshot_action(config, workspace, token, restorer, execute)
-        raise RuntimeError("OpenCode fleet version mismatch")
     if any(value["codex"] != codex_host for value in versions.values()):
         for workspace, token in reversed(retained):
             _snapshot_action(config, workspace, token, restorer, execute)

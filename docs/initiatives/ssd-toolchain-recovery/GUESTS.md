@@ -1,5 +1,11 @@
 # Guest recovery, upgrades and fresh provisioning
 
+INT-048/049 resumes only the source work in
+[OPENCODE-PLATFORM-PARITY.md](OPENCODE-PLATFORM-PARITY.md), not guest operations.
+The separate activation slice remains Discovery-owned OPEN: retained provisioning
+drift and identities/consumers must be classified before boot or live apply.
+Changing the Git template does not reconcile stopped guests or prove deployment.
+
 Operator decision INT-024 defers all remaining guest work. The requirements and
 failed-boot evidence below are retained, not completed or waived as passing.
 Do not repair, upgrade, restart or freshly provision guests in the current scope.

@@ -12,27 +12,84 @@ home_safe() {
     [[ -n ${HOME:-} && -d $HOME && -O $HOME && ! -L $HOME ]]
 }
 
+local_file() {
+    [[ -f $1 && ! -L $1 && -O $1 && -r $1 && -s $1 ]]
+}
+
 openai_ready() {
-    local credentials version
-    [[ -f $XDG_CONFIG_HOME/opencode/opencode.json && ! -L $XDG_CONFIG_HOME/opencode/opencode.json \
-        && -O $XDG_CONFIG_HOME/opencode/opencode.json ]] || return 1
-    version=$(opencode --version 2>/dev/null) || return 1
-    [[ $version == {{ .dotfiles_ai.opencode.version | quote }} ]] || return 1
-    credentials=$(opencode auth list --pure 2>/dev/null) || return 1
-    [[ ${#credentials} -le 65536 ]] || return 1
-    case $credentials in
-        *OpenAI*|*openai*|*OPENAI*) return 0 ;;
-        *) return 1 ;;
-    esac
+    local_file "$XDG_CONFIG_HOME/opencode/opencode.json" || return 1
+    # Read metadata only from an existing local service; never invoke discovery,
+    # model.default, credential resolution, token refresh or standalone startup.
+    python3 - <<'PY' >/dev/null 2>&1
+import base64, http.client, json, os, pathlib, stat, subprocess
+from urllib.parse import urlencode, urlsplit
+
+try:
+    home = pathlib.Path(os.environ["HOME"])
+    path = pathlib.Path(os.environ["XDG_STATE_HOME"]) / "opencode/service.json"
+    current = home
+    for part in path.relative_to(home).parts:
+        current /= part
+        item = current.lstat()
+        if current.is_symlink() or item.st_uid != os.getuid():
+            raise ValueError("unsafe registration")
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW)) as stream:
+        item = os.fstat(stream.fileno())
+        if not stat.S_ISREG(item.st_mode) or item.st_mode & 0o077 or item.st_size > 65536:
+            raise ValueError("unsafe registration")
+        service = json.load(stream)
+    url = urlsplit(service["url"])
+    if (url.scheme != "http" or url.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or not url.port or url.username or url.password or url.path not in {"", "/"}
+            or url.query or url.fragment or type(service["pid"]) is not int or service["pid"] <= 0
+            or not isinstance(service["password"], str) or not service["password"]):
+        raise ValueError("invalid registration")
+    authorization = "Basic " + base64.b64encode(("opencode:" + service["password"]).encode()).decode()
+
+    def metadata(target):
+        connection = http.client.HTTPConnection(url.hostname, url.port, timeout=3)
+        try:
+            connection.request("GET", target, headers={"Authorization": authorization})
+            response = connection.getresponse()
+            body = response.read(65537)
+            if response.status != 200 or len(body) > 65536:
+                raise ValueError("unavailable metadata")
+            return json.loads(body)
+        finally:
+            connection.close()
+
+    info = metadata("/api/info")
+    version = subprocess.check_output(["opencode", "--version"], text=True,
+                                     stderr=subprocess.DEVNULL, timeout=5).strip()
+    if info["pid"] != service["pid"] or version != "opencode v" + info["version"]:
+        raise ValueError("service mismatch")
+    value = metadata("/api/integration?" + urlencode({"location[directory]": os.getcwd()}))
+    integration = next((item for item in value["data"] if isinstance(item, dict)
+                        and item.get("id") == "openai"), {})
+    connections = integration.get("connections", [])
+    if not isinstance(connections, list) or not any(isinstance(connection, dict) and (
+            (connection.get("type") == "credential" and isinstance(connection.get("id"), str)
+             and connection["id"]) or (connection.get("type") == "env"
+             and isinstance(connection.get("name"), str) and connection["name"]))
+            for connection in connections):
+        raise ValueError("login needed")
+except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError,
+        http.client.HTTPException):
+    raise SystemExit(1)
+PY
 }
 
 codex_ready() {
-    local version
-    [[ -f $CODEX_HOME/config.toml && ! -L $CODEX_HOME/config.toml \
-        && -O $CODEX_HOME/config.toml ]] || return 1
-    version=$(codex --version 2>/dev/null) || return 1
-    [[ $version =~ ^codex-cli\ (0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1
-    codex login status >/dev/null 2>&1
+    local_file "$CODEX_HOME/config.toml" || return 1
+    [[ -n ${OPENAI_API_KEY:-} ]] || local_file "$CODEX_HOME/auth.json"
+}
+
+vertex_ready() {
+    local_file "$XDG_CONFIG_HOME/gcloud/application_default_credentials.json"
+}
+
+onepassword_ready() {
+    [[ -n ${OP_SERVICE_ACCOUNT_TOKEN:-} ]] || local_file "$XDG_CONFIG_HOME/op/config"
 }
 
 probe() {
@@ -47,8 +104,8 @@ probe() {
 failed=0
 openai=$(probe openai_ready) || failed=1
 codex=$(probe codex_ready) || failed=1
-vertex=$(probe vertex-reauth --check >/dev/null 2>&1 && printf success) || { vertex=failure; failed=1; }
-onepassword=$(probe op whoami >/dev/null 2>&1 && printf success) || { onepassword=failure; failed=1; }
+vertex=$(probe vertex_ready) || failed=1
+onepassword=$(probe onepassword_ready) || failed=1
 state=ready
 (( failed == 0 )) || state=auth_pending
 printf '{"codex":"%s","onepassword":"%s","openai":"%s","state":"%s","vertex":"%s"}\n' \

@@ -142,13 +142,15 @@ build-herdr-host.sh
 load-dbsctr-rnd-launchagents.sh
 .local/bin/sandbox-vm
 {{ if not (or .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.linux_workstation.enabled) }}
+{{ if not (or (eq .chezmoi.arch "arm64") (eq .chezmoi.arch "amd64")) }}
 .local/bin/opencode
 .local/bin/opencode-install
+install-01-remote-opencode.sh
+{{ end }}
 .local/bin/remote-user-bootstrap
 .local/bin/remote-user-foundation
 .local/bin/remote-agent-readiness
 install-00-remote-herdr.sh
-install-01-remote-opencode.sh
 {{ end }}
 .config/dotfiles-ai/sandbox-shell-aliases
 reconcile-sandbox-shell-aliases.sh

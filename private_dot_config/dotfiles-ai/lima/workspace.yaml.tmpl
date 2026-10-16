@@ -72,12 +72,7 @@ provision:
       test -e /run/opencode-sandbox-ready || { echo "opencode: sandbox protection is not ready" >&2; exit 1; }
       managed="$agent_home/.local/bin/opencode"
       test -x "\$managed" || { echo "opencode: managed wrapper is unavailable" >&2; exit 75; }
-      case "\${1:-}" in
-        acp|attach|completion|mcp|debug|providers|auth|agent|upgrade|uninstall|serve|web|models|stats|export|import|github|pr|plugin|db)
-          exec "\$managed" "\$@" ;;
-        *)
-          exec "\$managed" --auto "\$@" ;;
-      esac
+      exec "\$managed" "\$@"
       EOF
       chmod 0755 /usr/local/bin/opencode
       printf '%s ALL=(ALL) !ALL\n%s ALL=(root) NOPASSWD: /usr/bin/cat /mnt/lima-cidata/param.env\n' "$agent_user" "$agent_user" >/etc/sudoers.d/99-opencode-sandbox

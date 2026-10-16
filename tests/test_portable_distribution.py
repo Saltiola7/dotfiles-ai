@@ -381,7 +381,7 @@ def test_codex_distribution_uses_rolling_stable_direct_binary() -> None:
         chezmoi("execute-template", codex_channel="beta", template=run_after)
 
 
-def test_opencode_distribution_uses_rolling_managed_binary() -> None:
+def test_opencode_distribution_retains_legacy_assets_only_for_fallback_routes() -> None:
     updater = (ROOT / "dot_local/bin/executable_opencode-update-all").read_text()
     wrapper = (ROOT / "dot_local/bin/executable_opencode.tmpl").read_text()
     run_after = (ROOT / "run_after_update-opencode.sh.tmpl").read_text()
@@ -405,6 +405,11 @@ def test_opencode_distribution_uses_rolling_managed_binary() -> None:
     for template in (wrapper, run_after, pm_configure):
         rendered = chezmoi("execute-template", template=template).stdout
         subprocess.run(["bash", "-n"], input=rendered, text=True, check=True)
+    for platform, arch in [('darwin', 'arm64'), ('linux', 'arm64'), ('linux', 'amd64')]:
+        native_wrapper = chezmoi('execute-template', template=wrapper.replace(
+            '.chezmoi.os', json.dumps(platform)).replace('.chezmoi.arch', json.dumps(arch))).stdout
+        assert 'target="$HOME/.opencode/bin/opencode"' in native_wrapper
+        assert 'exec-managed' not in native_wrapper
 
 
 @pytest.mark.parametrize("global_runtime,workspace_runtime", [

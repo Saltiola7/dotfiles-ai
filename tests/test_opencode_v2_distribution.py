@@ -13,6 +13,28 @@ import pytest
 from test_opencode_distribution import fake_binary, load_updater, release_payload
 
 
+@pytest.mark.parametrize("system,machine", [
+    ("darwin", "arm64"), ("linux", "aarch64"), ("linux", "x86_64"),
+])
+@pytest.mark.parametrize("mode", [None, "exec-managed", "guest-stage", "guest-activate",
+    "guest-rollback", "guest-verify", "recover-local", "stage-v2", "activate-v2", "admit-v2"])
+def test_native_platform_refuses_every_legacy_entrypoint_before_mutation(monkeypatch, system, machine, mode):
+    helper = load_updater()
+    monkeypatch.setattr(helper.sys, "platform", system)
+    monkeypatch.setattr(helper.platform, "machine", lambda: machine)
+    for name in ("package_root", "binary_path", "exec_managed", "host_update", "local_update"):
+        monkeypatch.setattr(helper, name, lambda *_: pytest.fail("legacy owner invoked"))
+    assert helper.main([] if mode is None else [mode]) == 75
+
+
+def test_unsupported_platform_retains_legacy_dispatch(monkeypatch):
+    helper = load_updater()
+    monkeypatch.setattr(helper.sys, "platform", "linux")
+    monkeypatch.setattr(helper.platform, "machine", lambda: "riscv64")
+    monkeypatch.setattr(helper, "exec_managed", lambda argv: 42 if argv == ["--version"] else 1)
+    assert helper.main(["exec-managed", "--version"]) == 42
+
+
 @pytest.fixture
 def fixture(tmp_path, monkeypatch):
     helper = load_updater()
@@ -226,17 +248,18 @@ def test_missing_or_changed_evidence_cannot_admit(fixture, monkeypatch):
     assert (root / "v2-transition.json").exists()
 
 
-def test_stage_cli_consumes_bounded_request_without_activation(fixture, monkeypatch, capsys):
+def test_stage_cli_preserves_legacy_artifacts_on_native_platform(fixture, monkeypatch, capsys):
     helper, root, binary, lock, data, _ = fixture
     monkeypatch.setattr(helper, "download_v2", lambda artifact, destination, platform: destination.write_bytes(data))
     request = {"release": lock["release"], "artifact": lock["artifact"]}
     monkeypatch.setattr(sys, "stdin", io.TextIOWrapper(io.BytesIO(json.dumps(request).encode())))
+    monkeypatch.setattr(helper.sys, "platform", "darwin")
+    monkeypatch.setattr(helper.platform, "machine", lambda: "arm64")
     before = binary.read_bytes()
-    assert helper.main(["stage-v2"]) == 0
-    result = json.loads(capsys.readouterr().out)
-    assert result == {"schema_version": 1, "status": "staged", "release": "2.0.22", "target_count": 1, "reason": "none"}
+    assert helper.main(["stage-v2"]) == 75
+    assert "native ownership" in capsys.readouterr().err
     assert binary.read_bytes() == before and not (root / "release-lock.json").exists()
-    assert (root / "v2-candidate.json").exists()
+    assert not (root / "v2-candidate.json").exists()
 
 
 @pytest.mark.skipif(os.environ.get("OPENCODE_V2_STAGING_SMOKE") != "1",

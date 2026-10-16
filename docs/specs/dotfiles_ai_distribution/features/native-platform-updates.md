@@ -1,5 +1,32 @@
 # Native platform-local tool updates
 
+## Source-parity successor (SSD recovery INT-048/049/050)
+
+The [OpenCode platform-parity contract](../../../initiatives/ssd-toolchain-recovery/OPENCODE-PLATFORM-PARITY.md)
+resumes source-only implementation for macOS ARM64, managed Fedora aarch64 guests
+and CentOS Stream 10 x86_64 remote users, preserving the existing Linux workstation
+role and unsupported routes. Reuse existing native wrapper/bootstrap/service guard
+for supported Linux arm64/amd64; no new updater/dependencies. Native installer is
+missing-only, does not modify PATH, and preserves healthy newer executables on apply.
+Selected native routes refuse legacy mutating/recovery/admission entrypoints before
+restoring or revalidating the old owner. Root sandbox guards check readiness then
+delegate exact argv; only the managed wrapper handles Herdr interactive `--auto`.
+Existing platform state and sandbox markers remain unchanged. Local native update
+never requires fleet equality or implicitly restarts the shared service.
+
+This supersedes the historical Linux/guest exclusions below **only for source
+preparation**. Source Deploy/Operate are N/A because no environment changes;
+Maintain/Retire remains required for regression, no-downgrade and migration handoff.
+Separate activation stays Discovery-owned OPEN with required Deploy/Operate after
+remote identities/consumers and retained guest provisioning drift are resolved.
+No deployed Linux qualification, live owner retirement or permission to boot,
+repair SSH, apply, install or restart is implied. No schedules, Codex, OS, Python
+or hibernation changes. Historical exclusions and registered-cycle authority remain.
+The seven-concern Visual Evidence Plan and accessible text equivalent for this
+successor are canonical in the linked contract; the historical plan below remains.
+
+## Historical live-transition scope
+
 Current deployment scope is further narrowed by SSD recovery INT-024: all remaining
 guest work is deferred. Activate only macOS ARM64 in this continuation; retain
 guest and Linux x86_64 routes and their unfinished qualification evidence.

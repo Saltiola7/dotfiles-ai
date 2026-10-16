@@ -2,7 +2,7 @@
 # OpenCode release: {{ .dotfiles_ai.opencode.version }} {{ .dotfiles_ai.opencode.linux_amd64_asset_sha256 }}
 set -euo pipefail
 
-{{ if not (or .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.linux_workstation.enabled) -}}
+{{ if not (or (and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64")) (and (eq .chezmoi.os "linux") (or (eq .chezmoi.arch "arm64") (eq .chezmoi.arch "amd64"))) .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.linux_workstation.enabled) -}}
 exit 0
 {{ end -}}
 exec "$HOME/.local/bin/opencode-install"
