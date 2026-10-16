@@ -18,6 +18,12 @@ The manifest now records this source prerequisite as delivered and promotes
 readiness counts and first-launch instructions below describe the Discovery
 checkpoint, not current execution state. No normative scope/dependency changed.
 
+`prompt-authority` is also dependency-satisfied by the same verified inventory
+delivery. Promote it to `ready` for serial primary work while storage-config CI
+is pending; this does not mark storage delivered or unlock its dependents. The
+manifest DAG, not the display row order, permits this independent source slice.
+No implementation or launch approval is implied by the readiness promotion.
+
 ## Invariants
 
 - Public generic contracts only. Private repository identity, content, branches,

@@ -30,6 +30,48 @@ def text(path):
     return (ROOT / path).read_text()
 
 
+def test_workflow_canonical_guidance_has_one_owner_and_missing_skill_disposition():
+    agents = text("private_dot_config/opencode/AGENTS.md")
+    assert agents.count("Use `ponytail` full") == 1
+    assert agents.count("Use `caveman` full") == 1
+    assert "canonical_skill_unavailable" in agents
+    assert "version or content digest" in agents
+    assert "do not copy a substitute" in agents
+    kernel = text("dot_agents/skills/dbsctr/SKILL.md")
+    assert "managed AGENTS guidance once" in kernel
+    assert "phase-by-phase prompt injection" in kernel
+    assert "opaque native" in kernel
+    for source in (agents, kernel):
+        assert "The ladder" not in source
+        assert "PONYTAIL MODE ACTIVE" not in source
+
+
+def test_workflow_provider_deltas_remain_source_backed_and_route_neutral():
+    openai = text("dot_agents/skills/dbsctr/references/openai.md")
+    anthropic = text("dot_agents/skills/dbsctr/references/anthropic.md")
+    assert "GPT-6 Astra" in openai and "GPT-6.1 Sol" in openai
+    assert "hypotheses" in openai and "Responses" in openai
+    assert "/api/docs/guides/model-guidance" in openai
+    assert "prompting-claude-opus-5-5>" in anthropic
+    assert "progress is not completion" in anthropic
+    for source in (openai, anthropic):
+        assert "harness" in source
+        assert "provider substitution" in source
+        assert "exact approval" in source
+        assert "default_model =" not in source
+
+
+def test_workflow_budgets_do_not_manufacture_capability_or_filter_authority():
+    audit = text("dot_agents/skills/dbsctr-performance-audit/SKILL.md")
+    assert "when available and permitted" in audit
+    assert "do not attempt DKS" in audit
+    assert "bytes-derived" in audit
+    assert "raw recovery" in audit
+    assert "default-off" in audit
+    assert "opaque native" in audit
+    assert "gate authority" in audit
+
+
 def rendered_config(env=None, data=None):
     result = subprocess.run(
         ["chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
