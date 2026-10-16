@@ -4,9 +4,30 @@
 and [agent guidance](features/workflow-agent-guidance.md) define same-conversation
 return to primary, canonical Caveman/Ponytail ownership, minimal provider deltas
 and default-off compression evaluation. Source implementation, native history
-qualification and any activation remain pending; no service restart, model-route
+qualification and any activation remain separate; no service restart, model-route
 change or new Incident authority is implied. Scope and order are in the
 [Initiative](../../initiatives/dbsctr-workflow-convergence/README.md).
+
+**WORKFLOW-NATIVE-HANDOFF source:** managed AGENTS owns the ordered handoff:
+preserve work, resolve/safely fast-forward a unique compatible primary, move only
+the current conversation through native `session_move`, then check quiescence and
+preservation outside the former checkout before separately authorized Worktrunk
+removal. Missing native proof retains work; a shell directory change or supplied
+identity is not authentication. Successful movement survives failed cleanup, and
+idle completed checkouts need no manufactured conversation. DBSCTR and Discovery
+reference this route without introducing a continuation plugin or actor shim.
+
+Eligible native linked checkouts can be reused across phases. If unmerged
+Discovery authority prevents HEAD-equals-approved-base registration, retain it
+and import its complete changed-document closure into one code-only Build
+checkout through the existing receipt/preflight/approval protocol. No extra
+environment/data copy, authority reset or premature documentation publication.
+Owner: dotfiles maintainer; requalify after native interface/registration changes.
+Rollback restores prior managed guidance after checking active work, retaining
+all checkout/evidence/session state. Source regression and permission/role tests
+do not qualify installed message, attachment or compaction preservation. That
+requires separately approved native rollout, without private-history transport,
+paid provider calls, forced restarts or cross-provider fallback.
 
 **WORKFLOW-PROMPT-AUTHORITY source:** managed AGENTS remains the single canonical
 communication/engineering guidance owner. Missing installed guidance reports

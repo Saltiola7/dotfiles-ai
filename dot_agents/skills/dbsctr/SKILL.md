@@ -333,6 +333,14 @@ artifact freshness before writing. Request the mode change in the same conversat
 not another checkout/session as a workaround. Todos hold current state; specs and
 Git are durable authority. File access never overrides lifecycle authorization.
 
+Follow the managed current-conversation handoff order before separately authorized
+retirement: preserve work, synchronize a unique safe primary, use the current
+native session move, then check quiescence/preservation from outside the old checkout.
+Keep prior successful move evidence if cleanup fails; never manufacture a session
+for idle completed work. A native session move is not CLI actor authentication;
+unavailable proof retains work, never a shell/API identity workaround. Installed
+history/attachment/compaction qualification remains a separate activation gate.
+
 ## Critical-Path Profiling And Safe Concurrency
 
 When diagnosing cycle wall time, a validated Build primary may bracket material

@@ -48,6 +48,44 @@ def test_pr_review_authority_and_ci_fail_closed_without_activation():
         assert term in qa
 
 
+def test_native_handoff_guidance_preserves_sync_move_and_removal_order():
+    agents = text("private_dot_config/opencode/AGENTS.md")
+    start = agents.index("### Current-conversation handoff")
+    end = agents.index("### Authorized task bootstrap", start)
+    handoff = agents[start:end]
+    stages = [handoff.index(term) for term in (
+        "Finish or explicitly pause", "unique canonical primary", "fast-forward only", "`session_move`", "from outside the former checkout")]
+    assert stages == sorted(stages)
+    for term in ("without supplying a session identity", "unchanged native identity", "returned canonical directory",
+                 "messages, attachments and saved compaction", "native_handoff_unavailable", "no reset or branch swap",
+                 "successful move evidence", "do not move back", "Idle completed checkouts", "no fabricated conversation"):
+        assert term in handoff
+    assert "HTTP/CLI identity workaround" in handoff
+
+
+def test_native_bootstrap_reuses_checkouts_without_discarding_discovery_authority():
+    agents = text("private_dot_config/opencode/AGENTS.md")
+    discovery = text(SKILLS / "discovery/SKILL.md")
+    kernel = text(SKILLS / "dbsctr/SKILL.md")
+    for source in (agents, discovery):
+        assert "HEAD == approved remote base" in source
+        assert "complete changed-document closure" in source
+        assert "one code-only Build checkout" in source
+        assert "not a phase boundary" in source
+    assert "managed current-conversation handoff" in kernel
+    assert "prior successful move" in kernel
+    assert "native session move is not CLI actor authentication" in kernel
+
+
+def test_native_handoff_failure_preserves_work_without_new_identity_routes():
+    agents = text("private_dot_config/opencode/AGENTS.md")
+    for term in ("Dirty, diverged, ambiguous or incompatible", "retain both checkout and evidence",
+                 "writers and in-flight tools", "never signal consumers", "existing native permissions"):
+        assert term in agents
+    assert not (ROOT / "private_dot_config/opencode/plugins/continuation.ts").exists()
+    assert not (ROOT / "private_dot_config/opencode/plugins/initiative-context.ts").exists()
+
+
 def test_public_lifecycle_commands_are_unversioned_and_thin():
     expected = {"discovery": "discovery", "dbsctr": "dbsctr", "qa": "qa",
                 "dbsctr-review": "dbsctr-review", "incident": "dbsctr-incident",
