@@ -1,5 +1,13 @@
 # OpenCode Control Plane
 
+**Workflow-convergence Discovery:** [native handoff](features/workflow-native-handoff.md)
+and [agent guidance](features/workflow-agent-guidance.md) define same-conversation
+return to primary, canonical Caveman/Ponytail ownership, minimal provider deltas
+and default-off compression evaluation. Source implementation, native history
+qualification and any activation remain pending; no service restart, model-route
+change or new Incident authority is implied. Scope and order are in the
+[Initiative](../../initiatives/dbsctr-workflow-convergence/README.md).
+
 **NATIVE-HELPER-DELEGATION:** The [native helper contract](features/native-helper-delegation.md)
 supersedes blanket Task denial and historical model tables below. Primaries may
 delegate bounded helpers; Plan remains read-only, Discovery writers are docs-only,

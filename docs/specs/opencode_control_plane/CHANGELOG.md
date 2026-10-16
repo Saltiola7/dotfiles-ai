@@ -1,5 +1,13 @@
 # OpenCode Control Plane Changelog
 
+## Unreleased — workflow-convergence Discovery
+
+- Specified native current-conversation handoff, canonical Caveman/Ponytail
+  ownership, minimal current-provider guidance and default-off compression
+  evaluation. No custom identity/continuation transport is reintroduced.
+- Source and runtime acceptance remain pending; no model request, filter install,
+  service restart or live session/history qualification is claimed here.
+
 ## 2026-10-15 — NATIVE-HELPER-ROUTE-FIXTURE
 
 - Corrected the CI route fixture to exercise committed provider/model routes

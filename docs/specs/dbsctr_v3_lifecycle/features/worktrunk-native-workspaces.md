@@ -1,5 +1,14 @@
 # Worktrunk-owned native workspaces
 
+For new cycles bound to workflow-convergence, the finalized
+[storage policy](../../dotfiles_ai_distribution/features/workflow-storage-policy.md),
+[preservation contract](workflow-preservation-retirement.md) and
+[native handoff](../../opencode_control_plane/features/workflow-native-handoff.md)
+supersede the sibling layout, repeated bounded-upload consent and manual-only
+eligible retirement rules below. Native ownership, no forced/bypassed removal,
+independent mutable DVC state and reflink-only materialization remain. Existing
+cycle authority and unsupported runtime capabilities are not rewritten or enabled.
+
 ## Scope and authority
 
 Owner: project maintainers. Context: dbsctr_v3_lifecycle, with the approved

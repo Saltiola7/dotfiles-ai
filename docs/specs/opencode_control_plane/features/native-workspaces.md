@@ -1,5 +1,12 @@
 # OpenCode native workspaces and lifecycle CLI
 
+For workflow-convergence, [native handoff](workflow-native-handoff.md) selects the
+existing current-conversation move tool and conservative authority-import
+bootstrap. It supersedes any historical inference that changing shell cwd moves a
+session; it does not revive custom continuation tools or authenticate CLI actors.
+Installed history/attachments and unavailable harness routes still require their
+own acceptance evidence before automatic cleanup.
+
 Status: specification reconciliation; not deployment qualification.
 Owner: project maintainers. Profile: `../PROFILE.md`. Risk: critical.
 Authority: Initiative INT-027–INT-030 and the shared lifecycle native-workspace

@@ -1,5 +1,30 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## Unreleased — WORKFLOW-SAFETY-INVENTORY source
+
+- Added bounded, paginated native/legacy metadata inventory with explicit
+  repository seeds, private reports and path-free agent output. Size/data scans
+  and deletion eligibility are excluded; incomplete evidence stays retained.
+- Kept cleanup, DVC upload, merge and installed host behavior unchanged. Validation
+  uses the frozen broad lifecycle suite, final inventory/compatibility fixtures,
+  publication/instruction tests and Python compilation. The earlier live-edit
+  validation failure is retained and superseded by frozen-tree evidence; reviewed
+  symlink, bounded-correlation and timeout-cursor gaps have regression coverage.
+- No gate exceptions or deployment/restart. Discovery import: `9a83c84`; source
+  Gate Commit and actual push outcome belong to the Cycle Record. Intended one
+  Final Push: normal feature branch plus draft PR to `Saltiola7/dotfiles-ai:main`,
+  never a direct default-branch push. Runtime activation and other slices remain
+  pending independently.
+
+## Unreleased — workflow-convergence Discovery
+
+- Specified bounded native inventory, immediate preservation-verified retirement,
+  PR/affected-CI integration and sanitized regression feedback. Conservative DVC
+  directory verification and cooperative-removal limits remain explicit.
+- Reconciled new-cycle precedence without rewriting old cycles or enabling runtime
+  automation. Implementation, activation and remediation remain pending; no gate
+  pass, data upload, merge or deletion is claimed by this Discovery entry.
+
 ## 2026-10-08 — EARLY-DELIVERY-CHECKS
 
 - Reuse repository publication validation before Discovery handoff and run cheap

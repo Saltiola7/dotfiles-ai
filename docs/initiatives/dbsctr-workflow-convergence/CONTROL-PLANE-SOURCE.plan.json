@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/opencode_control_plane/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Managed skills, routing and evaluation source do not publish a separate package."},
+    "deploy": {"applicability": "not_applicable", "reason": "Source-only PR; no live prompt/filter activation, model calls, service restart or session move."},
+    "operate": {"applicability": "not_applicable", "reason": "Synthetic/public fixtures only; installed native history/filter behavior requires separate opt-in runtime qualification."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

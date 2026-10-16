@@ -1,5 +1,18 @@
 # Automatic Verified Delivery
 
+## Workflow-convergence precedence
+
+For new cycles explicitly bound to the workflow-convergence Initiative,
+[integration/CI](workflow-integration-ci.md) and
+[preservation/retirement](workflow-preservation-retirement.md) select the new
+versioned local policy, affected-check classification, exact-head exceptions and
+immediate eligible cleanup contract. This supersedes this feature's blanket
+pending-check refusal, legacy policy-file selection and retirement ordering only
+within that scope. Native branch protection and failed evidence are not silently
+waived. Existing cycles retain their committed authority; implementation and live
+activation remain separate gates. The sections below remain the earlier contract,
+not evidence that the new automation is installed.
+
 ## Purpose
 
 Reduce branch and worktree ambiguity by allowing an explicitly enabled DBSCTR

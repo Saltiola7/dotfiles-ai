@@ -58,8 +58,19 @@ target files.
     rootless services while client-specific containers stay inside their client
     workspaces; project files never need to enter the service container.
 17. An authorized remote-workspace user receives the public foundation on
-    CentOS Stream 10 x86_64 without adopting maintainer identity, host paths,
-    credentials, personal services, or another user's authentication state.
+     CentOS Stream 10 x86_64 without adopting maintainer identity, host paths,
+     credentials, personal services, or another user's authentication state.
+18. A repository owner may explicitly enable guarded PR merging for exact targets;
+    default delivery remains draft review. Teammate integration can stop at a
+    temporary feature branch while ultimate-default promotion stays with its
+    authorized owner. This grants no new Hermes/worker delivery authority.
+19. A developer chooses portable worktree/cache roots once, materializes only
+    needed data and retires completed inactive checkouts after verified default
+    merge and applicable preservation. Unknown, active or unmerged work remains
+    visible and retained; no arbitrary age delay replaces preservation evidence.
+20. A developer can disable compatible optional behavior and inspect sanitized
+    feature/version-linked regression evidence. External incident reporting is
+    opt-in; incompatible data/schema downgrades remain blocked.
 
 ## Visual Evidence
 
@@ -79,7 +90,7 @@ boundary. The expanded peer-runtime journey below preserves that rationale.
 ```mermaid
 flowchart LR
     accTitle: dotfiles-ai product journey boundaries
-    accDescr: A developer configures portable public defaults with private local values, applies independent OpenCode and Codex CLI runtimes, keeps Codex desktop state separate, opts into isolated automation, and reviews uncertain decisions and every draft pull request while secrets remain local.
+    accDescr: A developer configures portable public defaults with private local values, applies independent OpenCode and Codex CLI runtimes, keeps Codex desktop state separate, and opts into isolated automation. Draft review is default; exact local policy may enable guarded PR merging without granting workers new authority. Secrets remain local.
     P[Public repository] -->|Add private local values| C[Machine-local configuration]
     C -->|Preview and apply| W[Managed host and workspaces]
     W -->|Explicit invocation| O[OpenCode]
@@ -91,7 +102,10 @@ flowchart LR
     A -->|Ready P0 or P1 work| I[Isolated implementation cycle]
     A -->|Uncertain work| U[Operator approval]
     U -->|Explicit proceed| I
-    I -->|Draft pull request| R[Human review and merge]
+    I -->|Default draft pull request| R[PR review and merge]
+    C -->|Exact repository opt-in| G[Guarded PR merge policy]
+    I -->|Qualified PR evidence only| G
+    G -->|Configured target and permissions| R
     C -.->|Never publish| N[Secrets and machine identity]
 ```
 
@@ -100,14 +114,21 @@ values are supplied. Applying them creates managed host and workspace
 environments with explicitly invoked OpenCode and a managed Codex CLI wrapper;
 Codex desktop state remains separate. Automation remains optional and isolated. Evidence-ready
 P0/P1 Discovery may proceed automatically when evidence resolves every material
-question, while uncertain work waits for the operator. Delivery ends at a draft pull request for human
-review. One personal workspace may separately host rootless services without
+question, while uncertain work waits for the operator. Delivery defaults to a
+draft pull request for human review. Exact-repository local policy may enable
+guarded PR merging against configured targets without extending worker authority.
+One personal workspace may separately host rootless services without
 mounting project files into those containers. Secrets and machine identity never
 enter the public repository.
 The product owner updates this view when a core journey, privacy boundary, or
 approval outcome changes.
 
 ## Constraints And Trust
+
+- Journeys 18–20 use the workflow-convergence contracts and apply only after their
+  source/activation gates. They do not authorize direct protected-branch pushes,
+  silent CI waivers, deleting unpreserved data, moving active checkouts or external
+  reporting without configured consent. Private adopter policy never enters Git.
 
 - Journeys 2/3 describe the approved successor policy in
   [native platform updates](features/native-platform-updates.md). Live ownership

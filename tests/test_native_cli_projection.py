@@ -110,3 +110,39 @@ def test_federated_save_requires_qualified_capture_authority(core, tmp_path):
     assert result.returncode == 1 and "native_capture_authority_unavailable" in result.stderr
     assert not result.stdout and "SYNTHETIC_UNTRUSTED_RECEIPT" not in result.stderr
     assert not state.exists()
+
+
+def test_inventory_errors_and_cursor_input_do_not_disclose_paths(core, tmp_path):
+    root = tmp_path / "PRIVATE_PROJECT_SENTINEL"
+    root.mkdir()
+    core.subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+    for arguments in (["--cursor", "PRIVATE_CURSOR_SENTINEL"],
+                      ["--repository", "PRIVATE_RELATIVE_SENTINEL"]):
+        result = core.subprocess.run(
+            [core.sys.executable, core.__file__, "worktree-list", "--json", *arguments],
+            cwd=root, capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode == 1
+        assert result.stderr.strip() == "dbsctrctl: inventory_unavailable"
+        assert not result.stdout
+
+
+def test_inventory_subprocess_budget_withholds_untrusted_git_output(core, tmp_path, monkeypatch):
+    fake = tmp_path / "git"
+    fake.write_text("#!/bin/sh\nprintf 'PRIVATE_ERROR_SENTINEL' >&2\nexit 1\n")
+    fake.chmod(0o700)
+    monkeypatch.setattr(core, "INSPECT_ENV", {**core.INSPECT_ENV, "PATH": str(tmp_path)})
+    with pytest.raises(RuntimeError, match="inventory_git_unavailable") as error:
+        core.inventory_git(tmp_path, "rev-parse", "HEAD")
+    assert "PRIVATE" not in str(error.value)
+
+
+def test_inventory_timeout_terminates_only_its_spawned_collector(core, tmp_path):
+    child = core.subprocess.Popen(
+        [core.sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=core.subprocess.PIPE, stderr=core.subprocess.PIPE, start_new_session=True,
+    )
+    with pytest.raises(RuntimeError, match="preservation evidence unavailable"):
+        core.preservation_output(child, limit=1024, timeout=0.01)
+    assert child.poll() is not None
+    assert child.stdout.closed and child.stderr.closed
