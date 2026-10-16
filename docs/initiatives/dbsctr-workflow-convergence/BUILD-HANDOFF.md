@@ -1,9 +1,28 @@
 # Build handoff — workflow convergence
 
-**Discovery complete; implementation not started.** This file is a resumption
+**Discovery complete; source delivery in progress.** This file is a resumption
 index, not a launch approval. Re-read `MANIFEST.json`, `DECISIONS.md` and referenced
 contracts from Git after compaction. Validate them with `initiative-check`; never
 use a conversation summary, old digest or runtime identity as readiness authority.
+
+## Verified source delivery — 2026-10-16
+
+`safety-inventory` delivered through [PR #214](https://github.com/Saltiola7/dotfiles-ai/pull/214):
+Gate Commit `12ae5da073690c597293907fe9d85ca83c0b548c`, merge
+`2c638e10e76800a0cf151cf7a7933dccb0a0bcfc` into `main` from base
+`493fac03ea0b7959d38dc375f6e246995a41bfe1`. Native ancestry confirms the exact
+head is a merge parent; Python 3.12/3.13/3.14 test jobs and remote-user smoke all
+passed before the explicitly approved merge. No deployment, upload or removal.
+The manifest now records this source prerequisite as delivered and promotes
+`storage-config` to ready. Other source slices remain unimplemented; historical
+readiness counts and first-launch instructions below describe the Discovery
+checkpoint, not current execution state. No normative scope/dependency changed.
+
+`prompt-authority` is also dependency-satisfied by the same verified inventory
+delivery. Promote it to `ready` for serial primary work while storage-config CI
+is pending; this does not mark storage delivered or unlock its dependents. The
+manifest DAG, not the display row order, permits this independent source slice.
+No implementation or launch approval is implied by the readiness promotion.
 
 ## Invariants
 
