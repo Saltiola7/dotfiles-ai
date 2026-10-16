@@ -77,6 +77,19 @@ and Herdr state are never readiness authority. Discovery continues for unfinishe
 slices serially in the primary. Independent slice orchestration is deferred;
 bounded helper delegation does not register or launch another cycle.
 
+## Native checkout reuse
+
+An eligible clean linked checkout may be reused; Discovery-to-Build is not a phase boundary
+requiring another environment or data copy. Current registration requires
+`HEAD == approved remote base` before import. Preserve unmerged Discovery authority;
+when that prevents reuse, prepare one code-only Build checkout through Worktrunk at
+the freshly fetched approved base and set its intended upstream. Import the
+complete changed-document closure through the existing Initiative route after
+fresh receipt/preflight and exact approval. Never reset authority, publish docs
+prematurely, invent resume semantics or claim a shell directory change retargets
+the conversation. Follow managed AGENTS for current-live return to a synchronized
+primary; idle historical checkouts need no manufactured session or identity shim.
+
 ## Retrieve
 
 1. Read project instructions and matching specs, ADRs, manifests, lockfiles, CI,
