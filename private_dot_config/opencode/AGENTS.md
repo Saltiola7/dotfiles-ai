@@ -131,6 +131,13 @@ Use `caveman` full by default. Preserve conclusions, evidence, material caveats,
 decisions, and next actions; trim introductions, repetition, generic reassurance,
 and optional background first.
 
+Load those canonical installed skills once, not their full text in each phase.
+If either is missing, report `canonical_skill_unavailable`; do not copy a substitute
+or claim it loaded. Before separate live distribution, record the resolved skill
+version or content digest in existing qualification evidence. Concision and tool,
+delegation or compaction budgets never waive safety, gates or exact approvals;
+report a capability/budget blocker rather than omit required evidence.
+
 ## Context And Delegation
 
 For codebase or architecture questions, query `dks_context` first when available,

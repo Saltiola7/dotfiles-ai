@@ -8,6 +8,18 @@ qualification and any activation remain pending; no service restart, model-route
 change or new Incident authority is implied. Scope and order are in the
 [Initiative](../../initiatives/dbsctr-workflow-convergence/README.md).
 
+**WORKFLOW-PROMPT-AUTHORITY source:** managed AGENTS remains the single canonical
+communication/engineering guidance owner. Missing installed guidance reports
+`canonical_skill_unavailable`, with no copied substitute; installed version/content
+provenance is required before later distribution. DBSCTR references that owner
+without phase prompt duplication. Provider references link verified GPT-6 model
+guidance and Opus 5.5 prompting, distinguish public facts from configured harness
+capability, and preserve provider affinity and exact approvals. Performance audits
+retain unavailable telemetry and denied-context boundaries, native state and raw
+recovery. Source tests check these instruction contracts and unchanged routing;
+they do not measure provider behavior, savings or deployed permissions. Compression
+evaluation, prompt activation and dependency upgrades remain separate work.
+
 **NATIVE-HELPER-DELEGATION:** The [native helper contract](features/native-helper-delegation.md)
 supersedes blanket Task denial and historical model tables below. Primaries may
 delegate bounded helpers; Plan remains read-only, Discovery writers are docs-only,

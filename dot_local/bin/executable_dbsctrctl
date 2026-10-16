@@ -4196,6 +4196,7 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
         "artifact_reviews": {name: {"result": "pending", "reason": None, "reviewed_at": None}
                              for name in ARTIFACTS},
         "runtime": {"adapters": {}},
+        "preservation_policy": preservation_policy_snapshot(root),
         "execution": {"schema_version": 1, "mode": "native_workspace", "origin": "registered",
                       "attribution": {"status": "unavailable", "reason": "native_identity_not_collected"},
                       "adoption": None},
@@ -7894,7 +7895,7 @@ def removal_run(root, argv, *, input_text=None, accepted=(0,)):
 
 def workspace_remove_check(root):
     root = root.resolve()
-    reasons, related, commits, candidates = [], [], [], []
+    reasons, related, commits, candidates, preservation_records = [], [], [], [], []
     if root == primary_worktree(root) or root not in {Path(row["worktree"]).resolve() for row in git_worktrees(root)}:
         return {"schema_version": 1, "eligible": False, "reasons": ["not_registered_task_checkout"]}
     if status_paths(root):
@@ -7922,6 +7923,8 @@ def workspace_remove_check(root):
                        and not valid_gate_exception(gate) for gate in record["gates"].values()):
                     reasons.append("incomplete_cycle_evidence")
             commits.extend(entry["id"] for entry in record["commits"])
+            if record.get("dvc_preservation"):
+                preservation_records.append(record)
             delivery = record.get("delivery", {})
             if delivery.get("remote"):
                 if record["git"]["remote"] != remote_destination(root, record["git"]["upstream"]):
@@ -7964,6 +7967,10 @@ def workspace_remove_check(root):
             status = json.loads(removal_run(root, ["dvc", "data", "status", "--unchanged", "--json"]),
                                 object_pairs_hook=no_duplicate_keys)
             data_roots = [removal_path(root, name) for name in removal_dvc_paths(root, status)]
+            if any(path.is_dir() for path in data_roots):
+                reasons.append("remote_directory_closure_unverified")
+            elif data_roots and not verified_preservation_outputs(root, preservation_records, data_roots):
+                reasons.append("remote_file_preservation_unverified")
             cache = Path(removal_run(root, ["dvc", "cache", "dir"]).strip()).expanduser()
             cache = (cache if cache.is_absolute() else root / cache).resolve()
             if path_within(cache, root) and cache.exists() and any(cache.iterdir()):
@@ -15026,8 +15033,357 @@ def command_record_dvc_push(args):
     head = git(root, "rev-parse", "HEAD").stdout.strip()
     if args.head != head:
         fail("DVC push evidence must match current HEAD")
+    if args.declaration:
+        try:
+            record_declared_dvc_preservation(root, path, record, args)
+        except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+            fail("preservation_evidence_unavailable")
+        return
+    if args.upload or args.remote:
+        fail("targeted preservation requires an explicit declaration and remote")
     record["dvc_push"] = {"head": head, "evidence": args.evidence, "recorded_at": now()}
     save(path, record)
+
+
+def preservation_policy_snapshot(root):
+    """Consume only the selected generated policy; declarations never grant consent."""
+    try:
+        return _preservation_policy_snapshot(root)
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+        fail("preservation_policy_unavailable")
+
+
+def _preservation_policy_snapshot(root):
+    config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    source = config / "dotfiles-ai/workflow-policy.json"
+    if not os.path.lexists(source):
+        return None
+    safe_directory(config, source.parent)
+    continuation_private(source)
+    if source.stat().st_size > 256 * 1024:
+        fail("preservation_policy_invalid")
+    with source.open("rb") as stream:
+        raw = stream.read(256 * 1024 + 1)
+    if len(raw) > 256 * 1024:
+        fail("preservation_policy_invalid")
+    helper = Path.home() / ".local/bin/workflow-policy"
+    item = helper.lstat()
+    if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
+            or item.st_nlink != 1 or item.st_mode & 0o022):
+        fail("preservation_policy_invalid")
+    checked = json.loads(removal_run(root, [str(helper), "check"]), object_pairs_hook=no_duplicate_keys)
+    if checked != {"status": "passed"}:
+        fail("preservation_policy_unavailable")
+    continuation_private(source)
+    with source.open("rb") as stream:
+        after = stream.read(256 * 1024 + 1)
+    if after != raw:
+        fail("preservation_policy_changed_during_validation")
+    policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    digest = hashlib.sha256(json.dumps({k: v for k, v in policy.items() if k != "policy_digest"},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    if policy.get("policy_digest") != digest:
+        fail("preservation_policy_invalid")
+    common = common_git_dir(root).resolve()
+    entries = [entry for entry in policy["repositories"]
+               if (Path(entry["repository"]) / ".git").resolve() == common]
+    if len(entries) > 1:
+        fail("preservation_policy_invalid")
+    consent = entries[0].get("preservation") if entries else None
+    if consent is None:
+        return None
+    if type(consent.get("schema_version")) is not int or consent["schema_version"] != 1:
+        fail("preservation_policy_invalid")
+    return {"schema_version": 1, "policy_digest": digest, "repository": str(common), "consent": consent}
+
+
+def preservation_committed_bytes(root, head, name):
+    path = removal_path(root, name)
+    entry = removal_run(root, ["git", "ls-tree", "-z", head, "--", name]).rstrip("\0").split("\t")
+    if len(entry) != 2 or entry[1] != name or not entry[0].startswith("100644 blob "):
+        fail("preservation_metadata_unavailable")
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
+        fail("preservation_metadata_unavailable")
+    raw = removal_run(root, ["git", "show", f"{head}:{name}"]).encode()
+    if raw != path.read_bytes():
+        fail("preservation_metadata_changed")
+    return raw
+
+
+def preservation_declaration(root, head, name):
+    raw = preservation_committed_bytes(root, head, name)
+    value = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "targets"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or not isinstance(value["targets"], list) or not 1 <= len(value["targets"]) <= 64):
+        fail("preservation_declaration_invalid")
+    outputs, seen = [], set()
+    for target in value["targets"]:
+        if not isinstance(target, str) or not target.endswith(".dvc") or target in seen:
+            fail("preservation_declaration_invalid")
+        seen.add(target)
+        metadata = preservation_committed_bytes(root, head, target)
+        lines = metadata.decode().splitlines()
+        fields = {}
+        if not lines or lines[0] != "outs:":
+            fail("preservation_metadata_format_unsupported")
+        # Deliberately accept only canonical single-output .dvc scalars. Never guess YAML.
+        for index, line in enumerate(lines[1:]):
+            match = re.fullmatch(r"(?:- |  )(md5|size|hash|path|nfiles): (.+)", line)
+            if not match or match[1] in fields or (index == 0) != line.startswith("- "):
+                fail("preservation_metadata_format_unsupported")
+            fields[match[1]] = match[2]
+        if (not {"md5", "size", "hash", "path"} <= fields.keys() or fields["hash"] != "md5"
+                or not re.fullmatch(r"[0-9a-f]{32}(?:\.dir)?", fields["md5"])
+                or not re.fullmatch(r"0|[1-9][0-9]{0,18}", fields["size"])
+                or not re.fullmatch(r"[A-Za-z0-9_.][A-Za-z0-9_./ -]{0,1023}", fields["path"])):
+            fail("preservation_metadata_format_unsupported")
+        relative = str(PurePosixPath(target).parent / fields["path"])
+        removal_path(root, relative)
+        directory = fields["md5"].endswith(".dir")
+        if directory != ("nfiles" in fields) or directory and not re.fullmatch(r"[0-9]{1,10}", fields["nfiles"]):
+            fail("preservation_metadata_format_unsupported")
+        if any(output["path"] == relative for output in outputs):
+            fail("preservation_declaration_invalid")
+        outputs.append({"target": target, "path": relative, "algorithm": "md5", "object_id": fields["md5"],
+                        "kind": "directory" if directory else "file", "metadata_sha256": hashlib.sha256(metadata).hexdigest(),
+                        "closure": None if directory else [{"algorithm": "md5", "object_id": fields["md5"]}]})
+    return hashlib.sha256(raw).hexdigest(), outputs
+
+
+def preservation_destination(root, remote):
+    try:
+        return _preservation_destination(root, remote)
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+        fail("preservation_destination_unavailable")
+
+
+def _preservation_destination(root, remote):
+    if not isinstance(remote, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", remote):
+        fail("preservation_remote_invalid")
+    endpoint = removal_run(root, ["dvc", "config", f"remote.{remote}.url"]).strip()
+    destination = Path(endpoint)
+    if (not destination.is_absolute() or "://" in endpoint or ".." in destination.parts
+            or any(p.is_symlink() for p in (destination, *destination.parents))):
+        fail("preservation_backend_unsupported")
+    destination = destination.resolve()
+    item = destination.stat()
+    if not destination.is_dir() or item.st_uid != os.getuid() or item.st_mode & 0o022:
+        fail("preservation_destination_unavailable")
+    for row in git_worktrees(root):
+        checkout = Path(row["worktree"]).resolve()
+        if path_within(destination, checkout) or path_within(checkout, destination):
+            fail("preservation_destination_unsafe")
+    identity = {"backend": "local", "remote": remote, "path": str(destination),
+                "device": item.st_dev, "inode": item.st_ino}
+    return identity, continuation_digest(identity)
+
+
+def preservation_runtime(root):
+    if any(key.startswith("DVC_") and key != "DVC_NO_ANALYTICS" for key in INSPECT_ENV):
+        fail("preservation_environment_unsupported")
+    version = removal_run(root, ["dvc", "--version"]).strip()
+    doctor = removal_run(root, ["dvc", "doctor"])
+    data = re.search(r"^\s*dvc_data = ([0-9.]+)\s*$", doctor, re.M)
+    if version != "3.67.1" or not data or data[1] != "3.18.3":
+        fail("preservation_runtime_unqualified")
+    return {"dvc": version, "dvc_data": data[1], "object_format": "files/md5"}
+
+
+def preservation_snapshot_matches(root, head, declaration, digest, outputs, remote, destination, policy, runtime):
+    try:
+        if (git(root, "rev-parse", "HEAD").stdout.strip() != head or status_paths(root)
+                or preservation_policy_snapshot(root) != policy
+                or preservation_declaration(root, head, declaration) != (digest, outputs)
+                or preservation_destination(root, remote)[1] != destination
+                or preservation_runtime(root) != runtime):
+            return False
+        removal_dvc_paths(root, json.loads(removal_run(root, ["dvc", "data", "status", "--unchanged", "--json"]),
+                                          object_pairs_hook=no_duplicate_keys))
+        return True
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+        return False
+
+
+def preservation_remote_observation(root, outputs, remote):
+    if any(output["kind"] == "directory" for output in outputs):
+        return {"status": "unavailable", "reasons": ["remote_directory_closure_unverified"],
+                "observed_at": now(), "objects": []}
+    try:
+        value = json.loads(removal_run(root, ["dvc", "status", "--cloud", "--json", "-r", remote,
+                                            *[output["target"] for output in outputs]]), object_pairs_hook=no_duplicate_keys)
+        if value != {}:
+            fail("remote_objects_not_verified")
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError):
+        return {"status": "unavailable", "reasons": ["remote_objects_not_verified"],
+                "observed_at": now(), "objects": []}
+    return {"status": "verified", "reasons": [], "observed_at": now(),
+            "objects": [{"algorithm": o["algorithm"], "object_id": o["object_id"]} for o in outputs]}
+
+
+def record_declared_dvc_preservation(root, record_path, record, args):
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    if status_paths(root):
+        fail("preservation_requires_clean_metadata_and_code")
+    policy = preservation_policy_snapshot(root)
+    if policy is None or record.get("preservation_policy") != policy:
+        fail("preservation_consent_absent_or_changed")
+    declaration_digest, outputs = preservation_declaration(root, head, args.declaration)
+    runtime = preservation_runtime(root)
+    destination, destination_digest = preservation_destination(root, args.remote)
+    expected = {"declaration_path": args.declaration, "declaration_sha256": declaration_digest,
+                "remote": args.remote, "destination_sha256": destination_digest}
+    if expected not in policy["consent"].get("uploads", []):
+        fail("preservation_scope_or_destination_not_approved")
+    status = json.loads(removal_run(root, ["dvc", "data", "status", "--unchanged", "--json"]), object_pairs_hook=no_duplicate_keys)
+    try:
+        removal_dvc_paths(root, status)
+    except RuntimeError:
+        if args.upload or not any(o["kind"] == "directory" for o in outputs):
+            raise
+        # A read-only unsupported-directory observation can retain cold-cache
+        # uncertainty; it never authorizes upload or verified preservation.
+    # Capture before any external write. A later mismatch retains evidence and work.
+    manifest = {"schema_version": 1, "repository": str(common_git_dir(root).resolve()), "head": head,
+                "declaration": expected, "outputs": outputs, "runtime": runtime,
+                "destination": destination, "policy_digest": policy["policy_digest"],
+                "upload": {"status": "not_run"}, "verification": None}
+    directory = cycle_dir(root) / "preservation" / record["cycle_id"]
+    managed_directory(root, directory, create=True)
+    attempt = directory / f"{uuid.uuid4().hex}.json"
+    preservation_save_attempt(root, attempt, manifest)
+    if args.upload:
+        if not preservation_snapshot_matches(root, head, args.declaration, declaration_digest, outputs,
+                                             args.remote, destination_digest, policy, runtime):
+            fail("preservation_snapshot_changed")
+        manifest["upload"] = {"status": "started", "observed_at": now()}
+        preservation_save_attempt(root, attempt, manifest)
+        try:
+            removal_run(root, ["dvc", "push", "-r", args.remote, *[o["target"] for o in outputs]])
+            manifest["upload"] = {"status": "succeeded", "observed_at": now()}
+            preservation_save_attempt(root, attempt, manifest)
+        except (RuntimeError, OSError, subprocess.SubprocessError):
+            manifest["upload"] = {"status": "unknown", "observed_at": now()}
+            preservation_save_attempt(root, attempt, manifest)
+            fail("preservation_upload_outcome_unavailable")
+    manifest["verification"] = preservation_remote_observation(root, outputs, args.remote)
+    if not preservation_snapshot_matches(root, head, args.declaration, declaration_digest, outputs,
+                                         args.remote, destination_digest, policy, runtime):
+        reasons = manifest["verification"]["reasons"] + ["preservation_snapshot_changed"]
+        manifest["verification"] = {"status": "unavailable", "reasons": reasons,
+                                    "observed_at": now(), "objects": []}
+    manifest["manifest_digest"] = continuation_digest(manifest)
+    preservation_save_attempt(root, attempt, manifest)
+    record["dvc_preservation"] = {"path": str(attempt.relative_to(cycle_dir(root))),
+                                  "digest": manifest["manifest_digest"], "head": head}
+    if manifest["upload"]["status"] == "succeeded":
+        record["dvc_push"] = {"head": head, "evidence": "targeted_declared_upload", "recorded_at": now()}
+    save(record_path, record)
+    if manifest["verification"]["status"] != "verified":
+        fail(manifest["verification"]["reasons"][0])
+
+
+def preservation_save_attempt(root, path, manifest):
+    boundary = cycle_dir(root).resolve()
+    if not path_within(path.parent, boundary):
+        fail("preservation_evidence_unavailable")
+    try:
+        private_json(path, manifest)
+        directory = path.parent.resolve()
+        while True:
+            fsync_directory(directory)
+            if directory == boundary:
+                break
+            directory = directory.parent
+    except OSError:
+        fail("preservation_durability_unavailable")
+
+
+def verified_preservation_outputs(root, records, paths):
+    """Requery exact file objects; neither legacy push text nor cached status is proof."""
+    if not records or len(records) > 64:
+        return False
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    for record in records:
+        try:
+            reference = record["dvc_preservation"]
+            if not isinstance(reference, dict) or set(reference) != {"path", "digest", "head"}:
+                continue
+            name = reference["path"]
+            prefix = f"preservation/{record['cycle_id']}/"
+            if (not isinstance(name, str) or not name.startswith(prefix)
+                    or not re.fullmatch(r"[0-9a-f]{32}\.json", name[len(prefix):])
+                    or reference["head"] != head):
+                continue
+            path = cycle_dir(root) / name
+            safe_directory(cycle_dir(root), path.parent)
+            continuation_private(path)
+            if path.stat().st_size > 256 * 1024:
+                continue
+            value = json.loads(path.read_text(), object_pairs_hook=no_duplicate_keys)
+            if (not isinstance(value, dict) or set(value) != {"schema_version", "repository", "head", "declaration",
+                    "outputs", "runtime", "destination", "policy_digest", "upload", "verification", "manifest_digest"}
+                    or type(value["schema_version"]) is not int or value["schema_version"] != 1
+                    or value["manifest_digest"] != reference["digest"]
+                    or value["manifest_digest"] != continuation_digest({k: v for k, v in value.items() if k != "manifest_digest"})
+                    or value["head"] != head or value["repository"] != str(common_git_dir(root).resolve())
+                    or not preservation_manifest_observations(value)):
+                continue
+            policy = preservation_policy_snapshot(root)
+            if policy is None or record.get("preservation_policy") != policy or policy["policy_digest"] != value["policy_digest"]:
+                continue
+            declaration = value["declaration"]
+            if declaration not in policy["consent"].get("uploads", []):
+                continue
+            if any(o["kind"] != "file" for o in value["outputs"]):
+                continue
+            if not set(paths) <= {removal_path(root, o["path"]) for o in value["outputs"]}:
+                continue
+            remote = declaration["remote"]
+            if (preservation_destination(root, remote)[0] != value["destination"]
+                    or not preservation_snapshot_matches(root, head, declaration["declaration_path"],
+                        declaration["declaration_sha256"], value["outputs"], remote,
+                        declaration["destination_sha256"], policy, value["runtime"])):
+                continue
+            if preservation_remote_observation(root, value["outputs"], remote)["status"] != "verified":
+                continue
+            if preservation_snapshot_matches(root, head, declaration["declaration_path"], declaration["declaration_sha256"],
+                                             value["outputs"], remote, declaration["destination_sha256"], policy, value["runtime"]):
+                return True
+        except (RuntimeError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+            continue
+    return False
+
+
+def preservation_manifest_observations(value):
+    """Strict nested observation shapes; a digest does not validate a schema."""
+    try:
+        upload, verification = value["upload"], value["verification"]
+        if not isinstance(upload, dict) or not isinstance(verification, dict):
+            return False
+        status = upload.get("status")
+        if status == "not_run":
+            if set(upload) != {"status"}:
+                return False
+        elif status == "succeeded":
+            if set(upload) != {"status", "observed_at"}:
+                return False
+            stamp = datetime.fromisoformat(upload["observed_at"].replace("Z", "+00:00"))
+            if stamp.utcoffset() != timedelta(0):
+                return False
+        else:
+            return False  # Started/unknown attempts cannot qualify preservation.
+        if (set(verification) != {"status", "observed_at", "reasons", "objects"}
+                or verification["status"] != "verified" or verification["reasons"] != []
+                or not isinstance(value["outputs"], list) or not 1 <= len(value["outputs"]) <= 64
+                or any(o["kind"] != "file" for o in value["outputs"])
+                or verification["objects"] != [{"algorithm": o["algorithm"], "object_id": o["object_id"]}
+                                               for o in value["outputs"]]):
+            return False
+        stamp = datetime.fromisoformat(verification["observed_at"].replace("Z", "+00:00"))
+        return stamp.utcoffset() == timedelta(0)
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return False
 
 
 def verified_upstream_template(root, name):
@@ -16973,6 +17329,9 @@ def parser():
     dvc = commands.add_parser("record-dvc-push")
     dvc.add_argument("--head", required=True)
     dvc.add_argument("--evidence", required=True)
+    dvc.add_argument("--declaration", help="committed schema-1 output declaration; legacy evidence alone is not preservation")
+    dvc.add_argument("--remote", help="exact approved DVC remote; initial qualification supports local directories only")
+    dvc.add_argument("--upload", action="store_true", help="targeted upload under unchanged birth-bound standing consent")
     dvc.set_defaults(func=command_record_dvc_push)
     evidence = commands.add_parser("record-evidence")
     evidence.add_argument("gate", choices=GATES)

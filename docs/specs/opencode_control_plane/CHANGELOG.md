@@ -1,5 +1,20 @@
 # OpenCode Control Plane Changelog
 
+## 2026-10-16 — WORKFLOW-PROMPT-AUTHORITY source
+
+- Kept canonical guidance once in AGENTS, added explicit missing-skill disposition
+  and provenance requirement, and prevented phase duplication or budget-based gate
+  weakening. Provider references now carry verified minimal current guidance,
+  with no model/effort/provider-route change or copied upstream autonomy prompt.
+- Audits skip absent/denied DKS, preserve unavailable usage/cache/billing and raw
+  recovery, and keep lossy filters away from gate authority and opaque native state.
+- Validation uses failing-then-passing source instruction checks, affected rendered
+  configuration/role/helper suites, publication checks and diff review; the Cycle
+  Record owns final gate evidence. No runtime qualification or savings claim.
+- No Gate Exceptions, skill/filter installation, paid model calls, host activation,
+  service restart, dependency update or deletion. Intended Final Push is the feature
+  branch and draft PR to `Saltiola7/dotfiles-ai:main`; compression remains off.
+
 ## Unreleased — workflow-convergence Discovery
 
 - Specified native current-conversation handoff, canonical Caveman/Ponytail

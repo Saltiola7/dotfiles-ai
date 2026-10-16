@@ -1,5 +1,30 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-16 — WORKFLOW-DVC-PRESERVATION source
+
+- Added birth-bound generated-policy consent, exact committed output declarations,
+  targeted native uploads and private version-1 attempt/preservation evidence.
+  Legacy push assertions stay readable but are not remote preservation proof.
+- Qualified native file-presence fixtures for DVC 3.67.1/dvc-data 3.18.3 and owned
+  local-directory remotes. Directory closure remains unavailable, including present
+  `.dir` objects with missing members and warm/cold caches. No payload-integrity
+  claim, private DVC API or guessed remote-object verifier.
+- Hardened explicit cache bootstrap: repository namespace, aliases/ownership,
+  independent protected mutable state, same-filesystem reflink qualification,
+  dirty/uncached-output retention and post-write effective configuration checks.
+- Critical source review fixes preserve interrupted upload state with strict fsync,
+  bind validation to consumed policy bytes, protect metadata parents and nested
+  state, sanitize private filesystem failures and reject unknown observation fields.
+- Validation retains initial reds, review failures and the broad fixture failure.
+  The approved `tests/test_dbsctrctl.py` amendment canonicalizes only its synthetic
+  cache path; runtime alias refusal is unchanged. Current default-branch source is
+  reconciled without rewriting delivery facts, requirements or dependency edges.
+  Final gate results and Gate Commit remain owned by the Cycle Record.
+- No Gate Exceptions or production uploads, hydration, cache migration, GC,
+  deletion, host activation or service restart. Disposable native fixtures use
+  synthetic local remotes. Intended Final Push: feature branch and draft PR into
+  `Saltiola7/dotfiles-ai:main`.
+
 ## Unreleased — WORKFLOW-SAFETY-INVENTORY source
 
 - Added bounded, paginated native/legacy metadata inventory with explicit
