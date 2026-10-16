@@ -167,6 +167,20 @@ def chezmoi(
     )
 
 
+def test_explicit_workflow_root_reference_keeps_legacy_inventory_separate() -> None:
+    configured = data(state_root="/retained/state")
+    configured["dotfiles_ai"]["workspaces"] = {"schema_version": 1, "root": "~/NewWorktrees"}
+    result = subprocess.run([
+        "chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
+        "--override-data", json.dumps(configured), "execute-template",
+    ], input=(ROOT / ".chezmoitemplates/opencode.json.tmpl").read_text(), text=True,
+       capture_output=True, check=True)
+    references = json.loads(result.stdout)["references"]
+    assert references["workflow-worktrees"]["path"] == str(Path.home() / "NewWorktrees")
+    assert references["legacy-worktrees"]["path"] == "/retained/state/dbsctr/worktrees"
+    assert "not activation" in references["workflow-worktrees"]["description"]
+
+
 def test_macos_retains_other_brew_tools_without_competing_opencode_owner() -> None:
     brewfile = (ROOT / "Brewfile").read_text()
     installer = (ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text()

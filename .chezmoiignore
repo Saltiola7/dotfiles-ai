@@ -2,6 +2,8 @@ docs/
 tests/
 pyproject.toml
 uv.lock
+# Separately approved private root identities are runtime state, never source-owned.
+.config/dotfiles-ai/workflow-policy.activation.json
 README.md
 LICENSE
 config.example.toml

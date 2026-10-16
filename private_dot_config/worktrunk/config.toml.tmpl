@@ -1,0 +1,4 @@
+{{- $generation := includeTemplate "workflow-policy.tmpl" . | fromJson -}}
+# New code-only checkouts use trusted storage policy. Existing checkouts stay put.
+# Root qualification/activation is separate; missing activation blocks allocation.
+{{ $generation.worktrunk | toToml }}

@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""Render/check trusted storage policy; never allocate, activate, hydrate or remove."""
+import argparse
+import copy
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import plistlib
+import re
+import shlex
+import stat
+import subprocess
+import sys
+import tomllib
+
+
+VERSION = "wt v0.80.0"
+LAYOUT = "/{{ repo }}-{{ repo_path | hash }}/{{ branch | sanitize }}"
+PREFIXES = dict(task="dbsctr", discovery="discovery", integration="integration")
+ENV = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "WORKTRUNK_"))}
+ENV.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1",
+           WORKTRUNK_CONFIG_PATH="/dev/null", WORKTRUNK_SYSTEM_CONFIG_PATH="/dev/null")
+
+
+def refuse():
+    raise ValueError("workflow_policy_invalid_or_unavailable")
+
+
+def fields(value, allowed):
+    if not isinstance(value, dict) or set(value) - set(allowed):
+        refuse()
+
+
+def unique(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            refuse()
+        value[key] = item
+    return value
+
+
+def digest(value):
+    payload = {k: v for k, v in value.items() if k != "policy_digest"}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=False).encode()).hexdigest()
+
+
+def run(*args, cwd=None):
+    result = subprocess.run(args, cwd=cwd, env=ENV, stdin=subprocess.DEVNULL,
+                            capture_output=True, timeout=5, check=True)
+    if len(result.stdout) + len(result.stderr) > 1024 * 1024:
+        refuse()
+    return result.stdout
+
+
+def path_value(value, home, *, missing=False):
+    if (not isinstance(value, str) or not value or len(value.encode()) > 4096
+            or any(c in value for c in ("$", "`", "\\", "\0", "\n", "\r", "{{", "}}"))):
+        refuse()
+    if value.startswith("~/"):
+        value = str(home / value[2:])
+    path = Path(value)
+    if not path.is_absolute() or ".." in path.parts:
+        refuse()
+    for parent in (path, *path.parents):
+        if parent.is_symlink():
+            refuse()
+        if parent.exists():
+            info = parent.stat()
+            if (info.st_uid not in {0, os.getuid()}
+                    or info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX):
+                refuse()
+    if not path.exists() and not missing:
+        refuse()
+    present = path
+    while not present.exists():
+        present = present.parent
+    info = present.stat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
+        refuse()
+    return path.resolve()
+
+
+def private_file(path, *, private=True):
+    path_value(str(path.parent), path.parent)
+    if path.is_symlink():
+        refuse()
+    details = path.lstat()
+    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+            or details.st_nlink != 1 or details.st_size > 256 * 1024
+            or details.st_mode & (0o077 if private else 0o022)):
+        refuse()
+    return path.read_bytes()
+
+
+def repository(path):
+    common = Path(run("git", "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=path).decode().strip()).resolve()
+    raw = run("git", "worktree", "list", "--porcelain", "-z", cwd=path).decode()
+    members = [Path(block.split("\0")[0].removeprefix("worktree ")).resolve()
+               for block in raw.split("\0\0") if block]
+    if not members or members[0] != path.resolve() or common != path.resolve() / ".git":
+        refuse()  # An override names the canonical primary, never a linked/bare alias.
+    native = json.loads(run("wt", "config", "show", "--format=json", cwd=path), object_pairs_hook=unique)
+    selector = native["project"]["identifier"]
+    if not isinstance(selector, str) or not selector or "*" in selector:
+        refuse()
+    return common, members, selector
+
+
+def naming(value):
+    fields(value, PREFIXES)
+    if any(not isinstance(v, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", v) for v in value.values()):
+        refuse()
+    return value
+
+
+def relative(value):
+    if (not isinstance(value, str) or not value or len(value.encode()) > 512
+            or Path(value).is_absolute() or any(p in {"..", ".dbsctr"} for p in Path(value).parts)
+            or any(c in value for c in ("*", "?", "$", "\\", "\0", "\n"))):
+        refuse()
+
+
+def consent(kind, value):
+    """Validate declarations, not grant lifecycle action authority."""
+    allowed = {
+        "preservation": {"schema_version", "automatic_remove", "delete_local_branch", "uploads"},
+        "delivery": {"schema_version", "enabled", "mode", "remote", "targets", "role",
+                     "allow_unrelated_pending", "delete_remote_branch", "mapping_path"},
+        "feedback": {"schema_version", "external_enabled", "destination", "consent_digest", "payload_scope"},
+    }
+    fields(value, allowed[kind])
+    if type(value.get("schema_version")) is not int or value["schema_version"] != 1:
+        refuse()
+    for key in {"automatic_remove", "delete_local_branch", "enabled", "allow_unrelated_pending",
+                "delete_remote_branch", "external_enabled"} & value.keys():
+        if type(value[key]) is not bool:
+            refuse()
+    if kind == "preservation":
+        uploads = value.get("uploads", [])
+        if not isinstance(uploads, list) or len(uploads) > 256:
+            refuse()
+        for upload in uploads:
+            fields(upload, {"declaration_path", "declaration_sha256", "remote", "destination_sha256"})
+            if set(upload) != {"declaration_path", "declaration_sha256", "remote", "destination_sha256"}:
+                refuse()
+            relative(upload["declaration_path"])
+            if any(not isinstance(upload[k], str) or not re.fullmatch(r"[0-9a-f]{64}", upload[k])
+                   for k in ("declaration_sha256", "destination_sha256")):
+                refuse()
+            if not isinstance(upload["remote"], str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}", upload["remote"]):
+                refuse()
+    if kind == "delivery":
+        if value.get("mode", "ordinary") not in {"ordinary", "admin"} or value.get("role", "integrator") not in {"operator", "integrator"}:
+            refuse()
+        remote = value.get("remote", "origin")
+        if not isinstance(remote, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}", remote):
+            refuse()
+        targets = value.get("targets", [])
+        if not isinstance(targets, list) or len(targets) > 64:
+            refuse()
+        for ref in targets:
+            if not isinstance(ref, str) or not ref.startswith("refs/heads/") or len(ref.encode()) > 255:
+                refuse()
+            run("git", "check-ref-format", ref)
+        if len(set(targets)) != len(targets):
+            refuse()
+        if "mapping_path" in value:
+            relative(value["mapping_path"])
+        if value.get("enabled") and not value.get("mapping_path"):
+            refuse()
+    if kind == "feedback":
+        if value.get("payload_scope", "sanitized-diagnostic-v1") != "sanitized-diagnostic-v1":
+            refuse()
+        destination, approved = value.get("destination"), value.get("consent_digest")
+        if destination is not None and (not isinstance(destination, str) or len(destination) > 256 or not re.fullmatch(r"[\w.-]+/[\w.-]+", destination)):
+            refuse()
+        if approved is not None and (not isinstance(approved, str) or not re.fullmatch(r"[0-9a-f]{64}", approved)):
+            refuse()
+        if value.get("external_enabled") and (not destination or not approved):
+            refuse()
+
+
+def resolve(options, home):
+    home = Path(home).resolve()
+    if options is None:
+        options = {"schema_version": 1}
+    fields(options, {"schema_version", "root", "cache_root", "repositories", "naming"})
+    if type(options.get("schema_version")) is not int or options["schema_version"] != 1:
+        refuse()
+    value = {"schema_version": 1,
+             "root": str(path_value(options.get("root", "~/Worktrees"), home, missing="root" not in options)),
+             "cache_root": str(path_value(options.get("cache_root", "~/.cache/dotfiles-ai/dvc"), home,
+                                           missing="cache_root" not in options)),
+             "naming": {**PREFIXES, **naming(options.get("naming", {}))}, "repositories": []}
+    entries = options.get("repositories", [])
+    if not isinstance(entries, list) or len(entries) > 256:
+        refuse()
+    common_dirs, selectors, checkouts, primaries = set(), {}, [], []
+    for entry in entries:
+        fields(entry, {"repository", "root", "cache_root", "naming", "preservation", "delivery", "feedback"})
+        primary = path_value(entry.get("repository"), home)
+        common, members, selector = repository(primary)
+        if common in common_dirs:
+            refuse()
+        common_dirs.add(common)
+        checkouts.extend(members)
+        primaries.append(primary)
+        resolved = {"repository": str(primary)}
+        for key in ("root", "cache_root"):
+            if key in entry:
+                resolved[key] = str(path_value(entry[key], home))
+        if "naming" in entry:
+            resolved["naming"] = naming(entry["naming"])
+        for kind in ("preservation", "delivery", "feedback"):
+            if kind in entry:
+                consent(kind, entry[kind])
+                resolved[kind] = copy.deepcopy(entry[kind])
+        root = resolved.get("root", value["root"])
+        if selector in selectors and selectors[selector] != root:
+            refuse()
+        selectors[selector] = root
+        value["repositories"].append(resolved)
+    separation(value, checkouts, primaries)
+    return value
+
+
+def separation(value, checkouts, primaries):
+    roots, caches = roots_of(value)
+    for root in roots:
+        for cache in caches:
+            if root == cache or root.is_relative_to(cache) or cache.is_relative_to(root):
+                refuse()
+    for directory in caches:
+        if any(directory == p or directory.is_relative_to(p) or p.is_relative_to(directory) for p in checkouts):
+            refuse()
+    for directory in roots:
+        if (any(directory == p or directory.is_relative_to(p) for p in checkouts)
+                or any(p.is_relative_to(directory) for p in primaries)):
+            refuse()
+
+
+def roots_of(value):
+    return ({Path(value["root"]), *(Path(e["root"]) for e in value["repositories"] if "root" in e)},
+            {Path(value["cache_root"]), *(Path(e["cache_root"]) for e in value["repositories"] if "cache_root" in e)})
+
+
+def effective(value, checkout):
+    common = Path(run("git", "rev-parse", "--path-format=absolute", "--git-common-dir", cwd=checkout).decode().strip()).resolve()
+    chosen = next((e for e in value["repositories"] if Path(e["repository"]) / ".git" == common), {})
+    return {"root": chosen.get("root", value["root"]),
+            "cache": str(Path(chosen.get("cache_root", value["cache_root"])) / hashlib.sha256(str(common).encode()).hexdigest()),
+            "naming": {**value["naming"], **chosen.get("naming", {})}}
+
+
+def native_config(value, home, previous):
+    native = copy.deepcopy(previous)
+    native["worktree-path"] = value["root"] + LAYOUT
+    managed = {"remove": {"delete-branch": False}, "commit": {"stage": "none"},
+               "merge": dict(commit=False, squash=False, rebase=False, remove=False),
+               "pre-remove": {"preservation": "exec dbsctrctl workspace-remove-check --json"},
+               "pre-switch": {"workflow-storage": "exec " + shlex.quote(str(Path(home) / ".local/bin/workflow-policy")) + " check --target {{ target }}"}}
+    for table, settings in managed.items():
+        current = native.get(table, {})
+        if table in {"pre-remove", "pre-switch"} and isinstance(current, (str, list)):
+            pipeline = [{"user-preserved": current}] if isinstance(current, str) else current
+            if any(not isinstance(step, dict) for step in pipeline):
+                refuse()
+            if pipeline[:1] != [settings]:
+                pipeline = [settings, *pipeline]
+            native[table] = pipeline
+        elif isinstance(current, dict):
+            native[table] = {**current, **settings}
+        else:
+            refuse()
+    steps = native.setdefault("step", {}).setdefault("copy-ignored", {})
+    excludes = steps.get("exclude", [])
+    if not isinstance(excludes, list) or any(not isinstance(x, str) for x in excludes):
+        refuse()
+    steps["exclude"] = sorted(set(excludes) | {".dvc/", ".venv/", "data/", "artifacts/", "outputs/"})
+    projects = native.setdefault("projects", {})
+    if not isinstance(projects, dict):
+        refuse()
+    overrides = {}
+    for entry in value["repositories"]:
+        _, _, selector = repository(Path(entry["repository"]))
+        overrides[selector] = entry.get("root", value["root"]) + LAYOUT
+    for selector, settings in projects.items():
+        if not isinstance(settings, dict):
+            refuse()
+        if "worktree-path" in settings and selector not in overrides:
+            refuse()  # Unknown/pattern exceptions cannot silently override trusted policy.
+        if any(key in settings for key in ("remove", "commit", "merge")):
+            # Native project scalars can override the global safety defaults.
+            for key in ("remove", "commit", "merge"):
+                if key in settings:
+                    fields(settings[key], set(settings[key]) if isinstance(settings[key], dict) else ())
+                    settings[key] = {**settings[key], **managed[key]}
+    for selector, path in overrides.items():
+        projects.setdefault(selector, {})["worktree-path"] = path
+    return native
+
+
+def parse_mount(system, raw):
+    if system == "darwin":
+        data = plistlib.loads(raw)
+        if not isinstance(data, dict):
+            refuse()
+        result = data.get("VolumeUUID"), data.get("MountPoint")
+    elif system == "linux":
+        data = json.loads(raw, object_pairs_hook=unique)
+        if not isinstance(data, dict):
+            refuse()
+        entries = data.get("filesystems")
+        if not isinstance(entries, list) or len(entries) != 1 or not isinstance(entries[0], dict):
+            refuse()
+        result = entries[0].get("uuid"), entries[0].get("target")
+    else:
+        refuse()
+    if any(not isinstance(v, str) or not v for v in result) or not Path(result[1]).is_absolute():
+        refuse()
+    return result
+
+
+def mount_identity(path):
+    system = platform.system().lower()
+    if system == "darwin":
+        raw = run("diskutil", "info", "-plist", str(path))
+    elif system == "linux":
+        raw = run("findmnt", "--json", "--output", "UUID,TARGET", "--target", str(path))
+    else:
+        refuse()
+    return parse_mount(system, raw)
+
+
+def validate_document(value, home):
+    fields(value, {"schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming"})
+    if not isinstance(value.get("source_commit"), str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value["source_commit"]):
+        refuse()
+    if value.get("policy_digest") != digest(value):
+        refuse()
+    normalized = resolve({k: v for k, v in value.items() if k not in {"source_commit", "policy_digest"}}, home)
+    if any(normalized[k] != value.get(k) for k in normalized):
+        refuse()
+
+
+def snapshot(value, home):
+    validate_document(value, home)
+    if run("wt", "--version").decode().strip() != VERSION:
+        refuse()
+    roots, caches = roots_of(value)
+    defaults = {Path(home) / "Worktrees", Path(home) / ".cache/dotfiles-ai/dvc"}
+    identities = []
+    for path in sorted(roots | caches):
+        path_value(str(path), home)  # Qualification is read-only; setup is separately authorized.
+        owned = path in defaults
+        uuid, mountpoint = (None, None) if owned else mount_identity(path)
+        identities.append(dict(canonical_path=str(path), kind="owned_home" if owned else "external",
+                               filesystem_uuid=uuid, mountpoint=mountpoint))
+    return dict(schema_version=1, policy_digest=value["policy_digest"], roots=identities,
+                worktrunk_version=VERSION)
+
+
+def verify_snapshot(value, saved, home):
+    if saved != snapshot(value, home):
+        refuse()
+
+
+def render(source, home, options, previous):
+    source = Path(source).resolve()
+    if run("git", "status", "--porcelain=v1", "--untracked-files=all", cwd=source).strip():
+        refuse()
+    commit = run("git", "rev-parse", "HEAD", cwd=source).decode().strip()
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit):
+        refuse()
+    # Only the clean, selected generation's helper may supply its release identity.
+    relative_helper = "dot_local/bin/executable_workflow-policy"
+    if run("git", "show", f"HEAD:{relative_helper}", cwd=source) != Path(__file__).read_bytes():
+        refuse()
+    value = resolve(options, home)
+    value["source_commit"] = commit
+    value["policy_digest"] = digest(value)
+    return {"policy": value, "worktrunk": native_config(value, home, previous)}
+
+
+def check(home, config, target=None):
+    if target is not None:
+        raw = run("git", "worktree", "list", "--porcelain", "-z").decode()
+        for block in raw.split("\0\0"):
+            if not block:
+                continue
+            member = dict(line.partition(" ")[::2] for line in block.split("\0") if line)
+            path = member.get("worktree")
+            if (target in {path, member.get("branch", "").removeprefix("refs/heads/")}
+                    and path and Path(path).is_dir()):
+                return  # Existing native membership remains reachable, even before activation.
+    policy_path = config / "dotfiles-ai/workflow-policy.json"
+    value = json.loads(private_file(policy_path), object_pairs_hook=unique)
+    saved = json.loads(private_file(config / "dotfiles-ai/workflow-policy.activation.json"), object_pairs_hook=unique)
+    verify_snapshot(value, saved, home)
+    current = tomllib.loads(private_file(config / "worktrunk/config.toml", private=False).decode())
+    if current != native_config(value, home, current):
+        refuse()
+    effective(value, Path.cwd())  # Bound effective roots outside this repository as well.
+    primary = Path(run("git", "rev-parse", "--path-format=absolute", "--git-common-dir").decode().strip()).resolve().parent
+    _, members, _ = repository(primary)
+    separation(value, members, [primary])
+    # Cooperative native guard, not a security boundary against an operator disabling hooks.
+    if any(k.startswith("WORKTRUNK_") and k not in {"WORKTRUNK_CONFIG_PATH", "WORKTRUNK_SYSTEM_CONFIG_PATH", "WORKTRUNK_BIN", "WORKTRUNK_VERBOSE"} for k in os.environ):
+        refuse()
+    selected = os.environ.get("WORKTRUNK_CONFIG_PATH")
+    if selected is not None and Path(selected) != config / "worktrunk/config.toml":
+        refuse()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    build = sub.add_parser("render", help="read-only private generation; requires clean selected source")
+    build.add_argument("--source", required=True)
+    build.add_argument("--home", required=True)
+    build.add_argument("--options", required=True, help="resolved local workspace table JSON or null")
+    sub.add_parser("snapshot", help="print private qualification proposal; never install or activate it")
+    guard = sub.add_parser("check", help="verify separately activated policy before native allocation")
+    guard.add_argument("--target", help="native pre-switch destination; registered existing work stays reachable")
+    args = parser.parse_args()
+    home = Path.home().resolve()
+    config = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
+    if not config.is_absolute():
+        refuse()
+    if args.command == "render":
+        home = Path(args.home).resolve()
+        previous = home / ".config/worktrunk/config.toml"
+        local = tomllib.loads(private_file(previous, private=False).decode()) if os.path.lexists(previous) else {}
+        print(json.dumps(render(args.source, home, json.loads(args.options, object_pairs_hook=unique), local), sort_keys=True))
+    elif args.command == "snapshot":
+        value = json.loads(private_file(config / "dotfiles-ai/workflow-policy.json"), object_pairs_hook=unique)
+        print(json.dumps(snapshot(value, home), sort_keys=True))
+    else:
+        check(home, config, args.target)
+        print('{"status":"passed"}')
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
+        print("workflow-policy: invalid_or_unavailable; existing work retained", file=sys.stderr)
+        sys.exit(1)
