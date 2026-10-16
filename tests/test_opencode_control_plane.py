@@ -6,15 +6,315 @@ test_native_adapter_retirement. These rendering checks are not live permission
 or deployment qualification.
 """
 import json
+import hashlib
 import os
 import re
 import shutil
 import subprocess
+import pytest
 from pathlib import Path
 
 
 ROOT = Path(__file__).parents[1]
 OC = ROOT / "private_dot_config/opencode"
+
+# Source-only rubric. No installed filter, provider route or runtime is selected.
+WORKFLOW_SOURCE_COMMIT = "9989a649bd220a9eabc2b1c7e12062b1ce39f293"
+WORKFLOW_BYPASS_CASES = {"policy-expiry", "stale-checks", "approval-binding", "compaction-recovery"}
+
+
+def workflow_json(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+
+
+def workflow_digest(value):
+    return hashlib.sha256(workflow_json(value)).hexdigest()
+
+
+def workflow_compression_fixture():
+    rows = [
+        ("buried-warning", "WARNING: shared cache contains unique objects.", "block"),
+        ("late-error", "ERROR: verification failed after apparent upload success.", "block"),
+        ("policy-expiry", "Exception expired; the failed check remains failed.", "block"),
+        ("synthetic-secret", "Credential payload must remain withheld.", "pass"),
+        ("mechanical-conflict", "Mechanical: import ordering only; approved intent unchanged.", "pass"),
+        ("material-conflict", "Material: competing authorization semantics require Discovery.", "reopen"),
+        ("hidden-dependency", "Shared-library consumer requires contract revision 4.", "block"),
+        ("stale-checks", "Checks passed for a previous base; validation is stale.", "block"),
+        ("approval-binding", "Approval binds the repository, ordered heads and starting base.", "block"),
+        ("compaction-recovery", "Re-read committed authority; preserve opaque state unchanged.", "block"),
+    ]
+    cases = []
+    for name, fact, gate in rows:
+        raw = fact
+        if name == "buried-warning": raw = ("Repeated progress line.\n" * 80) + fact + ("\nRepeated progress line." * 80)
+        if name == "late-error": raw = "Upload reports success.\n" + fact
+        secrets = [{"id": "credential", "value": "FIXTURE_SECRET_SENTINEL_01"}] if name == "synthetic-secret" else []
+        if secrets: raw += "\ncredential=" + secrets[0]["value"]
+        cases.append({"id": name, "input": raw, "query": "Retain the decisive evidence and disposition.",
+                      "required_evidence": [{"id": "decisive-fact", "fact": fact}],
+                      "expected_gate_outcome": gate, "secret_sentinels": secrets})
+    fixture = {"schema_version": 1, "fixture_id": "workflow-guidance-v1", "rubric_version": 1,
+               "source_commit": WORKFLOW_SOURCE_COMMIT, "provenance": "synthetic", "cases": cases}
+    return {**fixture, "digest": workflow_digest(fixture)}
+
+
+def workflow_fields(value, names):
+    if not isinstance(value, dict) or set(value) != set(names.split()):
+        raise ValueError("unknown or missing workflow fields")
+
+
+def workflow_string(value, limit, *, multiline=False):
+    if (not isinstance(value, str) or not 1 <= len(value.encode()) <= limit
+            or any((ord(c) < 32 and (not multiline or c not in "\n\r\t")) or ord(c) == 127 for c in value)):
+        raise ValueError("invalid workflow string")
+
+
+def workflow_integer(value, maximum=2**53 - 1):
+    if type(value) is not int or not 0 <= value <= maximum:
+        raise ValueError("invalid workflow counter")
+
+
+def workflow_identity(value, kind):
+    expression = {"id": r"[a-z][a-z0-9-]{0,63}", "digest": r"[0-9a-f]{64}", "oid": r"(?:[0-9a-f]{40}|[0-9a-f]{64})"}[kind]
+    if not isinstance(value, str) or not re.fullmatch(expression, value):
+        raise ValueError("invalid workflow identity")
+
+
+def validate_workflow_fixture(value):
+    workflow_fields(value, "schema_version fixture_id rubric_version source_commit digest provenance cases")
+    if (type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or type(value["rubric_version"]) is not int or value["rubric_version"] != 1
+            or value["fixture_id"] != "workflow-guidance-v1" or value["provenance"] not in ("public", "synthetic")):
+        raise ValueError("unsupported fixture")
+    workflow_identity(value["source_commit"], "oid"); workflow_identity(value["digest"], "digest")
+    if (not isinstance(value["cases"], list) or not 9 <= len(value["cases"]) <= 16
+            or len(workflow_json(value)) > 256 * 1024
+            or value["digest"] != workflow_digest({k: v for k, v in value.items() if k != "digest"})):
+        raise ValueError("fixture bounds or digest mismatch")
+    seen = set()
+    for case in value["cases"]:
+        workflow_fields(case, "id input query required_evidence expected_gate_outcome secret_sentinels")
+        workflow_identity(case["id"], "id")
+        if case["id"] in seen or case["expected_gate_outcome"] not in ("pass", "block", "reopen"):
+            raise ValueError("invalid fixture case")
+        seen.add(case["id"])
+        workflow_string(case["input"], 16 * 1024, multiline=True); workflow_string(case["query"], 1024)
+        for key, field, minimum, maximum in (("required_evidence", "fact", 1, 1024), ("secret_sentinels", "value", 0, 128)):
+            entries = case[key]
+            if not isinstance(entries, list) or not minimum <= len(entries) <= 64:
+                raise ValueError("invalid rubric entries")
+            ids = set()
+            for entry in entries:
+                workflow_fields(entry, "id " + field); workflow_identity(entry["id"], "id")
+                workflow_string(entry[field], maximum)
+                if entry["id"] in ids or field == "value" and len(entry[field].encode()) < 8:
+                    raise ValueError("duplicate rubric identity or short sentinel")
+                ids.add(entry["id"])
+
+
+def workflow_release(case, transform=None):
+    if case["id"] in WORKFLOW_BYPASS_CASES:
+        return case["input"]
+    released = case["input"]
+    # Baseline release redaction, not compression; raw synthetic input is retained.
+    for sentinel in case["secret_sentinels"]:
+        released = released.replace(sentinel["value"], "[WITHHELD]")
+    if transform is not None:
+        released = transform(json.loads(workflow_json(case)), released)
+    workflow_string(released, 16 * 1024, multiline=True)
+    return released
+
+
+def workflow_prompt_digest():
+    return hashlib.sha256(Path(__file__).read_bytes() +
+        (ROOT / "docs/specs/opencode_control_plane/features/workflow-agent-guidance.md").read_bytes()).hexdigest()
+
+
+def workflow_replay(fixture, arm, *, transform=None):
+    validate_workflow_fixture(fixture)
+    if arm not in ("baseline", "rtk", "trim1", "terse") or arm != "baseline" and transform is not None:
+        raise ValueError("no authorized candidate transform selected")
+    unavailable = {"status": "unavailable", "source": None, "value": None, "unit": None,
+                   "reason": "no-authorized-measurement"}
+    outcomes = []
+    for case in fixture["cases"]:
+        for attempt in range(1, 4):
+            output = workflow_release(case, transform) if arm == "baseline" else None
+            lines = set(output.splitlines()) if output is not None else set()
+            outcomes.append({"case_id": case["id"], "attempt": attempt,
+                "recalled_evidence_ids": [f["id"] for f in case["required_evidence"] if f["fact"] in lines],
+                # Offline baseline uses rubric labels, not claimed model judgment.
+                "gate_outcome": case["expected_gate_outcome"],
+                "secret_leaks": sum(output.count(s["value"]) for s in case["secret_sentinels"]) if output is not None else 0,
+                "retries": 0, "remediation_count": 0, "elapsed_ms": None,
+                "status": "complete" if output is not None else "unavailable"})
+    return {"schema_version": 1, "rubric_version": 1, "fixture_digest": fixture["digest"],
+            "source_commit": fixture["source_commit"], "model_id": None, "provider_id": None, "harness_version": None,
+            "prompt_digest": workflow_prompt_digest(), "arm": arm, "filter_version": None,
+            "filter_config_digest": None, "filter_order": [arm] if arm in ("rtk", "trim1") else [],
+            "attempts": 3, "outcomes": outcomes, "usage": dict(unavailable), "cost": dict(unavailable)}
+
+
+def workflow_score(fixture, report):
+    validate_workflow_fixture(fixture)
+    workflow_fields(report, "schema_version rubric_version fixture_digest source_commit model_id provider_id harness_version prompt_digest arm filter_version filter_config_digest filter_order attempts outcomes usage cost")
+    if (type(report["schema_version"]) is not int or report["schema_version"] != 1
+            or type(report["rubric_version"]) is not int or report["rubric_version"] != fixture["rubric_version"]
+            or report["fixture_digest"] != fixture["digest"] or report["source_commit"] != fixture["source_commit"]
+            or report["prompt_digest"] != workflow_prompt_digest()):
+        raise ValueError("evaluation identity mismatch")
+    for key in ("model_id", "provider_id", "harness_version", "filter_version"):
+        if report[key] is not None: workflow_string(report[key], 256)
+    if report["filter_config_digest"] is not None: workflow_identity(report["filter_config_digest"], "digest")
+    arm = report["arm"]
+    if (arm not in ("baseline", "rtk", "trim1", "terse")
+            or report["filter_order"] != ([arm] if arm in ("rtk", "trim1") else [])):
+        raise ValueError("unapproved filter order")
+    workflow_integer(report["attempts"], 3)
+    if report["attempts"] < 1: raise ValueError("no replay attempts")
+    for key in ("usage", "cost"):
+        value = report[key]
+        workflow_fields(value, "status source value unit reason")
+        if value["status"] != "unavailable" or any(value[k] is not None for k in ("source", "value", "unit")):
+            raise ValueError("no authorized usage or billing evidence")
+        workflow_identity(value["reason"], "id")
+    cases = {c["id"]: c for c in fixture["cases"]}
+    expected = {(name, attempt) for name in cases for attempt in range(1, report["attempts"] + 1)}
+    if not isinstance(report["outcomes"], list) or len(report["outcomes"]) != len(expected):
+        raise ValueError("missing or excessive replays")
+    if (arm in ("rtk", "trim1") and (report["filter_version"] is None or report["filter_config_digest"] is None)
+            and any(o.get("status") == "complete" for o in report["outcomes"] if isinstance(o, dict))):
+        raise ValueError("candidate source/config qualification unavailable")
+    summary = {"eligible": len(cases) * 3, "complete": 0, "partial": 0,
+               "unavailable": len(cases) * (3 - report["attempts"]), "failed": 0, "retried": 0, "remediation": 0}
+    for outcome in report["outcomes"]:
+        workflow_fields(outcome, "case_id attempt recalled_evidence_ids gate_outcome secret_leaks retries remediation_count elapsed_ms status")
+        workflow_integer(outcome["attempt"], 3)
+        workflow_identity(outcome["case_id"], "id")
+        pair = (outcome["case_id"], outcome["attempt"])
+        if pair not in expected: raise ValueError("unknown or duplicate replay")
+        expected.remove(pair)
+        case = cases[outcome["case_id"]]
+        ids = outcome["recalled_evidence_ids"]
+        required = {f["id"] for f in case["required_evidence"]}
+        if (not isinstance(ids, list) or any(not isinstance(i, str) for i in ids)
+                or len(ids) != len(set(ids)) or not set(ids) <= required):
+            raise ValueError("invalid recalled identities")
+        if outcome["gate_outcome"] not in ("pass", "block", "reopen") or outcome["status"] not in ("complete", "partial", "unavailable"):
+            raise ValueError("unknown replay disposition")
+        for key in ("secret_leaks", "retries", "remediation_count"): workflow_integer(outcome[key])
+        if outcome["elapsed_ms"] is not None: workflow_integer(outcome["elapsed_ms"])
+        summary[outcome["status"]] += 1
+        summary["retried"] += int(outcome["retries"] > 0)
+        summary["remediation"] += outcome["remediation_count"]
+        if outcome["status"] == "complete" and (set(ids) != required or outcome["gate_outcome"] != case["expected_gate_outcome"] or outcome["secret_leaks"]):
+            summary["failed"] += 1
+    summary["qualified"] = summary["complete"] == summary["eligible"] and summary["failed"] == 0
+    return summary
+
+
+def test_compression_fixture_has_fixed_coverage_content_identity_and_no_private_inputs():
+    fixture = workflow_compression_fixture()
+    validate_workflow_fixture(fixture)
+    assert len(fixture["cases"]) == 10
+    assert len(workflow_json(fixture)) <= 256 * 1024
+    assert {c["id"] for c in fixture["cases"]} == {
+        "buried-warning", "late-error", "policy-expiry", "synthetic-secret", "mechanical-conflict",
+        "material-conflict", "hidden-dependency", "stale-checks", "approval-binding", "compaction-recovery"}
+    changed = json.loads(json.dumps(fixture))
+    changed["cases"][0]["input"] += "\nchanged public fixture"
+    assert workflow_digest({k: v for k, v in changed.items() if k != "digest"}) != fixture["digest"]
+    with pytest.raises(ValueError):
+        validate_workflow_fixture(changed)
+
+
+def test_compression_baseline_is_three_replays_with_exact_facts_and_unavailable_usage():
+    fixture = workflow_compression_fixture()
+    report = workflow_replay(fixture, "baseline")
+    summary = workflow_score(fixture, report)
+    assert summary == {"eligible": 30, "complete": 30, "partial": 0, "unavailable": 0,
+                       "failed": 0, "retried": 0, "remediation": 0, "qualified": True}
+    for field in ("usage", "cost"):
+        assert report[field]["status"] == "unavailable" and report[field]["value"] is None
+    assert report["model_id"] is report["provider_id"] is report["harness_version"] is None
+    assert all(o["elapsed_ms"] is None for o in report["outcomes"])
+
+
+@pytest.mark.parametrize("arm", ["rtk", "trim1"])
+def test_unqualified_compression_routes_never_disappear_from_denominator(arm):
+    fixture = workflow_compression_fixture()
+    report = workflow_replay(fixture, arm)
+    summary = workflow_score(fixture, report)
+    assert summary["eligible"] == summary["unavailable"] == 30
+    assert summary["complete"] == 0 and not summary["qualified"]
+    assert report["filter_version"] is report["filter_config_digest"] is None
+    assert report["filter_order"] == [arm]
+
+
+@pytest.mark.parametrize("lost_case", ["buried-warning", "late-error", "hidden-dependency"])
+def test_compression_quality_rejects_fact_labels_lost_warnings_changed_gates_and_leaks(lost_case):
+    fixture = workflow_compression_fixture()
+    def labels_only(case, released):
+        if case["id"] == lost_case:
+            return "\n".join(f["id"] for f in case["required_evidence"])
+        return released
+    lost = workflow_replay(fixture, "baseline", transform=labels_only)
+    summary = workflow_score(fixture, lost)
+    assert summary["failed"] == 3 and not summary["qualified"]
+    changed = workflow_replay(fixture, "baseline")
+    changed["outcomes"][0]["gate_outcome"] = "pass"
+    assert not workflow_score(fixture, changed)["qualified"]
+    def leak(case, released):
+        return released + "\n" + " ".join(s["value"] for s in case["secret_sentinels"])
+    leaked = workflow_replay(fixture, "baseline", transform=leak)
+    assert workflow_score(fixture, leaked)["failed"] == 3
+
+
+def test_compression_missing_protected_evidence_is_failure_without_transforming_authority():
+    fixture = workflow_compression_fixture()
+    before = workflow_json(fixture)
+    report = workflow_replay(fixture, "baseline")
+    for outcome in report["outcomes"]:
+        if outcome["case_id"] == "policy-expiry":
+            outcome["recalled_evidence_ids"] = []
+    assert workflow_score(fixture, report)["failed"] == 3
+    assert workflow_json(fixture) == before
+
+
+def test_compression_authority_bypass_keeps_raw_recovery_and_never_calls_transform():
+    fixture = workflow_compression_fixture()
+    before = workflow_json(fixture)
+    calls = []
+    def transform(case, released):
+        calls.append(case["id"])
+        return released
+    workflow_replay(fixture, "baseline", transform=transform)
+    assert calls and not set(calls) & WORKFLOW_BYPASS_CASES
+    assert workflow_json(fixture) == before
+    for case in fixture["cases"]:
+        if case["id"] in WORKFLOW_BYPASS_CASES:
+            assert workflow_release(case, transform) == case["input"]
+
+
+@pytest.mark.parametrize("change", ["unknown", "version", "boolean", "duplicate", "missing", "partial", "stacked", "fake-usage", "unqualified-candidate"])
+def test_compression_schema_and_incomplete_replays_never_qualify(change):
+    fixture = workflow_compression_fixture()
+    report = workflow_replay(fixture, "baseline")
+    if change == "unknown": report["extra"] = True
+    elif change == "version": report["schema_version"] = 2
+    elif change == "boolean": report["attempts"] = True
+    elif change == "duplicate": report["outcomes"][1] = report["outcomes"][0]
+    elif change == "missing": report["outcomes"].pop()
+    elif change == "partial": report["outcomes"][0]["status"] = "partial"
+    elif change == "stacked": report["filter_order"] = ["rtk", "trim1"]
+    elif change == "fake-usage": report["usage"]["value"] = 100
+    elif change == "unqualified-candidate": report["arm"] = "rtk"; report["filter_order"] = ["rtk"]
+    if change == "partial":
+        assert not workflow_score(fixture, report)["qualified"]
+    else:
+        with pytest.raises(ValueError):
+            workflow_score(fixture, report)
 DATA = {"dotfiles_ai": {
     "opencode": {"vertex_project": "test-project", "vertex_location": "global",
                  "vertex_credentials": "/tmp/test-adc.json", "default_model": "openai/gpt-6-astra",

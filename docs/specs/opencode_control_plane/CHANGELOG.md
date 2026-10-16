@@ -1,5 +1,21 @@
 # OpenCode Control Plane Changelog
 
+## 2026-10-16 — WORKFLOW-COMPRESSION-EVALUATION source
+
+- Added the embedded ten-case synthetic fixture, strict source/rubric/content
+  identities, three-replay oracle and exact fact/outcome/leak quality checks.
+  Protected authority/state cases bypass transforms and preserve raw recovery.
+- Added omission, false-label, changed-outcome, secret, malformed/incomplete-record
+  and stacking counterexamples. Baseline rubric labels are not independent model
+  judgments; pure Python negative callbacks are not RTK/trim1 implementations.
+- Candidate routes remain unqualified/unavailable in fixed denominators. No live
+  filter comparison, installed-tool absence, runtime compatibility, token/billing,
+  latency or savings claim. Usage/cache/cost remain unavailable.
+- Existing private evidence owns Evaluation/QA records; the Cycle Record retains
+  reds, final gates and review. No new CLI/store/dependency, Gate Exception, install,
+  proxy, model call, live filtering, state transformation, activation or restart.
+  Intended Final Push: feature branch and draft PR to `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-16 — WORKFLOW-NATIVE-HANDOFF source
 
 - Added ordered native current-conversation return guidance, safe unique-primary

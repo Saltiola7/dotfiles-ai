@@ -88,6 +88,18 @@ separate contract; never filter lifecycle/approval/gate authority. Missing usage
 cache or billing evidence stays unavailable; no bytes-derived token/cost estimates
 or causal savings claims. Source guidance is not installed capability or activation.
 
+The source-only replay oracle is embedded in `tests/test_opencode_control_plane.py`
+under `workflow_compression_fixture`, `workflow_replay` and `workflow_score`.
+Run its selected compression tests with the already approved validation interpreter;
+do not resolve/install tools to make an unavailable arm run. The ten synthetic cases
+retain raw inputs and pin source/rubric/content, with three replays per case.
+Baseline uses exact fact-line recall and rubric labels, not independent model
+judgment. Pure Python negative-test callbacks are not RTK/trim1 implementations.
+Unselected filter routes remain unavailable in fixed denominators; no scoped source
+match or missing selection proves host absence. Store logical evaluation reports
+only through existing private evidence, never a new registry or public runtime dump.
+Baseline oracle success alone cannot qualify a candidate, live route or activation.
+
 ## Reduction
 
 Compute bounded counts and integer mean, p50, and p90 where the source supports
