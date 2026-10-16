@@ -3062,9 +3062,21 @@ def validate_initiative_approval(value):
         fail("invalid Initiative confirmation timestamp")
 
 
-def read_cycle_record(root, path, label="Cycle Record", *, historical=False):
+def read_cycle_record(root, path, label="Cycle Record", *, historical=False, max_bytes=None):
     try:
-        record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=no_duplicate_keys)
+        if max_bytes is None:
+            text = path.read_text(encoding="utf-8")
+        else:
+            with path.open("rb") as stream:
+                raw = stream.read(max_bytes + 1)
+            if len(raw) > max_bytes:
+                fail("Cycle Record exceeds metadata read budget")
+            text = raw.decode("utf-8")
+        record = json.loads(text, object_pairs_hook=no_duplicate_keys)
+    except TimeoutError:
+        if max_bytes is not None:
+            raise
+        fail(f"cannot read {label}: timed out")
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         fail(f"cannot read {label}: {error}")
     if not isinstance(record, dict):
@@ -3119,7 +3131,7 @@ def git_worktrees(root):
             for entry in entries if entry]
 
 
-def native_git_directory(root, record):
+def native_git_directory(root, record, *, common=None):
     """Use Git's existing per-worktree metadata, never a branch-name routing index."""
     details = record.get("worktree")
     if record.get("schema_version") in (4, 5):
@@ -3128,7 +3140,7 @@ def native_git_directory(root, record):
     value = details.get("git_dir") if isinstance(details, dict) else None
     if not isinstance(value, str) or not value:
         fail("native worktree administrative binding is missing")
-    common = common_git_dir(root).resolve()
+    common = common_git_dir(root).resolve() if common is None else common
     if record.get("schema_version") == 3 and Path(value).is_absolute():
         candidate = Path(value)
     else:
@@ -5060,24 +5072,398 @@ def worktree_inventory(root, immediate=False, allowed_root=None):
     return result
 
 
+@contextlib.contextmanager
+def inventory_budget(seconds):
+    """Bound local metadata/validator I/O as well as subprocess collection (Unix hosts)."""
+    # ponytail: main-thread Unix timers; use a worker boundary only if embedded off-thread.
+    started = time.monotonic()
+    previous = signal.getsignal(signal.SIGALRM)
+    timer = signal.getitimer(signal.ITIMER_REAL)
+    def expired(signum, frame):
+        raise TimeoutError("inventory_timeout")
+    signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, min(seconds, timer[0]) if timer[0] else seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+        if timer[0]:
+            signal.setitimer(signal.ITIMER_REAL, max(0.000001, timer[0] - (time.monotonic() - started)), timer[1])
+
+
+def inventory_git(root, *arguments):
+    child = subprocess.Popen(["git", *arguments], cwd=root, env=INSPECT_ENV,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, start_new_session=True)
+    output, errors = preservation_output(child, limit=1024 * 1024, timeout=1)
+    if child.returncode or errors.strip():
+        fail("inventory_git_unavailable")
+    return os.fsdecode(output)
+
+
+def inventory_children(path, limit):
+    if path.is_symlink():
+        fail("inventory_source_unsafe")
+    if not path.exists():
+        return []
+    with os.scandir(path) as entries:
+        result = []
+        for entry in entries:
+            if len(result) == limit:
+                fail("inventory_source_limit")
+            result.append(Path(entry.path))
+    return sorted(result)
+
+
+def inventory_record_sources(common):
+    # Only native common-Git and retained per-worktree lifecycle stores; no runtime DB.
+    directories = [common / "dbsctr/cycles"]
+    for admin in inventory_children(common / "worktrees", 1024):
+        if admin.is_symlink() or not admin.is_dir():
+            fail("inventory_source_unsafe")
+        directories.append(admin / "dbsctr/cycles")
+    files = []
+    for directory in directories:
+        if not safe_directory(common, directory):
+            continue
+        for path in inventory_children(directory, 1024):
+            if path.suffix != ".json":
+                continue
+            details = path.lstat()
+            if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+                    or details.st_nlink != 1 or details.st_size > 1024 * 1024):
+                fail("inventory_source_unsafe")
+            files.append((path, [str(path), details.st_ino, details.st_size, details.st_mtime_ns]))
+            if len(files) > 1024:
+                fail("inventory_source_limit")
+    return files
+
+
+def inventory_repository(seed):
+    common = Path(inventory_git(seed, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()).resolve()
+    raw = inventory_git(seed, "worktree", "list", "--porcelain", "-z")
+    members = []
+    for block in raw.split("\0\0"):
+        if not block:
+            continue
+        fields = {}
+        for line in block.strip("\0").split("\0"):
+            key, _, value = line.partition(" ")
+            if key in fields:
+                fail("inventory_membership_invalid")
+            fields[key] = value
+        if "worktree" not in fields or not Path(fields["worktree"]).is_absolute():
+            fail("inventory_membership_invalid")
+        members.append(fields)
+        if len(members) > 10000:
+            fail("inventory_source_limit")
+    if not members:
+        fail("inventory_membership_invalid")
+    files = inventory_record_sources(common)
+    return {"root": str(seed), "common": str(common), "members": members,
+            "files": files, "digest": continuation_digest([str(common), raw, [stamp for _, stamp in files]])}
+
+
+def inventory_cycles(repository):
+    root, common = Path(repository["root"]), Path(repository["common"])
+    records, unavailable = [], False
+    for path, stamp in repository["files"]:
+        try:
+            record = read_cycle_record(root, path, historical=True, max_bytes=1024 * 1024)
+            identifier, state = record.get("cycle_id"), record.get("state")
+            if (identifier != path.stem or not OPAQUE_ID.fullmatch(identifier or "")
+                    or state not in {"active", "finalizing", "completed", "retired"}):
+                fail("inventory_record_invalid")
+            details = record.get("worktree", {})
+            if not isinstance(details, dict):
+                fail("inventory_record_invalid")
+            if native_workspace_execution(record):
+                binding = ("admin", str(native_git_directory(root, record, common=common)))
+            else:
+                # Validate existing portable identity using bounded Git, never continuation routing.
+                if "locator" in details:
+                    locator = details["locator"]
+                    locator_path(locator, {"cycle_worktree": root, "dbsctr_worktrees": worktree_registry_root()},
+                                 "cycle worktree", validate_only=True)
+                    initial = repository.get("initial")
+                    if initial is None:
+                        if inventory_git(root, "rev-parse", "--is-shallow-repository").strip() != "false":
+                            fail("inventory_record_invalid")
+                        initial = inventory_git(root, "rev-list", "--max-parents=0", "HEAD").splitlines()
+                        if len(initial) != 1:
+                            fail("inventory_record_invalid")
+                        repository["initial"] = initial
+                    expected = hashlib.sha256((initial[0] + "\0" + details["branch"]).encode()).hexdigest()[:16]
+                    if locator["root"] == "cycle_worktree":
+                        candidates = [Path(m["worktree"]) for m in repository["members"]
+                                      if m.get("branch") == "refs/heads/" + details["branch"]]
+                        if len(candidates) != 1:
+                            fail("inventory_record_invalid")
+                        located = candidates[0]
+                    else:
+                        located = locator_path(locator, {"dbsctr_worktrees": worktree_registry_root()}, "cycle worktree")
+                else:
+                    value = details.get("path")
+                    if not isinstance(value, str) or not Path(value).is_absolute():
+                        fail("inventory_record_invalid")
+                    located = Path(value).resolve()
+                    expected = legacy_worktree_id(located)
+                if expected != details.get("id"):
+                    fail("inventory_record_invalid")
+                binding = ("path", str(located))
+            if not isinstance(details.get("branch"), str):
+                fail("inventory_record_invalid")
+            records.append((binding, {"id": identifier, "state": state}, details["branch"]))
+            details = path.lstat()
+            if stamp != [str(path), details.st_ino, details.st_size, details.st_mtime_ns]:
+                fail("inventory_source_changed")
+        except TimeoutError:
+            raise
+        except (RuntimeError, OSError, ValueError, TypeError, KeyError):
+            unavailable = True
+    return records, unavailable
+
+
+def inventory_item(repository, fields, records, unavailable):
+    common, path = Path(repository["common"]), Path(fields["worktree"])
+    repository_id = continuation_digest(str(common))
+    reasons = ["preservation_not_checked"]
+    try:
+        admin = Path(inventory_git(path, "rev-parse", "--absolute-git-dir").strip()).resolve()
+        actual_common = Path(inventory_git(path, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()).resolve()
+        if actual_common != common:
+            fail("inventory_identity_changed")
+        if admin != common and (admin.parent != common / "worktrees" or (common / "worktrees").is_symlink()):
+            fail("inventory_identity_changed")
+        membership = "registered"
+    except TimeoutError:
+        raise
+    except (RuntimeError, OSError):
+        admin, membership = None, "absent" if not path.exists() else "unknown"
+        unavailable = True
+        reasons.append("membership_unavailable")
+    matches = [(value, branch) for (kind, binding), value, branch in records
+               if (kind == "admin" and admin is not None and binding == str(admin))
+               or (kind == "path" and binding == str(path.resolve()))]
+    actual_branch = fields.get("branch", "").removeprefix("refs/heads/") or None
+    if any(branch != actual_branch for _, branch in matches):
+        reasons.append("branch_changed")
+    status = "unavailable" if unavailable else "known" if matches else "unknown"
+    if unavailable:
+        reasons.append("cycle_records_unavailable")
+    elif not matches:
+        reasons.append("cycle_records_unknown")
+    disposition = ("retained_active" if status == "known" and any(
+        value["state"] in {"active", "finalizing"} for value, _ in matches) else "retained_unknown")
+    observed = now()
+    return {"repository_id": repository_id, "common_dir": str(common),
+            "worktree_id": continuation_digest([str(common), str(admin) if admin else str(path)]),
+            "path": str(path), "branch": actual_branch, "head": fields.get("HEAD"),
+            "membership": membership, "cycles": {"status": status, "records": sorted(
+                [value for value, _ in matches], key=lambda value: value["id"])},
+            "evidence": {name: {"status": "unknown", "identity": None, "digest": None,
+                                 "observed_at": observed, "reasons": ["not_checked"]}
+                         for name in ("git_default", "dvc", "artifacts", "processes", "handoff", "policy")},
+            "disposition": disposition, "reasons": reasons}
+
+
+def inventory_policy_sources():
+    """Read discovery hints only; this path never interprets action/consent switches."""
+    home = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")).expanduser()
+    path = home / "dotfiles-ai/workflow-policy.json"
+    if not os.path.lexists(path):
+        return [], [], None
+    safe_directory(home, path.parent)
+    continuation_private(path)
+    if path.stat().st_size > 256 * 1024:
+        fail("inventory_policy_invalid")
+    raw = path.read_bytes()
+    policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    if (not isinstance(policy, dict) or type(policy.get("schema_version")) is not int
+            or policy["schema_version"] != 1 or set(policy) - {
+                "schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming"}
+            or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", policy.get("source_commit", ""))
+            or policy.get("policy_digest") != continuation_digest({
+                k: v for k, v in policy.items() if k != "policy_digest"})):
+        fail("inventory_policy_invalid")
+    def local_path(value):
+        if not isinstance(value, str) or not value or any(c in value for c in ("$", "\0", "\\")):
+            fail("inventory_policy_invalid")
+        value = Path(value).expanduser()
+        if not value.is_absolute() or ".." in value.parts or value.is_symlink():
+            fail("inventory_policy_invalid")
+        return str(value)
+    roots = [local_path(policy.get("root", "~/Worktrees"))]
+    entries = policy.get("repositories", [])
+    if not isinstance(entries, list) or len(entries) > 256:
+        fail("inventory_policy_invalid")
+    repositories = []
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) - {
+                "repository", "root", "cache_root", "naming", "preservation", "delivery", "feedback"}:
+            fail("inventory_policy_invalid")
+        repositories.append(local_path(entry.get("repository")))
+        if "root" in entry:
+            roots.append(local_path(entry["root"]))
+    if len(set(repositories)) != len(repositories):
+        fail("inventory_policy_invalid")
+    return repositories, sorted(set(roots)), hashlib.sha256(raw).hexdigest()
+
+
+def metadata_worktree_list(args):
+    with inventory_budget(5):
+        root = Path(inventory_git(Path.cwd(), "rev-parse", "--show-toplevel").strip()).resolve()
+        common = Path(inventory_git(root, "rev-parse", "--path-format=absolute", "--git-common-dir").strip()).resolve()
+        report_directory = common / "dbsctr/inventory"
+        safe_directory(common, report_directory, create=True)
+        os.chmod(report_directory, 0o700)
+        seeds = list(getattr(args, "repository", []) or [str(root)])
+        if len(seeds) > 256 or any(not Path(value).is_absolute() for value in seeds):
+            fail("inventory_scope_invalid")
+        reasons, policy_digest = [], None
+        if getattr(args, "all", False):
+            # Retained roots are hints only; membership is always queried from native Git.
+            roots = [str(worktree_registry_root())]
+            try:
+                configured, new_roots, policy_digest = inventory_policy_sources()
+                seeds.extend(configured)
+                roots.extend(new_roots)
+            except TimeoutError:
+                raise
+            except (RuntimeError, OSError, ValueError, TypeError, KeyError):
+                reasons.append("policy_sources_unavailable")
+            try:
+                for registry in sorted(set(roots)):
+                    for parent in inventory_children(Path(registry), 256):
+                        if parent.is_symlink() or not parent.is_dir():
+                            continue
+                        for child in inventory_children(parent, 1024):
+                            if not child.is_symlink() and child.is_dir() and (child / ".git").exists():
+                                seeds.append(str(child))
+                                if len(seeds) > 10000:
+                                    fail("inventory_source_limit")
+            except TimeoutError:
+                raise
+            except (RuntimeError, OSError):
+                reasons.append("root_discovery_unavailable")
+        seeds = sorted(set(seeds))
+        previous = None
+        if cursor := getattr(args, "cursor", None):
+            if not isinstance(cursor, str) or not re.fullmatch(r"[0-9a-f]{32}", cursor):
+                fail("inventory_cursor_invalid")
+            saved = report_directory / (cursor + ".json")
+            continuation_private(saved)
+            if saved.stat().st_size > 4 * 1024 * 1024:
+                fail("inventory_cursor_invalid")
+            previous = json.loads(saved.read_text(), object_pairs_hook=no_duplicate_keys)
+            if (not isinstance(previous, dict) or type(previous.get("schema_version")) is not int
+                    or previous["schema_version"] != 1 or previous.get("continuation") != cursor
+                    or previous.get("seeds") != seeds):
+                fail("inventory_cursor_invalid")
+        source_stamps = []
+        for seed in seeds:
+            try:
+                info = (Path(seed) / ".git").lstat()
+                source_stamps.append([seed, info.st_ino, info.st_size, info.st_mtime_ns])
+            except OSError:
+                source_stamps.append([seed, None])
+        scope = continuation_digest([source_stamps, policy_digest, sorted(set(reasons)),
+                                     hashlib.sha256(Path(__file__).read_bytes()).hexdigest()])
+    if previous and previous.get("scope_digest") != scope:
+        fail("inventory_cursor_stale")
+    position = previous["next_position"] if previous else [0, 0]
+    if previous and (not isinstance(position, list) or len(position) != 2
+            or any(type(n) is not int or n < 0 for n in position)
+            or position[0] >= len(seeds)):
+        fail("inventory_cursor_invalid")
+    seen = set(previous["seen_repositories"] if previous else [])
+    if len(seen) > 10000 or any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value) for value in seen):
+        fail("inventory_cursor_invalid")
+    items, observed, completed, attempts, next_position, cursor_repository = [], set(), 0, 0, None, None
+    for index, seed in enumerate(seeds):
+        if index < position[0]:
+            continue
+        if attempts == 256 or len(items) == 100:
+            reasons.append("repository_limit" if attempts == 256 else "page_limit")
+            next_position = [index, 0]
+            break
+        attempts += 1
+        offset = position[1] if index == position[0] else 0
+        member_index = offset
+        repository = None
+        try:
+            with inventory_budget(5):
+                repository = inventory_repository(Path(seed))
+                repository_id = continuation_digest(repository["common"])
+                if repository_id in seen:
+                    continue
+                observed.add(repository_id)
+                if previous and index == position[0] and previous.get("cursor_repository") is not None:
+                    if previous["cursor_repository"] != repository["digest"]:
+                        fail("inventory_cursor_stale")
+                if offset > len(repository["members"]):
+                    fail("inventory_cursor_invalid")
+                records, unavailable = inventory_cycles(repository)
+                if unavailable:
+                    reasons.append("cycle_records_unavailable")
+                for member_index, fields in enumerate(repository["members"]):
+                    if member_index < offset:
+                        continue
+                    if len(items) == 100:
+                        next_position = [index, member_index]
+                        cursor_repository = repository["digest"]
+                        break
+                    with inventory_budget(1):
+                        item = inventory_item(repository, fields, records, unavailable)
+                    items.append(item)
+                    member_index += 1
+                if next_position is None:
+                    completed += 1
+                    seen.add(repository_id)
+        except (RuntimeError, OSError, TimeoutError, ValueError, TypeError, KeyError) as error:
+            if isinstance(error, RuntimeError) and str(error) in {"inventory_cursor_stale", "inventory_cursor_invalid"}:
+                raise
+            reasons.append("repository_metadata_unavailable")
+            if repository is not None:
+                next_position = [index, member_index]
+                cursor_repository = repository["digest"]
+            elif isinstance(error, TimeoutError):
+                next_position = [index, 0]
+            elif previous and index == position[0] and previous.get("cursor_repository") is not None:
+                fail("inventory_cursor_stale")
+        if next_position is not None:
+            break
+    if next_position and len(items) == 100:
+        reasons.append("page_limit")
+    identifier = uuid.uuid4().hex
+    coverage = {"status": "partial" if reasons else "complete", "reasons": sorted(set(reasons)),
+                "repositories_seen": len(observed), "repositories_completed": completed,
+                "items_seen": len(items)}
+    if not observed:
+        coverage.update(status="unavailable", repositories_seen=None, repositories_completed=None,
+                        items_seen=None)
+    report = {"schema_version": 1, "report_id": identifier, "observed_at": now(),
+              "scope_digest": scope, "coverage": coverage, "items": items,
+              "continuation": identifier if next_position else None,
+              "next_position": next_position, "seeds": seeds,
+              "seen_repositories": sorted(seen), "cursor_repository": cursor_repository}
+    if len(json.dumps(report).encode()) > 4 * 1024 * 1024:
+        fail("inventory_report_limit")
+    with inventory_budget(5):
+        private_json(report_directory / (identifier + ".json"), report)
+    projection = {key: report[key] for key in ("schema_version", "report_id", "observed_at", "scope_digest",
+                                              "coverage", "continuation")}
+    projection["items"] = [{key: item[key] for key in ("repository_id", "worktree_id", "membership",
+                                                       "disposition", "reasons")} for item in items]
+    print(json.dumps(projection, sort_keys=True, separators=(",", ":")))
+
+
 def command_worktree_list(args):
-    if getattr(args, "all", False):
-        repositories, failed = global_worktree_roots()
-        output, total = [], 0
-        for repository_id, root, allowed_root in repositories:
-            worktrees = worktree_inventory(root, args.now, allowed_root)
-            total += sum(item["bytes"] or 0 for item in worktrees)
-            output.append({"repository_id": repository_id, "worktrees": worktrees})
-        print(json.dumps({"bytes": total, "failed": failed, "repositories": output},
-                         sort_keys=True, separators=(",", ":")))
-        return
-    inventory = worktree_inventory(root_dir(), args.now)
-    if args.json:
-        print(json.dumps({"worktrees": inventory}, sort_keys=True, separators=(",", ":")))
-        return
-    for item in inventory:
-        blockers = ",".join(item["cleanup_blockers"]) or "none"
-        print(f"{item['cycle_id']} state={item['state']} bytes={item['bytes']} blockers={blockers}")
+    try:
+        return metadata_worktree_list(args)
+    except (RuntimeError, OSError, TimeoutError, ValueError, TypeError, KeyError):
+        fail("inventory_unavailable")
 
 
 def command_cleanup(args):
@@ -16611,7 +16997,10 @@ def parser():
     reconcile.set_defaults(func=command_reconcile_target)
     worktree_list = commands.add_parser("worktree-list")
     worktree_list.add_argument("--json", action="store_true")
-    worktree_list.add_argument("--now", action="store_true", help="ignore the 24-hour retention window")
+    worktree_list.add_argument("--metadata-only", action="store_true", help="bounded metadata inventory (default)")
+    worktree_list.add_argument("--repository", action="append", default=[], help="canonical absolute repository seed")
+    worktree_list.add_argument("--cursor", help="opaque scoped continuation from the previous page")
+    worktree_list.add_argument("--now", action="store_true", help="compatibility flag; metadata never authorizes removal")
     worktree_list.add_argument("--all", action="store_true")
     worktree_list.set_defaults(func=command_worktree_list)
     cleanup = commands.add_parser("cleanup")

@@ -1518,15 +1518,16 @@ class DbsctrctlTest(unittest.TestCase):
         }}
         path.write_text(json.dumps(record))
 
-        inventory = run(self.repo, "worktree-list", "--json", ok=False)
-        self.assertIn("invalid schema 5 runtime", inventory.stderr)
+        inventory = json.loads(run(self.repo, "worktree-list", "--json").stdout)
+        self.assertEqual(inventory["coverage"]["status"], "partial")
+        self.assertIn("cycle_records_unavailable", inventory["coverage"]["reasons"])
         performance = run(self.repo, "cycle-performance", "--json", ok=False)
         self.assertIn("invalid schema 5 runtime", performance.stderr)
 
         record["state"] = "retired"
         path.write_text(json.dumps(record))
-        retired = run(self.repo, "worktree-list", "--json", ok=False)
-        self.assertIn("invalid schema 5 runtime", retired.stderr)
+        retired = json.loads(run(self.repo, "worktree-list", "--json").stdout)
+        self.assertIn("cycle_records_unavailable", retired["coverage"]["reasons"])
 
     def test_historical_reads_validate_structure_without_live_source(self):
         self.start()
@@ -1570,8 +1571,8 @@ class DbsctrctlTest(unittest.TestCase):
                     str(self.repo), [], exact_session_id="historical-session"))
 
         path.write_text('{"schema_version":5,"schema_version":5}')
-        duplicate = run(self.repo, "worktree-list", "--json", ok=False)
-        self.assertIn("duplicate JSON key", duplicate.stderr)
+        duplicate = json.loads(run(self.repo, "worktree-list", "--json").stdout)
+        self.assertIn("cycle_records_unavailable", duplicate["coverage"]["reasons"])
 
     def test_cycle_performance_ignores_absent_legacy_worktree(self):
         self.start()
@@ -2328,7 +2329,8 @@ class DbsctrctlTest(unittest.TestCase):
         (registry / "escape").symlink_to(outside, target_is_directory=True)
         env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
         inventory = json.loads(run(self.repo, "worktree-list", "--all", "--json", env=env).stdout)
-        self.assertEqual(len(inventory["repositories"]), 2)
+        self.assertEqual(inventory["coverage"]["repositories_seen"], 2)
+        self.assertTrue(all(item["disposition"].startswith("retained_") for item in inventory["items"]))
         self.assertNotIn(str(self.temp.name), json.dumps(inventory))
 
         result = run(self.repo, "cleanup", "--completed", "--all", env=env, ok=False)

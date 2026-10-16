@@ -1,5 +1,17 @@
 # DBSCTR V3 Lifecycle
 
+**WORKFLOW-SAFETY-INVENTORY source:** `dbsctrctl worktree-list` now takes the
+bounded metadata path by default (`--metadata-only` is explicit equivalent).
+Repeat `--repository ABSOLUTE_PRIMARY_PATH` to select scope; `--all` supplements
+native membership from configured/retained roots, and `--cursor OPAQUE_TOKEN`
+resumes a scoped page. Full reports live privately under the observing Git common
+directory's `dbsctr/inventory/<report_id>.json`; stdout contains only opaque IDs,
+counts and bounded state/reason codes. Unknown/unavailable evidence retains work;
+metadata never asserts cleanup eligibility or verified removal. No size/DVC/data
+scan or preservation check runs on this path. Installed deployment and all
+cleanup/upload/merge activation remain unchanged; this is not completion of the
+remaining workflow-convergence slices.
+
 **Workflow-convergence Discovery:** finalized contracts cover
 [bounded inventory and preservation](features/workflow-preservation-retirement.md),
 [PR integration and affected CI](features/workflow-integration-ci.md), and
