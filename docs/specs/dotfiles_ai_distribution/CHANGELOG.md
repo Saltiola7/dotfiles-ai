@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution Changelog
 
+## Unreleased — workflow-convergence Discovery
+
+- Specified portable central roots, native collision-refusing allocation,
+  repository-specific cache/policy selection and guarded optional delivery.
+- Updated Product Intent and source contracts only. No host apply, active-worktree
+  relocation, cache migration, guest/remote operations or deletion occurred.
+
 ## 2026-10-15 — OPENCODE-READINESS-CI
 
 - Repaired remote foundation's V1-only version check for native V2 updates without

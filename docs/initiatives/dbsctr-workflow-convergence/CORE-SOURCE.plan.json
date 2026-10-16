@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Source-only lifecycle helper/skill PR; no independently published package."},
+    "deploy": {"applicability": "not_applicable", "reason": "Source-only PR does not apply host policy, move sessions, upload data or delete worktrees. Activation requires separate runtime gates."},
+    "operate": {"applicability": "not_applicable", "reason": "No live automation is enabled. Build validates disposable fixtures; activation separately verifies installed behavior."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

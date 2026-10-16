@@ -1,5 +1,13 @@
 # DBSCTR V3 Lifecycle
 
+**Workflow-convergence Discovery:** finalized contracts cover
+[bounded inventory and preservation](features/workflow-preservation-retirement.md),
+[PR integration and affected CI](features/workflow-integration-ci.md), and
+[rollback/regression feedback](features/workflow-regression-feedback.md).
+The [Initiative](../../initiatives/dbsctr-workflow-convergence/README.md) owns
+scope, source-only implementation order and activation conditions. These are
+specifications, not implemented automation or completion evidence for old cycles.
+
 **WORKTRUNK-NATIVE-WORKSPACES source implementation:** The shared CLI now implements
 the [approved native-workspace contract](features/worktrunk-native-workspaces.md):
 explicit-checkout registration, terminal or chat-approved Initiative confirmation, in-place

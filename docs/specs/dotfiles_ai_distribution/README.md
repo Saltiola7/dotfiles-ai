@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution
 
+**Workflow-convergence Discovery:** [portable storage policy](features/workflow-storage-policy.md)
+defines configurable centralized new worktrees, repository-scoped shared caches
+and trusted exact-repository policy. Existing active work stays in place. Feature
+PR delivery precedes separately qualified host activation; no installed roots,
+merge permissions or deletion behavior change through documentation alone.
+See the [Initiative](../../initiatives/dbsctr-workflow-convergence/README.md).
+
 **Approved maintenance successor:** [native platform-local updates](features/native-platform-updates.md)
 supersedes fleet update-on-apply and custom package-lock ownership for future
 OpenCode/Codex maintenance. Platform-specific transition evidence follows.

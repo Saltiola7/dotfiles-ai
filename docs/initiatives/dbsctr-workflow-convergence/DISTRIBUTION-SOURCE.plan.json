@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Distribution consumes native tooling; this slice publishes no independent package."},
+    "deploy": {"applicability": "not_applicable", "reason": "Source-only configuration/rendering PR; no host apply, cache migration, guest or remote operations."},
+    "operate": {"applicability": "not_applicable", "reason": "No installed policy changes. Filesystem/root and installed behavior qualification precede separate activation."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

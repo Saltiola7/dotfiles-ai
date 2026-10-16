@@ -1,5 +1,14 @@
 # Native workspace distribution and transition
 
+New workflow-convergence cycles use the finalized
+[storage policy](workflow-storage-policy.md) and shared
+[preservation contract](../../dbsctr_v3_lifecycle/features/workflow-preservation-retirement.md)
+for centralized new allocation, exact-repository opt-in and immediate eligible
+cleanup. Those contracts supersede this feature's sibling/manual-only defaults
+within their declared scope, not its data-preservation, native-permission or
+qualification requirements. Current deployments and older cycles do not change
+merely because Discovery is complete.
+
 Status: reconciled target contract; rollout qualification remains open.
 Owner: project maintainers. Profile: `../PROFILE.md`; retain its Product Intent.
 Authority: the shared lifecycle native-workspaces specification and approved

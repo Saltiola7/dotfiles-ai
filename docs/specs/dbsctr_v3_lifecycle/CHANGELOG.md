@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## Unreleased — workflow-convergence Discovery
+
+- Specified bounded native inventory, immediate preservation-verified retirement,
+  PR/affected-CI integration and sanitized regression feedback. Conservative DVC
+  directory verification and cooperative-removal limits remain explicit.
+- Reconciled new-cycle precedence without rewriting old cycles or enabling runtime
+  automation. Implementation, activation and remediation remain pending; no gate
+  pass, data upload, merge or deletion is claimed by this Discovery entry.
+
 ## 2026-10-08 — EARLY-DELIVERY-CHECKS
 
 - Reuse repository publication validation before Discovery handoff and run cheap
