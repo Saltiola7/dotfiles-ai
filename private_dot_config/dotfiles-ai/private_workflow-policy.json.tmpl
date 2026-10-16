@@ -1,0 +1,2 @@
+{{- $generation := includeTemplate "workflow-policy.tmpl" . | fromJson -}}
+{{ $generation.policy | toPrettyJson }}

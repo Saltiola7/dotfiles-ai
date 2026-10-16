@@ -21,7 +21,32 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
-      - run: brew install chezmoi worktrunk
+      - run: brew install chezmoi
+      - name: Install qualified Worktrunk
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            arm64)
+              target=aarch64-apple-darwin
+              sha256=8a2bb053c4bc80dea7d9ce6c221ff038d10a3d2dca2dc8f60d1b1a094fa783a9
+              ;;
+            x86_64)
+              target=x86_64-apple-darwin
+              sha256=aa898aa301617abaf91cb3078de4c8c11444a061016dc8f6dd80aa17cc1c46be
+              ;;
+            *) echo "Unsupported Worktrunk CI architecture" >&2; exit 1 ;;
+          esac
+          install_dir="$RUNNER_TEMP/worktrunk-0.80.0"
+          mkdir -p "$install_dir"
+          archive="$install_dir/worktrunk.tar.xz"
+          curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+            "https://github.com/max-sixty/worktrunk/releases/download/v0.80.0/worktrunk-$target.tar.xz" \
+            --output "$archive"
+          echo "$sha256  $archive" | shasum -a 256 --check
+          tar -xJf "$archive" -C "$install_dir" --strip-components=1
+          test "$("$install_dir/wt" --version)" = 'wt v0.80.0'
+          echo "$install_dir" >> "$GITHUB_PATH"
       - run: bun install --global opencode-ai@1.18.35
       - name: Check publication and instruction contracts
         run: >-

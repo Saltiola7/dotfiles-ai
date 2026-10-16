@@ -7,6 +7,28 @@ PR delivery precedes separately qualified host activation; no installed roots,
 merge permissions or deletion behavior change through documentation alone.
 See the [Initiative](../../initiatives/dbsctr-workflow-convergence/README.md).
 
+**WORKFLOW-STORAGE-CONFIG source:** one `workflow-policy` helper resolves the
+private chezmoi workspace table and supplies both policy JSON and native Worktrunk
+configuration. Its `render` command requires the exact clean committed managed
+source; previews never create roots or activate policy. `snapshot` prints a
+private qualification proposal only. A separately approved activation owner must
+preserve the previous coherent generation and install the private identity snapshot
+before new allocation; `check` rejects absent/mismatched generations, mount identity
+changes and unsafe roots. Existing registered native worktrees remain reachable.
+The pinned Worktrunk pre-switch hook performs the check before creation; native
+Worktrunk still owns paths, collision refusal and allocation. This cooperative
+guard does not prevent an operator from disabling native hooks.
+
+The explicit implementation-scope amendment adds
+`dot_local/bin/executable_workflow-policy` and
+`.chezmoitemplates/workflow-policy.tmpl`; policy behavior, critical risk and
+source-only delivery remain unchanged. The policy source uses chezmoi's
+`private_workflow-policy.json.tmpl` filename attribute to produce the specified
+mode-0600 `workflow-policy.json` target. This corrects the source-name spelling,
+not the generated target/schema. Optional OpenCode root references are inventory
+hints only; existing legacy references are unchanged. No host policy, migration,
+DVC data, merge authority or removal action is activated by this source cycle.
+
 **Approved maintenance successor:** [native platform-local updates](features/native-platform-updates.md)
 supersedes fleet update-on-apply and custom package-lock ownership for future
 OpenCode/Codex maintenance. Platform-specific transition evidence follows.

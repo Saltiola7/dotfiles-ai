@@ -6,6 +6,24 @@ persistentState = "/Users/you/.config/dotfiles-ai/chezmoi.boltdb"
 # [data.dotfiles_ai.state]
 # root = "/Volumes/your-drive/state"
 
+# New work only; never relocates existing checkouts or migrates populated caches.
+# Leave absent for built-in home defaults. Any explicit table requires schema 1.
+# Source previews require a clean committed generation. Inspect/qualify roots and
+# activate the coherent policy/native-config generation separately before use.
+# [data.dotfiles_ai.workspaces]
+# schema_version = 1
+# root = "~/Worktrees"
+# cache_root = "~/.cache/dotfiles-ai/dvc"
+# [data.dotfiles_ai.workspaces.naming]
+# task = "dbsctr"
+# discovery = "discovery"
+# integration = "integration"
+# [[data.dotfiles_ai.workspaces.repositories]]
+# repository = "~/Projects/example"
+# root = "/Volumes/ExampleStorage/worktrees"
+# cache_root = "/Volumes/ExampleStorage/dvc"
+# Automation is off unless separately declared for an exact repository; no global consent.
+
 [data.dotfiles_ai.history_projection]
 # A daily local History projection refresh. Keep disabled until the host lifecycle
 # source and state root have been validated.
