@@ -5,8 +5,8 @@ DeepWiki generated documentation: [https://deepwiki.com/Saltiola7/dotfiles-ai](h
 Portable macOS configuration for DBSCTR, OpenCode, Herdr, and optional Hermes
 orchestration, managed as an independent chezmoi source repository.
 
-This repository installs OpenCode from its official Homebrew tap and configures
-the AI workbench. It does not install Herdr, store provider credentials, or
+This repository manages platform-selected agent installers, pinned Herdr releases,
+and AI workbench configuration. It does not store provider credentials or
 replace the DBSCTR specifications as lifecycle authority.
 
 ## Choose Your Path
@@ -20,6 +20,7 @@ replace the DBSCTR specifications as lifecycle authority.
 | Create isolated Fedora workspaces | [Optional Lima Workspaces](#optional-lima-workspaces) |
 | Configure a standalone CentOS user | [CentOS Remote User Foundation](#centos-remote-user-foundation) |
 | Maintain this repository | [Update And Validate](#update-and-validate) and [Documentation Authority](#documentation-authority) |
+| Update tools and dependencies | [Manual update runbook](docs/UPDATES.md) |
 
 ## Requirements
 
