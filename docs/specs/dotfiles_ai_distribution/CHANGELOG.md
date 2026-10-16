@@ -2,6 +2,11 @@
 
 ## 2026-10-16 — WORKFLOW-STORAGE-CONFIG source
 
+- CI toolchain remediation: the failed Python matrix installed Worktrunk 0.76.0
+  from Homebrew while native qualification requires 0.80.0. Explicitly approved
+  workflow scope now pins official macOS 0.80.0 archives by architecture and
+  SHA-256, checks the executable version and exports its CI-only path. Runtime
+  version refusal is unchanged; no host dependency was installed or upgraded.
 - Added shared schema-1 workspace policy validation and source-bound private
   rendering, centralized native Worktrunk templates and exact-repository roots,
   cache namespaces and naming overrides. Existing registered work stays reachable;
