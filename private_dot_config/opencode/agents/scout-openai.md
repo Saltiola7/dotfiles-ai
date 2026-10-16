@@ -1,7 +1,7 @@
 ---
 description: External documentation research for an OpenAI primary.
 mode: subagent
-model: openai/gpt-6-sol
+model: openai/gpt-6.1-sol
 variant: medium
 permission:
   context7_*: allow

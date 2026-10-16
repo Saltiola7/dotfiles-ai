@@ -35,6 +35,12 @@
           "variants": {
             "medium": { "reasoningEffort": "medium" }
           }
+        },
+        "gpt-6.1-sol": {
+          "variants": { "medium": { "reasoningEffort": "medium" } }
+        },
+        "gpt-6.1-sol-fast": {
+          "variants": { "medium": { "reasoningEffort": "medium" } }
         }
       }
     },
@@ -134,7 +140,7 @@
           "*dbsctrctl execution-dag*": "allow"
         },
         "1password_*": "ask",
-        "task": "deny"
+        "task": { "*": "deny", "general": "allow", "explore": "allow", "scout": "allow", "discovery-writer": "allow" }
       }
     },
     "build-rnd": {
@@ -149,11 +155,11 @@
           "*dbsctrctl execution-benchmark*": "allow",
           "*dbsctrctl execution-dag*": "allow"
         },
-        "task": "deny"
+        "task": { "*": "deny", "general": "allow", "explore": "allow", "scout": "allow", "discovery-writer": "allow" }
       }
     },
     "plan": {
-      "model": {{ .dotfiles_ai.opencode.default_model | toJson }},
+      "model": "openai/gpt-6.1-sol-fast",
       "variant": "medium",
       "permission": {
         "edit": "deny",
@@ -215,7 +221,24 @@
           "acli jira workitem search * -w*": "deny",
           "acli jira workitem search *--filter*": "deny"
         },
-        "task": "deny"
+        "task": { "*": "deny", "explore": "allow", "scout": "allow" }
+      }
+    },
+    "general": {
+      "permission": {
+        "task": "deny",
+        "bash": {
+          "*dbsctrctl*": "deny",
+          "*dbsctr-rnd*": "deny",
+          "*dksctl *": "deny",
+          "*wt *": "deny",
+          "*agent-worktree*": "deny",
+          "git *": "deny",
+          "gh *": "deny",
+          "chezmoi apply*": "deny",
+          "dvc push*": "deny",
+          "npm publish*": "deny"
+        }
       }
     }
   },

@@ -109,6 +109,7 @@ Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist
 .config/opencode/agents/explore-vertex.md
 .config/opencode/agents/scout-vertex.md
 .config/opencode/agents/builder-vertex.md
+.config/opencode/agents/discovery-writer-vertex.md
 .config/opencode/commands/dbsctr-claude.md
 .local/bin/vertex-reauth
 .local/bin/vertex-reauth-browser

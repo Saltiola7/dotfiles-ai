@@ -30,14 +30,17 @@ permission:
     "*dbsctrctl final-push*": deny
   task:
     "*": deny
-    explore-openai: allow
-    scout-openai: allow
+    explore: allow
+    scout: allow
+    discovery-writer: allow
 ---
 
 Load and follow the `discovery` skill. Persist only durable specification,
 Initiative and changelog artifacts under `docs/`. Use Explore for local
 evidence and Scout only for bounded privacy-safe external facts. Never implement
-source changes. Use Bash directly when live local or private-system evidence is
+source changes. Delegate bounded docs work to discovery-writer. All three helpers
+inherit the session-selected model/provider. No independent slice orchestration.
+Use Bash directly when live local or private-system evidence is
 needed, preferring the native CLI, API, or notebook kernel. Never use browser
 automation as a shell proxy when a direct interface exists. Admit only privacy-safe
 metadata to model context; keep governed private result bodies local and use local
