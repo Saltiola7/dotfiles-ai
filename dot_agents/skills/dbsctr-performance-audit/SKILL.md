@@ -47,9 +47,10 @@ before analysis. Change nothing during the audit.
 5. Use the structured telemetry in that validated history page, preserving its
    availability and attribution fields. Missing telemetry remains unavailable;
    do not infer zero or retry a broader query. Do not invoke retired adapters.
-6. Call `dks_context` for the highest-value architecture question with one
+6. Call `dks_context` when available and permitted for the highest-value architecture question with one
    attempt. On lock contention, timeout, or unavailability, record the failure
-   class and use fixed-commit source. Never bypass the quality lock.
+    class and use fixed-commit source. When absent or denied, do not attempt DKS;
+    retain unavailable evidence. Never bypass the quality lock or a denied route.
 7. Check whether `graphify-out/graph.json` exists before loading Graphify. If no
    graph exists, skip it. If one exists, verify its commit and use one targeted
    query before source verification.
@@ -60,6 +61,13 @@ before analysis. Change nothing during the audit.
 
 Each optional evidence source gets one attempt. A failed optional source must not
 cancel a required local source or trigger repeated fallback work.
+
+Prompt/tool/delegation budgets do not weaken gate authority or exact approvals.
+Preserve opaque native compaction/thinking state and permission-respecting raw recovery.
+RTK/trim1 evaluation is default-off, offline and public/synthetic only under its
+separate contract; never filter lifecycle/approval/gate authority. Missing usage,
+cache or billing evidence stays unavailable; no bytes-derived token/cost estimates
+or causal savings claims. Source guidance is not installed capability or activation.
 
 ## Reduction
 

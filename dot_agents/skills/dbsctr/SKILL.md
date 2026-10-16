@@ -308,6 +308,11 @@ applicable Capability Requirement.
 
 ## Delegation And OpenCode
 
+Follow managed AGENTS guidance once; avoid phase-by-phase prompt injection or
+copied skill bodies. After compaction, re-read committed Initiative authority and
+preserve opaque native state. Tool/delegation budgets never waive gates, privacy,
+evidence or exact approvals; report unavailable capability rather than invent it.
+
 DBSCTR retains the current primary and may delegate bounded helpers under native
 permissions. Helpers never register or own independent DBSCTR slices, stage,
 commit, push, deploy or declare gates passed. Independent slice orchestration is
