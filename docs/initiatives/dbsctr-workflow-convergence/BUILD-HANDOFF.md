@@ -37,6 +37,29 @@ published in PR #216 but not verified integrated here; retain its ready state.
 These delivery facts supersede earlier checkpoint descriptions above without
 changing requirements, risk, acceptance, source ownership or dependency edges.
 
+`prompt-authority` subsequently delivered through
+[PR #216](https://github.com/Saltiola7/dotfiles-ai/pull/216), merged as
+`407c28bb1ed587c09e19521ab31c699f39270728` into `main` from base
+`8b3d46fc6a9510d9ea75f79dcd9b08613aa82e8e`. The exact reconciled head is its
+second Git parent; all three configured Python checks passed before the approved
+merge. Mark prompt delivered and its compression-evaluation dependent ready;
+evaluation remains default-off and no activation is implied. The earlier prompt
+checkpoint above remains historical. DVC preservation source is published in
+PR #218 but not verified merged here, so it remains ready, not delivered.
+
+`dvc-preservation` subsequently delivered through
+[PR #218](https://github.com/Saltiola7/dotfiles-ai/pull/218), exact head
+`a00d7de27059a67da72497f08568e5ea7daa59c4`, merged into `main` as
+`9989a649bd220a9eabc2b1c7e12062b1ce39f293` from base
+`407c28bb1ed587c09e19521ab31c699f39270728`. All three Python jobs and remote-user
+smoke passed; native current-base/admin enforcement and returned merge parents
+were verified. Mark DVC delivered; merge-cleanup still waits for native-handoff.
+Native-handoff is published in PR #219 and integration-review in PR #220, neither
+verified merged here. No host activation, upload, migration or retirement occurred.
+These facts supersede the earlier published-not-merged checkpoints without changing
+requirements, risk or dependency edges. Dependency maintenance now selects compatible
+updates first; major/data-format migrations remain separately approved follow-up.
+
 ## Invariants
 
 - Public generic contracts only. Private repository identity, content, branches,
