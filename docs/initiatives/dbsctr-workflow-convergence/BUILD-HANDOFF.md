@@ -24,6 +24,29 @@ is pending; this does not mark storage delivered or unlock its dependents. The
 manifest DAG, not the display row order, permits this independent source slice.
 No implementation or launch approval is implied by the readiness promotion.
 
+`storage-config` subsequently delivered through
+[PR #215](https://github.com/Saltiola7/dotfiles-ai/pull/215), exact final head
+`b14ead55f9ce61b0bcb538d9aa56b15b00f754c8`, merged into `main` as
+`8b3d46fc6a9510d9ea75f79dcd9b08613aa82e8e` from base
+`2c638e10e76800a0cf151cf7a7933dccb0a0bcfc`. Native Git verifies both merge parents
+and head ancestry. All three Python jobs and remote-user smoke passed. The source
+delivery includes the approved CI-only Worktrunk pin correction and manual update
+runbook; no host activation, upload, migration or cleanup occurred. Mark storage
+delivered and its dependency-satisfied source consumers ready. Prompt source is
+published in PR #216 but not verified integrated here; retain its ready state.
+These delivery facts supersede earlier checkpoint descriptions above without
+changing requirements, risk, acceptance, source ownership or dependency edges.
+
+`prompt-authority` subsequently delivered through
+[PR #216](https://github.com/Saltiola7/dotfiles-ai/pull/216), merged as
+`407c28bb1ed587c09e19521ab31c699f39270728` into `main` from base
+`8b3d46fc6a9510d9ea75f79dcd9b08613aa82e8e`. The exact reconciled head is its
+second Git parent; all three configured Python checks passed before the approved
+merge. Mark prompt delivered and its compression-evaluation dependent ready;
+evaluation remains default-off and no activation is implied. The earlier prompt
+checkpoint above remains historical. DVC preservation source is published in
+PR #218 but not verified merged here, so it remains ready, not delivered.
+
 ## Invariants
 
 - Public generic contracts only. Private repository identity, content, branches,
