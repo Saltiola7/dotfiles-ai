@@ -308,11 +308,14 @@ applicable Capability Requirement.
 
 ## Delegation And OpenCode
 
-Ordinary DBSCTR executes in the current primary without Task or child sessions.
-The primary implements, reviews, validates, deploys, stages and commits directly.
-Only the explicitly selected Discovery-Coordinator may orchestrate approved child
-work under its permissions. Preserve provider affinity and do not infer agent
-authority from the skill name, model, tab label or unavailable tool.
+DBSCTR retains the current primary and may delegate bounded helpers under native
+permissions. Helpers never register or own independent DBSCTR slices, stage,
+commit, push, deploy or declare gates passed. Independent slice orchestration is
+deferred. Give explicit ownership and off-limits paths; serialize overlap. The
+primary reconciles results, reviews, validates and owns lifecycle state/delivery.
+Preserve Build-Claude's Vertex-only and Build-GPT's OpenAI-only helper routes;
+native controls use model-inheriting helpers. No automatic cross-provider fallback.
+Do not infer authority from skill name, model, tab label or unavailable tool.
 
 Plan is read-only and ends with a Build Handoff. Build verifies source and
 artifact freshness before writing. Request the mode change in the same conversation,
@@ -333,8 +336,8 @@ candidate graph, completed-node set, and exactly one reconciliation node to
 `dbsctrctl execution-dag`. The reconciliation node depends directly or transitively
 on every worker. The helper validates operation classes, dependencies, cycles,
 risk, and ownership overlap. The helper does not dispatch
-work: the primary runs only returned ready nodes with existing parallel tool
-calls, never Task delegation in an ordinary session, records finish spans, then
+work: the primary runs only returned ready nodes with permitted parallel tool
+calls or bounded helpers, records finish spans, then
 resubmits completed worker IDs. Only the
 returned reconciliation node may integrate results and rerun affected validation
 before dependent gates pass. A failed node follows normal gate

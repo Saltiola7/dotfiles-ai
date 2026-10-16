@@ -23,10 +23,10 @@ Run `dbsctrctl initiative-check --manifest PATH --json` and issue a fresh
 `dbsctrctl initiative-receipt --manifest PATH --slice ID --json` immediately before
 launch. Missing, invalid or stale authority blocks readiness and registration.
 Native global instructions and enforced CLI validation replace the retired
-automatic Initiative context-injection plugin. Ordinary Discovery
-and DBSCTR run in the current primary without Task or child sessions. Only the
-explicitly selected Discovery-Coordinator may orchestrate children, with disjoint
-ownership and satisfied dependencies. Loading Discovery never selects that agent.
+automatic Initiative context-injection plugin. Discovery and DBSCTR retain the
+current primary, which may delegate bounded helpers under native permissions.
+Helpers do not register or own independent DBSCTR slices. Independent slice
+orchestration is deferred. Loading Discovery never selects another primary.
 Discovery and DBSCTR never create or read PM Kernel tickets. Use the lifecycle
 CLI through native shell permissions in the selected task checkout. For an
 Initiative, prepare a fresh receipt and `dbsctrctl begin ... --preflight`, present
@@ -100,7 +100,7 @@ Worktrunk creates sibling `<primary>.worktrees/<sanitized-branch>` checkouts.
 Keep primary paths and branches stable. Independent writers use distinct task
 worktrees and native sessions; changing a shell directory does not retarget a
 resumed conversation. Prepare an operator handoff when a new native session is
-needed instead of launching a child from an ordinary primary.
+needed for independent cycles; bounded helpers are not independent cycle owners.
 
 Managed launches use `agent-worktree -- opencode|codex ...` through Worktrunk's
 native `-x` interface. Its busy check covers foreground launches only; direct
@@ -147,10 +147,22 @@ When `dks_context` is absent or denied by managed configuration, do not attempt 
 proceed directly to Graphify or authoritative source inspection and keep DKS
 evidence unavailable rather than zero.
 
-Ordinary primaries implement, research and review directly; Task is denied. Only
-the explicitly selected Discovery-Coordinator may delegate under its configured
-permissions. Give delegated work explicit writable paths and off-limits scope;
-subagents never commit. The primary owns integration and validation.
+Primaries may delegate bounded helpers autonomously or when explicitly requested,
+under their native helper allowlists. Plan permits read-only helpers only.
+Discovery may delegate research and docs-only artifacts, never implementation.
+Use the matching discovery-writer helper for normative Discovery artifacts;
+coding builders do not own normative specifications. Give delegated work explicit
+writable paths and off-limits scope; serialize overlap. Subagents never register
+cycles, commit, push or deploy. The primary owns integration, review, validation,
+lifecycle state and delivery. Independent DBSCTR slice orchestration is deferred.
+
+Build-Claude uses only configured Vertex Claude Opus 5.5 and Sonnet 5.5 helpers.
+Build-GPT uses only configured OpenAI models and helpers. Neither automatically
+falls back across providers. Their configured models assume no manual
+cross-provider session override; native defaults are not a provider sandbox.
+Native Build, Plan, Build-R&D and Discovery-Coordinator use model-inheriting
+helpers and follow the session-selected provider/model. Existing reviewer
+configuration remains unchanged; no new mandatory reviewer delegation is added.
 
 Agent IDs and models are independent: selecting a provider model never changes
 the active primary agent. Preserve provider affinity, log permitted coordinator
@@ -162,8 +174,8 @@ Treat a graph as a routing hint, not a mandatory dependency. Check its recorded
 commit and whether the query matches the task; fall back immediately when stale,
 weak, or irrelevant. Source remains authoritative.
 
-Ordinary Discovery researches directly. The selected coordinator may use Explore
-for local Initiative research and Scout for bounded privacy-safe external facts.
+Discovery may use permitted Explore helpers for local research, Scout for bounded
+privacy-safe external facts, and docs-only writers for Discovery artifacts.
 Governed private content must never leave the local boundary.
 
 ## Lifecycle Version

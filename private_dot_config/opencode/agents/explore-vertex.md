@@ -1,7 +1,7 @@
 ---
 description: Fast read-only codebase exploration for a Vertex Claude primary.
 mode: subagent
-model: google-vertex-anthropic/claude-sonnet-5@default
+model: google-vertex/claude-sonnet-5-5@default
 variant: medium
 permission:
   edit: deny

@@ -1,5 +1,13 @@
 # OpenCode Control Plane
 
+**NATIVE-HELPER-DELEGATION:** The [native helper contract](features/native-helper-delegation.md)
+supersedes blanket Task denial and historical model tables below. Primaries may
+delegate bounded helpers; Plan remains read-only, Discovery writers are docs-only,
+and Build owns QA, lifecycle state and delivery. Independent slice orchestration
+is deferred. Fixed Build-Claude/Build-GPT defaults and helper allowlists preserve
+Vertex/OpenAI routing under the operator's no-manual-cross-provider-override usage.
+Native controls inherit the selected model. Reviewer configuration is retained.
+
 **SSD-OPENCODE-PREFERENCES-1 completion evidence:** Managed native `cli.json`
 binds Tab/Shift+Tab to forward/reverse agent cycling. Chrome DevTools 1.10.1 and
 Playwright MCP 0.0.83 are declared disabled under `mcp.servers`, available through
@@ -74,11 +82,11 @@ remain separate; a restart cannot expose controls that have not been deployed.
 
 ### Ordinary Session Foundation
 
-Ordinary `/discovery` and `/dbsctr` stay in the selected primary without Task or
-child sessions. Only the explicitly selected Discovery-Coordinator retains its
-configured child orchestration. Plan remains read-only and requests Build mode
-in the same conversation for writes. Model selection and skill loading do not
-grant another agent's authority.
+Ordinary `/discovery` and `/dbsctr` retain their primary and may use bounded native
+helpers under role-appropriate allowlists. Plan remains read-only, including its
+children, and requests Build mode in the same conversation for writes. Discovery
+permits research and docs-only helpers. No helper owns an independent cycle.
+Model selection and skill loading do not grant another agent's authority.
 
 The three subprocess runners and Initiative plugin share `resolveCommand`.
 Existing PATH resolution of bare `dbsctrctl` is preserved; if missing, use the
@@ -327,30 +335,27 @@ Equivalent remain current.
 ```mermaid
 flowchart TD
     accTitle: OpenCode provider-affine control plane
-    accDescr: Ordinary Discovery and DBSCTR retain the selected primary and execute directly without Task or child sessions. Plan requests Build mode in the same conversation for writes. Only explicit coordinator selection enables configured child orchestration. Shared typed adapters preserve lifecycle authorization and external-write boundaries independently of executable lookup.
+    accDescr: Primaries retain lifecycle ownership and delegate bounded helpers under native role and provider allowlists. Plan children are read-only. Discovery children research or write docs. Build integrates and validates helper results. Independent slice orchestration is deferred.
     U[User or thin command] -->|Select workflow| P{Primary agent}
     P -->|Native Plan| N[Read-only planning]
     N -->|Build handoff| B[Native Build]
     P -->|Scheduled R&D only| BR[build-rnd primary]
     P -->|OpenAI entry| G[build-gpt]
-    P -->|Bedrock entry| C[build-claude]
+    P -->|Vertex Claude entry| C[build-claude]
     P -->|Explicit agent selection only| D[Discovery Coordinator]
     D -->|Interactive investigation| LCLI[Local CLI, APIs, and notebook kernels]
-    D -->|Policy-gated, locally filtered queries| E
     D -->|Structured edits| Q[Durable docs artifacts]
-    D -->|Privacy-safe public facts| R[Scout]
-    N -->|Serial Discovery, no Task| S
+    D -->|Selected model| DH[Research and docs-only helpers]
+    N -->|Selected model| RH[Read-only Explore and Scout]
+    N --> S
     B --> S[Shared DBSCTR, Discovery, and QA skills]
-    BR -->|Ledger-validated VM handoff only| T
+    B -->|Selected model| H[Native inherited helpers]
+    BR --> H
+    G -->|OpenAI only| GH[Sol, Terra and retained reviewer]
+    C -->|Vertex Claude only| CH[Sonnet 5.5 helpers]
     G --> S
     C --> S
-    D -->|Approved Initiative launch| T
-    B -->|Same-session Initiative Begin| T
-    G -->|Same-session Initiative Begin| T
-    C -->|Same-session Initiative Begin| T
-    U -->|Confirm fork-defined incident| INC[Incident skill]
-    INC -->|Bounded credential-redacted evidence| T
-    S --> T[Typed local adapters]
+    S --> T[Primary-owned lifecycle CLI]
     T -->|Local validated effects| W[Worktree and private local state]
     T -->|Permission required| E[External or destructive boundary]
     B -->|Desktop approval required| M[Official 1Password Environment MCP]
@@ -358,10 +363,12 @@ flowchart TD
 
 **Text Equivalent:** Ordinary commands retain the selected primary; Discovery
 does not select the coordinator. Plan is read-only and requests Build mode in the
-same conversation. Ordinary primaries work directly without Task or children.
-A separate `build-rnd` primary runs only managed
-`/dbsctr-improve` sessions and alone may request the ledger-validated VM handoff;
-ordinary Build and every other agent deny that launcher. The Discovery Coordinator may investigate through unrestricted
+same conversation; its helpers are also read-only. Native Build and Build-R&D use
+model-inheriting helpers; Build-GPT uses OpenAI helpers and Build-Claude uses
+Vertex Sonnet 5.5 helpers. Discovery delegates research and docs-only artifacts.
+Independent slice orchestration is deferred. The primary alone owns CLI lifecycle
+state, integration and delivery; retired custom launchers remain unavailable.
+The Discovery Coordinator may investigate through unrestricted
 local Bash using native CLIs, APIs, and notebook kernels, writes durable artifacts
 through a `docs/**`-scoped structured edit tool, and uses Scout only for privacy-safe
 public facts. Governed private result bodies remain local; only locally filtered,
@@ -530,29 +537,30 @@ change the active agent.
 
 ### Bounded Builder
 
-Retained Builder definitions are not available through ordinary primaries' Task
-permissions. Given an explicitly authorized provider-local Builder, it may edit owned in-worktree files and
+Given an allowlisted provider-local Builder, it may edit owned in-worktree files and
 run focused checks, but cannot use external directories, delegate, write Git
 state, deploy, publish, or perform external writes.
 
 ### Provider affinity
 
-Ordinary primaries do not delegate. An explicitly selected coordinator retains
-its configured provider-affine routes. No fallback crosses providers silently.
+Build-Claude and Build-GPT delegate only to their fixed-provider helper allowlists.
+Native controls and Discovery-Coordinator use selected-model inheritance.
+No fallback crosses providers silently. Defaults do not lock a manually changed
+session model; the operator retains the configured fixed-primary provider.
 
 ### Exact provider entry
 
 Given the user invokes `/dbsctr-gpt`, when OpenCode starts the workflow, then it
-selects `build-gpt` with `openai/gpt-5.6-sol-fast`. Given the user invokes
+selects `build-gpt` with `openai/gpt-6.1-sol-fast`. Given the user invokes
 `/dbsctr-claude`, then it selects `build-claude` with
-`amazon-bedrock/global.anthropic.claude-opus-5` at high reasoning effort. The
+`google-vertex/claude-opus-5-5@default` at high reasoning effort. The
 existing provider-neutral `/dbsctr` command continues to inherit the selected
 primary.
 
 ### Provider-native review behavior
 
-Ordinary primaries review directly with executable evidence, without reviewer
-subagents. A required independent review not available within this authority is
+Primaries retain review ownership and executable evidence. Existing reviewer
+configuration remains; no new mandatory delegation is added. A required independent review not available within this authority is
 a capability blocker, never permission to delegate or waive the gate silently.
 
 ### No cross-client fallback
@@ -1059,10 +1067,10 @@ Build, provider-affine primaries, Plan, Discovery, and every subagent deny it.
   medium. Opus 4.8 is retired rather than retained as fallback.
 - `/dbsctr-gpt` and `/dbsctr-claude` bind exact primary and model identities;
   `/dbsctr` remains provider-neutral.
-- Native Build, Plan, build-rnd and provider-affine Build primaries deny Task.
-  Review is primary-owned; retained subagent files do not grant delegation.
-- A failed optimized subagent may retry once on its active same-provider flagship;
-  no failure, quota, credential, or model-access condition changes provider family.
+- Primaries delegate only to role-appropriate allowlisted helpers. Plan cannot
+  launch writing helpers; Discovery writers are docs-only. Review is primary-owned.
+- An unavailable assigned helper/model is reported without automatic provider
+  or flagship substitution.
 - Provider telemetry uses exact allowlisted runtime identity without provider
   account or billing-client metadata.
 - Provider-neutral commands contain no fixed `agent` field. `/dbsctr-gpt` fixes
