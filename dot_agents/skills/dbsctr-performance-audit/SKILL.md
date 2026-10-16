@@ -6,6 +6,25 @@ trigger: /dbsctr-performance-audit
 
 # DBSCTR Performance Audit
 
+## Workflow regression evidence
+
+Feedback stays local by default in the existing lifecycle evidence owner; no new
+command-line flags, parallel telemetry store or audit-time publication. Classify
+fixed public/synthetic diagnostics before persistence and again before export;
+never pass raw errors, argv, paths, prompts, transcripts or private project prose.
+No PM Kernel reads or tickets. Reconcile review, Incident, autonomous-improvement
+backlog and telemetry availability before ranking gaps. Unavailable is not zero;
+Incident mutation stays `native-incident-invocation-unavailable`. No denied-route
+fallback or borrowed identity. Preserve failed evidence and original gate results.
+
+Automatic CLI boundaries, when coherently activated, measure invoked helper wall
+time only; missing/crashed finishes remain partial. They do not measure full primary
+execution or authenticate a native actor. Predeclare comparable source/model/harness/config,
+risk, method and required quality; include all eligible attempts, unavailable/drop
+coverage, failures, retries and remediation. Feature association is not causation.
+Do not treat compatible flag-off as a data migration or evidence deletion. Actual
+usage/cache/cost remains unavailable without authoritative permitted evidence.
+
 ## Outcome
 
 Produce one reproducible, report-only map of DBSCTR optimization surfaces and a

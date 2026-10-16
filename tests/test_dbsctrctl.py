@@ -21,6 +21,413 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).parents[1] / "dot_local/bin/executable_dbsctrctl"
+
+
+class WorkflowFeedbackTest(unittest.TestCase):
+    def setUp(self):
+        loader = importlib.machinery.SourceFileLoader("workflow_feedback", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        self.core = importlib.util.module_from_spec(spec)
+        loader.exec_module(self.core)
+
+    def snapshot(self):
+        return self.core.workflow_feature_snapshot("a" * 40, {
+            "schema_version": 1, "features": [{"feature_id": "automatic-delivery", "enabled": False}]})
+
+    def observation(self, category="validation-failed"):
+        return self.core.workflow_observation(category, self.snapshot(), "2026-10-16T00:00:00Z")
+
+    def test_safe_snapshots_cannot_disable_safety_or_downgrade_data(self):
+        snapshot = self.snapshot()
+        self.assertEqual(snapshot["effective_enabled_feature_ids"], [])
+        self.core.validate_workflow_snapshot(snapshot)
+        self.assertTrue(self.core.workflow_rollback_compatible(snapshot, snapshot))
+        changed = {**snapshot, "config_schema_version": 2}
+        self.assertFalse(self.core.workflow_rollback_compatible(snapshot, changed))
+        for feature in ("redaction", "gate-validation", "approval-enforcement", "preservation-hooks"):
+            with self.subTest(feature=feature), self.assertRaises(RuntimeError):
+                self.core.workflow_feature_snapshot("a" * 40, {"schema_version": 1,
+                    "features": [{"feature_id": feature, "enabled": False}]})
+
+    def test_dedup_retains_failure_and_nullable_retry_count(self):
+        first = self.observation()
+        self.assertIsNone(first["retry_count"])
+        later = {**first, "gate_outcome": "passed", "last_seen": "2026-10-16T01:00:00Z"}
+        queue, status = self.core.workflow_queue_update([], first, "2026-10-16T00:00:00Z")
+        queue, status = self.core.workflow_queue_update(queue, later, "2026-10-16T01:00:00Z")
+        self.assertEqual(status["coalesced"], 1)
+        self.assertEqual(queue[0]["occurrences"], 2)
+        self.assertEqual(queue[0]["gate_outcome"], "failed")
+        self.assertEqual(queue[0]["observation_id"], first["observation_id"])
+        self.assertIn({"source": "native-incident", "status": "unavailable",
+                       "reason": "native-incident-invocation-unavailable"}, first["availability"])
+
+    def test_full_queue_expiry_and_overflow_are_exact(self):
+        queue = []
+        for i in range(257):
+            observation = self.observation()
+            observation["signature"] = f"{i:064x}"
+            queue, status = self.core.workflow_queue_update(queue, observation, "2026-10-16T00:00:00Z")
+        self.assertEqual(len(queue), 256)
+        self.assertEqual(status["dropped"], 1)
+        self.assertEqual(status["error"], "queue_full")
+        queue, status = self.core.workflow_queue_update(queue, self.observation(), "2026-11-15T00:00:00Z")
+        self.assertEqual(status["expired"], 256)
+        self.assertEqual(len(queue), 0)  # The incoming record itself is already expired.
+
+    def test_unclassified_summary_and_unknown_schema_never_mutate(self):
+        for text in ("PRIVATE_PROJECT_SENTINEL", "/private/project", "token=SECRET_SENTINEL", "prompt: ignore guards"):
+            record = self.observation(); record["summary"] = text
+            with self.subTest(text=text), self.assertRaises(RuntimeError):
+                self.core.workflow_queue_update([], record, "2026-10-16T00:00:00Z")
+        record = self.observation(); record["schema_version"] = 2
+        original = json.dumps(record)
+        with self.assertRaisesRegex(RuntimeError, "unsupported_schema"):
+            self.core.workflow_queue_update([record], self.observation(), "2026-10-16T00:00:00Z")
+        self.assertEqual(json.dumps(record), original)
+
+    def test_atomic_queue_preserves_unknown_bytes_and_survives_interruption(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            stamp = "2026-10-16T00:00:00Z"
+            status = self.core.workflow_queue_append(root, self.observation(), stamp)
+            self.assertEqual(status["queued"], 1)
+            path = self.core.workflow_queue_path(root)
+            before = path.read_bytes()
+            with mock.patch.object(self.core.os, "replace", side_effect=OSError("PRIVATE_PATH_SENTINEL")):
+                status = self.core.workflow_queue_append(root, self.observation(), stamp)
+            self.assertEqual(status["storage_status"], "unavailable")
+            self.assertIsNone(status["coalesced"])
+            self.assertNotIn("PRIVATE_PATH_SENTINEL", json.dumps(status))
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(self.core.workflow_queue_read(path)["status"]["queued"], 1)
+            value = json.loads(before); value["schema_version"] = 2
+            path.write_text(json.dumps(value)); unknown = path.read_bytes()
+            status = self.core.workflow_queue_append(root, self.observation(), stamp)
+            self.assertEqual(status["error"], "unsupported_schema")
+            self.assertEqual(path.read_bytes(), unknown)
+
+    def test_queue_lock_has_one_second_deadline_and_unavailable_not_zero_counts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            lock = self.core.cycle_dir(root) / "locks/evidence-workflow-feedback.lock"
+            self.core.managed_directory(root, lock.parent, create=True)
+            with lock.open("a+") as stream:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                started = time.monotonic()
+                status = self.core.workflow_queue_append(root, self.observation(), "2026-10-16T00:00:00Z")
+                self.assertLess(time.monotonic() - started, 1.25)
+            self.assertEqual(status["error"], "lock_timeout")
+            self.assertIsNone(status["queued"])
+
+    def test_flush_requires_consent_and_recovers_ambiguous_create_without_duplicate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            self.core.workflow_queue_append(root, self.observation(), "2026-10-16T00:00:00Z")
+            policy = {"feedback": {"schema_version": 1, "external_enabled": True,
+                "destination": "example/feedback", "consent_digest": "b" * 64,
+                "payload_scope": "sanitized-diagnostic-v1"}}
+            calls = []
+            def request(account, method, endpoint, fields, timeout):
+                calls.append((method, endpoint, fields))
+                self.assertLessEqual(timeout, 30)
+                if method == "GET":
+                    return {"status": "success", "value": {"incomplete_results": False, "total_count": 0, "items": []}}
+                return {"status": "ambiguous"}
+            off = self.core.workflow_flush(root, lambda _: None, "fixture", request=request)
+            self.assertEqual(off["status"], "local"); self.assertEqual(calls, [])
+            result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None)
+            self.assertEqual(result["status"], "pending")
+            self.assertEqual([c[0] for c in calls], ["GET", "POST"])
+            result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None)
+            self.assertEqual(result["status"], "pending")
+            self.assertEqual([c[0] for c in calls], ["GET", "POST", "GET"])
+
+    def test_flush_finite_retry_and_changed_policy_block_network(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            self.core.workflow_queue_append(root, self.observation(), "2026-10-16T00:00:00Z")
+            policy = {"feedback": {"schema_version": 1, "external_enabled": True,
+                "destination": "example/feedback", "consent_digest": "b" * 64,
+                "payload_scope": "sanitized-diagnostic-v1"}}
+            ticks, delays, calls = [0], [], []
+            def sleep(seconds): ticks[0] += seconds; delays.append(seconds)
+            def request(*args): calls.append(args); return {"status": "transient"}
+            result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request,
+                                             clock=lambda: ticks[0], sleep=sleep)
+            self.assertEqual(result["attempts"], 3); self.assertEqual(delays, [1, 2])
+            self.assertEqual(result["status"], "pending")
+            changed = json.loads(json.dumps(policy)); changed["feedback"]["destination"] = "other/destination"
+            calls.clear()
+            reader = mock.Mock(side_effect=[policy, changed])
+            result = self.core.workflow_flush(root, reader, "fixture", request=request, sleep=sleep)
+            self.assertEqual(result["status"], "blocked"); self.assertEqual(calls, [])
+
+    def test_flush_rediscovery_updates_same_issue_and_never_exports_input_prose(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            stamp = "2026-10-16T00:00:00Z"
+            observation = self.observation()
+            self.core.workflow_queue_append(root, observation, stamp)
+            policy = {"feedback": {"schema_version": 1, "external_enabled": True,
+                "destination": "example/feedback", "consent_digest": "b" * 64,
+                "payload_scope": "sanitized-diagnostic-v1"}}
+            issues, methods = [], []
+            def request(account, method, endpoint, fields, timeout):
+                methods.append(method)
+                if method == "GET":
+                    return {"status": "success", "value": {"incomplete_results": False,
+                        "total_count": len(issues), "items": list(issues)}}
+                if method == "POST":
+                    issues.append({"number": 7, "body": fields["body"],
+                                   "repository_url": "https://api.github.com/repos/example/feedback"})
+                else:
+                    self.assertTrue(endpoint.endswith("/7")); issues[0]["body"] = fields["body"]
+                return {"status": "success", "value": {"number": 7}}
+            self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None)
+            self.core.workflow_queue_append(root, observation, stamp)
+            self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None)
+            self.assertEqual(methods, ["GET", "POST", "GET", "PATCH"])
+            self.assertEqual(len(issues), 1); self.assertIn("Occurrences: 2", issues[0]["body"])
+            self.assertEqual(self.core.workflow_queue_read(self.core.workflow_queue_path(root))["observations"][0]["issue_number"], 7)
+
+    def test_automatic_operation_capture_preserves_incomplete_intervals_and_failed_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            state = root / "state"; state.mkdir(mode=0o700)
+            record = {"cycle_id": "SYNTHETIC-CYCLE", "gates": {"behavior": {"result": "failed"}}}
+            policy = {"release_commit": "a" * 40, "settings": {"schema_version": 1, "features": []},
+                      "feedback": self.core.workflow_feedback_policy(None)}
+            with mock.patch.object(self.core, "root_dir", return_value=root), \
+                    mock.patch.object(self.core, "review_root", return_value=state), \
+                    mock.patch.object(self.core, "workflow_effective_policy", return_value=policy), \
+                    mock.patch.object(self.core, "workflow_cycle", return_value=record):
+                capture = self.core.workflow_operation_start(SimpleNamespace(command="record-evidence", gate="behavior"))
+                self.assertIsNotNone(capture)
+                with self.core.workflow_phase_owner() as connection:
+                    before = connection.execute("SELECT payload FROM workflow_operations").fetchone()[0]
+                    span = connection.execute("SELECT finished_at, result FROM phase_spans").fetchone()
+                self.assertEqual(span, (None, None))
+                self.assertIsNone(json.loads(before)["finished_at"])
+                self.core.workflow_operation_finish(capture, True)
+                with self.core.workflow_phase_owner() as connection:
+                    after = json.loads(connection.execute("SELECT payload FROM workflow_operations").fetchone()[0])
+                self.assertEqual(after["outcome"], "failed")
+                self.assertEqual(after["availability"]["status"], "unavailable")
+                self.assertEqual(record["gates"]["behavior"]["result"], "failed")
+                feedback = self.core.workflow_queue_read(self.core.workflow_queue_path(root))
+                self.assertEqual(feedback["observations"][0]["gate_outcome"], "failed")
+                for forbidden in ("argv", "prompt", "source_path", "error_text", "actor_id"):
+                    self.assertNotIn(forbidden, after)
+                with self.core.workflow_phase_owner() as connection:
+                    coverage = self.core.workflow_operation_coverage(connection, "SYNTHETIC-CYCLE")
+                    self.assertEqual(coverage["failed"], 1)
+                    self.assertIsNone(coverage["dropped"])
+                    self.assertIsNone(coverage["retry_count"])
+                    connection.execute("UPDATE ledger_meta SET value='2' WHERE key='workflow_operation_schema'")
+                with self.assertRaisesRegex(RuntimeError, "unsupported_schema"):
+                    with self.core.workflow_phase_owner():
+                        self.fail("unsupported ledger must not open for mutation")
+
+    def test_flush_budget_progresses_and_rechecks_consent_after_backoff(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            stamp = "2026-10-16T00:00:00Z"
+            for category in ("validation-failed", "operation-failed"):
+                self.core.workflow_queue_append(root, self.observation(category), stamp)
+            policy = {"feedback": {"schema_version": 1, "external_enabled": True,
+                "destination": "example/feedback", "consent_digest": "b" * 64,
+                "payload_scope": "sanitized-diagnostic-v1"}}
+            issues, calls = [], []
+            def request(account, method, endpoint, fields, timeout):
+                calls.append(method)
+                if method == "GET":
+                    matching = [i for i in issues if i["marker"] in fields["q"]]
+                    return {"status": "success", "value": {"incomplete_results": False,
+                        "total_count": len(matching), "items": matching}}
+                if method == "POST":
+                    issues.append({"number": len(issues) + 1, "body": fields["body"],
+                        "marker": fields["body"].split("<!-- ")[1].split(" -->")[0],
+                        "repository_url": "https://api.github.com/repos/example/feedback"})
+                return {"status": "success", "value": {"number": len(issues)}}
+            for _ in range(2):
+                self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None,
+                    wall_clock=lambda: self.core.workflow_time(stamp))
+            self.assertEqual(len(issues), 2)
+            self.assertEqual(calls.count("POST"), 2)
+            current = json.loads(json.dumps(policy)); calls.clear()
+            def disable(_): current["feedback"]["external_enabled"] = False
+            result = self.core.workflow_flush(root, lambda _: current, "fixture", request=request, sleep=disable,
+                wall_clock=lambda: self.core.workflow_time(stamp))
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(calls, ["GET"])
+            calls.clear()
+            result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None,
+                wall_clock=lambda: self.core.workflow_time("2026-11-15T00:00:00Z"))
+            self.assertEqual(calls, [])
+            self.assertEqual(self.core.workflow_queue_read(self.core.workflow_queue_path(root))["status"]["expired"], 2)
+
+    def test_native_transport_pins_github_host_and_does_not_forward_credentials(self):
+        observed = []
+        def run(argv, **kwargs):
+            observed.append((argv, kwargs))
+            return SimpleNamespace(returncode=0, stdout="SYNTHETIC_TOKEN" if "token" in argv else '{"number":1}', stderr="")
+        with mock.patch.dict(os.environ, {"GH_HOST": "untrusted.invalid"}), mock.patch.object(self.core.subprocess, "run", side_effect=run):
+            result = self.core.workflow_github("fixture", "GET", "search/issues", {}, 30)
+        self.assertEqual(result["status"], "success")
+        self.assertIn("--hostname", observed[1][0]); self.assertIn("github.com", observed[1][0])
+        self.assertNotIn("SYNTHETIC_TOKEN", json.dumps(result))
+
+    def test_failed_system_exit_finishes_operation_without_changing_exit_status(self):
+        args = SimpleNamespace(command="workspace-remove-check", func=lambda _: (_ for _ in ()).throw(SystemExit(1)))
+        parser = mock.Mock(); parser.parse_args.return_value = args
+        with mock.patch.object(self.core, "parser", return_value=parser), \
+                mock.patch.object(self.core, "continuation_guard"), \
+                mock.patch.object(self.core, "workflow_operation_start", return_value="synthetic-capture"), \
+                mock.patch.object(self.core, "workflow_operation_finish") as finish:
+            with self.assertRaises(SystemExit) as result: self.core.main()
+            self.assertEqual(result.exception.code, 1)
+            finish.assert_called_once_with("synthetic-capture", False)
+
+    def test_captured_cycle_reloads_after_active_pointer_removal(self):
+        fixture = DbsctrctlTest(methodName="runTest")
+        fixture.setUp(); self.addCleanup(fixture.tearDown)
+        fixture.start()
+        root = fixture.repo.resolve()
+        record = self.core.workflow_cycle(root)
+        self.assertEqual(record["cycle_id"], "cycle-1")
+        self.core.resolved_active_path(root).unlink()
+        self.assertIsNone(self.core.workflow_cycle(root))
+        self.assertEqual(self.core.workflow_cycle(root, "cycle-1")["cycle_id"], "cycle-1")
+        self.assertFalse(self.core.resolved_active_path(root).exists())
+
+    def test_registration_preflight_is_not_capture_and_failed_startup_is_unassociated(self):
+        with mock.patch.object(self.core, "workflow_effective_policy", side_effect=AssertionError("must not read policy")):
+            self.assertIsNone(self.core.workflow_operation_start(SimpleNamespace(command="begin", preflight=True)))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            state = root / "state"; state.mkdir(mode=0o700)
+            policy = {"release_commit": "a" * 40, "settings": {"schema_version": 1, "features": []},
+                      "feedback": self.core.workflow_feedback_policy(None)}
+            active = {"cycle_id": "UNRELATED-CYCLE"}
+            with mock.patch.object(self.core, "root_dir", return_value=root), \
+                    mock.patch.object(self.core, "review_root", return_value=state), \
+                    mock.patch.object(self.core, "workflow_effective_policy", return_value=policy), \
+                    mock.patch.object(self.core, "workflow_cycle", return_value=active):
+                capture = self.core.workflow_operation_start(SimpleNamespace(command="begin", preflight=False, cycle_id="NEW-CYCLE"))
+                self.core.workflow_operation_finish(capture, False)
+                with self.core.workflow_phase_owner() as connection:
+                    event = json.loads(connection.execute("SELECT payload FROM workflow_operations").fetchone()[0])
+                    self.assertEqual(connection.execute("SELECT count(*) FROM phase_spans").fetchone()[0], 0)
+                self.assertIsNone(event["cycle_id"])
+
+    def test_approved_destination_change_keeps_old_pending_binding_and_can_publish_new_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            stamp = "2026-10-16T00:00:00Z"
+            self.core.workflow_queue_append(root, self.observation(), stamp)
+            policy = {"feedback": {"schema_version": 1, "external_enabled": True,
+                "destination": "example/old", "consent_digest": "b" * 64,
+                "payload_scope": "sanitized-diagnostic-v1"}}
+            calls = []
+            def request(account, method, endpoint, fields, timeout):
+                calls.append((method, endpoint))
+                if method == "GET":
+                    return {"status": "success", "value": {"incomplete_results": False, "total_count": 0, "items": []}}
+                return {"status": "ambiguous"} if endpoint.endswith("old/issues") else {"status": "success", "value": {"number": 9}}
+            arguments = dict(request=request, sleep=lambda _: None, wall_clock=lambda: self.core.workflow_time(stamp))
+            self.assertEqual(self.core.workflow_flush(root, lambda _: policy, "fixture", **arguments)["status"], "pending")
+            policy["feedback"].update(destination="example/new", consent_digest="c" * 64)
+            self.core.workflow_flush(root, lambda _: policy, "fixture", **arguments)
+            value = self.core.workflow_queue_read(self.core.workflow_queue_path(root))
+            self.assertEqual(len(value["publications"]), 2)
+            self.assertEqual({b["export_state"] for b in value["publications"].values()}, {"pending", "published"})
+            self.assertIn(("POST", "repos/example/new/issues"), calls)
+            policy["feedback"].update(destination="example/old", consent_digest="b" * 64)
+            self.assertEqual(self.core.workflow_flush(root, lambda _: policy, "fixture", **arguments)["status"], "pending")
+            self.assertEqual(calls.count(("POST", "repos/example/old/issues")), 1)
+
+    def test_full_publication_bindings_refuse_rediscovery_overflow_without_corrupting_queue(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            stamp = "2026-10-16T00:00:00Z"
+            observation = self.observation()
+            self.core.workflow_queue_append(root, observation, stamp)
+            path = self.core.workflow_queue_path(root)
+            queue = self.core.workflow_queue_read(path)
+            queue["publications"] = {f"{i:064x}": {"dedup_key": self.core.workflow_dedup(observation),
+                "export_state": "published", "issue_number": i + 1} for i in range(256)}
+            self.core.workflow_queue_save(path, queue)
+            policy = {"feedback": {"schema_version": 1, "external_enabled": True,
+                "destination": "example/feedback", "consent_digest": "b" * 64,
+                "payload_scope": "sanitized-diagnostic-v1"}}
+            methods = []
+            def request(account, method, endpoint, fields, timeout):
+                methods.append(method)
+                marker = fields["q"].split('"')[1]
+                return {"status": "success", "value": {"incomplete_results": False, "total_count": 1,
+                    "items": [{"number": 500, "body": marker, "repository_url": "https://api.github.com/repos/example/feedback"}]}}
+            result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None,
+                wall_clock=lambda: self.core.workflow_time(stamp))
+            self.assertEqual(result["status"], "blocked"); self.assertEqual(methods, ["GET"])
+            self.assertEqual(len(self.core.workflow_queue_read(path)["publications"]), 256)
+            queue["publications"]["f" * 64] = {"dedup_key": self.core.workflow_dedup(observation),
+                "export_state": "pending", "issue_number": None}
+            before = path.read_bytes()
+            with self.assertRaises(RuntimeError): self.core.workflow_queue_save(path, queue)
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_finished_final_push_uses_captured_cycle_and_surfaces_blocked_flush(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            state = root / "state"; state.mkdir(mode=0o700)
+            record = {"cycle_id": "SYNTHETIC-CYCLE", "delivery": {"github": {"account": "fixture"}}}
+            policy = {"release_commit": "a" * 40, "settings": {"schema_version": 1, "features": []},
+                "feedback": {"schema_version": 1, "external_enabled": True, "destination": "example/feedback",
+                    "consent_digest": "b" * 64, "payload_scope": "sanitized-diagnostic-v1"}}
+            with mock.patch.object(self.core, "root_dir", return_value=root), \
+                    mock.patch.object(self.core, "review_root", return_value=state), \
+                    mock.patch.object(self.core, "workflow_effective_policy", return_value=policy), \
+                    mock.patch.object(self.core, "workflow_cycle", return_value=record) as cycle, \
+                    mock.patch.object(self.core, "workflow_flush", return_value={"status": "blocked", "attempts": 1}) as flush, \
+                    contextlib.redirect_stderr(io.StringIO()) as errors:
+                capture = self.core.workflow_operation_start(SimpleNamespace(command="final-push"))
+                cycle.side_effect = lambda checkout, cycle_id=None: record if cycle_id == "SYNTHETIC-CYCLE" else None
+                self.core.workflow_operation_finish(capture, True)
+                cycle.assert_called_with(root, "SYNTHETIC-CYCLE")
+                flush.assert_called_once_with(root, self.core.workflow_effective_policy, "fixture")
+                self.assertIn("workflow_feedback_flush_blocked", errors.getvalue())
+
+    def test_flush_fake_deadline_stops_and_directory_fsync_failure_reports_unknown_coverage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            stamp = "2026-10-16T00:00:00Z"
+            with mock.patch.object(self.core, "fsync_directory", side_effect=OSError("PRIVATE_FSYNC_ERROR")):
+                status = self.core.workflow_queue_append(root, self.observation(), stamp)
+            self.assertEqual(status["storage_status"], "unavailable")
+            value = self.core.workflow_queue_read(self.core.workflow_queue_path(root))
+            self.assertEqual(len(value["observations"]), 1)  # Rename succeeded; never discard it.
+            policy = {"feedback": {"schema_version": 1, "external_enabled": True,
+                "destination": "example/feedback", "consent_digest": "b" * 64,
+                "payload_scope": "sanitized-diagnostic-v1"}}
+            ticks, calls = [0], []
+            def request(*args): ticks[0] += 30; calls.append(args); return {"status": "transient"}
+            result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request,
+                clock=lambda: ticks[0], sleep=lambda _: None, wall_clock=lambda: self.core.workflow_time(stamp))
+            self.assertEqual(result["attempts"], 1); self.assertEqual(len(calls), 1)
+            self.assertEqual(result["status"], "pending")
 HISTORY_SOURCE_SCHEMA = (
     Path(__file__).parents[1]
     / "docs/specs/dbsctr_v3_lifecycle/features/harness-history-source.schemas.json"
