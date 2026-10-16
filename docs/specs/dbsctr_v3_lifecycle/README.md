@@ -1,5 +1,67 @@
 # DBSCTR V3 Lifecycle
 
+## Supervised retirement source guards
+
+`WORKFLOW-MERGE-CLEANUP` adds `agent-worktree --remove ABSOLUTE_WORKTREE_PATH`
+to the existing foreground supervisor. The mode accepts no command, native
+Worktrunk options or busy override. It rejects primary/current/unregistered,
+relative/aliased, detached or locked targets; a busy managed launch is never
+overridden or signalled. The parent uses the existing common-Git/admin-keyed
+reservation file and keeps its descriptor through preflight, native hook,
+foreground result observation and branch-outcome inspection. New attempt state
+is retained atomically in the existing private common-Git evidence owner.
+
+The removal mode requires the installed trusted checker's strict version-2
+decision: exact integer schema, boolean eligibility, empty classified reasons,
+same reservation UUID and exact state digest. Legacy/manual version-1 eligibility
+cannot authorize this mode. Native Worktrunk alone may perform a qualified removal
+with `--foreground --no-delete-branch`; this source never deletes a branch or
+invokes raw worktree deletion. Membership/path and unchanged retained-branch tip
+are observed before success can be reported. Unresolved attempts require bounded
+fresh observation first, never blind replay; changed/malformed evidence retains
+the original record and blocks. Observation-only reconciliation stops that
+invocation, requiring another explicit action before a fresh attempt.
+
+`workspace-remove-check --json` preserves legacy manual inspection for unrelated
+cycles, including disabled/upload-only preservation settings and original age
+holds. Explicit inherited-FD invocation or a correlated workflow-convergence cycle
+selects version 2: `{schema_version:2, eligible:false, reasons:[...],
+state_digest:SHA256_OR_NULL, reservation_id:UUID_OR_NULL}`. Descriptor validation
+checks the existing namespace, owner, mode, inode, open-description lock and exact
+target/branch/head/body. A descriptor, PID, environment value, digest or role label
+is not actor authentication, consent or a permission grant.
+
+Source guards check complete cycle correlation, unchanged birth consent, completed
+state, backups, required gate/evidence lineage, standalone DVC obligations and
+existing artifact/process refusal paths. A separate synthetic source oracle covers
+ultimate-default/PR/commit obligations and synchronized-primary predicates; it is
+not a fresh runtime producer or accepted CLI evidence input. Unknown ignored plans
+or data remain undisposed, never filename-whitelisted. No global age-hold waiver
+or historical cycle rewriting is introduced.
+
+**Automatic retirement remains unavailable, not activated.** The actual strict
+CLI always retains typed `ownership_unavailable`, `native_handoff_unavailable`,
+`git_default_unavailable` and `native_removal_coordination_unavailable` blockers.
+No argument, policy flag or synthetic observation removes them. Worktrunk 0.80.0
+passed the disposable inherited-descriptor/held-lock probe, but this does not
+qualify full coordination or conversation ownership. macOS rejected combining the
+existing `flock` with the proposed POSIX lease. Post-confirmation intent rechecks
+reject a known replacement removal holder; they are **not an atomic transition
+fence**. Existing explicitly confirmed launch overrides remain supported, while
+unparseable/removal intent blocks them. No sidecar lock or denied-route workaround
+was added. Further source/runtime qualification is required before enabling any
+automatic retirement; source delivery alone cannot supply it.
+
+Validation uses only synthetic/disposable worktrees. Synthetic positive checker
+fixtures qualify supervisor transport and native branch retention, not retirement
+authority. An unavailable native process-visibility smoke is skipped only after
+asserting refusal and target retention; other failures remain failures. Runtime
+guards are unchanged by that availability-labelled fixture. Existing checkouts,
+branches, live sessions, caches and data were not removed or migrated. Owner:
+dotfiles maintainer. Recovery retains attempt/evidence state and observes native
+membership before retry; activation, primary synchronization, current-conversation
+handoff and separate branch disposition still need their own qualified authority.
+
 ## Declared DVC preservation — source interface
 
 `WORKFLOW-DVC-PRESERVATION` adds an explicit, opt-in path to the existing
