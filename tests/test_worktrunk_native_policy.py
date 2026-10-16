@@ -102,6 +102,7 @@ def test_pr_review_uses_actual_disposable_validator_without_requiring_activation
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
     before = git(fixture.repo, "worktree", "list", "--porcelain")
     assert core.pr_review_birth_policy(fixture.repo) is None
+    assert core.birth_policy_snapshot(fixture.repo, core.preservation_policy_snapshot) is None
     with pytest.raises(RuntimeError):
         core.pr_review_policy_snapshot(fixture.repo)
     activation = path.with_name("workflow-policy.activation.json")

@@ -49,6 +49,65 @@ changes. Rollback retains records/work and restores prior source; disabling poli
 cannot unmerge an already integrated PR. Native producer/base-guard qualification
 and activation remain separate, with original failures preserved.
 
+## Declared DVC preservation — source interface
+
+`WORKFLOW-DVC-PRESERVATION` adds an explicit, opt-in path to the existing
+`record-dvc-push` interface. Legacy `--head/--evidence` still records the operator's
+upload assertion; that text is **not** verified preservation evidence.
+
+A committed declaration has the exact shape
+`{"schema_version":1,"targets":["result.txt.dvc"]}` (1–64 unique exact targets).
+Initial support accepts only canonical single-output `.dvc` metadata with plain
+relative paths, `hash: md5`, checksum and size; quoted/extended YAML, pipelines,
+unknown fields or formats refuse rather than guess. Metadata bytes must match the
+bound commit. File closure is one exact MD5 object; directory closure is unknown
+and always retains work with `remote_directory_closure_unverified`.
+
+```sh
+# Read-only remote observation and private evidence recording, no upload:
+dbsctrctl record-dvc-push --head COMMIT --evidence declared-scope \
+  --declaration outputs.json --remote backup
+# Add --upload only under unchanged, birth-bound standing upload consent.
+```
+
+Consent comes only from the activated generated workflow policy, snapshotted when
+a new cycle starts. Old cycles and cycles born without consent cannot gain it
+implicitly. Declaration bytes, targets, named remote and destination fingerprint
+must match an exact approved upload entry. Source declarations never grant consent.
+The private manifest binds common Git identity, HEAD, metadata/object scope,
+runtime, policy, destination, observed upload outcome and fresh verification.
+Attempts and uncertain outcomes remain in common-Git preservation evidence;
+successful upload is not upgraded into a durability or payload-integrity claim.
+An attempt is strictly fsynced before upload as `started`; the observed outcome is
+persisted immediately before verification. Failed durability confirmation prevents
+upload, and an interrupted transfer never remains labelled `not_run`. Policy bytes
+are captured before validation and must remain identical afterward; filesystem
+failures expose stable reason codes rather than private endpoint paths.
+
+`worktree-dvc-setup --cache PATH` remains explicit and code-only. Activated policy
+requires the full common-directory SHA-256 cache namespace. Cache aliases,
+cross-filesystem selections, shared/writable mutable state, dirty or uniquely
+uncached outputs and populated old-cache redirection refuse. A tiny disposable
+native reflink probe has no copy/hardlink/symlink fallback; effective cache/type
+are rechecked after configuration. `--check` verifies existing configuration
+without writes or hydration. No cache or output migration is implicit.
+
+The first qualified file-presence case is DVC **3.67.1**, dvc-data **3.18.3**, with
+an owned local-directory remote. The older 3.18.2 source analysis is not presented
+as installed runtime qualification. Other runtimes/backends refuse automation.
+The destination digest is SHA-256 of canonical compact sorted-key JSON containing
+`backend:"local"`, remote name, canonical path, device and inode; credentials are
+excluded. Replacement or changed identity requires renewed consent. Native
+`dvc status --cloud --json -r REMOTE TARGETS` supplies file-presence evidence only;
+no guessed remote object paths or private DVC APIs implement verification.
+
+Every new removal check revalidates applicable evidence and queries native file
+presence again. Materialized directories or files without current bound remote
+evidence retain work. This is the data predicate only: age, delivery, artifact,
+process, handoff and native-removal orchestration remain governed separately.
+No host activation, production upload, full pull, shared-cache GC or deletion is
+performed by source delivery. Disposable fixtures use synthetic local remotes.
+
 **WORKFLOW-SAFETY-INVENTORY source:** `dbsctrctl worktree-list` now takes the
 bounded metadata path by default (`--metadata-only` is explicit equivalent).
 Repeat `--repository ABSOLUTE_PRIMARY_PATH` to select scope; `--all` supplements
