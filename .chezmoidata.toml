@@ -4,6 +4,10 @@ repository = "https://github.com/Saltiola7/dotfiles-ai.git"
 [dotfiles_ai.state]
 root = ""
 
+# An absent workspaces table selects ~/Worktrees and ~/.cache/dotfiles-ai/dvc.
+# Do not merge a schema_version default into an explicit unversioned local table.
+# Configure [data.dotfiles_ai.workspaces] in private chezmoi TOML; activation is separate.
+
 [dotfiles_ai.history_projection]
 enabled = false
 refresh_hour = 4
