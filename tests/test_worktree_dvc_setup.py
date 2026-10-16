@@ -1,6 +1,8 @@
 """Bootstrap is config-only; validation cannot migrate configuration or data."""
 import importlib.machinery
 import importlib.util
+import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -12,6 +14,8 @@ import pytest
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home/.config"))
     source = Path(__file__).parents[1] / "dot_local/bin/executable_worktree-dvc-setup"
     loader = importlib.machinery.SourceFileLoader("worktree_dvc_setup", str(source))
     spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -26,12 +30,20 @@ def setup(tmp_path, monkeypatch):
 
     def run(args, cwd):
         calls.append(args)
+        if args == ["dvc", "data", "status", "--json"]:
+            return "{}"
         if args[:2] == ["git", "worktree"]:
             return f"worktree {primary}\0\0worktree {root}\0\0"
+        if args == ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"]:
+            return str(primary / ".git")
         if args == ["dvc", "cache", "dir"]:
             return str(effective["cache"])
         if args == ["dvc", "config", "cache.type"]:
             return effective["type"]
+        if args[:4] == ["dvc", "config", "--local", "cache.type"]:
+            effective["type"] = args[4]
+        if args[:4] == ["dvc", "cache", "dir", "--local"]:
+            effective["cache"] = Path(args[4])
         return ""
 
     monkeypatch.setattr(module, "run", run)
@@ -41,8 +53,9 @@ def setup(tmp_path, monkeypatch):
 def test_bootstrap_does_not_materialize_or_create_cache(setup):
     module, root, _, cache, calls, _ = setup
     module.configure(root, cache)
-    assert calls[-2:] == [["dvc", "config", "--local", "cache.type", "reflink"],
-                         ["dvc", "cache", "dir", "--local", str(cache)]]
+    assert [command for command in calls if "--local" in command] == [
+        ["dvc", "config", "--local", "cache.type", "reflink"],
+        ["dvc", "cache", "dir", "--local", str(cache)]]
     assert not cache.exists()
     assert not (root / "data").exists()
 
@@ -106,6 +119,147 @@ def test_malformed_config_diagnostic_does_not_echo_contents(setup):
     with pytest.raises(ValueError) as error:
         module.configure(root, cache)
     assert "PRIVATE_TEST_SENTINEL" not in str(error.value)
+
+
+@pytest.mark.parametrize("problem", ["cache_alias", "parent_alias", "mutable_alias", "cross_device"])
+def test_cache_identity_and_mutable_state_refuse_before_configuration(setup, monkeypatch, problem):
+    module, root, primary, cache, calls, _ = setup
+    if problem == "cache_alias":
+        cache.symlink_to(primary, target_is_directory=True)
+    elif problem == "parent_alias":
+        alias = cache.parent / "alias"
+        alias.symlink_to(primary, target_is_directory=True)
+        cache = alias / "cache"
+    elif problem == "mutable_alias":
+        (root / ".dvc/tmp").symlink_to(primary, target_is_directory=True)
+    else:
+        original = module.device
+        monkeypatch.setattr(module, "device", lambda path: original(path) + (path != root))
+    with pytest.raises(ValueError):
+        module.configure(root, cache)
+    assert not any("--local" in command for command in calls)
+
+
+def test_unsupported_reflink_refuses_without_copy_fallback(setup, monkeypatch):
+    module, root, _, cache, calls, _ = setup
+    def unavailable(*_):
+        raise ValueError("reflink_unavailable")
+    monkeypatch.setattr(module, "qualify_reflink", unavailable)
+    with pytest.raises(ValueError, match="reflink_unavailable"):
+        module.configure(root, cache)
+    assert not cache.exists()
+    assert not any("--local" in command for command in calls)
+
+
+def test_check_rejects_configured_alias_before_resolving_it(setup):
+    module, root, _, cache, calls, effective = setup
+    cache.mkdir()
+    alias = cache.parent / "cache-alias"
+    alias.symlink_to(cache, target_is_directory=True)
+    (root / ".dvc/config.local").write_text(f"[cache]\n dir = {alias}\n type = reflink\n")
+    effective["cache"] = cache
+    with pytest.raises(ValueError):
+        module.configure(root, None, check=True)
+    assert not any("--local" in command for command in calls)
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink"])
+def test_nested_mutable_alias_blocks_bootstrap(setup, kind):
+    module, root, primary, cache, calls, _ = setup
+    shared = primary / "lock"
+    shared.write_bytes(b"preserve shared state")
+    local = root / ".dvc/tmp/lock"
+    local.parent.mkdir()
+    if kind == "symlink":
+        local.symlink_to(shared)
+    else:
+        local.hardlink_to(shared)
+    with pytest.raises(ValueError):
+        module.configure(root, cache)
+    assert shared.read_bytes() == b"preserve shared state"
+    assert not any("--local" in command for command in calls)
+
+
+@pytest.mark.parametrize("name", [".", "config.local", "tmp", "tmp/state", "tmp/nested"])
+def test_writable_configuration_or_mutable_state_refuses_before_writes(setup, name):
+    module, root, _, cache, calls, _ = setup
+    path = root / ".dvc" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if name in {".", "tmp", "tmp/nested"}:
+        path.mkdir(exist_ok=True)
+        path.chmod(0o777)
+    else:
+        path.write_text("[cache]\n type = reflink\n" if name == "config.local" else "state")
+        path.chmod(0o666)
+    with pytest.raises(ValueError):
+        module.configure(root, cache)
+    assert not any("--local" in command for command in calls)
+
+
+def test_dirty_outputs_block_redirection_even_without_old_cache(setup, monkeypatch):
+    module, root, _, cache, calls, _ = setup
+    native = module.run
+    def dirty(args, cwd):
+        if args == ["dvc", "data", "status", "--json"]:
+            return '{"uncommitted":{"modified":["result.txt"]}}'
+        return native(args, cwd)
+    monkeypatch.setattr(module, "run", dirty)
+    (root / "result.txt").write_bytes(b"unique result")
+    with pytest.raises(ValueError):
+        module.configure(root, cache)
+    assert (root / "result.txt").read_bytes() == b"unique result"
+    assert not any("--local" in command for command in calls)
+
+
+@pytest.mark.parametrize("status", [{"uncommitted": {"deleted": "missing"}},
+    {"not_in_cache": ["result.txt"]}, {"unchanged": "result.txt"},
+    {"not_in_cache": "missing"}, {"untracked": {}}, {"committed": []}])
+def test_uncached_present_outputs_and_untyped_status_never_redirect_cache(setup, monkeypatch, status):
+    module, root, _, cache, calls, _ = setup
+    native = module.run
+    def observed(args, cwd):
+        return json.dumps(status) if args == ["dvc", "data", "status", "--json"] else native(args, cwd)
+    monkeypatch.setattr(module, "run", observed)
+    (root / "result.txt").write_bytes(b"retain uncached result")
+    with pytest.raises(ValueError):
+        module.configure(root, cache)
+    assert (root / "result.txt").read_bytes() == b"retain uncached result"
+    assert not any("--local" in command for command in calls)
+
+
+def test_bootstrap_checks_effective_selection_after_writes(setup, monkeypatch):
+    module, root, _, cache, _, _ = setup
+    native = module.run
+    def overridden(args, cwd):
+        result = native(args, cwd)
+        return "reflink,copy" if args == ["dvc", "config", "cache.type"] else result
+    monkeypatch.setattr(module, "run", overridden)
+    with pytest.raises(ValueError, match="effective"):
+        module.configure(root, cache)
+
+
+def test_activated_policy_selects_only_the_full_repository_cache_namespace(setup, monkeypatch):
+    module, root, primary, cache, calls, _ = setup
+    home = Path(os.environ["HOME"])
+    policy = home / ".config/dotfiles-ai/workflow-policy.json"
+    policy.parent.mkdir(parents=True)
+    policy.write_text(json.dumps({"repositories": [{"repository": str(primary)}], "cache_root": str(cache)}))
+    policy.chmod(0o600)
+    helper = home / ".local/bin/workflow-policy"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("synthetic validator adapter")
+    helper.chmod(0o700)
+    original = module.run
+    def native(args, cwd):
+        return '{"status":"passed"}' if args == [str(helper), "check"] else original(args, cwd)
+    monkeypatch.setattr(module, "run", native)
+    expected = cache / hashlib.sha256(str((primary / ".git").resolve()).encode()).hexdigest()
+    assert module.policy_cache(root) == expected
+    with pytest.raises(ValueError, match="namespace"):
+        module.configure(root, cache)
+    assert not any("--local" in command for command in calls)
+    module.configure(root, expected)
+    assert ["dvc", "cache", "dir", "--local", str(expected)] in calls
 
 
 @pytest.mark.skipif(shutil.which("dvc") is None, reason="native DVC authority is unavailable")

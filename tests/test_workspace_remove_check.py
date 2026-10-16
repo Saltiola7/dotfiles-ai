@@ -2,9 +2,11 @@
 import importlib.machinery
 import importlib.util
 import json
+import hashlib
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 import test_dbsctrctl as harness
@@ -74,6 +76,147 @@ def test_active_cycle_blocks_removal_even_when_git_is_clean(removal, fixture):
     before = fixture.record_path().read_bytes()
     assert "active_cycle" in core.workspace_remove_check(target)["reasons"]
     assert fixture.record_path().read_bytes() == before
+
+
+def test_new_cycle_records_no_implicit_preservation_consent(removal, fixture):
+    _, _, target = removal
+    harness.run(target, "start", "--cycle-id", "cycle-1", "--context", "test", "--risk", "routine",
+                "--delivery-intent", "local", "--plan", str(fixture.plan_path()))
+    record = json.loads(fixture.record_path().read_text())
+    assert "preservation_policy" in record
+    assert record["preservation_policy"] is None
+
+
+def test_declared_push_interface_is_explicit_and_legacy_recording_stays_distinct(fixture):
+    result = harness.run(fixture.repo, "record-dvc-push", "--help")
+    for flag in ("--declaration", "--remote", "--upload", "--head", "--evidence"):
+        assert flag in result.stdout
+
+
+def test_committed_output_declaration_binds_exact_metadata(removal):
+    core, _, target = removal
+    declaration = {"schema_version": 1, "targets": ["result.dvc"]}
+    (target / "outputs.json").write_text(json.dumps(declaration))
+    (target / "result.dvc").write_text("outs:\n- md5: " + "a" * 32 + "\n  size: 10\n  hash: md5\n  path: result.txt\n")
+    git(target, "add", "outputs.json", "result.dvc")
+    git(target, "commit", "-m", "declare output")
+    head = git(target, "rev-parse", "HEAD").strip()
+    digest, outputs = core.preservation_declaration(target, head, "outputs.json")
+    assert len(digest) == 64 and outputs[0]["path"] == "result.txt"
+    assert outputs[0]["object_id"] == "a" * 32 and outputs[0]["kind"] == "file"
+    (target / "result.dvc").write_text("changed metadata")
+    with pytest.raises(RuntimeError, match="metadata_changed"):
+        core.preservation_declaration(target, head, "outputs.json")
+
+
+@pytest.mark.parametrize("declaration", [{"schema_version": True, "targets": ["x.dvc"]},
+    {"schema_version": 1, "targets": []}, {"schema_version": 1, "targets": ["x.dvc", "x.dvc"]},
+    {"schema_version": 1, "targets": ["../escape.dvc"]},
+    {"schema_version": 1, "targets": ["dvc.yaml:stage"]},
+    {"schema_version": 1, "targets": ["x.dvc"], "upload": True}])
+def test_output_declaration_never_grants_consent_or_guesses_scope(removal, declaration):
+    core, _, target = removal
+    (target / "outputs.json").write_text(json.dumps(declaration))
+    (target / "x.dvc").write_text("outs:\n- md5: " + "a" * 32 + "\n  size: 1\n  hash: md5\n  path: x\n")
+    git(target, "add", "outputs.json", "x.dvc")
+    git(target, "commit", "-m", "fixture")
+    with pytest.raises(RuntimeError):
+        core.preservation_declaration(target, git(target, "rev-parse", "HEAD").strip(), "outputs.json")
+
+
+def test_policy_cannot_retroactively_authorize_an_existing_cycle(removal, monkeypatch):
+    core, _, target = removal
+    policy = {"schema_version": 1, "policy_digest": "a" * 64, "consent": {"uploads": []}}
+    monkeypatch.setattr(core, "preservation_policy_snapshot", lambda root: policy)
+    def forbidden(*a, **kw):
+        pytest.fail("native upload/query must not run before birth-bound consent")
+    monkeypatch.setattr(core, "removal_run", forbidden)
+    with pytest.raises(RuntimeError, match="consent_absent_or_changed"):
+        core.record_declared_dvc_preservation(target, None, {}, SimpleNamespace(
+            declaration="outputs.json", remote="backup", upload=True))
+
+
+def test_policy_replacement_during_validation_refuses_unvalidated_bytes(removal, monkeypatch):
+    core, primary, target = removal
+    home = primary.parent / "home"
+    config = home / ".config"
+    path = config / "dotfiles-ai/workflow-policy.json"
+    path.parent.mkdir(parents=True)
+    helper = home / ".local/bin/workflow-policy"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("synthetic validator adapter")
+    helper.chmod(0o700)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
+    def policy(enabled):
+        value = {"schema_version": 1, "repositories": [{"repository": str(primary),
+            "preservation": {"schema_version": 1, "automatic_remove": enabled, "uploads": []}}]}
+        value["policy_digest"] = hashlib.sha256(json.dumps(value, sort_keys=True,
+            separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+        return value
+    path.write_text(json.dumps(policy(False)))
+    path.chmod(0o600)
+    def validator(root, argv):
+        assert argv == [str(helper), "check"]
+        path.write_text(json.dumps(policy(True)))
+        return '{"status":"passed"}'
+    monkeypatch.setattr(core, "removal_run", validator)
+    with pytest.raises(RuntimeError, match="policy"):
+        core.preservation_policy_snapshot(target)
+
+
+@pytest.mark.parametrize("boundary", ["destination", "policy", "command"])
+def test_private_filesystem_failures_have_sanitized_preservation_diagnostics(removal, monkeypatch, boundary):
+    core, primary, target = removal
+    sentinel = "PRIVATE_PATH_SENTINEL"
+    private = primary.parent / sentinel
+    if boundary == "destination":
+        monkeypatch.setattr(core, "removal_run", lambda *a, **kw: str(private))
+        operation = lambda: core.preservation_destination(target, "backup")
+    elif boundary == "policy":
+        path = private / ".config/dotfiles-ai/workflow-policy.json"
+        path.parent.mkdir(parents=True)
+        path.write_text('{}')
+        path.chmod(0o600)
+        monkeypatch.setenv("HOME", str(private))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(private / ".config"))
+        operation = lambda: core.preservation_policy_snapshot(target)
+    else:
+        (target / ".dvc").mkdir()
+        head = git(target, "rev-parse", "HEAD").strip()
+        monkeypatch.setattr(core, "root_dir", lambda: target)
+        monkeypatch.setattr(core, "load", lambda root: (None, {"state": "active"}))
+        def unavailable(*a, **kw):
+            raise FileNotFoundError(2, "synthetic missing endpoint", str(private))
+        monkeypatch.setattr(core, "record_declared_dvc_preservation", unavailable)
+        operation = lambda: core.command_record_dvc_push(SimpleNamespace(
+            head=head, evidence="fixture", declaration="outputs.json", remote="backup", upload=True))
+    with pytest.raises(RuntimeError) as error:
+        operation()
+    assert sentinel not in str(error.value)
+
+
+def test_directory_closure_is_unavailable_even_when_cloud_status_would_be_empty(removal, monkeypatch):
+    core, _, target = removal
+    monkeypatch.setattr(core, "removal_run", lambda *a, **kw: pytest.fail("directory query is not proof"))
+    value = core.preservation_remote_observation(target, [{"kind": "directory"}], "backup")
+    assert value["status"] == "unavailable"
+    assert value["reasons"] == ["remote_directory_closure_unverified"]
+
+
+@pytest.mark.parametrize("cloud,expected", [("{}", "verified"), ('{"result.txt":"missing"}', "unavailable"),
+                                           ("[]", "unavailable"), ("broken", "unavailable")])
+def test_file_presence_query_is_exact_and_nonempty_or_malformed_status_never_passes(removal, monkeypatch, cloud, expected):
+    core, _, target = removal
+    calls = []
+    def native(root, argv):
+        calls.append(argv)
+        return cloud
+    monkeypatch.setattr(core, "removal_run", native)
+    value = core.preservation_remote_observation(target, [{"kind": "file", "target": "file.dvc",
+        "algorithm": "md5", "object_id": "a" * 32}], "backup")
+    assert value["status"] == expected
+    assert calls == [["dvc", "status", "--cloud", "--json", "-r", "backup", "file.dvc"]]
 
 
 def test_native_dvc_status_distinguishes_absence_from_modified_data(removal):
