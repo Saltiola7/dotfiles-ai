@@ -1,5 +1,47 @@
 # OpenCode Control Plane
 
+## Offline compression evaluation source
+
+`WORKFLOW-COMPRESSION-EVALUATION` embeds the version-1 public/synthetic fixture
+and local schema/quality oracle in `tests/test_opencode_control_plane.py`; no
+installed filter, provider adapter, CLI, registry or default is added. Its ten
+synthetic cases cover buried warnings, late errors, expired exceptions, secrets,
+mechanical/material conflicts, hidden dependencies, stale checks, exact approval
+and compaction recovery. Fixture identity binds canonical UTF-8 bytes, rubric and
+the approved source baseline; evaluation identity also binds exact oracle and
+normative-contract content. Unknown schemas, changed identities, malformed
+records, duplicate replays, missing facts or unsupported stacking refuse.
+
+Run the existing test entry point with an approved interpreter:
+
+```sh
+python -m pytest tests/test_opencode_control_plane.py -k compression -q
+```
+
+The offline baseline performs three deterministic replays per case, comparing
+exact expected fact lines rather than evidence labels. It uses fixed rubric gate
+labels, not independent model reasoning or observed provider quality. Baseline
+release redacts only synthetic credentials; raw fixture inputs remain unchanged
+and reachable with the same source permissions. Protected synthetic authority and
+opaque-state cases bypass transform callbacks; negative-test callbacks are local
+oracle fault injections, not implementations or evaluations of RTK/trim1.
+
+No authorized installed candidate route is selected here. RTK/trim1 availability
+records retain all 30 expected attempts per arm as unavailable; this is not proof
+the binaries are absent on a host. No candidate quality comparison, active-hook
+coverage or bypass qualification is claimed. Only a complete three-replay case
+with every exact fact, unchanged rubric outcome and zero leaks passes local
+quality; partial/unavailable results cannot qualify. Baseline quality alone is
+not candidate or activation approval. Usage, cache and cost remain unavailable;
+no token, latency, billing or savings figure is inferred from bytes or fixtures.
+
+Existing private lifecycle evidence retains logical Evaluation reports and
+validation, without a separate store. Owner: dotfiles maintainer. Source/rubric
+drift requires a fresh baseline; later installed-route evaluation needs its own
+source/runtime pins, permission-respecting raw recovery and explicit activation
+approval. Rollback keeps optional filters off and retains evidence; it never
+transforms native state, weakens gates or manufactures unavailable capability.
+
 **Workflow-convergence Discovery:** [native handoff](features/workflow-native-handoff.md)
 and [agent guidance](features/workflow-agent-guidance.md) define same-conversation
 return to primary, canonical Caveman/Ponytail ownership, minimal provider deltas
