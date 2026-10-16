@@ -16,6 +16,23 @@
   proxy, model call, live filtering, state transformation, activation or restart.
   Intended Final Push: feature branch and draft PR to `Saltiola7/dotfiles-ai:main`.
 
+## 2026-10-16 — WORKFLOW-NATIVE-HANDOFF source
+
+- Added ordered native current-conversation return guidance, safe unique-primary
+  synchronization, unavailable/partial-success retention and outside-checkout
+  preservation checks before separately authorized removal. Idle historical work
+  gets no fabricated session; session movement grants no CLI actor authority.
+- Documented eligible Discovery/Build checkout reuse and the existing one-code-only
+  Build checkout bootstrap for unmerged authority, with complete import closure,
+  fresh receipts and exact approval; no new allocator or duplicate environment.
+- Added failing-then-passing guidance regressions with affected lifecycle, helper,
+  permission, record-projection and publication checks. Critical read-only review
+  and final evidence remain in the Cycle Record; no Gate Exceptions.
+- Source-only delivery: live history/attachment/compaction preservation remains
+  unqualified. No host apply, production handoff, cleanup, service restart, model
+  call or dependency change. Intended Final Push: feature branch and draft PR to
+  `Saltiola7/dotfiles-ai:main`; activation follows separately approved qualification.
+
 ## 2026-10-16 — WORKFLOW-PROMPT-AUTHORITY source
 
 - Kept canonical guidance once in AGENTS, added explicit missing-skill disposition
