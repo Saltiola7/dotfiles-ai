@@ -1,5 +1,23 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-17 — WORKFLOW-HOST-ACTIVATION stage 1
+
+- Qualified the explicitly approved coherent workflow/helper/guidance generation
+  on one selected macOS host. Preserved preimages, applied only reviewed frozen
+  bytes through hook-free native chezmoi, and installed the identity snapshot last.
+- Retained the first partial apply and failed evidence. A disposable native fixture
+  reproduced exact-file application with a missing new-skill parent; bounded
+  recovery prepared only that parent and skipped already-completed targets.
+  Reviewed backup coverage/hashes/modes bind to the unchanged approved plan.
+- Installed bytes/modes, native policy health, unchanged source/root identity and
+  preserved backups passed. Private Cycle Record owns actual runtime receipts,
+  original failures, approval assertion and final gate results; no actor identity
+  is inferred. No Gate Exceptions or broad platform/fleet claim.
+- No Herdr update, restart, guest operation, worktree/branch removal, relocation,
+  hydration, cache migration/GC, paid request or automatic merge/upload/feedback.
+  Unsupported optional routes remain off. Intended Final Push: feature-branch
+  completion evidence/draft PR into `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-17 — WORKFLOW-MACOS-MOUNT-ROOT-REPAIR
 
 - Activation preflight exposed `diskutil info` rejecting a nested root directory.
