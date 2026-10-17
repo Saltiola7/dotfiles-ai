@@ -3,6 +3,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -165,6 +166,32 @@ def chezmoi(
         capture_output=True,
         check=True,
     )
+
+
+def test_documented_storage_paths_use_existing_independent_settings() -> None:
+    section = (ROOT / "README.md").read_text().split("### Choose your storage paths", 1)[1]
+    example = section.split("```toml\n", 1)[1].split("```", 1)[0]
+    parsed = tomllib.loads(example)
+    options = parsed["data"]["dotfiles_ai"]
+    paths = [parsed["sourceDir"], options["state"]["root"],
+             options["workspaces"]["root"], options["workspaces"]["cache_root"]]
+    assert len(set(paths)) == 4 and all(Path(path).is_absolute() for path in paths)
+    assert options["workspaces"]["schema_version"] == 1
+    configured = data(state_root=options["state"]["root"])
+    configured["dotfiles_ai"]["workspaces"] = options["workspaces"]
+    rendered = subprocess.run([
+        "chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
+        "--override-data", json.dumps(configured), "execute-template",
+    ], input=(ROOT / ".chezmoitemplates/opencode.json.tmpl").read_text(), text=True,
+       capture_output=True, check=True)
+    references = json.loads(rendered.stdout)["references"]
+    assert references["workflow-worktrees"]["path"] == options["workspaces"]["root"]
+    assert references["legacy-worktrees"]["path"] == options["state"]["root"] + "/dbsctr/worktrees"
+    assert "same mount path still needs fresh identity" in (ROOT / "config.example.toml").read_text()
+    defaults = tomllib.loads((ROOT / ".chezmoidata.toml").read_text())["dotfiles_ai"]["herdr"]
+    selected = tomllib.loads((ROOT / "config.example.toml").read_text())["data"]["dotfiles_ai"]["herdr"]
+    for key in ("version", "protocol", "asset_url", "asset_sha256", "linux_amd64_asset_url", "linux_amd64_asset_sha256"):
+        assert selected[key] == defaults[key], "copied example must not select a stale release"
 
 
 def test_explicit_workflow_root_reference_keeps_legacy_inventory_separate() -> None:

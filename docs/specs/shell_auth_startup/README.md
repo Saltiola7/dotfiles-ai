@@ -1,5 +1,27 @@
 # Shell Auth Startup
 
+## Versioned probe-only update boundary
+
+HERDR-VERSIONED-REGISTRATION-SOURCE prepares app build `2` / version `1.0.1`.
+The bundle identifier, signing requirement, home-relative canonical app location,
+health schema and host compatibility version remain unchanged. Existing private
+TOML selects development/state/worktree/cache roots independently; see the
+[portable path map](../../../README.md#choose-your-storage-paths). These settings
+do not change macOS's signed-app registration location or authorize data moves.
+
+Given an updated signed bundle, a separately approved deployment must verify that
+the native BTM parent application URL for the current user resolves to the current
+canonical app, and that the relative agent program resolves within that app.
+An enabled child record or a correct LaunchServices default alone does not prove
+that parent binding. Given a stale/missing parent, retain failed evidence and
+report cutover unready; do not create an alias for the missing home, reset all
+background items, edit registration databases or restart unrelated processes.
+
+A version increment makes the candidate distinguishable to native update
+machinery; it is not proof that stale metadata refreshed. Source fixtures cannot
+prove live BTM repair. Fresh registered UUID/sentinel/write health and preserved
+conversation/server ownership remain required after any separately approved trial.
+
 ## Volume-probe diagnostic contract
 
 HERDR-PROBE-DIAGNOSTICS adds optional `probe_diagnostic` to existing schema-1
@@ -273,13 +295,15 @@ One grouped fetch succeeds only after the complete projected secret set validate
 ```mermaid
 flowchart TD
     accTitle: Chezmoi-managed Herdr host installation and native Herdr upgrade
-    accDescr: An explicitly provisioned signing identity signs the Herdr Host app and its nested agent. The app registers that agent through SMAppService and the operator grants Login Items and Full Disk Access before activation. Chezmoi also verifies the pinned native Herdr release. Compatible upgrades use live handoff; failed activation or handoff preserves the prior supervisor and running server.
+    accDescr: An explicitly provisioned signing identity signs the Herdr Host app and its nested agent. After SMAppService registration, the native parent app binding must match the canonical app before Login Items, Full Disk Access and activation qualification. A stale binding retains the running server and rollback. Chezmoi also verifies the pinned native Herdr release. Compatible upgrades use live handoff; failed activation or handoff preserves the prior supervisor and running server.
     C[Reviewed host and agent sources] --> N[Build app bundle and nested agent]
     P[Explicitly provisioned signing identity] --> S[Sign nested code then app bundle]
     N --> S
     S --> Q[Verify strict signature and stable designated requirement]
     Q --> G[Register agent through SMAppService]
-    G --> U[Operator grants Login Items and FDA]
+    G --> BTM{Native parent binding matches canonical app?}
+    BTM -->|Yes| U[Operator grants Login Items and FDA]
+    BTM -->|No| W[Keep current server and AUTH-014 rollback]
     U --> X{Approved maintenance activation?}
     X -->|No| W[Keep current server and AUTH-014 rollback]
     X -->|Yes| E[Start signed host and validate exact volume]
@@ -289,9 +313,9 @@ flowchart TD
     R -->|No| I[Install native executable]
     R -->|Yes, handoff capable| H[Install atomically and request live handoff]
     R -->|Yes, no handoff| F[Fail without replacing or stopping server]
-    H --> S{Pinned server responds?}
-    S -->|Yes| O{Native supervisor and managed owner active?}
-    S -->|No| B[Restore prior executable and keep old server]
+    H --> RESP{Pinned server responds?}
+    RESP -->|Yes| O{Native supervisor and managed owner active?}
+    RESP -->|No| B[Restore prior executable and keep old server]
     O -->|Yes| K[Owner remains alive for replacement]
     O -->|No| D[Defer LaunchAgent reload]
     D --> L[LaunchAgent owns next natural start]
@@ -301,7 +325,9 @@ flowchart TD
 signing identity. Chezmoi builds the app bundle and nested agent, signs nested
 code before the outer bundle, verifies both the strict signature and stable
 designated requirement, and asks the app to register its agent through
-SMAppService. The operator grants the visible Login Items and Full Disk Access
+SMAppService. Its native parent binding must match the canonical app; a stale or
+missing parent retains the current server and rollback without activation.
+The operator grants the visible Login Items and Full Disk Access
 permissions. Installation does not disturb the current server. During an
 approved maintenance window, the signed host validates the exact external
 volume before assuming responsibility; failed activation retains the AUTH-014

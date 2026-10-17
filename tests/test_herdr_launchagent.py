@@ -374,6 +374,19 @@ def test_herdr_host_bundle_uses_distinct_probe_only_smappservice_agent() -> None
     assert '"(enabled|requires_approval|not_registered|not_found)"' in builder
 
 
+def test_herdr_host_versioned_update_keeps_identity_and_health_schema() -> None:
+    info = plistlib.loads((ROOT / ".chezmoitemplates/herdr-host-Info.plist").read_bytes())
+    assert info["CFBundleVersion"] == "2"
+    assert info["CFBundleShortVersionString"] == "1.0.1"
+    assert info["CFBundleIdentifier"] == "dev.dotfiles-ai.herdr-host"
+    assert info["CFBundleExecutable"] == "herdr-host"
+    source = (ROOT / ".chezmoitemplates/herdr-host.swift").read_text()
+    assert 'private let hostVersion = "1"' in source
+    assert 'schemaVersion: 1' in source
+    builder = (ROOT / "run_onchange_before_build-herdr-host.sh.tmpl").read_text()
+    assert 'include ".chezmoitemplates/herdr-host-Info.plist"' in builder
+
+
 def test_herdr_host_swift_source_compiles_with_warnings_as_errors(tmp_path) -> None:
     output = tmp_path / "herdr-host"
     subprocess.run(
