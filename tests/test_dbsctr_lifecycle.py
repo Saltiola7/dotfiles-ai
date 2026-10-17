@@ -14,6 +14,40 @@ def text(path: Path | str) -> str:
     return (ROOT / path).read_text() if isinstance(path, str) else path.read_text()
 
 
+def test_pr_review_uses_existing_functionality_and_keeps_distinct_owners():
+    review = text(SKILLS / "dbsctr-pr-review/SKILL.md")
+    for term in ("name: dbsctr-pr-review", "every affected caller", "shared-library owner",
+                 "minimum sufficient", "no new repository-root directories", "not a second workflow engine",
+                 "dbsctr-integrate", "dbsctr-review", "primary owns", "read-only helpers"):
+        assert term in review
+    assert "dbsctr-pr-review" in text(SKILLS / "dbsctr/SKILL.md")
+    assert "dbsctr-pr-review" in text(SKILLS / "dbsctr-integrate/SKILL.md")
+
+
+def test_pr_review_checkpoint_and_failure_dispositions_are_exact():
+    review = text(SKILLS / "dbsctr-pr-review/SKILL.md")
+    for term in ("1–32", "explicit order", "starting base", "ultimate default", "policy digest",
+                 "mapping digest", "specification digest", "changed head", "external base advance",
+                 "renew the checkpoint", "uniquely intent-preserving", "not a numeric confidence",
+                 "readiness_reopened", "completed_unmerged", "no branch deletion"):
+        assert term in review
+    assert review.index("Inspect existing functionality") < review.index("Present the checkpoint")
+    assert review.index("Present the checkpoint") < review.index("Request a merge")
+
+
+def test_pr_review_authority_and_ci_fail_closed_without_activation():
+    review = " ".join(text(SKILLS / "dbsctr-pr-review/SKILL.md").lower().split())
+    for term in ("generated workflow policy", "default-off", "birth-bound", "both active means blocked",
+                 "integrator", "ordinary", "admin", "not a failure waiver", "only success passes",
+                 "native base guard", "[base, head]", "three mechanical repair attempts",
+                 "30-second", "30 minutes", "mandatory security/data-loss/auth", "untrusted evidence",
+                 "no private consumer", "no direct protected/default push", "no force", "no reset"):
+        assert term in review
+    qa = " ".join(text(SKILLS / "qa/SKILL.md").lower().split())
+    for term in ("trusted target base", "producer identity", "self-exemption", "only success passes"):
+        assert term in qa
+
+
 def test_native_handoff_guidance_preserves_sync_move_and_removal_order():
     agents = text("private_dot_config/opencode/AGENTS.md")
     start = agents.index("### Current-conversation handoff")
