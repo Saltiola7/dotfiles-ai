@@ -42,6 +42,15 @@ Dependabot alerts are finding inputs, not a competing gate.
 
 ## Capability Coverage
 
+For PR evidence, select affected mappings and workflow definitions from the trusted
+target base, not changed-branch self-exemption. Verify exact tested head/base and
+native producer identity; names, branch claims or helper assertions are not proof.
+Unknown closure requires conservative repository-selected broad checks or blocks.
+Only success passes affected checks; unrelated pending requires trusted explicit
+classification and exact-repository opt-in. Keep failed/expired/drifted waivers
+visible and never waive mandatory security/data-loss/auth safeguards. `dbsctr-pr-review`
+owns the recommendation/checkpoint; QA does not authenticate or authorize merges.
+
 When an Engineering Profile is supplied, map every applicable Capability
 Requirement to its authority or equivalent evidence and classify it:
 

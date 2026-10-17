@@ -73,6 +73,55 @@ native GitHub permission-negative smokes. Rollback stops compatible optional new
 actions while retaining evidence and work; no unmerge, migration, cleanup or restart
 is authorized by source delivery.
 
+## PR review source interface
+
+`dbsctr-pr-review` owns generic intent-driven PR review, distinct from private
+session review and specialized autonomous-improvement integration. The primary
+inspects existing functionality, callers and shared ownership, then presents one
+ordered exact-identity checkpoint. Mechanical repairs preserve settled intent;
+material ambiguity returns to Discovery. Source consumers remain owned by their
+repositories; no consumer-specific identities or CI implementation belong here.
+
+`dbsctrctl check pr-review --recommendations PRIVATE_FILE` is a non-mutating
+preflight over an array of the existing schema-1 Recommendation records. The
+owned single-link mode-0600 file is bounded to 512 KiB and 1–32 unique ordered
+PRs. Unknown fields/versions, duplicate keys, invalid refs, incompatible object
+formats and changed batch identities reject. Batch SHA-256 covers canonical
+UTF-8 JSON of the ordered records excluding `batch_digest` and `approval`.
+This reader supports the policy-digest approval form only; manual chat checkpoints
+remain primary-owned rather than an invented machine-authentication interface.
+
+Generated private workflow policy is the sole selected policy source; exact
+common-directory selection, validated-byte identity, disabled/ordinary defaults,
+operator-only admin and target restrictions apply. New workflow-convergence
+cycles capture a non-authorizing birth snapshot. Missing/unqualified activation
+does not block source registration and yields no enabled snapshot; later policy
+availability cannot silently upgrade that cycle. Record schemas and historical
+authority stay unchanged. Policy/role/hash assertions are never native permission.
+
+Optional `--prior-recommendations PRIVATE_PRIOR_FILE --merge-commit OID` validates
+only a planned base rebind after the native ordered merge prefix, preserving
+membership, heads and authority. `--merge-commit` alone checks exact ordered
+parents and current cycle Gate Commit ancestry. Neither local objects nor a
+passed structural check prove a fresh remote merge or close the native base race.
+Old check evidence/waivers are not copied or accepted by this interface.
+
+Every successful structural preflight still exits **blocked** until CI producer,
+fresh remote default, permissions and native base-guard authority are qualified.
+`--repair-check CHECK_ID` also blocks because durable CI fingerprint accounting
+is unqualified; changed heads/restarts never reset permission to repair. Completed
+records report `completed_unmerged` with no retirement authority, without rewriting
+historical state. This source implements no PR mutator, automatic ready transition,
+legacy policy import, dual-policy detector, watch daemon, failure waiver, cleanup
+or host activation. Those unavailable paths must never be advertised as active.
+
+Owner: dotfiles maintainer. Source authority: the frozen integration/CI contract;
+private recommendations/policy feed the read-only check, while existing Cycle
+Records retain lifecycle evidence. Requalify consumers after schema/native API
+changes. Rollback retains records/work and restores prior source; disabling policy
+cannot unmerge an already integrated PR. Native producer/base-guard qualification
+and activation remain separate, with original failures preserved.
+
 ## Declared DVC preservation — source interface
 
 `WORKFLOW-DVC-PRESERVATION` adds an explicit, opt-in path to the existing
