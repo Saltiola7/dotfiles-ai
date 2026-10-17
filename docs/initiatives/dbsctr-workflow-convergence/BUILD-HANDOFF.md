@@ -60,6 +60,49 @@ These facts supersede the earlier published-not-merged checkpoints without chang
 requirements, risk or dependency edges. Dependency maintenance now selects compatible
 updates first; major/data-format migrations remain separately approved follow-up.
 
+`native-handoff` subsequently delivered through
+[PR #219](https://github.com/Saltiola7/dotfiles-ai/pull/219), exact reconciled head
+`494c83b5cd8f893dfc92a6fcd6058141b3319083`, merged into `main` as
+`33ab395135b937f122e948fdc166695737289437` from base
+`9989a649bd220a9eabc2b1c7e12062b1ce39f293`. All three freshly configured Python
+checks passed; native current-base/admin enforcement and exact merge parents were
+verified. Mark native handoff delivered and merge-cleanup ready for its separate
+source launch. Live history/attachment/compaction qualification remains unavailable.
+Integration-review (#220), compression evaluation (#221) and compatible Pluggy
+maintenance (#217) were refreshed against this base and await fresh CI; no merge
+or deployment is inferred. Regression telemetry is registered source work, not
+delivered or activated. No host apply, live diagnostic publication, migration,
+production removal, service restart or shared-cache GC occurred.
+
+`compression-evaluation` subsequently delivered through
+[PR #221](https://github.com/Saltiola7/dotfiles-ai/pull/221), exact reconciled head
+`3cd532b700541aa8fae91c9fb572a87c2b9885de`, merged into `main` as
+`852f82d40bd9feda0420c2b70d2e4a153fcf2ea7` from base
+`33ab395135b937f122e948fdc166695737289437`. All three fresh Python checks passed;
+native current-base/admin enforcement and exact merge parents were verified.
+Mark this source evaluation delivered; filters remain off, candidate/runtime
+qualification and measured benefit remain unavailable. Regression telemetry is
+published in PR #222; merge-cleanup source guards are registered/in validation.
+Neither is verified merged here. Automatic retirement remains unavailable pending
+ownership, handoff, fresh-default producer and complete coordination qualification.
+These source-delivery facts supersede earlier checkpoints without changing scope,
+requirements or dependencies. No host activation, production removal, branch
+deletion, live diagnostic publication, migration or cache GC occurred.
+
+`integration-review` subsequently delivered through
+[PR #220](https://github.com/Saltiola7/dotfiles-ai/pull/220), exact reconciled head
+`99fbda74e02bd1f9d82b915eb674a758b86f3a97`, merged into `main` as
+`3375c91edbc1bc7f5cf746cec1a1171634445b9f` from base
+`852f82d40bd9feda0420c2b70d2e4a153fcf2ea7`. All three fresh Python checks and
+remote-user smoke passed; native strict current-base/admin enforcement and exact
+returned merge parents were verified. Mark integration-review delivered and its
+CI-contracts dependent ready for a fresh receipt, preflight and exact approval.
+This source implements recommendations and non-authorizing preflight, not native
+merge execution, qualified CI producers or repair execution/accounting. Telemetry
+and cleanup remain published, not verified merged here. Compatible Herdr source
+maintenance is published in PR #224; no installation, Codex integration rewrite,
+guest update or restart occurred. No scope, acceptance or dependency edge changed.
+
 ## Invariants
 
 - Public generic contracts only. Private repository identity, content, branches,
