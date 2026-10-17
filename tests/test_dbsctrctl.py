@@ -21,6 +21,321 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).parents[1] / "dot_local/bin/executable_dbsctrctl"
+
+
+class PrReviewContractTest(unittest.TestCase):
+    def setUp(self):
+        loader = importlib.machinery.SourceFileLoader("pr_review_core", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        self.core = importlib.util.module_from_spec(spec)
+        loader.exec_module(self.core)
+
+    def recommendation(self, number=1):
+        return {"schema_version": 1, "repository_id": "a" * 64, "pull_request": number,
+            "head": "b" * 40, "base": "c" * 40, "target_ref": "refs/heads/main",
+            "ultimate_default_ref": "refs/heads/main", "strategy": "merge", "policy_digest": "d" * 64,
+            "mapping_digest": "e" * 64, "specification_digest": "f" * 64,
+            "batch_digest": "0" * 64, "approval": "d" * 64}
+
+    def batch(self, *numbers):
+        values = [self.recommendation(n) for n in (numbers or (1,))]
+        digest = self.core.pr_review_batch_digest(values)
+        for value in values:
+            value["batch_digest"] = digest
+        return values
+
+    def test_ordered_recommendations_are_bounded_and_content_bound(self):
+        batch = self.batch(2, 1)
+        self.assertEqual(self.core.validate_pr_recommendations(batch), batch)
+        with self.assertRaises(RuntimeError):
+            self.core.validate_pr_recommendations(list(reversed(batch)))
+        for numbers in ([], list(range(1, 34)), [1, 1]):
+            values = [] if not numbers else self.batch(*numbers)
+            with self.assertRaises(RuntimeError):
+                self.core.validate_pr_recommendations(values)
+
+    def test_changed_binding_unknown_field_or_bool_integer_rejects(self):
+        for key, bad in (("schema_version", True), ("schema_version", 2), ("pull_request", True),
+                         ("pull_request", 2**53), ("head", "short"), ("head", "b" * 64),
+                         ("base", "b" * 64), ("strategy", "squash"), ("target_ref", "refs/heads/main*"),
+                         ("repository_id", "x" * 64), ("approval", {}), ("unknown", True)):
+            values = self.batch()
+            values[0][key] = bad
+            with self.subTest(key=key, value=bad), self.assertRaises(RuntimeError):
+                self.core.validate_pr_recommendations(values)
+        for key in ("repository_id", "target_ref", "ultimate_default_ref", "policy_digest", "mapping_digest",
+                    "specification_digest"):
+            values = self.batch(1, 2)
+            values[1][key] = "refs/heads/other" if key.endswith("ref") else "1" * len(values[1][key])
+            if key == "policy_digest":
+                values[1]["approval"] = values[1][key]
+            digest = self.core.pr_review_batch_digest(values)
+            for value in values:
+                value["batch_digest"] = digest
+            with self.subTest(key=key), self.assertRaises(RuntimeError):
+                self.core.validate_pr_recommendations(values)
+
+    def test_delivery_authority_defaults_disabled_and_admin_needs_exact_operator(self):
+        self.assertEqual(self.core.pr_review_delivery(None)["enabled"], False)
+        self.assertEqual(self.core.pr_review_delivery({"schema_version": 1})["mode"], "ordinary")
+        for bad in ({"schema_version": True}, {"schema_version": 1, "enabled": "yes"},
+                    {"schema_version": 1, "mode": "admin"}, {"schema_version": 1, "auto_merge": True},
+                    {"schema_version": 1, "mapping_path": ".dbsctr"},
+                    {"schema_version": 1, "mapping_path": "docs/.dbsctr/map.json"},
+                    {"schema_version": 1, "targets": ["refs/heads/main", "refs/heads/main"]}):
+            with self.subTest(policy=bad), self.assertRaises(RuntimeError):
+                self.core.pr_review_delivery(bad)
+        value = self.core.pr_review_delivery({"schema_version": 1, "mode": "admin", "role": "operator"})
+        self.assertEqual(value["mode"], "admin")
+
+    def test_read_only_check_never_claims_native_merge_capability(self):
+        args = self.core.parser().parse_args(["check", "pr-review", "--recommendations", "private.json"])
+        self.assertEqual(args.subject, "pr-review")
+        self.assertEqual(args.recommendations, "private.json")
+
+    def test_mixed_or_wrong_repository_object_format_rejects_even_with_new_digest(self):
+        values = self.batch(1, 2)
+        for key in ("head", "base"):
+            values[1][key] = "b" * 64
+        digest = self.core.pr_review_batch_digest(values)
+        for value in values:
+            value["batch_digest"] = digest
+        with self.assertRaisesRegex(RuntimeError, "object_format"):
+            self.core.validate_pr_recommendations(values)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "--object-format=sha1", str(root)], check=True, capture_output=True)
+            values = self.batch()
+            for key in ("head", "base"):
+                values[0][key] = "b" * 64
+            values[0]["batch_digest"] = self.core.pr_review_batch_digest(values)
+            path = root / "recommendations.json"
+            path.write_text(json.dumps(values)); path.chmod(0o600)
+            with self.assertRaisesRegex(RuntimeError, "object_format"):
+                self.core.check_pr_review(root, {}, str(path))
+
+    def test_read_only_check_consumes_policy_but_never_mutates_or_authorizes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            path = root / "recommendations.json"
+            values = self.batch()
+            path.write_text(json.dumps(values)); path.chmod(0o600)
+            selected = self.core.pr_review_delivery({"schema_version": 1, "enabled": True,
+                "role": "operator", "targets": ["refs/heads/main"], "mapping_path": "checks.json"})
+            snapshot = {"repository_id": "a" * 64, "policy_digest": "d" * 64, "delivery": selected}
+            before = path.read_bytes()
+            cases = [(None, {}, "automatic_delivery_disabled"),
+                (snapshot, {}, "policy_absent_or_changed"),
+                (snapshot, {"pr_review_policy": snapshot}, "native_evidence_unavailable")]
+            for policy, record, reason in cases:
+                with self.subTest(reason=reason), mock.patch.object(self.core, "pr_review_policy_snapshot", return_value=policy), \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
+                    with self.assertRaisesRegex(RuntimeError, reason):
+                        self.core.check_pr_review(root, record, str(path))
+                    result = json.loads(output.getvalue())
+                    self.assertEqual(result["status"], "blocked")
+                    self.assertEqual(result["recommendations"], 1)
+                self.assertEqual(path.read_bytes(), before)
+            selected["role"] = "integrator"
+            with mock.patch.object(self.core, "pr_review_policy_snapshot", return_value=snapshot):
+                with self.assertRaisesRegex(RuntimeError, "target_or_policy_not_approved"):
+                    self.core.check_pr_review(root, {"pr_review_policy": snapshot}, str(path))
+            selected["role"] = "operator"
+            for mode in ("ordinary", "admin"):
+                selected["mode"] = mode
+                record = {"pr_review_policy": snapshot, "gates": {
+                    "test_driven_implementation": {"result": "failed", "evidence": "fixture-red"}}}
+                before_record = json.loads(json.dumps(record))
+                with mock.patch.object(self.core, "pr_review_policy_snapshot", return_value=snapshot), \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
+                    with self.assertRaisesRegex(RuntimeError, "native_evidence_unavailable"):
+                        self.core.check_pr_review(root, record, str(path))
+                    self.assertEqual(json.loads(output.getvalue())["status"], "blocked")
+                self.assertEqual(record, before_record)
+
+    def test_generated_policy_reader_binds_validated_bytes_and_exact_common_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory).resolve()
+            source = home / "config/dotfiles-ai/workflow-policy.json"
+            source.parent.mkdir(parents=True)
+            helper = home / ".local/bin/workflow-policy"
+            helper.parent.mkdir(parents=True)
+            helper.write_text("synthetic validator adapter"); helper.chmod(0o700)
+            repo = home / "repo"
+            repo.mkdir()
+            policy = {"schema_version": 1, "source_commit": "a" * 40, "root": str(home / "tasks"),
+                      "cache_root": str(home / "cache"), "naming": {}, "repositories": [{
+                "repository": str(repo), "delivery": {"schema_version": 1}}]}
+            policy["policy_digest"] = self.core.pr_review_digest(policy)
+            raw = json.dumps(policy)
+            source.write_text(raw); source.chmod(0o600)
+            env = {"HOME": str(home), "XDG_CONFIG_HOME": str(home / "config")}
+            with mock.patch.dict(os.environ, env), mock.patch.object(self.core, "common_git_dir", return_value=repo / ".git"), \
+                    mock.patch.object(self.core, "removal_run", return_value='{"status":"passed"}'):
+                snapshot = self.core.pr_review_policy_snapshot(repo)
+                self.assertEqual(snapshot["policy_digest"], policy["policy_digest"])
+                self.assertFalse(snapshot["delivery"]["enabled"])
+                def replacement(*_):
+                    source.write_text(raw + " ")
+                    return '{"status":"passed"}'
+                with mock.patch.object(self.core, "removal_run", side_effect=replacement):
+                    with self.assertRaisesRegex(RuntimeError, "policy_changed"):
+                        self.core.pr_review_policy_snapshot(repo)
+                source.write_text(raw.replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1', 1))
+                with self.assertRaises(RuntimeError):
+                    self.core.pr_review_policy_snapshot(repo)
+                policy["repositories"] *= 2
+                policy["policy_digest"] = self.core.pr_review_digest({k: v for k, v in policy.items() if k != "policy_digest"})
+                source.write_text(json.dumps(policy))
+                with self.assertRaisesRegex(RuntimeError, "policy_invalid"):
+                    self.core.pr_review_policy_snapshot(repo)
+
+    def test_private_path_errors_and_duplicate_recommendation_keys_are_not_forwarded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "PRIVATE_REVIEW_SENTINEL.json"
+            with self.assertRaises(RuntimeError) as error:
+                self.core.check_pr_review(Path(directory), {}, str(path))
+            self.assertNotIn("PRIVATE_REVIEW_SENTINEL", str(error.exception))
+            raw = json.dumps(self.batch()).replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1', 1)
+            path.write_text(raw); path.chmod(0o600)
+            with mock.patch.object(self.core, "pr_review_policy_snapshot", side_effect=AssertionError("must not query policy")):
+                with self.assertRaises(RuntimeError):
+                    self.core.check_pr_review(Path(directory), {}, str(path))
+
+    def test_native_merge_parents_and_gate_ancestry_are_checked_not_asserted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=repo, text=True, stderr=subprocess.DEVNULL).strip()
+            git("init", "-b", "main")
+            git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid")
+            git("commit", "--allow-empty", "-m", "base")
+            base = git("rev-parse", "HEAD")
+            git("switch", "-c", "feature")
+            git("commit", "--allow-empty", "-m", "gate")
+            gate = git("rev-parse", "HEAD")
+            git("commit", "--allow-empty", "-m", "head")
+            head = git("rev-parse", "HEAD")
+            git("switch", "main"); git("merge", "--no-ff", "--no-edit", head)
+            merged = git("rev-parse", "HEAD")
+            value = {**self.recommendation(), "base": base, "head": head}
+            self.core.pr_review_merge_ancestry(repo, value, merged, [gate])
+            for observed, gates, expected in ((head, [gate], "parents"),
+                (merged, ["f" * 40], "ancestry")):
+                with self.assertRaisesRegex(RuntimeError, expected):
+                    self.core.pr_review_merge_ancestry(repo, value, observed, gates)
+            values = [{**value, "pull_request": 1}, {**value, "pull_request": 2, "head": base}]
+            for v in values:
+                v["batch_digest"] = self.core.pr_review_batch_digest(values)
+            updated = json.loads(json.dumps(values))
+            updated[1]["base"] = merged
+            digest = self.core.pr_review_batch_digest(updated)
+            for v in updated:
+                v["batch_digest"] = digest
+            self.core.pr_review_rebind(repo, values, updated, merged, [gate])
+            for key in ("head", "base", "mapping_digest"):
+                changed = json.loads(json.dumps(updated))
+                changed[1][key] = "0" * len(changed[1][key])
+                if key == "mapping_digest":
+                    changed[0][key] = changed[1][key]
+                digest = self.core.pr_review_batch_digest(changed)
+                for v in changed:
+                    v["batch_digest"] = digest
+                with self.subTest(key=key), self.assertRaises(RuntimeError):
+                    self.core.pr_review_rebind(repo, values, changed, merged, [gate])
+            for changed in (list(reversed(updated)), updated[:1]):
+                changed = json.loads(json.dumps(changed))
+                digest = self.core.pr_review_batch_digest(changed)
+                for v in changed:
+                    v["batch_digest"] = digest
+                with self.assertRaises(RuntimeError):
+                    self.core.pr_review_rebind(repo, values, changed, merged, [gate])
+            git("switch", "--detach", base)
+            git("commit", "--allow-empty", "-m", "external advance")
+            git("merge", "--no-ff", "--no-edit", head)
+            external_merge = git("rev-parse", "HEAD")
+            changed = json.loads(json.dumps(updated))
+            changed[1]["base"] = external_merge
+            digest = self.core.pr_review_batch_digest(changed)
+            for v in changed:
+                v["batch_digest"] = digest
+            with self.assertRaisesRegex(RuntimeError, "external_base_advance"):
+                self.core.pr_review_rebind(repo, values, changed, external_merge, [gate])
+
+    def test_repair_accounting_unavailable_blocks_actual_review_entrypoint(self):
+        args = self.core.parser().parse_args(["check", "pr-review", "--recommendations", "private.json", "--repair-check", "unit"])
+        self.assertEqual(args.repair_check, "unit")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            path = root / "private.json"
+            path.write_text(json.dumps(self.batch())); path.chmod(0o600)
+            record = {"state": "completed", "commits": []}
+            for head in ("a" * 40, "b" * 40, "c" * 40, "d" * 40):
+                values = self.batch()
+                values[0]["head"] = head
+                values[0]["batch_digest"] = self.core.pr_review_batch_digest(values)
+                path.write_text(json.dumps(values))
+                # Reloading the module simulates a fresh process; no resettable
+                # caller counter or supplied boolean may turn this into permission.
+                loader = importlib.machinery.SourceFileLoader("pr_review_restart", str(SCRIPT))
+                spec = importlib.util.spec_from_loader(loader.name, loader)
+                core = importlib.util.module_from_spec(spec); loader.exec_module(core)
+                with mock.patch.object(core, "pr_review_policy_snapshot", return_value=None), \
+                        contextlib.redirect_stdout(io.StringIO()) as output:
+                    with self.assertRaisesRegex(RuntimeError, "repair_accounting_unavailable"):
+                        core.check_pr_review(root, record, str(path), repair_check="unit")
+                    self.assertEqual(json.loads(output.getvalue())["integration_outcome"], "completed_unmerged")
+                self.assertEqual(record["state"], "completed")
+
+    def test_three_pr_rebinds_keep_recorded_bases_and_ignore_replace_refs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=repo, text=True, stderr=subprocess.DEVNULL).strip()
+            def bind(values):
+                digest = self.core.pr_review_batch_digest(values)
+                return [{**v, "batch_digest": digest} for v in values]
+            git("init", "-b", "main")
+            git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid")
+            git("commit", "--allow-empty", "-m", "base")
+            base = git("rev-parse", "HEAD")
+            heads = []
+            for number in range(1, 4):
+                git("switch", "-c", f"feature-{number}", base)
+                git("commit", "--allow-empty", "-m", f"head-{number}")
+                heads.append(git("rev-parse", "HEAD"))
+            prior = bind([{**self.recommendation(i + 1), "base": base, "head": head}
+                          for i, head in enumerate(heads)])
+            git("switch", "main"); git("merge", "--no-ff", "--no-edit", heads[0])
+            first = git("rev-parse", "HEAD")
+            rebound = bind([{**v, **({"base": first} if i == 1 else {})} for i, v in enumerate(prior)])
+            self.core.pr_review_rebind(repo, prior, rebound, first, [heads[0]])
+            git("merge", "--no-ff", "--no-edit", heads[1])
+            second = git("rev-parse", "HEAD")
+            updated = bind([{**v, **({"base": second} if i == 2 else {})} for i, v in enumerate(rebound)])
+            self.core.pr_review_rebind(repo, rebound, updated, second, [heads[0], heads[1]])
+            self.assertEqual(updated[0]["head"], prior[0]["head"])
+            self.assertEqual(updated[1]["base"], first)
+            wrong = bind([{**v, **({"base": base} if i == 1 else {})} for i, v in enumerate(rebound)])
+            wrong_updated = bind([{**v, **({"base": second} if i == 2 else {})} for i, v in enumerate(wrong)])
+            with self.assertRaises(RuntimeError):
+                self.core.pr_review_rebind(repo, wrong, wrong_updated, second, [heads[1]])
+            git("switch", "--detach", first)
+            git("commit", "--allow-empty", "-m", "external advance between PRs")
+            git("merge", "--no-ff", "--no-edit", heads[1])
+            external = git("rev-parse", "HEAD")
+            external_updated = bind([{**v, **({"base": external} if i == 2 else {})} for i, v in enumerate(rebound)])
+            with self.assertRaises(RuntimeError):
+                self.core.pr_review_rebind(repo, rebound, external_updated, external, [heads[1]])
+            forged = git("commit-tree", f"{second}^{{tree}}", "-p", base, "-p", heads[1], "-m", "wrong parents")
+            git("replace", forged, second)
+            self.assertEqual(git("show", "-s", "--format=%P", forged).split(), [first, heads[1]])
+            with self.assertRaisesRegex(RuntimeError, "parents"):
+                self.core.pr_review_merge_ancestry(repo, rebound[1], forged, [heads[1]])
+            with self.assertRaises(RuntimeError):
+                self.core.pr_review_rebind(repo, rebound, updated, forged, [heads[1]])
 HISTORY_SOURCE_SCHEMA = (
     Path(__file__).parents[1]
     / "docs/specs/dbsctr_v3_lifecycle/features/harness-history-source.schemas.json"

@@ -72,6 +72,62 @@ def test_policy_defaults_are_not_legacy_state_roots(policy, storage_home):
     assert value["naming"] == dict(task="dbsctr", discovery="discovery", integration="integration")
 
 
+@pytest.mark.skipif(not shutil.which("wt"), reason="native policy qualification tool unavailable")
+def test_pr_review_uses_actual_disposable_validator_without_requiring_activation_for_birth(
+        fixture, policy, storage_home, generation_source, monkeypatch):
+    home = storage_home
+    helper = home / ".local/bin/workflow-policy"
+    helper.parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / "dot_local/bin/executable_workflow-policy", helper)
+    helper.chmod(0o700)
+    config = home / ".config/worktrunk/config.toml"
+    config.parent.mkdir(parents=True)
+    options = {"schema_version": 1, "repositories": [{"repository": str(fixture.repo.resolve()),
+               "delivery": {"schema_version": 1}}]}
+    config.write_text(render_generation(generation_source, home, CONFIG.read_text(), options))
+    path = home / ".config/dotfiles-ai/workflow-policy.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(render_generation(generation_source, home,
+        (ROOT / "private_dot_config/dotfiles-ai/private_workflow-policy.json.tmpl").read_text(), options))
+    path.chmod(0o600)
+    loader = importlib.machinery.SourceFileLoader("pr_review_native", str(ROOT / "dot_local/bin/executable_dbsctrctl"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    core = importlib.util.module_from_spec(spec)
+    loader.exec_module(core)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "DVC_", "DBSCTR_", "WORKTRUNK_"))}
+    env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"),
+               WORKTRUNK_CONFIG_PATH=str(config), WORKTRUNK_SYSTEM_CONFIG_PATH=str(home / "no-system-config"))
+    monkeypatch.setattr(core, "INSPECT_ENV", env)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    before = git(fixture.repo, "worktree", "list", "--porcelain")
+    assert core.pr_review_birth_policy(fixture.repo) is None
+    assert core.birth_policy_snapshot(fixture.repo, core.preservation_policy_snapshot) is None
+    with pytest.raises(RuntimeError):
+        core.pr_review_policy_snapshot(fixture.repo)
+    activation = path.with_name("workflow-policy.activation.json")
+    activation.write_text(json.dumps(policy.snapshot(json.loads(path.read_text()), home)))
+    activation.chmod(0o600)
+    selected = core.pr_review_policy_snapshot(fixture.repo)
+    assert not selected["delivery"]["enabled"]
+    assert core.pr_review_birth_policy(fixture.repo) == selected
+    assert git(fixture.repo, "worktree", "list", "--porcelain") == before
+    linked = home / "Worktrees/linked"
+    git(fixture.repo, "worktree", "add", "-b", "linked", str(linked))
+    assert core.pr_review_policy_snapshot(linked) == selected
+    original = path.read_bytes()
+    changed = json.loads(original)
+    changed["repositories"] = []
+    changed["policy_digest"] = core.pr_review_digest({k: v for k, v in changed.items() if k != "policy_digest"})
+    path.write_text(json.dumps(changed))
+    assert core.pr_review_birth_policy(fixture.repo) is None  # Activation no longer matches.
+    activation.write_text(json.dumps(policy.snapshot(changed, home)))
+    config.write_text("")  # Replace only this fixture's generated project selector.
+    config.write_text(render_generation(generation_source, home, CONFIG.read_text(), {"schema_version": 1}))
+    # An absent exact repository entry stays disabled; no global delivery fallback.
+    assert core.pr_review_policy_snapshot(linked)["delivery"]["enabled"] is False
+
+
 @pytest.mark.parametrize("value", [{}, {"schema_version": True}, {"schema_version": 2},
     {"schema_version": 1, "automatic_remove": True}, {"schema_version": 1, "root": ""},
     {"schema_version": 1, "root": "$HOME/tasks"}, {"schema_version": 1, "root": "/a/../b"},
