@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-17 — WORKFLOW-MACOS-MOUNT-ROOT-REPAIR
+
+- Activation preflight exposed `diskutil info` rejecting a nested root directory.
+  Resolve its containing mount using native POSIX `df -P`, then retain UUID and
+  exact mount-point qualification plus same-device rechecks. Malformed or
+  disagreeing observations still refuse; Linux `findmnt` is unchanged.
+- Validation: failing-first macOS regression, mount names with spaces, malformed
+  and inconsistent observations, actual macOS nested-directory probe and affected
+  native-policy/publication/instruction checks. Cycle Record owns final gates,
+  review, original failure evidence and Gate Commit identities.
+- No schema/contract change, dependency, Gate Exception, installed policy,
+  hydration, migration, restart or source-repair activation. Intended Final Push:
+  feature branch/draft PR into `Saltiola7/dotfiles-ai:main` before host planning resumes.
+
 ## 2026-10-16 — WORKFLOW-STORAGE-CONFIG source
 
 - CI toolchain remediation: the failed Python matrix installed Worktrunk 0.76.0

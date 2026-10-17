@@ -328,7 +328,20 @@ def parse_mount(system, raw):
 def mount_identity(path):
     system = platform.system().lower()
     if system == "darwin":
-        raw = run("diskutil", "info", "-plist", str(path))
+        # diskutil accepts a mount point, not an arbitrary directory below it.
+        # POSIX df keeps one row; its final field may contain spaces (APFS also
+        # exposes firmlinks, so walking st_dev parents need not find a mount point).
+        rows = run("df", "-P", str(path)).decode().splitlines()
+        columns = rows[1].split(None, 5) if len(rows) == 2 else []
+        if len(columns) != 6 or not Path(columns[5]).is_absolute():
+            refuse()
+        mount = Path(columns[5])
+        if mount.stat().st_dev != Path(path).stat().st_dev:
+            refuse()
+        identity = parse_mount(system, run("diskutil", "info", "-plist", str(mount)))
+        if Path(identity[1]) != mount or mount.stat().st_dev != Path(path).stat().st_dev:
+            refuse()
+        return identity
     elif system == "linux":
         raw = run("findmnt", "--json", "--output", "UUID,TARGET", "--target", str(path))
     else:
