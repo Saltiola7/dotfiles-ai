@@ -14,6 +14,15 @@ def text(path: Path | str) -> str:
     return (ROOT / path).read_text() if isinstance(path, str) else path.read_text()
 
 
+def test_ci_contract_inspection_never_turns_structural_matches_into_native_authority():
+    review = " ".join(text(SKILLS / "dbsctr-pr-review/SKILL.md").split())
+    for term in ("--ci-evidence PRIVATE_FILE", "trusted target base", "never the worktree",
+                 "reverse dependencies", "every declared check", "no unrelated-pending",
+                 "producer_authentication: unavailable", "all-green supplied JSON still exits blocked",
+                 "No live watch executor", "durable repair accounting", "failure-waiver admission"):
+        assert term in review
+
+
 def test_pr_review_uses_existing_functionality_and_keeps_distinct_owners():
     review = text(SKILLS / "dbsctr-pr-review/SKILL.md")
     for term in ("name: dbsctr-pr-review", "every affected caller", "shared-library owner",
