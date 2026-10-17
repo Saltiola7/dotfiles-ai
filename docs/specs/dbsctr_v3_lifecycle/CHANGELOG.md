@@ -1,5 +1,67 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-16 — WORKFLOW-REGRESSION-TELEMETRY source
+
+- Added typed non-authorizing feature snapshots and classified public diagnostics
+  within existing lifecycle evidence. Bounded atomic queue retains failures,
+  expires/coalesces before overflow, and exposes unavailable storage distinctly.
+- Added internal opted-in Final Push feedback flush with exact generated policy,
+  native account/host, finite deadline/attempts, reclassification and destination
+  marker dedup. Pending/published destination bindings survive approved changes;
+  ambiguous create never blindly retries. No new CLI flags or Incident mutation.
+- Added automatic CLI-owned intervals under the existing phase ledger, strict
+  additive metadata validation and versioned phase-report coverage. Crashes stay
+  incomplete; preflight/unassociated startup cannot fabricate cycle attribution.
+  No full-primary, causal speed, token/cache/cost or live qualification claim.
+- Validation uses synthetic queue/crash/lock/consent/transport/telemetry fixtures,
+  native disposable cycle recovery and instruction/publication/compatibility
+  suites. Critical review corrections and original failed checks remain in the
+  Cycle Record, which owns final gates and actual delivery, not this entry.
+- No Gate Exception, new dependency/parallel data store, external diagnostic
+  publication, host activation, rollback migration, cleanup or restart. Intended
+  Final Push: feature branch and draft PR to `Saltiola7/dotfiles-ai:main`.
+
+## 2026-10-16 — WORKFLOW-MERGE-CLEANUP source guards
+
+- Extended the existing foreground supervisor with the narrow `--remove` mode,
+  canonical target/refusal checks, the same inherited reservation descriptor,
+  durable existing-owner attempt evidence and native Worktrunk branch retention.
+  Unknown outcomes require observation before any new explicit attempt.
+- Added strict schema-2 non-authorizing checker selection, descriptor/target/open-
+  description validation, original cycle/birth/gate/backup checks and conservative
+  DVC/artifact/process guards. Unrelated legacy manual inspection stays unchanged.
+  Synthetic default/PR/ancestry predicates are not fresh runtime evidence.
+- Native disposable descriptor propagation passed for Worktrunk 0.80.0. Full
+  coordination remains unqualified: macOS rejected the proposed same-file POSIX
+  lease; post-confirmation rechecks are not atomic fencing. No lock sidecar,
+  fabricated actor proof or silent launch-override removal was introduced.
+- Actual strict retirement remains blocked for ownership, handoff, fresh-default
+  producer and coordination capability. No automatic removal or branch deletion
+  is enabled by source delivery. Primary retains final gate/review results and
+  earlier failures; live visibility skips remain explicitly unqualified.
+- No Gate Exception, new dependency/registry, host activation, production removal,
+  primary/session change, data upload/migration, cache GC or restart. Intended
+  Final Push: source feature branch/draft PR to `Saltiola7/dotfiles-ai:main`.
+
+## 2026-10-17 — WORKFLOW-CI-CONTRACTS source
+
+- Added strict schema-1 CI mapping/evidence inspection to existing `check pr-review`:
+  committed trusted-base definitions, segment globs, cyclic reverse dependencies,
+  native changed paths/tested merge parents and visible missing/non-success checks.
+  Unknown configuration/toolchain classification conservatively requires all
+  declared checks; branch self-exemption, ambiguous producers and stale evidence
+  reject. No consumer map/workflow or dependency change.
+- Kept native producer/base/default/permission qualification, live watch execution,
+  durable repair accounting and waiver admission unavailable. Supplied green JSON
+  remains blocked; no mutation, automatic unrelated-pending exemption or restored
+  repair budget is inferred. Existing bounded watch/repair guidance stays intact.
+- Validation: retained failing-first evidence; focused schema/closure/producer and
+  native disposable Git fixtures, instruction/publication checks and compilation.
+  Cycle Record owns final affected gate results, review and Gate Commit identities.
+- No Gate Exceptions, host apply, production publication/removal, guest update or
+  restart. Intended Final Push: source feature branch/draft PR into
+  `Saltiola7/dotfiles-ai:main`; activation remains separately gated.
+
 ## 2026-10-16 — WORKFLOW-INTEGRATION-REVIEW source
 
 - Added intent-driven `dbsctr-pr-review` and references from DBSCTR/integrate/QA;

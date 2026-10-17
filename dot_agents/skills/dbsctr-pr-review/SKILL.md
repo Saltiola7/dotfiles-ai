@@ -74,6 +74,23 @@ Incident mutation or create/read PM Kernel tickets to supply missing evidence.
 
 ## Guard any integration
 
+Optional `--ci-evidence PRIVATE_FILE` on `check pr-review` inspects an array of
+the existing schema-1 Check evidence records (owned single-link mode 0600,
+16 MiB/16,384-record bound). It reads mapping/workflow bytes from each exact
+trusted target base, never the worktree; branch changes require separate review
+and remain blocked. Native local Git supplies changed old/new paths and tested
+merge parents. Segment globs and reverse dependencies include cycles safely.
+Unknown paths broaden the diagnostic closure. Because schema 1 does not type
+configuration/toolchain impacts, this first consumer conservatively requires
+every declared check, not only mapped checks; it grants no unrelated-pending
+exemption. Duplicate, stale, forged, malformed or unbound evidence rejects.
+Missing/non-success checks remain visible. `producer_authentication: unavailable`
+means structural identity matches are not authenticated native run/job evidence;
+all-green supplied JSON still exits blocked. Consumer CI remains consumer-owned.
+No live watch executor, durable repair accounting or failure-waiver admission is
+qualified by this source; retain the bounded watch/repair rules below and block
+their automated execution until the existing evidence owner qualifies them.
+
 - Request a merge only after fresh exact-head/base evidence and native permissions
   are qualified. The integration-review source slice alone supplies no qualified
   automated mutation route. CI contracts/producer qualification must exist first;

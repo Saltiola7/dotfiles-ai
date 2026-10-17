@@ -6,6 +6,9 @@ import hashlib
 import shutil
 import subprocess
 import sys
+import os
+import fcntl
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -235,7 +238,15 @@ def test_native_dvc_status_distinguishes_absence_from_modified_data(removal):
 @pytest.mark.skipif(shutil.which("lsof") is None, reason="native process inventory is unavailable")
 def test_cli_eligibility_does_not_remove_checkout(fixture):
     target = task(fixture)
-    result = json.loads(harness.run(target, "workspace-remove-check", "--json").stdout)
+    observed = subprocess.run([sys.executable, str(harness.SCRIPT), "workspace-remove-check", "--json"],
+        cwd=target, env=harness.isolated_env(), text=True, capture_output=True, timeout=90)
+    result = json.loads(observed.stdout)
+    if observed.returncode == 1 and result.get("reasons") == ["process_inventory_unavailable"]:
+        # Binary presence is not process-visibility qualification. The guard still
+        # refuses removal; unavailable live capability is not a positive smoke.
+        assert result["eligible"] is False and target.is_dir()
+        pytest.skip("native process visibility unavailable; checker correctly retained target")
+    assert observed.returncode == 0, result
     assert result["eligible"] is True
     assert target.is_dir()
 
@@ -276,3 +287,265 @@ def test_native_evidence_overflow_stops_before_child_finishes(removal, tmp_path)
     with pytest.raises(RuntimeError, match="preservation evidence"):
         core.removal_run(target, [sys.executable, "-c", code, str(marker)])
     assert not marker.exists(), "output must be bounded while reading, not after communicate buffers everything"
+
+
+def removal_reservation(core, target):
+    admin = core.git_dir(target).resolve()
+    common = core.common_git_dir(target).resolve()
+    directory = common / "agent-worktree-locks"
+    directory.mkdir(exist_ok=True, mode=0o700)
+    path = directory / (hashlib.sha256(str(admin).encode()).hexdigest() + ".lock")
+    body = {"schema_version": 1, "operation": "remove", "attempt_id": str(uuid.uuid4()),
+            "worktree": str(target.resolve()), "common_git_dir": str(common), "git_dir": str(admin),
+            "branch": "refs/heads/" + core.branch(target),
+            "head": git(target, "rev-parse", "HEAD").strip(),
+            "expected_state_digest": None, "outcome": "preflight"}
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    os.fchmod(fd, 0o600)
+    os.write(fd, json.dumps(body).encode())
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return fd, path, body
+
+
+def test_strict_inherited_reservation_is_not_actor_authority(removal, monkeypatch):
+    core, _, target = removal
+    fd, path, body = removal_reservation(core, target)
+    try:
+        monkeypatch.setenv("DBSCTR_REMOVAL_FD", str(fd))
+        assert core.removal_reservation(target) == body
+        result = core.workspace_remove_check(target)
+        assert result["schema_version"] == 2
+        assert result["eligible"] is False
+        assert result["reservation_id"] == body["attempt_id"]
+        assert "cycle_records_unknown" in result["reasons"]
+        assert "native_handoff_unavailable" in result["reasons"]
+        assert "ownership_unavailable" in result["reasons"]
+        assert "git_default_unavailable" in result["reasons"]
+        assert "native_removal_coordination_unavailable" in result["reasons"]
+        assert len(result["state_digest"]) == 64
+        # Verifying an inherited lock must never release the parent's reservation.
+        with path.open("rb") as contender:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize("problem", ["version", "target", "mode", "inode", "unlocked", "separate", "uid", "oversized"])
+def test_strict_reservation_rejects_untrusted_descriptor(removal, monkeypatch, problem):
+    core, _, target = removal
+    fd, path, body = removal_reservation(core, target)
+    other = None
+    try:
+        if problem in {"version", "target", "oversized"}:
+            body["schema_version" if problem == "version" else "worktree"] = 2 if problem == "version" else "/wrong"
+            os.ftruncate(fd, 0)
+            os.pwrite(fd, b"x" * 8193 if problem == "oversized" else json.dumps(body).encode(), 0)
+        elif problem == "mode":
+            path.chmod(0o644)
+        elif problem == "inode":
+            path.unlink()
+            path.write_text(json.dumps(body))
+            path.chmod(0o600)
+        elif problem == "unlocked":
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        elif problem == "separate":
+            other = os.open(path, os.O_RDWR)
+        elif problem == "uid":
+            monkeypatch.setattr(core.os, "getuid", lambda: -1)
+        monkeypatch.setenv("DBSCTR_REMOVAL_FD", str(other if other is not None else fd))
+        result = core.workspace_remove_check(target)
+        assert result["schema_version"] == 2
+        assert result["eligible"] is False
+        assert "removal_reservation_unavailable" in result["reasons"]
+        assert result["state_digest"] is None
+    finally:
+        if other is not None:
+            os.close(other)
+        os.close(fd)
+
+
+def test_strict_source_guard_binds_preview_digest(removal, monkeypatch):
+    core, _, target = removal
+    fd, _, body = removal_reservation(core, target)
+    try:
+        monkeypatch.setenv("DBSCTR_REMOVAL_FD", str(fd))
+        first = core.workspace_remove_check(target)
+        body.update(expected_state_digest=first["state_digest"], outcome="started")
+        os.ftruncate(fd, 0)
+        os.pwrite(fd, json.dumps(body).encode(), 0)
+        assert "removal_state_changed" not in core.workspace_remove_check(target)["reasons"]
+        (target / "tracked.txt").write_text("changed\n")
+        assert "removal_state_changed" in core.workspace_remove_check(target)["reasons"]
+    finally:
+        os.close(fd)
+
+
+def strict_cycle(core, target):
+    head = git(target, "rev-parse", "HEAD").strip()
+    policy = {"schema_version": 1, "repository": str(core.common_git_dir(target).resolve()),
+              "policy_digest": "a" * 64, "consent": {"schema_version": 1, "automatic_remove": True}}
+    record = {"schema_version": 5, "cycle_id": "strict-cycle", "state": "completed",
+              "initiative": {"initiative_id": "dbsctr-workflow-convergence"},
+              "completed_at": core.now(), "runtime": {"adapters": {}},
+              "execution": {"schema_version": 1, "mode": "native_workspace", "origin": "registered",
+                            "attribution": {"status": "unavailable", "reason": "native_identity_not_collected"},
+                            "adoption": None},
+              "worktree": {"id": core.worktree_id(target), "branch": core.branch(target),
+                           "locator": {"root": "cycle_worktree", "path": "."}, "base_commit": head,
+                           "git_dir": core.git_dir(target).resolve().relative_to(core.common_git_dir(target).resolve()).as_posix()},
+              "preservation_policy": policy, "commits": [{"id": head, "gates": list(core.GATES)}],
+              "gates": {name: {"applicability": "required", "result": "passed", "evidence": name}
+                        for name in core.GATES},
+              "evidence": {"items": {name: {"gate": name, "result": "passed", "commit": head,
+                                            "content": {"status": "no_content"}} for name in core.GATES}},
+              "git": {"head": head, "upstream": "origin/task", "remote": {}, "pre_cycle_ahead_commits": []},
+              "delivery": {"remote": "origin", "branch": "task", "base_branch": "main",
+                           "github": {"repository": "owner/repo"},
+                           "pull_request": {"number": 1, "url": "https://github.com/owner/repo/pull/1"}},
+              "artifact_reviews": {name: {"result": "changed", "reviewed_at": core.now(),
+                                         "path": name, "reason": None} for name in core.ARTIFACTS}}
+    directory = core.cycle_dir(target) / "cycles"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "strict-cycle.json"
+    path.write_text(json.dumps(record))
+    path.chmod(0o600)
+    return path, record, policy
+
+
+@pytest.mark.parametrize("problem,expected", [
+    ("active", "cycle_not_completed"), ("unknown", "cycle_evidence_unavailable"),
+    ("old", "birth_policy_unavailable_or_changed"), ("changed", "birth_policy_unavailable_or_changed"),
+    ("exception", "incomplete_cycle_evidence"), ("backup", "removal_evidence_unavailable"),
+])
+def test_strict_cycle_sources_never_infer_completion_or_upgrade_consent(removal, monkeypatch, problem, expected):
+    core, _, target = removal
+    path, record, policy = strict_cycle(core, target)
+    fd, _, _ = removal_reservation(core, target)
+    try:
+        monkeypatch.setenv("DBSCTR_REMOVAL_FD", str(fd))
+        monkeypatch.setattr(core, "preservation_policy_snapshot", lambda root: policy)
+        if problem == "active":
+            record["state"] = "active"
+        elif problem == "unknown":
+            record["state"] = "unknown"
+        elif problem == "old":
+            record["preservation_policy"] = None
+        elif problem == "changed":
+            record["preservation_policy"] = {**policy, "policy_digest": "b" * 64}
+        elif problem == "exception":
+            record["gates"]["domain"].update(result="failed", exception={"kind": "operator"})
+        elif problem == "backup":
+            def unavailable(*args):
+                raise RuntimeError("backup unavailable")
+            monkeypatch.setattr(core, "verify_native_workspace_backup", unavailable)
+        path.write_text(json.dumps(record))
+        result = core.workspace_remove_check(target)
+        assert result["eligible"] is False
+        assert expected in result["reasons"]
+    finally:
+        os.close(fd)
+
+
+def test_new_opted_cycle_without_parent_cannot_use_legacy_manual_eligibility(removal, monkeypatch):
+    core, _, target = removal
+    strict_cycle(core, target)
+    monkeypatch.delenv("DBSCTR_REMOVAL_FD", raising=False)
+    result = core.workspace_remove_check(target)
+    assert result == {"schema_version": 2, "eligible": False,
+                      "reasons": ["removal_reservation_unavailable"],
+                       "reservation_id": None, "state_digest": None}
+
+
+@pytest.mark.parametrize("kind", ["disabled", "upload-only", "historical"])
+def test_unrelated_preservation_policy_retains_legacy_inspection(removal, monkeypatch, kind):
+    core, _, target = removal
+    path, record, policy = strict_cycle(core, target)
+    record.pop("initiative")
+    if kind == "disabled":
+        record["preservation_policy"]["consent"]["automatic_remove"] = False
+    elif kind == "upload-only":
+        record["preservation_policy"]["consent"] = {"schema_version": 1, "uploads": []}
+    path.write_text(json.dumps(record))
+    monkeypatch.delenv("DBSCTR_REMOVAL_FD", raising=False)
+    expected = core.legacy_workspace_remove_check(target)
+    assert core.workspace_remove_check(target) == expected
+    assert expected["schema_version"] == 1
+    assert "retained_24_hours" in expected["reasons"]
+
+
+def test_satisfied_synthetic_oracle_cannot_remove_permanent_runtime_blockers(removal, monkeypatch):
+    core, _, target = removal
+    _, _, policy = strict_cycle(core, target)
+    fd, _, _ = removal_reservation(core, target)
+    try:
+        monkeypatch.setenv("DBSCTR_REMOVAL_FD", str(fd))
+        monkeypatch.setattr(core, "preservation_policy_snapshot", lambda _: policy)
+        monkeypatch.setattr(core, "removal_default_predicates", lambda *args: [])
+        result = core.workspace_remove_check(target)
+        assert result["eligible"] is False
+        assert {"ownership_unavailable", "native_handoff_unavailable", "git_default_unavailable",
+                "native_removal_coordination_unavailable"} <= set(result["reasons"])
+    finally:
+        os.close(fd)
+
+
+@pytest.mark.parametrize("problem,expected", [
+    (None, []), ("default_drift", ["git_default_changed"]),
+    ("stale_head", ["git_default_changed"]), ("dirty_primary", ["primary_not_synchronized"]),
+    ("temp_integration", ["ultimate_default_ancestry_unverified"]),
+    ("gate_ancestor", ["ultimate_default_ancestry_unverified"]),
+    ("wrong_pr_head", ["pr_delivery_unverified"]), ("unavailable", ["git_default_unavailable"]),
+])
+def test_strict_default_source_oracle_never_accepts_feature_only_preservation(removal, monkeypatch, problem, expected):
+    core, primary, target = removal
+    _, record, _ = strict_cycle(core, target)
+    default = core.branch(primary)
+    head = git(primary, "rev-parse", "HEAD").strip()
+    monkeypatch.setattr(core, "upstream", lambda root: "origin/" + default)
+    monkeypatch.setattr(core, "remote_destination", lambda *args: {})
+    pull = {"number": 1, "url": record["delivery"]["pull_request"]["url"], "repository": "owner/repo",
+            "state": "MERGED", "baseRefName": "main", "headRefName": "task", "headRefOid": head,
+            "mergeCommit": {"oid": head}}
+    observation = {"repository": "owner/repo", "repository_after": "owner/repo", "remote": "origin",
+                   "default": default, "default_after": default, "head": head, "head_after": head,
+                   "fetched_head": head, "pull_requests": {"1": pull}}
+    if problem == "default_drift":
+        observation["default_after"] = "another-default"
+    elif problem == "stale_head":
+        observation["head_after"] = "b" * 40
+    elif problem == "dirty_primary":
+        (primary / "tracked.txt").write_text("retain\n")
+    elif problem in {"temp_integration", "gate_ancestor"}:
+        git(target, "commit", "--allow-empty", "-m", "feature-only obligation")
+        feature = git(target, "rev-parse", "HEAD").strip()
+        if problem == "gate_ancestor":
+            record["commits"].insert(0, {"id": feature, "gates": ["domain"]})
+    elif problem == "wrong_pr_head":
+        pull["headRefOid"] = "b" * 40
+    elif problem == "unavailable":
+        observation = {}
+    assert core.removal_default_predicates(target, [record], observation) == expected
+
+
+def test_strict_standalone_dvc_and_ignored_plans_remain_unpreserved(removal, monkeypatch):
+    core, primary, target = removal
+    (target / "file.dvc").write_text("outs:\n- md5: " + "a" * 32 + "\n  size: 1\n  hash: md5\n  path: data\n")
+    (target / ".gitignore").write_text(".dbsctr/\n")
+    git(target, "add", "file.dvc", ".gitignore")
+    git(target, "commit", "-m", "standalone metadata")
+    git(primary, "merge", "--ff-only", "task")
+    (target / ".dbsctr").mkdir()
+    (target / ".dbsctr/plan.json").write_text('{"unique": true}')
+    calls = []
+    original = core.removal_run
+    def native(root, argv, **kwargs):
+        calls.append(argv)
+        if argv[0] == "dvc":
+            return "{}"  # Clean local status is not remote object disposition.
+        return original(root, argv, **kwargs)
+    monkeypatch.setattr(core, "removal_run", native)
+    result = core.legacy_workspace_remove_check(target, strict=True)
+    assert "data_disposition_required" in result["reasons"]
+    assert ["dvc", "data", "status", "--unchanged", "--json"] in calls
+    assert (target / ".dbsctr/plan.json").exists()

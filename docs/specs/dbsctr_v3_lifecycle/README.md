@@ -1,5 +1,165 @@
 # DBSCTR V3 Lifecycle
 
+## Workflow regression source interface
+
+`WORKFLOW-REGRESSION-TELEMETRY` extends the existing CLI/evidence/phase owners;
+there is no new CLI flag, registry, daemon or feature-control file. Typed optional
+switches from the validated generated exact-repository workflow policy normalize
+to sorted enabled IDs and a digest of non-secret effective settings. Snapshots
+identify the selected source release/config; they grant neither native permission
+nor action consent. Authorization, redaction, preservation hooks, gates and
+approval enforcement are not switches. Missing/invalid activation disables optional
+collection/actions and reports unavailable coverage rather than changing safety.
+
+Classified fixed public diagnostic templates—not arbitrary user/project prose—feed
+Observation records. Generic secret scrubbing alone does not certify a payload.
+No raw args/errors, paths, project content/configuration, prompts, transcripts or
+native actor identity enter feedback. Signature inputs are sanitized public
+reproduction facts; source/feature correlation is not causation. Unknown schemas
+refuse writes/exports without rewriting the original data. Schema compatibility
+checks are necessary for flag-off rollback, not proof that a data downgrade or
+irreversible migration is safe. No automatic downgrade is implemented here.
+
+The existing private lifecycle evidence directory owns one mutable feedback
+envelope. A repository-wide existing evidence lock, bounded to one second,
+serializes expiry, dedup, counters and replacement. Temporary-file fsync, rename
+and strict directory fsync leave old/new valid records on interruption; failures
+report unavailable coverage. Limits: 256 observations, 16 KiB per record, 4 MiB
+total, 30 days from last seen. Expire first, coalesce next, then drop new unique
+overflow without evicting unexpired evidence. Preserve original failures and
+nullable unavailable retry counts; occurrence/counter overflow refuses mutation.
+
+Feedback remains local by default. The ordinary successful Final Push step may
+flush only under revalidated exact-repository destination/sanitized-scope consent
+and the captured cycle's native account. It pins `github.com`, classifies again,
+uses a total 30-second deadline and at most three native API attempts with bounded
+1/2-second backoff. It rechecks consent/deadline after backoff. No scan, review,
+arbitrary evidence program or import call is an alternate publication authority.
+No live GitHub publication was used to qualify this source.
+
+Destination/key markers discover existing issues before creation. Persist create
+intent before dispatch; ambiguous creation stays pending until exact rediscovery,
+never a blind duplicate. Per-destination bindings preserve earlier pending/published
+facts when newly approved destinations change. Bindings remain within the same
+queue, bounded to 256 and expired with their observations; capacity blocks export
+rather than losing evidence. Rotation prevents unchanged published records from
+starving pending local work. Policy-off retains local and published facts.
+Native Incident mutation stays `native-incident-invocation-unavailable`.
+
+After coherent activation, selected CLI registration, evidence, commit,
+reconciliation, delivery and preservation/removal boundaries capture helper-owned
+start/finish times using the existing private phase ledger and its version-1
+operation metadata. Starts persist before execution; crashed intervals remain
+partial. Preflight is not registration; failed startup has no invented cycle.
+Completed delivery reloads its validated captured cycle even after pointer removal.
+Known failed exits and failed gate evidence remain failures. Optional capture errors
+are bounded diagnostics and never turn a required evidence failure into success.
+
+The existing `phase-report` reader retains its legacy version-1 output when no
+operation metadata exists. With new metadata it emits a version-2 envelope:
+`{schema_version:2, phase_profile:LEGACY_PROFILE, workflow_operations:COVERAGE}`.
+Coverage exposes captured/complete/partial/failed intervals and excluded
+unassociated diagnostics. Unknown dropped/unavailable/retry/remediation coverage
+is null, not zero; usage/cost remain unavailable. These are helper intervals, not
+complete primary autonomous runtime, native actor attribution or provider billing.
+Performance comparisons still need predeclared comparable cohorts and all eligible
+attempts, failures, retries, partial/unavailable denominators and equivalent quality.
+
+Owner: dotfiles maintainer. Existing Cycle Records retain required gate evidence;
+existing review/Incident/backlog/telemetry projections retain separate permissions.
+Do not query raw databases/transcripts or read/create PM Kernel tickets to fill
+availability gaps. Activation needs separate persistence/consent/redaction and
+native GitHub permission-negative smokes. Rollback stops compatible optional new
+actions while retaining evidence and work; no unmerge, migration, cleanup or restart
+is authorized by source delivery.
+
+## Supervised retirement source guards
+
+`WORKFLOW-MERGE-CLEANUP` adds `agent-worktree --remove ABSOLUTE_WORKTREE_PATH`
+to the existing foreground supervisor. The mode accepts no command, native
+Worktrunk options or busy override. It rejects primary/current/unregistered,
+relative/aliased, detached or locked targets; a busy managed launch is never
+overridden or signalled. The parent uses the existing common-Git/admin-keyed
+reservation file and keeps its descriptor through preflight, native hook,
+foreground result observation and branch-outcome inspection. New attempt state
+is retained atomically in the existing private common-Git evidence owner.
+
+The removal mode requires the installed trusted checker's strict version-2
+decision: exact integer schema, boolean eligibility, empty classified reasons,
+same reservation UUID and exact state digest. Legacy/manual version-1 eligibility
+cannot authorize this mode. Native Worktrunk alone may perform a qualified removal
+with `--foreground --no-delete-branch`; this source never deletes a branch or
+invokes raw worktree deletion. Membership/path and unchanged retained-branch tip
+are observed before success can be reported. Unresolved attempts require bounded
+fresh observation first, never blind replay; changed/malformed evidence retains
+the original record and blocks. Observation-only reconciliation stops that
+invocation, requiring another explicit action before a fresh attempt.
+
+`workspace-remove-check --json` preserves legacy manual inspection for unrelated
+cycles, including disabled/upload-only preservation settings and original age
+holds. Explicit inherited-FD invocation or a correlated workflow-convergence cycle
+selects version 2: `{schema_version:2, eligible:false, reasons:[...],
+state_digest:SHA256_OR_NULL, reservation_id:UUID_OR_NULL}`. Descriptor validation
+checks the existing namespace, owner, mode, inode, open-description lock and exact
+target/branch/head/body. A descriptor, PID, environment value, digest or role label
+is not actor authentication, consent or a permission grant.
+
+Source guards check complete cycle correlation, unchanged birth consent, completed
+state, backups, required gate/evidence lineage, standalone DVC obligations and
+existing artifact/process refusal paths. A separate synthetic source oracle covers
+ultimate-default/PR/commit obligations and synchronized-primary predicates; it is
+not a fresh runtime producer or accepted CLI evidence input. Unknown ignored plans
+or data remain undisposed, never filename-whitelisted. No global age-hold waiver
+or historical cycle rewriting is introduced.
+
+**Automatic retirement remains unavailable, not activated.** The actual strict
+CLI always retains typed `ownership_unavailable`, `native_handoff_unavailable`,
+`git_default_unavailable` and `native_removal_coordination_unavailable` blockers.
+No argument, policy flag or synthetic observation removes them. Worktrunk 0.80.0
+passed the disposable inherited-descriptor/held-lock probe, but this does not
+qualify full coordination or conversation ownership. macOS rejected combining the
+existing `flock` with the proposed POSIX lease. Post-confirmation intent rechecks
+reject a known replacement removal holder; they are **not an atomic transition
+fence**. Existing explicitly confirmed launch overrides remain supported, while
+unparseable/removal intent blocks them. No sidecar lock or denied-route workaround
+was added. Further source/runtime qualification is required before enabling any
+automatic retirement; source delivery alone cannot supply it.
+
+Validation uses only synthetic/disposable worktrees. Synthetic positive checker
+fixtures qualify supervisor transport and native branch retention, not retirement
+authority. An unavailable native process-visibility smoke is skipped only after
+asserting refusal and target retention; other failures remain failures. Runtime
+guards are unchanged by that availability-labelled fixture. Existing checkouts,
+branches, live sessions, caches and data were not removed or migrated. Owner:
+dotfiles maintainer. Recovery retains attempt/evidence state and observes native
+membership before retry; activation, primary synchronization, current-conversation
+handoff and separate branch disposition still need their own qualified authority.
+
+## Affected-CI source inspection
+
+`check pr-review --recommendations PRIVATE_FILE --ci-evidence PRIVATE_FILE`
+adds non-authorizing inspection of the frozen schema-1 mapping and Check evidence
+records. Generated birth-bound policy selects the exact committed mapping path.
+Mapping and workflow definitions come from each recommendation's trusted base;
+worktree edits cannot replace them. Branch mapping/definition changes block for
+explicit review instead of self-exemption. Regular-file, byte-size, JSON/schema,
+unique producer, graph/reference and path bounds apply. Git replace refs are
+disabled; synthetic tested merges must have the native ordered `[base, head]`
+parents. Private evidence is single-link mode 0600, at most 16 MiB/16,384 records;
+committed inputs are at most 1 MiB each and 8 MiB aggregate per invocation.
+
+Segment globs match both sides of renames/deletions; reverse dependency closure
+terminates on cycles and unknown ownership selects broad authority. The reader
+conservatively requires **all declared checks** because the frozen map does not
+type configuration/toolchain impacts. No unrelated-pending exemption is enabled.
+Missing checks and every non-success stay visible; duplicate/stale/forged/unbound
+evidence rejects. Native producer authentication, run/job permission qualification,
+fresh remote/base protection, live watch execution, durable repair accounting and
+failure-waiver admission remain unavailable. All-green caller-supplied evidence
+still exits blocked, without changing cycle gates or authorizing merge/repair.
+The source fixtures qualify these refusal/inspection mechanisms, not activation.
+No consumer mapping or CI implementation is added or refactored here.
+
 ## PR review source interface
 
 `dbsctr-pr-review` owns generic intent-driven PR review, distinct from private

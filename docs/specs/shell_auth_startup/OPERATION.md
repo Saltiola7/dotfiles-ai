@@ -9,7 +9,10 @@ private backups and the larger workload qualify. The helper accepts verified
 Herdr-native IDs for implicit OpenCode launches and retains malformed/conflicting
 identity as failure. Capture and observation use the same rule.
 
-Herdr 0.9.1 is checksum-pinned with protocol 22, but an old 0.8.2 sender retains
+Source defaults pin Herdr 0.9.5 with protocol 22; downloaded macOS ARM64 and
+Linux AMD64 bytes were checksum-verified and the isolated macOS server probe
+passed. This does not qualify live handoff or Codex integration migration.
+An old 0.8.2 sender retains
 its sixty-four-pane handoff limit. Preserve that guard and use the approved cold
 restart procedure for a larger server. `tests/probe_herdr_release.py BINARY`
 qualifies a downloaded asset using isolated HOME/XDG state and a short named

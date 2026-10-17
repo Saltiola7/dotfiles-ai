@@ -1,5 +1,17 @@
 # Shell Auth Startup Changelog
 
+## 2026-10-16 — Compatible Herdr source pin
+
+- Updated the coherent defaults tuple from 0.9.1 to 0.9.5, retaining protocol 22
+  and existing installers/guards. Downloaded macOS ARM64 and Linux AMD64 assets
+  matched the release SHA-256 pins; the existing isolated macOS named-server
+  probe passed version, protocol, compatibility, socket-root and pane-list checks.
+- Updated exact pin regressions and maintenance guidance. Codex turn-hook changes
+  require separate integration review; no native integration rewrite or status
+  authority change is implied. Guest literals remain separately owned at 0.9.1.
+- No live install, handoff, Linux execution, guest operation, capture/restore,
+  service restart, migration or host qualification. Existing operation holds remain.
+
 ## 2026-10-10 — HARNESS-HERDR-INDEPENDENCE
 
 - Removed implicit Herdr Host and pacing-helper admission from ordinary OpenCode

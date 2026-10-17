@@ -3,12 +3,15 @@
 import argparse
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import signal
 import stat
 import subprocess
 import sys
+import tempfile
+import uuid
 
 
 def utility(command):
@@ -31,13 +34,22 @@ def private(item, directory=False):
         raise ValueError("unsafe launch reservation state")
 
 
-def reservation():
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate reservation or decision field")
+        result[key] = value
+    return result
+
+
+def reservation(cwd=None):
     if any(os.environ.get(key) for key in (
             "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE",
             "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES")):
         raise ValueError("Git location overrides are not supported for task launches")
     result = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--show-toplevel",
-                             "--git-common-dir", "--git-dir"], capture_output=True, text=True, timeout=10)
+                             "--git-common-dir", "--git-dir"], cwd=cwd, capture_output=True, text=True, timeout=10)
     paths = result.stdout.strip().splitlines()
     if result.returncode or len(paths) != 3:
         raise ValueError("select a registered linked worktree before launching a task")
@@ -66,7 +78,7 @@ def reservation():
         os.close(directory_fd)
 
 
-def supervise(command, fd=None):
+def supervise(command, fd=None, *, cwd=None, env=None):
     child = None
     pending = None
     handlers = {}
@@ -85,7 +97,7 @@ def supervise(command, fd=None):
             handlers[number] = signal.signal(number, terminate)
         if pending is not None:
             return 128 + pending
-        child = subprocess.Popen(command, pass_fds=() if fd is None else (fd,))
+        child = subprocess.Popen(command, pass_fds=() if fd is None else (fd,), cwd=cwd, env=env)
         if pending is not None:
             terminate(pending, None)
         while True:
@@ -101,15 +113,235 @@ def supervise(command, fd=None):
             signal.signal(number, handler)
 
 
+def reservation_write(fd, value):
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    if len(raw) > 8192:
+        raise ValueError("removal reservation exceeds bound")
+    os.ftruncate(fd, 0)
+    offset = 0
+    while offset < len(raw):
+        written = os.pwrite(fd, raw[offset:], offset)
+        if written <= 0:
+            raise OSError("reservation write incomplete")
+        offset += written
+    os.fsync(fd)
+
+
+def removal_membership(target):
+    result = subprocess.run(["git", "worktree", "list", "--porcelain", "-z"], cwd=target,
+                            capture_output=True, text=True, timeout=10)
+    if result.returncode or len(result.stdout.encode()) > 1024 * 1024:
+        raise ValueError("native removal membership unavailable")
+    members = []
+    for block in result.stdout.split("\0\0"):
+        if not block:
+            continue
+        row = dict(line.partition(" ")[::2] for line in block.split("\0") if line)
+        if "worktree" not in row or "prunable" in row:
+            raise ValueError("native removal membership unavailable")
+        members.append(row)
+    if not members or len([row for row in members if Path(row["worktree"]).resolve() == target]) != 1:
+        raise ValueError("target is not a unique registered checkout")
+    return members
+
+
+def removal_archive(common, attempt):
+    directory = common / "dbsctr" / "evidence" / "removal"
+    for parent in reversed(directory.relative_to(common).parents):
+        candidate = common / parent
+        if candidate == common:
+            continue
+        candidate.mkdir(mode=0o700, exist_ok=True)
+        item = candidate.lstat()
+        if not stat.S_ISDIR(item.st_mode) or item.st_uid != os.getuid() or item.st_mode & 0o022:
+            raise ValueError("unsafe removal evidence owner")
+    directory.mkdir(mode=0o700, exist_ok=True)
+    private(directory.lstat(), directory=True)
+    descriptor, temporary = tempfile.mkstemp(dir=directory)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            json.dump(attempt, stream, sort_keys=True, separators=(",", ":"))
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, directory / (attempt["attempt_id"] + ".json"))
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def reconcile_removal_attempts(common, admin, target, row):
+    directory = common / "dbsctr/evidence/removal"
+    if not directory.exists() and not directory.is_symlink():
+        return
+    private(directory.lstat(), directory=True)
+    paths = list(directory.iterdir())
+    if len(paths) > 1024:
+        raise ValueError("removal evidence inventory exceeds bound")
+    unresolved = []
+    for path in paths:
+        if path.suffix != ".json":
+            raise ValueError("unknown removal evidence requires reconciliation")
+        private(path.lstat())
+        if path.stat().st_size > 8192:
+            raise ValueError("removal evidence exceeds bound")
+        attempt = json.loads(path.read_text(), object_pairs_hook=unique_object)
+        fields = {"schema_version", "operation", "attempt_id", "worktree", "common_git_dir", "git_dir",
+                  "branch", "head", "expected_state_digest", "outcome"}
+        if (not isinstance(attempt, dict) or set(attempt) != fields or type(attempt.get("schema_version")) is not int
+                or attempt["schema_version"] != 1 or attempt.get("operation") != "remove"
+                or attempt.get("attempt_id") != path.stem):
+            raise ValueError("unsupported removal evidence")
+        identifier = uuid.UUID(attempt["attempt_id"])
+        if identifier.version != 4 or str(identifier) != attempt["attempt_id"]:
+            raise ValueError("unsupported removal evidence")
+        for key in ("worktree", "common_git_dir", "git_dir"):
+            value = attempt[key]
+            if (not isinstance(value, str) or not Path(value).is_absolute() or ".." in Path(value).parts
+                    or value != str(Path(value)) or any(ord(c) < 32 or ord(c) == 127 for c in value)):
+                raise ValueError("unsupported removal evidence")
+        expected = attempt["expected_state_digest"]
+        if (attempt["common_git_dir"] != str(common) or Path(attempt["git_dir"]).parent != common / "worktrees"
+                or not isinstance(attempt["head"], str) or len(attempt["head"]) not in (40, 64)
+                or any(c not in "0123456789abcdef" for c in attempt["head"])
+                or expected is not None and (not isinstance(expected, str) or len(expected) != 64
+                    or any(c not in "0123456789abcdef" for c in expected))
+                or not isinstance(attempt["branch"], str) or not attempt["branch"].startswith("refs/heads/")
+                or subprocess.run(["git", "check-ref-format", attempt["branch"]],
+                    capture_output=True, timeout=5).returncode):
+            raise ValueError("unsupported removal evidence")
+        if not isinstance(attempt["outcome"], str) or attempt["outcome"] not in {
+                "preflight", "started", "unknown_retained", "blocked", "observed_retained", "removed_branch_retained"}:
+            raise ValueError("unsupported removal outcome")
+        if attempt.get("worktree") != str(target):
+            continue
+        if attempt["git_dir"] != str(admin):
+            raise ValueError("prior removal admin identity changed; retain for reconciliation")
+        if attempt.get("outcome") in {"preflight", "started", "unknown_retained"}:
+            unresolved.append(attempt)
+        elif attempt.get("outcome") not in {"blocked", "observed_retained", "removed_branch_retained"}:
+            raise ValueError("unsupported removal outcome")
+    if unresolved:
+        current = next(member for member in removal_membership(target) if Path(member["worktree"]).resolve() == target)
+        for attempt in unresolved:
+            if (current.get("HEAD") != attempt.get("head") or current.get("branch") != attempt.get("branch")
+                    or current.get("HEAD") != row.get("HEAD") or current.get("branch") != row.get("branch")
+                    or not target.is_dir()):
+                raise ValueError("unresolved removal changed; retain for native reconciliation")
+        for attempt in unresolved:
+            attempt["outcome"] = "observed_retained"
+            removal_archive(common, attempt)
+        raise ValueError("prior removal observed retained; require a new explicit invocation before retry")
+
+
+def remove_checkout(value):
+    requested = Path(value)
+    if not requested.is_absolute() or requested != requested.resolve(strict=True) or requested == Path.cwd().resolve():
+        raise ValueError("remove requires an exact canonical non-current registered task checkout")
+    members = removal_membership(requested)
+    primary = Path(members[0]["worktree"]).resolve()
+    if requested == primary:
+        raise ValueError("the primary checkout cannot be removed")
+    row = next(row for row in members if Path(row["worktree"]).resolve() == requested)
+    if "branch" not in row or "locked" in row:
+        raise ValueError("detached or locked removal target is retained")
+    common = Path(subprocess.check_output(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                         cwd=requested, text=True, timeout=10).strip()).resolve()
+    admin = Path(subprocess.check_output(["git", "rev-parse", "--absolute-git-dir"],
+                                        cwd=requested, text=True, timeout=10).strip()).resolve()
+    attempt = {"schema_version": 1, "operation": "remove", "attempt_id": str(uuid.uuid4()),
+               "worktree": str(requested), "common_git_dir": str(common), "git_dir": str(admin),
+               "branch": row["branch"], "head": row.get("HEAD"), "expected_state_digest": None,
+               "outcome": "preflight"}
+    fd = reservation(requested)
+    owned = False
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            owned = True
+        except BlockingIOError:
+            raise ValueError("worktree is busy; removal never overrides a launch") from None
+        reconcile_removal_attempts(common, admin, requested, row)
+        reservation_write(fd, attempt)
+        removal_archive(common, attempt)
+        helper = Path.home() / ".local/bin/dbsctrctl"
+        for parent in (helper.parent.parent, helper.parent):
+            item = parent.lstat()
+            if not stat.S_ISDIR(item.st_mode) or item.st_uid != os.getuid() or item.st_mode & 0o022:
+                raise ValueError("qualified removal helper directory unavailable")
+        item = helper.lstat()
+        if not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid() or item.st_mode & 0o022 or item.st_nlink != 1:
+            raise ValueError("qualified removal helper unavailable")
+        environment = {**os.environ, "DBSCTR_REMOVAL_FD": str(fd)}
+        checked = subprocess.run([str(helper), "workspace-remove-check", "--json"], cwd=requested,
+            env=environment, pass_fds=(fd,), stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=90)
+        if checked.returncode or len(checked.stdout.encode()) > 65536:
+            raise ValueError("strict removal preflight blocked; retain checkout and evidence")
+        decision = json.loads(checked.stdout, object_pairs_hook=unique_object)
+        if not isinstance(decision, dict) or set(decision) != {"schema_version", "eligible", "reasons", "state_digest", "reservation_id"}:
+            raise ValueError("qualified strict retirement decision unavailable")
+        digest = decision.get("state_digest")
+        reasons = decision["reasons"]
+        if (type(decision.get("schema_version")) is not int or decision["schema_version"] != 2
+                or not isinstance(reasons, list) or any(not isinstance(reason, str) or not reason
+                    or len(reason) > 128 or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789_" for c in reason) for reason in reasons)
+                or reasons or decision.get("eligible") is not True
+                or decision.get("reservation_id") != attempt["attempt_id"] or not isinstance(digest, str)
+                or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest)):
+            raise ValueError("qualified strict retirement decision unavailable")
+        if subprocess.check_output(["wt", "--version"], text=True, timeout=10).strip() != "wt v0.80.0":
+            raise ValueError("qualified Worktrunk version unavailable")
+        attempt.update(expected_state_digest=digest, outcome="started")
+        reservation_write(fd, attempt)
+        removal_archive(common, attempt)
+        code = supervise(["wt", "remove", "--foreground", "--no-delete-branch", str(requested)],
+                         fd, cwd=primary, env=environment)
+        observed = subprocess.run(["git", "worktree", "list", "--porcelain", "-z"], cwd=primary,
+                                  text=True, capture_output=True, timeout=10)
+        retained_branch = subprocess.run(["git", "show-ref", "--verify", row["branch"]], cwd=primary,
+                                         text=True, capture_output=True, timeout=10)
+        removed = (not code and not observed.returncode and not requested.exists()
+                   and "worktree " + str(requested) + "\0" not in observed.stdout
+                   and not retained_branch.returncode and retained_branch.stdout.split() == [row["HEAD"], row["branch"]])
+        attempt["outcome"] = "removed_branch_retained" if removed else "unknown_retained"
+        reservation_write(fd, attempt)
+        removal_archive(common, attempt)
+        if not removed:
+            raise ValueError("removal outcome unverified; observe native membership before any retry")
+        print("removed; branch retained for separately guarded disposition")
+        return 0
+    except BaseException:
+        if owned and attempt["outcome"] == "preflight":
+            attempt["outcome"] = "blocked"
+            reservation_write(fd, attempt)
+            removal_archive(common, attempt)
+        raise
+    finally:
+        os.close(fd)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--override-busy", action="store_true")
+    parser.add_argument("--remove", metavar="ABSOLUTE_WORKTREE_PATH")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if args.remove is not None:
+        if command or args.override_busy:
+            parser.error("remove mode accepts no command, busy override or Worktrunk options")
+        try:
+            return remove_checkout(args.remove)
+        except (ValueError, OSError, UnicodeError, subprocess.SubprocessError):
+            print("agent-worktree: removal blocked or outcome unverified; retain and inspect native evidence", file=sys.stderr)
+            return 75
     if not command or command[0] not in {"opencode", "codex"}:
         parser.error("choose opencode or codex")
     fd = None
+    exclusive = True
     try:
         if args.override_busy and not sys.stdin.isatty():
             raise ValueError("override requires an interactive operator confirmation")
@@ -121,14 +353,36 @@ def main():
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
+            try:
+                intent = json.loads(os.pread(fd, 8193, 0), object_pairs_hook=unique_object)
+            except (ValueError, OSError):
+                intent = None
+            if isinstance(intent, dict) and intent.get("operation") == "remove":
+                raise ValueError("worktree is reserved for removal; launch override is not permitted")
+            if intent != {"schema_version": 1, "operation": "launch"}:
+                raise ValueError("busy reservation intent unavailable; launch override is not permitted")
             if not args.override_busy:
                 raise ValueError("worktree is busy with another managed launch") from None
             print("Type OVERRIDE to launch without exclusive reservation: ", end="", file=sys.stderr, flush=True)
             if sys.stdin.readline(32).strip() != "OVERRIDE":
                 raise ValueError("override declined")
-            os.close(fd)
-            fd = None
-            print("Launching without exclusive reservation; existing holder is unchanged.", file=sys.stderr)
+            try:
+                # Recheck a replacement holder after operator input. This is not
+                # an atomic transition fence; the strict checker must retain its
+                # unqualified-coordination blocker until that boundary qualifies.
+                intent = json.loads(os.pread(fd, 8193, 0), object_pairs_hook=unique_object)
+                if intent != {"schema_version": 1, "operation": "launch"}:
+                    raise ValueError("removal transition detected; launch override refused")
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    exclusive = False
+            except BlockingIOError:
+                raise ValueError("removal transition is busy; launch override refused") from None
+            if not exclusive:
+                print("Launching without exclusive reservation; existing holder is unchanged.", file=sys.stderr)
+        if fd is not None and exclusive:
+            reservation_write(fd, {"schema_version": 1, "operation": "launch"})
         return supervise(command, fd)
     except ValueError as error:
         print(f"agent-worktree: {error}", file=sys.stderr)
