@@ -137,6 +137,7 @@ private struct HealthRecord: Codable, Sendable {
     let restartRequired: Bool
     let notificationSent: Bool
     let probeDurationMilliseconds: Int
+    var probeDiagnostic: ProbeDiagnostic? = nil
 
     enum CodingKeys: String, CodingKey {
         case schemaVersion = "schema_version"
@@ -156,6 +157,7 @@ private struct HealthRecord: Codable, Sendable {
         case restartRequired = "restart_required"
         case notificationSent = "notification_sent"
         case probeDurationMilliseconds = "probe_duration_ms"
+        case probeDiagnostic = "probe_diagnostic"
     }
 
     func replacingRuntime(
@@ -180,7 +182,8 @@ private struct HealthRecord: Codable, Sendable {
             childRunning: childRunning,
             restartRequired: restartRequired,
             notificationSent: notificationSent ?? self.notificationSent,
-            probeDurationMilliseconds: probeDurationMilliseconds
+            probeDurationMilliseconds: probeDurationMilliseconds,
+            probeDiagnostic: probeDiagnostic
         )
     }
 }
@@ -192,12 +195,49 @@ private struct ProbeOutcome {
     let writable: Bool
     let errorCategory: String?
     let errnoValue: Int32?
+    var diagnostic: ProbeDiagnostic? = nil
+}
+
+// Only enum labels and bounded numeric status may cross the health boundary.
+private struct ProbeDiagnostic: Codable, Sendable {
+    enum Operation: String, Codable {
+        case device = "volume_device", launch = "volume_launch", timeout = "volume_timeout"
+        case exit = "volume_exit", signal = "volume_signal", plist = "volume_plist", uuid = "volume_uuid"
+    }
+    enum Output: String, Codable {
+        case empty, propertyList = "property_list", other
+    }
+    enum Errors: String, Codable {
+        case empty, permission, unavailable, other
+    }
+    let operation: Operation
+    let status: Int32?
+    let stdoutClass: Output
+    let stderrClass: Errors
+
+    enum CodingKeys: String, CodingKey {
+        case operation, status
+        case stdoutClass = "stdout_class", stderrClass = "stderr_class"
+    }
+}
+
+private struct ProbeFailure: Error {
+    let code: Int32
+    let diagnostic: ProbeDiagnostic
+}
+
+private enum NativeProcessFailure: Error, CustomStringConvertible {
+    case launch, timeout
+    var description: String {
+        self == .launch ? "native subprocess launch failed" : "native subprocess deadline exceeded"
+    }
 }
 
 private struct ProcessResult {
     let status: Int32
     let standardOutput: Data
     let standardError: Data
+    var signaled = false
 }
 
 private func standardError(_ message: String) {
@@ -277,7 +317,7 @@ private func runProcess(
     do {
         try process.run()
     } catch {
-        throw HostFailure.operation("cannot run \(executable): \(error.localizedDescription)")
+        throw NativeProcessFailure.launch
     }
     let timeoutNanoseconds = UInt64(max(0.1, timeoutSeconds) * 1_000_000_000)
     let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
@@ -299,10 +339,11 @@ private func runProcess(
     let result = ProcessResult(
         status: process.terminationStatus,
         standardOutput: output.fileHandleForReading.readDataToEndOfFile(),
-        standardError: errors.fileHandleForReading.readDataToEndOfFile()
+        standardError: errors.fileHandleForReading.readDataToEndOfFile(),
+        signaled: process.terminationReason == .uncaughtSignal
     )
     if timedOut {
-        throw HostFailure.operation("\(executable) timed out after \(timeoutSeconds) seconds")
+        throw NativeProcessFailure.timeout
     }
     return result
 }
@@ -332,33 +373,69 @@ private func sameFilesystem(_ leftDescriptor: Int32, _ rightDescriptor: Int32) t
         && left.f_fsid.val.1 == right.f_fsid.val.1
 }
 
-private func volumeUUID(for descriptor: Int32) throws -> String {
-    let device = try deviceName(for: descriptor)
-    let result = try runProcess(
+private func volumeCommand(_ device: String) throws -> ProcessResult {
+#if HERDR_HOST_TESTING
+    let environment = ProcessInfo.processInfo.environment
+    if environment["HERDR_HOST_TEST_MODE"] == "1", let fault = environment["HERDR_HOST_TEST_VOLUME_FAULT"] {
+        let privateText = Data("diagnostic-fixture-secret /private/diagnostic-fixture Bearer fixture-secret".utf8)
+        switch fault {
+        case "launch": return try runProcess("/dev/null/not-an-executable", [])
+        case "timeout": return try runProcess("/bin/sleep", ["5"], timeoutSeconds: 0.1)
+        case "exit": return ProcessResult(status: 23, standardOutput: privateText, standardError: privateText)
+        case "signal": return try runProcess("/bin/sh", ["-c", "kill -TERM $$"])
+        case "permission": return ProcessResult(status: 1, standardOutput: Data(), standardError: Data("permission denied".utf8))
+        case "unavailable": return ProcessResult(status: 1, standardOutput: Data(), standardError: Data("not found".utf8))
+        case "malformed": return ProcessResult(status: 0, standardOutput: privateText, standardError: Data())
+        case "missing_uuid":
+            let data = try PropertyListSerialization.data(fromPropertyList: ["private": "diagnostic-fixture-secret"], format: .xml, options: 0)
+            return ProcessResult(status: 0, standardOutput: data, standardError: Data())
+        default: throw HostFailure.configuration("unknown test volume fault")
+        }
+    }
+#endif
+    return try runProcess(
         "/usr/sbin/diskutil",
         ["info", "-plist", device],
         timeoutSeconds: 3
     )
-    guard result.status == 0 else {
-        let message = String(data: result.standardError, encoding: .utf8)?.lowercased() ?? ""
-        if message.contains("operation not permitted") || message.contains("permission denied") {
-            throw HostFailure.posix("diskutil info", EPERM)
-        }
-        if message.contains("not found") || message.contains("does not exist") {
-            throw HostFailure.posix("diskutil info", ENOENT)
-        }
-        throw HostFailure.posix("diskutil info", EIO)
+}
+
+private func volumeUUID(for descriptor: Int32) throws -> String {
+    func failure(_ operation: ProbeDiagnostic.Operation, code: Int32 = EIO,
+                 status: Int32? = nil, output: ProbeDiagnostic.Output = .empty,
+                 errors: ProbeDiagnostic.Errors = .empty) -> ProbeFailure {
+        ProbeFailure(code: code, diagnostic: ProbeDiagnostic(operation: operation, status: status,
+                     stdoutClass: output, stderrClass: errors))
     }
-    let object: Any
+    let device: String
     do {
-        object = try PropertyListSerialization.propertyList(from: result.standardOutput, format: nil)
+        device = try deviceName(for: descriptor)
     } catch {
-        throw HostFailure.operation("diskutil returned an invalid property list")
+        if case HostFailure.posix(_, let code) = error { throw failure(.device, code: code) }
+        throw failure(.device)
     }
+    let result: ProcessResult
+    do {
+        result = try volumeCommand(device)
+    } catch NativeProcessFailure.launch { throw failure(.launch) }
+      catch NativeProcessFailure.timeout { throw failure(.timeout) }
+    // Native disk metadata is bounded; never decode or serialize raw stderr.
+    let object = result.standardOutput.count <= 65_536
+        ? try? PropertyListSerialization.propertyList(from: result.standardOutput, format: nil) : nil
+    let output: ProbeDiagnostic.Output = result.standardOutput.isEmpty ? .empty : object == nil ? .other : .propertyList
+    let message = String(decoding: result.standardError.prefix(4096), as: UTF8.self).lowercased()
+    let errors: ProbeDiagnostic.Errors = message.isEmpty ? .empty
+        : message.contains("operation not permitted") || message.contains("permission denied") ? .permission
+        : message.contains("not found") || message.contains("does not exist") ? .unavailable : .other
+    if result.signaled || result.status != 0 {
+        let code: Int32 = result.signaled ? EIO : errors == .permission ? EPERM : errors == .unavailable ? ENOENT : EIO
+        throw failure(result.signaled ? .signal : .exit, code: code, status: result.status, output: output, errors: errors)
+    }
+    guard let object else { throw failure(.plist, status: 0, output: output, errors: errors) }
     guard let dictionary = object as? [String: Any],
           let identifier = dictionary["VolumeUUID"] as? String,
           !identifier.isEmpty else {
-        throw HostFailure.operation("diskutil did not report a volume UUID")
+        throw failure(.uuid, status: 0, output: output, errors: errors)
     }
     return identifier
 }
@@ -419,7 +496,10 @@ private func readExactly(_ fileDescriptor: Int32, byteCount: Int, operation: Str
 
 private func classify(_ error: Error, observedVolumeUUID: String? = nil, sentinel: Bool = false) -> ProbeOutcome {
     let code: Int32
-    if case HostFailure.posix(_, let errorCode) = error {
+    let diagnostic = (error as? ProbeFailure)?.diagnostic
+    if let failure = error as? ProbeFailure {
+        code = failure.code
+    } else if case HostFailure.posix(_, let errorCode) = error {
         code = errorCode
     } else {
         code = EIO
@@ -431,7 +511,8 @@ private func classify(_ error: Error, observedVolumeUUID: String? = nil, sentine
             sentinel: sentinel,
             writable: false,
             errorCategory: "permission",
-            errnoValue: code
+            errnoValue: code,
+            diagnostic: diagnostic
         )
     }
     let category: String
@@ -447,7 +528,8 @@ private func classify(_ error: Error, observedVolumeUUID: String? = nil, sentine
         sentinel: sentinel,
         writable: false,
         errorCategory: category,
-        errnoValue: code
+        errnoValue: code,
+        diagnostic: diagnostic
     )
 }
 
@@ -819,6 +901,7 @@ private func validateHealthRecord(_ record: HealthRecord, config: HostConfig) th
               record.sentinel,
               record.errorCategory == nil,
               record.errnoValue == nil,
+              record.probeDiagnostic == nil,
               let observed = record.observedVolumeUUID,
               observed.caseInsensitiveCompare(config.expectedVolumeUUID) == .orderedSame else {
             throw HostFailure.configuration("healthy record lacks exact-volume proof")
@@ -826,6 +909,19 @@ private func validateHealthRecord(_ record: HealthRecord, config: HostConfig) th
     } else {
         guard !record.writable else {
             throw HostFailure.configuration("non-healthy record cannot be writable")
+        }
+    }
+    if let diagnostic = record.probeDiagnostic {
+        let status = diagnostic.status
+        let valid: Bool
+        switch diagnostic.operation {
+        case .exit: valid = status.map { (1...255).contains($0) } ?? false
+        case .signal: valid = status.map { (1...127).contains($0) } ?? false
+        case .plist, .uuid: valid = status == 0
+        case .device, .launch, .timeout: valid = status == nil && diagnostic.stdoutClass == .empty && diagnostic.stderrClass == .empty
+        }
+        guard record.state.isDegraded, valid else {
+            throw HostFailure.configuration("invalid probe diagnostic")
         }
     }
 }
@@ -1037,7 +1133,8 @@ private func performProbe(
         childRunning: effectiveChildRunning,
         restartRequired: effectiveRestartRequired,
         notificationSent: notificationSent,
-        probeDurationMilliseconds: max(0, Int(observed.timeIntervalSince(started) * 1_000))
+        probeDurationMilliseconds: max(0, Int(observed.timeIntervalSince(started) * 1_000)),
+        probeDiagnostic: outcome.diagnostic
     )
     if outcome.state == .healthy, prior?.state.isDegraded == true {
         let recovering = HealthRecord(

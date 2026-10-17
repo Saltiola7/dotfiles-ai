@@ -1,5 +1,22 @@
 # Herdr External-Volume Operation
 
+## Diagnosing volume identity failures
+
+After separately qualified deployment of HERDR-PROBE-DIAGNOSTICS, inspect native
+`herdr-host doctor` or `status --json`: failed volume queries may include optional
+`health.probe_diagnostic` (doctor) or `probe_diagnostic` (status). The
+[field contract](README.md#volume-probe-diagnostic-contract) distinguishes device
+lookup, process launch/deadline, exit/signal and plist/UUID failures without raw
+command output. An absent diagnostic on an older build is not evidence that the
+query succeeded. A diagnostic command exiting zero is not a passing health gate:
+the registered probe must itself prove expected UUID, sentinel and writability.
+
+Caller-context success cannot qualify registered-agent access. Preserve failed
+evidence; do not rewrite health, change UUID bindings, re-register the app or
+restart services merely to diagnose it. This source change deploys nothing;
+signed identity, probe-only ownership and rollback gates still require an exact
+separately approved activation plan.
+
 ## Current Maintenance Correction
 
 The [maintenance contract](../../initiatives/gpt6-herdr-recovery/maintenance.md)

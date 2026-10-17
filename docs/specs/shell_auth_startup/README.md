@@ -1,5 +1,30 @@
 # Shell Auth Startup
 
+## Volume-probe diagnostic contract
+
+HERDR-PROBE-DIAGNOSTICS adds optional `probe_diagnostic` to existing schema-1
+health, without changing admission or granting deployment authority. Older
+records without it remain readable. Given a failed volume-identity query, the
+registered probe records only the bounded classifications below; a successful
+fresh probe clears them. Diagnostic metadata never substitutes for exact UUID,
+sentinel and read/write proof, and cannot make unhealthy state healthy.
+
+| Field | Allowed values |
+|---|---|
+| `operation` | `volume_device`, `volume_launch`, `volume_timeout`, `volume_exit`, `volume_signal`, `volume_plist`, `volume_uuid` |
+| `status` | Omitted for device/launch/timeout; exit status 1–255; signal 1–127; zero for plist/UUID failure after successful command exit |
+| `stdout_class` | `empty`, `property_list`, `other` |
+| `stderr_class` | `empty`, `permission`, `unavailable`, `other` |
+
+Given untrusted command output, no raw text, path, credential, argument, or
+property-list value enters the diagnostic. Stderr classification reads at most
+4096 bytes; plist parsing is limited to 65536 bytes. Given malformed enum/status
+metadata, health loading refuses. Existing errno/error-category semantics and
+fail-closed process-preservation behavior remain authoritative. Source/native
+fixture success does not diagnose a deployed probe or qualify live cutover.
+Any signed bundle replacement, registration, permission or service change needs
+its separate reviewed identity/rollback plan and explicit approval.
+
 ## Signed Host replacement-volume repair evidence
 
 SSD-HOST-VOLUME-REPAIR completed the approved one-time signed-bundle promotion
@@ -189,13 +214,32 @@ Glossary:
 | Interaction | required: authentication decision flow and OpenCode restore sequence | In what order are authentication sources and restored OpenCode sessions started? | Behavior Scenarios | Shell-auth owner; precedence, restore order, or failure changes |
 | State | required: authentication decision flow and external-volume health state | Where must loading fail instead of prompting, and when must new OpenCode work be circuit-broken without restarting existing processes? | OnePasswordSessionCache and ExternalVolumeHealthController invariants | Shell-auth owner; session-state or volume-health changes |
 | Data/trust | required: authentication decision flow and health-record boundary | Where can a service-account token originate, and what minimal health evidence may remain on the internal disk? | SecretLoader, Keychain, and ExternalVolumeHealthStatus contracts | Shell-auth owner; credential-source or health-data changes |
-| Schema | not_applicable: the projected JSON object is fully defined by executable projection contracts | - | SecretLoader invariants | Shell-auth owner |
+| Schema | not_applicable: projected JSON and optional health diagnostics are fully defined by field/validation contracts; no entity relationship changes | - | SecretLoader invariants and Volume-probe diagnostic contract | Shell-auth owner |
 | Dependency/deployment | required: signed host install, registration, activation, and live handoff sequence | How does chezmoi replace the privacy identity without terminating pane processes or losing rollback? | HerdrHostApplication and HerdrServer scenarios and contracts | Shell-auth owner; signing identity, registration, release pin, or launchd ownership changes |
 | Quantitative | not_applicable: timeouts are fixed safety bounds, not comparative evidence | - | CommandTimeout contract | Shell-auth owner |
 
 V3.35 adds the missing profile and completion ledger without changing credential
 precedence or the authentication boundary. The existing decision flow and Text
 Equivalent remain current.
+
+The following diagnostic boundary answers what failed native output may enter
+health. Canonical source: Volume-probe diagnostic contract; owner: shell-auth
+maintainer; update whenever diagnostic fields, classifications or sinks change.
+
+```mermaid
+flowchart LR
+    accTitle: Volume-probe diagnostic privacy boundary
+    accDescr: Native disk metadata output is untrusted. The probe emits only fixed enum classifications and bounded numeric status into private health. Raw output, arguments and secrets are not persisted. Existing health admission remains separate and unchanged.
+    N[Untrusted native command outcome] --> C[Bounded classification]
+    C --> E[Fixed enum labels and bounded status]
+    E --> H[Private health and native doctor response]
+    N --> D[Raw output and arguments excluded from health]
+```
+
+**Text Equivalent:** Native command outcomes cross into private health only as
+fixed enum labels and bounded numeric status. Raw output, command arguments,
+paths and credentials are excluded. Existing admission still requires exact
+UUID, sentinel and successful read/write checks; diagnostics grant no authority.
 
 ```mermaid
 flowchart TD
