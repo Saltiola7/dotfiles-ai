@@ -371,7 +371,7 @@ def atomic_json(path, value):
     os.replace(temp, path)
 
 
-def private_json(path, value):
+def private_json(path, value, *, strict=False):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(path.parent, 0o700)
     descriptor, temporary = tempfile.mkstemp(dir=path.parent)
@@ -383,12 +383,11 @@ def private_json(path, value):
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        with contextlib.suppress(OSError):
-            descriptor = os.open(path.parent, os.O_RDONLY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+        if strict:
+            fsync_directory(path.parent)
+        else:
+            with contextlib.suppress(OSError):
+                fsync_directory(path.parent)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
@@ -1216,7 +1215,7 @@ def ledger_integrity(connection):
 
 def ledger_semantic_integrity(connection):
     meta = dict(connection.execute("SELECT key, value FROM ledger_meta"))
-    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema", "provider_evaluation_schema", "incident_schema", "knowledge_privacy_sequence", "knowledge_privacy_digest"}
+    if (set(meta) - {"schema_version", "migration_digest", "pending_forget_cleanup", "improvement_schema", "capture_schema", "benchmark_schema", "phase_schema", "provider_evaluation_schema", "incident_schema", "knowledge_privacy_sequence", "knowledge_privacy_digest", "workflow_operation_schema"}
             or meta.get("schema_version") != str(REVIEW_LEDGER_SCHEMA)
             or "migration_digest" in meta and not re.fullmatch(r"[0-9a-f]{64}", meta["migration_digest"])
             or "pending_forget_cleanup" in meta
@@ -1234,6 +1233,17 @@ def ledger_semantic_integrity(connection):
             or "knowledge_privacy_digest" in meta
             and not re.fullmatch(r"[0-9a-f]{64}", meta["knowledge_privacy_digest"])):
         fail("private review ledger metadata is invalid")
+    workflow_table = connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='workflow_operations'").fetchone()
+    if bool(workflow_table) != ("workflow_operation_schema" in meta):
+        fail("unsupported_schema")
+    if workflow_table:
+        if meta["workflow_operation_schema"] != "1":
+            fail("unsupported_schema")
+        for identifier, payload in connection.execute("SELECT event_id, payload FROM workflow_operations"):
+            event = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+            validate_workflow_operation(event)
+            if identifier != event["event_id"]:
+                fail("unsupported_schema")
     privacy_table = connection.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' "
         "AND name='knowledge_privacy_tombstones'").fetchone() is not None
@@ -13095,6 +13105,678 @@ def command_benchmark(args):
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
 
 
+WORKFLOW_DIAGNOSTICS = {
+    "validation-failed": "Required validation failed; retain original gate evidence.",
+    "operation-failed": "Lifecycle operation failed; retain existing evidence and work.",
+    "operation-complete": "Lifecycle operation completed; no causal benefit is inferred.",
+    "settings-unavailable": "Optional settings unavailable; new optional actions remain disabled.",
+}
+WORKFLOW_FEATURES = {"automatic-delivery", "automatic-remove", "targeted-upload", "external-feedback"}
+
+
+def workflow_fields(value, fields):
+    if not isinstance(value, dict) or set(value) != set(fields.split()):
+        fail("unsupported_schema")
+
+
+def workflow_integer(value, minimum=0):
+    if type(value) is not int or not minimum <= value <= 2**53 - 1:
+        fail("unsupported_schema")
+    return value
+
+
+def workflow_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
+
+def workflow_hash(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        fail("unsupported_schema")
+
+
+def workflow_time(value):
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?Z", value):
+        fail("unsupported_schema")
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        fail("unsupported_schema")
+
+
+def workflow_feature_snapshot(release, settings):
+    workflow_fields(settings, "schema_version features")
+    if type(settings["schema_version"]) is not int or settings["schema_version"] != 1:
+        fail("unsupported_schema")
+    entries = settings["features"]
+    if not isinstance(entries, list) or len(entries) > 64:
+        fail("unsupported_schema")
+    seen, enabled, normalized = set(), [], []
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) - {"feature_id", "enabled"} or "feature_id" not in entry:
+            fail("unsupported_schema")
+        name = entry["feature_id"]
+        if (not isinstance(name, str) or name not in WORKFLOW_FEATURES or name in seen
+                or type(entry.get("enabled", False)) is not bool):
+            fail("unsupported_schema")
+        seen.add(name)
+        normalized.append({"feature_id": name, "enabled": entry.get("enabled", False)})
+        if entry.get("enabled", False):
+            enabled.append(name)
+    value = {"schema_version": 1, "release_commit": release, "config_schema_version": 1,
+             "config_digest": workflow_digest({"schema_version": 1, "features": sorted(normalized, key=lambda e: e["feature_id"])}),
+             "effective_enabled_feature_ids": sorted(enabled)}
+    validate_workflow_snapshot(value)
+    return value
+
+
+def validate_workflow_snapshot(value):
+    workflow_fields(value, "schema_version release_commit config_schema_version config_digest effective_enabled_feature_ids")
+    if (type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or type(value["config_schema_version"]) is not int or value["config_schema_version"] != 1
+            or not isinstance(value["release_commit"], str)
+            or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value["release_commit"])):
+        fail("unsupported_schema")
+    workflow_hash(value["config_digest"])
+    ids = value["effective_enabled_feature_ids"]
+    if (not isinstance(ids, list) or len(ids) > 64 or any(not isinstance(i, str) or i not in WORKFLOW_FEATURES for i in ids)
+            or ids != sorted(set(ids))):
+        fail("unsupported_schema")
+
+
+def workflow_rollback_compatible(current, previous):
+    try:
+        validate_workflow_snapshot(current)
+        validate_workflow_snapshot(previous)
+        return current["config_schema_version"] == previous["config_schema_version"]
+    except RuntimeError:
+        return False
+
+
+def workflow_observation(category, snapshot, timestamp):
+    if category not in WORKFLOW_DIAGNOSTICS:
+        fail("unsupported_schema")
+    summary = WORKFLOW_DIAGNOSTICS[category]
+    value = {"schema_version": 1, "observation_id": str(uuid.uuid4()), "category": category,
+             "feature_id": None, "snapshot": snapshot,
+             "signature": workflow_digest({"category": category, "summary": summary}), "summary": summary,
+             "availability": [{"source": "native-incident", "status": "unavailable",
+                               "reason": "native-incident-invocation-unavailable"}],
+             "gate_outcome": "failed" if category.endswith("failed") else "unavailable",
+             "retry_count": None, "first_seen": timestamp, "last_seen": timestamp, "occurrences": 1,
+             "export_state": "local", "issue_number": None}
+    validate_workflow_observation(value)
+    return value
+
+
+def validate_workflow_observation(value):
+    workflow_fields(value, "schema_version observation_id category feature_id snapshot signature summary availability gate_outcome retry_count first_seen last_seen occurrences export_state issue_number")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        fail("unsupported_schema")
+    try:
+        identifier = uuid.UUID(value["observation_id"])
+        if identifier.version != 4 or str(identifier) != value["observation_id"]:
+            fail("unsupported_schema")
+    except (ValueError, AttributeError, TypeError):
+        fail("unsupported_schema")
+    category = value["category"]
+    # Classified public templates only. Generic redaction cannot certify arbitrary
+    # private prose; never persist an input string merely because regexes miss it.
+    if (not isinstance(category, str) or category not in WORKFLOW_DIAGNOSTICS
+            or value["summary"] != WORKFLOW_DIAGNOSTICS[category]
+            or review_unsafe(value["summary"]) or incident_redact(value["summary"]) != value["summary"]):
+        fail("unclassified_payload")
+    validate_workflow_snapshot(value["snapshot"])
+    workflow_hash(value["signature"])
+    if value["feature_id"] is not None and value["feature_id"] not in WORKFLOW_FEATURES:
+        fail("unsupported_schema")
+    if value["gate_outcome"] not in {"passed", "failed", "pending", "not_applicable", "unavailable"}:
+        fail("unsupported_schema")
+    if value["retry_count"] is not None:
+        workflow_integer(value["retry_count"])
+    workflow_integer(value["occurrences"], 1)
+    if value["issue_number"] is not None:
+        workflow_integer(value["issue_number"], 1)
+    if value["export_state"] not in {"local", "pending", "published", "blocked"}:
+        fail("unsupported_schema")
+    if workflow_time(value["first_seen"]) > workflow_time(value["last_seen"]):
+        fail("unsupported_schema")
+    entries = value["availability"]
+    if not isinstance(entries, list) or len(entries) > 16:
+        fail("unsupported_schema")
+    seen = set()
+    for entry in entries:
+        workflow_fields(entry, "source status reason")
+        for field in ("source", "reason"):
+            if entry[field] is not None and (not isinstance(entry[field], str)
+                    or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", entry[field])):
+                fail("unsupported_schema")
+        if (entry["source"] is None or entry["source"] in seen
+                or entry["status"] not in {"available", "partial", "unavailable"}
+                or entry["status"] == "unavailable" and entry["reason"] is None):
+            fail("unsupported_schema")
+        seen.add(entry["source"])
+    if len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()) > 16 * 1024:
+        fail("record_too_large")
+
+
+def workflow_dedup(value):
+    return workflow_digest([value["category"], value["feature_id"], value["snapshot"]["release_commit"], value["signature"]])
+
+
+def workflow_queue_update(queue, incoming, timestamp):
+    if not isinstance(queue, list) or len(queue) > 256:
+        fail("unsupported_schema")
+    for value in queue:
+        validate_workflow_observation(value)
+    validate_workflow_observation(incoming)
+    if len(json.dumps(queue, separators=(",", ":"), ensure_ascii=False).encode()) > 4 * 1024 * 1024:
+        fail("record_too_large")
+    now_time = workflow_time(timestamp)
+    cutoff = now_time - timedelta(days=30)
+    result = [json.loads(json.dumps(v)) for v in queue if workflow_time(v["last_seen"]) > cutoff]
+    status = {"schema_version": 1, "queued": len(result), "coalesced": 0, "dropped": 0,
+              "expired": len(queue) - len(result), "storage_status": "available", "error": None}
+    if workflow_time(incoming["last_seen"]) > now_time:
+        fail("unsupported_schema")
+    if workflow_time(incoming["last_seen"]) <= cutoff:
+        return result, status
+    key = workflow_dedup(incoming)
+    for value in result:
+        if workflow_dedup(value) == key:
+            value["occurrences"] = workflow_integer(value["occurrences"] + incoming["occurrences"], 1)
+            value["last_seen"] = max(value["last_seen"], incoming["last_seen"], key=workflow_time)
+            # Retain the first failure; later success is not a gate waiver.
+            if incoming["gate_outcome"] == "failed":
+                value["gate_outcome"] = "failed"
+            if incoming["retry_count"] is not None:
+                value["retry_count"] = incoming["retry_count"]
+            status["coalesced"] = 1
+            break
+    else:
+        if len(result) == 256:
+            status.update(dropped=1, error="queue_full")
+        else:
+            result.append(json.loads(json.dumps(incoming)))
+    if len(json.dumps(result, separators=(",", ":"), ensure_ascii=False).encode()) > 4 * 1024 * 1024:
+        fail("record_too_large")
+    status["queued"] = len(result)
+    return result, status
+
+
+def workflow_queue_path(root):
+    directory = cycle_dir(root) / "evidence"
+    managed_directory(root, directory, create=True)
+    return directory / "workflow-feedback.json"
+
+
+def workflow_queue_read(path):
+    empty = {"schema_version": 1, "observations": [], "publications": {}, "status": {
+        "schema_version": 1, "queued": 0, "coalesced": 0, "dropped": 0, "expired": 0,
+        "storage_status": "available", "error": None}}
+    if not os.path.lexists(path):
+        return empty
+    continuation_private(path)
+    with path.open("rb") as stream:
+        raw = stream.read(4 * 1024 * 1024 + 1)
+    if len(raw) > 4 * 1024 * 1024:
+        fail("record_too_large")
+    value = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    return validate_workflow_queue(value)
+
+
+def validate_workflow_queue(value):
+    workflow_fields(value, "schema_version observations publications status")
+    if len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()) + 1 > 4 * 1024 * 1024:
+        fail("record_too_large")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        fail("unsupported_schema")
+    records = value["observations"]
+    if not isinstance(records, list) or len(records) > 256:
+        fail("unsupported_schema")
+    keys = set()
+    for record in records:
+        validate_workflow_observation(record)
+        key = workflow_dedup(record)
+        if key in keys:
+            fail("unsupported_schema")
+        keys.add(key)
+    if len(json.dumps(records, separators=(",", ":"), ensure_ascii=False).encode()) > 4 * 1024 * 1024:
+        fail("record_too_large")
+    status = value["status"]
+    workflow_fields(status, "schema_version queued coalesced dropped expired storage_status error")
+    if (type(status["schema_version"]) is not int or status["schema_version"] != 1
+            or status["storage_status"] != "available" or status["queued"] != len(records)
+            or status["error"] not in {None, "queue_full", "record_too_large"}):
+        fail("unsupported_schema")
+    for name in ("queued", "coalesced", "dropped", "expired"):
+        workflow_integer(status[name])
+    publications = value["publications"]
+    if not isinstance(publications, dict) or len(publications) > 256:
+        fail("unsupported_schema")
+    for key, binding in publications.items():
+        workflow_hash(key)
+        workflow_fields(binding, "dedup_key export_state issue_number")
+        workflow_hash(binding["dedup_key"])
+        if binding["dedup_key"] not in keys or binding["export_state"] not in {"pending", "published", "blocked"}:
+            fail("unsupported_schema")
+        if binding["issue_number"] is not None:
+            workflow_integer(binding["issue_number"], 1)
+    return value
+
+
+def workflow_queue_save(path, value):
+    # Revalidate both before writing and before export. A strict directory fsync
+    # failure reports unavailable coverage even when the rename already succeeded.
+    for record in value["observations"]:
+        validate_workflow_observation(record)
+    keys = {workflow_dedup(record) for record in value["observations"]}
+    value["publications"] = {key: binding for key, binding in value["publications"].items() if binding["dedup_key"] in keys}
+    if len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()) + 1 > 4 * 1024 * 1024:
+        fail("record_too_large")
+    validate_workflow_queue(value)
+    private_json(path, value, strict=True)
+
+
+def workflow_queue_append(root, observation, timestamp):
+    try:
+        with evidence_lock(root, "workflow-feedback", timeout=1):
+            path = workflow_queue_path(root)
+            value = workflow_queue_read(path)
+            records, status = workflow_queue_update(value["observations"], observation, timestamp)
+            for name in ("coalesced", "dropped", "expired"):
+                status[name] = workflow_integer(status[name] + value["status"][name])
+            value.update(observations=records, status=status)
+            workflow_queue_save(path, value)
+            return status
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
+        reason = str(error) if str(error) in {"unsupported_schema", "record_too_large", "unclassified_payload"} else (
+            "lock_timeout" if isinstance(error, RuntimeError) and str(error) == "cycle evidence is busy" else "storage_unavailable")
+        return {"schema_version": 1, "queued": None, "coalesced": None, "dropped": None, "expired": None,
+                "storage_status": "unavailable", "error": reason}
+
+
+def workflow_feedback_policy(value):
+    if value is None:
+        value = {"schema_version": 1, "external_enabled": False, "destination": None,
+                 "consent_digest": None, "payload_scope": "sanitized-diagnostic-v1"}
+    workflow_fields(value, "schema_version external_enabled destination consent_digest payload_scope")
+    if (type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or type(value["external_enabled"]) is not bool or value["payload_scope"] != "sanitized-diagnostic-v1"):
+        fail("unsupported_schema")
+    destination = value["destination"]
+    if destination is not None and (not isinstance(destination, str) or len(destination.encode()) > 256
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", destination)):
+        fail("feedback_consent_unavailable")
+    if value["consent_digest"] is not None:
+        workflow_hash(value["consent_digest"])
+    if value["external_enabled"] and (destination is None or value["consent_digest"] is None):
+        fail("feedback_consent_unavailable")
+    return dict(value)
+
+
+def workflow_effective_policy(root):
+    selected = _preservation_policy_snapshot(root, section=None, validator_timeout=1)
+    if selected is None:
+        return None
+    entry = selected["consent"]
+    feedback = workflow_feedback_policy(entry.get("feedback"))
+    features = []
+    for name, table, field in (("automatic-delivery", "delivery", "enabled"),
+                              ("automatic-remove", "preservation", "automatic_remove")):
+        enabled = entry.get(table, {}).get(field, False)
+        if type(enabled) is not bool:
+            fail("unsupported_schema")
+        features.append({"feature_id": name, "enabled": enabled})
+    features.extend([{"feature_id": "targeted-upload", "enabled": bool(entry.get("preservation", {}).get("uploads", []))},
+                     {"feature_id": "external-feedback", "enabled": feedback["external_enabled"]}])
+    return {"policy_digest": selected["policy_digest"], "feedback": feedback,
+            "release_commit": selected["release_commit"], "settings": {"schema_version": 1, "features": features}}
+
+
+def workflow_github(account, method, endpoint, fields, timeout):
+    """Bounded native transport. Never forward native output/errors into feedback."""
+    started = time.monotonic()
+    lookup = {k: v for k, v in os.environ.items() if k not in {"GH_TOKEN", "GITHUB_TOKEN"}}
+    try:
+        credentials = subprocess.run(["gh", "auth", "token", "--hostname", "github.com", "--user", account],
+            env=lookup, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=max(0.001, timeout))
+    except (OSError, subprocess.SubprocessError):
+        return {"status": "blocked"}
+    if credentials.returncode or not credentials.stdout.strip() or time.monotonic() - started >= timeout:
+        return {"status": "blocked"}
+    environment = {**lookup, "GH_TOKEN": credentials.stdout.strip(), "GIT_TERMINAL_PROMPT": "0"}
+    argv = ["gh", "api", "--hostname", "github.com", "--method", method, endpoint]
+    for key, value in fields.items():
+        argv.extend(["-f", f"{key}={value}"])
+    try:
+        result = subprocess.run(argv, env=environment, stdin=subprocess.DEVNULL, capture_output=True,
+                                text=True, timeout=max(0.001, timeout - (time.monotonic() - started)))
+    except subprocess.TimeoutExpired:
+        return {"status": "ambiguous" if method == "POST" else "transient"}
+    if result.returncode:
+        # Missing credentials/permissions are never retried; unknown create
+        # failures may have committed remotely, so retain pending instead.
+        if re.search(r"\b(?:401|403)\b", result.stderr):
+            return {"status": "blocked"}
+        return {"status": "ambiguous" if method == "POST" else "transient"}
+    if len(result.stdout.encode()) > 256 * 1024:
+        return {"status": "ambiguous" if method == "POST" else "blocked"}
+    try:
+        return {"status": "success", "value": json.loads(result.stdout, object_pairs_hook=no_duplicate_keys)}
+    except ValueError:
+        return {"status": "ambiguous" if method == "POST" else "blocked"}
+
+
+def workflow_flush(root, policy_reader, account, *, request=workflow_github, clock=time.monotonic, sleep=time.sleep,
+                   wall_clock=lambda: datetime.now(timezone.utc)):
+    """Internal opted-in cycle step; no CLI/import bypass or Incident authority."""
+    deadline = clock() + 30
+    policy = policy_reader(root)
+    if policy is None or not workflow_feedback_policy(policy["feedback"])["external_enabled"]:
+        return {"status": "local", "attempts": 0}
+    approved = workflow_digest(policy)
+    destination = policy["feedback"]["destination"]
+    attempts = 0
+    dispatched = False
+    def call(method, endpoint, fields):
+        nonlocal attempts, dispatched
+        dispatched = False
+        if attempts >= 3 or clock() >= deadline:
+            return {"status": "pending"}
+        if attempts:
+            delay = 2**(attempts - 1)
+            if clock() + delay >= deadline:
+                return {"status": "pending"}
+            sleep(delay)
+        if workflow_digest(policy_reader(root)) != approved:
+            return {"status": "blocked"}
+        if clock() >= deadline:
+            return {"status": "pending"}
+        attempts += 1
+        dispatched = True
+        return request(account, method, endpoint, fields, max(0.001, deadline - clock()))
+    try:
+        with evidence_lock(root, "workflow-feedback", timeout=1):
+            path = workflow_queue_path(root)
+            value = workflow_queue_read(path)
+            cutoff = wall_clock() - timedelta(days=30)
+            retained = [r for r in value["observations"] if workflow_time(r["last_seen"]) > cutoff]
+            value["status"]["expired"] = workflow_integer(value["status"]["expired"] + len(value["observations"]) - len(retained))
+            value["observations"] = retained
+            value["status"]["queued"] = len(retained)
+            workflow_queue_save(path, value)
+            # Prioritize never-published work. A bounded flush cannot repeatedly
+            # update the same published row and starve the rest of the queue.
+            value["observations"].sort(key=lambda r: r["export_state"] == "published")
+            selected_keys = {workflow_digest([workflow_dedup(record), destination]) for record in value["observations"]}
+            unresolved = False
+            for record in list(value["observations"]):
+                validate_workflow_observation(record)  # Export reclassification.
+                marker = "dbsctr-feedback-" + workflow_digest([workflow_dedup(record), destination])
+                publication_key = marker.removeprefix("dbsctr-feedback-")
+                binding = value["publications"].get(publication_key)
+                # Always rediscover by destination+key. No stale issue number may
+                # route an update into a newly selected destination.
+                query = {"q": f'repo:{destination} is:issue in:body "{marker}"', "per_page": "2"}
+                while True:
+                    found = call("GET", "search/issues", query)
+                    if found["status"] != "transient" or attempts >= 3:
+                        break
+                if found["status"] != "success":
+                    if found["status"] == "blocked":
+                        record["export_state"] = "blocked"
+                        workflow_queue_save(path, value)
+                    return {"status": "blocked" if found["status"] == "blocked" else "pending", "attempts": attempts}
+                listing = found["value"]
+                if (not isinstance(listing, dict) or listing.get("incomplete_results") is not False
+                        or type(listing.get("total_count")) is not int or listing["total_count"] not in (0, 1)
+                        or not isinstance(listing.get("items"), list) or len(listing["items"]) != listing["total_count"]):
+                    return {"status": "blocked", "attempts": attempts}
+                body = (record["summary"] + "\n\nOccurrences: " + str(record["occurrences"]) +
+                        "\nOutcome: " + record["gate_outcome"] + "\n\n<!-- " + marker + " -->")
+                if binding is None and len(value["publications"]) >= 256:
+                    return {"status": "blocked", "attempts": attempts}
+                if listing["total_count"]:
+                    issue = listing["items"][0]
+                    number = workflow_integer(issue.get("number"), 1)
+                    if (not isinstance(issue.get("body"), str) or marker not in issue["body"]
+                            or issue.get("repository_url") != "https://api.github.com/repos/" + destination
+                            or "pull_request" in issue):
+                        return {"status": "blocked", "attempts": attempts}
+                    outcome = call("PATCH", f"repos/{destination}/issues/{number}", {"body": body})
+                else:
+                    if binding is not None:
+                        # Search absence after a possible create is not proof of
+                        # nonexistence (index lag). Never issue a duplicate create.
+                        value["observations"].remove(record)
+                        value["observations"].append(record)
+                        workflow_queue_save(path, value)
+                        unresolved = True
+                        continue
+                    if attempts >= 3 or clock() >= deadline:
+                        return {"status": "pending", "attempts": attempts}
+                    # ponytail: at most 256 destination bindings inside the same
+                    # bounded queue; explicit retention review before expansion.
+                    if len(value["publications"]) >= 256:
+                        return {"status": "blocked", "attempts": attempts}
+                    previous = record["export_state"], record["issue_number"]
+                    binding = {"dedup_key": workflow_dedup(record), "export_state": "pending", "issue_number": None}
+                    value["publications"][publication_key] = binding
+                    record["export_state"] = "pending"
+                    workflow_queue_save(path, value)  # Persist intent BEFORE create.
+                    outcome = call("POST", f"repos/{destination}/issues", {"title": "Workflow diagnostic: " + record["category"], "body": body})
+                    if not dispatched:
+                        record["export_state"], record["issue_number"] = previous
+                        del value["publications"][publication_key]
+                        workflow_queue_save(path, value)
+                        return {"status": outcome["status"], "attempts": attempts}
+                if outcome["status"] != "success":
+                    record["export_state"] = "blocked" if outcome["status"] == "blocked" else "pending"
+                    if binding is not None:
+                        binding["export_state"] = record["export_state"]
+                    workflow_queue_save(path, value)
+                    return {"status": record["export_state"], "attempts": attempts}
+                number = workflow_integer(outcome["value"].get("number"), 1)
+                record.update(export_state="published", issue_number=number)
+                value["publications"][publication_key] = {"dedup_key": workflow_dedup(record),
+                    "export_state": "published", "issue_number": number}
+                value["observations"].remove(record)
+                value["observations"].append(record)
+                workflow_queue_save(path, value)
+                if clock() >= deadline or attempts >= 3:
+                    break
+            return {"status": "pending" if unresolved or any(value["publications"].get(key, {}).get("export_state") == "pending"
+                    for key in selected_keys) else "bounded",
+                    "attempts": attempts}
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+        return {"status": "unavailable", "attempts": attempts}
+
+
+WORKFLOW_OPERATIONS = {
+    "begin": "registration", "start": "registration", "record-evidence": "evidence-recording",
+    "gate-commit": "gate-commit", "reconcile-target": "target-reconciliation", "final-push": "final-push",
+    "record-dvc-push": "preservation", "workspace-remove-check": "removal-check",
+}
+
+
+def validate_workflow_operation(event):
+    workflow_fields(event, "schema_version event_id operation snapshot cycle_id started_at finished_at outcome availability")
+    if (type(event["schema_version"]) is not int or event["schema_version"] != 1
+            or event["operation"] not in WORKFLOW_OPERATIONS.values()):
+        fail("unsupported_schema")
+    try:
+        identifier = uuid.UUID(event["event_id"])
+        if identifier.version != 4 or str(identifier) != event["event_id"]:
+            fail("unsupported_schema")
+    except (ValueError, TypeError, AttributeError):
+        fail("unsupported_schema")
+    validate_workflow_snapshot(event["snapshot"])
+    if event["cycle_id"] is not None and (not isinstance(event["cycle_id"], str) or not OPAQUE_ID.fullmatch(event["cycle_id"])):
+        fail("unsupported_schema")
+    workflow_integer(event["started_at"], REVIEW_START_MS)
+    if event["finished_at"] is not None:
+        workflow_integer(event["finished_at"], event["started_at"])
+    if ((event["finished_at"] is None) != (event["outcome"] is None)
+            or event["outcome"] not in {None, "passed", "failed"}
+            or event["availability"] != {"source": "native-attribution", "status": "unavailable",
+                                         "reason": "native-identity-unavailable"}):
+        fail("unsupported_schema")
+
+
+def workflow_operation_coverage(connection, cycle_id):
+    row = connection.execute("SELECT value FROM ledger_meta WHERE key='workflow_operation_schema'").fetchone()
+    if row is None:
+        return None
+    if row != ("1",):
+        fail("unsupported_schema")
+    coverage = {"schema_version": 1, "scope": "helper-operation-intervals", "captured": 0,
+                "complete": 0, "partial": 0, "failed": 0, "excluded_unassociated": 0,
+                "unavailable": None, "dropped": None, "retry_count": None, "remediation_count": None,
+                "coverage_status": "partial", "usage": "unavailable", "cost": "unavailable"}
+    for (payload,) in connection.execute("SELECT payload FROM workflow_operations"):
+        event = json.loads(payload, object_pairs_hook=no_duplicate_keys)
+        validate_workflow_operation(event)
+        if event["cycle_id"] is None:
+            coverage["excluded_unassociated"] += 1
+        elif event["cycle_id"] == cycle_id:
+            coverage["captured"] += 1
+            coverage["complete" if event["finished_at"] is not None else "partial"] += 1
+            coverage["failed"] += int(event["outcome"] == "failed")
+    return coverage
+
+
+@contextlib.contextmanager
+def workflow_phase_owner():
+    root = review_root()
+    require_review_lock_safe(root)
+    with review_lock(root) as lock:
+        deadline = time.monotonic() + 1
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    fail("lock_timeout")
+                time.sleep(0.01)
+        connection = ensure_ledger_for_write(root)
+        try:
+            connection.execute("PRAGMA busy_timeout=0")
+            ensure_phase_schema(connection)
+            row = connection.execute("SELECT value FROM ledger_meta WHERE key='workflow_operation_schema'").fetchone()
+            if row is not None and row != ("1",):
+                fail("unsupported_schema")
+            if row is None:
+                connection.execute("CREATE TABLE workflow_operations (event_id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+                connection.execute("INSERT INTO ledger_meta VALUES ('workflow_operation_schema', '1')")
+                connection.commit()
+            yield connection
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+
+def workflow_cycle(root, cycle_id=None):
+    try:
+        if cycle_id is not None:
+            if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id):
+                return None
+            path = cycle_dir(root) / "cycles" / (cycle_id + ".json")
+            record = read_cycle_record(root, path)
+            if record["cycle_id"] != cycle_id or not record_worktree_matches(root, record, root):
+                return None
+            return record
+        _, record = load(root)
+        return record
+    except (RuntimeError, OSError, ValueError, KeyError):
+        return None
+
+
+def workflow_operation_start(args):
+    if args.command not in WORKFLOW_OPERATIONS:
+        return None
+    if args.command == "begin" and getattr(args, "preflight", False):
+        return None
+    try:
+        root = root_dir()
+        policy = workflow_effective_policy(root)
+        if policy is None:
+            print("workflow_capture_unavailable", file=sys.stderr)
+            return None  # No coherent activation selected; no optional writes.
+        snapshot = workflow_feature_snapshot(policy["release_commit"], policy["settings"])
+        record = None if args.command in {"begin", "start"} else workflow_cycle(root)
+        event = {"schema_version": 1, "event_id": str(uuid.uuid4()), "operation": WORKFLOW_OPERATIONS[args.command],
+                 "snapshot": snapshot, "cycle_id": record["cycle_id"] if record else None,
+                 "started_at": max(REVIEW_START_MS, int(time.time() * 1000)), "finished_at": None,
+                 "outcome": None, "availability": {"source": "native-attribution", "status": "unavailable",
+                                                    "reason": "native-identity-unavailable"}}
+        with workflow_phase_owner() as connection:
+            connection.execute("INSERT INTO workflow_operations VALUES (?, ?)",
+                               (event["event_id"], ledger_payload(event)))
+            if event["cycle_id"] is not None:
+                span = (event["cycle_id"], event["event_id"], None, "operation", "task", "unavailable",
+                        "[]", "[]", event["started_at"], None, None)
+                phase_record(span)
+                connection.execute("INSERT INTO phase_spans VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", span)
+        return root, event, policy, getattr(args, "gate", None), getattr(args, "cycle_id", None)
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, sqlite3.Error, subprocess.SubprocessError):
+        print("workflow_capture_unavailable", file=sys.stderr)
+        return None
+
+
+def workflow_operation_finish(capture, succeeded):
+    if capture is None:
+        return
+    root, event, policy, gate, requested_cycle = capture
+    try:
+        record = workflow_cycle(root, event["cycle_id"] or (requested_cycle if succeeded else None))
+        if event["operation"] == "evidence-recording" and record and gate in record.get("gates", {}):
+            succeeded = succeeded and record["gates"][gate]["result"] == "passed"
+        event["finished_at"] = max(event["started_at"], int(time.time() * 1000))
+        event["outcome"] = "passed" if succeeded else "failed"
+        if event["cycle_id"] is None and succeeded and record and event["operation"] == "registration":
+            event["cycle_id"] = record["cycle_id"]
+        with workflow_phase_owner() as connection:
+            stored = connection.execute("SELECT payload FROM workflow_operations WHERE event_id=?",
+                                        (event["event_id"],)).fetchone()
+            if stored is None:
+                fail("workflow_start_unavailable")
+            original = json.loads(stored[0], object_pairs_hook=no_duplicate_keys)
+            if original["finished_at"] is not None:
+                fail("workflow_finish_already_recorded")
+            connection.execute("UPDATE workflow_operations SET payload=? WHERE event_id=?",
+                               (ledger_payload(event), event["event_id"]))
+            if event["cycle_id"] is not None:
+                span = (event["cycle_id"], event["event_id"], None, "operation", "task", "unavailable",
+                        "[]", "[]", event["started_at"], event["finished_at"], event["outcome"])
+                phase_record(span)
+                if original["cycle_id"] is None:
+                    connection.execute("INSERT INTO phase_spans VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", span)
+                else:
+                    connection.execute("UPDATE phase_spans SET finished_at=?, result=? WHERE cycle_id=? AND span_id=?",
+                        (event["finished_at"], event["outcome"], event["cycle_id"], event["event_id"]))
+        category = "operation-complete" if succeeded else (
+            "validation-failed" if event["operation"] == "evidence-recording" else "operation-failed")
+        stamp = now().replace("+00:00", "Z")
+        status = workflow_queue_append(root, workflow_observation(category, event["snapshot"], stamp), stamp)
+        if status["storage_status"] != "available":
+            print("workflow_feedback_coverage_unavailable", file=sys.stderr)
+        # Only the ordinary opted-in cycle completion step may export. Source
+        # checks and scans never secretly publish or act as explicit flush routes.
+        if (succeeded and event["operation"] == "final-push" and record
+                and policy["feedback"]["external_enabled"]):
+            account = record.get("delivery", {}).get("github", {}).get("account")
+            if account:
+                result = workflow_flush(root, workflow_effective_policy, account)
+                print("workflow_feedback_flush_" + result["status"], file=sys.stderr)
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, sqlite3.Error, subprocess.SubprocessError):
+        print("workflow_capture_unavailable", file=sys.stderr)
+
+
 def command_phase_span(args):
     record_path, record = load(root_dir())
     require_active(record)
@@ -13185,6 +13867,11 @@ def command_phase_report(args):
     require_review_lock_safe(root)
     with existing_review_lock(root):
         report = load_phase_report(root, record["cycle_id"])
+        if ledger_exists(root):
+            with ledger_connection(root) as connection:
+                coverage = workflow_operation_coverage(connection, record["cycle_id"])
+            if coverage is not None:
+                report = {"schema_version": 2, "phase_profile": report, "workflow_operations": coverage}
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
 
 
@@ -15055,7 +15742,7 @@ def preservation_policy_snapshot(root):
         fail("preservation_policy_unavailable")
 
 
-def _preservation_policy_snapshot(root):
+def _preservation_policy_snapshot(root, section="preservation", validator_timeout=None):
     config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     source = config / "dotfiles-ai/workflow-policy.json"
     if not os.path.lexists(source):
@@ -15073,7 +15760,15 @@ def _preservation_policy_snapshot(root):
     if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
             or item.st_nlink != 1 or item.st_mode & 0o022):
         fail("preservation_policy_invalid")
-    checked = json.loads(removal_run(root, [str(helper), "check"]), object_pairs_hook=no_duplicate_keys)
+    if validator_timeout is None:
+        output = removal_run(root, [str(helper), "check"])
+    else:
+        checked_process = subprocess.run([str(helper), "check"], cwd=root, env=INSPECT_ENV,
+            stdin=subprocess.DEVNULL, text=True, capture_output=True, timeout=validator_timeout)
+        if checked_process.returncode or checked_process.stderr or len(checked_process.stdout) > 256:
+            fail("preservation_policy_unavailable")
+        output = checked_process.stdout
+    checked = json.loads(output, object_pairs_hook=no_duplicate_keys)
     if checked != {"status": "passed"}:
         fail("preservation_policy_unavailable")
     continuation_private(source)
@@ -15091,7 +15786,10 @@ def _preservation_policy_snapshot(root):
                if (Path(entry["repository"]) / ".git").resolve() == common]
     if len(entries) > 1:
         fail("preservation_policy_invalid")
-    consent = entries[0].get("preservation") if entries else None
+    if section is None:
+        return {"schema_version": 1, "policy_digest": digest, "repository": str(common),
+                "release_commit": policy["source_commit"], "consent": entries[0] if entries else {}}
+    consent = entries[0].get(section) if entries else None
     if consent is None:
         return None
     if type(consent.get("schema_version")) is not int or consent["schema_version"] != 1:
@@ -17723,6 +18421,7 @@ def agent_analytics_output(action):
 
 
 def main():
+    capture = None
     try:
         if sys.argv[1:2] == ["history-source-validate"] and (
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
@@ -17736,15 +18435,22 @@ def main():
                 args.command == "incident-scan" and not args.summary_only):
             fail("native_incident_invocation_unavailable: retain the fork and use incident-scan --summary-only for metadata")
         continuation_guard(args)
+        capture = workflow_operation_start(args)
         if args.command in {"review-scan", "history-capture", "review-history", "benchmark", "provider-evaluation"} or (
                 args.command == "incident-scan" and args.summary_only):
             agent_analytics_output(lambda: args.func(args))
         else:
             args.func(args)
+        workflow_operation_finish(capture, True)
     except SourceIndexUnavailable:
+        workflow_operation_finish(capture, False)
         print("source_index_unavailable", file=sys.stderr)
         return 75
+    except SystemExit as error:
+        workflow_operation_finish(capture, error.code in (None, 0))
+        raise
     except (RuntimeError, OSError, json.JSONDecodeError, sqlite3.Error) as error:
+        workflow_operation_finish(capture, False)
         print(f"dbsctrctl: {error}", file=sys.stderr)
         return 1
     return 0

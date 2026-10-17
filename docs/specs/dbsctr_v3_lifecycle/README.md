@@ -1,5 +1,78 @@
 # DBSCTR V3 Lifecycle
 
+## Workflow regression source interface
+
+`WORKFLOW-REGRESSION-TELEMETRY` extends the existing CLI/evidence/phase owners;
+there is no new CLI flag, registry, daemon or feature-control file. Typed optional
+switches from the validated generated exact-repository workflow policy normalize
+to sorted enabled IDs and a digest of non-secret effective settings. Snapshots
+identify the selected source release/config; they grant neither native permission
+nor action consent. Authorization, redaction, preservation hooks, gates and
+approval enforcement are not switches. Missing/invalid activation disables optional
+collection/actions and reports unavailable coverage rather than changing safety.
+
+Classified fixed public diagnostic templates—not arbitrary user/project prose—feed
+Observation records. Generic secret scrubbing alone does not certify a payload.
+No raw args/errors, paths, project content/configuration, prompts, transcripts or
+native actor identity enter feedback. Signature inputs are sanitized public
+reproduction facts; source/feature correlation is not causation. Unknown schemas
+refuse writes/exports without rewriting the original data. Schema compatibility
+checks are necessary for flag-off rollback, not proof that a data downgrade or
+irreversible migration is safe. No automatic downgrade is implemented here.
+
+The existing private lifecycle evidence directory owns one mutable feedback
+envelope. A repository-wide existing evidence lock, bounded to one second,
+serializes expiry, dedup, counters and replacement. Temporary-file fsync, rename
+and strict directory fsync leave old/new valid records on interruption; failures
+report unavailable coverage. Limits: 256 observations, 16 KiB per record, 4 MiB
+total, 30 days from last seen. Expire first, coalesce next, then drop new unique
+overflow without evicting unexpired evidence. Preserve original failures and
+nullable unavailable retry counts; occurrence/counter overflow refuses mutation.
+
+Feedback remains local by default. The ordinary successful Final Push step may
+flush only under revalidated exact-repository destination/sanitized-scope consent
+and the captured cycle's native account. It pins `github.com`, classifies again,
+uses a total 30-second deadline and at most three native API attempts with bounded
+1/2-second backoff. It rechecks consent/deadline after backoff. No scan, review,
+arbitrary evidence program or import call is an alternate publication authority.
+No live GitHub publication was used to qualify this source.
+
+Destination/key markers discover existing issues before creation. Persist create
+intent before dispatch; ambiguous creation stays pending until exact rediscovery,
+never a blind duplicate. Per-destination bindings preserve earlier pending/published
+facts when newly approved destinations change. Bindings remain within the same
+queue, bounded to 256 and expired with their observations; capacity blocks export
+rather than losing evidence. Rotation prevents unchanged published records from
+starving pending local work. Policy-off retains local and published facts.
+Native Incident mutation stays `native-incident-invocation-unavailable`.
+
+After coherent activation, selected CLI registration, evidence, commit,
+reconciliation, delivery and preservation/removal boundaries capture helper-owned
+start/finish times using the existing private phase ledger and its version-1
+operation metadata. Starts persist before execution; crashed intervals remain
+partial. Preflight is not registration; failed startup has no invented cycle.
+Completed delivery reloads its validated captured cycle even after pointer removal.
+Known failed exits and failed gate evidence remain failures. Optional capture errors
+are bounded diagnostics and never turn a required evidence failure into success.
+
+The existing `phase-report` reader retains its legacy version-1 output when no
+operation metadata exists. With new metadata it emits a version-2 envelope:
+`{schema_version:2, phase_profile:LEGACY_PROFILE, workflow_operations:COVERAGE}`.
+Coverage exposes captured/complete/partial/failed intervals and excluded
+unassociated diagnostics. Unknown dropped/unavailable/retry/remediation coverage
+is null, not zero; usage/cost remain unavailable. These are helper intervals, not
+complete primary autonomous runtime, native actor attribution or provider billing.
+Performance comparisons still need predeclared comparable cohorts and all eligible
+attempts, failures, retries, partial/unavailable denominators and equivalent quality.
+
+Owner: dotfiles maintainer. Existing Cycle Records retain required gate evidence;
+existing review/Incident/backlog/telemetry projections retain separate permissions.
+Do not query raw databases/transcripts or read/create PM Kernel tickets to fill
+availability gaps. Activation needs separate persistence/consent/redaction and
+native GitHub permission-negative smokes. Rollback stops compatible optional new
+actions while retaining evidence and work; no unmerge, migration, cleanup or restart
+is authorized by source delivery.
+
 ## PR review source interface
 
 `dbsctr-pr-review` owns generic intent-driven PR review, distinct from private

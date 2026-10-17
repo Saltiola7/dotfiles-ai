@@ -6,6 +6,32 @@ trigger: /dbsctr-review
 
 # DBSCTR Review
 
+## Regression feedback boundary
+
+Before prioritizing gaps, reconcile availability of review, Incident summary,
+autonomous-improvement backlog and telemetry through their qualified sanitized
+projections. Unavailable is not zero; no PM Kernel reads or tickets. Native Incident
+mutation remains `native-incident-invocation-unavailable`, never a fabricated fork.
+Keep feedback local by default in the existing private evidence owner; no new
+command-line flags, queue registry, raw transcript/database fallback or review-time
+flush. Collection accepts classified public diagnostic templates, not user notes,
+project names, paths, prompts, argv or raw errors—even after generic redaction.
+Retain failed evidence; source/config/feature association is not causation.
+
+Optional flag-off rollback stops new actions only while readers/data formats stay
+compatible. It cannot disable authorization, preservation hooks, redaction, gates
+or approvals, erase records or undo merges. Incompatible downgrade stays blocked.
+Only a validated exact-repository standing destination/sanitized-scope consent
+permits the bounded ordinary cycle feedback step. Digests grant no credentials;
+policy-off retains observations and previously published facts. Unknown publication
+stays pending; native reporting does not register an Incident. Never bypass missing
+capability through imports, arbitrary evidence programs or guessed shell commands.
+
+Comparisons predeclare source/model/harness/config, risk, method and equivalent
+required quality; include all eligible attempts, failed/retried/partial/unavailable
+denominators and remediation. Helper wall intervals are not complete primary time,
+native actor identity, usage, cache billing or provider cost.
+
 ## Outcome
 
 Turn unreviewed local DBSCTR observability into a sanitized report. Never change

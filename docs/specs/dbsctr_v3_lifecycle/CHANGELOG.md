@@ -1,5 +1,26 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-16 — WORKFLOW-REGRESSION-TELEMETRY source
+
+- Added typed non-authorizing feature snapshots and classified public diagnostics
+  within existing lifecycle evidence. Bounded atomic queue retains failures,
+  expires/coalesces before overflow, and exposes unavailable storage distinctly.
+- Added internal opted-in Final Push feedback flush with exact generated policy,
+  native account/host, finite deadline/attempts, reclassification and destination
+  marker dedup. Pending/published destination bindings survive approved changes;
+  ambiguous create never blindly retries. No new CLI flags or Incident mutation.
+- Added automatic CLI-owned intervals under the existing phase ledger, strict
+  additive metadata validation and versioned phase-report coverage. Crashes stay
+  incomplete; preflight/unassociated startup cannot fabricate cycle attribution.
+  No full-primary, causal speed, token/cache/cost or live qualification claim.
+- Validation uses synthetic queue/crash/lock/consent/transport/telemetry fixtures,
+  native disposable cycle recovery and instruction/publication/compatibility
+  suites. Critical review corrections and original failed checks remain in the
+  Cycle Record, which owns final gates and actual delivery, not this entry.
+- No Gate Exception, new dependency/parallel data store, external diagnostic
+  publication, host activation, rollback migration, cleanup or restart. Intended
+  Final Push: feature branch and draft PR to `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-16 — WORKFLOW-INTEGRATION-REVIEW source
 
 - Added intent-driven `dbsctr-pr-review` and references from DBSCTR/integrate/QA;
