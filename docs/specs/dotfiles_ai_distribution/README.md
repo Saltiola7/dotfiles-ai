@@ -7,6 +7,16 @@ PR delivery precedes separately qualified host activation; no installed roots,
 merge permissions or deletion behavior change through documentation alone.
 See the [Initiative](../../initiatives/dbsctr-workflow-convergence/README.md).
 
+**WORKFLOW-HOST-ACTIVATION stage 1:** the reviewed workflow/helper/guidance
+generation has been qualified on one selected macOS host, with separately approved
+private roots, preserved preimages and an activation snapshot installed last.
+Installed bytes/modes, native policy health and backup integrity passed. A partial
+exact-file apply was retained and reconciled by installing only pending targets;
+original failures and machine-local receipts remain private. Existing checkouts,
+branches and data stayed in place. This is not fleet/platform-wide qualification:
+automatic retirement/merge/upload/feedback, compression and unqualified native
+identity routes remain off. Herdr live update and service operations are separate.
+
 **WORKFLOW-STORAGE-CONFIG source:** one `workflow-policy` helper resolves the
 private chezmoi workspace table and supplies both policy JSON and native Worktrunk
 configuration. Its `render` command requires the exact clean committed managed

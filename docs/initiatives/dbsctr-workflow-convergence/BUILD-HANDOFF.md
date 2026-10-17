@@ -1,6 +1,6 @@
 # Build handoff — workflow convergence
 
-**Discovery complete; source delivery in progress.** This file is a resumption
+**All ten source slices integrated; staged activation in progress.** This file is a resumption
 index, not a launch approval. Re-read `MANIFEST.json`, `DECISIONS.md` and referenced
 contracts from Git after compaction. Validate them with `initiative-check`; never
 use a conversation summary, old digest or runtime identity as readiness authority.
@@ -102,6 +102,38 @@ merge execution, qualified CI producers or repair execution/accounting. Telemetr
 and cleanup remain published, not verified merged here. Compatible Herdr source
 maintenance is published in PR #224; no installation, Codex integration rewrite,
 guest update or restart occurred. No scope, acceptance or dependency edge changed.
+
+The remaining `regression-telemetry`, `merge-cleanup` and `ci-contracts` sources
+delivered through approved combined
+[PR #226](https://github.com/Saltiola7/dotfiles-ai/pull/226). Exact integration head
+`e2265086cbf61ef53dcf7d936bcea5d169a2b0a0` merged as
+`df5f2b20d04932ba45bb05fdf5ddf9ef0adb6834` from base
+`758e691bb7409a9b3d74975c3f097b9eccda99e2`. Strict current-base/admin enforcement
+and ordered returned parents were verified. Fresh Python 3.12/3.13/3.14 and smoke
+checks passed; local union validation passed 476 tests and 50 subtests. Native Git
+verifies all four original PR tips as ancestors, and GitHub reports them merged:
+
+- #222: `a6b403342b81e5c3c83d0187a73aee8841307fec`.
+- #223: `0b9b74ed227834002d4a3d461f9ea14955b700d3`.
+- #224: `2ba57e3191d0090643d81f52ff022ab0f3680fe8` (compatible Herdr source pins).
+- #225: `e9c2722467f9e4e4137c4eff07c3eeb2d1b5cdc8`.
+
+Compatible Pluggy maintenance #217 had already merged as
+`758e691bb7409a9b3d74975c3f097b9eccda99e2` after its three Python checks passed.
+The macOS nested-root qualification repair subsequently delivered through #227,
+head `274d2fb1f2d2a64ce35757bbcdfb8b48352e25af`, merged as
+`80219388f89631c1afab161a35f340713070e44c` with exact parents and fresh passing
+Python 3.12/3.13/3.14 checks. Mark the three remaining source slices delivered;
+no requirement, acceptance criterion or dependency edge changed.
+
+The owning distribution README/CHANGELOG records bounded stage-1 qualification;
+machine-local plans, preimages, approvals, original failures and runtime receipts
+remain private. Source delivery and one-host qualification do not qualify native
+ownership/handoff, automatic retirement or authenticated CI/merge/watch/repair/
+waiver execution. Unsupported optional actions remain off; Herdr live update is
+separate. The separately requested CI/CD-performance and standardized CI/CD/
+branching-module work remains deferred until this existing work is disposed,
+reusing consumer-owned evolving standards without publishing private consumer facts.
 
 ## Invariants
 
