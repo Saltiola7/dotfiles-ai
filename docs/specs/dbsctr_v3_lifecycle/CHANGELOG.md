@@ -43,6 +43,25 @@
   primary/session change, data upload/migration, cache GC or restart. Intended
   Final Push: source feature branch/draft PR to `Saltiola7/dotfiles-ai:main`.
 
+## 2026-10-17 — WORKFLOW-CI-CONTRACTS source
+
+- Added strict schema-1 CI mapping/evidence inspection to existing `check pr-review`:
+  committed trusted-base definitions, segment globs, cyclic reverse dependencies,
+  native changed paths/tested merge parents and visible missing/non-success checks.
+  Unknown configuration/toolchain classification conservatively requires all
+  declared checks; branch self-exemption, ambiguous producers and stale evidence
+  reject. No consumer map/workflow or dependency change.
+- Kept native producer/base/default/permission qualification, live watch execution,
+  durable repair accounting and waiver admission unavailable. Supplied green JSON
+  remains blocked; no mutation, automatic unrelated-pending exemption or restored
+  repair budget is inferred. Existing bounded watch/repair guidance stays intact.
+- Validation: retained failing-first evidence; focused schema/closure/producer and
+  native disposable Git fixtures, instruction/publication checks and compilation.
+  Cycle Record owns final affected gate results, review and Gate Commit identities.
+- No Gate Exceptions, host apply, production publication/removal, guest update or
+  restart. Intended Final Push: source feature branch/draft PR into
+  `Saltiola7/dotfiles-ai:main`; activation remains separately gated.
+
 ## 2026-10-16 — WORKFLOW-INTEGRATION-REVIEW source
 
 - Added intent-driven `dbsctr-pr-review` and references from DBSCTR/integrate/QA;

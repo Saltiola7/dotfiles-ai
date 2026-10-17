@@ -430,6 +430,177 @@ class WorkflowFeedbackTest(unittest.TestCase):
             self.assertEqual(result["status"], "pending")
 
 
+class CiContractsTest(unittest.TestCase):
+    def setUp(self):
+        loader = importlib.machinery.SourceFileLoader("ci_contract_core", str(SCRIPT))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        self.core = importlib.util.module_from_spec(spec)
+        loader.exec_module(self.core)
+
+    def mapping(self):
+        return {"schema_version": 1, "components": [
+            {"id": "library", "owned_path_patterns": ["src/**"], "check_ids": ["unit"]},
+            {"id": "consumer", "owned_path_patterns": ["app/*.py"], "check_ids": ["security"]}],
+            "dependencies": [{"consumer": "consumer", "dependency": "library"},
+                             {"consumer": "library", "dependency": "consumer"}],
+            "checks": [{"id": name, "workflow_file": ".github/workflows/test.yml", "job_name": name,
+                "provider_repository": "example/project", "definition_digest": "d" * 64,
+                "github_app_id": 15368, "mandatory": name == "security"} for name in ("unit", "security")],
+            "broad_check_ids": ["unit", "security"]}
+
+    def test_mapping_closure_handles_cycles_renames_and_unknown_paths(self):
+        mapping = self.core.validate_ci_mapping(self.mapping())
+        for paths in (["src/a.py"], ["app/old.py", "src/new.py"], ["src/a/b.py"]):
+            self.assertEqual(self.core.ci_affected_checks(mapping, paths), ["security", "unit"])
+        self.assertEqual(self.core.ci_affected_checks(mapping, ["unknown.txt"]), ["security", "unit"])
+        self.assertEqual(self.core.ci_affected_checks(mapping, [".github/workflows/test.yml"]), ["security", "unit"])
+        self.assertEqual(self.core.ci_affected_checks(mapping, []), [])
+
+    def test_globs_use_segments_and_zero_depth_double_star(self):
+        for pattern, path, expected in (("src/**/a.py", "src/a.py", True),
+                ("src/**/a.py", "src/x/a.py", True), ("app/*.py", "app/x/a.py", False),
+                ("app/?.py", "app/a.py", True), ("src/**", "src/a/b.py", True)):
+            self.assertEqual(self.core.ci_path_matches(pattern, path), expected)
+
+    def test_unknown_paths_union_broad_with_known_reverse_dependency_checks(self):
+        mapping = self.mapping()
+        mapping["broad_check_ids"] = ["unit"]
+        for paths in (["unknown", "src/a.py"], ["src/a.py", "unknown"]):
+            self.assertEqual(self.core.ci_affected_checks(mapping, paths), ["security", "unit"])
+
+    def test_private_reader_uses_checked_descriptor_and_rejects_special_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "private.json"
+            path.write_bytes(b"{}"); path.chmod(0o600)
+            self.assertEqual(self.core.pr_review_private_bytes(path, 2), b"{}")
+            with self.assertRaises(RuntimeError):
+                self.core.pr_review_private_bytes(path, 1)
+            alias = root / "alias"; alias.symlink_to(path)
+            fifo = root / "fifo"; os.mkfifo(fifo, 0o600)
+            for unsafe in (alias, fifo, root):
+                with self.assertRaises(RuntimeError):
+                    self.core.pr_review_private_bytes(unsafe, 100)
+            hardlink = root / "hardlink"; os.link(path, hardlink)
+            with self.assertRaises(RuntimeError):
+                self.core.pr_review_private_bytes(path, 100)
+            hardlink.unlink(); path.chmod(0o644)
+            with self.assertRaises(RuntimeError):
+                self.core.pr_review_private_bytes(path, 100)
+            path.chmod(0o600)
+            real_open = os.open
+            def replace_before_open(source, flags):
+                path.unlink(); path.symlink_to(fifo)
+                return real_open(source, flags)
+            with mock.patch.object(self.core.os, "open", side_effect=replace_before_open):
+                with self.assertRaises(RuntimeError):
+                    self.core.pr_review_private_bytes(path, 100)
+
+    def test_mapping_rejects_unknown_versions_duplicates_bad_patterns_and_references(self):
+        mutations = [lambda m: m.update(schema_version=True), lambda m: m.update(extra=1),
+            lambda m: m["components"].append(m["components"][0]),
+            lambda m: m["dependencies"].append(m["dependencies"][0]),
+            lambda m: m["components"][0].update(check_ids=["missing"]),
+            lambda m: m["checks"][0].update(github_app_id=True),
+            lambda m: m["checks"][0].update(workflow_file=".github/workflows/../bad.yml"),
+            lambda m: m["checks"][0].update(mandatory="yes"),
+            lambda m: m["checks"].append({**m["checks"][0], "id": "duplicate-producer"})]
+        for pattern in ("../src/*", "/src/*", "src/**x", "src/{a,b}", "!src/*", "src/[ab]", "src//x"):
+            mutations.append(lambda m, p=pattern: m["components"][0].update(owned_path_patterns=[p]))
+        for change in mutations:
+            mapping = self.mapping(); change(mapping)
+            with self.assertRaises(RuntimeError):
+                self.core.validate_ci_mapping(mapping)
+
+    def evidence(self):
+        return {"schema_version": 1, "head": "a" * 40, "base": "b" * 40,
+            "tested_oid": "a" * 40, "tested_parents": [], "check_id": "unit",
+            "definition_digest": "d" * 64, "mapping_digest": self.core.pr_review_digest(self.mapping()),
+            "run_id": 1, "job_id": 2, "github_app_id": 15368, "provider_repository": "example/project",
+            "attempt": 1, "observed_at": "2026-10-17T01:00:00Z", "conclusion": "success",
+            "toolchain_digest": "e" * 64, "environment_digest": "f" * 64}
+
+    def test_evidence_binds_head_base_map_producer_and_tested_merge(self):
+        mapping = self.mapping(); evidence = self.evidence()
+        self.core.validate_ci_evidence(evidence, mapping, "a" * 40, "b" * 40)
+        merged = {**evidence, "tested_oid": "c" * 40, "tested_parents": ["b" * 40, "a" * 40]}
+        self.core.validate_ci_evidence(merged, mapping, "a" * 40, "b" * 40)
+        for key, value in (("head", "c" * 40), ("base", "c" * 40), ("mapping_digest", "0" * 64),
+                ("definition_digest", "0" * 64), ("github_app_id", 1), ("provider_repository", "forged/project"),
+                ("attempt", True), ("job_id", 2**53), ("observed_at", "tomorrow"), ("extra", 1),
+                ("tested_parents", ["a" * 40, "b" * 40])):
+            with self.subTest(key=key), self.assertRaises(RuntimeError):
+                self.core.validate_ci_evidence({**evidence, key: value}, mapping, "a" * 40, "b" * 40)
+
+    def test_only_success_passes_and_unrelated_pending_requires_opt_in(self):
+        self.assertEqual(self.core.ci_conclusion("success", affected=True, allow_unrelated_pending=False), "passed")
+        for conclusion in ("pending", "queued", "in_progress", "neutral", "skipped", "cancelled",
+                           "timed_out", "action_required", "failure", "unknown", None):
+            self.assertNotEqual(self.core.ci_conclusion(conclusion, affected=True, allow_unrelated_pending=True), "passed")
+        self.assertEqual(self.core.ci_conclusion("pending", affected=False, allow_unrelated_pending=True), "unrelated_pending")
+        self.assertEqual(self.core.ci_conclusion("pending", affected=False, allow_unrelated_pending=False), "pending")
+        self.assertEqual(self.core.ci_conclusion("skipped", affected=False, allow_unrelated_pending=True), "blocked")
+
+    def test_checker_reads_committed_base_not_worktree_and_never_authenticates_supplied_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=root, text=True, stderr=subprocess.DEVNULL).strip()
+            git("init", "-b", "main")
+            git("config", "user.name", "Fixture"); git("config", "user.email", "fixture@example.invalid")
+            workflow = root / ".github/workflows/test.yml"
+            workflow.parent.mkdir(parents=True); workflow.write_text("name: synthetic\n")
+            mapping = self.mapping()
+            for check in mapping["checks"]:
+                check["definition_digest"] = hashlib.sha256(workflow.read_bytes()).hexdigest()
+            mapping_path = root / "mapping.json"
+            mapping_path.write_text(json.dumps(mapping))
+            git("add", "."); git("commit", "-m", "base")
+            base = git("rev-parse", "HEAD")
+            git("commit", "--allow-empty", "-m", "head"); head = git("rev-parse", "HEAD")
+            value = {**PrReviewContractTest.recommendation(self), "head": head, "base": base,
+                     "mapping_digest": self.core.pr_review_digest(mapping)}
+            values = [{**value, "batch_digest": self.core.pr_review_batch_digest([value])}]
+            recs = root / "private-recommendations.json"
+            recs.write_text(json.dumps(values)); recs.chmod(0o600)
+            records = [{**self.evidence(), "head": head, "base": base, "tested_oid": head,
+                "check_id": check["id"], "definition_digest": check["definition_digest"],
+                "mapping_digest": value["mapping_digest"]} for check in mapping["checks"]]
+            source = root / "private-evidence.json"
+            source.write_text(json.dumps(records)); source.chmod(0o600)
+            selected = self.core.pr_review_delivery({"schema_version": 1, "enabled": True, "role": "operator",
+                "targets": ["refs/heads/main"], "mapping_path": "mapping.json"})
+            policy = {"repository_id": value["repository_id"], "policy_digest": value["policy_digest"], "delivery": selected}
+            # Uncommitted self-exemption cannot replace the base-owned map.
+            mapping_path.write_text("{}")
+            with mock.patch.object(self.core, "validate_ci_mapping", wraps=self.core.validate_ci_mapping) as validate:
+                result = self.core.ci_review_inspection(root, values, selected, str(source))
+                self.assertEqual(validate.call_count, 1)
+            self.assertEqual(result["producer_authentication"], "unavailable")
+            self.assertEqual(result["recommendations"][0]["missing_checks"], [])
+            with mock.patch.object(self.core, "pr_review_policy_snapshot", return_value=policy), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                with self.assertRaisesRegex(RuntimeError, "native_evidence_unavailable"):
+                    self.core.check_pr_review(root, {"pr_review_policy": policy}, str(recs), ci_source=str(source))
+                self.assertEqual(json.loads(output.getvalue())["status"], "blocked")
+            source.write_text(json.dumps(records[:1]))
+            result = self.core.ci_review_inspection(root, values, selected, str(source))
+            self.assertEqual(result["recommendations"][0]["missing_checks"], ["security"])
+            source.write_text(json.dumps(records + records[:1]))
+            with self.assertRaisesRegex(RuntimeError, "ambiguous_evidence"):
+                self.core.ci_review_inspection(root, values, selected, str(source))
+            source.write_text(json.dumps(records))
+            git("add", "mapping.json"); git("commit", "-m", "self exemption")
+            changed = [{**values[0], "head": git("rev-parse", "HEAD")}]
+            with self.assertRaisesRegex(RuntimeError, "mapping_review_required"):
+                self.core.ci_review_inspection(root, changed, selected, str(source))
+            git("rm", "mapping.json")
+            mapping_path.symlink_to(".github/workflows/test.yml")
+            git("add", "mapping.json"); git("commit", "-m", "symlink")
+            with self.assertRaisesRegex(RuntimeError, "regular_authority_required"):
+                self.core.ci_base_blob(root, git("rev-parse", "HEAD"), "mapping.json", {})
+
+
 class PrReviewContractTest(unittest.TestCase):
     def setUp(self):
         loader = importlib.machinery.SourceFileLoader("pr_review_core", str(SCRIPT))

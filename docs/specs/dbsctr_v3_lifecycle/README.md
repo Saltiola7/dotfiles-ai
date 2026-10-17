@@ -135,6 +135,31 @@ dotfiles maintainer. Recovery retains attempt/evidence state and observes native
 membership before retry; activation, primary synchronization, current-conversation
 handoff and separate branch disposition still need their own qualified authority.
 
+## Affected-CI source inspection
+
+`check pr-review --recommendations PRIVATE_FILE --ci-evidence PRIVATE_FILE`
+adds non-authorizing inspection of the frozen schema-1 mapping and Check evidence
+records. Generated birth-bound policy selects the exact committed mapping path.
+Mapping and workflow definitions come from each recommendation's trusted base;
+worktree edits cannot replace them. Branch mapping/definition changes block for
+explicit review instead of self-exemption. Regular-file, byte-size, JSON/schema,
+unique producer, graph/reference and path bounds apply. Git replace refs are
+disabled; synthetic tested merges must have the native ordered `[base, head]`
+parents. Private evidence is single-link mode 0600, at most 16 MiB/16,384 records;
+committed inputs are at most 1 MiB each and 8 MiB aggregate per invocation.
+
+Segment globs match both sides of renames/deletions; reverse dependency closure
+terminates on cycles and unknown ownership selects broad authority. The reader
+conservatively requires **all declared checks** because the frozen map does not
+type configuration/toolchain impacts. No unrelated-pending exemption is enabled.
+Missing checks and every non-success stay visible; duplicate/stale/forged/unbound
+evidence rejects. Native producer authentication, run/job permission qualification,
+fresh remote/base protection, live watch execution, durable repair accounting and
+failure-waiver admission remain unavailable. All-green caller-supplied evidence
+still exits blocked, without changing cycle gates or authorizing merge/repair.
+The source fixtures qualify these refusal/inspection mechanisms, not activation.
+No consumer mapping or CI implementation is added or refactored here.
+
 ## PR review source interface
 
 `dbsctr-pr-review` owns generic intent-driven PR review, distinct from private

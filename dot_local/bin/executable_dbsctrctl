@@ -7,6 +7,7 @@ import concurrent.futures
 import configparser
 import contextlib
 import fcntl
+import fnmatch
 import hashlib
 import io
 import json
@@ -16414,7 +16415,288 @@ def command_check(args):
         artifact_check(record)
     elif args.subject == "pr-review":
         check_pr_review(root, record, args.recommendations, prior_source=args.prior_recommendations,
-                        merge_commit=args.merge_commit, repair_check=args.repair_check)
+                        merge_commit=args.merge_commit, repair_check=args.repair_check, ci_source=args.ci_evidence)
+
+
+def ci_text(value, maximum=512):
+    if (not isinstance(value, str) or not 1 <= len(value.encode()) <= maximum
+            or any(ord(c) < 32 or ord(c) == 127 for c in value)):
+        fail("ci_text_invalid")
+    return value
+
+
+def ci_path(value, *, pattern=False):
+    ci_text(value)
+    parts = value.split("/")
+    if (any(p in ("", ".", "..", ".dbsctr") for p in parts)
+            or any(c in value for c in "\\!{}[]")
+            or any("**" in p and p != "**" for p in parts)
+            or not pattern and any(c in value for c in "*?")):
+        fail("ci_path_invalid")
+    return value
+
+
+def ci_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", value):
+        fail("ci_id_invalid")
+    return value
+
+
+def ci_positive(value):
+    if type(value) is not int or not 1 <= value < 2**53:
+        fail("ci_integer_invalid")
+    return value
+
+
+def ci_digest(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+        fail("ci_digest_invalid")
+    return value
+
+
+def ci_unique(values, minimum, maximum, validator):
+    if not isinstance(values, list) or not minimum <= len(values) <= maximum:
+        fail("ci_array_invalid")
+    checked = [validator(v) for v in values]
+    if len(set(checked)) != len(checked):
+        fail("ci_duplicate")
+    return checked
+
+
+def validate_ci_mapping(value):
+    initiative_fields(value, {"schema_version", "components", "dependencies", "checks", "broad_check_ids"}, "CI mapping")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        fail("ci_schema_invalid")
+    def check(item):
+        initiative_fields(item, {"id", "workflow_file", "job_name", "provider_repository", "definition_digest",
+                                 "github_app_id", "mandatory"}, "CI check")
+        path = ci_path(item["workflow_file"])
+        if not path.startswith(".github/workflows/") or path.count("/") != 2:
+            fail("ci_workflow_invalid")
+        ci_text(item["job_name"], 256)
+        if not isinstance(item["provider_repository"], str) or not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", item["provider_repository"]):
+            fail("ci_provider_invalid")
+        ci_text(item["provider_repository"], 256)
+        ci_digest(item["definition_digest"]); ci_positive(item["github_app_id"])
+        if type(item["mandatory"]) is not bool:
+            fail("ci_mandatory_invalid")
+        return ci_id(item["id"])
+    checks = ci_unique(value["checks"], 1, 512, check)
+    producers = [(v["workflow_file"], v["job_name"], v["provider_repository"], v["github_app_id"])
+                 for v in value["checks"]]
+    if len(set(producers)) != len(producers):
+        fail("ci_ambiguous_producer")
+    def component(item):
+        initiative_fields(item, {"id", "owned_path_patterns", "check_ids"}, "CI component")
+        ci_unique(item["owned_path_patterns"], 1, 128, lambda p: ci_path(p, pattern=True))
+        if not set(ci_unique(item["check_ids"], 1, 512, ci_id)) <= set(checks):
+            fail("ci_reference_invalid")
+        return ci_id(item["id"])
+    components = ci_unique(value["components"], 1, 1024, component)
+    def dependency(item):
+        initiative_fields(item, {"consumer", "dependency"}, "CI dependency")
+        pair = (ci_id(item["consumer"]), ci_id(item["dependency"]))
+        if not set(pair) <= set(components):
+            fail("ci_reference_invalid")
+        return pair
+    ci_unique(value["dependencies"], 0, 8192, dependency)
+    if not set(ci_unique(value["broad_check_ids"], 1, 512, ci_id)) <= set(checks):
+        fail("ci_reference_invalid")
+    return value
+
+
+def ci_path_matches(pattern, path):
+    # Segment DP avoids regex backtracking and permits zero-segment **.
+    pieces = path.split("/")
+    positions = {0}
+    for segment in pattern.split("/"):
+        if segment == "**":
+            positions = set(range(min(positions), len(pieces) + 1)) if positions else set()
+        else:
+            positions = {i + 1 for i in positions if i < len(pieces) and fnmatch.fnmatchcase(pieces[i], segment)}
+    return len(pieces) in positions
+
+
+def ci_affected_checks(mapping, paths):
+    return _ci_affected_checks(validate_ci_mapping(mapping), paths)
+
+
+def _ci_affected_checks(mapping, paths):
+    ci_unique(paths, 0, 16384, ci_path)
+    affected, broad = set(), set()
+    for path in paths:
+        owners = {v["id"] for v in mapping["components"]
+                  if any(ci_path_matches(p, path) for p in v["owned_path_patterns"])}
+        if not owners or path.startswith(".github/"):
+            broad.update(mapping["broad_check_ids"])
+        affected.update(owners)
+    consumers = {}
+    for edge in mapping["dependencies"]:
+        consumers.setdefault(edge["dependency"], set()).add(edge["consumer"])
+    pending = list(affected)
+    while pending:
+        for consumer in consumers.get(pending.pop(), ()):
+            if consumer not in affected:
+                affected.add(consumer); pending.append(consumer)
+    return sorted(broad | {check for v in mapping["components"] if v["id"] in affected for check in v["check_ids"]})
+
+
+def validate_ci_evidence(value, mapping, head, base):
+    validate_ci_mapping(mapping)
+    return _validate_ci_evidence(value, {v["id"]: v for v in mapping["checks"]}, pr_review_digest(mapping), head, base)
+
+
+def _validate_ci_evidence(value, checks, mapping_digest, head, base):
+    fields = {"schema_version", "head", "base", "tested_oid", "tested_parents", "check_id", "definition_digest",
+              "mapping_digest", "run_id", "job_id", "github_app_id", "provider_repository", "attempt",
+              "observed_at", "conclusion", "toolchain_digest", "environment_digest"}
+    initiative_fields(value, fields, "CI evidence")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        fail("ci_schema_invalid")
+    for oid in (head, base, value["head"], value["base"], value["tested_oid"]):
+        if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", oid) or len(oid) != len(head):
+            fail("ci_oid_invalid")
+    if value["head"] != head or value["base"] != base or value["mapping_digest"] != mapping_digest:
+        fail("ci_binding_changed")
+    parents = value["tested_parents"]
+    if (value["tested_oid"] == head and parents != []
+            or value["tested_oid"] != head and parents != [base, head]):
+        fail("ci_tested_parents_mismatch")
+    check = checks.get(ci_id(value["check_id"]))
+    if not check or any(value[k] != check[k] for k in ("definition_digest", "github_app_id", "provider_repository")):
+        fail("ci_producer_mismatch")
+    for key in ("run_id", "job_id", "github_app_id", "attempt"):
+        ci_positive(value[key])
+    for key in ("definition_digest", "mapping_digest", "toolchain_digest", "environment_digest"):
+        ci_digest(value[key])
+    stamp = value["observed_at"]
+    if not isinstance(stamp, str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?Z", stamp):
+        fail("ci_time_invalid")
+    try:
+        datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        fail("ci_time_invalid")
+    ci_text(value["conclusion"], 32)
+    return value  # Structural match only; never native producer authentication.
+
+
+def ci_conclusion(conclusion, *, affected, allow_unrelated_pending):
+    if conclusion == "success":
+        return "passed"
+    if conclusion in ("pending", "queued", "in_progress"):
+        return "unrelated_pending" if not affected and allow_unrelated_pending is True else "pending"
+    return "blocked"
+
+
+def ci_git_bytes(root, *args):
+    child = subprocess.Popen(["git", *args], cwd=root, env=INSPECT_ENV, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    output, errors = preservation_output(child, limit=1024 * 1024, timeout=5)
+    if child.returncode or errors.strip():
+        fail("ci_committed_authority_unavailable")
+    return output
+
+
+def ci_base_blob(root, oid, path, cache):
+    """Read regular committed bytes, never worktree/symlink authority or replace refs."""
+    ci_path(path)
+    if not isinstance(oid, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", oid):
+        fail("ci_oid_invalid")
+    key = (oid, path)
+    if key in cache:
+        return cache[key]
+    def run(*args):
+        return ci_git_bytes(root, *args)
+    entry = run("ls-tree", "-z", oid, "--", ":(literal)" + path).split(b"\0")
+    if len(entry) != 2 or not entry[0].startswith((b"100644 blob ", b"100755 blob ")):
+        fail("ci_regular_authority_required")
+    blob = entry[0].split(b" ", 2)[2].split(b"\t", 1)[0].decode("ascii")
+    size = int(run("cat-file", "-s", blob))
+    if size > 1024 * 1024 or sum(len(v) for v in cache.values()) + size > 8 * 1024 * 1024:
+        fail("ci_authority_size_limit")
+    raw = run("cat-file", "blob", blob)
+    if len(raw) != size:
+        fail("ci_authority_changed")
+    cache[key] = raw
+    return raw
+
+
+def ci_json(raw):
+    try:
+        return json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    except (ValueError, RuntimeError, RecursionError):
+        fail("ci_json_invalid")
+
+
+def pr_review_private_bytes(source, limit):
+    try:
+        descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(descriptor, "rb") as stream:
+            before = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
+                    or stat.S_IMODE(before.st_mode) != 0o600 or before.st_nlink != 1 or before.st_size > limit):
+                fail("pr_review_private_input_invalid")
+            raw = stream.read(limit + 1)
+            after = os.fstat(stream.fileno())
+            if len(raw) > limit or any(getattr(before, key) != getattr(after, key)
+                    for key in ("st_mode", "st_uid", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")):
+                fail("pr_review_private_input_changed")
+            return raw
+    except OSError:
+        fail("pr_review_private_input_unavailable")
+
+
+def ci_review_inspection(root, values, selected, source):
+    raw = pr_review_private_bytes(source, 16 * 1024 * 1024)
+    evidence = ci_json(raw)
+    if not isinstance(evidence, list) or len(evidence) > 16384:
+        fail("ci_evidence_invalid")
+    cache, prepared, summaries, consumed = {}, {}, [], set()
+    for value in values:
+        mapping_raw = ci_base_blob(root, value["base"], selected["mapping_path"], cache)
+        if value["base"] not in prepared:
+            mapping = validate_ci_mapping(ci_json(mapping_raw))
+            prepared[value["base"]] = (mapping, pr_review_digest(mapping), {v["id"]: v for v in mapping["checks"]})
+        mapping, mapping_digest, checks = prepared[value["base"]]
+        if mapping_digest != value["mapping_digest"]:
+            fail("ci_mapping_changed")
+        if ci_base_blob(root, value["head"], selected["mapping_path"], cache) != mapping_raw:
+            fail("ci_mapping_review_required")
+        for check in mapping["checks"]:
+            definition = ci_base_blob(root, value["base"], check["workflow_file"], cache)
+            if hashlib.sha256(definition).hexdigest() != check["definition_digest"]:
+                fail("ci_definition_changed")
+            if ci_base_blob(root, value["head"], check["workflow_file"], cache) != definition:
+                fail("ci_definition_review_required")
+        touched = ci_git_bytes(root, "diff", "--name-only", "--no-renames", "-z", value["base"], value["head"], "--")
+        paths = [p.decode("utf-8") for p in touched.split(b"\0") if p]
+        mapped = _ci_affected_checks(mapping, paths)
+        # Configuration/toolchain scope has no typed classification in schema 1.
+        # Conservatively inspect the union of every declared check, never omit one
+        # based on filenames. Consumers still own their actual CI implementations.
+        matched = {}
+        for index, item in enumerate(evidence):
+            if not isinstance(item, dict):
+                fail("ci_evidence_invalid")
+            if item.get("head") != value["head"] or item.get("base") != value["base"]:
+                continue
+            _validate_ci_evidence(item, checks, mapping_digest, value["head"], value["base"])
+            if item["tested_oid"] != value["head"]:
+                pr_review_merge_ancestry(root, value, item["tested_oid"], [])
+            if item["check_id"] in matched:
+                fail("ci_ambiguous_evidence")
+            matched[item["check_id"]] = item
+            consumed.add(index)
+        expected = {c["id"] for c in mapping["checks"]}
+        summaries.append({"pull_request": value["pull_request"], "required_checks": sorted(expected),
+                          "mapped_checks": mapped,
+                          "missing_checks": sorted(expected - matched.keys()),
+                          "non_success_checks": sorted(k for k, item in matched.items()
+                              if ci_conclusion(item["conclusion"], affected=True, allow_unrelated_pending=False) != "passed")})
+    if consumed != set(range(len(evidence))):
+        fail("ci_unbound_evidence")
+    return {"status": "unverified", "producer_authentication": "unavailable", "recommendations": summaries}
 
 
 def pr_review_digest(value):
@@ -16474,11 +16756,7 @@ def pr_review_policy_snapshot(root):
         if not os.path.lexists(source):
             return None
         safe_directory(config, source.parent)
-        continuation_private(source)
-        with source.open("rb") as stream:
-            raw = stream.read(256 * 1024 + 1)
-        if len(raw) > 256 * 1024:
-            fail("pr_review_policy_invalid")
+        raw = pr_review_private_bytes(source, 256 * 1024)
         helper = Path.home() / ".local/bin/workflow-policy"
         safe_directory(Path.home(), helper.parent)
         item = helper.lstat()
@@ -16487,10 +16765,8 @@ def pr_review_policy_snapshot(root):
             fail("pr_review_policy_invalid")
         if json.loads(removal_run(root, [str(helper), "check"]), object_pairs_hook=no_duplicate_keys) != {"status": "passed"}:
             fail("pr_review_policy_unavailable")
-        continuation_private(source)
-        with source.open("rb") as stream:
-            if stream.read(256 * 1024 + 1) != raw:
-                fail("pr_review_policy_changed")
+        if pr_review_private_bytes(source, 256 * 1024) != raw:
+            fail("pr_review_policy_changed")
         policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
         if (not isinstance(policy, dict) or set(policy) != {"schema_version", "source_commit", "policy_digest",
                 "root", "cache_root", "repositories", "naming"}
@@ -16568,13 +16844,8 @@ def validate_pr_recommendations(values):
 def pr_review_read_recommendations(source):
     if not source:
         fail("pr_review_recommendations_required")
-    path = Path(source)
-    continuation_private(path)
-    with path.open("rb") as stream:
-        raw = stream.read(512 * 1024 + 1)
-    if len(raw) > 512 * 1024:
-        fail("pr_review_batch_invalid")
-    return validate_pr_recommendations(json.loads(raw, object_pairs_hook=no_duplicate_keys))
+    raw = pr_review_private_bytes(source, 512 * 1024)
+    return validate_pr_recommendations(ci_json(raw))
 
 
 def pr_review_merge_ancestry(root, value, merged, gates):
@@ -16627,7 +16898,7 @@ def pr_review_rebind(root, prior, updated, merged, gates):
     # cannot authorize the rebound recommendation; collection belongs to CI.
 
 
-def check_pr_review(root, record, source, *, prior_source=None, merge_commit=None, repair_check=None):
+def check_pr_review(root, record, source, *, prior_source=None, merge_commit=None, repair_check=None, ci_source=None):
     """Non-mutating preflight, never a merge authorization or CI result."""
     try:
         values = pr_review_read_recommendations(source)
@@ -16642,6 +16913,7 @@ def check_pr_review(root, record, source, *, prior_source=None, merge_commit=Non
         elif merge_commit:
             pr_review_merge_ancestry(root, values[0], merge_commit, gates)
         policy = pr_review_policy_snapshot(root)
+        ci_inspection = None
         reason = "pr_review_native_evidence_unavailable"
         if policy is None or not policy["delivery"]["enabled"]:
             reason = "pr_review_automatic_delivery_disabled"
@@ -16654,12 +16926,15 @@ def check_pr_review(root, record, source, *, prior_source=None, merge_commit=Non
                         or value["target_ref"] not in selected["targets"]
                         or selected["role"] == "integrator" and value["target_ref"] == value["ultimate_default_ref"]):
                     fail("pr_review_target_or_policy_not_approved")
+            if ci_source is not None:
+                ci_inspection = ci_review_inspection(root, values, selected, ci_source)
         if repair_check is not None:
             if not isinstance(repair_check, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", repair_check):
                 fail("pr_review_check_id_invalid")
             reason = "pr_review_repair_accounting_unavailable"
         print(json.dumps({"schema_version": 1, "status": "blocked", "reason": reason,
                           "recommendations": len(values), "batch_digest": values[0]["batch_digest"],
+                          "ci_inspection": ci_inspection,
                           "integration_outcome": "completed_unmerged" if record.get("state") == "completed" else "unverified",
                           "retirement_authority": False}, sort_keys=True))
         fail(reason)  # Source structure/policy alone can never pass a merge gate.
@@ -18510,6 +18785,7 @@ def parser():
     check.add_argument("--prior-recommendations", help="prior ordered recommendations for non-mutating planned-base validation")
     check.add_argument("--merge-commit", help="native Git merge object to inspect; never permission to request a merge")
     check.add_argument("--repair-check", help="request repair preflight; unavailable durable CI accounting blocks all repairs")
+    check.add_argument("--ci-evidence", help="private schema-1 evidence array; base-owned structure inspection, not native authentication")
     check.set_defaults(func=command_check)
     commit = commands.add_parser("gate-commit")
     commit.add_argument("--message", required=True)
