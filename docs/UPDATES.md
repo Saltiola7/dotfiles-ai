@@ -76,6 +76,16 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 
 ## Verification and recovery
 
+Herdr source defaults now select 0.9.5/protocol 22. The macOS ARM64 isolated
+named-server probe and both selected asset checksums qualify only those source
+inputs—not live handoff, Linux execution, guest updates or deployment. The separate
+guest literals remain 0.9.1. Upstream 0.9.5 stops installing Codex turn hooks and
+uses screen detection for Codex status; review existing integration configuration
+and any `herdr integration install codex` change inside the exact approved host
+plan, never run it automatically as pin maintenance. See the
+[release notes](https://github.com/herdrdev/herdr/releases/tag/v0.9.5).
+The operation hold, old-sender pane bound and all installer refusal guards remain.
+
 - In the reviewed source checkout, [the existing validation command](../README.md#update-and-validate)
   is `uv run --group test pytest`. It may resolve/install test dependencies;
   run only in the approved validation environment. Passing source tests does not

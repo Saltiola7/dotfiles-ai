@@ -805,9 +805,9 @@ def test_native_herdr_release_is_pinned_and_handed_off(tmp_path) -> None:
     installer = (ROOT / "run_onchange_before_install-herdr.sh.tmpl").read_text()
 
     assert 'executable = "~/.local/bin/herdr"' in defaults
-    assert 'version = "0.9.1"' in defaults
+    assert 'version = "0.9.5"' in defaults
     assert "protocol = 22" in defaults
-    assert "5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de" in defaults
+    assert "fb77c2232a05a8035421382c894392f4174e4e38a18e48af3dd0290157c3a7e2" in defaults
     assert "server live-handoff" in installer
     assert "server stop" not in installer
 
