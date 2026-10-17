@@ -83,7 +83,7 @@ def test_remote_user_environment_has_distinct_pinned_assets() -> None:
     assert "58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78" in defaults
     assert "herdr-linux-x86_64" in defaults
     assert "linux_amd64_asset_url" in herdr
-    assert "2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7" in defaults
+    assert "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d" in defaults
     for source in (tools, starship, atuin, opencode, herdr):
         assert "remote_user_environment.enabled" in source
         assert "uname -m" in source
