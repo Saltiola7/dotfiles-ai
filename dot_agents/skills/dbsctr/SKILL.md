@@ -266,6 +266,12 @@ product/domain truth merely to make documents agree.
 
 ### Review/Integrate
 
+For generic pull-request review, use `dbsctr-pr-review`: inspect settled intent,
+existing functionality/callers and shared ownership, then recommend the minimum
+ordered exact-head/base batch and obtain its checkpoint before authorized mutation.
+This does not broaden improvement-batch admission or activate automatic merges;
+unavailable native CI/base guards retain work as `completed_unmerged`.
+
 Always evaluate diff coherence, behavior/interface/contract/test traceability,
 migration impact, direct downstreams, configured CI, and final orchestrator
 integration. Provider overlays or explicit Project Policy may add bounded review;
