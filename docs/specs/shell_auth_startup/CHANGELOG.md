@@ -1,5 +1,23 @@
 # Shell Auth Startup Changelog
 
+## 2026-10-17 — HERDR-PROBE-DIAGNOSTICS
+
+- Added optional schema-1 health diagnostics distinguishing volume-device lookup,
+  subprocess launch/deadline, exit/signal, malformed plist and absent UUID. Only
+  fixed enum classifications and bounded numeric status persist; no raw output,
+  command arguments, paths or credentials. Older records remain readable; healthy
+  probes clear diagnostics, and malformed diagnostic metadata refuses.
+- Preserved existing UUID/sentinel/read-write admission, errno categories, native
+  probe ownership and existing-process protection. Test-only volume faults are
+  compiled out of production. Focused native fixtures cover actual failed launch,
+  timeout and signal, output privacy, schema compatibility and failure recovery.
+- Cycle Record retains failing-first evidence, affected validation, review and
+  Gate Commits. No Gate Exceptions, dependency/schema-version change, signed app
+  deployment, registration/TCC modification, service restart or cutover. Source
+  delivery cannot establish the cause or resolution of a deployed probe failure.
+- Intended Final Push: feature branch and draft PR into
+  `Saltiola7/dotfiles-ai:main`; any live probe-only activation is separately approved.
+
 ## 2026-10-16 — Compatible Herdr source pin
 
 - Updated the coherent defaults tuple from 0.9.1 to 0.9.5, retaining protocol 22

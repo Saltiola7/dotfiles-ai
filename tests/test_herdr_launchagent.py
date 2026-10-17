@@ -391,6 +391,7 @@ def test_herdr_host_swift_source_compiles_with_warnings_as_errors(tmp_path) -> N
     assert "HERDR_HOST_TEST_MODE" not in production_strings
     assert "HERDR_HOST_TEST_FAULT" not in production_strings
     assert "HERDR_HOST_TEST_NOTIFICATION_LOG" not in production_strings
+    assert "HERDR_HOST_TEST_VOLUME_FAULT" not in production_strings
 
 
 def test_herdr_host_builder_config_pipeline_emits_json(tmp_path) -> None:
@@ -583,6 +584,62 @@ def test_herdr_host_probe_classifies_permission_wrong_volume_and_recovery(tmp_pa
     assert not ({"prompt", "response", "session_id", "state_root"} & persisted.keys())
     assert (health_root.stat().st_mode & 0o777) == 0o700
     assert ((health_root / "health.json").stat().st_mode & 0o777) == 0o600
+
+
+def test_herdr_host_volume_failure_diagnostics_are_bounded_and_private(tmp_path) -> None:
+    executable, state, health_root = _build_herdr_host_fixture(tmp_path)
+    before = sorted(p.relative_to(state).as_posix() for p in state.rglob("*"))
+    cases = [
+        ("launch", "volume_launch", None, "empty", "empty", "io"),
+        ("timeout", "volume_timeout", None, "empty", "empty", "io"),
+        ("exit", "volume_exit", 23, "other", "other", "io"),
+        ("signal", "volume_signal", 15, "empty", "empty", "io"),
+        ("permission", "volume_exit", 1, "empty", "permission", "permission"),
+        ("unavailable", "volume_exit", 1, "empty", "unavailable", "unavailable"),
+        ("malformed", "volume_plist", 0, "other", "empty", "io"),
+        ("missing_uuid", "volume_uuid", 0, "property_list", "empty", "io"),
+    ]
+    for fault, operation, status, stdout_class, stderr_class, category in cases:
+        result = subprocess.run(
+            [executable, "probe"], capture_output=True, text=True, check=True,
+            env={**os.environ, "HERDR_HOST_TEST_MODE": "1", "HERDR_HOST_TEST_VOLUME_FAULT": fault},
+        )
+        record = json.loads(result.stdout)
+        diagnostic = record["probe_diagnostic"]
+        assert diagnostic == {
+            "operation": operation, "stdout_class": stdout_class, "stderr_class": stderr_class,
+            **({"status": status} if status is not None else {}),
+        }
+        assert record["error_category"] == category
+        assert record["state"] != "healthy" and record["writable"] is False
+        assert record["sentinel"] is False and "observed_volume_uuid" not in record
+        assert sorted(p.relative_to(state).as_posix() for p in state.rglob("*")) == before
+        assert json.loads((health_root / "health.json").read_text()) == record
+        assert len(json.dumps(diagnostic)) < 200
+        assert all(value not in result.stdout + result.stderr for value in (
+            "diagnostic-fixture-secret", "/private/diagnostic-fixture", "Bearer fixture-secret",
+        ))
+
+    # Optional schema-1 field: old health remains readable and fresh health clears it.
+    legacy = json.loads((health_root / "health.json").read_text())
+    for bad in (
+        {**legacy["probe_diagnostic"], "operation": "untrusted-private-text"},
+        {**legacy["probe_diagnostic"], "stdout_class": "untrusted-private-text"},
+        {**legacy["probe_diagnostic"], "operation": "volume_exit", "status": 999},
+        {**legacy["probe_diagnostic"], "operation": "volume_signal", "status": -1},
+        {**legacy["probe_diagnostic"], "operation": "volume_timeout", "status": 0},
+    ):
+        (health_root / "health.json").write_text(json.dumps({**legacy, "probe_diagnostic": bad}))
+        rejected = subprocess.run([executable, "status", "--json"], capture_output=True, text=True)
+        assert rejected.returncode == 78
+        assert "untrusted-private-text" not in rejected.stdout + rejected.stderr
+    legacy.pop("probe_diagnostic")
+    (health_root / "health.json").write_text(json.dumps(legacy))
+    old = subprocess.run([executable, "status", "--json"], capture_output=True, text=True, check=True)
+    assert "probe_diagnostic" not in json.loads(old.stdout)
+    recovered = subprocess.run([executable, "probe"], capture_output=True, text=True, check=True)
+    assert json.loads(recovered.stdout)["state"] == "healthy"
+    assert "probe_diagnostic" not in json.loads(recovered.stdout)
 
 
 def test_herdr_host_real_uuid_mismatch_performs_zero_state_root_writes(tmp_path) -> None:
