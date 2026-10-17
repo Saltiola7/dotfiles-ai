@@ -823,14 +823,11 @@ def test_native_herdr_release_is_pinned_and_handed_off(tmp_path) -> None:
 
 
 def test_failed_native_handoff_restores_previous_path_and_keeps_processes(tmp_path) -> None:
-    pane_pid_file = tmp_path / "pane.pid"
     server = subprocess.Popen([
-        "bash", "-c", f"sleep 30 & printf '%s' $! > {pane_pid_file}; wait"
-    ])
-    while not pane_pid_file.exists():
-        pass
-    pane_pid = int(pane_pid_file.read_text())
+        "bash", "-c", 'sleep 30 & pane=$!; trap \'kill "$pane" 2>/dev/null || true\' EXIT; printf "%s\\n" "$pane"; wait'
+    ], stdout=subprocess.PIPE, text=True)
     try:
+        pane_pid = int(server.stdout.readline())
         result, _, previous = _run_native_installer(
             tmp_path / "install", handoff_fails=True, seed_previous=True,
             server_pid=server.pid, pane_pid=pane_pid,
@@ -845,7 +842,8 @@ def test_failed_native_handoff_restores_previous_path_and_keeps_processes(tmp_pa
         assert "live handoff failed; old server left running" in result.stderr
     finally:
         server.terminate()
-        server.wait()
+        server.wait(timeout=5)
+        server.stdout.close()
 
 
 def test_interrupted_native_handoff_restores_previous_path(tmp_path) -> None:
