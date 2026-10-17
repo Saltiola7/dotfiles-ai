@@ -257,6 +257,55 @@ def test_mount_parsers_use_uuid_and_mountpoint_not_device_name(policy):
             policy.parse_mount(system, output)
 
 
+def test_macos_nested_root_queries_containing_mount_with_spaces(policy, tmp_path, monkeypatch):
+    mount = tmp_path / "volume with spaces"
+    nested = mount / "state/cache"
+    nested.mkdir(parents=True)
+    calls = []
+    def native(*args):
+        calls.append(args)
+        if args == ("df", "-P", str(nested)):
+            return f"Filesystem 512-blocks Used Available Capacity Mounted on\n/dev/disk7s1 1000 10 990 1% {mount}\n".encode()
+        assert args == ("diskutil", "info", "-plist", str(mount))
+        return policy.plistlib.dumps({"VolumeUUID": "UUID", "MountPoint": str(mount)})
+    monkeypatch.setattr(policy.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(policy, "run", native)
+    assert policy.mount_identity(nested) == ("UUID", str(mount))
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("df_output", [b"", b"header\npartial\n", b"header\na b c d e relative\n", b"header\nrow\nextra\n"])
+def test_macos_mount_discovery_refuses_incomplete_native_output(policy, tmp_path, monkeypatch, df_output):
+    monkeypatch.setattr(policy.platform, "system", lambda: "Darwin")
+    def native(*args):
+        assert args[0] == "df"
+        return df_output
+    monkeypatch.setattr(policy, "run", native)
+    with pytest.raises(ValueError):
+        policy.mount_identity(tmp_path)
+
+
+def test_native_macos_nested_root_volume_identity(policy, tmp_path):
+    if sys.platform != "darwin":
+        pytest.skip("native macOS mount qualification")
+    nested = tmp_path / "nested volume probe/cache"
+    nested.mkdir(parents=True)
+    uuid, mount = policy.mount_identity(nested)
+    assert uuid and Path(mount).is_absolute()
+    assert Path(mount).stat().st_dev == nested.stat().st_dev
+
+
+def test_macos_mount_discovery_refuses_disagreeing_native_mount(policy, tmp_path, monkeypatch):
+    monkeypatch.setattr(policy.platform, "system", lambda: "Darwin")
+    def native(*args):
+        if args[0] == "df":
+            return f"header\n/dev/disk7s1 1000 10 990 1% {tmp_path}\n".encode()
+        return policy.plistlib.dumps({"VolumeUUID": "UUID", "MountPoint": str(tmp_path.parent)})
+    monkeypatch.setattr(policy, "run", native)
+    with pytest.raises(ValueError):
+        policy.mount_identity(tmp_path)
+
+
 def test_private_render_binds_clean_source_and_rejects_dirty_or_invalid_input(generation_source, storage_home):
     template = (ROOT / "private_dot_config/dotfiles-ai/private_workflow-policy.json.tmpl").read_text()
     value = json.loads(render_generation(generation_source, storage_home, template))

@@ -19,6 +19,12 @@ The pinned Worktrunk pre-switch hook performs the check before creation; native
 Worktrunk still owns paths, collision refusal and allocation. This cooperative
 guard does not prevent an operator from disabling native hooks.
 
+macOS qualification resolves a nested root's containing mount with native POSIX
+`df -P` before asking `diskutil info -plist` for its UUID and mount point. Mounts
+with spaces and APFS firmlinks are supported; disagreeing native mount/device
+observations refuse without fallback. Linux keeps its native `findmnt` route.
+This corrects source qualification, not installation or activation authority.
+
 The explicit implementation-scope amendment adds
 `dot_local/bin/executable_workflow-policy` and
 `.chezmoitemplates/workflow-policy.tmpl`; policy behavior, critical risk and
