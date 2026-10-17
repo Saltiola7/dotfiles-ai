@@ -77,11 +77,55 @@ changes.
 When 1Password is disabled, `op-session` is not managed. Herdr and OpenCode keep
 their ordinary environment-based authentication.
 
+### Choose your storage paths
+
+Choose paths in `~/.config/dotfiles-ai/chezmoi.toml`, not public defaults. No
+particular username, drive name or external disk is required. Existing settings
+have distinct purposes:
+
+| Setting | What it selects |
+|---|---|
+| `sourceDir` | This chezmoi source checkout; ordinary project repositories stay wherever you keep them |
+| `data.dotfiles_ai.state.root` | Optional centralized runtime/session state; absent or empty retains existing home routing |
+| `data.dotfiles_ai.workspaces.root` | Parent for newly created native worktrees, not primary repositories |
+| `data.dotfiles_ai.workspaces.cache_root` | Parent for repository-scoped immutable DVC caches |
+
+For example, replace these synthetic paths with existing directories you own:
+
+```toml
+sourceDir = "/Volumes/Development/repos/dotfiles-ai"
+
+[data.dotfiles_ai.state]
+root = "/Volumes/Development/state"
+
+[data.dotfiles_ai.workspaces]
+schema_version = 1
+root = "/Volumes/Development/worktrees"
+cache_root = "/Volumes/Development/dvc-cache"
+```
+
+Home directories or Linux mount paths work too; the source/state examples use
+absolute paths. Workspace roots additionally support a leading `~/`. Keep caches
+outside checkouts and worktree roots. Exact-repository workspace/cache overrides
+are shown in [config.example.toml](config.example.toml).
+
+Changing a setting does not authorize relocating repositories, moving live
+session data, merging databases or reusing a replacement disk's old identity.
+State-root changes need data-preserving migration; new-worktree/cache roots need
+separate [storage qualification and activation](docs/specs/dotfiles_ai_distribution/features/workflow-storage-policy.md).
+On macOS, an enabled signed Herdr Host also binds `herdr.state_volume_uuid` to
+the selected state volume: reusing a drive name does not reuse its UUID.
+Its app stays at the current user's `~/Applications/Herdr Host.app`; development
+paths do not override that separate signing/registration boundary. Preview with
+the same explicit machine config before applying any selected targets.
+
 ## Native Task Workspaces
 
-Worktrunk owns task checkout creation, navigation and removal. Task paths use
-`<primary>.worktrees/<sanitized-branch>`; primary checkout paths and branches stay
-stable. Start a native OpenCode or Codex session in the selected checkout. A shell
+Worktrunk owns task checkout creation, navigation and removal. With qualified
+storage policy active, new task paths use the configured root and native
+repository/branch namespace; older installations retain their existing layout
+until separately activated. Existing primary and linked checkout paths and branches
+stay stable. Start a native OpenCode or Codex session in the selected checkout. A shell
 directory change does not retarget an existing conversation.
 
 For example, an operator can prepare a task against the repository's protected

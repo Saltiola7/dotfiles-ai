@@ -1,5 +1,25 @@
 # Herdr External-Volume Operation
 
+## Versioned app and parent-path verification
+
+Build `2` / version `1.0.1` changes app update metadata only. Health schema/host
+version `1`, the signing certificate/requirement and canonical home-relative app
+location are unchanged. Keep machine paths in the existing private TOML; use the
+[path map](../../../README.md#choose-your-storage-paths), not a fixed drive name.
+
+Before reporting a probe update or cutover qualified, inspect native BTM metadata
+for the selected user: the parent app URL must match the actual canonical signed
+app, and its `BundleProgram` must resolve there. An administrator may need to
+capture `sfltool dumpbtm` privately. Preserve failed records; do not publish the
+dump. A record pointing to a nonexistent home is not made valid by renaming an
+SSD, by an enabled child service, or by a correct LaunchServices default.
+
+The versioned update is a bounded repair candidate, not an automatic repair.
+Keep existing panes/backend untouched, retain both signed generations and require
+fresh native binding plus registered health after the separately approved trial.
+If the parent remains stale or health fails, stop; neither global `resetbtm`,
+database editing, an old-home alias nor a service/host restart is authorized.
+
 ## Diagnosing volume identity failures
 
 After separately qualified deployment of HERDR-PROBE-DIAGNOSTICS, inspect native

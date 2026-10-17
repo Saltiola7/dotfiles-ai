@@ -1,5 +1,23 @@
 # Shell Auth Startup Changelog
 
+## 2026-10-17 — HERDR-VERSIONED-REGISTRATION-SOURCE
+
+- Advanced signed app metadata to build 2 / version 1.0.1, retaining bundle and
+  signing identity, canonical home-relative location and schema/host version 1.
+  Added native BTM parent-path verification to update/cutover guidance; enabled
+  child registration or source tests alone do not prove live parent resolution.
+- Documented independent existing source/state/new-worktree/DVC-cache TOML paths
+  with a portable worked example, migration and replacement-volume boundaries.
+  Example Herdr pins match the already delivered 0.9.5 defaults; no new release
+  choice or guest pin changes. No additional path settings or allocator introduced.
+- Regression authorities cover version/identity/schema separation, actual example
+  parsing/rendering, custom roots, publication/instruction checks and signed-host
+  fixtures. Cycle Record retains failing-first, review, gates and delivery evidence.
+- No Gate Exceptions, live app promotion, re-registration, path/data relocation,
+  health/database edits, background-item reset or restart. The earlier deployment
+  and operation failures remain preserved; versioning is not claimed to resolve
+  them. Intended Final Push: feature branch/draft PR into `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-17 — HERDR-PROBE-DIAGNOSTICS
 
 - Added optional schema-1 health diagnostics distinguishing volume-device lookup,

@@ -1,9 +1,13 @@
 # Copy to ~/.config/dotfiles-ai/chezmoi.toml and replace /Users/you.
 # This file is chezmoi configuration, not an application secret store.
+# Pick source/state/new-worktree/cache paths independently; see README's path map.
+# Paths here are examples, not a required username, volume name or mount location.
 sourceDir = "/Users/you/.local/share/chezmoi-dotfiles-ai"
 persistentState = "/Users/you/.config/dotfiles-ai/chezmoi.boltdb"
 
 # [data.dotfiles_ai.state]
+# Optional runtime/session state, not a parent for all project repositories.
+# A changed state root needs separately approved migration of existing data.
 # root = "/Volumes/your-drive/state"
 
 # New work only; never relocates existing checkouts or migrates populated caches.
@@ -74,17 +78,19 @@ host_enabled = false
 # Names and ad-hoc signatures are deliberately rejected.
 signing_identity_sha256 = ""
 # Exact Volume UUID containing dotfiles_ai.state.root. The host refuses all
-# writes when the mounted volume does not match.
+# writes when the mounted volume does not match. A replacement disk renamed to
+# the same mount path still needs fresh identity qualification and approval.
+# The signed app's home-relative installation path is not a development root.
 state_volume_uuid = ""
 probe_interval_seconds = 30
 health_max_age_seconds = 90
 executable = "~/.local/bin/herdr"
-version = "0.9.1"
+version = "0.9.5"
 protocol = 22
-asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.1/herdr-macos-aarch64"
-asset_sha256 = "5fc7a7e7adfaca56fa80aa89dcb025693357268dab8285b9ce2d08a2313c89de"
-linux_amd64_asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.1/herdr-linux-x86_64"
-linux_amd64_asset_sha256 = "2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7"
+asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-macos-aarch64"
+asset_sha256 = "fb77c2232a05a8035421382c894392f4174e4e38a18e48af3dd0290157c3a7e2"
+linux_amd64_asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-linux-x86_64"
+linux_amd64_asset_sha256 = "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d"
 
 [data.dotfiles_ai.hermes]
 # Hermes is the optional orchestration plane; authenticate this environment separately.
