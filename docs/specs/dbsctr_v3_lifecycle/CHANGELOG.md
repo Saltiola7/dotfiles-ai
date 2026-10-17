@@ -21,6 +21,28 @@
   publication, host activation, rollback migration, cleanup or restart. Intended
   Final Push: feature branch and draft PR to `Saltiola7/dotfiles-ai:main`.
 
+## 2026-10-16 — WORKFLOW-MERGE-CLEANUP source guards
+
+- Extended the existing foreground supervisor with the narrow `--remove` mode,
+  canonical target/refusal checks, the same inherited reservation descriptor,
+  durable existing-owner attempt evidence and native Worktrunk branch retention.
+  Unknown outcomes require observation before any new explicit attempt.
+- Added strict schema-2 non-authorizing checker selection, descriptor/target/open-
+  description validation, original cycle/birth/gate/backup checks and conservative
+  DVC/artifact/process guards. Unrelated legacy manual inspection stays unchanged.
+  Synthetic default/PR/ancestry predicates are not fresh runtime evidence.
+- Native disposable descriptor propagation passed for Worktrunk 0.80.0. Full
+  coordination remains unqualified: macOS rejected the proposed same-file POSIX
+  lease; post-confirmation rechecks are not atomic fencing. No lock sidecar,
+  fabricated actor proof or silent launch-override removal was introduced.
+- Actual strict retirement remains blocked for ownership, handoff, fresh-default
+  producer and coordination capability. No automatic removal or branch deletion
+  is enabled by source delivery. Primary retains final gate/review results and
+  earlier failures; live visibility skips remain explicitly unqualified.
+- No Gate Exception, new dependency/registry, host activation, production removal,
+  primary/session change, data upload/migration, cache GC or restart. Intended
+  Final Push: source feature branch/draft PR to `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-16 — WORKFLOW-INTEGRATION-REVIEW source
 
 - Added intent-driven `dbsctr-pr-review` and references from DBSCTR/integrate/QA;

@@ -60,6 +60,20 @@ These facts supersede the earlier published-not-merged checkpoints without chang
 requirements, risk or dependency edges. Dependency maintenance now selects compatible
 updates first; major/data-format migrations remain separately approved follow-up.
 
+`native-handoff` subsequently delivered through
+[PR #219](https://github.com/Saltiola7/dotfiles-ai/pull/219), exact reconciled head
+`494c83b5cd8f893dfc92a6fcd6058141b3319083`, merged into `main` as
+`33ab395135b937f122e948fdc166695737289437` from base
+`9989a649bd220a9eabc2b1c7e12062b1ce39f293`. All three freshly configured Python
+checks passed; native current-base/admin enforcement and exact merge parents were
+verified. Mark native handoff delivered and merge-cleanup ready for its separate
+source launch. Live history/attachment/compaction qualification remains unavailable.
+Integration-review (#220), compression evaluation (#221) and compatible Pluggy
+maintenance (#217) were refreshed against this base and await fresh CI; no merge
+or deployment is inferred. Regression telemetry is registered source work, not
+delivered or activated. No host apply, live diagnostic publication, migration,
+production removal, service restart or shared-cache GC occurred.
+
 ## Invariants
 
 - Public generic contracts only. Private repository identity, content, branches,
