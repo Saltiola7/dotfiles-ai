@@ -76,6 +76,47 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 
 ## Verification and recovery
 
+### Codex launcher and hook ownership
+
+Chezmoi owns `~/.local/bin/codex` through [the launcher template](../dot_local/bin/executable_codex.tmpl).
+The [managed config](../private_dot_config/dotfiles-ai/codex-managed/config.toml)
+owns five inline CLI hooks; [the projection hook](../run_onchange_after_project-codex.sh.tmpl)
+and [projector](../dot_local/bin/executable_codex-project) preserve that ownership
+in the derived CLI `CODEX_HOME`. The desktop application's independently selected
+home is outside this projection. Its `hooks.json`, including obsolete entries
+pointing to missing scripts, is neither managed nor reinstalled by this source.
+Repair those entries separately, preserving unrelated hooks and native hook trust
+review; do not copy trust hashes or bypass review.
+
+For a qualified native installation, invoke `codex update` through the managed
+launcher so the native updater inherits its `CODEX_HOME` and `CODEX_INSTALL_DIR`.
+Running the upstream installer directly with its default install directory can
+replace the visible launcher with a native executable link, bypassing those guards.
+
+If projection reports a changed managed config, verify that its five owned hook
+definitions and every other managed file still match. The existing explicit
+`codex-project --reconcile-config SOURCE CODEX_HOME` operation can then rebaseline
+that config with private backups while preserving local preferences. Select the
+managed CLI home from the machine configuration; an app shell may inherit a
+different `CODEX_HOME`. Changed owned hooks still require a reviewed migration.
+
+If the launcher was replaced, privately back up the current file or link and
+review the selected source and rendered difference first. Use the dedicated
+dotfiles-ai configuration: plain `chezmoi` may select a different dotfiles source.
+After approving that exact replacement, restore only the launcher:
+
+```sh
+chezmoi -c ~/.config/dotfiles-ai/chezmoi.toml diff ~/.local/bin/codex
+chezmoi -c ~/.config/dotfiles-ai/chezmoi.toml apply --force --include files --exclude scripts ~/.local/bin/codex
+```
+
+This selection restores source-owned launcher bytes without running apply scripts,
+installing or updating Codex, or rewriting either home's hook configuration. Verify
+that command lookup resolves to the restored launcher and that its rendered state
+and native installation paths match the approved configuration.
+
+### Herdr qualification and shared checks
+
 Herdr source defaults now select 0.9.5/protocol 22. The macOS ARM64 isolated
 named-server probe and both selected asset checksums qualify only those source
 inputs—not live handoff, Linux execution, guest updates or deployment. The separate

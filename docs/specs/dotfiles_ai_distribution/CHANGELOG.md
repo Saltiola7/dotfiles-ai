@@ -1,5 +1,15 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-17 — Codex managed launcher reapply verification
+
+- Documented existing launcher, native install directory and CLI hook ownership,
+  plus targeted launcher recovery using the dedicated dotfiles-ai configuration.
+  Desktop hook files remain outside managed projection and are not recreated by
+  reapply; native hook trust review remains required after separate hook repairs.
+- Added isolated regression coverage for launcher restoration and preservation
+  across repeated targeted apply. No launcher, updater or hook implementation
+  changed; no new runtime management or deployment qualification is claimed.
+
 ## 2026-10-17 — WORKFLOW-HOST-ACTIVATION stage 1
 
 - Qualified the explicitly approved coherent workflow/helper/guidance generation

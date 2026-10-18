@@ -165,6 +165,75 @@ else:
     assert not (user / '.codex').exists()
 
 
+def test_targeted_apply_restores_launcher_and_preserves_codex_configuration(tmp_path):
+    from test_portable_distribution import data
+
+    helper = load_projector()
+    user = tmp_path / 'user'
+    managed = user / '.local/bin'
+    managed.mkdir(parents=True)
+    state = tmp_path / 'external'
+    state.mkdir()
+    (state / '.dotfiles-ai-state').touch()
+    codex_home, _, _ = native_installation(tmp_path)
+    codex_home.rename(state / 'codex')
+    codex_home = state / 'codex'
+    release = codex_home / 'packages/standalone/releases/0.161.0-aarch64-apple-darwin'
+    current = codex_home / 'packages/standalone/current'
+    current.unlink()
+    current.symlink_to(release)
+    install = user / '.local/libexec/dotfiles-ai/codex-native'
+    install.mkdir(parents=True)
+    (install / 'codex').symlink_to(current / 'bin/codex')
+    projector = managed / 'codex-project'
+    projector.write_bytes(PROJECTOR.read_bytes())
+    projector.chmod(0o700)
+    helper.prepare_native(codex_home, install)
+
+    source = ROOT / 'private_dot_config/dotfiles-ai/codex-managed'
+    helper.project(source, codex_home)
+    config = codex_home / 'config.toml'
+    config.write_text('model = "local-choice"\n' + config.read_text())
+    helper.project(source, codex_home, reconcile_config=True)
+    app_home = codex_home / 'home'
+    app_home.mkdir()
+    app_hooks = app_home / 'hooks.json'
+    app_hooks.write_text(json.dumps({'hooks': {'SessionStart': [
+        {'hooks': [{'type': 'command', 'command': 'retained-hook'}]},
+    ]}}))
+    private = codex_home / 'auth.json'
+    private.write_text('fixture private state\n')
+    preserved = {path: path.read_bytes() for path in (config, app_hooks, private)}
+
+    # Model the default standalone installer replacing the visible wrapper.
+    launcher = managed / 'codex'
+    launcher.symlink_to(current / 'bin/codex')
+    values = data(state_root=str(state))
+    values['chezmoi'] = {'os': 'darwin', 'arch': 'arm64'}
+    env = {**os.environ, 'HOME': str(user), 'PATH': f'{managed}:' + os.environ['PATH']}
+    apply = ['chezmoi', '--source', str(ROOT), '--destination', str(user),
+             '--config', '/dev/null', '--config-format', 'toml',
+             '--persistent-state', str(tmp_path / 'chezmoi-state.boltdb'),
+             '--override-data', json.dumps(values), '--force',
+             'apply', '--include', 'files', '--exclude', 'scripts', str(launcher)]
+    restored = None
+    for _ in range(2):
+        result = subprocess.run(apply, env=env, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert launcher.is_file() and not launcher.is_symlink()
+        if restored is None:
+            restored = launcher.read_bytes()
+        assert launcher.read_bytes() == restored
+        helper.project(source, codex_home)
+        result = subprocess.run([str(launcher), '--version'], env=env,
+                                capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == 'codex-cli 0.161.0'
+        assert current.resolve() == release
+        assert (install / 'codex').resolve() == release / 'bin/codex'
+        assert {path: path.read_bytes() for path in preserved} == preserved
+
+
 @pytest.mark.parametrize('system,architecture,native', [('darwin', 'arm64', True),
                                                       ('linux', 'arm64', False),
                                                       ('linux', 'amd64', False)])
