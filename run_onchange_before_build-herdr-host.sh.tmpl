@@ -14,7 +14,8 @@ HERDR={{ .dotfiles_ai.herdr.executable | quote }}
 PROBE_INTERVAL={{ .dotfiles_ai.herdr.probe_interval_seconds }}
 HEALTH_MAX_AGE={{ .dotfiles_ai.herdr.health_max_age_seconds }}
 APP="$HOME/Applications/Herdr Host.app"
-PENDING_PREFIX="$HOME/Applications/Herdr Host.pending"
+STAGING_ROOT="$HOME/Applications/.herdr-host-staging.noindex"
+PENDING_PREFIX="$STAGING_ROOT/Herdr Host.pending"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 SIGNING_SHA256=$(printf '%s' "$SIGNING_SHA256" | /usr/bin/tr '[:lower:]' '[:upper:]')
@@ -81,6 +82,7 @@ trap '/bin/rm -rf "$tmp"' EXIT
 STAGED_APP="$tmp/Herdr Host.app"
 CONTENTS="$STAGED_APP/Contents"
 /bin/mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Library/LaunchAgents"
+AGENT_PLIST="$CONTENTS/Library/LaunchAgents/dev.dotfiles-ai.herdr-host-agent.plist"
 
 /bin/cat > "$tmp/herdr-host.swift" <<'HERDR_HOST_SWIFT'
 {{ include ".chezmoitemplates/herdr-host.swift" -}}
@@ -88,9 +90,10 @@ HERDR_HOST_SWIFT
 /bin/cat > "$CONTENTS/Info.plist" <<'HERDR_HOST_INFO'
 {{ include ".chezmoitemplates/herdr-host-Info.plist" -}}
 HERDR_HOST_INFO
-/bin/cat > "$CONTENTS/Library/LaunchAgents/dev.dotfiles-ai.herdr-host-agent.plist" <<'HERDR_HOST_AGENT'
+/bin/cat > "$AGENT_PLIST" <<'HERDR_HOST_AGENT'
 {{ include ".chezmoitemplates/dev.dotfiles-ai.herdr-host-agent.plist" -}}
 HERDR_HOST_AGENT
+/usr/bin/plutil -replace Program -string "$APP/Contents/MacOS/herdr-host" "$AGENT_PLIST"
 
 CONFIG="$CONTENTS/Resources/herdr-host-config.json"
 /usr/bin/plutil -create xml1 "$CONFIG"
@@ -110,7 +113,7 @@ CONFIG="$CONTENTS/Resources/herdr-host-config.json"
 /bin/chmod 600 "$CONFIG"
 
 /usr/bin/plutil -lint "$CONTENTS/Info.plist" >/dev/null
-/usr/bin/plutil -lint "$CONTENTS/Library/LaunchAgents/dev.dotfiles-ai.herdr-host-agent.plist" >/dev/null
+/usr/bin/plutil -lint "$AGENT_PLIST" >/dev/null
 swiftc -O -warnings-as-errors -framework ServiceManagement -framework Security \
     "$tmp/herdr-host.swift" -o "$CONTENTS/MacOS/herdr-host"
 /bin/chmod 755 "$CONTENTS/MacOS/herdr-host"
@@ -155,6 +158,16 @@ if [[ -e "$APP" ]]; then
 fi
 
 if [[ "$existing_app" == true ]]; then
+    if [[ ! -e "$STAGING_ROOT" && ! -L "$STAGING_ROOT" ]]; then
+        /bin/mkdir -m 700 "$STAGING_ROOT"
+    fi
+    [[ -d "$STAGING_ROOT" && ! -L "$STAGING_ROOT" \
+        && "$(/usr/bin/stat -f '%u' "$STAGING_ROOT")" == "$(/usr/bin/id -u)" \
+        && "$(/usr/bin/stat -f '%Lp' "$STAGING_ROOT")" == 700 \
+        && "$(/usr/bin/stat -f '%d' "$STAGING_ROOT")" == "$(/usr/bin/stat -f '%d' "$STAGING_ROOT/..")" ]] || {
+        echo "Herdr Host staging must be a real same-filesystem user-owned mode-0700 directory" >&2
+        exit 1
+    }
     pending_stamp=$(/bin/date -u '+%Y%m%dT%H%M%SZ')
     PENDING_APP="$PENDING_PREFIX.$pending_stamp.$$.app"
     [[ ! -e "$PENDING_APP" && ! -L "$PENDING_APP" ]] || {

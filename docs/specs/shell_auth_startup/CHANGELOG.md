@@ -1,5 +1,24 @@
 # Shell Auth Startup Changelog
 
+## 2026-10-17 — HERDR-ABSOLUTE-PROGRAM-SOURCE
+
+- Prepared build3 / version1.0.2 with native absolute `Program` injected before
+  signing, bound to the existing canonical wrapper. Retained app/agent/Mach-service
+  identities, signing requirements, health schema/host version1 and all Swift
+  provenance, ownership, privacy and exact-volume admission guards.
+- New updates stage under a hidden mode-0700 noindex Applications child; aliased,
+  unsafe and cross-filesystem staging fail closed. Existing apps/candidates remain
+  in place; no new path option, metadata registration or cleanup introduced.
+- Corrected the prior BTM-display-path readiness requirement: healthy controls
+  can display the same nonexistent-home prefix. Require live canonical executable
+  identity and fresh registered volume health, not that diagnostic string.
+- Failing-first authority and affected native/publication checks cover packaged
+  Program injection/escaping, staging preservation/refusal, source fixtures and
+  both changed instruction files. Cycle Record retains exact gate/delivery results.
+- Source candidate only: no confirmed live repair, deployment, grant, migration or
+  restart; failed earlier operations remain retained. No Gate Exceptions. Intended
+  Final Push: feature branch/draft PR into `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-17 — HERDR-VERSIONED-REGISTRATION-SOURCE
 
 - Advanced signed app metadata to build 2 / version 1.0.1, retaining bundle and
