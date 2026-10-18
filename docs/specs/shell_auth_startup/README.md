@@ -2,25 +2,42 @@
 
 ## Versioned probe-only update boundary
 
-HERDR-VERSIONED-REGISTRATION-SOURCE prepares app build `2` / version `1.0.1`.
+HERDR-ABSOLUTE-PROGRAM-SOURCE prepares app build `3` / version `1.0.2`.
 The bundle identifier, signing requirement, home-relative canonical app location,
 health schema and host compatibility version remain unchanged. Existing private
 TOML selects development/state/worktree/cache roots independently; see the
 [portable path map](../../../README.md#choose-your-storage-paths). These settings
 do not change macOS's signed-app registration location or authorize data moves.
 
-Given an updated signed bundle, a separately approved deployment must verify that
-the native BTM parent application URL for the current user resolves to the current
-canonical app, and that the relative agent program resolves within that app.
-An enabled child record or a correct LaunchServices default alone does not prove
-that parent binding. Given a stale/missing parent, retain failed evidence and
-report cutover unready; do not create an alias for the missing home, reset all
-background items, edit registration databases or restart unrelated processes.
+The bundled agent uses native `Program`, injected before signing as the absolute
+canonical executable path. The source plist's `__HERDR_HOST_EXECUTABLE__` marker is
+never a runtime path. This avoids `BundleProgram`'s relative executable-resolution
+route while retaining SMAppService, the same agent/Mach-service identities, sealed
+configuration, and all existing provenance, signature and admission guards. It
+does not make the app relocatable; its canonical home-relative location remains
+required. State/development roots remain independently configurable.
 
-A version increment makes the candidate distinguishable to native update
-machinery; it is not proof that stale metadata refreshed. Source fixtures cannot
-prove live BTM repair. Fresh registered UUID/sentinel/write health and preserved
-conversation/server ownership remain required after any separately approved trial.
+Given an updated signed bundle, a separately approved deployment must verify the
+canonical executable vnode of the live native agent, its strict signed app, and a
+fresh doctor response with `probe_responsibility=registered_agent`. The displayed BTM URLs are not
+executable-resolution authority: healthy native controls can display the same
+nonexistent-home prefix as a failing app. An enabled child, a displayed URL or a
+LaunchServices default alone cannot qualify readiness. Missing native execution or
+unhealthy registered UUID/sentinel/write proof leaves cutover unready. Preserve
+failures; do not create home aliases, reset background items, edit databases or
+restart unrelated processes to manufacture a pass.
+
+Given an existing app, new candidates are retained under user-owned mode-0700
+`~/Applications/.herdr-host-staging.noindex/`; never overwrite the canonical app
+or earlier candidates. Reject aliased, unsafe or cross-filesystem staging instead
+of chmod, migration or copy fallback. Existing top-level pending apps stay in place;
+the builder does not register candidate metadata or claim indexing is impossible.
+
+The version/path update is a source repair candidate, not proof of production
+recovery or an explanation of macOS internals. Fresh native execution and
+registered volume health, exact conversations, ownership and rollback remain
+mandatory after a separately approved trial. Source and isolated fixture success
+never supersede failed live evidence.
 
 ## Volume-probe diagnostic contract
 
@@ -237,7 +254,7 @@ Glossary:
 | State | required: authentication decision flow and external-volume health state | Where must loading fail instead of prompting, and when must new OpenCode work be circuit-broken without restarting existing processes? | OnePasswordSessionCache and ExternalVolumeHealthController invariants | Shell-auth owner; session-state or volume-health changes |
 | Data/trust | required: authentication decision flow and health-record boundary | Where can a service-account token originate, and what minimal health evidence may remain on the internal disk? | SecretLoader, Keychain, and ExternalVolumeHealthStatus contracts | Shell-auth owner; credential-source or health-data changes |
 | Schema | not_applicable: projected JSON and optional health diagnostics are fully defined by field/validation contracts; no entity relationship changes | - | SecretLoader invariants and Volume-probe diagnostic contract | Shell-auth owner |
-| Dependency/deployment | required: signed host install, registration, activation, and live handoff sequence | How does chezmoi replace the privacy identity without terminating pane processes or losing rollback? | HerdrHostApplication and HerdrServer scenarios and contracts | Shell-auth owner; signing identity, registration, release pin, or launchd ownership changes |
+| Dependency/deployment | required: signed host installation and native upgrade decision table | How does chezmoi replace the privacy identity without terminating pane processes or losing rollback? | HerdrHostApplication and HerdrServer scenarios and contracts | Shell-auth owner; signing identity, registration, release pin, or launchd ownership changes |
 | Quantitative | not_applicable: timeouts are fixed safety bounds, not comparative evidence | - | CommandTimeout contract | Shell-auth owner |
 
 V3.35 adds the missing profile and completion ledger without changing credential
@@ -292,43 +309,28 @@ shells may use a valid cache; only an interactive local TTY may mint a new bound
 session. SSH and noninteractive contexts without valid credentials fail fast.
 One grouped fetch succeeds only after the complete projected secret set validates.
 
-```mermaid
-flowchart TD
-    accTitle: Chezmoi-managed Herdr host installation and native Herdr upgrade
-    accDescr: An explicitly provisioned signing identity signs the Herdr Host app and its nested agent. After SMAppService registration, the native parent app binding must match the canonical app before Login Items, Full Disk Access and activation qualification. A stale binding retains the running server and rollback. Chezmoi also verifies the pinned native Herdr release. Compatible upgrades use live handoff; failed activation or handoff preserves the prior supervisor and running server.
-    C[Reviewed host and agent sources] --> N[Build app bundle and nested agent]
-    P[Explicitly provisioned signing identity] --> S[Sign nested code then app bundle]
-    N --> S
-    S --> Q[Verify strict signature and stable designated requirement]
-    Q --> G[Register agent through SMAppService]
-    G --> BTM{Native parent binding matches canonical app?}
-    BTM -->|Yes| U[Operator grants Login Items and FDA]
-    BTM -->|No| W[Keep current server and AUTH-014 rollback]
-    U --> X{Approved maintenance activation?}
-    X -->|No| W[Keep current server and AUTH-014 rollback]
-    X -->|Yes| E[Start signed host and validate exact volume]
-    E --> A
-    A[Chezmoi release pin changes] --> V[Download and verify SHA-256]
-    V --> R{Herdr server running?}
-    R -->|No| I[Install native executable]
-    R -->|Yes, handoff capable| H[Install atomically and request live handoff]
-    R -->|Yes, no handoff| F[Fail without replacing or stopping server]
-    H --> RESP{Pinned server responds?}
-    RESP -->|Yes| O{Native supervisor and managed owner active?}
-    RESP -->|No| B[Restore prior executable and keep old server]
-    O -->|Yes| K[Owner remains alive for replacement]
-    O -->|No| D[Defer LaunchAgent reload]
-    D --> L[LaunchAgent owns next natural start]
-```
+### Signed host installation and native upgrade decisions
+
+| Scope and guard | Ordered action | Failure or hold |
+|---|---|---|
+| Host: reviewed sources and explicitly provisioned identity | Build the app and bundled agent; bind canonical `Program`; sign nested code before the outer bundle | Preserve the current server and rollback |
+| Host: strict signatures and stable designated requirement verified | Register through SMAppService; operator decides Login Items and FDA consent | No consent substitution or activation |
+| Host: consent available | Verify live canonical executable identity and fresh registered exact-volume health | Retain failures and rollback; displayed BTM paths cannot qualify execution |
+| Host: all prior gates passed | Require separately approved maintenance activation before assuming responsibility | No approval means keep current server and AUTH-014 rollback |
+| Native Herdr: release pin changed | Download and verify SHA-256 independently of Host activation | Reject unverified bytes |
+| Native Herdr: no server running | Install native executable | Retain recoverable prior executable |
+| Native Herdr: server running and handoff capable | Install atomically and request native live handoff | Unsupported handoff fails without replacement or stop; failed response restores prior executable and keeps old server |
+| Native Herdr: replacement responds and managed supervisor/owner are active | Owner remains alive for replacement | Without managed ownership, defer LaunchAgent reload until the next natural start |
 
 **Text Equivalent:** An operator explicitly provisions the documented local
 signing identity. Chezmoi builds the app bundle and nested agent, signs nested
 code before the outer bundle, verifies both the strict signature and stable
 designated requirement, and asks the app to register its agent through
-SMAppService. Its native parent binding must match the canonical app; a stale or
-missing parent retains the current server and rollback without activation.
-The operator grants the visible Login Items and Full Disk Access
-permissions. Installation does not disturb the current server. During an
+SMAppService. The operator grants the visible Login Items and Full Disk Access
+permissions. The live executable must match the signed canonical app; missing or
+failed native identity proof retains the current server and rollback without
+activation. Displayed BTM paths do not establish that proof.
+Installation does not disturb the current server. During an
 approved maintenance window, the signed host validates the exact external
 volume before assuming responsibility; failed activation retains the AUTH-014
 supervisor as rollback. Chezmoi separately downloads and verifies a changed

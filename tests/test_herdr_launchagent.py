@@ -3,6 +3,7 @@ import json
 import os
 import plistlib
 import runpy
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -41,9 +42,9 @@ def _build_herdr_host_fixture(
     (app / "Contents/Info.plist").write_text(
         (ROOT / ".chezmoitemplates/herdr-host-Info.plist").read_text()
     )
-    (launch_agents / "dev.dotfiles-ai.herdr-host-agent.plist").write_text(
-        (ROOT / ".chezmoitemplates/dev.dotfiles-ai.herdr-host-agent.plist").read_text()
-    )
+    agent = plistlib.loads((ROOT / ".chezmoitemplates/dev.dotfiles-ai.herdr-host-agent.plist").read_bytes())
+    agent["Program"] = str(executable)
+    (launch_agents / "dev.dotfiles-ai.herdr-host-agent.plist").write_bytes(plistlib.dumps(agent))
     subprocess.run(
         [
             "swiftc", "-D", testing_define, "-warnings-as-errors",
@@ -354,14 +355,14 @@ def test_herdr_host_bundle_uses_distinct_probe_only_smappservice_agent() -> None
     assert "dev.dotfiles-ai.herdr-host" in info
     assert "dev.dotfiles-ai.herdr-host-agent" in agent
     assert "dev.dotfiles-ai.herdr-server" not in agent
-    assert "<key>BundleProgram</key>" in agent
-    assert "Contents/MacOS/herdr-host" in agent
+    assert "<key>Program</key>" in agent
+    assert "__HERDR_HOST_EXECUTABLE__" in agent
     assert "<key>AssociatedBundleIdentifiers</key>" in agent
     assert "SMAppService" in builder
     assert "--sign -" not in builder
     assert '--keychain "$KEYCHAIN"' in builder
     assert "tccutil" not in source + builder
-    assert 'PENDING_PREFIX="$HOME/Applications/Herdr Host.pending"' in builder
+    assert 'PENDING_PREFIX="$STAGING_ROOT/Herdr Host.pending"' in builder
     assert 'PENDING_APP="$PENDING_PREFIX.$pending_stamp.$$.app"' in builder
     assert "previous-pending.app" not in builder
     create_config = builder.index('/usr/bin/plutil -create xml1 "$CONFIG"')
@@ -376,8 +377,8 @@ def test_herdr_host_bundle_uses_distinct_probe_only_smappservice_agent() -> None
 
 def test_herdr_host_versioned_update_keeps_identity_and_health_schema() -> None:
     info = plistlib.loads((ROOT / ".chezmoitemplates/herdr-host-Info.plist").read_bytes())
-    assert info["CFBundleVersion"] == "2"
-    assert info["CFBundleShortVersionString"] == "1.0.1"
+    assert info["CFBundleVersion"] == "3"
+    assert info["CFBundleShortVersionString"] == "1.0.2"
     assert info["CFBundleIdentifier"] == "dev.dotfiles-ai.herdr-host"
     assert info["CFBundleExecutable"] == "herdr-host"
     source = (ROOT / ".chezmoitemplates/herdr-host.swift").read_text()
@@ -385,6 +386,72 @@ def test_herdr_host_versioned_update_keeps_identity_and_health_schema() -> None:
     assert 'schemaVersion: 1' in source
     builder = (ROOT / "run_onchange_before_build-herdr-host.sh.tmpl").read_text()
     assert 'include ".chezmoitemplates/herdr-host-Info.plist"' in builder
+
+
+def test_herdr_host_agent_binds_only_canonical_absolute_program(tmp_path: Path) -> None:
+    template = ROOT / ".chezmoitemplates/dev.dotfiles-ai.herdr-host-agent.plist"
+    agent = plistlib.loads(template.read_bytes())
+    assert "BundleProgram" not in agent
+    assert agent["Program"] == "__HERDR_HOST_EXECUTABLE__"
+    destination = tmp_path / "agent.plist"
+    destination.write_bytes(template.read_bytes())
+    executable = tmp_path / "Home & storage/Applications/Herdr Host.app/Contents/MacOS/herdr-host"
+    subprocess.run(["/usr/bin/plutil", "-replace", "Program", "-string", str(executable), str(destination)], check=True)
+    assert plistlib.loads(destination.read_bytes())["Program"] == str(executable)
+    builder = (ROOT / "run_onchange_before_build-herdr-host.sh.tmpl").read_text()
+    inject = builder.index('/usr/bin/plutil -replace Program -string "$APP/Contents/MacOS/herdr-host" "$AGENT_PLIST"')
+    assert inject < builder.index('/usr/bin/codesign --force --sign')
+
+
+def test_herdr_host_update_staging_is_private_and_fail_closed(tmp_path: Path) -> None:
+    builder = (ROOT / "run_onchange_before_build-herdr-host.sh.tmpl").read_text()
+    assert 'STAGING_ROOT="$HOME/Applications/.herdr-host-staging.noindex"' in builder
+    assert 'PENDING_PREFIX="$STAGING_ROOT/Herdr Host.pending"' in builder
+    begin = builder.index('    if [[ ! -e "$STAGING_ROOT"')
+    end = builder.index('    pending_stamp=', begin)
+    block = builder[begin:end]
+    root = tmp_path / "staging.noindex"
+    environment = {**os.environ, "STAGING_ROOT": str(root)}
+    def check() -> subprocess.CompletedProcess:
+        return subprocess.run(["/bin/bash", "-euc", block], env=environment, capture_output=True)
+    assert check().returncode == 0
+    assert root.stat().st_mode & 0o777 == 0o700
+    retained = root / "retained"
+    retained.write_text("preserve")
+    assert check().returncode == 0 and retained.read_text() == "preserve"
+    root.chmod(0o777)
+    assert check().returncode != 0 and root.stat().st_mode & 0o777 == 0o777
+    root.chmod(0o700)
+    alias = tmp_path / "alias"
+    alias.symlink_to(root, target_is_directory=True)
+    environment["STAGING_ROOT"] = str(alias)
+    assert check().returncode != 0 and retained.read_text() == "preserve"
+    # Exercise metadata mismatch branches without changing ownership or mounting disks.
+    fake_stat = tmp_path / "fake-stat"
+    fake_stat.write_text("""#!/bin/bash
+case "$TEST_STAT_MODE:$2" in
+  owner:%u) echo "$(( $(/usr/bin/id -u) + 1 ))" ;;
+  device:%d) [[ "$3" == "$STAGING_ROOT" ]] && echo 1 || echo 2 ;;
+  *) exec /usr/bin/stat "$@" ;;
+esac
+""")
+    fake_stat.chmod(0o700)
+    simulated = block.replace("/usr/bin/stat", shlex.quote(str(fake_stat)))
+    environment["STAGING_ROOT"] = str(root)
+    for mode in ("owner", "device"):
+        result = subprocess.run(["/bin/bash", "-euc", simulated],
+                                env={**environment, "TEST_STAT_MODE": mode}, capture_output=True)
+        assert result.returncode != 0
+    assert root.stat().st_uid == os.getuid() and retained.read_text() == "preserve"
+
+
+def test_herdr_host_readiness_rejects_btm_display_path_as_authority() -> None:
+    for filename in ("README.md", "OPERATION.md"):
+        text = (ROOT / "docs/specs/shell_auth_startup" / filename).read_text()
+        assert "displayed BTM URLs are not" in text
+        assert "canonical executable vnode" in text
+        assert "registered_agent" in text
+        assert "the parent app URL must match" not in text
 
 
 def test_herdr_host_swift_source_compiles_with_warnings_as_errors(tmp_path) -> None:
