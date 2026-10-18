@@ -1,23 +1,33 @@
 # Herdr External-Volume Operation
 
-## Versioned app and parent-path verification
+## Versioned app and executable verification
 
-Build `2` / version `1.0.1` changes app update metadata only. Health schema/host
+Build `3` / version `1.0.2` binds native `Program` to the absolute canonical
+executable before signing, avoiding the relative `BundleProgram` route. The
+source plist marker `__HERDR_HOST_EXECUTABLE__` must not survive packaging.
+Health schema/host
 version `1`, the signing certificate/requirement and canonical home-relative app
 location are unchanged. Keep machine paths in the existing private TOML; use the
 [path map](../../../README.md#choose-your-storage-paths), not a fixed drive name.
 
-Before reporting a probe update or cutover qualified, inspect native BTM metadata
-for the selected user: the parent app URL must match the actual canonical signed
-app, and its `BundleProgram` must resolve there. An administrator may need to
-capture `sfltool dumpbtm` privately. Preserve failed records; do not publish the
-dump. A record pointing to a nonexistent home is not made valid by renaming an
-SSD, by an enabled child service, or by a correct LaunchServices default.
+Before reporting a probe update or cutover qualified, require the exact native
+agent job and PID, its canonical executable vnode (path/device/inode), and strict
+verification of the signed canonical app. Use the selected user's native
+`launchctl print` and the live PID's executable mapping, not a guessed PID or
+process name. Require fresh doctor authority `probe_responsibility=registered_agent`,
+signature validity and expected configured UUID/sentinel/read/write health, with
+probe-only ownership and no owned child. A zero command exit alone is insufficient.
+
+The displayed BTM URLs are not executable-resolution authority: healthy native
+controls can show the same nonexistent-home prefix as a failing app. Native BTM
+captures remain private diagnostic evidence, not a reason to fabricate home aliases
+or reset background items. Neither an enabled item nor a LaunchServices default
+substitutes for the canonical executable vnode and registered health.
 
 The versioned update is a bounded repair candidate, not an automatic repair.
 Keep existing panes/backend untouched, retain both signed generations and require
-fresh native binding plus registered health after the separately approved trial.
-If the parent remains stale or health fails, stop; neither global `resetbtm`,
+fresh native execution plus registered health after the separately approved trial.
+If execution or health fails, stop; neither global `resetbtm`,
 database editing, an old-home alias nor a service/host restart is authorized.
 
 ## Diagnosing volume identity failures
@@ -145,7 +155,8 @@ decision and is not a repair for an existing process tree.
 
 The target application and bundled host are not App Sandbox processes. They
 receive only the user-approved privacy access required for the configured state
-root. The bundled LaunchAgent uses `BundleProgram`; it must not launch an
+root. The bundled LaunchAgent uses native absolute `Program`, sealed to
+`~/Applications/Herdr Host.app/Contents/MacOS/herdr-host`; it must not launch an
 unbundled shell as the responsible executable.
 
 The expected configured root on this machine is `/Volumes/ext/state`, marked by
@@ -375,7 +386,7 @@ active AUTH-014 supervisor or server while preparing the new host.
 |---|---|---|
 | 1. Identity | Exact configured fingerprint resolves to one valid private-key identity | Missing, ambiguous, expired, or ad-hoc identity |
 | 2. Build | Swift and nested native components compile from reviewed source; inside-out signatures and strict verification pass | Compile warning/error, signature mismatch, or unstable designated requirement |
-| 3. Stage | `Herdr Host.app` is installed atomically under `~/Applications`; its bundled plist uses `BundleProgram` | Bundle path, ownership, mode, plist, or nested-code mismatch |
+| 3. Stage | New install is canonical; updates stay in private hidden noindex staging. Bundled absolute `Program` equals the sealed canonical wrapper path | Bundle/path, unresolved marker, unsafe staging, signature or nested-code mismatch |
 | 4. Register | The application registers its agent with `SMAppService.agent(plistName:)`; macOS reports the expected Login Item | Registration error or unexpected responsible item |
 | 5. Consent | Operator approves the exact Login Item and FDA item | Approval absent, broad substitute grant proposed, or identity cannot be proven |
 | 6. Probe | Probe-only mode validates expected UUID, sentinel, read, and atomic write without starting Herdr | Permission, availability, I/O, wrong-volume, or privacy-log failure |
@@ -426,15 +437,21 @@ command and explicit restart approval are both available.
 
 If the canonical app already exists, a rebuild preserves it and every earlier
 candidate, then writes a new versioned
-`~/Applications/Herdr Host.pending.<UTC>-<pid>.app`. Inspect candidates without
+`~/Applications/.herdr-host-staging.noindex/Herdr Host.pending.<UTC>.<pid>.app`.
+The staging directory must be real, user-owned, mode-0700 and on the Applications
+filesystem. Unsafe existing staging is rejected without chmod or relocation.
+Earlier top-level candidates remain intact; no candidate metadata is explicitly
+registered. Hidden/noindex staging reduces discovery exposure, not proof that the
+OS cannot index a bundle. Qualify the native known-location set separately before
+any live promotion. Inspect candidates without
 executing them:
 
 ```sh
-find ~/Applications -maxdepth 1 -name 'Herdr Host.pending.*.app' -prune -print
+find ~/Applications/.herdr-host-staging.noindex -maxdepth 1 -name 'Herdr Host.pending.*.app' -prune -print
 codesign --verify --strict --verbose=4 \
-  ~/Applications/'Herdr Host.pending.<exact-candidate>.app'
+  ~/Applications/.herdr-host-staging.noindex/'Herdr Host.pending.<exact-candidate>.app'
 codesign --display --requirements - \
-  ~/Applications/'Herdr Host.pending.<exact-candidate>.app'
+  ~/Applications/.herdr-host-staging.noindex/'Herdr Host.pending.<exact-candidate>.app'
 ```
 
 There is no general-purpose pending-to-canonical promotion command in this probe-only
