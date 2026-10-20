@@ -1,0 +1,15 @@
+# Public example; replace /home/you locally. Never put credentials here.
+sourceDir = "/home/you/.local/share/chezmoi-dotfiles-ai"
+persistentState = "/home/you/.local/state/dotfiles-ai/chezmoi.boltdb"
+
+[data.dotfiles_ai.headless_server]
+enabled = true
+
+[data.dotfiles_ai.state]
+root = ""
+
+[data.dotfiles_ai.remote_user_environment]
+enabled = false
+
+[data.dotfiles_ai.linux_workstation]
+enabled = false

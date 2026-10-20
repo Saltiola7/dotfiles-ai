@@ -9,6 +9,7 @@ LICENSE
 config.example.toml
 config.omarchy.example.toml
 config.remote-user.example.toml
+config.headless-server.example.toml
 .github/
 **/.DS_Store
 **/__pycache__/
@@ -207,4 +208,19 @@ install-guest-development-tools.sh
 
 {{ if not .dotfiles_ai.linux_workstation.enabled }}
 .local/bin/dotfiles-ai-omarchy-setup
+{{ end }}
+
+# Native headless server: base dotfiles owns shell; upstream owns codex/state.
+{{ if .dotfiles_ai.headless_server.enabled }}
+{{ if or (ne .chezmoi.os "linux") (ne .chezmoi.arch "arm64") .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.linux_workstation.enabled .dotfiles_ai.state.root }}
+{{ fail "Headless server role requires exclusive Linux ARM64 native ownership" }}
+{{ end }}
+*
+!.local/
+.local/*
+!.local/bin/
+.local/bin/*
+!.local/bin/codex-install
+!.local/bin/codex-project
+!install-codex.sh
 {{ end }}

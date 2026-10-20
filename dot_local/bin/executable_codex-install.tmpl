@@ -1,6 +1,28 @@
 #!/bin/bash
 set -euo pipefail
-{{ if and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64") -}}
+{{ if .dotfiles_ai.headless_server.enabled -}}
+{{ if or (ne .chezmoi.os "linux") (ne .chezmoi.arch "arm64") .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.linux_workstation.enabled .dotfiles_ai.state.root -}}
+{{ fail "Headless Codex requires Linux ARM64 and exclusive native default-home ownership" }}
+{{ end -}}
+[[ $(uname -s) == Linux && $(uname -m) == aarch64 ]] || exit 75
+[[ -z "${CODEX_HOME:-}" || "$CODEX_HOME" == "$HOME/.codex" ]] || exit 75
+export CODEX_HOME="$HOME/.codex"
+export CODEX_INSTALL_DIR="$HOME/.local/bin"
+[[ ! -L "$CODEX_HOME" ]] || exit 75
+if [[ ! -e "$CODEX_HOME" ]]; then
+    mkdir -m 700 "$CODEX_HOME"
+fi
+"$HOME/.local/bin/codex-project" --prepare-native "$CODEX_HOME" "$CODEX_INSTALL_DIR" || exit 75
+if [[ -e "$CODEX_INSTALL_DIR/codex" || -L "$CODEX_INSTALL_DIR/codex" ]]; then
+    "$HOME/.local/bin/codex-project" --resolve-native "$CODEX_HOME" "$CODEX_INSTALL_DIR" >/dev/null || exit 75
+    exit 0
+fi
+installer=$(mktemp)
+trap 'rm -f "$installer"' EXIT
+curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 10 --max-time 60 https://chatgpt.com/codex/install.sh -o "$installer"
+PATH="$CODEX_INSTALL_DIR:$PATH" CODEX_NON_INTERACTIVE=1 /bin/sh "$installer"
+"$HOME/.local/bin/codex-project" --resolve-native "$CODEX_HOME" "$CODEX_INSTALL_DIR" >/dev/null || exit 75
+{{ else if and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64") -}}
 {{ if .dotfiles_ai.state.root -}}
 export DOTFILES_AI_STATE_ROOT={{ .dotfiles_ai.state.root | quote }}
 export CODEX_HOME={{ printf "%s/codex" .dotfiles_ai.state.root | quote }}
