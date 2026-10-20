@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dotfiles Skill Creator"
+  short_description: "Create shared skills in the dotfiles-ai source"
+  default_prompt: "Use $dotfiles-skill-creator to create or update a portable shared skill in dotfiles-ai and install it for Desktop and CLI."

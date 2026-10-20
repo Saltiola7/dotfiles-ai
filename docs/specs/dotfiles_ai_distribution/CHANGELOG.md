@@ -1,5 +1,37 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-20 — Shared Skills and Source Authoring
+
+- Imported the existing `sprint-ticket-refinement` skill and OpenAI metadata
+  unchanged into the source-owned shared user-skill tree, alongside the managed
+  `jira-ticket` dependency. Workflow and approval boundaries are preserved.
+- Completed the authorized targeted sprint-skill installation with exact
+  source-byte comparison. Preserved the identical Desktop original outside
+  discovery in private storage. No other skill, home, profile or launcher changed.
+- Added `dotfiles-skill-creator`, a normally discoverable prompt-only wrapper
+  routing portable skill authoring to the selected task checkout and shared
+  installation target. It delegates mechanics to the built-in creator and
+  preserves source ownership, complete resources, collision reconciliation,
+  privacy, lifecycle and existing installation authority.
+- Validation: the imported skill's built-in validation and isolated five-file
+  render passed earlier. The new wrapper passed built-in validation; isolated
+  explicit-source, script-excluded preview and two targeted applies across all
+  three bundles matched seven source files, retained dependency references and
+  left no diff. No broad tests were repeated for this wrapper-only addition.
+- Earlier focused/adjacent checks yielded 85 passed and one failed legacy
+  OpenCode command-resolution probe in synthetic HOME. The installed launcher
+  could not locate native OpenCode there; sandbox execution may stop earlier at
+  the centralized-state guard. This does not establish an imported-skill failure.
+- Completed targeted wrapper installation with complete file-set and byte
+  verification and an empty managed diff. Native managed CLI discovery returned
+  one enabled entry each for the wrapper, sprint skill and `jira-ticket` without
+  a model invocation. Desktop selector behavior was not independently exercised.
+- Independent synthetic forward checks covered different runtime homes, selected
+  task source versus configured primary, divergent edits, private examples and
+  native-session handoff. Source is retained on a feature branch; no lifecycle
+  registration, gate completion, remote publication, Jira or GitHub mutation is
+  claimed.
+
 ## 2026-10-17 — WORKFLOW-HOST-ACTIVATION stage 1
 
 - Qualified the explicitly approved coherent workflow/helper/guidance generation

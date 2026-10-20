@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sprint Ticket Refinement"
+  short_description: "Refine sprint tickets with evidence and focused interviews"
+  default_prompt: "Use $sprint-ticket-refinement to select whose current-sprint tickets to refine, review GitHub context, interview me, and prepare Jira edits for approval."
