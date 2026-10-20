@@ -337,6 +337,10 @@ object format. The dedicated resolved hash lock owns transitive versions; direct
 pins alone do not lock them. The installer uses existing Python 3.12–3.14 and uv,
 requires hashes, and never upgrades or downloads a Python interpreter. Python
 environment creation and dependency installation belong only to the installer.
+This repair qualifies the automatic installer on macOS only. Non-macOS rendering
+excludes it; an explicit unsupported invocation refuses before dependency writes.
+Guest/remote DVC consumers retain work if their required managed runtime has not
+been separately qualified and activated. There is no fallback to PATH DVC.
 
 ### Behavior and failures
 

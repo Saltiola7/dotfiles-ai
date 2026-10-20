@@ -5,11 +5,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
 import pytest
+from test_managed_dvc import WRAPPER, provision_native_runtime
 
 
 @pytest.fixture
@@ -262,17 +262,19 @@ def test_activated_policy_selects_only_the_full_repository_cache_namespace(setup
     assert ["dvc", "cache", "dir", "--local", str(expected)] in calls
 
 
-@pytest.mark.skipif(shutil.which("dvc") is None, reason="native DVC authority is unavailable")
 def test_native_dvc_code_only_bootstrap_and_targeted_reflink(tmp_path):
     primary, task, cache, home = (tmp_path / name for name in ("primary", "task", "shared cache", "home"))
     primary.mkdir()
     home.mkdir()
+    provision_native_runtime(home)
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("GIT_", "DVC_", "DBSCTR_"))}
     env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / "config"), XDG_CACHE_HOME=str(home / "cache"),
                XDG_DATA_HOME=str(home / "data"), XDG_STATE_HOME=str(home / "state"), DVC_NO_ANALYTICS="1")
 
     def run(cwd, *argv, check=True):
+        if argv[0] == "dvc":
+            argv = [sys.executable, "-I", str(WRAPPER), *argv[1:]]
         return subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, check=check, timeout=60)
 
     run(primary, "git", "init", "-b", "main")

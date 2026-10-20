@@ -181,6 +181,17 @@ and reflink-only configuration. Cache/configuration conflicts require explicit
 data-preserving migration. Removal requires operator approval and the blocking
 managed Worktrunk preservation hook; cache garbage collection is separate.
 
+Managed bootstrap, registration and preservation checks require the explicit
+`managed-dvc` runtime with GCS support. Its dedicated dependency lock pins DVC
+3.67.1, dvc-data 3.18.3 and dvc-gs 3.1.0 with resolved transitive hashes. A project
+virtual environment or another `dvc` on PATH cannot satisfy this prerequisite.
+`managed-dvc --check-runtime` qualifies versions/backend imports offline; it does
+not verify GCS credentials or remote data. See the [runtime contract](docs/specs/dotfiles_ai_distribution/features/workflow-storage-policy.md#managed-dvc-runtime-qualification)
+and [update owner](docs/UPDATES.md). Existing installations require a separately
+approved coherent installer/lock/helper activation; source changes alone do not
+install this runtime. Failures retain work and distinguish unavailable commands
+from unsafe outputs.
+
 The [native-workspace contract](docs/specs/dbsctr_v3_lifecycle/features/worktrunk-native-workspaces.md)
 defines the source transition. Existing installations need separately qualified,
 operator-approved cutover and restart; source tests do not qualify live adoption,

@@ -4,24 +4,26 @@ import importlib.util
 import os
 import json
 from pathlib import Path
-import shutil
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
+from test_managed_dvc import WRAPPER, provision_native_runtime
 
 
 @pytest.fixture
 def preservation_native(tmp_path, monkeypatch):
-    if shutil.which("dvc") is None:
-        pytest.skip("native DVC authority unavailable")
     repo, home, remote, cache = (tmp_path / name for name in ("repo", "home", "remote", "cache"))
     for path in (repo, home, remote):
         path.mkdir(mode=0o700)
+    provision_native_runtime(home)
     env = {key: value for key, value in os.environ.items() if not key.startswith(("GIT_", "DVC_", "DBSCTR_"))}
     env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / "config"), XDG_CACHE_HOME=str(home / "cache"),
                XDG_DATA_HOME=str(home / "data"), XDG_STATE_HOME=str(home / "state"), DVC_NO_ANALYTICS="1")
     def run(*argv):
+        if argv[0] == "dvc":
+            argv = [sys.executable, "-I", str(WRAPPER), *argv[1:]]
         result = subprocess.run(argv, cwd=repo, env=env, check=True, text=True, capture_output=True, timeout=30)
         return result.stdout
     run("git", "init", "-b", "main")
@@ -172,16 +174,18 @@ def test_native_directory_member_absence_never_passes_even_with_present_dir_obje
     assert (repo / "dataset/item.txt").read_bytes() == b"synthetic directory member\n"
 
 
-@pytest.mark.skipif(shutil.which("dvc") is None, reason="native DVC authority is unavailable")
 def test_native_removal_checks_absent_unchanged_modified_and_ignored_data(tmp_path, monkeypatch):
     repo, home, cache, task = (tmp_path / name for name in ("repo", "home", "cache", "task"))
     repo.mkdir()
     home.mkdir()
+    provision_native_runtime(home)
     env = {key: value for key, value in os.environ.items() if not key.startswith(("GIT_", "DVC_", "DBSCTR_"))}
     env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / "config"), XDG_CACHE_HOME=str(home / "cache"),
                XDG_DATA_HOME=str(home / "data"), XDG_STATE_HOME=str(home / "state"), DVC_NO_ANALYTICS="1")
 
     def run(*argv, cwd=repo):
+        if argv[0] == "dvc":
+            argv = [sys.executable, "-I", str(WRAPPER), *argv[1:]]
         return subprocess.run(argv, cwd=cwd, env=env, check=True, text=True, capture_output=True, timeout=30).stdout
 
     run("git", "init", "-b", "main")
@@ -207,6 +211,17 @@ def test_native_removal_checks_absent_unchanged_modified_and_ignored_data(tmp_pa
     before = run("git", "worktree", "list", "--porcelain")
     assert core.workspace_remove_check(task)["eligible"] is True
     assert not (task / "dataset").exists()
+    native_removal = core.removal_run
+    with monkeypatch.context() as unavailable:
+        def command_failure(root, argv, **kwargs):
+            if argv[0] == "dvc":
+                raise core.DVCCommandUnavailable("dvc_command_unavailable")
+            return native_removal(root, argv, **kwargs)
+        unavailable.setattr(core, "removal_run", command_failure)
+        retained = core.workspace_remove_check(task)
+        assert "dvc_command_unavailable" in retained["reasons"]
+        assert "data_disposition_required" not in retained["reasons"]
+        assert retained["eligible"] is False
     run("dvc", "checkout", "dataset.dvc", cwd=task)
     cached = {path: path.read_bytes() for path in cache.rglob("*") if path.is_file()}
     retained = core.workspace_remove_check(task)

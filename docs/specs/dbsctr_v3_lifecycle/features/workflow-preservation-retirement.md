@@ -465,6 +465,14 @@ allocation; Discovery-to-Build reuse is permitted only with clean committed
 authority and matching registration constraints, never duplicate writers or a
 second checkout solely for aesthetics.
 
+Managed-runtime selection is owned by the distribution's
+[DVC qualification contract](../../dotfiles_ai_distribution/features/workflow-storage-policy.md#managed-dvc-runtime-qualification).
+Registration and removal/preservation use its explicit isolated `managed-dvc`
+entry point, never project PATH. Runtime/backend/command unavailability retains
+work with a bounded category; it is distinct from unsafe outputs and grants no
+new remote backend, upload, removal or migration authority. Existing qualified
+versions, object format and remote-closure guards below remain unchanged.
+
 ## Visual Evidence
 
 | Concern | Decision / review question |

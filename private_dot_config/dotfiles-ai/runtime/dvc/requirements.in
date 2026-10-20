@@ -1,0 +1,4 @@
+# Preserve the qualified preservation runtime and add explicit GCS support.
+dvc[gs]==3.67.1
+dvc-gs==3.1.0
+dvc-data==3.18.3

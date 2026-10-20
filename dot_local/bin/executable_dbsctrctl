@@ -124,6 +124,10 @@ class SourceIndexUnavailable(RuntimeError):
     pass
 
 
+class DVCCommandUnavailable(RuntimeError):
+    """A sanitized DVC command failure, not evidence of unsafe output contents."""
+
+
 def git(root, *args, check=True, env=None):
     result = subprocess.run(
         ["git", *args], cwd=root, text=True, capture_output=True,
@@ -4063,6 +4067,10 @@ def require_native_checkout(root, args, *, clean=True):
         result = subprocess.run([sys.executable, str(helper), "--check"], cwd=root, env=INSPECT_ENV,
                                 capture_output=True, text=True, timeout=90)
         if result.returncode:
+            category = result.stderr.strip().removeprefix("worktree-dvc-setup: ")
+            if category in {"managed_dvc_runtime_unavailable", "managed_dvc_runtime_unqualified",
+                            "managed_dvc_backend_unavailable", "dvc_command_unavailable", "dvc_command_failed"}:
+                fail("DVC registration: " + category)
             fail("DVC registration requires an explicit external reflink-only cache; run worktree-dvc-setup --cache PATH")
 
 
@@ -7890,7 +7898,12 @@ def workspace_processes(root):
 
 
 def removal_run(root, argv, *, input_text=None, accepted=(0,)):
-    environment = {**INSPECT_ENV, "DVC_NO_ANALYTICS": "1"} if argv[0] == "dvc" else INSPECT_ENV
+    is_dvc = argv[0] == "dvc"
+    environment = {**INSPECT_ENV, "DVC_NO_ANALYTICS": "1"} if is_dvc else INSPECT_ENV
+    if is_dvc:
+        helper = Path(__file__).resolve().with_name(
+            "executable_managed-dvc" if Path(__file__).name.startswith("executable_") else "managed-dvc")
+        argv = [sys.executable, "-I", str(helper), *argv[1:]]
     payload = input_text.encode() if input_text is not None else b""
     if len(payload) > 1024 * 1024:
         fail("native preservation evidence unavailable")
@@ -7898,10 +7911,21 @@ def removal_run(root, argv, *, input_text=None, accepted=(0,)):
         if source is not None:
             source.write(payload)
             source.seek(0)
-        child = subprocess.Popen(argv, cwd=root, env=environment, stdin=source or subprocess.DEVNULL,
-                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-        output, errors = preservation_output(child, limit=1024 * 1024, timeout=60)
+        try:
+            child = subprocess.Popen(argv, cwd=root, env=environment, stdin=source or subprocess.DEVNULL,
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+            output, errors = preservation_output(child, limit=1024 * 1024, timeout=60)
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            if is_dvc:
+                raise DVCCommandUnavailable("dvc_command_unavailable") from None
+            raise
     if child.returncode not in accepted or errors.strip():
+        if is_dvc:
+            category = errors.decode("utf-8", errors="replace").strip().removeprefix("managed-dvc: ")
+            if child.returncode != 78 or category not in {
+                    "managed_dvc_runtime_unavailable", "managed_dvc_runtime_unqualified", "managed_dvc_backend_unavailable"}:
+                category = "dvc_command_failed"
+            raise DVCCommandUnavailable(category)
         fail("native preservation evidence unavailable")
     return output.decode("utf-8")
 
@@ -8222,6 +8246,8 @@ def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
         if data_files and removal_run(root, ["dvc", "check-ignore", "--stdin"],
                                      input_text="\n".join(data_files) + "\n", accepted=(0, 1)).strip():
             fail("DVC-ignored output contents require disposition")
+    except DVCCommandUnavailable as error:
+        reasons.append(str(error))
     except (RuntimeError, OSError, ValueError, TypeError, KeyError, configparser.Error, subprocess.SubprocessError):
         reasons.append("data_disposition_required")
     try:

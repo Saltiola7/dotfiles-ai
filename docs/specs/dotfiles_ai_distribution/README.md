@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution
 
+**Managed DVC GCS runtime source:** the [storage contract](features/workflow-storage-policy.md#managed-dvc-runtime-qualification)
+assigns the explicit `managed-dvc` entry point and isolated hash-locked runtime to
+this distribution. Setup, registration and removal/preservation callers select
+the same runtime independently of project PATH. Offline GCS backend qualification
+precedes cache writes; command failures remain distinct from unsafe output state.
+Existing code-only, reflink, migration-refusal and remote-preservation contracts
+remain in force. Source tests are not host activation or GCS connectivity evidence;
+Deploy and Operate require a separately approved exact installer/lock/helper plan.
+
 **Workflow-convergence Discovery:** [portable storage policy](features/workflow-storage-policy.md)
 defines configurable centralized new worktrees, repository-scoped shared caches
 and trusted exact-repository policy. Existing active work stays in place. Feature
