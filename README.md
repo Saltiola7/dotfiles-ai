@@ -119,6 +119,31 @@ Its app stays at the current user's `~/Applications/Herdr Host.app`; development
 paths do not override that separate signing/registration boundary. Preview with
 the same explicit machine config before applying any selected targets.
 
+## Headless Fedora ARM64 Codex
+
+Use [config.headless-server.example.toml](config.headless-server.example.toml)
+with a separate chezmoi source and state database. Set `sourceDir` and
+`persistentState` to existing owner-controlled paths, then run:
+
+```sh
+chezmoi --config ~/.config/dotfiles-ai/chezmoi.toml managed
+chezmoi --config ~/.config/dotfiles-ai/chezmoi.toml diff
+chezmoi --config ~/.config/dotfiles-ai/chezmoi.toml apply
+```
+
+This explicit role manages only `codex-install`, `codex-project` and the
+missing-only installation hook. Dotfiles owns Bash and developer packages.
+Upstream owns `~/.local/bin/codex` and `~/.codex`; reapply preserves installed
+releases, authentication and sessions. Existing unknown executables or unsafe
+homes fail closed. Automatic native installation is disabled; run `codex update`
+explicitly, review upstream release notes, then rerun validation. Owner signs in
+on the target with `codex login --device-auth`; never copy another host's tokens.
+Desktop remote enrollment remains a private client setting, not public inventory.
+
+For recovery, restore the source/configuration first, then authenticate locally
+or restore an approved encrypted backup. Never remove the native home to fix an
+apply failure. See the [ownership and validation contract](docs/specs/codex_control_plane/features/pi400-headless-native.md).
+
 ## Native Task Workspaces
 
 Worktrunk owns task checkout creation, navigation and removal. With qualified

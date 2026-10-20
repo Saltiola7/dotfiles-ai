@@ -1,5 +1,14 @@
 # Codex Control Plane Changelog
 
+## 2026-10-19 — Headless native Linux role
+
+- Added an exclusive opt-in Fedora ARM64 role with separate chezmoi state.
+- Reused native selection/policy guards; missing-only upstream installation
+  preserves newer binaries, existing private login and sessions.
+- Excluded shell, desktop, legacy wrapper/updater and unrelated services.
+- Added install/adoption, unsafe-home, conflicting-role and repeat-apply coverage.
+- Live deployment and hosted CI outcomes are recorded in the private cycle.
+
 ## 2026-10-03 — Native workspace source transition
 
 - Retired the task continuation producer/probe/requalifier, including its selected

@@ -563,3 +563,11 @@ Focused `tests/test_codex_control_plane.py` coverage preceded the first source
 change. Live validation additionally requires exact host and guest version, state
 isolation, hook correlation, version-probed documented app-server methods, worker launch/resume,
 federation, and process-preserving recovery evidence.
+
+## Headless native Linux role
+
+The opt-in Fedora ARM64 role is specified in
+[the headless native bootstrap contract](features/pi400-headless-native.md).
+It reuses native selection and policy guards while preserving upstream executable,
+private authentication and session ownership. Dotfiles retains shared shell and
+package ownership; this role does not enroll unrelated services or credentials.
