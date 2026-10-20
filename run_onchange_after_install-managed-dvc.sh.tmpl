@@ -1,0 +1,52 @@
+#!/bin/bash
+# lock: {{ include "private_dot_config/dotfiles-ai/runtime/dvc/requirements.txt" | sha256sum }}
+set -euo pipefail
+{{ if ne .chezmoi.os "darwin" -}}
+echo 'managed-dvc: installer unavailable on this platform' >&2
+exit 1
+{{ end -}}
+umask 077
+base="$HOME/.config/dotfiles-ai/runtime/dvc"
+lock="$base/requirements.txt"
+wrapper="$HOME/.local/bin/managed-dvc"
+command -v uv >/dev/null || { echo 'managed-dvc: uv prerequisite unavailable' >&2; exit 1; }
+# Use an existing system interpreter; project venvs and Python downloads are excluded.
+python=$(uv python find --system --no-python-downloads '>=3.12,<3.15')
+"$python" -I -c '
+import os, pathlib, stat, sys
+base = pathlib.Path(sys.argv[1])
+for path in [base, *base.parents]:
+    if path == pathlib.Path.home().parent:
+        break
+    item = path.lstat()
+    if not stat.S_ISDIR(item.st_mode) or item.st_uid != os.getuid() or item.st_mode & 0o022:
+        sys.exit("managed-dvc: unsafe runtime directory")
+lock = base / "requirements.txt"
+item = lock.lstat()
+if not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid() or item.st_mode & 0o022 or item.st_nlink != 1:
+    sys.exit("managed-dvc: unsafe runtime lock")
+venvs = base / "venvs"
+venvs.mkdir(mode=0o700, exist_ok=True)
+item = venvs.lstat()
+if not stat.S_ISDIR(item.st_mode) or item.st_uid != os.getuid() or item.st_mode & 0o022:
+    sys.exit("managed-dvc: unsafe runtime directory")
+' "$base"
+digest=$("$python" -I -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$lock")
+generation="$base/venvs/$digest"
+if [[ -e $generation/.managed-lock-sha256 ]]; then
+    "$wrapper" --check-runtime
+    exit 0
+fi
+# An incomplete generation requires explicit recovery; never destroy or reuse it.
+[[ ! -e $generation && ! -L $generation ]] || {
+    echo 'managed-dvc: incomplete generation requires explicit recovery' >&2; exit 1;
+}
+uv venv --no-python-downloads --python "$python" "$generation"
+uv pip sync --no-python-downloads --python "$generation/bin/python" --require-hashes --link-mode copy "$lock"
+# Mark complete only after the same offline qualification used by every caller.
+"$generation/bin/python" -I -c 'import runpy,sys; ns=runpy.run_path(sys.argv.pop(1), run_name="managed_dvc_install_check"); exec(ns["QUALIFY_AND_RUN"])' "$wrapper" --check-runtime
+[[ $("$python" -I -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$lock") == "$digest" ]] || {
+    echo 'managed-dvc: lock changed during installation' >&2; exit 1;
+}
+printf '%s\n' "$digest" > "$generation/.managed-lock-sha256"
+"$wrapper" --check-runtime

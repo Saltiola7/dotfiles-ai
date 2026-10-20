@@ -1,5 +1,26 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-20 — MANAGED-DVC-GCS
+
+- Added a distribution-owned DVC runtime with a resolved hash lock for DVC
+  3.67.1, dvc-data 3.18.3 and dvc-gs 3.1.0. Setup, registration and preservation
+  use its explicit entry point; unavailable commands remain distinct from dirty
+  outputs, with bounded diagnostics and existing retention guards.
+- Activated the exact approved four-file and single-installer plan on one macOS
+  host. Installed hashes/modes, offline version/backend qualification, complete
+  runtime generation, helper interfaces and synthetic code-only/reflink and
+  modified-data preservation smokes passed. Recovery preimages and generations
+  remain retained under the distribution update owner's documented procedure.
+- Validation: 300 affected checks before final review, then 71 final native DVC
+  checks and 126 distribution/lifecycle checks. Original red and environment
+  failure evidence remains in the private Cycle Record. No Gate Exceptions.
+- Native process inventory and optional workflow capture were unavailable in the
+  synthetic installed fixture; preservation conservatively retained work. Offline
+  GCS qualification establishes backend availability, not remote connectivity.
+- Source Gate Commits: `29eac6e`, `4a7515d`; the Cycle Record owns completion and
+  deployment receipts. Intended Final Push: recorded feature branch and draft PR
+  into `main`.
+
 ## 2026-10-17 — WORKFLOW-HOST-ACTIVATION stage 1
 
 - Qualified the explicitly approved coherent workflow/helper/guidance generation

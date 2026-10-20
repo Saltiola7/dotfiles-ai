@@ -12,6 +12,36 @@ import pytest
 ROOT = Path(__file__).parents[1]
 
 
+def test_managed_dvc_installer_renders_hash_lock_and_valid_shell():
+    source = ROOT / "run_onchange_after_install-managed-dvc.sh.tmpl"
+    rendered = chezmoi("execute-template", template=source.read_text()).stdout
+    lock = ROOT / "private_dot_config/dotfiles-ai/runtime/dvc/requirements.txt"
+    assert hashlib.sha256(lock.read_bytes()).hexdigest() in rendered
+    assert "--require-hashes" in rendered and "--no-python-downloads" in rendered
+    assert "--link-mode copy" in rendered  # package installation; DVC cache remains reflink-only
+    subprocess.run(["bash", "-n"], input=rendered, text=True, check=True)
+    installed = chezmoi("managed").stdout.splitlines()
+    assert ".local/bin/managed-dvc" in installed
+    assert ".config/dotfiles-ai/runtime/dvc/requirements.txt" in installed
+    assert ".config/dotfiles-ai/runtime/dvc/requirements.in" not in installed
+
+
+def test_managed_dvc_installer_does_not_activate_unqualified_linux():
+    configured = data()
+    configured["chezmoi"] = {"os": "linux", "arch": "amd64"}
+    command = ["chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
+               "--override-data", json.dumps(configured), "execute-template"]
+    def render(path):
+        return subprocess.run(command, input=(ROOT / path).read_text(), text=True,
+                              capture_output=True, check=True).stdout
+    assert "install-managed-dvc.sh" in render(".chezmoiignore").splitlines()
+    script = render("run_onchange_after_install-managed-dvc.sh.tmpl")
+    result = subprocess.run(["/bin/bash"], input=script, text=True, capture_output=True,
+                            env={"PATH": "/unavailable", "HOME": "/unavailable"}, timeout=5)
+    assert result.returncode == 1
+    assert result.stderr.strip() == "managed-dvc: installer unavailable on this platform"
+
+
 def data(
     onepassword: bool = False,
     vertex: bool = True,

@@ -15,9 +15,24 @@ import tempfile
 
 
 def run(args, cwd):
-    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=30)
+    is_dvc = args[0] == "dvc"
+    if is_dvc:
+        helper = Path(__file__).resolve().with_name(
+            "executable_managed-dvc" if Path(__file__).name.startswith("executable_") else "managed-dvc")
+        args = [sys.executable, "-I", str(helper), *args[1:]]
+    try:
+        result = subprocess.run(args, cwd=cwd, capture_output=True, text=True, timeout=30,
+                                env={**os.environ, "DVC_NO_ANALYTICS": "1"} if is_dvc else None)
+    except (OSError, subprocess.SubprocessError):
+        raise ValueError("dvc_command_unavailable" if is_dvc else "native_command_unavailable") from None
     if result.returncode:
-        raise ValueError(f"{args[0]} operation failed; inspect native configuration")
+        if is_dvc:
+            category = result.stderr.strip().removeprefix("managed-dvc: ")
+            if result.returncode == 78 and category in {
+                    "managed_dvc_runtime_unavailable", "managed_dvc_runtime_unqualified", "managed_dvc_backend_unavailable"}:
+                raise ValueError(category)
+            raise ValueError("dvc_command_failed")
+        raise ValueError("native_command_failed")
     return result.stdout.strip()
 
 
@@ -91,8 +106,9 @@ def independent_state(metadata):
 
 
 def unchanged_outputs(root):
+    raw = run(["dvc", "data", "status", "--json"], root)
     try:
-        value = json.loads(run(["dvc", "data", "status", "--json"], root))
+        value = json.loads(raw)
         if (not isinstance(value, dict) or set(value) - {
                 "committed", "uncommitted", "unchanged", "not_in_cache", "untracked"}
                 or value.get("committed") or value.get("untracked")):
@@ -146,6 +162,7 @@ def configure(root, cache, *, check=False):
     if any(key.startswith("DVC_") and key != "DVC_NO_ANALYTICS" for key in os.environ):
         raise ValueError("DVC environment overrides require explicit reconciliation")
     root = root.resolve()
+    run(["dvc", "--check-runtime"], root)
     metadata = root / ".dvc"
     if metadata.is_symlink() or not metadata.is_dir():
         raise ValueError("a local DVC metadata directory is required")

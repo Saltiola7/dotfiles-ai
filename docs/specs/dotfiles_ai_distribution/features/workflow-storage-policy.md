@@ -253,6 +253,9 @@ No exception, receipt, preflight or registration is established here.
 
 ## Visual Evidence
 
+The managed-runtime qualification below extends the existing boundary and
+interaction evidence. It does not change root selection or preservation policy.
+
 | Concern | Decision / review question |
 |---|---|
 | Boundary | required: flow below; who selects roots and allocates? |
@@ -304,3 +307,98 @@ unsupported or unique-data states without fallback/migration. S-13 retains work
 and restores compatible configuration after interrupted activation. Only validated
 new work proceeds. Canonical source: acceptance table; owner: distribution
 maintainers; update on failure or rollback changes.
+
+## Managed DVC runtime qualification
+
+Owner: distribution maintainers. Scope: the managed DVC executable used by
+bootstrap, registration and preservation checks. Risk: elevated for this runtime
+repair; the surrounding retained-data policy remains critical. Product journey
+19 and its code-only/reflink and retention outcomes remain unchanged.
+
+The **managed runtime** is one isolated Python environment owned by the
+distribution installer. Its **runtime generation** is the SHA-256 of the deployed
+resolved requirements lock. A **backend qualification** imports the GCS backend
+without contacting a remote. A successful import proves package availability,
+not credentials, connectivity or remote object completeness.
+
+`managed-dvc` is the explicit entry point at `~/.local/bin/managed-dvc`.
+It selects only `~/.config/dotfiles-ai/runtime/dvc/venvs/LOCK_SHA256` using
+`~/.config/dotfiles-ai/runtime/dvc/requirements.txt`. This managed location is
+independent of project `PATH`, `VIRTUAL_ENV`, Python import overrides and
+`XDG_CONFIG_HOME`; it matches chezmoi's managed home targets. It never substitutes
+a project/global `dvc` or installs dependencies during a check. Source helpers
+use the sibling source entry point; installed helpers use the installed entry
+point. Both resolve the same managed runtime. Existing bare-DVC installations
+and project dependency declarations retain their owners.
+
+The source requirements input selects `dvc[gs]==3.67.1`, `dvc-gs==3.1.0`, and
+`dvc-data==3.18.3`. The last pin preserves the existing qualified preservation
+object format. The dedicated resolved hash lock owns transitive versions; direct
+pins alone do not lock them. The installer uses existing Python 3.12–3.14 and uv,
+requires hashes, and never upgrades or downloads a Python interpreter. Python
+environment creation and dependency installation belong only to the installer.
+This repair qualifies the automatic installer on macOS only. Non-macOS rendering
+excludes it; an explicit unsupported invocation refuses before dependency writes.
+Guest/remote DVC consumers retain work if their required managed runtime has not
+been separately qualified and activated. There is no fallback to PATH DVC.
+
+### Behavior and failures
+
+| ID | Given / When | Then |
+|---|---|---|
+| DVC-01 | A project prepends another DVC to PATH | All managed DVC consumers still select the explicit managed runtime |
+| DVC-02 | The runtime or lock is missing, unsafe or incomplete | Refuse with a bounded runtime category before cache configuration writes; no fallback |
+| DVC-03 | The selected environment lacks the GCS backend or qualified versions | Refuse with a bounded backend/runtime category before configuration writes |
+| DVC-04 | DVC exits unsuccessfully or times out | Report command unavailable/failure, separately from unsafe output state; never emit arbitrary stderr |
+| DVC-05 | Outputs and their cache objects are absent and valid status classifies them as absent | Bootstrap remains code-only and does not create cache data or materialize outputs |
+| DVC-06 | Outputs are modified, unclassifiable, or present without preserved cache | Retain them and refuse redirection/removal under existing guards |
+| DVC-07 | Registration or removal runs with the lifecycle inspection environment | Use the same entry point, preserve analytics suppression and all existing remote-preservation guards |
+| DVC-08 | An installer fails or a runtime generation is unqualified | Do not mark it complete or silently use a previous/other runtime; preserve prior generations for explicitly reviewed rollback |
+
+`managed-dvc --check-runtime` returns only the qualified DVC, dvc-data and GCS
+plugin versions plus backend name. Other arguments are forwarded without a shell
+to the isolated interpreter. Runtime validation precedes forwarded operations.
+Failures expose fixed categories, never dependency exception text, paths, command
+arguments, remote addresses or credentials. Bootstrap checks runtime availability
+before its existing cache validation/configuration sequence. Unknown status JSON
+remains unsafe; a native command failure is not evidence that outputs are dirty.
+
+### Delivery, compatibility and validation
+
+The managed entry point is a deliberate prerequisite migration for all three
+consumers. Deploy installer, lock and paired helpers coherently after preview;
+existing callers cannot silently retain PATH selection. Source delivery grants
+no live apply, guest/remote activation, cache migration, hydration, push, removal
+or garbage collection. Retain previous runtime generations and helper/lock
+preimages for a separately reviewed coherent rollback. Do not restore data or
+weaken preservation checks as runtime recovery.
+
+Build order: specification/contracts; failing regressions; managed runtime and
+installer; caller integration; affected QA; exact activation preview. Required
+gates are Domain through Refactor, Review/Integrate, Deploy, Operate and
+Maintain/Retire. Release is not applicable because no independent package is
+published. Deploy and Operate stay pending until exact host-plan approval and
+real installed-version/backend/helper smokes; they are not source-test passes.
+The private Cycle Record owns results and Gate Commit identities.
+
+Authorities: affected pytest (including real disposable native DVC fixtures),
+the existing publication/instruction checks, rendered chezmoi output and shell
+syntax. Cover DVC-01–DVC-08, sanitized errors, unchanged cache/config bytes on
+failure, the registration subprocess and removal/preservation subprocess. Real
+GCS authentication/connectivity is separate from offline backend qualification.
+
+| Order | Guard | Outcome |
+|---|---|---|
+| 1 | Explicit entry point, trusted lock and complete matching generation | Select only the managed isolated interpreter |
+| 2 | Qualified versions and importable GCS backend | Permit DVC commands; no remote qualification is inferred |
+| 3 | Successful native command and typed safe output classification | Continue the existing bootstrap or preservation contract |
+| 4 | Existing cache, reflink, retention and remote guards pass | Perform only the already authorized bounded action |
+
+**Text Equivalent:** The explicit managed entry point validates the lock and
+matching complete runtime generation, then checks exact versions and GCS import
+before running DVC. Native command failures remain distinct from unsafe outputs.
+Existing cache and preservation guards still decide whether an authorized action
+can proceed. Canonical source: this managed-runtime contract; owner: distribution
+maintainers; update when entry-point ownership, dependency identity, qualification
+ordering or error semantics change. This ordered table supplies interaction,
+runtime dependency and trust-boundary evidence without implying remote access.
