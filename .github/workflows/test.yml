@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: macos-26-intel
+    runs-on: macos-15
     strategy:
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
@@ -54,4 +54,4 @@ jobs:
           tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers
           tests/test_opencode_control_plane.py
           tests/test_dbsctr_lifecycle.py -q
-      - run: uv run --group test pytest
+      - run: uv run --group test pytest --maxfail=1

@@ -122,7 +122,7 @@ def test_public_lifecycle_commands_are_unversioned_and_thin():
 def test_early_publication_and_editorial_remediation_contract():
     workflow = text(".github/workflows/test.yml")
     early = workflow.index("- name: Check publication and instruction contracts")
-    full = workflow.index("- run: uv run --group test pytest\n")
+    full = workflow.index("- run: uv run --group test pytest --maxfail=1\n")
     assert early < full
     command = workflow[early:full]
     for authority in ("tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers",
