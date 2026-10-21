@@ -167,6 +167,9 @@ def require_local_read_filters(root, seen=None):
     if root in seen or len(seen) >= 64:
         fail("local completion submodule inspection is ambiguous or exceeds its bound")
     seen.add(root)
+    top = inspect_git_bytes(root, "rev-parse", "--show-toplevel")
+    if not top.endswith(b"\n") or Path(os.fsdecode(top[:-1])).resolve() != root:
+        fail("local completion repository worktree is redirected")
     filters = git(root, "config", "--get-regexp", r"^filter\..*\.(clean|smudge|process)$", check=False)
     if filters.returncode not in (0, 1) or filters.stdout.strip():
         fail("local completion requires executable Git filters to be disabled")
@@ -4179,7 +4182,7 @@ def repository_identity_from_url(url, provider):
     return identity
 
 
-def require_repository_home(root, expected):
+def require_repository_home(root, expected, mismatch="Initiative repository identity does not match its Git origin"):
     if isinstance(expected, str):
         matches = repository_equal(git_repository_slug(root), expected)
     else:
@@ -4198,7 +4201,7 @@ def require_repository_home(root, expected):
             matches &= bool(urls) and all(repository_equal(
                 repository_identity_from_url(url, expected["provider"]), expected) for url in urls)
     if not matches:
-        fail("Initiative repository identity does not match its Git origin")
+        fail(mismatch)
 
 
 def forgejo_selection(args):
@@ -4659,7 +4662,8 @@ def initiative_receipt(source, slice_id, root=None):
             "manifest_blob": blob,
             "manifest_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
         }
-        require_repository_home(root, value["coordinator_repository"])
+        require_repository_home(root, value["coordinator_repository"],
+            "Initiative coordinator repository does not match the source Git repository")
         for artifact in artifacts:
             if (git(root, "status", "--porcelain=v1", "--", artifact).stdout.strip()
                     or git(root, "cat-file", "-e", f"HEAD:{artifact}", check=False).returncode):
@@ -5273,7 +5277,8 @@ def begin_registration(args):
                 fail("Forgejo selection does not match the Initiative target identity")
         elif forge is not None:
             fail("Forgejo requires a schema 2 Initiative target identity")
-        require_repository_home(source, initiative["repository"])
+        require_repository_home(source, initiative["repository"],
+            "Initiative context home does not match the target Git repository")
         if not repository_equal(initiative["repository"], expected):
             fail("Initiative target repository changed after approval")
     if initiative is not None:
