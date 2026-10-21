@@ -24,6 +24,18 @@
   No authentication change, service restart, model invocation or unrelated
   installation was required.
 
+## 2026-10-21 — CI runtime cadence
+
+- Defined one full Python 3.14 macOS suite for PR/main feedback, retaining full
+  Python 3.12/3.13/3.14 compatibility checks weekly and on manual dispatch.
+- Bound obsolete-run cancellation to the same PR and preserved pinned tooling,
+  early publication checks, native Swift and full pytest authorities. Documented
+  the matching required-check migration with strict current-base protection.
+- Modules: Python, Security, Cloud. No runtime support or dependency removal,
+  no Gate Exception and no installed helper/service change. The private Cycle
+  Record retains actual validation, commits and draft delivery; native exact-head
+  CI and protection verification precede the user-authorized ordinary merge.
+
 ## 2026-10-21 — OPENCODE-SAFE-MAINTENANCE source
 
 - Added explicit read-only maintenance preparation/status, durable private checkpoint
