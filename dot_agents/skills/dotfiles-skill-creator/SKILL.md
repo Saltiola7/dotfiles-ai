@@ -5,9 +5,21 @@ description: Create or update dotfiles-ai managed portable skills in source and 
 
 # Dotfiles Skill Creator
 
-Load the available `skill-creator` from the skill catalog. Delegate authoring,
-resources, metadata conventions and validation to it; do not shadow, replace or
-modify the built-in skill. If unavailable, report the missing dependency.
+Load `skill-creator` from the current skill catalog when available. If the client
+does not expose it there, resolve an existing original installation instead:
+use an explicitly supplied creator path, the current `CODEX_HOME`, the managed
+Codex CLI home resolved from the machine's dotfiles-ai configuration, or Codex's
+default `~/.codex` home, in that order. For a runtime home, inspect
+`skills/.system/skill-creator/SKILL.md`. Resolve the managed home through the
+selected source's Codex configuration/launcher; do not guess a machine path or
+scan unrelated runtime state. Read the original skill and its needed resources
+in place. Catalog absence alone does not mean the dependency is uninstalled.
+
+Delegate authoring, resources, metadata conventions and validation to that
+original; do not copy, shadow, replace or modify the built-in skill. Its helpers
+run from their original installation with the explicit selected source destination.
+If no original installation is readable, report the missing dependency rather
+than inventing a substitute or silently installing one.
 
 1. **Select source.** Author in the selected dotfiles-ai task checkout at
    `dot_agents/skills/<name>`; deploy to `~/.agents/skills/<name>` independently
@@ -37,7 +49,9 @@ modify the built-in skill. If unavailable, report the missing dependency.
    requests otherwise. Avoid hardcoded user identity, machine paths, repository
    URLs or task branches in portable output.
 
-4. **Validate and install.** Run the built-in creator's `quick_validate.py`.
+4. **Validate and install.** Run the selected original creator's
+   `scripts/quick_validate.py` using a compatible existing Python environment.
+   Report missing validator dependencies without claiming validation succeeded.
    Where useful, render the exact bundle and dependencies into an isolated
    destination and check file sets, bytes, references and second-apply/diff
    idempotency. Preview and apply with explicit selected `--source` and the

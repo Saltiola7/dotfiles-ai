@@ -1,5 +1,29 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-21 — Shared Leadership Reporting and Creator Discovery
+
+- Added the reusable leadership accomplishment workflow and existing OpenAI
+  metadata to the shared source tree. Private employer profiles are excluded;
+  the workflow resolves an explicitly supplied or matching owner-only local
+  profile instead of bundling private context.
+- Updated the creator wrapper to resolve an existing original upstream creator
+  when the current client catalog omits it. Authoring and validation remain
+  upstream-owned; no system skill is copied or installed under a competing name.
+- Added a thin native `/leadership-accomplishments` command that loads the shared
+  skill and forwards the request. Native skill mentions and the `/skills` selector
+  are separate from same-name slash-command discovery.
+- Both bundles passed the upstream validator using an existing Python
+  environment with PyYAML. Isolated and targeted host installation matched all
+  four source files; a second exact-file apply left no diff. Independent scenario
+  review found no material issues.
+- Preserved the original runtime bundle and installed-wrapper preimage in
+  private migration storage. The separate owner-only profile matched its original
+  bytes. Native OpenCode inventory returned exactly one shared entry for each
+  affected skill, without a service restart or model invocation.
+- These are documentation, metadata and native command configuration changes.
+  No authentication change, service restart, model invocation or unrelated
+  installation was required.
+
 ## 2026-10-20 — Shared Skills and Source Authoring
 
 - Imported the existing `sprint-ticket-refinement` skill and OpenAI metadata

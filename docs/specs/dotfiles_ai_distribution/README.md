@@ -1,5 +1,32 @@
 # dotfiles-ai Distribution
 
+**Shared leadership accomplishment reporting:**
+`dot_agents/skills/leadership-accomplishments/` contains the portable reporting
+instructions and OpenAI metadata, deployed to `~/.agents/skills/` for shared
+discovery. Employer-specific profiles remain outside this public source and the
+installed bundle, under the user's private
+`${XDG_CONFIG_HOME:-$HOME/.config}/leadership-accomplishments/profiles/` directory
+or an explicitly supplied private path. Profile directories use mode `0700` and
+files mode `0600`; reports may read the selected profile without publishing it.
+Private profile provisioning and backup are separate from chezmoi skill delivery.
+Targeted host installation matched the complete two-file bundle; the original
+runtime bundle was preserved outside discovery after private-profile byte and
+permission checks. Native OpenCode inventory returned one shared leadership skill.
+A thin native `/leadership-accomplishments` command loads that skill and forwards
+the request. OpenCode's `/skills` selector and `@leadership-accomplishments` remain
+available; skill discovery alone does not register a same-name slash command.
+
+**Creator dependency discovery:** a client that does not list the upstream
+`skill-creator` may load its existing original installation from an explicit
+path, the active Codex home, the configured managed CLI home, or Codex's default
+home. The wrapper delegates to the original skill and validator in place; no
+system skill is copied into this source or into shared discovery. Missing
+installations remain an explicit dependency gap.
+The targeted wrapper update matched source bytes and native OpenCode inventory
+returned its shared entry. A second exact-file apply left no diff. Upstream
+validation passed using an existing Python environment with PyYAML; no system
+creator, service restart or model invocation was introduced.
+
 **Shared sprint ticket refinement skill:** the source-owned
 `dot_agents/skills/sprint-ticket-refinement/` bundle installs
 through chezmoi to `~/.agents/skills/sprint-ticket-refinement/`, alongside its
