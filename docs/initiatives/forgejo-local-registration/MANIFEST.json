@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "id": "forgejo-local-registration",
+  "title": "Forgejo local-only lifecycle registration",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "Enable native Forgejo local-only cycle registration and exact local validation before separately reviewed manual delivery.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "kind": "constraint",
+      "text": "Local completion performs no network activity and confers no push, pull-request, merge, release, deployment or publication authority.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "kind": "requirement",
+      "text": "Use full provider/origin/repository identities in versioned manifest and receipt schema 2, with an exact typed expected-target CLI interface.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "kind": "requirement",
+      "text": "Use explicitly local-only native Cycle Record schema 6 and reject unsupported versions or modes before mutation.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-005",
+      "kind": "constraint",
+      "text": "Preserve existing GitHub schema 1/5 identities, digests, serialized shapes and delivery behavior, including legacy local intent.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "kind": "requirement",
+      "text": "Bind committed authority, profile, plan, native checkout, exact destinations, credential selection and fetched comparison base to fresh launch approval and resume validation.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-007",
+      "kind": "decision",
+      "text": "Use explicitly selected canonical HTTPS and native macOS Keychain lookup for controlled read-only Git fetch; account selection is not API principal proof.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-008",
+      "kind": "constraint",
+      "text": "Reject unsafe destinations, redirects, rewrites, ambient credentials, configuration injection and interactive fallback without leaking secrets.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-009",
+      "kind": "requirement",
+      "text": "Complete only exact validated source and gate evidence, retain ordered commit and tree identity, and support bounded idempotency after pointer removal.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-010",
+      "kind": "constraint",
+      "text": "Preserve unpublished local work and failed evidence; local completion cannot authorize removal or fabricate remote preservation.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-011",
+      "kind": "decision",
+      "text": "Keep reviewed manual delivery as a separate explicit Git operation without an automatic publication command in this slice.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-012",
+      "kind": "constraint",
+      "text": "Keep the complete remote-automation feature and unresolved safety contracts blocked, preserving earlier failed qualification evidence.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-support.md"
+      ]
+    },
+    {
+      "id": "INT-013",
+      "kind": "decision",
+      "text": "Use the existing lifecycle bounded context and owners with critical risk, Python and Security modules; add no parallel state engine or dependency.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"
+      ]
+    },
+    {
+      "id": "INT-014",
+      "kind": "constraint",
+      "text": "Keep private consumer names, endpoints, accounts, machine paths, credentials and raw evidence outside public support artifacts.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-015",
+      "kind": "requirement",
+      "text": "Deliver the public support source through the existing explicit-account GitHub draft-PR path with exact publication checks and digest-bound launch approval.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/forgejo-local-registration/README.md"
+      ]
+    },
+    {
+      "id": "INT-016",
+      "kind": "decision",
+      "text": "Separate source-cycle Release/Deploy/Operate non-applicability from required post-merge managed installation and bounded operation before consumer use.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"
+      ]
+    },
+    {
+      "id": "INT-017",
+      "kind": "requirement",
+      "text": "Verify compatibility, controlled transport, stale-authority rejection, zero-network completion and unpublished-work preservation with meaningful acceptance evidence.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    },
+    {
+      "id": "INT-018",
+      "kind": "constraint",
+      "text": "Treat specification readiness, actual preflight, implementation, managed installation and real consumer qualification as separate proofs.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/forgejo-local-registration/README.md"
+      ]
+    },
+    {
+      "id": "INT-019",
+      "kind": "requirement",
+      "text": "Review existing bounded-context README and CHANGELOG and update durable truth and the completion entry through the registered source cycle.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/forgejo-local-registration/README.md"
+      ]
+    },
+    {
+      "id": "INT-020",
+      "kind": "constraint",
+      "text": "Limit eventual managed installation to the merged support revision on the current computer and do not alter consumer deployment or remote server protection.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "id": "dbsctr_v3_lifecycle",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    }
+  ],
+  "slices": [
+    {
+      "id": "local-registration",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-001",
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-009",
+        "INT-010",
+        "INT-011",
+        "INT-012",
+        "INT-013",
+        "INT-014",
+        "INT-015",
+        "INT-016",
+        "INT-017",
+        "INT-018",
+        "INT-019",
+        "INT-020"
+      ],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/forgejo-local-registration/README.md",
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-local-registration.md",
+        "docs/specs/dbsctr_v3_lifecycle/features/forgejo-support.md",
+        "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+        "docs/specs/dbsctr_v3_lifecycle/README.md",
+        "docs/specs/dbsctr_v3_lifecycle/CHANGELOG.md"
+      ],
+      "release_group": "local-registration"
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "local-registration",
+      "members": [
+        "local-registration"
+      ],
+      "state": "ready"
+    }
+  ]
+}
