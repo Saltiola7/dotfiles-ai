@@ -18,6 +18,17 @@ Given retained V1 rows without matching V2 identities, never fall back to V1.
 Given a verified V1 runtime, preserve existing V1 behavior. Unknown runtime
 versions and version-probe failure refuse recovery rather than guessing.
 
+## Capture compatibility extension
+
+The [guarded maintenance contract](opencode-safe-maintenance.md) extends capture
+serialization to schema 3 with `pending`, `observed` and `uncertain` states. Pane IDs
+are unique; duplicate session views are valid. Missing observations or conflicting
+occupants preserve the prior mapping as uncertain. Check-only reads support v1/v2
+without rewriting them. Any uncertain entry blocks restore before runtime probing,
+database access, intent rewriting or pane input. Short `-s` session arguments are
+recognized. This extension does not change native V2 admission below or the existing
+qualified launch policy; the new maintenance command never invokes that launch path.
+
 ## Interface and ownership
 
 Update `herdr-opencode-restore` and its existing session-recovery tests. Preserve

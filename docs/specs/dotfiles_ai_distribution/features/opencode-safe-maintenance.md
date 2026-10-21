@@ -1,6 +1,6 @@
 # Guarded OpenCode maintenance preparation
 
-Status: approved Discovery contract; source implementation pending. Risk: critical.
+Status: implemented source contract; deployment held. Risk: critical.
 Owner: distribution maintainer with shell/startup recovery ownership. Method: DBSCTR
 V3.29. Modules: Python, Security, Cloud. Delivery: source-only draft pull request.
 
@@ -101,8 +101,9 @@ or its sentinel refuses without creating fallback state. Private maintenance sta
 lives beneath the existing Herdr state root. No full database copies, database
 writes, location reloads, provider calls or transcript enumeration are permitted.
 
-Preparation requires an explicit existing socket and uses only read-only Herdr
-inventory commands; it must never start a server if the socket is missing. It
+Preparation uses an explicit Herdr socket and the read-only protocol-22
+`session.snapshot` and `pane.process_info` requests. Direct UNIX-socket connections
+cannot start a server; missing or replaced sockets produce incomplete evidence. It
 captures selected layout/focus/label fields and structured process identity, not
 screen text or terminal titles. Bind every observation to its socket scope and
 terminal/PID; incomplete identity stays uncertain. Use bounded inventories and
@@ -140,8 +141,9 @@ separate meanings. Unknown values remain uncertain and capabilities cannot grant
 execution in this delivery. Canonical owner: maintenance schema; update with any
 serialized-field or validation change.
 
-Use an exclusive maintenance lock for preparation and existing restore locking for
-bounded legacy-manifest reads/transitions. Write immutable generations atomically
+Use an exclusive maintenance lock for preparation. The existing capture helper
+retains its restore lock for bounded legacy-manifest reads/transitions; the new
+maintenance command never imports an unscoped legacy mapping as verified evidence. Write immutable generations atomically
 with fsync and owner-only permissions, then atomically advance the latest pointer.
 Never overwrite a generation or erase the previous pointer on failure. A committed
 generation whose pointer update was interrupted remains inspectable by exact ID.
@@ -178,6 +180,65 @@ The supported plugin API documents route/tab inspection and cleanup but does not
 establish draft export or passive detach. Live plugin registration can rebuild
 other registrations; deployment is therefore held, not a harmless hot-load action.
 
+## Implemented command and storage details
+
+After a separately authorized installation, use the explicit command:
+
+```sh
+opencode-maintenance prepare --herdr-socket "$HERDR_SOCKET_PATH"
+opencode-maintenance status
+opencode-maintenance status --generation GENERATION_ID
+```
+
+The rendered command defaults to the configured central state root. An explicit
+`DOTFILES_AI_STATE_ROOT` and configured `XDG_STATE_HOME` can select isolated state;
+every selected root still requires its sentinel and safe ownership. There is no
+fallback tree. Preparation does not run either executable, update an installer,
+probe a database, or trigger a service start. Native update commands remain outside
+this explicit command's control. `apply` and `recover` return 75 even for a complete,
+idle checkpoint. Status reports the checkpoint's capture time, not a new live scan.
+
+State is private metadata under the existing central Herdr root:
+
+- `herdr/opencode-maintenance/GENERATION_ID.json`: immutable checkpoint and per-pane
+  assessments, with parent generation and prior selection evidence when uncertain.
+- `herdr/opencode-maintenance/latest.json`: atomic pointer to the latest committed
+  checkpoint. A complete orphan remains accessible by generation ID.
+- `herdr/opencode-observers/HASH-INCARNATION.json`: bounded record per socket, pane,
+  PID and observer incarnation. Heartbeats replace only that incarnation's record.
+  Plugin reloads retain old incarnations. Multiple fresh candidates are uncertain.
+- `herdr/opencode-sessions.json`: existing capture owner's schema-3 manifest;
+  it is separate from the maintenance checkpoint history.
+
+Private files use mode 0600; newly created metadata directories use 0700. Reads
+reject symlinks, unsafe ownership/modes, duplicate JSON keys, unknown schemas and
+invalid references. Registration identity includes device/inode, size, modification
+time, ownership and mode, plus unchanged bytes; reading-induced access-time changes
+do not invalidate it. Credentials are sent only to a literal loopback HTTP endpoint
+with redirects and ambient proxies absent from the transport.
+
+Bounds are 512 panes, 2 MiB per JSON document, 4,096 service requests, two seconds per
+socket operation, a 90-second service-read budget and a hard 120-second CLI deadline.
+Checkpoint ancestry is limited to 256 generations and 32 MiB of aggregate validated
+history. The prospective child counts toward those limits before publication, so
+capacity refusal leaves the previous pointer readable. Observer discovery scans at
+most 4,096 directory entries and accepts one fresh matching incarnation within 15
+seconds; at most 32 fresh candidates are considered. Observation polls every 500 ms,
+with five-second heartbeats and a 64 KiB record ceiling. These are evidence bounds,
+not permission to activate or a claim of instantaneous UI capture.
+
+Native session directories come from `SessionInfo.location.directory`, separate
+from the pane cwd. Client/service version disagreement is an explicit blocker.
+A nonempty model list reports current availability, not complete plugin settlement.
+Missing global pending, background-work, draft, drain and passive-attach guarantees
+remain hard capability gaps even when sampled lists are empty.
+
+There is no automatic pruning. Operators can inspect the two metadata directories
+with ordinary disk-usage tools. Keep old incarnations and incomplete generations
+until a separately approved retention/archive procedure accounts for their recovery
+value. Hitting a bound refuses new preparation; it never silently deletes history,
+resets the chain, copies a database or grants activation authority.
+
 ## Ownership and implementation scope
 
 - Add the explicit Python maintenance executable and focused fake-service tests.
@@ -194,7 +255,7 @@ other registrations; deployment is therefore held, not a harmless hot-load actio
 ## Validation and gate ledger
 
 Required: Domain, Behavior, Spec, Contract, Test-driven implementation, Refactor,
-Review/Integrate and Maintain/Retire. Results are pending until registered evidence.
+Review/Integrate and Maintain/Retire. Results and exact validated blobs are retained in the private Cycle Record.
 Release is not applicable because no independent package is published. Deploy and
 Operate are not applicable because only source and disposable fixtures change;
 future activation retains its own required gates. No exception is accepted.

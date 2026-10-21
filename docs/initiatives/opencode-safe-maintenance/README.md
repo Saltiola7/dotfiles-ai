@@ -5,8 +5,9 @@
 This Initiative captures the requested update-workflow repair. The operator approved the context map and source-only draft delivery, selected
 refusal when safety cannot be proved, and selected a separate explicit maintenance
 command with native commands unchanged. The [feature contract](../../specs/dotfiles_ai_distribution/features/opencode-safe-maintenance.md)
-records implementation readiness. Registration still requires fresh receipt,
-preflight and exact launch approval.
+records the source implementation and its safety limits. Each Build launch requires
+a fresh receipt, preflight and exact launch approval; delivery evidence belongs to
+the private Cycle Record.
 
 ## Requested outcome and constraints
 
@@ -17,8 +18,7 @@ this delivery use isolated state and fake runtimes. Do not restart, signal,
 replace, reload or send input to live OpenCode or Herdr; do not apply managed
 configuration or modify the live recovery manifest/database.
 
-Use immutable private checkpoints, stable server/pane/process identities and a
-per-pane recovery assessments. Executable recovery and its action journal remain
+Use immutable private checkpoints, stable server/pane/process identities and per-pane recovery assessments. Executable recovery and its action journal remain
 outside this first delivery until native preservation capabilities are qualified. Preserve unobserved mappings as uncertain instead of
 forgetting them. Distinguish viewed child session from owning root and canonical
 session directory from process cwd. Permit multiple views of one session.
@@ -75,7 +75,7 @@ check. Use synthetic paths, identifiers and service credentials in fixtures.
 Recovery and native-distribution fixtures must prove refusal for active work,
 forms, permissions, drafts, unknown state, missing session identity and changed
 occupants. Cover duplicate views, viewed descendants, transient metadata loss,
-readiness failures, concurrent maintenance, and interruption at each journal step.
+readiness failures, concurrent maintenance, and interruption between generation and pointer publication.
 A fixture result is not live deployment or native hot-upgrade qualification.
 
 All Development Kernel gates, Review/Integrate and Maintain/Retire are required.
