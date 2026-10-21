@@ -8,4 +8,26 @@
 {{- end -}}
 {{- $config = mergeOverwrite $local $managed -}}
 {{- end -}}
+{{- $observer := printf "%s/.config/dotfiles-ai/opencode-maintenance-observer" .chezmoi.homeDir -}}
+{{- $plugins := list -}}
+{{- if hasKey $config "plugins" -}}
+{{- if not (kindIs "slice" $config.plugins) -}}
+{{- fail "OpenCode CLI plugins must be an array; original left unchanged" -}}
+{{- end -}}
+{{- range $plugin := $config.plugins -}}
+{{- if kindIs "string" $plugin -}}
+{{- if ne $plugin $observer -}}
+{{- $plugins = append $plugins $plugin -}}
+{{- end -}}
+{{- else if kindIs "map" $plugin -}}
+{{- if ne (get $plugin "package") $observer -}}
+{{- $plugins = append $plugins $plugin -}}
+{{- end -}}
+{{- else -}}
+{{- fail "OpenCode CLI plugin must be a string or object; original left unchanged" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $plugins = append $plugins (dict "package" $observer "options" (dict)) -}}
+{{- $_ := set $config "plugins" $plugins -}}
 {{ $config | toPrettyJson }}

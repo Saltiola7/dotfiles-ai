@@ -39,7 +39,9 @@ def test_native_preferences_preserve_local_fields_and_are_idempotent(tmp_path):
     target.write_text(json.dumps({"theme": {"name": "old", "mode": "light", "local": 1},
                                   "keybinds": {"help.show": "f1"}, "local": [1, 2]}))
     result = project(tmp_path, "cli.json")
-    assert result == {"$schema": "https://opencode.ai/v2/cli.json",
+    plugins = result["plugins"]
+    assert len(plugins) == 1 and plugins[0]["package"].endswith("/dotfiles-ai/opencode-maintenance-observer")
+    assert {key: value for key, value in result.items() if key != "plugins"} == {"$schema": "https://opencode.ai/v2/cli.json",
                       "theme": {"name": "catppuccin", "mode": "dark", "local": 1},
                       "keybinds": {"help.show": "f1", "agent.cycle": "tab",
                                    "agent.cycle.reverse": "shift+tab"}, "local": [1, 2]}
