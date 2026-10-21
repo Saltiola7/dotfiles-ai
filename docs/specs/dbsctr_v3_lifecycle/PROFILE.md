@@ -14,3 +14,38 @@
 
 Existing active cycles remain bound to the profile path recorded in their Cycle
 Record. New cycles use this file.
+
+## Bounded Forgejo local-only contract
+
+The approved [local-only feature](features/forgejo-local-registration.md) extends
+this context with typed Initiative manifest/receipt schema 2 and native Cycle
+Record schema 6 for explicit Forgejo local-only registration. It preserves
+existing GitHub schema 1/5 behavior and historical supported records. Controlled
+read-only HTTPS Git fetches establish the selected comparison base; local
+completion records exact validated source without network activity. Reviewed
+manual delivery is a separate explicit Git operation. New local records confer
+no push, draft, merge, release, deployment, publication or removal authority.
+Remote Forgejo automation remains blocked under
+[the complete feature](features/forgejo-support.md).
+
+The support slice is critical risk, uses Python and Security modules, and retains
+the existing public support-PR delivery path. Its source cycle marks Release,
+Deploy and Operate not applicable with explicit source-only reasons; it neither
+publishes an independent package nor installs or activates unmerged source.
+Other gates remain required. Approved installation of the merged helper on the
+current computer and bounded first-consumer qualification remain required in a
+separate rollout plan before consumer use; they do not circularly block the
+source cycle's Final Push. Credentials,
+private origin/account selections and runtime evidence stay outside public Git.
+
+## Visual Evidence
+
+The local-only feature owns the canonical visual evidence and Text Equivalents:
+Boundary is required as an ownership table; Interaction is required as an ordered
+handoff table; State is required as a transition table; Data/trust is required as
+a directional transfer table; Schema is required as a version/relationship table;
+Dependency/deployment is required as a delivery dependency table. Quantitative is
+not_applicable because this profile makes no measured comparison or threshold
+claim. Canonical source and owner: the linked feature and lifecycle maintainer.
+Update those tables with any represented contract change rather than duplicating
+them here.

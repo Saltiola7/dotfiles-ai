@@ -1,5 +1,51 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-21 — Native credential child home
+
+- Kept the controlled Git transport's home isolated while binding only its
+  get-only credential child to the current operating-system UID's home before
+  native Keychain discovery. Invalid account-home metadata refuses safely;
+  store/erase still perform no lookup or mutation.
+- Retained failing-first evidence and a real isolated-child regression, denied
+  metadata cases and existing Git/configuration boundaries. Native successful
+  credential retrieval and controlled read-only comparison fetch passed for the
+  source candidate; no credential bytes or private endpoint entered source.
+- No new dependency, Gate Exception, helper installation or service change.
+  The Cycle Record owns final checks/review and actual delivery. Managed rollout
+  and first local consumer remain separate required qualifications. Intended
+  Final Push: existing feature branch and draft PR to `Saltiola7/dotfiles-ai:main`.
+
+## 2026-10-21 — Native Keychain query compatibility
+
+- Split exact metadata/reference enumeration from reference-bound single-item
+  password retrieval; reject ambiguity and changed attributes before releasing
+  a credential. Both reads deny UI and preserve get-only storage behavior.
+- Retained the failing-first unsupported data/all-matches regression; validation
+  covers native CF ownership, synthetic reference/data outcomes and a real
+  metadata-only nonexistent selection that cannot request password data.
+  The private Cycle Record retains scoped checks, deadlines and final outcomes.
+- No new dependency, Gate Exception, credential enrollment or installed change.
+  Native successful password retrieval and controlled private fetch remain
+  rollout qualifications. Intended Final Push: existing feature branch and
+  draft PR to `Saltiola7/dotfiles-ai:main`.
+
+## 2026-10-21 — Forgejo local-only source
+
+- Added typed Initiative schema 2 and native Cycle Record schema 6 for explicit
+  Forgejo local-only launch, exact approval, controlled comparison-base fetch and
+  strict record persistence. Existing GitHub schema 1/5 behavior is retained.
+- Added zero-network `complete-local` with immutable exact-source evidence and
+  pending manual delivery. Final Push refuses this mode; unpublished work stays
+  protected from removal. No remote Forgejo mutation is enabled.
+- Validation covers synthetic identity/transport/Keychain selection, registration,
+  completion, configured Git helper refusal, interruption and compatibility,
+  plus configured publication/instruction, native Swift and pytest authorities.
+  The private Cycle Record retains actual outcomes, initial failures and commits.
+- No Gate Exception or new dependency. No installed helper, cloud session or
+  service is changed. Verified integration, managed rollout and real-consumer
+  qualification remain required. Intended Final Push: feature branch and draft
+  PR to `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-16 — WORKFLOW-REGRESSION-TELEMETRY source
 
 - Added typed non-authorizing feature snapshots and classified public diagnostics
