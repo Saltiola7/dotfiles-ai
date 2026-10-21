@@ -1,5 +1,26 @@
 # DBSCTR V3 Lifecycle
 
+## Forgejo local-only source interface
+
+The [bounded Forgejo contract](features/forgejo-local-registration.md) adds typed
+Initiative manifest/receipt schema 2 and native Cycle Record schema 6 for an
+explicitly selected Forgejo `local` launch. Existing GitHub schema 1/5 workflows
+remain unchanged. All four `--forge-*` selectors and the existing exact Initiative
+launch approval are required; non-local Forgejo delivery remains unavailable.
+
+The macOS transport reads an exact origin/account/repository Keychain item with
+interaction disabled, using an isolated Git 2.56+ Basic-auth fetch. It never
+stores credentials, starts login or infers API principal authority. Missing
+runtime capability or Keychain access blocks the read safely.
+
+`complete-local [--cycle-id CYCLE_ID]` validates exact local source and gate
+evidence without network activity, then retains an immutable completion with
+manual delivery pending. Git helpers and lazy fetch cannot run through completion.
+Final Push refuses this mode; local validation cannot authorize publication or
+worktree removal. Managed installation and real consumer qualification require
+the separately approved rollout of a verified merged revision. Full Forgejo
+remote automation remains blocked under its original safety contract.
+
 ## Workflow regression source interface
 
 `WORKFLOW-REGRESSION-TELEMETRY` extends the existing CLI/evidence/phase owners;

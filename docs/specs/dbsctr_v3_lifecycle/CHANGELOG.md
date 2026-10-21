@@ -1,5 +1,22 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-21 — Forgejo local-only source
+
+- Added typed Initiative schema 2 and native Cycle Record schema 6 for explicit
+  Forgejo local-only launch, exact approval, controlled comparison-base fetch and
+  strict record persistence. Existing GitHub schema 1/5 behavior is retained.
+- Added zero-network `complete-local` with immutable exact-source evidence and
+  pending manual delivery. Final Push refuses this mode; unpublished work stays
+  protected from removal. No remote Forgejo mutation is enabled.
+- Validation covers synthetic identity/transport/Keychain selection, registration,
+  completion, configured Git helper refusal, interruption and compatibility,
+  plus configured publication/instruction, native Swift and pytest authorities.
+  The private Cycle Record retains actual outcomes, initial failures and commits.
+- No Gate Exception or new dependency. No installed helper, cloud session or
+  service is changed. Verified integration, managed rollout and real-consumer
+  qualification remain required. Intended Final Push: feature branch and draft
+  PR to `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-16 — WORKFLOW-REGRESSION-TELEMETRY source
 
 - Added typed non-authorizing feature snapshots and classified public diagnostics

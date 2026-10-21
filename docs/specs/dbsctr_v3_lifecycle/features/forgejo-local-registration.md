@@ -1,7 +1,7 @@
 # Forgejo local-only lifecycle registration
 
-**Bounded Discovery specification; implementation and launch are not yet
-qualified.** This feature belongs to `dbsctr_v3_lifecycle`, owned by the dotfiles
+**Bounded source interface; managed installation and real-consumer operation
+remain unqualified.** This feature belongs to `dbsctr_v3_lifecycle`, owned by the dotfiles
 maintainer under [the Engineering Profile](../PROFILE.md). Risk is **critical**;
 the affected modules are Python and Security. The support change is delivered
 through the existing GitHub feature-branch and reviewed draft-PR path. Its eventual
@@ -31,8 +31,10 @@ credentials are not public fixtures or support-PR artifacts.
 
 ## Facts and readiness
 
-The installed helper and current public source support GitHub-only Initiative
-origin checks, manifest/receipt schema 1 and native Cycle Record schema 5. Existing
+At Discovery, the installed helper and public base supported GitHub-only
+Initiative origin checks, manifest/receipt schema 1 and native Cycle Record
+schema 5. The source candidate adds the bounded schema 2/6 path below; its
+presence does not establish installed capability. Existing
 `local` intent is a legacy delivery mode: its generic Final Push path can push to
 an upstream feature branch. It is not the local-only behavior specified here.
 
@@ -76,8 +78,8 @@ runtime blocker, not permission to start a login or broaden credentials.
 
 ## Interfaces and schemas
 
-All new interfaces here are proposed, not installed capabilities. The implementation
-must extend the existing owners rather than add parallel lifecycle state.
+The source candidate extends the existing owners rather than adding parallel
+lifecycle state. These interfaces are not claims about installed capability.
 
 ### Typed repository identity
 
@@ -177,8 +179,21 @@ manifest schema 2 or attempting local-only registration.
 
 ## Fetch, approval and completion contracts
 
-The first implementation supports macOS and the existing native `osxkeychain`
-lookup. Request the exact HTTPS origin, account and repository path. Resolve the
+The implementation supports macOS and the existing native `osxkeychain`
+credential namespace. A get-only Security.framework bridge selects a unique
+HTTPS Internet Password item with interaction disabled; it neither invokes an
+interactive CLI fallback nor enrolls credentials. The Python executable's
+Keychain access must be qualified separately: access granted to another Git
+helper does not establish access for this executable. Missing access fails
+without a prompt.
+
+The new transport requires Git 2.56 or newer with credential `authtype`
+capability support. It supplies only an ephemeral pre-encoded Basic credential
+and proactively selects Basic; username/password fallback and negotiation of
+other authentication schemes are unavailable. Existing GitHub paths retain their
+previous runtime requirements.
+
+ Request the exact HTTPS origin, account and repository path. Resolve the
 credential just in time; missing or conflicting selection fails. A supplied or
 echoed account and successful fetch are selection/access observations, not proof
 of an authenticated API principal, ordinary role or future mutation permission.
@@ -217,6 +232,14 @@ the validated source and recorded comparison base, not current remote eligibilit
 Remote advancement cannot turn this result into merge permission. Any future
 publication reviews its actual source and remote state separately.
 
+Completion Git reads use an isolated environment with transport and lazy fetch
+disabled, no system/global configuration, and fsmonitor/hooks disabled. Executable
+Git filters in the checkout or initialized submodules refuse completion before
+status inspection rather than running arbitrary source-configured programs.
+The ordinary legacy delivery path keeps its existing behavior. Schema 6 records
+are validated before atomic persistence as well as on read, so malformed mutation
+inputs cannot replace a valid record.
+
 Successful local completion retains unpublished work and the ordinary retention
 period. The removal check must return an explicit unpublished-local blocker
 rather than infer delivery from `state=completed`, a tracking ref or a local
@@ -227,6 +250,9 @@ an older helper; preserve the record and source until a compatible helper is
 available. A managed rollback may restore old behavior for old records only.
 
 ## Lifecycle and delivery plan
+
+The following table records the approved applicability baseline. The private
+Cycle Record owns current execution results and retained failures.
 
 | Gate | Applicability | Result | Exception |
 |---|---|---|---|
@@ -300,7 +326,8 @@ Acceptance must cover these meaningful boundaries:
    preservation readers; malformed, unknown and incompatible state must fail
    safely rather than skip required evidence.
 6. Local completion with exact source/tree/ordered commits, failed/stale gates,
-   artifact review, interruption and idempotency. Instrument network/credential
+   artifact review, interruption and idempotency. Include configured fsmonitor,
+   executable filters, lazy-fetch refusal and invalid outgoing-record mutation. Instrument network/credential
    entry points to prove none execute during completion or local-only Final Push
    refusal. Assert no push/API/source sync/feedback export occurs.
 7. Unpublished-local removal blockers and preserved failure evidence; completion
@@ -396,12 +423,13 @@ No server guard or consumer deployment is a dependency introduced by this slice.
 ## Next proofs and unresolved decisions
 
 No unresolved product/interface decision remains within the bounded local-only
-specification. The primary must still review the exact candidate, validate its
-publication inventory and manifest, commit authority, issue a fresh receipt and
-run actual support-cycle preflight before requesting exact launch approval.
-Build must prove controlled transport, version compatibility, zero-network local
-completion, managed installation and bounded operation. Those are pending
-implementation/qualification evidence, not assumed successes.
+specification. The source cycle uses committed authority and its separately
+approved exact launch. Its private Cycle Record retains source review, validation,
+failures and final delivery evidence. Synthetic fixtures cover identity,
+transport configuration, record mutation and local completion; they do not prove
+a real Keychain lookup, HTTPS fetch or consumer consent. Verified integration,
+managed installation and bounded real-consumer operation remain required rollout
+proofs before private activation.
 
 The complete remote feature still owns its unresolved principal proof, trusted
 producer/attestation, atomic server safety, loaded health, durable hosting,
