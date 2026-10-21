@@ -75,6 +75,7 @@ runtime blocker, not permission to start a login or broaden credentials.
 | A successfully completed but unpublished local cycle | Removal eligibility is evaluated | Keep removal blocked; local validation is not delivery or preservation proof. |
 | Existing supported GitHub records and schema 1 Initiatives | Their existing workflows run | Preserve existing identities, digests, record shapes and delivery behavior, including legacy schema 5 local intent. |
 | Missing credentials, endpoint mismatch, redirect or unsafe Git configuration | A controlled fetch is requested | Fail safely without another account, interactive login, credential enrollment or remote write. |
+| Zero, ambiguous or malformed native credential matches | Exact metadata selection runs | Refuse before requesting any password data. A unique match permits only a reference-bound single-item read, followed by attribute revalidation. |
 
 ## Interfaces and schemas
 
@@ -186,6 +187,16 @@ interactive CLI fallback nor enrolls credentials. The Python executable's
 Keychain access must be qualified separately: access granted to another Git
 helper does not establish access for this executable. Missing access fails
 without a prompt.
+
+First enumerate only attributes and item references for the exact selection.
+After one valid match is established, request attributes and password data for
+that item reference with a single-item limit, then revalidate its identity before
+releasing the credential. Zero, multiple, malformed or changed matches release
+no credential. Both reads retain the process-wide and query-level UI denial.
+Do not combine password data with an all-items limit: [Apple explicitly rejects
+that query for password items](https://developer.apple.com/documentation/security/secitemcopymatching(_:_:)).
+The existing data/trust visual table represents both reads inside the same
+native lookup boundary; no new source, sink or credential owner is introduced.
 
 The new transport requires Git 2.56 or newer with credential `authtype`
 capability support. It supplies only an ephemeral pre-encoded Basic credential
