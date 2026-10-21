@@ -555,7 +555,8 @@ def observation(root, backend, pane, processes):
         require(set(record) == {'schema_version', 'socket', 'socket_device', 'socket_inode',
                 'pane_id', 'pid', 'incarnation', 'captured_at', 'sequence', 'client_version',
                 'viewed_session_id', 'last_viewed_session_id', 'session_directory', 'tabs'})
-        require(record['schema_version'] == 1 and record['socket'] == backend
+        require(type(record['schema_version']) is int and record['schema_version'] == 1
+                and record['socket'] == backend
                 and record['pane_id'] == pane_id and record['pid'] == row['pid'])
         require((record['socket_device'], record['socket_inode']) == socket_identity(Path(backend)))
         require(type(record['captured_at']) is int and 0 <= time.time() - record['captured_at'] <= 15)

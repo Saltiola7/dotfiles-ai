@@ -297,7 +297,7 @@ def test_prepare_exact_child_and_readonly_protocol(module, state, native, backen
     assert checkpoint['capabilities'] == module['CAPABILITIES']
 
 
-@pytest.mark.parametrize('fault', ['stale', 'future', 'pid', 'home', 'symlink', 'directory', 'schema'])
+@pytest.mark.parametrize('fault', ['stale', 'future', 'pid', 'home', 'symlink', 'directory', 'schema', 'schema_bool', 'schema_float'])
 def test_observer_fault_preserves_last_verified(module, state, native, backend, fault):
     first = module['prepare'](state, backend['path'])
     record = backend['record']
@@ -307,6 +307,8 @@ def test_observer_fault_preserves_last_verified(module, state, native, backend, 
     if fault == 'home': record['viewed_session_id'] = None
     if fault == 'directory': record['session_directory'] = '/wrong/directory'
     if fault == 'schema': record['schema_version'] = 99
+    if fault == 'schema_bool': record['schema_version'] = True
+    if fault == 'schema_float': record['schema_version'] = 1.0
     backend['record_path'].write_text(json.dumps(record))
     if fault == 'symlink':
         backend['record_path'].unlink()
