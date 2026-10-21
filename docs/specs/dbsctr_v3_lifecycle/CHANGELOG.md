@@ -1,5 +1,20 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-21 — Native credential child home
+
+- Kept the controlled Git transport's home isolated while binding only its
+  get-only credential child to the current operating-system UID's home before
+  native Keychain discovery. Invalid account-home metadata refuses safely;
+  store/erase still perform no lookup or mutation.
+- Retained failing-first evidence and a real isolated-child regression, denied
+  metadata cases and existing Git/configuration boundaries. Native successful
+  credential retrieval and controlled read-only comparison fetch passed for the
+  source candidate; no credential bytes or private endpoint entered source.
+- No new dependency, Gate Exception, helper installation or service change.
+  The Cycle Record owns final checks/review and actual delivery. Managed rollout
+  and first local consumer remain separate required qualifications. Intended
+  Final Push: existing feature branch and draft PR to `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-21 — Native Keychain query compatibility
 
 - Split exact metadata/reference enumeration from reference-bound single-item
