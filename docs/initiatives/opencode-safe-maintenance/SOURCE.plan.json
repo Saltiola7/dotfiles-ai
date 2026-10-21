@@ -1,0 +1,41 @@
+{
+  "profile": "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+  "gates": {
+    "domain": {
+      "applicability": "required"
+    },
+    "behavior": {
+      "applicability": "required"
+    },
+    "spec": {
+      "applicability": "required"
+    },
+    "contract": {
+      "applicability": "required"
+    },
+    "test_driven_implementation": {
+      "applicability": "required"
+    },
+    "refactor": {
+      "applicability": "required"
+    },
+    "review_integrate": {
+      "applicability": "required"
+    },
+    "maintain_retire": {
+      "applicability": "required"
+    },
+    "release": {
+      "applicability": "not_applicable",
+      "reason": "Source-only distribution PR; no independent versioned artifact is published."
+    },
+    "deploy": {
+      "applicability": "not_applicable",
+      "reason": "Operator authorizes isolated implementation only; no live apply, plugin registration, installer or service restart."
+    },
+    "operate": {
+      "applicability": "not_applicable",
+      "reason": "No running-system change; production qualification requires separately authorized activation."
+    }
+  }
+}
