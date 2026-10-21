@@ -4054,6 +4054,15 @@ def forgejo_internal_main(argv):
     try:
         if len(argv) != 6 or argv[1] != "--identity-json" or argv[3] != "--account":
             raise ValueError()
+        if argv[5] == "get":
+            import pwd
+            home = pwd.getpwuid(os.getuid()).pw_dir
+            if (not isinstance(home, str) or not Path(home).is_absolute()
+                    or any(ord(character) < 32 for character in home)):
+                raise ValueError()
+            # Only this isolated credential child needs the native user's
+            # Keychain preferences. Its Git parent keeps the private home.
+            os.environ["HOME"] = home
         forgejo_credential_helper(argv[5], json.loads(argv[2]), argv[4])
     except Exception:
         sys.stdout.write("quit=true\n\n")

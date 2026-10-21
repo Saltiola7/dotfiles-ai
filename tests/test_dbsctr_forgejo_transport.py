@@ -610,6 +610,62 @@ raise SystemExit(module.main())
                 json.dumps(IDENTITY), "--account", "fixture-user", "store"]))
         helper.assert_called_once_with("store", IDENTITY, "fixture-user")
 
+    @unittest.skipUnless(os.name == "posix", "native home binding requires POSIX account records")
+    def test_isolated_credential_child_uses_os_home_without_restoring_git_environment(self):
+        code = r'''
+import importlib.machinery, io, json, os, pwd, sys
+m = importlib.machinery.SourceFileLoader('isolated_credential', sys.argv[1]).load_module()
+def lookup(query):
+    assert os.environ['HOME'] == pwd.getpwuid(os.getuid()).pw_dir
+    assert os.environ['XDG_CONFIG_HOME'] == sys.argv[2]
+    assert os.environ['GIT_CONFIG_GLOBAL'] == '/dev/null'
+    assert os.environ['GIT_CONFIG_SYSTEM'] == '/dev/null'
+    return [{**query, 'password': 'PRIVATE_TOKEN_SENTINEL'}]
+m._forgejo_security_lookup = lookup
+m.sys.stdin = io.StringIO('capability[]=authtype\nprotocol=https\nhost=forge.example.invalid:8443\npath=example/private-config.git\nusername=fixture-user\n\n')
+identity = {'provider':'forgejo', 'origin':'https://forge.example.invalid:8443', 'repository':'example/private-config'}
+assert m.forgejo_internal_main(['_forgejo-credential','--identity-json',json.dumps(identity),'--account','fixture-user','get'])
+'''
+        environment = self.core._forgejo_environment(self.directory.name)
+        result = subprocess.run([sys.executable, "-I", "-B", "-c", code, str(SCRIPT), self.directory.name],
+                                env=environment, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(result.stdout, self.basic_response())
+        self.assertEqual(environment["HOME"], self.directory.name)
+
+    @unittest.skipUnless(os.name == "posix", "native home binding requires POSIX account records")
+    def test_invalid_os_home_refuses_before_credential_lookup(self):
+        import pwd
+        for home in (None, "", "relative", "/fixture\0invalid", "/fixture\ninvalid"):
+            with self.subTest(home=repr(home)), \
+                    mock.patch.object(pwd, "getpwuid", return_value=mock.Mock(pw_dir=home)) as account, \
+                    mock.patch.object(self.core, "forgejo_credential_helper") as helper:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.assertTrue(self.core.forgejo_internal_main(["_forgejo-credential", "--identity-json",
+                        json.dumps(IDENTITY), "--account", "fixture-user", "get"]))
+                account.assert_called_once_with(os.getuid())
+                helper.assert_not_called()
+                self.assertEqual(output.getvalue(), "quit=true\n\n")
+        for error in (KeyError("PRIVATE_SENTINEL"), OSError("PRIVATE_SENTINEL")):
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch.object(pwd, "getpwuid", side_effect=error), \
+                    mock.patch.object(self.core, "forgejo_credential_helper") as helper:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    self.core.forgejo_internal_main(["_forgejo-credential", "--identity-json",
+                        json.dumps(IDENTITY), "--account", "fixture-user", "get"])
+                helper.assert_not_called()
+                self.assertEqual(output.getvalue(), "quit=true\n\n")
+        for operation in ("store", "erase"):
+            with self.subTest(operation=operation), \
+                    mock.patch.object(pwd, "getpwuid", side_effect=AssertionError("no account lookup")), \
+                    mock.patch.object(self.core, "forgejo_credential_helper") as helper:
+                self.assertTrue(self.core.forgejo_internal_main(["_forgejo-credential", "--identity-json",
+                    json.dumps(IDENTITY), "--account", "fixture-user", operation]))
+                helper.assert_called_once_with(operation, IDENTITY, "fixture-user")
+
 
 if __name__ == "__main__":
     unittest.main()
