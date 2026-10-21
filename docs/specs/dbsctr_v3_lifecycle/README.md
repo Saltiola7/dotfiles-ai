@@ -12,6 +12,8 @@ The macOS transport reads an exact origin/account/repository Keychain item with
 interaction disabled, using an isolated Git 2.56+ Basic-auth fetch. It never
 stores credentials, starts login or infers API principal authority. Missing
 runtime capability or Keychain access blocks the read safely.
+Selection enumerates metadata without password access, then reads only the
+unique item reference with a single-item query and revalidates its identity.
 
 `complete-local [--cycle-id CYCLE_ID]` validates exact local source and gate
 evidence without network activity, then retains an immutable completion with

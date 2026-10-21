@@ -1,5 +1,19 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-21 — Native Keychain query compatibility
+
+- Split exact metadata/reference enumeration from reference-bound single-item
+  password retrieval; reject ambiguity and changed attributes before releasing
+  a credential. Both reads deny UI and preserve get-only storage behavior.
+- Retained the failing-first unsupported data/all-matches regression; validation
+  covers native CF ownership, synthetic reference/data outcomes and a real
+  metadata-only nonexistent selection that cannot request password data.
+  The private Cycle Record retains scoped checks, deadlines and final outcomes.
+- No new dependency, Gate Exception, credential enrollment or installed change.
+  Native successful password retrieval and controlled private fetch remain
+  rollout qualifications. Intended Final Push: existing feature branch and
+  draft PR to `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-21 — Forgejo local-only source
 
 - Added typed Initiative schema 2 and native Cycle Record schema 6 for explicit
