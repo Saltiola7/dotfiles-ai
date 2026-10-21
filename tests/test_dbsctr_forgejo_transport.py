@@ -16,6 +16,7 @@ import sys
 import time
 import unittest
 from unittest import mock
+import uuid
 
 
 SCRIPT = Path(__file__).parents[1] / "dot_local/bin/executable_dbsctrctl"
@@ -332,6 +333,8 @@ class ForgejoTransportTest(unittest.TestCase):
         self.assertEqual(len(copied), 1)
         self.assertEqual(copied[0]["kSecUseAuthenticationUI"], "kSecUseAuthenticationUIFail")
         self.assertEqual(copied[0]["kSecMatchLimit"], "kSecMatchLimitAll")
+        self.assertNotIn("kSecReturnData", copied[0])
+        self.assertEqual(copied[0]["kSecReturnRef"], "kCFBooleanTrue")
         for key, expected in (("kSecAttrServer", query["server"]), ("kSecAttrPort", 8443),
                               ("kSecAttrAccount", "fixture-user"), ("kSecAttrPath", query["path"]),
                               ("kSecAttrProtocol", "kSecAttrProtocolHTTPS")):
@@ -358,6 +361,48 @@ class ForgejoTransportTest(unittest.TestCase):
         security.SecItemCopyMatching.assert_not_called()
 
     @unittest.skipUnless(sys.platform == "darwin", "requires native CoreFoundation ABI")
+    def test_native_metadata_query_accepts_nonexistent_selection_without_password_access(self):
+        """Exercise real query construction, stopping before any password read."""
+        core = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        security = ctypes.CDLL("/System/Library/Frameworks/Security.framework/Security")
+        pointer = ctypes.c_void_p
+        native_copy = security.SecItemCopyMatching
+        native_copy.argtypes = [pointer, ctypes.POINTER(pointer)]
+        native_copy.restype = ctypes.c_int32
+        statuses = []
+
+        def symbol(library, name):
+            return pointer.in_dll(library, name).value
+
+        class Function:
+            def __call__(inner, query, returned):
+                self.assertFalse(core.CFDictionaryGetValue(query, symbol(security, "kSecReturnData")))
+                self.assertTrue(core.CFEqual(core.CFDictionaryGetValue(query,
+                    symbol(security, "kSecReturnRef")), symbol(core, "kCFBooleanTrue")))
+                status = native_copy(query, returned)
+                statuses.append(status)
+                # Even an unexpected sentinel collision cannot lead to a data read.
+                if returned._obj.value:
+                    core.CFRelease(returned._obj.value)
+                    returned._obj.value = None
+                return -25300
+
+        class Boundary:
+            SecItemCopyMatching = Function()
+            def __getattr__(inner, name):
+                return getattr(security, name)
+
+        query = {"server": "dbsctr-nonexistent-selection.invalid", "port": 0, "protocol": "https",
+                 "account": "probe-" + uuid.uuid4().hex, "path": "probe/absent.git"}
+        with mock.patch.object(ctypes, "CDLL", side_effect=[core, Boundary()]):
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo native credential unavailable$"):
+                self.core._forgejo_security_lookup(query)
+        # Missing item, denied UI or missing Keychain are valid native refusals;
+        # a parameter error is not a valid query-construction result.
+        self.assertEqual(len(statuses), 1)
+        self.assertIn(statuses[0], {-25300, -25308, -25294})
+
+    @unittest.skipUnless(sys.platform == "darwin", "requires native CoreFoundation ABI")
     def test_real_corefoundation_results_with_only_synthetic_security_calls(self):
         """Exercise native CF ownership/types without querying any Keychain."""
         real_cdll = ctypes.CDLL
@@ -368,7 +413,10 @@ class ForgejoTransportTest(unittest.TestCase):
         cases = (("string-https", True), ("number-https", True),
                  ("string-http", False), ("number-http", False),
                  ("duplicate", False), ("data-string", False),
-                 ("data-invalid-utf8", False), ("not-dictionary", False))
+                 ("data-invalid-utf8", False), ("not-dictionary", False),
+                 ("empty", False), ("missing-ref", False), ("wrong-ref-type", False),
+                 ("changed-data-identity", False), ("data-denied", False),
+                 ("not-data-dictionary", False))
         for shape, accepted in cases:
             with self.subTest(shape=shape):
                 core = real_cdll("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
@@ -425,17 +473,28 @@ class ForgejoTransportTest(unittest.TestCase):
 
                 item = remember(core.CFDictionaryCreateMutable(None, 0,
                     callbacks("kCFTypeDictionaryKeyCallBacks"), callbacks("kCFTypeDictionaryValueCallBacks")))
+                credential = remember(core.CFDictionaryCreateMutable(None, 0,
+                    callbacks("kCFTypeDictionaryKeyCallBacks"), callbacks("kCFTypeDictionaryValueCallBacks")))
                 protocol = (number(int.from_bytes(b"htps" if shape == "number-https" else b"http", "big"))
                             if shape.startswith("number-") else symbol(security,
                                 "kSecAttrProtocolHTTP" if shape == "string-http" else "kSecAttrProtocolHTTPS"))
                 payload = (string("PRIVATE_TOKEN_SENTINEL") if shape == "data-string" else
                            data(b"\xffPRIVATE_TOKEN_SENTINEL" if shape == "data-invalid-utf8" else b"PRIVATE_TOKEN_SENTINEL"))
+                item_ref = (string("INVALID_REFERENCE") if shape == "wrong-ref-type" else
+                            data(b"ITEM_REFERENCE_SENTINEL"))
                 attributes = {"kSecAttrServer": string(query["server"]), "kSecAttrPort": number(8443),
                               "kSecAttrAccount": string(query["account"]), "kSecAttrPath": string(query["path"]),
-                              "kSecAttrProtocol": protocol, "kSecValueData": payload}
+                              "kSecAttrProtocol": protocol}
                 for key, value in attributes.items():
                     core.CFDictionarySetValue(item, symbol(security, key), value)
-                items = [payload] if shape == "not-dictionary" else [item, item] if shape == "duplicate" else [item]
+                    core.CFDictionarySetValue(credential, symbol(security, key), value)
+                if shape != "missing-ref":
+                    core.CFDictionarySetValue(item, symbol(security, "kSecValueRef"), item_ref)
+                core.CFDictionarySetValue(credential, symbol(security, "kSecValueData"), payload)
+                if shape == "changed-data-identity":
+                    core.CFDictionarySetValue(credential, symbol(security, "kSecAttrAccount"), string("other-user"))
+                items = ([] if shape == "empty" else [payload] if shape == "not-dictionary" else
+                         [item, item] if shape == "duplicate" else [item])
                 entries = (pointer * len(items))(*items)
                 array = remember(core.CFArrayCreate(None, entries, len(items), callbacks("kCFTypeArrayCallBacks")))
 
@@ -446,15 +505,34 @@ class ForgejoTransportTest(unittest.TestCase):
                 def copy_matching(native_query, returned):
                     self.assertEqual(ui_states, [0])
                     for key, expected in (("kSecUseAuthenticationUI", "kSecUseAuthenticationUIFail"),
-                                          ("kSecMatchLimit", "kSecMatchLimitAll"),
                                           ("kSecAttrProtocol", "kSecAttrProtocolHTTPS")):
                         self.assertTrue(core.CFEqual(core.CFDictionaryGetValue(native_query, symbol(security, key)),
                                                      symbol(security, expected)))
                     for key, expected in (("kSecAttrServer", query["server"]),
                                           ("kSecAttrAccount", query["account"]), ("kSecAttrPath", query["path"])):
                         self.assertEqual(text(core.CFDictionaryGetValue(native_query, symbol(security, key))), expected)
-                    copied.append(True)
-                    returned._obj.value = core.CFRetain(array)
+                    if not copied:
+                        self.assertTrue(core.CFEqual(core.CFDictionaryGetValue(native_query,
+                            symbol(security, "kSecMatchLimit")), symbol(security, "kSecMatchLimitAll")))
+                        self.assertFalse(core.CFDictionaryGetValue(native_query, symbol(security, "kSecReturnData")))
+                        self.assertTrue(core.CFEqual(core.CFDictionaryGetValue(native_query,
+                            symbol(security, "kSecReturnRef")), symbol(core, "kCFBooleanTrue")))
+                        copied.append("metadata")
+                        returned._obj.value = core.CFRetain(array)
+                        return 0
+                    self.assertEqual(copied, ["metadata"])
+                    self.assertTrue(core.CFEqual(core.CFDictionaryGetValue(native_query,
+                        symbol(security, "kSecMatchLimit")), symbol(security, "kSecMatchLimitOne")))
+                    self.assertTrue(core.CFEqual(core.CFDictionaryGetValue(native_query,
+                        symbol(security, "kSecReturnData")), symbol(core, "kCFBooleanTrue")))
+                    selected = core.CFDictionaryGetValue(native_query, symbol(security, "kSecMatchItemList"))
+                    self.assertEqual(core.CFGetTypeID(selected), core.CFArrayGetTypeID())
+                    self.assertEqual(core.CFArrayGetCount(selected), 1)
+                    self.assertTrue(core.CFEqual(core.CFArrayGetValueAtIndex(selected, 0), item_ref))
+                    copied.append("data")
+                    if shape == "data-denied":
+                        return -25308
+                    returned._obj.value = core.CFRetain(payload if shape == "not-data-dictionary" else credential)
                     return 0
 
                 # These are the only Security entry points the adapter invokes.
@@ -462,6 +540,9 @@ class ForgejoTransportTest(unittest.TestCase):
                 # only to construct native CF values, never to access storage.
                 security.SecKeychainGetUserInteractionAllowed = Function(get_interaction)
                 security.SecKeychainSetUserInteractionAllowed = Function(lambda state: ui_states.append(state) or 0)
+                # Synthetic CFData stands in for an opaque Keychain item reference;
+                # no real item is opened or created by this ABI fixture.
+                security.SecKeychainItemGetTypeID = Function(lambda: core.CFDataGetTypeID())
                 security.SecItemCopyMatching = Function(copy_matching)
                 try:
                     with mock.patch.object(ctypes, "CDLL", side_effect=[core, security]):
@@ -471,7 +552,9 @@ class ForgejoTransportTest(unittest.TestCase):
                             with self.assertRaisesRegex(RuntimeError, "Forgejo native credential") as caught:
                                 self.core._forgejo_security_lookup(query)
                             self.assertNotIn("PRIVATE_TOKEN_SENTINEL", str(caught.exception))
-                    self.assertEqual(copied, [True])
+                    two_reads = shape in {"string-https", "number-https", "data-string", "data-invalid-utf8",
+                                          "changed-data-identity", "data-denied", "not-data-dictionary"}
+                    self.assertEqual(copied, ["metadata", "data"] if two_reads else ["metadata"])
                     self.assertEqual(ui_states, [0, 1])
                 finally:
                     for reference in reversed(references):

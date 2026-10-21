@@ -3832,6 +3832,7 @@ def _forgejo_security_lookup(query):
         fail("Forgejo native credential unavailable")
     references = []
     result = ctypes.c_void_p()
+    credential_result = ctypes.c_void_p()
     core, security, interaction = None, None, None
     try:
         core = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
@@ -3847,6 +3848,7 @@ def _forgejo_security_lookup(query):
             "CFNumberGetValue": ([pointer, ctypes.c_int, pointer], ctypes.c_ubyte),
             "CFArrayGetCount": ([pointer], index),
             "CFArrayGetValueAtIndex": ([pointer, index], pointer),
+            "CFArrayCreate": ([pointer, pointer, index, pointer], pointer),
             "CFDataGetLength": ([pointer], index),
             "CFDataGetBytePtr": ([pointer], pointer),
             "CFGetTypeID": ([pointer], ctypes.c_ulong),
@@ -3862,6 +3864,8 @@ def _forgejo_security_lookup(query):
             function.argtypes, function.restype = arguments, returned
         security.SecItemCopyMatching.argtypes = [pointer, ctypes.POINTER(pointer)]
         security.SecItemCopyMatching.restype = ctypes.c_int32
+        security.SecKeychainItemGetTypeID.argtypes = []
+        security.SecKeychainItemGetTypeID.restype = ctypes.c_ulong
         security.SecKeychainGetUserInteractionAllowed.argtypes = [ctypes.POINTER(ctypes.c_ubyte)]
         security.SecKeychainGetUserInteractionAllowed.restype = ctypes.c_int32
         security.SecKeychainSetUserInteractionAllowed.argtypes = [ctypes.c_ubyte]
@@ -3901,7 +3905,7 @@ def _forgejo_security_lookup(query):
                   "kSecUseAuthenticationUI": symbol(security, "kSecUseAuthenticationUIFail"),
                   "kSecMatchLimit": symbol(security, "kSecMatchLimitAll"),
                   "kSecReturnAttributes": symbol(core, "kCFBooleanTrue"),
-                  "kSecReturnData": symbol(core, "kCFBooleanTrue")}
+                  "kSecReturnRef": symbol(core, "kCFBooleanTrue")}
         for key, value in fields.items():
             core.CFDictionarySetValue(dictionary, symbol(security, key), value)
         if security.SecItemCopyMatching(dictionary, ctypes.byref(result)) != 0 or not result.value:
@@ -3912,46 +3916,80 @@ def _forgejo_security_lookup(query):
         if core.CFGetTypeID(item) != core.CFDictionaryGetTypeID():
             raise ValueError()
 
-        def attribute(name, expected_type):
-            value = core.CFDictionaryGetValue(item, symbol(security, name))
+        def attribute(record, name, expected_type):
+            value = core.CFDictionaryGetValue(record, symbol(security, name))
             if not value or core.CFGetTypeID(value) != expected_type():
                 raise ValueError()
             return value
 
-        def text(name):
-            value = attribute(name, core.CFStringGetTypeID)
+        def text(record, name):
+            value = attribute(record, name, core.CFStringGetTypeID)
             buffer = ctypes.create_string_buffer(8192)
             if not core.CFStringGetCString(value, buffer, len(buffer), 0x08000100):
                 raise ValueError()
             return buffer.value.decode("utf-8")
 
-        actual_port = ctypes.c_int64()
-        if not core.CFNumberGetValue(attribute("kSecAttrPort", core.CFNumberGetTypeID), 4,
-                                     ctypes.byref(actual_port)):
+        def attributes(record):
+            actual_port = ctypes.c_int64()
+            if not core.CFNumberGetValue(attribute(record, "kSecAttrPort", core.CFNumberGetTypeID), 4,
+                                         ctypes.byref(actual_port)):
+                raise ValueError()
+            protocol = core.CFDictionaryGetValue(record, symbol(security, "kSecAttrProtocol"))
+            https = False
+            if protocol and core.CFGetTypeID(protocol) == core.CFStringGetTypeID():
+                https = bool(core.CFEqual(protocol, symbol(security, "kSecAttrProtocolHTTPS")))
+            elif protocol and core.CFGetTypeID(protocol) == core.CFNumberGetTypeID():
+                number = ctypes.c_int64()
+                https = bool(core.CFNumberGetValue(protocol, 4, ctypes.byref(number))) and number.value == int.from_bytes(b"htps", "big")
+            if not https:
+                raise ValueError()
+            value = {"server": text(record, "kSecAttrServer"), "port": actual_port.value,
+                     "account": text(record, "kSecAttrAccount"), "path": text(record, "kSecAttrPath"),
+                     "protocol": "https"}
+            if any(value[key] != query[key] for key in value):
+                raise ValueError()
+            return value
+
+        selected = attributes(item)
+        item_reference = attribute(item, "kSecValueRef", security.SecKeychainItemGetTypeID)
+        entries = (pointer * 1)(item_reference)
+        item_list = core.CFArrayCreate(None, entries, 1,
+            ctypes.addressof(ctypes.c_byte.in_dll(core, "kCFTypeArrayCallBacks")))
+        if not item_list:
             raise ValueError()
-        protocol = core.CFDictionaryGetValue(item, symbol(security, "kSecAttrProtocol"))
-        https = False
-        if protocol and core.CFGetTypeID(protocol) == core.CFStringGetTypeID():
-            https = bool(core.CFEqual(protocol, symbol(security, "kSecAttrProtocolHTTPS")))
-        elif protocol and core.CFGetTypeID(protocol) == core.CFNumberGetTypeID():
-            number = ctypes.c_int64()
-            https = bool(core.CFNumberGetValue(protocol, 4, ctypes.byref(number))) and number.value == int.from_bytes(b"htps", "big")
-        if not https:
+        references.append(item_list)
+        data_query = core.CFDictionaryCreateMutable(None, 0,
+            ctypes.addressof(ctypes.c_byte.in_dll(core, "kCFTypeDictionaryKeyCallBacks")),
+            ctypes.addressof(ctypes.c_byte.in_dll(core, "kCFTypeDictionaryValueCallBacks")))
+        if not data_query:
             raise ValueError()
-        data = attribute("kSecValueData", core.CFDataGetTypeID)
+        references.append(data_query)
+        data_fields = {key: value for key, value in fields.items() if key != "kSecReturnRef"}
+        data_fields.update({"kSecMatchLimit": symbol(security, "kSecMatchLimitOne"),
+                            "kSecMatchItemList": item_list,
+                            "kSecReturnData": symbol(core, "kCFBooleanTrue")})
+        for key, value in data_fields.items():
+            core.CFDictionarySetValue(data_query, symbol(security, key), value)
+        if (security.SecItemCopyMatching(data_query, ctypes.byref(credential_result)) != 0
+                or not credential_result.value
+                or core.CFGetTypeID(credential_result) != core.CFDictionaryGetTypeID()):
+            fail("Forgejo native credential unavailable")
+        if attributes(credential_result) != selected:
+            raise ValueError()
+        data = attribute(credential_result, "kSecValueData", core.CFDataGetTypeID)
         length = core.CFDataGetLength(data)
         if not 0 < length <= 4096:
             raise ValueError()
         password = ctypes.string_at(core.CFDataGetBytePtr(data), length).decode("utf-8")
-        return [{"server": text("kSecAttrServer"), "port": actual_port.value,
-                 "account": text("kSecAttrAccount"), "path": text("kSecAttrPath"),
-                 "protocol": "https", "password": password}]
+        return [{**selected, "password": password}]
     except (OSError, AttributeError, ValueError, TypeError, KeyError, ctypes.ArgumentError):
         fail("Forgejo native credential unavailable")
     finally:
         if security is not None and interaction is not None:
             security.SecKeychainSetUserInteractionAllowed(interaction)
         if core is not None:
+            if credential_result.value:
+                core.CFRelease(credential_result)
             if result.value:
                 core.CFRelease(result)
             for reference in reversed(references):
