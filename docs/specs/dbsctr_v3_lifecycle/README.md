@@ -14,6 +14,9 @@ stores credentials, starts login or infers API principal authority. Missing
 runtime capability or Keychain access blocks the read safely.
 Selection enumerates metadata without password access, then reads only the
 unique item reference with a single-item query and revalidates its identity.
+The Git process keeps its private home; only the dedicated credential child
+binds `HOME` to the current operating-system user's account record before native
+Keychain discovery. Invalid home metadata fails without lookup or UI.
 
 `complete-local [--cycle-id CYCLE_ID]` validates exact local source and gate
 evidence without network activity, then retains an immutable completion with

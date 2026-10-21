@@ -76,6 +76,7 @@ runtime blocker, not permission to start a login or broaden credentials.
 | Existing supported GitHub records and schema 1 Initiatives | Their existing workflows run | Preserve existing identities, digests, record shapes and delivery behavior, including legacy schema 5 local intent. |
 | Missing credentials, endpoint mismatch, redirect or unsafe Git configuration | A controlled fetch is requested | Fail safely without another account, interactive login, credential enrollment or remote write. |
 | Zero, ambiguous or malformed native credential matches | Exact metadata selection runs | Refuse before requesting any password data. A unique match permits only a reference-bound single-item read, followed by attribute revalidation. |
+| Git has an isolated home | Its dedicated credential child starts | Bind only that child's native lookup home to the current operating-system UID; malformed account-home metadata refuses before lookup. |
 
 ## Interfaces and schemas
 
@@ -223,6 +224,15 @@ no automatic authentication retries. Failure reports a fixed safe category and
 preserves existing authority. Qualify effective Git configuration and destination
 binding, not just the command's displayed URL. The transport must not inherit a
 repository-configured command, helper, hook or credential-bearing header.
+
+The Git transport keeps its isolated temporary home and XDG directory. Only the
+dedicated get-only credential child restores `HOME` from the operating system's
+current-UID account record before loading Security.framework, so native Keychain
+discovery can find the user's existing login Keychain. Never use inherited
+`HOME` or infer the home from the selected Forgejo account. Missing, relative or
+malformed account-home metadata refuses before credential lookup. This narrow
+native-store binding does not restore Git configuration, XDG state, proxies,
+interactive UI or other ambient credentials, and it is not credential enrollment.
 
 Preflight may write only ordinary local fetch objects/tracking-ref state. It
 creates no cycle, approval, import commit or remote ref. Bind full typed source
@@ -406,13 +416,15 @@ it cannot authorize removal.
 | Public Discovery to support PR | Sanitized behavior/interfaces and synthetic examples; no private bindings or credentials. |
 | Private manifest to receipt | Typed repository and committed provenance; account/credential bytes are absent from manifest identity. |
 | Private selector to native Keychain lookup | Exact origin/account/repository selection; lookup grants no API principal or mutation claim. |
+| Operating-system account record to credential child | Bind the current UID's native home before Keychain discovery; Git's home, XDG and configuration remain isolated. |
 | Lookup to controlled Git fetch | Secret stays in private memory and is released only for exact selected HTTPS destination. |
 | Git/profile/plan/receipt to native Cycle Record | Exact non-secret provenance, private selections and gate evidence; no raw provider error or token. |
 | Native record to local completion | Validated source/base/tree and pending manual-delivery status; no export. |
 
 **Text Equivalent (data/trust):** Public support artifacts contain generic
 contracts only. Private identities and credential selections remain local to the
-consumer and runtime record. Secret bytes flow only from exact Keychain lookup
+consumer and runtime record. Only the credential child's native home comes from
+the current operating-system UID; the Git transport remains isolated. Secret bytes flow only from exact Keychain lookup
 to controlled Git fetch. Local completion retains source evidence privately and
 exports nothing.
 
