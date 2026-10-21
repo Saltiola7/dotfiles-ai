@@ -802,9 +802,13 @@ feature branch with a draft pull request; the operator retains merge authority.
 - OpenCode parser validation remains required in configured CI, which installs a
   pinned OpenCode version. Missing OpenCode or any nonzero parser result fails
   that separate integration test.
-- Feature branches run one pull-request matrix; direct pushes run the same matrix
-  only on `main`. Timing-sensitive concurrency fixtures use enough synthetic work
-  to preserve their required ten-percent signal under hosted-runner contention.
+- Pull requests and `main` pushes run the full macOS suite on Python 3.14.
+  Weekly and manual runs retain the full Python 3.12/3.13/3.14 compatibility
+  matrix. New PR runs cancel only superseded runs for the same PR. The
+  [CI cadence contract](../dbsctr_v3_lifecycle/features/early-delivery-checks.md#ci-runtime-cadence)
+  owns event selection, timeouts and matching strict required-check migration.
+  Timing-sensitive concurrency fixtures use enough synthetic work to preserve
+  their required ten-percent signal under hosted-runner contention.
 - Given a bounded command exceeds its output limit, then cleanup preserves the
   intended bound error even if the child already exited or macOS denies the late
   process-group signal.

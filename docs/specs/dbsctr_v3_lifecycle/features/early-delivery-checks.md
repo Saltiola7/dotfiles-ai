@@ -44,10 +44,44 @@ CI runs that command after installing its existing tools and before the full
 suite. Locally, the publication authority inventories tracked files: stage intended
 new artifacts before checking, and verify the tested worktree matches the intended
 commit. Do not stage unrelated work merely to broaden the scan.
-Full CI still runs unchanged on all supported Python versions. Failed
-early checks are not waived, and an unavailable authority is not success.
+Full CI uses the runtime cadence below. Failed early checks are not waived, and
+an unavailable authority is not success.
 The lifecycle regression verifies step ordering, selected authorities, and policy
 coverage. Existing approval tests remain authoritative for CLI consent behavior.
+
+## CI runtime cadence
+
+The distribution owner maintains the hosted validation workflow; lifecycle owns
+the early publication contract. This bounded cadence amendment is elevated risk
+and serves distribution Product Intent journey 12: submit reviewable source
+without repeating every compatibility run on every edit. Python support remains
+`>=3.12`; this changes validation cadence, not supported runtimes or test scope.
+
+| Event | Full macOS suite runtimes | Cancellation and merge consequence |
+|---|---|---|
+| Pull request | Python 3.14 | A newer run for the same PR cancels its predecessor; only the current head's successful `test (3.14)` can satisfy the native required check |
+| Push to `main` | Python 3.14 | Main validation is separate from PR runs and is not cancelled by a PR update |
+| Weekly schedule, Monday 09:17 UTC | Python 3.12, 3.13, 3.14 | Preserve full supported-runtime coverage; a failed matrix member must not cancel the other compatibility results |
+| Manual workflow dispatch | Python 3.12, 3.13, 3.14 | Maintainers can request the complete compatibility matrix without changing source |
+
+Every selected runtime retains the same pinned tooling, early publication checks,
+native Swift authority and full pytest command. Each job has a 45-minute timeout.
+Workflow tokens have read-only repository contents permission. No path filter,
+test exclusion, failure waiver, dependency change or privileged PR event is added.
+
+Before merging this workflow migration, maintainers verify the new exact-head
+Python 3.14 job succeeds, then replace the three required runtime contexts with
+the app-bound `test (3.14)` check. Preserve strict current-base validation,
+administrator enforcement, PR review/conversation requirements and force/deletion
+restrictions. Do not temporarily remove all required checks or use an admin merge
+bypass. Other applicable platform smoke failures still block integration.
+
+The weekly matrix detects compatibility regressions after ordinary merges; it is
+not per-PR evidence for Python 3.12/3.13. A compatibility failure requires repair
+and a successful full-matrix rerun. Reverting this cadence requires restoring
+the three-version workflow and matching required checks together. Native CI
+results, queue times and protection snapshots remain the execution evidence;
+the configuration alone proves no measured wall-clock speedup.
 
 ## Maintenance and rollback
 
@@ -66,7 +100,7 @@ instruction activation is claimed by source delivery.
 | State | required: ordered transition table below |
 | Data/trust | not_applicable: no private data is moved; reuse the existing publication authority |
 | Schema | not_applicable: no schema changes |
-| Dependency/deployment | not_applicable: existing CI tool setup and source-only delivery are explicit |
+| Dependency/deployment | required: CI event/runtime/cancellation and merge dependency table above |
 | Quantitative | not_applicable: no speedup claim |
 
 | From | Guard/action | To |
@@ -75,9 +109,13 @@ instruction activation is claimed by source delivery.
 | Candidate artifacts | Publication check fails | Bounded repair or material Discovery correction |
 | Bounded repair | In scope or explicitly amended; affected validation passes | Resume existing cycle with replacement evidence |
 | Material correction | Changed authority is prepared and exact approval renewed as required | Fresh readiness |
+| PR update | New run replaces the same PR's obsolete run | One current primary runtime suite |
+| Exact primary job succeeds | Matching required-check migration preserves strict native base protection | Ordinary guarded merge eligible |
 
 **Text Equivalent:** Validate publication before handoff. Repair nonsemantic defects
 inside approved ownership without discarding the cycle. Material changes retain
 Discovery and exact-approval boundaries. Source: Behavior and contracts above.
 Owner: lifecycle maintainers. Update trigger: publication authority, ownership,
-approval, import closure, or validation-order changes.
+approval, import closure, validation-order or CI runtime-cadence changes. The CI
+cadence table is the canonical event-to-runtime and merge dependency mapping;
+distribution maintainers update it with workflow and required-check migrations.
