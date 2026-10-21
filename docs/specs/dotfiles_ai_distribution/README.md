@@ -61,6 +61,27 @@ model invocation. Desktop selector behavior was not independently exercised;
 a client refresh/restart may be needed. Source is retained on a feature branch;
 no remote publication or completed lifecycle gate is claimed.
 
+**Guarded OpenCode maintenance source:** the explicit
+[`opencode-maintenance` contract](features/opencode-safe-maintenance.md) adds private
+immutable checkpoints, exact viewed-session observations and per-pane assessments.
+Schema-3 legacy capture retains missing/conflicting mappings as uncertain and blocks
+their restoration. Native update/restart commands keep their existing behavior.
+The supported V2 observer reads route/tab/cache metadata and preserves local plugin
+configuration. Current `apply` and `recover` always refuse because native atomic
+drain, draft preservation and passive attach remain unqualified. Source and isolated
+fixtures are delivered together; no live observer registration, deployment or
+OpenCode/Herdr restart is performed. Metadata retention is explicit and bounded;
+there are no database copies or automatic history pruning.
+
+**Managed DVC GCS runtime source:** the [storage contract](features/workflow-storage-policy.md#managed-dvc-runtime-qualification)
+assigns the explicit `managed-dvc` entry point and isolated hash-locked runtime to
+this distribution. Setup, registration and removal/preservation callers select
+the same runtime independently of project PATH. Offline GCS backend qualification
+precedes cache writes; command failures remain distinct from unsafe output state.
+Existing code-only, reflink, migration-refusal and remote-preservation contracts
+remain in force. Source tests are not host activation or GCS connectivity evidence;
+Deploy and Operate require a separately approved exact installer/lock/helper plan.
+
 **Workflow-convergence Discovery:** [portable storage policy](features/workflow-storage-policy.md)
 defines configurable centralized new worktrees, repository-scoped shared caches
 and trusted exact-repository policy. Existing active work stays in place. Feature

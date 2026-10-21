@@ -1366,7 +1366,7 @@ class DbsctrctlTest(unittest.TestCase):
         return plan
 
     def start(self, intent="local", base_branch="main", account="example-user",
-               repository="example-user/dotfiles-ai", env=None):
+               repository="example-user/dotfiles-ai", env=None, script=SCRIPT):
         self.prepare_native_checkout()
         plan = self.plan_path(intent)
         command = ["start", "--cycle-id", "cycle-1", "--context", "test",
@@ -1374,7 +1374,7 @@ class DbsctrctlTest(unittest.TestCase):
                    "--base-branch", base_branch]
         if intent == "draft_pr":
             command += ["--github-account", account, "--github-repository", repository]
-        return run(self.repo, *command, env=env)
+        return run(self.repo, *command, env=env, script=script)
 
     def record_path(self, repo=None):
         common = Path(subprocess.check_output(
@@ -1419,14 +1419,24 @@ class DbsctrctlTest(unittest.TestCase):
             stream.write("\n.dvc/config.local\n")
         commands = Path(self.temp.name) / "dvc-bootstrap-bin"
         commands.mkdir()
-        fake = commands / "dvc"
-        fake.write_text('#!/bin/sh\ncase "$*" in\n'
-                        '"cache dir") printf "%s\\n" "$NATIVE_TEST_CACHE" ;;\n'
-                        '"config cache.type") printf "reflink\\n" ;;\n'
-                        '* ) exit 19 ;;\nesac\n')
-        fake.chmod(0o755)
-        self.start(env={**isolated_env(), "PATH": f"{commands}:{os.environ['PATH']}",
-                        "NATIVE_TEST_CACHE": str(cache)})
+        # This final-push fixture mocks the explicit paired runtime boundary.
+        # Native bootstrap/backend behavior is qualified by the separate DVC suite.
+        fixture_core = commands / "executable_dbsctrctl"
+        shutil.copyfile(SCRIPT, fixture_core)
+        shutil.copyfile(SCRIPT.with_name("executable_worktree-dvc-setup"),
+                        commands / "executable_worktree-dvc-setup")
+        (commands / "executable_managed-dvc").write_text(
+            'import json, os, sys\n'
+            'args = sys.argv[1:]\n'
+            'if args == ["--check-runtime"]:\n'
+            '    print(json.dumps({"dvc":"3.67.1", "dvc_data":"3.18.3", "dvc_gs":"3.1.0", "backend":"gs"}))\n'
+            'elif args == ["cache", "dir"]: print(os.environ["NATIVE_TEST_CACHE"])\n'
+            'elif args == ["config", "cache.type"]: print("reflink")\n'
+            'else: sys.exit(19)\n')
+        home = Path(self.temp.name) / "dvc-bootstrap-home"
+        home.mkdir()
+        self.start(script=fixture_core, env={**isolated_env(), "NATIVE_TEST_CACHE": str(cache),
+                                           "HOME": str(home), "XDG_CONFIG_HOME": str(home / "config")})
 
     def make_schema3_fixture(self, cycle_id, worktree):
         path = self.git_common / f"dbsctr/cycles/{cycle_id}.json"
@@ -3064,12 +3074,14 @@ class DbsctrctlTest(unittest.TestCase):
                        cwd=self.repo, check=True, capture_output=True)
         subprocess.run(["git", "branch", "--set-upstream-to", "origin/master", "linked-source"],
                        cwd=self.repo, check=True, capture_output=True)
+        home = Path(self.temp.name) / "runtime-home"
+        home.mkdir()
         refused = run(
             linked_source, "begin", "--cycle-id", "isolated-1", "--context", "test",
             "--risk", "routine", "--delivery-intent", "local", "--plan", str(self.plan_path()),
-            ok=False,
+            ok=False, env={**isolated_env(), "HOME": str(home)},
         )
-        self.assertIn("explicit external reflink-only cache", refused.stderr)
+        self.assertIn("DVC registration: managed_dvc_runtime_unavailable", refused.stderr)
         self.assertEqual(cached.read_bytes(), b"preserve cached data")
         self.assertFalse((linked_source / ".dvc/config.local").exists())
         self.assertFalse((linked_source / ".dvc/cache").exists())
@@ -6793,11 +6805,12 @@ class DbsctrctlTest(unittest.TestCase):
         reviews.mkdir(parents=True)
         with (reviews / ".lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
+            # Allow cold interpreter startup while keeping the held-lock regression bounded.
             invalid = subprocess.run(
                 [sys.executable, str(SCRIPT), "phase-span", "--state-root", str(state),
                  "--span-id", "invalid", "--event", "start", "--phase", "domain",
                  "--operation", "read"],
-                cwd=self.repo, text=True, capture_output=True, env=isolated_env(), timeout=1,
+                cwd=self.repo, text=True, capture_output=True, env=isolated_env(), timeout=10,
             )
         self.assertNotEqual(invalid.returncode, 0)
         self.assertIn("phase span start requires phase, operation, and attribution only", invalid.stderr)

@@ -1,0 +1,135 @@
+#!/usr/bin/env -S python3 -I
+"""Use only the distribution-owned, lock-qualified DVC runtime."""
+import hashlib
+import os
+from pathlib import Path
+import stat
+import sys
+
+
+# Executed by the selected venv with isolated imports; no remote operation here.
+DVC_PROGRAM = '''
+import importlib.metadata
+import json
+import sys
+try:
+    versions = {name: importlib.metadata.version(package) for name, package in
+                (("dvc", "dvc"), ("dvc_data", "dvc-data"), ("dvc_gs", "dvc-gs"))}
+    if versions != {"dvc": "3.67.1", "dvc_data": "3.18.3", "dvc_gs": "3.1.0"}:
+        raise ValueError()
+except Exception:
+    print("managed-dvc: managed_dvc_runtime_unqualified", file=sys.stderr)
+    sys.exit(78)
+try:
+    from dvc_gs import GSFileSystem
+except Exception:
+    print("managed-dvc: managed_dvc_backend_unavailable", file=sys.stderr)
+    sys.exit(78)
+if sys.argv[1:] == ["--check-runtime"]:
+    print(json.dumps({**versions, "backend": "gs"}, sort_keys=True))
+else:
+    from dvc.cli import main
+    sys.exit(main(sys.argv[1:]))
+'''
+
+# Run in the exec'd interpreter, preserving caller timeout/signal behavior.
+# Private files capture native file descriptors without unbounded RAM buffering.
+QUALIFY_AND_RUN = '''
+import os, shutil, sys, tempfile
+def managed_run():
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        saved_out, saved_err = os.dup(1), os.dup(2)
+        status = 0
+        normal_exit = False
+        try:
+            os.dup2(output.fileno(), 1)
+            os.dup2(errors.fileno(), 2)
+            try:
+                exec(DVC_PROGRAM_LITERAL, {})
+            except SystemExit as error:
+                status = error.code if isinstance(error.code, int) else (0 if error.code is None else 1)
+                normal_exit = True
+            except KeyboardInterrupt:
+                status = 130
+            except BaseException:
+                status = 1
+        finally:
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+            finally:
+                os.dup2(saved_out, 1)
+                os.dup2(saved_err, 2)
+                os.close(saved_out)
+                os.close(saved_err)
+        errors.seek(0)
+        diagnostic = errors.read(256)
+        # check-ignore's no-match status is a normal result. The
+        # preservation caller explicitly accepts it; unexpected exceptions do
+        # not qualify, and stderr still becomes a warning that retains work.
+        no_match = normal_exit and status == 1 and sys.argv[1:] == ["check-ignore", "--stdin"]
+        if status == 0 or no_match:
+            output.seek(0)
+            shutil.copyfileobj(output, sys.stdout.buffer)
+            if diagnostic:
+                print("managed-dvc: dvc_command_warning", file=sys.stderr)
+        else:
+            allowed = {("managed-dvc: " + category + "\\n").encode() for category in (
+                "managed_dvc_runtime_unavailable", "managed_dvc_runtime_unqualified",
+                "managed_dvc_backend_unavailable")}
+            if status == 78 and diagnostic in allowed:
+                sys.stderr.write(diagnostic.decode())
+            else:
+                print("managed-dvc: dvc_command_failed", file=sys.stderr)
+        return status
+try:
+    status = managed_run()
+except (OSError, ValueError, UnicodeError):
+    print("managed-dvc: dvc_command_failed", file=sys.stderr)
+    status = 1
+sys.exit(status)
+'''.replace("DVC_PROGRAM_LITERAL", repr(DVC_PROGRAM))
+
+
+def safe(path, *, directory=False):
+    item = path.lstat()
+    if (item.st_uid != os.getuid() or item.st_mode & 0o022
+            or not (stat.S_ISDIR(item.st_mode) if directory else stat.S_ISREG(item.st_mode))):
+        raise ValueError()
+    if not directory and (item.st_nlink != 1 or item.st_size > 1024 * 1024):
+        raise ValueError()
+
+
+def runtime():
+    home = Path.home()
+    base = home / ".config/dotfiles-ai/runtime/dvc"
+    for path in (home, home / ".config", home / ".config/dotfiles-ai",
+                 base.parent, base, base / "venvs"):
+        safe(path, directory=True)
+    lock = base / "requirements.txt"
+    safe(lock)
+    digest = hashlib.sha256(lock.read_bytes()).hexdigest()
+    generation = base / "venvs" / digest
+    safe(generation, directory=True)
+    safe(generation / "bin", directory=True)
+    marker = generation / ".managed-lock-sha256"
+    safe(marker)
+    if marker.read_text() != digest + "\n":
+        raise ValueError()
+    python = generation / "bin/python"
+    if not python.is_file() or not os.access(python, os.X_OK):
+        raise ValueError()
+    return python
+
+
+def main():
+    try:
+        python = runtime()
+        os.execv(str(python), [str(python), "-I", "-c", QUALIFY_AND_RUN, *sys.argv[1:]])
+    except (OSError, ValueError, UnicodeError):
+        print("managed-dvc: managed_dvc_runtime_unavailable", file=sys.stderr)
+        return 78
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -24,6 +24,26 @@
   No authentication change, service restart, model invocation or unrelated
   installation was required.
 
+## 2026-10-21 — OPENCODE-SAFE-MAINTENANCE source
+
+- Added explicit read-only maintenance preparation/status, durable private checkpoint
+  generations and supported V2 route/tab/cache observation. Native update/restart
+  commands remain unchanged; apply/recover refuse without qualified preservation.
+- Schema-3 capture preserves uncertain mappings and duplicate session views; startup
+  restore refuses uncertainty before probing or launching. Local plugin strings,
+  wildcards and objects survive idempotent managed configuration rendering.
+- Validation: 87 publication/instruction checks; full 320-case affected suite passed
+  with two optional native-candidate checks skipped, including the 80-client pacing
+  regression. Follow-up maintenance refinements passed 58 dedicated checks and the
+  affected suite excluding unchanged pacing. Independent critical-risk review
+  findings were repaired. These fixtures do not qualify live V2 activation.
+- Modules: Python, Security, Cloud. No Gate Exceptions. No deployment, live restart,
+  pane input, form/permission actions or database writes/copies. Retention bounds and
+  future native activation qualification are documented in the feature contract.
+- Implementation Gate Commit: `05f73e5`; documentation Gate Commit and exact final
+  evidence remain in the Cycle Record. Intended Final Push: recorded feature branch
+  and draft PR into `main`, with human review/merge required.
+
 ## 2026-10-20 — Shared Skills and Source Authoring
 
 - Imported the existing `sprint-ticket-refinement` skill and OpenAI metadata
@@ -55,6 +75,27 @@
   native-session handoff. Source is retained on a feature branch; no lifecycle
   registration, gate completion, remote publication, Jira or GitHub mutation is
   claimed.
+
+## 2026-10-20 — MANAGED-DVC-GCS
+
+- Added a distribution-owned DVC runtime with a resolved hash lock for DVC
+  3.67.1, dvc-data 3.18.3 and dvc-gs 3.1.0. Setup, registration and preservation
+  use its explicit entry point; unavailable commands remain distinct from dirty
+  outputs, with bounded diagnostics and existing retention guards.
+- Activated the exact approved four-file and single-installer plan on one macOS
+  host. Installed hashes/modes, offline version/backend qualification, complete
+  runtime generation, helper interfaces and synthetic code-only/reflink and
+  modified-data preservation smokes passed. Recovery preimages and generations
+  remain retained under the distribution update owner's documented procedure.
+- Validation: 300 affected checks before final review, then 71 final native DVC
+  checks and 126 distribution/lifecycle checks. Original red and environment
+  failure evidence remains in the private Cycle Record. No Gate Exceptions.
+- Native process inventory and optional workflow capture were unavailable in the
+  synthetic installed fixture; preservation conservatively retained work. Offline
+  GCS qualification establishes backend availability, not remote connectivity.
+- Source Gate Commits: `29eac6e`, `4a7515d`; the Cycle Record owns completion and
+  deployment receipts. Intended Final Push: recorded feature branch and draft PR
+  into `main`.
 
 ## 2026-10-17 — WORKFLOW-HOST-ACTIVATION stage 1
 

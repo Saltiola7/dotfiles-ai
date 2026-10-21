@@ -49,17 +49,19 @@ def test_pending_survives_capture_restart_and_manual_reopen(monkeypatch, tmp_pat
         inventory(monkeypatch, script, [])
         script["capture"](manifest)
         assert json.loads(manifest.read_text()) == {
-            "schema_version": 2, "sessions": [entry(tmp_path, "pending")],
+            "schema_version": 3, "sessions": [entry(tmp_path, "pending")],
         }
     reopened = {**entry(tmp_path), "pane_id": "w1:p2"}
     inventory(monkeypatch, script, [reopened])
     script["capture"](manifest)
     assert json.loads(manifest.read_text())["sessions"] == [
-        {**reopened, "recovery_state": "observed"},
+        entry(tmp_path, "pending"), {**reopened, "recovery_state": "observed"},
     ]
     inventory(monkeypatch, script, [])
     script["capture"](manifest)
-    assert json.loads(manifest.read_text())["sessions"] == []
+    assert json.loads(manifest.read_text())["sessions"] == [
+        entry(tmp_path, "pending"), {**reopened, "recovery_state": "uncertain"},
+    ]
     assert manifest.stat().st_mode & 0o777 == 0o600
 
 
@@ -116,17 +118,15 @@ def test_native_identity_never_overrides_conflicting_or_unrelated_processes(monk
         assert manifest.read_bytes() == before
 
 
-def test_pending_collision_preserves_previous_manifest(monkeypatch, tmp_path):
+def test_pending_collision_retains_identity_as_uncertain(monkeypatch, tmp_path):
     manifest = seed(tmp_path, "pending")
-    before = manifest.read_bytes()
     script = runpy.run_path(str(SCRIPT))
     inventory(monkeypatch, script, [{**entry(tmp_path), "session_id": "ses_other"}])
-    with pytest.raises(ValueError):
-        script["capture"](manifest)
-    assert manifest.read_bytes() == before
+    script["capture"](manifest)
+    assert json.loads(manifest.read_text())["sessions"] == [entry(tmp_path, "uncertain")]
 
 
-@pytest.mark.parametrize("foreground", [{}, {"argv": "opencode"}, {"argv": ["opencode"]}])
+@pytest.mark.parametrize("foreground", [None, [], {}, {"argv": "opencode"}, {"argv": ["opencode"]}])
 def test_incomplete_process_inventory_does_not_erase_observed_session(monkeypatch, tmp_path, foreground):
     manifest = seed(tmp_path, "observed")
     before = manifest.read_bytes()
@@ -138,7 +138,7 @@ def test_incomplete_process_inventory_does_not_erase_observed_session(monkeypatc
     monkeypatch.setitem(script["capture"].__globals__, "run", run)
     with pytest.raises(ValueError):
         script["capture"](manifest)
-    assert manifest.read_bytes() == before
+    assert json.loads(manifest.read_text())["sessions"] == [entry(tmp_path, "uncertain")]
 
 
 @pytest.mark.parametrize("fault", ["partial", "replace", "invalid", "symlink"])
@@ -557,3 +557,28 @@ def test_pacing_cancellation_during_lock_acquisition(tmp_path, monkeypatch, sign
         for number, handler in previous.items():
             signal.signal(number, handler)
         signal.pthread_sigmask(signal.SIG_SETMASK, original_mask)
+
+
+def test_capture_retains_missing_observed_as_uncertain(monkeypatch, tmp_path):
+    script = runpy.run_path(str(SCRIPT))
+    manifest = seed(tmp_path, 'observed')
+    inventory(monkeypatch, script, [])
+    script['capture'](manifest)
+    assert json.loads(manifest.read_text()) == {
+        'schema_version': 3, 'sessions': [entry(tmp_path, 'uncertain')]}
+
+
+def test_v3_duplicate_views_and_short_session_argument(tmp_path):
+    script = runpy.run_path(str(SCRIPT))
+    assert script['session_argument'](['opencode', '-s', 'ses_saved']) == 'ses_saved'
+    entries = [entry(tmp_path, 'observed'), {**entry(tmp_path, 'observed'), 'pane_id': 'w1:p2'}]
+    assert script['validate_entries']({'schema_version': 3, 'sessions': entries}) == entries
+
+
+def test_uncertain_restore_refuses_before_any_runtime_access(monkeypatch, tmp_path):
+    script = runpy.run_path(str(SCRIPT))
+    def forbidden(*args, **kwargs):
+        pytest.fail('uncertain mapping must not reach runtime')
+    monkeypatch.setitem(script['restore'].__globals__, 'runtime_major', forbidden)
+    assert script['restore'](tmp_path / 'manifest', [entry(tmp_path, 'uncertain')],
+                             tmp_path / 'database', tmp_path / 'opencode', False) == 1

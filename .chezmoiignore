@@ -2,6 +2,10 @@ docs/
 tests/
 pyproject.toml
 uv.lock
+.config/dotfiles-ai/runtime/dvc/requirements.in
+{{ if ne .chezmoi.os "darwin" }}
+install-managed-dvc.sh
+{{ end }}
 # Separately approved private root identities are runtime state, never source-owned.
 .config/dotfiles-ai/workflow-policy.activation.json
 README.md
