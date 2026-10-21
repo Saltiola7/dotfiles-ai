@@ -456,14 +456,15 @@ def test_herdr_host_readiness_rejects_btm_display_path_as_authority() -> None:
 
 def test_herdr_host_swift_source_compiles_with_warnings_as_errors(tmp_path) -> None:
     output = tmp_path / "herdr-host"
-    subprocess.run(
+    compilation = subprocess.run(
         [
             "swiftc", "-warnings-as-errors", "-framework", "ServiceManagement",
             "-framework", "Security",
             str(ROOT / ".chezmoitemplates/herdr-host.swift"), "-o", str(output),
         ],
-        check=True, capture_output=True, text=True,
+        capture_output=True, text=True,
     )
+    assert compilation.returncode == 0, compilation.stderr
     assert output.is_file()
     production_strings = subprocess.run(
         ["strings", str(output)], check=True, capture_output=True, text=True,

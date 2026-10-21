@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "id": "opencode-safe-maintenance",
+  "title": "Safe OpenCode maintenance and exact client recovery",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "Preserve exact pane/session mappings, owning and viewed identities, canonical directories, duplicate views, layout and focus.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "kind": "constraint",
+      "text": "Preserve active sessions, background work, pending forms, permissions and unexported client input; uncertain state cannot authorize disruption.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "kind": "constraint",
+      "text": "Implement and validate in isolated disposable state without live OpenCode or Herdr restart, signal, input, configuration deployment or database mutation.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "kind": "decision",
+      "text": "Keep the native installer as the sole executable owner and reuse the existing capture owner and bounded locks.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-005",
+      "kind": "requirement",
+      "text": "Retain immutable checkpoint generations, uncertain mappings and per-pane recovery assessments. Executable recovery and action journaling require later qualified native capabilities and separate approval.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "kind": "risk",
+      "text": "Native atomic drain, client-state export and passive attach are unqualified; wrapper locks and polling cannot prevent all concurrent submissions.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-007",
+      "kind": "decision",
+      "text": "The operator approves the two-context map and one source-only draft pull request.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-008",
+      "kind": "decision",
+      "text": "Activation and replacement refuse whenever preservation cannot be proved; current native capability gaps remain hard blockers without force overrides.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-009",
+      "kind": "decision",
+      "text": "Add a separate explicit maintenance command and preserve existing native managed update/restart behavior.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-010",
+      "kind": "constraint",
+      "text": "Keep private runtime identities and credentials outside public source; validate publication through the existing repository authority.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-011",
+      "kind": "requirement",
+      "text": "Use isolated regression evidence and exact launch approval before implementation registration; report unsupported capabilities without fabricated passes.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-012",
+      "kind": "non-goal",
+      "text": "Do not modify upstream OpenCode or Herdr source, add a second updater daemon, restore old databases, or deploy this delivery to running systems.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md"
+      ]
+    },
+    {
+      "id": "INT-013",
+      "kind": "decision",
+      "text": "A supported read-only V2 CLI observer records exact route and tabs; no live registration or generated Herdr integration edits occur. Draft and passive-detach capability remains unknown.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/opencode-safe-maintenance.md"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "id": "shell_auth_startup",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "dotfiles_ai_distribution",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": [
+        "shell_auth_startup"
+      ]
+    }
+  ],
+  "slices": [
+    {
+      "id": "guarded-maintenance-source",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-001",
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-009",
+        "INT-010",
+        "INT-011",
+        "INT-012",
+        "INT-013"
+      ],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/opencode-safe-maintenance/README.md",
+        "docs/specs/dotfiles_ai_distribution/features/opencode-safe-maintenance.md",
+        "docs/initiatives/opencode-safe-maintenance/SOURCE.plan.json",
+        "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+        "docs/specs/dotfiles_ai_distribution/PRODUCT.md",
+        "docs/specs/shell_auth_startup/PROFILE.md"
+      ],
+      "release_group": "source-only"
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "source-only",
+      "members": [
+        "guarded-maintenance-source"
+      ],
+      "state": "ready"
+    }
+  ]
+}

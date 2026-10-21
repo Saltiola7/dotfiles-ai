@@ -177,7 +177,7 @@ def run(*args: str) -> dict:
 
 def session_argument(argv: list[str]) -> str | None:
     for index, argument in enumerate(argv):
-        if argument == "--session" and index + 1 < len(argv):
+        if argument in ("--session", "-s") and index + 1 < len(argv):
             return argv[index + 1]
         if argument.startswith("--session="):
             return argument.partition("=")[2]
@@ -242,12 +242,12 @@ def pane_session(pane: str) -> str | None:
 
 def validate_entries(document: dict) -> list[dict]:
     if (not isinstance(document, dict) or set(document) != {"schema_version", "sessions"}
-            or type(document["schema_version"]) is not int or document["schema_version"] not in (1, 2)
+            or type(document["schema_version"]) is not int or document["schema_version"] not in (1, 2, 3)
             or not isinstance(document["sessions"], list)):
         raise ValueError("invalid OpenCode recovery manifest")
     entries = document["sessions"]
     required = {"pane_id", "directory", "session_id"}
-    if document["schema_version"] == 2:
+    if document["schema_version"] >= 2:
         required.add("recovery_state")
     if any(not isinstance(item, dict) or set(item) != required
            or not all(isinstance(item[key], str) and item[key] for key in required) for item in entries):
@@ -255,17 +255,17 @@ def validate_entries(document: dict) -> list[dict]:
     if any(not re.fullmatch(r"ses_[A-Za-z0-9]+", item["session_id"])
            or not re.fullmatch(r"[A-Za-z0-9]+:[A-Za-z0-9]+", item["pane_id"])
            or not Path(item["directory"]).is_absolute()
-           or item.get("recovery_state", "pending") not in ("pending", "observed") for item in entries):
+           or item.get("recovery_state", "pending") not in (("pending", "observed", "uncertain") if document["schema_version"] == 3 else ("pending", "observed")) for item in entries):
         raise ValueError("unsafe OpenCode recovery entry")
     if (len({item["pane_id"] for item in entries}) != len(entries)
-            or len({item["session_id"] for item in entries}) != len(entries)):
+            or (document["schema_version"] < 3 and len({item["session_id"] for item in entries}) != len(entries))):
         raise ValueError("conflicting OpenCode recovery entries")
     return [{**item, "recovery_state": item.get("recovery_state", "pending")} for item in entries]
 
 
 def load_manifest(manifest: Path) -> list[dict]:
     try:
-        return validate_entries(json.loads(read_state(manifest)))
+        return validate_entries(json.loads(read_state(manifest), object_pairs_hook=unique_marker))
     except FileNotFoundError:
         if manifest.is_symlink():
             raise ValueError("unsafe recovery manifest")
@@ -273,7 +273,7 @@ def load_manifest(manifest: Path) -> list[dict]:
 
 
 def save_manifest(manifest: Path, entries: list[dict]) -> None:
-    document = {"schema_version": 2, "sessions": entries}
+    document = {"schema_version": 3, "sessions": entries}
     validate_entries(document)
     atomic_state(manifest, json.dumps(document, indent=2) + "\n")
 
@@ -303,6 +303,8 @@ def running_sessions() -> list[dict]:
     if not isinstance(panes, list):
         raise ValueError("invalid pane inventory")
     for pane in panes:
+        if not isinstance(pane, dict):
+            raise ValueError("invalid pane inventory")
         pane_id = pane.get("pane_id")
         if not isinstance(pane_id, str):
             raise ValueError("invalid pane inventory")
@@ -312,6 +314,8 @@ def running_sessions() -> list[dict]:
             raise ValueError("invalid process inventory")
         incomplete = False
         for foreground in processes:
+            if not isinstance(foreground, dict):
+                raise ValueError("invalid foreground process")
             argv, directory = foreground.get("argv", []), foreground.get("cwd")
             if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv):
                 incomplete = True
@@ -323,17 +327,33 @@ def running_sessions() -> list[dict]:
         else:
             if incomplete:
                 raise ValueError("incomplete process inventory")
-    return validate_entries({"schema_version": 2, "sessions": sessions})
+    return validate_entries({"schema_version": 3, "sessions": sessions})
 
 
 def capture(manifest: Path) -> int:
     with recovery_lock(manifest):
         previous = load_manifest(manifest)
-        observed = running_sessions()
-        running = {item["session_id"] for item in observed}
-        pending = [item for item in previous if item["recovery_state"] == "pending"
-                   and item["session_id"] not in running]
-        save_manifest(manifest, pending + observed)
+        try:
+            observed = running_sessions()
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+            # Failure to observe is not evidence of closure or permission to relaunch.
+            uncertain = [{**item, "recovery_state": "uncertain"}
+                         if item["recovery_state"] == "observed" else item for item in previous]
+            if uncertain != previous:
+                save_manifest(manifest, uncertain)
+            raise
+        current = {item["pane_id"]: item for item in observed}
+        retained = []
+        for old in previous:
+            new = current.pop(old["pane_id"], None)
+            if old["recovery_state"] == "uncertain":
+                retained.append(old)
+            elif new and (new["session_id"], new["directory"]) == (old["session_id"], old["directory"]):
+                retained.append(new)
+            else:
+                retained.append({**old, "recovery_state":
+                                 "pending" if new is None and old["recovery_state"] == "pending" else "uncertain"})
+        save_manifest(manifest, retained + list(current.values()))
     return 0
 
 
@@ -391,6 +411,9 @@ def main() -> int:
 
     with recovery_lock(manifest):
         entries = load_manifest(manifest)
+        if any(item["recovery_state"] == "uncertain" for item in entries):
+            print("OpenCode recovery blocked: uncertain pane mappings require review", file=sys.stderr)
+            return 1
         if not check:
             entries = [{**item, "recovery_state": "pending"} for item in entries]
             save_manifest(manifest, entries)
@@ -469,6 +492,9 @@ def recovery_sessions(database: Path, entries: list[dict], major: int) -> dict:
 
 def restore(manifest: Path, entries: list[dict], database: Path, opencode: Path, check: bool,
             *, qualified_shells: dict[str, int] | None = None) -> int:
+    if any(item.get("recovery_state") == "uncertain" for item in entries):
+        print("OpenCode recovery blocked: uncertain pane mappings require review", file=sys.stderr)
+        return 1
     known = recovery_sessions(database, entries, runtime_major(opencode))
 
     agents = run("agent", "list")["result"]["agents"]

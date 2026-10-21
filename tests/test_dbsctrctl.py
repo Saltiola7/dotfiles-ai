@@ -6805,11 +6805,12 @@ class DbsctrctlTest(unittest.TestCase):
         reviews.mkdir(parents=True)
         with (reviews / ".lock").open("w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
+            # Allow cold interpreter startup while keeping the held-lock regression bounded.
             invalid = subprocess.run(
                 [sys.executable, str(SCRIPT), "phase-span", "--state-root", str(state),
                  "--span-id", "invalid", "--event", "start", "--phase", "domain",
                  "--operation", "read"],
-                cwd=self.repo, text=True, capture_output=True, env=isolated_env(), timeout=1,
+                cwd=self.repo, text=True, capture_output=True, env=isolated_env(), timeout=10,
             )
         self.assertNotEqual(invalid.returncode, 0)
         self.assertIn("phase span start requires phase, operation, and attribution only", invalid.stderr)

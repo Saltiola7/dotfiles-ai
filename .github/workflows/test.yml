@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    runs-on: macos-latest
+    runs-on: macos-26
     strategy:
       matrix:
         python-version: ["3.12", "3.13", "3.14"]
@@ -54,4 +54,8 @@ jobs:
           tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers
           tests/test_opencode_control_plane.py
           tests/test_dbsctr_lifecycle.py -q
-      - run: uv run --group test pytest
+      - name: Check native Swift compilation
+        run: >-
+          uv run --group test pytest
+          tests/test_herdr_launchagent.py::test_herdr_host_swift_source_compiles_with_warnings_as_errors -q
+      - run: uv run --group test pytest --maxfail=1

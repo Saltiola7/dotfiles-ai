@@ -1,5 +1,21 @@
 # Shell Auth Startup
 
+## OpenCode capture uncertainty
+
+The [guarded maintenance contract](../dotfiles_ai_distribution/features/opencode-safe-maintenance.md)
+extends the existing capture owner with schema 3. Reads remain compatible with
+v1/v2; capture writes pane-unique entries that may share a session ID. Missing
+observed mappings, conflicting occupants and malformed/unavailable observations
+retain the old identity as uncertain. Existing explicit pending intent is retained;
+seeing the same session in another pane does not prove that intent was moved.
+Uncertain entries cannot be automatically cleared, converted to pending or launched
+by startup restore. Exact route evidence comes from the separately managed V2
+observer and maintenance checkpoints; the legacy native/argv identity remains a
+limited observation. Short `-s` launch arguments are recognized. Startup pacing,
+V2 database admission and the separately qualified legacy launch policy remain.
+This is source behavior awaiting separate deployment, not a live watcher change.
+
+
 ## Versioned probe-only update boundary
 
 HERDR-ABSOLUTE-PROGRAM-SOURCE prepares app build `3` / version `1.0.2`.

@@ -1,0 +1,745 @@
+#!/usr/bin/env python3
+"""Read-only OpenCode preparation. Activation and recovery are deliberately absent."""
+import argparse
+import base64
+import contextlib
+import fcntl
+import hashlib
+import http.client
+import json
+import math
+import os
+from pathlib import Path
+import re
+import signal
+import socket
+import stat
+import time
+from urllib.parse import urlencode, urlsplit
+import uuid
+
+CONFIGURED_STATE_ROOT = {{ .dotfiles_ai.state.root | toJson }}
+
+MAX_BYTES = 2 * 1024 * 1024
+MAX_PANES = 512
+SID = r'ses_[A-Za-z0-9]{1,120}'
+OPAQUE = r'[A-Za-z0-9:_-]{1,160}'
+GENERATION = r'[0-9a-f]{32}'
+CAPABILITIES = {'atomic_drain': 'unsupported', 'passive_attach': 'unsupported',
+                'draft_preservation': 'unknown', 'global_pending_inventory': 'unknown',
+                'background_work_inventory': 'unknown'}
+BASE_BLOCKERS = [key + '_' + value for key, value in CAPABILITIES.items()]
+
+
+class DeadlineExpired(Exception):
+    """Total operation timeout; never swallowed as an inventory-level failure."""
+
+
+def expire(*_):
+    raise DeadlineExpired()
+
+
+
+def require(condition):
+    if not condition:
+        raise ValueError('invalid maintenance data')
+
+
+def identifier(value, pattern=OPAQUE):
+    require(isinstance(value, str) and re.fullmatch(pattern, value) is not None)
+    return value
+
+
+def string(value, limit=4096):
+    require(isinstance(value, str) and 0 < len(value) <= limit
+            and all(ord(c) >= 32 for c in value))
+    return value
+
+
+def directory(value):
+    require(string(value).startswith('/'))
+    return value
+
+
+def unique(pairs):
+    result = {}
+    for key, value in pairs:
+        require(key not in result)
+        result[key] = value
+    return result
+
+
+def decode(data):
+    require(len(data) <= MAX_BYTES)
+    value = json.loads(data, object_pairs_hook=unique,
+                       parse_constant=lambda _: require(False))
+    def bounded(item, depth=0):
+        require(depth < 24)
+        if isinstance(item, dict):
+            require(len(item) <= 4096)
+            for key, val in item.items():
+                require(len(key) <= 4096)
+                bounded(val, depth + 1)
+        elif isinstance(item, list):
+            require(len(item) <= 4096)
+            for val in item:
+                bounded(val, depth + 1)
+        elif isinstance(item, str):
+            require(len(item) <= 65536)
+    bounded(value)
+    return value
+
+
+def metadata(info, *, private=True, regular=True):
+    require((stat.S_ISREG(info.st_mode) if regular else stat.S_ISDIR(info.st_mode))
+            and info.st_uid == os.getuid() and not info.st_mode & (0o077 if private else 0o022))
+
+
+def open_directory(path):
+    """Walk from / using pinned directory descriptors; never follow a symlink."""
+    path = Path(path)
+    require(path.is_absolute() and '..' not in path.parts)
+    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in path.parts[1:]:
+            following = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = following
+            info = os.fstat(fd)
+            # System temporary directories may be sticky; other parents must not be writable.
+            require(not info.st_mode & 0o022 or (info.st_uid == 0 and info.st_mode & stat.S_ISVTX))
+        metadata(os.fstat(fd), private=False, regular=False)
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def read_at(fd, name, *, private=True):
+    require('/' not in name and name not in ('.', '..'))
+    handle = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+    try:
+        before = os.fstat(handle)
+        metadata(before, private=private)
+        require(before.st_size <= MAX_BYTES)
+        with os.fdopen(handle, 'rb', closefd=False) as stream:
+            data = stream.read(MAX_BYTES + 1)
+        after = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        metadata(after, private=private)
+        require((before.st_dev, before.st_ino, before.st_mtime_ns, before.st_size) ==
+                (after.st_dev, after.st_ino, after.st_mtime_ns, after.st_size))
+        require(len(data) <= MAX_BYTES)
+        return data
+    finally:
+        os.close(handle)
+
+
+def read_private(path):
+    fd = open_directory(path.parent)
+    try:
+        return read_at(fd, path.name)
+    finally:
+        os.close(fd)
+
+
+@contextlib.contextmanager
+def locked(fd, name):
+    handle = os.open(name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     0o600, dir_fd=fd)
+    try:
+        metadata(os.fstat(handle))
+        deadline = time.monotonic() + 2
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                require(time.monotonic() < deadline)
+                time.sleep(0.02)
+        yield
+    finally:
+        os.close(handle)
+
+
+class Store:
+    def __init__(self, root, create=False):
+        self.root = Path(root)
+        self.handles = []
+        try:
+            fd = open_directory(self.root)
+            self.handles.append(fd)
+            read_at(fd, '.dotfiles-ai-state', private=False)
+            for name in ('herdr', 'opencode-maintenance'):
+                if create:
+                    with contextlib.suppress(FileExistsError):
+                        os.mkdir(name, 0o700, dir_fd=fd)
+                fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                self.handles.append(fd)
+                metadata(os.fstat(fd), private=name != 'herdr', regular=False)
+            self.fd = fd
+        except BaseException:
+            self.close()
+            raise
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def close(self):
+        for fd in reversed(self.handles):
+            os.close(fd)
+        self.handles = []
+
+    def unchanged(self):
+        fd = open_directory(self.root / 'herdr/opencode-maintenance')
+        try:
+            old, new = os.fstat(self.fd), os.fstat(fd)
+            metadata(new, regular=False)
+            require((old.st_dev, old.st_ino) == (new.st_dev, new.st_ino))
+        finally:
+            os.close(fd)
+
+    def load(self, generation=None, *, reserve_count=0, reserve_bytes=0):
+        if generation is None:
+            pointer = decode(read_at(self.fd, 'latest.json'))
+            require(isinstance(pointer, dict) and set(pointer) == {'generation'})
+            generation = pointer['generation']
+        identifier(generation, GENERATION)
+        seen = set()
+        total = reserve_bytes
+        selected = None
+        while generation is not None:
+            require(generation not in seen and len(seen) + reserve_count < 256)
+            seen.add(generation)
+            raw = read_at(self.fd, generation + '.json')
+            total += len(raw)
+            require(total <= 32 * 1024 * 1024)
+            checkpoint = decode(raw)
+            validate_checkpoint(checkpoint)
+            require(checkpoint['generation'] == generation)
+            if selected is None:
+                selected = checkpoint
+            generation = checkpoint['parent']
+        self.unchanged()
+        return selected
+
+    def write(self, name, value, *, immutable=False):
+        payload = (json.dumps(value, separators=(',', ':'), allow_nan=False) + '\n').encode()
+        require(len(payload) <= MAX_BYTES)
+        temporary = '.' + uuid.uuid4().hex + '.tmp'
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o600, dir_fd=self.fd)
+        try:
+            with os.fdopen(fd, 'wb') as output:
+                output.write(payload)
+                output.flush()
+                os.fsync(output.fileno())
+            self.unchanged()
+            if immutable:
+                # link is atomic and refuses an existing destination; rename would overwrite.
+                os.link(temporary, name, src_dir_fd=self.fd, dst_dir_fd=self.fd,
+                        follow_symlinks=False)
+            else:
+                with contextlib.suppress(FileNotFoundError):
+                    read_at(self.fd, name)
+                os.replace(temporary, name, src_dir_fd=self.fd, dst_dir_fd=self.fd)
+            os.fsync(self.fd)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temporary, dir_fd=self.fd)
+
+    def publish(self, checkpoint):
+        validate_checkpoint(checkpoint)
+        if checkpoint['parent'] is not None:
+            require(checkpoint['parent'] != checkpoint['generation'])
+            payload_size = len((json.dumps(checkpoint, separators=(',', ':')) + '\n').encode())
+            self.load(checkpoint['parent'], reserve_count=1, reserve_bytes=payload_size)
+        self.write(checkpoint['generation'] + '.json', checkpoint, immutable=True)
+        self.write('latest.json', {'generation': checkpoint['generation']})
+
+
+def empty_checkpoint(parent):
+    return {'schema_version': 1, 'generation': uuid.uuid4().hex, 'created_at': int(time.time()),
+            'parent': parent, 'backend': None, 'service': None, 'complete': False,
+            'capabilities': dict(CAPABILITIES), 'blockers': list(BASE_BLOCKERS),
+            'layout': {}, 'panes': []}
+
+
+PANE_FIELDS = {'pane_id', 'terminal_id', 'pid', 'owner_session_id', 'launch_session_id',
+               'viewed_session_id', 'last_viewed_session_id', 'session_directory', 'pane_cwd',
+               'client_version', 'observer_incarnation', 'provenance', 'decision', 'reasons'}
+
+
+def validate_pane(pane, *, previous=False):
+    require(isinstance(pane, dict) and set(pane) in (PANE_FIELDS, PANE_FIELDS | {'previous'}))
+    identifier(pane['pane_id'])
+    for key in ('terminal_id', 'observer_incarnation'):
+        if pane[key] is not None:
+            identifier(pane[key])
+    require(pane['pid'] is None or type(pane['pid']) is int and pane['pid'] > 1)
+    for key in ('owner_session_id', 'launch_session_id', 'viewed_session_id', 'last_viewed_session_id'):
+        if pane[key] is not None:
+            identifier(pane[key], SID)
+    for key in ('session_directory', 'pane_cwd'):
+        if pane[key] is not None:
+            directory(pane[key])
+    if pane['client_version'] is not None:
+        string(pane['client_version'], 80)
+    require(pane['provenance'] in ('observer', 'inventory', 'previous'))
+    require(pane['decision'] in ('verified', 'uncertain', 'blocked'))
+    require(isinstance(pane['reasons'], list) and len(pane['reasons']) <= 24)
+    for reason in pane['reasons']:
+        identifier(reason)
+    if 'previous' in pane:
+        require(not previous)
+        validate_pane(pane['previous'], previous=True)
+
+
+def validate_checkpoint(value):
+    require(isinstance(value, dict) and set(value) == set(empty_checkpoint(None)))
+    require(type(value['schema_version']) is int and value['schema_version'] == 1)
+    identifier(value['generation'], GENERATION)
+    if value['parent'] is not None:
+        identifier(value['parent'], GENERATION)
+    require(type(value['created_at']) is int and value['created_at'] > 0)
+    require(type(value['complete']) is bool and value['capabilities'] == CAPABILITIES)
+    require(isinstance(value['blockers'], list) and len(value['blockers']) <= 32)
+    require(set(BASE_BLOCKERS) <= set(value['blockers']))
+    for item in value['blockers']:
+        identifier(item)
+    if value['backend'] is not None:
+        backend = value['backend']
+        require(set(backend) == {'socket', 'device', 'inode', 'protocol', 'version'})
+        directory(backend['socket'])
+        for key in ('device', 'inode'):
+            require(type(backend[key]) is int and backend[key] >= 0)
+        for key in ('protocol', 'version'):
+            string(backend[key], 80)
+    if value['service'] is not None:
+        service = value['service']
+        require(set(service) == {'id', 'pid', 'version', 'url'})
+        registration({**service, 'password': 'redacted'})
+    require(isinstance(value['layout'], dict) and set(value['layout']) <= {
+        'focused_pane_id', 'focused_tab_id', 'focused_workspace_id', 'tabs', 'workspaces', 'layouts'})
+    # Layout is a strict whitelist of identifier/label/geometry metadata.
+    sanitize_layout(value['layout'], strict=True)
+    require(isinstance(value['panes'], list) and len(value['panes']) <= MAX_PANES)
+    require(len({p['pane_id'] for p in value['panes']}) == len(value['panes']))
+    for pane in value['panes']:
+        validate_pane(pane)
+    decode(json.dumps(value).encode())
+
+
+def registration(value):
+    require(isinstance(value, dict) and set(value) == {'id', 'pid', 'version', 'url', 'password'})
+    identifier(value['id'])
+    require(type(value['pid']) is int and value['pid'] > 1)
+    string(value['version'], 80)
+    string(value['password'], 4096)
+    url = urlsplit(string(value['url'], 200))
+    require(url.scheme == 'http' and url.hostname in ('127.0.0.1', '::1') and url.port
+            and not url.username and not url.password and not url.path
+            and not url.query and not url.fragment)
+    require(value['url'] == f'http://{("[::1]" if url.hostname == "::1" else "127.0.0.1")}:{url.port}')
+    return value
+
+
+def file_identity(path):
+    info = path.lstat()
+    # Reading a registration can advance atime. It does not replace its authority.
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns,
+            info.st_uid, info.st_gid, info.st_mode)
+
+
+class Service:
+    def __init__(self, path):
+        self.path = path
+        self.file_identity = file_identity(path)
+        self.original = read_private(path)
+        require(file_identity(path) == self.file_identity)
+        self.identity = registration(decode(self.original))
+        self.deadline = time.monotonic() + 90
+        self.requests = 0
+        self.info()
+
+    def get(self, path, directory_value=None):
+        require(path in ('/api/info', '/api/session/active', '/api/form',
+                         '/api/permission/request', '/api/model') or
+                re.fullmatch('/api/session/' + SID + '(/form|/permission)?', path))
+        self.requests += 1
+        require(self.requests <= 4096 and time.monotonic() < self.deadline)
+        if directory_value is not None:
+            path += '?' + urlencode({'location[directory]': directory(directory_value)})
+        url = urlsplit(self.identity['url'])
+        # Direct numeric-loopback connection ignores proxies and never follows redirects.
+        connection = http.client.HTTPConnection(url.hostname, url.port, timeout=2)
+        token = base64.b64encode(('opencode:' + self.identity['password']).encode()).decode()
+        try:
+            connection.request('GET', path, headers={'Authorization': 'Basic ' + token})
+            response = connection.getresponse()
+            require(response.status == 200)
+            if response.getheader('Content-Length') is not None:
+                require(int(response.getheader('Content-Length')) <= MAX_BYTES)
+            payload = bytearray()
+            while True:
+                require(time.monotonic() < self.deadline)
+                chunk = response.read1(min(65536, MAX_BYTES + 1 - len(payload)))
+                if not chunk:
+                    break
+                payload.extend(chunk)
+                require(len(payload) <= MAX_BYTES)
+            return decode(payload)
+        finally:
+            connection.close()
+
+    def info(self):
+        info = self.get('/api/info')
+        require(isinstance(info, dict) and info.get('pid') == self.identity['pid']
+                and info.get('version') == self.identity['version'])
+
+    def finish(self):
+        self.info()
+        require(read_private(self.path) == self.original and file_identity(self.path) == self.file_identity)
+
+
+def socket_identity(path):
+    directory(str(path))
+    info = path.lstat()
+    require(stat.S_ISSOCK(info.st_mode) and info.st_uid == os.getuid())
+    return info.st_dev, info.st_ino
+
+
+def herdr(path, method, params):
+    """Direct read-only protocol calls cannot start a missing backend."""
+    require(method in ('session.snapshot', 'pane.process_info'))
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(2)
+        client.connect(str(path))
+        client.sendall((json.dumps({'id': 'maintenance', 'method': method, 'params': params}) + '\n').encode())
+        data = bytearray()
+        while b'\n' not in data:
+            chunk = client.recv(65536)
+            require(bool(chunk))
+            data.extend(chunk)
+            require(len(data) <= MAX_BYTES)
+    value = decode(data.split(b'\n', 1)[0])
+    require(isinstance(value, dict) and value.get('id') == 'maintenance' and 'error' not in value)
+    require(isinstance(value.get('result'), dict))
+    require(value['result'].get('type') == {'session.snapshot': 'session_snapshot', 'pane.process_info': 'pane_process_info'}[method])
+    return value['result']
+
+
+def rectangle(value):
+    require(isinstance(value, dict) and set(value) == {'x', 'y', 'width', 'height'})
+    require(all(type(v) is int and 0 <= v <= 65535 for v in value.values()))
+    return dict(value)
+
+
+def geometry(name, value):
+    if name == 'area':
+        return rectangle(value)
+    require(isinstance(value, list) and len(value) <= MAX_PANES)
+    result = []
+    for item in value:
+        require(isinstance(item, dict))
+        if name == 'panes':
+            require(set(item) == {'pane_id', 'focused', 'rect'} and type(item['focused']) is bool)
+            result.append({'pane_id': identifier(item['pane_id']), 'focused': item['focused'],
+                           'rect': rectangle(item['rect'])})
+        else:
+            require(set(item) == {'id', 'direction', 'ratio', 'rect'})
+            require(item['direction'] in ('right', 'down') and type(item['ratio']) in (int, float)
+                    and math.isfinite(item['ratio']))
+            result.append({'id': identifier(item['id']), 'direction': item['direction'],
+                           'ratio': item['ratio'], 'rect': rectangle(item['rect'])})
+    return result
+
+
+def sanitize_layout(snapshot, strict=False):
+    result = {}
+    for key in ('focused_pane_id', 'focused_tab_id', 'focused_workspace_id'):
+        if key in snapshot:
+            result[key] = None if snapshot[key] is None else identifier(snapshot[key])
+    fields = {'tabs': {'tab_id', 'workspace_id', 'label', 'number', 'focused', 'pane_count'},
+              'workspaces': {'workspace_id', 'label', 'number', 'focused', 'active_tab_id', 'pane_count', 'tab_count'},
+              'layouts': {'tab_id', 'workspace_id', 'focused_pane_id', 'zoomed', 'area', 'panes', 'splits'}}
+    for key, allowed in fields.items():
+        if key not in snapshot:
+            continue
+        require(isinstance(snapshot[key], list) and len(snapshot[key]) <= MAX_PANES)
+        result[key] = []
+        for item in snapshot[key]:
+            require(isinstance(item, dict) and (not strict or set(item) <= allowed))
+            clean = {}
+            for name, value in item.items():
+                if name not in allowed:
+                    continue
+                if key == 'layouts' and name in ('area', 'panes', 'splits'):
+                    clean[name] = geometry(name, value)
+                    continue
+                require(value is None or type(value) in (str, int, bool))
+                if isinstance(value, str) and not (name == 'label' and value == ''):
+                    string(value, 256)
+                clean[name] = value
+            result[key].append(clean)
+    return result
+
+
+def observer_name(backend, pane_id, pid, incarnation):
+    prefix = hashlib.sha256((backend + '\n' + pane_id + '\n' + str(pid)).encode()).hexdigest()
+    return prefix + '-' + identifier(incarnation, GENERATION) + '.json'
+
+
+def read_observer(root, backend, pane_id, pid):
+    folder = root / 'herdr/opencode-observers'
+    fd = open_directory(folder)
+    try:
+        metadata(os.fstat(fd), regular=False)
+        prefix = observer_name(backend, pane_id, pid, '0' * 32)[:65]
+        candidates = []
+        with os.scandir(fd) as entries:
+            for index, entry in enumerate(entries):
+                require(index < 4096)
+                if entry.name.startswith(prefix) and entry.name.endswith('.json'):
+                    require(len(candidates) < 32)
+                    record = decode(read_at(fd, entry.name))
+                    require(entry.name == observer_name(backend, pane_id, pid, record['incarnation']))
+                    require(type(record['captured_at']) is int)
+                    if 0 <= time.time() - record['captured_at'] <= 15:
+                        candidates.append(record)
+        # Concurrent fresh incarnations cannot be attributed safely; never pick by mtime.
+        require(len(candidates) == 1)
+        return candidates[0]
+    finally:
+        os.close(fd)
+
+
+def observation(root, backend, pane, processes):
+    require(isinstance(pane, dict))
+    pane_id = identifier(pane['pane_id'])
+    row = dict.fromkeys(PANE_FIELDS)
+    row.update(pane_id=pane_id, provenance='inventory', decision='uncertain', reasons=['observer_unavailable'])
+    row['terminal_id'] = identifier(pane['terminal_id']) if pane.get('terminal_id') else None
+    row['pane_cwd'] = directory(pane['cwd']) if pane.get('cwd') else None
+    native = pane.get('agent_session')
+    if (isinstance(native, dict) and native.get('agent') == 'opencode'
+            and native.get('kind') == 'id' and native.get('source') == 'herdr:opencode'):
+        row['owner_session_id'] = identifier(native['value'], SID)
+    require(isinstance(processes, list) and len(processes) <= 128)
+    candidates = []
+    for process in processes:
+        require(isinstance(process, dict))
+        argv = process.get('argv')
+        require(isinstance(argv, list) and len(argv) <= 1024 and all(isinstance(a, str) for a in argv))
+        if argv and Path(argv[0]).name == 'opencode':
+            candidates.append(process)
+    if len(candidates) != 1:
+        return row
+    process = candidates[0]
+    require(type(process['pid']) is int and process['pid'] > 1)
+    row['pid'] = process['pid']
+    argv = process['argv']
+    selections = []
+    for index, argument in enumerate(argv):
+        if argument in ('-s', '--session'):
+            require(index + 1 < len(argv))
+            selections.append(identifier(argv[index + 1], SID))
+        elif argument.startswith('--session='):
+            selections.append(identifier(argument[10:], SID))
+    require(len(set(selections)) <= 1)
+    row['launch_session_id'] = selections[0] if selections else None
+    try:
+        record = read_observer(root, backend, pane_id, row['pid'])
+        require(set(record) == {'schema_version', 'socket', 'socket_device', 'socket_inode',
+                'pane_id', 'pid', 'incarnation', 'captured_at', 'sequence', 'client_version',
+                'viewed_session_id', 'last_viewed_session_id', 'session_directory', 'tabs'})
+        require(type(record['schema_version']) is int and record['schema_version'] == 1
+                and record['socket'] == backend
+                and record['pane_id'] == pane_id and record['pid'] == row['pid'])
+        require((record['socket_device'], record['socket_inode']) == socket_identity(Path(backend)))
+        require(type(record['captured_at']) is int and 0 <= time.time() - record['captured_at'] <= 15)
+        require(type(record['sequence']) is int and record['sequence'] >= 0)
+        identifier(record['incarnation'], GENERATION)
+        require(isinstance(record['tabs'], list) and len(record['tabs']) <= 128)
+        for tab in record['tabs']:
+            require(set(tab) == {'session_id', 'active'} and type(tab['active']) is bool)
+            identifier(tab['session_id'], SID)
+        for key in ('viewed_session_id', 'last_viewed_session_id', 'session_directory', 'client_version'):
+            row[key] = record[key]
+        row.update(observer_incarnation=record['incarnation'], provenance='observer')
+        row['reasons'] = [] if row['viewed_session_id'] and row['terminal_id'] else ['view_unknown']
+        row['decision'] = 'verified' if not row['reasons'] else 'uncertain'
+        validate_pane(row)
+    except (OSError, ValueError, KeyError, TypeError):
+        # Discard the entire untrusted record; keep bounded inventory facts.
+        for key in ('viewed_session_id', 'last_viewed_session_id', 'session_directory',
+                    'client_version', 'observer_incarnation'):
+            row[key] = None
+        row.update(provenance='inventory', decision='uncertain', reasons=['observer_unavailable'])
+    return row
+
+
+def reconcile(current, previous, same_backend):
+    old = {row['pane_id']: row for row in previous} if same_backend else {}
+    result = []
+    for row in current:
+        prior = old.pop(row['pane_id'], None)
+        if prior and (row['decision'] != 'verified' or not row['viewed_session_id'] or any(row[key] != prior[key]
+                      for key in ('terminal_id', 'pid', 'observer_incarnation'))):
+            row = {**row, 'decision': 'uncertain', 'reasons': ['selection_or_occupant_changed'],
+                   'previous': {k: v for k, v in prior.get('previous', prior).items() if k != 'previous'}}
+        result.append(row)
+    for prior in old.values():
+        preserved = {k: v for k, v in prior.items() if k != 'previous'}
+        result.append({**preserved, 'decision': 'uncertain', 'provenance': 'previous',
+                       'reasons': ['pane_missing'], 'previous': prior.get('previous', preserved)})
+    require(len(result) <= MAX_PANES)
+    return result
+
+
+def prepare(root, path):
+    with Store(root, create=True) as store, locked(store.fd, 'prepare.lock'):
+        try:
+            previous = store.load()
+        except FileNotFoundError:
+            # Only a missing pointer permits a new history; missing referenced data is corruption.
+            try:
+                os.stat('latest.json', dir_fd=store.fd, follow_symlinks=False)
+            except FileNotFoundError:
+                previous = None
+            else:
+                raise ValueError('missing referenced generation')
+        checkpoint = empty_checkpoint(previous['generation'] if previous else None)
+        try:
+            identity = socket_identity(path)
+            snapshot = herdr(path, 'session.snapshot', {})['snapshot']
+            require(snapshot['protocol'] == 22)
+            checkpoint['backend'] = {'socket': str(path), 'device': identity[0], 'inode': identity[1],
+                                     'protocol': str(snapshot['protocol']), 'version': str(snapshot['version'])}
+            panes = snapshot['panes']
+            require(isinstance(panes, list) and len(panes) <= MAX_PANES)
+            require(len({p['pane_id'] for p in panes}) == len(panes))
+            checkpoint['layout'] = sanitize_layout(snapshot)
+            rows = []
+            for pane in panes:
+                info = herdr(path, 'pane.process_info', {'pane_id': identifier(pane['pane_id'])})
+                rows.append(observation(root, str(path), pane, info['process_info']['foreground_processes']))
+            require(socket_identity(path) == identity)
+            checkpoint['panes'] = rows
+            checkpoint['complete'] = True
+        except (OSError, ValueError, KeyError, TypeError):
+            checkpoint['blockers'].append('herdr_inventory_unavailable')
+        same = previous and previous['backend'] == checkpoint['backend']
+        # A missing backend cannot erase the prior inventory; preserve it without current authority.
+        if previous and checkpoint['backend'] is None:
+            checkpoint['backend'] = previous['backend']
+            same = True
+        checkpoint['panes'] = reconcile(checkpoint['panes'], previous['panes'] if previous else [], bool(same))
+        try:
+            registration_path = Path(os.environ.get('XDG_STATE_HOME', root / 'xdg/state')) / 'opencode/service.json'
+            service = Service(registration_path)
+            checkpoint['service'] = {k: v for k, v in service.identity.items() if k != 'password'}
+            active = service.get('/api/session/active')['data']
+            require(isinstance(active, dict))
+            if active:
+                checkpoint['blockers'].append('active_work')
+            locations = set()
+            for row in checkpoint['panes']:
+                sid = row['viewed_session_id']
+                if not sid or row['decision'] != 'verified':
+                    continue
+                try:
+                    record = service.get('/api/session/' + identifier(sid, SID))['data']
+                    require(record['id'] == sid)
+                    canonical = directory(record['location']['directory'])
+                    require(row['session_directory'] == canonical)
+                    locations.add(canonical)
+                    if row['client_version'] != service.identity['version']:
+                        row['decision'] = 'blocked'
+                        row['reasons'].append('client_version_mismatch')
+                        checkpoint['blockers'].append('client_version_mismatch')
+                    for suffix in ('form', 'permission'):
+                        pending = service.get('/api/session/' + sid + '/' + suffix)['data']
+                        require(isinstance(pending, list))
+                        if pending:
+                            row['reasons'].append('pending_' + suffix)
+                            row['decision'] = 'blocked'
+                except (OSError, ValueError, KeyError, TypeError, http.client.HTTPException):
+                    row.update(decision='blocked', reasons=['native_session_unverified'])
+                    checkpoint['complete'] = False
+            for location in sorted(locations):
+                for endpoint in ('form', 'permission/request', 'model'):
+                    result = service.get('/api/' + endpoint, location)['data']
+                    require(isinstance(result, list))
+                    if endpoint == 'model':
+                        if not result:
+                            checkpoint['blockers'].append('models_unavailable')
+                    elif result:
+                        checkpoint['blockers'].append('pending_interactions')
+            service.finish()
+        except (OSError, ValueError, KeyError, TypeError, http.client.HTTPException):
+            checkpoint['complete'] = False
+            checkpoint['service'] = None
+            checkpoint['blockers'].append('service_inventory_unavailable')
+            for row in checkpoint['panes']:
+                if row['decision'] == 'verified':
+                    row.update(decision='blocked', reasons=['service_inventory_unavailable'])
+        if any(row['decision'] != 'verified' for row in checkpoint['panes']):
+            checkpoint['blockers'].append('pane_mappings_incomplete')
+            checkpoint['complete'] = False
+        checkpoint['blockers'] = sorted(set(checkpoint['blockers']))
+        store.publish(checkpoint)
+        return checkpoint
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise ValueError('invalid arguments')
+
+
+def summary(checkpoint):
+    return {'generation': checkpoint['generation'], 'created_at': checkpoint['created_at'],
+            'complete': checkpoint['complete'],
+            'activation_allowed': False, 'blockers': checkpoint['blockers'],
+            'panes': len(checkpoint['panes']),
+            'uncertain': sum(p['decision'] == 'uncertain' for p in checkpoint['panes'])}
+
+
+def main(arguments=None):
+    parser = Parser(add_help=False)
+    parser.add_argument('action', choices=('prepare', 'status', 'apply', 'recover'))
+    parser.add_argument('--generation')
+    parser.add_argument('--herdr-socket')
+    try:
+        args = parser.parse_args(arguments)
+        require((args.action == 'prepare') == bool(args.herdr_socket))
+        require(args.action != 'prepare' or args.generation is None)
+        if args.generation is not None:
+            identifier(args.generation, GENERATION)
+    except (ValueError, TypeError):
+        print(json.dumps({'error': 'invalid_arguments'}))
+        return 2
+    if args.action in ('apply', 'recover'):
+        print(json.dumps({'activation_allowed': False, 'blockers': BASE_BLOCKERS}))
+        return 75
+    try:
+        root = Path(directory(os.environ.get('DOTFILES_AI_STATE_ROOT', CONFIGURED_STATE_ROOT)))
+        if args.action == 'prepare':
+            checkpoint = prepare(root, Path(args.herdr_socket))
+        else:
+            with Store(root) as store:
+                checkpoint = store.load(args.generation)
+        print(json.dumps(summary(checkpoint)))
+        return 0 if args.action == 'status' or checkpoint['complete'] else 75
+    except (OSError, ValueError, KeyError, TypeError, RecursionError, http.client.HTTPException, DeadlineExpired):
+        print(json.dumps({'error': 'state_or_inventory_unavailable', 'activation_allowed': False}))
+        return 75
+
+
+if __name__ == '__main__':
+    # A total deadline also bounds slow headers and local peers dripping responses.
+    signal.signal(signal.SIGALRM, expire)
+    signal.setitimer(signal.ITIMER_REAL, 120)
+    raise SystemExit(main())

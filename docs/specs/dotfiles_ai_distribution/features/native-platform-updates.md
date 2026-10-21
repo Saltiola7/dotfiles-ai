@@ -1,5 +1,17 @@
 # Native platform-local tool updates
 
+## Explicit guarded preparation
+
+[Guarded OpenCode maintenance](opencode-safe-maintenance.md) provides source for a
+separate `opencode-maintenance` command and read-only V2 observer. Preparation
+preserves private checkpoint generations and reports safety blockers; it does not
+invoke an installer or service command. `apply` and `recover` always refuse until
+native preservation capabilities are qualified. Existing native update/restart
+commands remain unchanged and do not automatically enter this workflow. Live
+observer installation can rebuild plugin registrations and therefore requires a
+separately approved deployment. The linked contract owns its CLI, storage bounds,
+retention and visual evidence; native installer ownership below is unchanged.
+
 ## Source-parity successor (SSD recovery INT-048/049/050)
 
 The [OpenCode platform-parity contract](../../../initiatives/ssd-toolchain-recovery/OPENCODE-PLATFORM-PARITY.md)

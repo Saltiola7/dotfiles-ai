@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution
 
+**Guarded OpenCode maintenance source:** the explicit
+[`opencode-maintenance` contract](features/opencode-safe-maintenance.md) adds private
+immutable checkpoints, exact viewed-session observations and per-pane assessments.
+Schema-3 legacy capture retains missing/conflicting mappings as uncertain and blocks
+their restoration. Native update/restart commands keep their existing behavior.
+The supported V2 observer reads route/tab/cache metadata and preserves local plugin
+configuration. Current `apply` and `recover` always refuse because native atomic
+drain, draft preservation and passive attach remain unqualified. Source and isolated
+fixtures are delivered together; no live observer registration, deployment or
+OpenCode/Herdr restart is performed. Metadata retention is explicit and bounded;
+there are no database copies or automatic history pruning.
+
 **Managed DVC GCS runtime source:** the [storage contract](features/workflow-storage-policy.md#managed-dvc-runtime-qualification)
 assigns the explicit `managed-dvc` entry point and isolated hash-locked runtime to
 this distribution. Setup, registration and removal/preservation callers select
