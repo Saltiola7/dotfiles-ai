@@ -2,10 +2,12 @@
 """Deterministic local DBSCTR lifecycle helper."""
 
 import argparse
+import base64
 from bisect import insort
 import concurrent.futures
 import configparser
 import contextlib
+import contextvars
 import fcntl
 import fnmatch
 import hashlib
@@ -128,10 +130,61 @@ class DVCCommandUnavailable(RuntimeError):
     """A sanitized DVC command failure, not evidence of unsafe output contents."""
 
 
+LOCAL_COMPLETION_GIT = contextvars.ContextVar("local_completion_git", default=None)
+
+
+def git_environment(environment):
+    selected = LOCAL_COMPLETION_GIT.get()
+    return selected if selected is not None else environment
+
+
+@contextlib.contextmanager
+def local_completion_git_context():
+    """Keep completion reads offline and suppress configured command execution."""
+    with tempfile.TemporaryDirectory(prefix="dbsctr-local-read-") as directory:
+        environment = _forgejo_environment(Path(directory))
+        environment.update(GIT_NO_LAZY_FETCH="1", GIT_NO_REPLACE_OBJECTS="1",
+                           GIT_OPTIONAL_LOCKS="0", GIT_ALLOW_PROTOCOL="")
+        settings = {"core.fsmonitor": "false", "core.hooksPath": os.devnull,
+                    "core.attributesFile": os.devnull, "core.sshCommand": "false",
+                    "credential.helper": "", "diff.external": "", "gc.auto": "0",
+                    "maintenance.auto": "false", "protocol.allow": "never"}
+        environment["GIT_CONFIG_COUNT"] = str(len(settings))
+        for index, (key, value) in enumerate(settings.items()):
+            environment[f"GIT_CONFIG_KEY_{index}"] = key
+            environment[f"GIT_CONFIG_VALUE_{index}"] = value
+        token = LOCAL_COMPLETION_GIT.set(environment)
+        try:
+            yield
+        finally:
+            LOCAL_COMPLETION_GIT.reset(token)
+
+
+def require_local_read_filters(root, seen=None):
+    """Refuse executable filters, including initialized nested submodules."""
+    seen = set() if seen is None else seen
+    root = root.resolve()
+    if root in seen or len(seen) >= 64:
+        fail("local completion submodule inspection is ambiguous or exceeds its bound")
+    seen.add(root)
+    filters = git(root, "config", "--get-regexp", r"^filter\..*\.(clean|smudge|process)$", check=False)
+    if filters.returncode not in (0, 1) or filters.stdout.strip():
+        fail("local completion requires executable Git filters to be disabled")
+    entries = inspect_git_bytes(root, "ls-files", "--stage", "-z").split(b"\0")
+    for entry in entries:
+        if not entry.startswith(b"160000 "):
+            continue
+        child = root / os.fsdecode(entry.partition(b"\t")[2])
+        if child.is_symlink() or not child.resolve().is_relative_to(root):
+            fail("local completion submodule path is unsafe")
+        if (child / ".git").exists():
+            require_local_read_filters(child, seen)
+
+
 def git(root, *args, check=True, env=None):
     result = subprocess.run(
         ["git", *args], cwd=root, text=True, capture_output=True,
-        env=GIT_REPOSITORY_ENV if env is None else env,
+        env=git_environment(GIT_REPOSITORY_ENV if env is None else env),
     )
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
@@ -141,7 +194,7 @@ def git(root, *args, check=True, env=None):
 def git_read(root, *args, check=True):
     result = subprocess.run(
         ["git", *args], cwd=root, text=True, capture_output=True,
-        env={**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0"},
+        env=git_environment({**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0"}),
     )
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
@@ -149,14 +202,14 @@ def git_read(root, *args, check=True):
 
 
 def inspect_git(root, *args, check=True):
-    result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True, env=INSPECT_ENV)
+    result = subprocess.run(["git", *args], cwd=root, text=True, capture_output=True, env=git_environment(INSPECT_ENV))
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
     return result
 
 
 def inspect_git_bytes(root, *args):
-    result = subprocess.run(["git", *args], cwd=root, capture_output=True, env=INSPECT_ENV)
+    result = subprocess.run(["git", *args], cwd=root, capture_output=True, env=git_environment(INSPECT_ENV))
     if result.returncode:
         fail(result.stderr.decode(errors="replace").strip() or f"git {' '.join(args)} failed")
     return result.stdout
@@ -167,7 +220,8 @@ def now():
 
 
 def root_dir():
-    result = subprocess.run(["git", "rev-parse", "--show-toplevel"], text=True, capture_output=True)
+    result = subprocess.run(["git", "rev-parse", "--show-toplevel"], text=True, capture_output=True,
+                            env=git_environment(None))
     if result.returncode:
         fail("not inside a Git repository")
     return Path(result.stdout.strip())
@@ -2843,9 +2897,13 @@ def exclusive_json(path, value):
 
 
 def status_paths(root, read_only=False):
+    if LOCAL_COMPLETION_GIT.get() is not None:
+        require_local_read_filters(root)
     env = {**os.environ, "GIT_OPTIONAL_LOCKS": "0"} if read_only else None
     result = subprocess.run(
-        ["git", "status", "--porcelain=v1", "-z"], cwd=root, capture_output=True, env=env
+        ["git", "status", "--porcelain=v1", "-z",
+         *(["--ignore-submodules=none"] if LOCAL_COMPLETION_GIT.get() is not None else [])],
+        cwd=root, capture_output=True, env=git_environment(env)
     )
     if result.returncode:
         fail(result.stderr.decode(errors="replace").strip() or "git status failed")
@@ -3042,7 +3100,7 @@ def native_workspace_execution(record):
             or value["attribution"] != {"status": "unavailable", "reason": "native_identity_not_collected"}):
         fail("invalid native workspace execution metadata")
     if value["origin"] == "registered":
-        if type(record.get("schema_version")) is not int or record["schema_version"] != 5 or value["adoption"] is not None:
+        if type(record.get("schema_version")) is not int or record["schema_version"] not in (5, 6) or value["adoption"] is not None:
             fail("invalid native workspace execution registration")
     elif value["origin"] == "adopted":
         adoption = value["adoption"]
@@ -3098,14 +3156,222 @@ def read_cycle_record(root, path, label="Cycle Record", *, historical=False, max
         fail(f"{label} must be an object")
     if "schema_version" in record:
         schema_version = record["schema_version"]
-        if type(schema_version) is not int or schema_version not in (1, 2, 3, 4, 5):
-            fail(f"unsupported Cycle Record schema: {schema_version}")
+        if type(schema_version) is not int or schema_version not in (1, 2, 3, 4, 5, 6):
+            fail("unsupported Cycle Record schema")
     native = native_workspace_execution(record)
     if "initiative_approval" in record:
         validate_initiative_approval(record["initiative_approval"])
     if record.get("schema_version") == 5:
         validate_schema5_runtime(root, record, historical=historical or native)
+    if record.get("schema_version") == 6:
+        try:
+            validate_schema6_record(root, record)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            fail("invalid local-only Cycle Record")
+        if path.stem != record["cycle_id"]:
+            fail("local-only Cycle Record filename identity changed")
     return record
+
+
+def local_only_cycle(record):
+    return record.get("schema_version") == 6
+
+
+def local_delivery_lock_id(root, record):
+    forge = record["delivery"]["forge"]
+    return continuation_digest({"repository": {key: forge[key] for key in ("provider", "origin", "repository")},
+        "common": str(common_git_dir(root).resolve()), "git_dir": record["worktree"]["git_dir"],
+        "branch": record["worktree"]["branch"]})
+
+
+def validate_schema6_record(root, record):
+    """Validate new-mode records intrinsically, including historical completions."""
+    required = {"method_revision", "schema_version", "created_at", "cycle_id", "context", "risk",
+        "delivery_intent", "engineering_profile", "applicability_plan", "git", "worktree", "delivery",
+        "state", "commits", "gates", "evidence", "metrics", "artifact_reviews", "runtime",
+        "preservation_policy", "execution", "initiative", "initiative_approval"}
+    optional = {"discovery_import", "profile_history", "graphify_check", "phase_profile", "dvc_push",
+                "dvc_preservation", "local_completion", "completed_at", "source_sync"}
+    if (not required <= set(record) or not set(record) <= required | optional
+            or not native_workspace_execution(record) or record["execution"]["origin"] != "registered"
+            or record["delivery_intent"] != "local" or record["state"] not in {"active", "completed"}
+            or not isinstance(record["cycle_id"], str) or not OPAQUE_ID.fullmatch(record["cycle_id"])
+            or not isinstance(record["context"], str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", record["context"])
+            or record["risk"] not in RISK_RANK):
+        fail("invalid local-only Cycle Record identity")
+    oid = lambda value: isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", value)
+    utc = lambda value: isinstance(value, str) and datetime.fromisoformat(value.replace("Z", "+00:00")).utcoffset() == timedelta(0)
+    if not utc(record["created_at"]):
+        fail("invalid local-only Cycle Record timestamp")
+    worktree, baseline, delivery = (record[key] for key in ("worktree", "git", "delivery"))
+    if (not isinstance(worktree, dict) or set(worktree) != {"id", "locator", "git_dir", "branch", "base_commit", "created_by_dbsctr"}
+            or not isinstance(baseline, dict) or set(baseline) != {"head", "branch", "upstream", "dirty_paths", "pre_cycle_ahead_commits", "remote"}
+            or not isinstance(delivery, dict) or set(delivery) != {"mode", "forge", "upstream", "remote", "branch", "base_branch", "base_head", "lock_id"}
+            or delivery["mode"] != "local_only" or worktree["created_by_dbsctr"] is not False
+            or not isinstance(worktree["id"], str) or not re.fullmatch(r"[0-9a-f]{16}", worktree["id"])
+            or baseline["dirty_paths"] != [] or baseline["pre_cycle_ahead_commits"] != []
+            or not oid(baseline["head"]) or worktree["base_commit"] != baseline["head"]
+            or delivery["base_head"] != baseline["head"]
+            or baseline["branch"] != worktree["branch"] or delivery["branch"] != worktree["branch"]):
+        fail("invalid local-only Cycle Record delivery")
+    for name in (worktree["branch"], delivery["remote"], delivery["base_branch"]):
+        if (not isinstance(name, str) or not name or len(name) > 1024 or name.startswith("-")
+                or any(ord(character) < 33 or character in "~^:?*[\\" for character in name)
+                or ".." in name or "@{" in name or name.endswith(("/", ".", ".lock"))):
+            fail("invalid local-only Git selection")
+    if (delivery["upstream"] != f"{delivery['remote']}/{delivery['base_branch']}"
+            or baseline["upstream"] != delivery["upstream"] or worktree["branch"] == delivery["base_branch"]):
+        fail("invalid local-only comparison base")
+    forge = delivery["forge"]
+    if (not isinstance(forge, dict) or set(forge) != {"provider", "origin", "repository", "account", "credential_source"}
+            or forge["provider"] != "forgejo" or forge["credential_source"] != "osxkeychain"
+            or not isinstance(forge["account"], str) or not OPAQUE_ID.fullmatch(forge["account"])):
+        fail("invalid local-only credential selection")
+    identity = typed_repository_identity({key: forge[key] for key in ("provider", "origin", "repository")})
+    if any(identity[key] != forge[key] for key in identity):
+        fail("noncanonical local-only repository identity")
+    destinations = baseline["remote"]
+    if (not isinstance(destinations, dict) or set(destinations) != {"fetch_urls", "push_urls", "url"}
+            or destinations["url"] != identity["origin"] + "/" + identity["repository"] + ".git"):
+        fail("invalid local-only destination snapshot")
+    for kind in ("fetch_urls", "push_urls"):
+        if (not isinstance(destinations[kind], list) or not 1 <= len(destinations[kind]) <= 16
+                or any(repository_identity_from_url(url, "forgejo") != identity for url in destinations[kind])):
+            fail("invalid local-only destination snapshot")
+    native_git_directory(root, record)
+    if delivery["lock_id"] != local_delivery_lock_id(root, record):
+        fail("invalid local-only serialization identity")
+    receipt = record["initiative"]
+    validate_local_initiative_receipt(receipt)
+    if (not isinstance(receipt, dict) or type(receipt.get("schema_version")) is not int
+            or receipt.get("schema_version") != 2 or receipt.get("context") != record["context"]
+            or receipt.get("repository") != identity or receipt.get("execution_owner") != "build"):
+        fail("local-only registration requires its schema 2 Initiative receipt")
+    typed_repository_identity(receipt["coordinator_repository"])
+    for key in ("manifest_blob", "manifest_commit"):
+        if not oid(receipt.get(key)):
+            fail("invalid local-only Initiative provenance")
+    if not isinstance(receipt.get("manifest_digest"), str) or not re.fullmatch(r"[0-9a-f]{64}", receipt["manifest_digest"]):
+        fail("invalid local-only Initiative digest")
+    validate_initiative_approval(record["initiative_approval"])
+    profile, plan = record["engineering_profile"], record["applicability_plan"]
+    if (not isinstance(profile, dict) or set(profile) != {"path", "blob"} or not oid(profile["blob"])
+            or not isinstance(profile["path"], str) or not profile["path"].startswith("docs/specs/")
+            or not isinstance(plan, dict) or not {"profile", "gates"} <= set(plan)
+            or not set(plan) <= {"profile", "gates", "graphify"} or plan["profile"] != profile["path"]
+            or not isinstance(record["gates"], dict) or set(record["gates"]) != set(GATES)
+            or not isinstance(plan["gates"], dict) or set(plan["gates"]) != set(GATES)):
+        fail("invalid local-only profile or gate plan")
+    initiative_paths([profile["path"]], "local-only Engineering Profile")
+    for name, gate in record["gates"].items():
+        if (not isinstance(gate, dict) or not {"applicability", "result"} <= set(gate)
+                or not set(gate) <= {"applicability", "result", "reason", "evidence", "exception"}
+                or gate["applicability"] not in {"required", "not_applicable"}
+                or gate["result"] not in {"pending", "passed", "failed", "unavailable", "not_run"}
+                or (name in MANDATORY_GATES and gate["applicability"] != "required")
+                or plan["gates"][name] != {key: value for key, value in gate.items() if key in {"applicability", "reason"}}
+                or (gate["applicability"] == "not_applicable" and (gate["result"] != "not_run" or not gate.get("reason")))
+                or (gate["applicability"] == "required" and gate["result"] == "not_run")
+                or ("exception" in gate and not valid_gate_exception(gate))):
+            fail("invalid local-only gate state")
+    if (not isinstance(record["evidence"], dict) or set(record["evidence"]) != {"version", "items"}
+            or type(record["evidence"]["version"]) is not int or record["evidence"]["version"] != 1
+            or not isinstance(record["evidence"]["items"], dict)
+            or not isinstance(record["artifact_reviews"], dict) or set(record["artifact_reviews"]) != set(ARTIFACTS)
+            or not isinstance(record["metrics"], dict)
+            or any(type(value) is not int or value < 0 for value in record["metrics"].values())
+            or not isinstance(record["commits"], list)):
+        fail("invalid local-only evidence ledger")
+    for name, review in record["artifact_reviews"].items():
+        if (not isinstance(review, dict) or not {"result", "reason", "reviewed_at"} <= set(review)
+                or not set(review) <= {"result", "reason", "reviewed_at", "path"}
+                or review["result"] not in {"pending", "changed", "unchanged"}
+                or (review.get("path") is not None and review["path"] != f"docs/specs/{record['context']}/{name}.md")
+                or (review["result"] == "pending" and (review["reason"] is not None or review["reviewed_at"] is not None))
+                or (review["result"] != "pending" and (not isinstance(review["reason"], str)
+                    or not review["reason"].strip() or not utc(review["reviewed_at"])))
+                or (review["result"] == "changed" and not review.get("path"))):
+            fail("invalid local-only artifact review")
+    for identifier, item in record["evidence"]["items"].items():
+        fields = {"id", "gate", "authority", "argv", "paths", "head", "started_at", "finished_at",
+                  "result", "raw", "summary", "urls", "content"}
+        if (not isinstance(item, dict) or not fields <= set(item) or not set(item) <= fields | {"commit"}
+                or not isinstance(identifier, str) or not re.fullmatch(r"ev-[0-9a-f]{32}", identifier)
+                or item["id"] != identifier or item["gate"] not in GATES
+                or item["result"] not in {"passed", "failed", "unavailable"}
+                or not isinstance(item["authority"], str) or not item["authority"]
+                or not isinstance(item["argv"], list) or not 1 <= len(item["argv"]) <= 64
+                or any(not isinstance(value, str) for value in item["argv"])
+                or not isinstance(item["paths"], dict) or not oid(item["head"])
+                or ("commit" in item and not oid(item["commit"]))
+                or not utc(item["started_at"]) or not utc(item["finished_at"])
+                or item["summary"] != item["result"] or not isinstance(item["urls"], list)
+                or any(not isinstance(value, str) for value in item["urls"])
+                or not isinstance(item["raw"], dict) or set(item["raw"]) != {"byte_count", "lower_bound", "truncated"}
+                or type(item["raw"]["byte_count"]) is not int or item["raw"]["byte_count"] < 0
+                or any(type(item["raw"][key]) is not bool for key in ("lower_bound", "truncated"))):
+            fail("invalid local-only evidence envelope")
+        initiative_paths(list(item["paths"]), "local-only evidence paths")
+        if any(value is not None and not oid(value) for value in item["paths"].values()):
+            fail("invalid local-only evidence blob")
+        content = item["content"]
+        if not isinstance(content, dict):
+            fail("invalid local-only evidence content")
+        if content.get("status") == "sidecar":
+            if (set(content) != {"status", "path", "sha256", "byte_count", "truncated"}
+                    or not isinstance(content["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", content["sha256"])
+                    or content["path"] != f"evidence/{record['cycle_id']}/{content['sha256']}"
+                    or type(content["byte_count"]) is not int or not 0 <= content["byte_count"] <= EVIDENCE_SIDECAR_CAP
+                    or type(content["truncated"]) is not bool):
+                fail("invalid local-only evidence sidecar")
+        elif content.get("status") == "withheld":
+            if set(content) != {"status", "reason"} or not isinstance(content["reason"], str) or not content["reason"]:
+                fail("invalid local-only withheld evidence")
+        elif content != {"status": "no_content"}:
+            fail("invalid local-only evidence content")
+    for name, gate in record["gates"].items():
+        identifier = gate.get("evidence")
+        item = record["evidence"]["items"].get(identifier) if isinstance(identifier, str) else None
+        if (identifier is not None and (item is None or item["gate"] != name or item["result"] != gate["result"])):
+            fail("invalid local-only gate evidence binding")
+        if gate["result"] in {"passed", "failed", "unavailable"} and item is None:
+            fail("missing local-only gate evidence")
+    commits = []
+    for entry in record["commits"]:
+        if (not isinstance(entry, dict) or set(entry) != {"id", "gates"} or not oid(entry["id"])
+                or entry["id"] in commits or not isinstance(entry["gates"], list)
+                or any(not isinstance(name, str) or name not in GATES for name in entry["gates"])
+                or len(entry["gates"]) != len(set(entry["gates"]))):
+            fail("invalid local-only recorded commits")
+        commits.append(entry["id"])
+    validate_schema5_runtime(root, record, historical=True)
+    terminal = {"local_completion", "completed_at", "source_sync"}
+    if record["state"] == "active":
+        if terminal & set(record):
+            fail("active local-only record contains completion state")
+        return
+    completion = record.get("local_completion")
+    if (not terminal <= set(record) or not isinstance(completion, dict)
+            or set(completion) != {"schema_version", "cycle_id", "repository", "base_head", "head", "tree", "recorded_commits", "completed_at", "manual_delivery"}
+            or type(completion["schema_version"]) is not int or completion["schema_version"] != 1
+            or completion["cycle_id"] != record["cycle_id"] or completion["repository"] != identity
+            or completion["base_head"] != delivery["base_head"] or not oid(completion["head"])
+            or not oid(completion["tree"]) or not commits or completion["head"] != commits[-1]
+            or completion["recorded_commits"] != commits or not utc(completion["completed_at"])
+            or completion["completed_at"] != record["completed_at"]
+            or completion["manual_delivery"] != {"status": "pending"}
+            or record["source_sync"] != {"status": "not_applicable", "reason": "local_only_completion"}):
+        fail("invalid local-only completion")
+    if any(gate["applicability"] == "required" and gate["result"] != "passed"
+           and not (gate["result"] in {"failed", "unavailable"} and valid_gate_exception(gate))
+           for gate in record["gates"].values()):
+        fail("completed local-only record has incomplete gates")
+    for name, review in record["artifact_reviews"].items():
+        if (not isinstance(review, dict) or review.get("result") not in {"changed", "unchanged"}
+                or not isinstance(review.get("reason"), str) or not review["reason"].strip()
+                or not utc(review.get("reviewed_at"))):
+            fail("completed local-only record has incomplete artifact reviews")
+    completion_artifact_check(record)
 
 
 def schema5_opencode_adapter(opencode):
@@ -3149,7 +3415,7 @@ def git_worktrees(root):
 def native_git_directory(root, record, *, common=None):
     """Use Git's existing per-worktree metadata, never a branch-name routing index."""
     details = record.get("worktree")
-    if record.get("schema_version") in (4, 5):
+    if record.get("schema_version") in (4, 5, 6):
         locator_path(details.get("locator") if isinstance(details, dict) else None,
                      {"cycle_worktree": None, "dbsctr_worktrees": None}, "cycle worktree", validate_only=True)
     value = details.get("git_dir") if isinstance(details, dict) else None
@@ -3293,6 +3559,11 @@ def load(root, *, bindings=True):
 
 
 def save(path, record):
+    if local_only_cycle(record):
+        try:
+            validate_schema6_record(root_dir(), record)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            fail("invalid local-only outgoing Cycle Record")
     atomic_json(path, record)
 
 
@@ -3307,7 +3578,7 @@ def require_pushable(record):
 
 
 def is_v32(record):
-    return record.get("schema_version") in (1, 2, 3, 4, 5)
+    return record.get("schema_version") in (1, 2, 3, 4, 5, 6)
 
 
 @contextlib.contextmanager
@@ -3410,10 +3681,585 @@ def initiative_paths(value, label):
             fail(f"{label} must contain normalized repository-relative paths")
 
 
+def _forgejo_environment(private_home="/var/empty"):
+    """Build a child-only environment without ambient transport or secret inputs."""
+    return {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C", "LC_ALL": "C",
+            "HOME": str(private_home), "XDG_CONFIG_HOME": str(private_home),
+            "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
+            "GIT_ASKPASS": "/usr/bin/false", "SSH_ASKPASS": "/usr/bin/false",
+            "GCM_INTERACTIVE": "Never", "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_ALLOW_PROTOCOL": "https", "GIT_PROTOCOL_FROM_USER": "0"}
+
+
+def _forgejo_run(command, *, cwd, env, timeout=30, input=None):
+    """Bound output and the whole child process group; never expose raw errors."""
+    process, finished = None, False
+    try:
+        process = subprocess.Popen(command, cwd=cwd, env=env, start_new_session=True,
+                                   stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if input is not None:
+            process.stdin.write(input.encode("utf-8"))
+            process.stdin.close()
+        deadline = time.monotonic() + timeout
+        output = {process.stdout: bytearray(), process.stderr: bytearray()}
+        with selectors.DefaultSelector() as selector:
+            for stream in output:
+                os.set_blocking(stream.fileno(), False)
+                selector.register(stream, selectors.EVENT_READ)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    fail("Forgejo transport timed out")
+                for key, _ in selector.select(remaining):
+                    value = os.read(key.fileobj.fileno(), 8192)
+                    if not value:
+                        selector.unregister(key.fileobj)
+                        continue
+                    output[key.fileobj].extend(value)
+                    if sum(map(len, output.values())) > 64 * 1024:
+                        fail("Forgejo transport output unavailable")
+            process.wait(timeout=max(0.001, deadline - time.monotonic()))
+        finished = True
+        return subprocess.CompletedProcess(command, process.returncode,
+            bytes(output[process.stdout]).decode("utf-8", errors="replace"),
+            bytes(output[process.stderr]).decode("utf-8", errors="replace"))
+    except subprocess.TimeoutExpired:
+        fail("Forgejo transport timed out")
+    except OSError:
+        fail("Forgejo transport unavailable")
+    finally:
+        if process is not None:
+            if not finished or process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            process.wait()
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+
+
+def _forgejo_trusted_file(value):
+    try:
+        path = Path(value).resolve()
+        details = path.stat()
+    except (OSError, RuntimeError, ValueError):
+        fail("Forgejo trusted executable unavailable")
+    if (not stat.S_ISREG(details.st_mode) or not os.access(path, os.X_OK)
+            or details.st_uid not in {0, os.getuid()} or details.st_mode & 0o022):
+        fail("Forgejo trusted executable unavailable")
+    return str(path)
+
+
+def _forgejo_tools():
+    """Select installed native Git without consulting an inherited PATH."""
+    for candidate in ("/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"):
+        if Path(candidate).is_file():
+            executable = _forgejo_trusted_file(candidate)
+            version = _forgejo_run([executable, "--version"], cwd="/",
+                                   env=_forgejo_environment(), timeout=5)
+            match = re.fullmatch(r"git version ([0-9]+)\.([0-9]+)\.([0-9]+)(?:[^\r\n]*)\n?", version.stdout)
+            if version.returncode or not match or tuple(map(int, match.groups())) < (2, 56, 0):
+                fail("Forgejo Basic authentication capability unavailable")
+            capabilities = _forgejo_run([executable, "credential", "capability"], cwd="/",
+                                        env=_forgejo_environment(), timeout=5)
+            lines = capabilities.stdout.splitlines()
+            if (capabilities.returncode or not lines or lines[0] != "version 0"
+                    or "capability authtype" not in lines[1:]):
+                fail("Forgejo Basic authentication capability unavailable")
+            result = _forgejo_run([executable, "--exec-path"], cwd="/",
+                                   env=_forgejo_environment(), timeout=5)
+            if result.returncode or not Path(result.stdout.strip()).is_absolute():
+                fail("Forgejo trusted executable unavailable")
+            return executable, str(Path(result.stdout.strip()).resolve())
+    fail("Forgejo trusted executable unavailable")
+
+
+def _forgejo_identity(identity):
+    try:
+        value = typed_repository_identity(identity, "Forgejo repository")
+        if value["provider"] != "forgejo":
+            fail("invalid provider")
+        return value
+    except (RuntimeError, ValueError, TypeError, KeyError):
+        fail("Forgejo repository identity unavailable")
+
+
+def forgejo_remote_urls(root, remote, identity):
+    """Validate every configured endpoint and reject effective local rewrites."""
+    identity = _forgejo_identity(identity)
+    if (not isinstance(remote, str) or len(remote) > 128
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", remote)
+            or any(part in {"", ".", ".."} for part in remote.split("/"))):
+        fail("Forgejo remote selection unavailable")
+    executable, _ = _forgejo_tools()
+    environment = _forgejo_environment()
+    values = {}
+    for kind, key in (("fetch_urls", "url"), ("push_urls", "pushurl")):
+        result = _forgejo_run([executable, "config", "--null", "--get-all",
+                              f"remote.{remote}.{key}"], cwd=root, env=environment, timeout=5)
+        if result.returncode not in (0, 1):
+            fail("Forgejo remote selection unavailable")
+        values[kind] = result.stdout.rstrip("\0").split("\0") if result.stdout else []
+    if not values["fetch_urls"]:
+        fail("Forgejo remote selection unavailable")
+    if not values["push_urls"]:
+        values["push_urls"] = list(values["fetch_urls"])
+    for url in values["fetch_urls"] + values["push_urls"]:
+        try:
+            if repository_identity_from_url(url, "forgejo") != identity:
+                fail("endpoint mismatch")
+        except (RuntimeError, ValueError, TypeError, KeyError):
+            fail("Forgejo remote identity mismatch")
+    for kind, arguments in (("fetch_urls", []), ("push_urls", ["--push"])):
+        result = _forgejo_run([executable, "remote", "get-url", *arguments, "--all", remote],
+                              cwd=root, env=environment, timeout=5)
+        if result.returncode or result.stdout.splitlines() != values[kind]:
+            fail("Forgejo URL rewriting is unavailable")
+    return {**values, "url": identity["origin"] + "/" + identity["repository"] + ".git"}
+
+
+def _forgejo_security_lookup(query):
+    """Read exact native internet-password matches with authentication UI denied."""
+    import ctypes
+    if sys.platform != "darwin":
+        fail("Forgejo native credential unavailable")
+    references = []
+    result = ctypes.c_void_p()
+    core, security, interaction = None, None, None
+    try:
+        core = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        security = ctypes.CDLL("/System/Library/Frameworks/Security.framework/Security")
+        pointer, index = ctypes.c_void_p, ctypes.c_long
+        signatures = {
+            "CFDictionaryCreateMutable": ([pointer, index, pointer, pointer], pointer),
+            "CFDictionarySetValue": ([pointer, pointer, pointer], None),
+            "CFDictionaryGetValue": ([pointer, pointer], pointer),
+            "CFStringCreateWithCString": ([pointer, ctypes.c_char_p, ctypes.c_uint32], pointer),
+            "CFStringGetCString": ([pointer, pointer, index, ctypes.c_uint32], ctypes.c_ubyte),
+            "CFNumberCreate": ([pointer, ctypes.c_int, pointer], pointer),
+            "CFNumberGetValue": ([pointer, ctypes.c_int, pointer], ctypes.c_ubyte),
+            "CFArrayGetCount": ([pointer], index),
+            "CFArrayGetValueAtIndex": ([pointer, index], pointer),
+            "CFDataGetLength": ([pointer], index),
+            "CFDataGetBytePtr": ([pointer], pointer),
+            "CFGetTypeID": ([pointer], ctypes.c_ulong),
+            "CFArrayGetTypeID": ([], ctypes.c_ulong),
+            "CFDictionaryGetTypeID": ([], ctypes.c_ulong),
+            "CFStringGetTypeID": ([], ctypes.c_ulong),
+            "CFNumberGetTypeID": ([], ctypes.c_ulong),
+            "CFDataGetTypeID": ([], ctypes.c_ulong),
+            "CFEqual": ([pointer, pointer], ctypes.c_ubyte), "CFRelease": ([pointer], None),
+        }
+        for name, (arguments, returned) in signatures.items():
+            function = getattr(core, name)
+            function.argtypes, function.restype = arguments, returned
+        security.SecItemCopyMatching.argtypes = [pointer, ctypes.POINTER(pointer)]
+        security.SecItemCopyMatching.restype = ctypes.c_int32
+        security.SecKeychainGetUserInteractionAllowed.argtypes = [ctypes.POINTER(ctypes.c_ubyte)]
+        security.SecKeychainGetUserInteractionAllowed.restype = ctypes.c_int32
+        security.SecKeychainSetUserInteractionAllowed.argtypes = [ctypes.c_ubyte]
+        security.SecKeychainSetUserInteractionAllowed.restype = ctypes.c_int32
+        previous_interaction = ctypes.c_ubyte()
+        if (security.SecKeychainGetUserInteractionAllowed(ctypes.byref(previous_interaction)) != 0
+                or security.SecKeychainSetUserInteractionAllowed(0) != 0):
+            fail("Forgejo native credential unavailable")
+        interaction = previous_interaction.value
+
+        def symbol(library, name):
+            return pointer.in_dll(library, name).value
+
+        def string(value):
+            reference = core.CFStringCreateWithCString(None, value.encode("utf-8"), 0x08000100)
+            if not reference:
+                raise ValueError()
+            references.append(reference)
+            return reference
+
+        dictionary = core.CFDictionaryCreateMutable(None, 0,
+            ctypes.addressof(ctypes.c_byte.in_dll(core, "kCFTypeDictionaryKeyCallBacks")),
+            ctypes.addressof(ctypes.c_byte.in_dll(core, "kCFTypeDictionaryValueCallBacks")))
+        if not dictionary:
+            raise ValueError()
+        references.append(dictionary)
+        port = ctypes.c_int64(query["port"])
+        port_value = core.CFNumberCreate(None, 4, ctypes.byref(port))
+        if not port_value:
+            raise ValueError()
+        references.append(port_value)
+        fields = {"kSecClass": symbol(security, "kSecClassInternetPassword"),
+                  "kSecAttrProtocol": symbol(security, "kSecAttrProtocolHTTPS"),
+                  "kSecAttrAuthenticationType": symbol(security, "kSecAttrAuthenticationTypeDefault"),
+                  "kSecAttrServer": string(query["server"]), "kSecAttrPort": port_value,
+                  "kSecAttrAccount": string(query["account"]), "kSecAttrPath": string(query["path"]),
+                  "kSecUseAuthenticationUI": symbol(security, "kSecUseAuthenticationUIFail"),
+                  "kSecMatchLimit": symbol(security, "kSecMatchLimitAll"),
+                  "kSecReturnAttributes": symbol(core, "kCFBooleanTrue"),
+                  "kSecReturnData": symbol(core, "kCFBooleanTrue")}
+        for key, value in fields.items():
+            core.CFDictionarySetValue(dictionary, symbol(security, key), value)
+        if security.SecItemCopyMatching(dictionary, ctypes.byref(result)) != 0 or not result.value:
+            fail("Forgejo native credential unavailable")
+        if core.CFGetTypeID(result) != core.CFArrayGetTypeID() or core.CFArrayGetCount(result) != 1:
+            fail("Forgejo native credential selection unavailable")
+        item = core.CFArrayGetValueAtIndex(result, 0)
+        if core.CFGetTypeID(item) != core.CFDictionaryGetTypeID():
+            raise ValueError()
+
+        def attribute(name, expected_type):
+            value = core.CFDictionaryGetValue(item, symbol(security, name))
+            if not value or core.CFGetTypeID(value) != expected_type():
+                raise ValueError()
+            return value
+
+        def text(name):
+            value = attribute(name, core.CFStringGetTypeID)
+            buffer = ctypes.create_string_buffer(8192)
+            if not core.CFStringGetCString(value, buffer, len(buffer), 0x08000100):
+                raise ValueError()
+            return buffer.value.decode("utf-8")
+
+        actual_port = ctypes.c_int64()
+        if not core.CFNumberGetValue(attribute("kSecAttrPort", core.CFNumberGetTypeID), 4,
+                                     ctypes.byref(actual_port)):
+            raise ValueError()
+        protocol = core.CFDictionaryGetValue(item, symbol(security, "kSecAttrProtocol"))
+        https = False
+        if protocol and core.CFGetTypeID(protocol) == core.CFStringGetTypeID():
+            https = bool(core.CFEqual(protocol, symbol(security, "kSecAttrProtocolHTTPS")))
+        elif protocol and core.CFGetTypeID(protocol) == core.CFNumberGetTypeID():
+            number = ctypes.c_int64()
+            https = bool(core.CFNumberGetValue(protocol, 4, ctypes.byref(number))) and number.value == int.from_bytes(b"htps", "big")
+        if not https:
+            raise ValueError()
+        data = attribute("kSecValueData", core.CFDataGetTypeID)
+        length = core.CFDataGetLength(data)
+        if not 0 < length <= 4096:
+            raise ValueError()
+        password = ctypes.string_at(core.CFDataGetBytePtr(data), length).decode("utf-8")
+        return [{"server": text("kSecAttrServer"), "port": actual_port.value,
+                 "account": text("kSecAttrAccount"), "path": text("kSecAttrPath"),
+                 "protocol": "https", "password": password}]
+    except (OSError, AttributeError, ValueError, TypeError, KeyError, ctypes.ArgumentError):
+        fail("Forgejo native credential unavailable")
+    finally:
+        if security is not None and interaction is not None:
+            security.SecKeychainSetUserInteractionAllowed(interaction)
+        if core is not None:
+            if result.value:
+                core.CFRelease(result)
+            for reference in reversed(references):
+                core.CFRelease(reference)
+
+
+def forgejo_credential_helper(operation, identity, account):
+    """Implement the get-only Git helper protocol; native storage is never changed."""
+    if operation != "get":
+        return
+    identity = _forgejo_identity(identity)
+    if not isinstance(account, str) or not OPAQUE_ID.fullmatch(account):
+        fail("Forgejo credential selection unavailable")
+    request = sys.stdin.read(8193)
+    if len(request) > 8192:
+        fail("Forgejo credential request unavailable")
+    fields, capabilities = {}, set()
+    for line in request.splitlines():
+        if not line:
+            break
+        key, separator, value = line.partition("=")
+        if key == "capability[]" and separator:
+            if fields or value not in {"authtype", "state"} or value in capabilities:
+                fail("Forgejo credential capability unavailable")
+            capabilities.add(value)
+            continue
+        if key == "wwwauth[]" and separator:
+            continue
+        if (not separator or key in fields
+                or key not in {"protocol", "host", "path", "username", "authtype"}):
+            fail("Forgejo credential request unavailable")
+        fields[key] = value
+    if "authtype" not in capabilities or fields.pop("authtype", "basic") != "basic":
+        fail("Forgejo Basic authentication capability unavailable")
+    parsed = urlsplit(identity["origin"])
+    expected = {"protocol": "https", "host": parsed.netloc,
+                "path": identity["repository"] + ".git", "username": account}
+    if fields != expected:
+        fail("Forgejo credential request mismatch")
+    query = {"server": parsed.hostname, "port": parsed.port or 0, "protocol": "https",
+             "account": account, "path": expected["path"], "authentication": "default",
+             "authentication_ui": "fail", "match_limit": "all"}
+    matches = _forgejo_security_lookup(query)
+    if not isinstance(matches, list) or len(matches) != 1 or not isinstance(matches[0], dict):
+        fail("Forgejo native credential selection unavailable")
+    item = matches[0]
+    if any(item.get(key) != query[key] for key in ("server", "port", "protocol", "account", "path")):
+        fail("Forgejo native credential selection mismatch")
+    password = item.get("password")
+    if (not isinstance(password, str) or not 0 < len(password) <= 4096
+            or any(character in password for character in "\r\n\0") or "\ufffd" in password):
+        fail("Forgejo native credential unavailable")
+    encoded = base64.b64encode((account + ":" + password).encode("utf-8")).decode("ascii")
+    sys.stdout.write(f"capability[]=authtype\nauthtype=basic\ncredential={encoded}\nephemeral=true\n\n")
+    sys.stdout.flush()
+
+
+def forgejo_internal_main(argv):
+    """Handle the fixed internal helper before ordinary CLI or lifecycle dispatch."""
+    if argv[:1] != ["_forgejo-credential"]:
+        return False
+    try:
+        if len(argv) != 6 or argv[1] != "--identity-json" or argv[3] != "--account":
+            raise ValueError()
+        forgejo_credential_helper(argv[5], json.loads(argv[2]), argv[4])
+    except Exception:
+        sys.stdout.write("quit=true\n\n")
+        sys.stdout.flush()
+    return True
+
+
+def fetch_forgejo_branch(root, remote, identity, base_branch, account):
+    """Fetch one comparison ref; filesystem failures retain a fixed safe category."""
+    try:
+        return _fetch_forgejo_branch(root, remote, identity, base_branch, account)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        fail("Forgejo transport unavailable")
+
+
+def _fetch_forgejo_branch(root, remote, identity, base_branch, account):
+    """Keep source configuration outside the network transport process."""
+    import shlex
+    identity = _forgejo_identity(identity)
+    if not isinstance(account, str) or not OPAQUE_ID.fullmatch(account):
+        fail("Forgejo credential selection unavailable")
+    executable, exec_path = _forgejo_tools()
+    environment = _forgejo_environment()
+    tracking = f"refs/remotes/{remote}/{base_branch}"
+    for reference in (f"refs/heads/{base_branch}", tracking):
+        if (not isinstance(base_branch, str) or len(base_branch) > 1024
+                or _forgejo_run([executable, "check-ref-format", reference], cwd=root,
+                                 env=environment, timeout=5).returncode):
+            fail("Forgejo comparison ref unavailable")
+    destinations = forgejo_remote_urls(root, remote, identity)
+    common = _forgejo_run([executable, "rev-parse", "--git-common-dir"], cwd=root,
+                           env=environment, timeout=5)
+    object_format = _forgejo_run([executable, "rev-parse", "--show-object-format"], cwd=root,
+                                  env=environment, timeout=5)
+    if common.returncode or object_format.returncode or object_format.stdout.strip() not in {"sha1", "sha256"}:
+        fail("Forgejo object store unavailable")
+    common_path = Path(common.stdout.strip())
+    object_path = ((common_path if common_path.is_absolute() else root / common_path) / "objects").resolve()
+    if not object_path.is_dir():
+        fail("Forgejo object store unavailable")
+    previous = _forgejo_run([executable, "rev-parse", "--verify", "--quiet", tracking],
+                             cwd=root, env=environment, timeout=5)
+    if previous.returncode not in (0, 1):
+        fail("Forgejo comparison ref unavailable")
+    deadline = time.monotonic() + 30
+    with tempfile.TemporaryDirectory(prefix="dbsctr-forgejo-") as directory:
+        private = Path(directory)
+        private.chmod(0o700)
+        private_home = private / "home"
+        private_home.mkdir(mode=0o700)
+        control = private / "control.git"
+        environment = _forgejo_environment(private_home)
+        environment["GIT_EXEC_PATH"] = exec_path
+        result = _forgejo_run([executable, "init", "--bare", "--template=",
+                              "--object-format=" + object_format.stdout.strip(), str(control)],
+                              cwd=private, env=environment, timeout=max(0.001, deadline - time.monotonic()))
+        if result.returncode:
+            fail("Forgejo transport initialization unavailable")
+        environment.update({"GIT_DIR": str(control), "GIT_OBJECT_DIRECTORY": str(object_path)})
+        helper = "!exec " + shlex.join([_forgejo_trusted_file(sys.executable), "-I", "-B",
+            str(Path(__file__).resolve()), "_forgejo-credential", "--identity-json",
+            json.dumps(identity, sort_keys=True, separators=(",", ":")), "--account", account])
+        settings = {"core.hooksPath": "/dev/null", "credential.helper": "",
+                    "credential.useHttpPath": "true", "credential.username": account,
+                    "http.sslVerify": "true", "http.followRedirects": "false", "http.proxy": "",
+                    "http.extraHeader": "", "http.cookieFile": "", "http.saveCookies": "false",
+                    "http.emptyAuth": "false", "http.proactiveAuth": "basic", "http.delegation": "none",
+                    "gc.auto": "0", "maintenance.auto": "false", "fetch.fsckObjects": "true",
+                    "promisor.acceptFromServer": "none"}
+        arguments = [executable]
+        for key, value in settings.items():
+            arguments.extend(["-c", f"{key}={value}"])
+        arguments.extend(["-c", "credential.helper=" + helper, "fetch", "--no-tags",
+                          "--no-recurse-submodules", "--no-auto-maintenance", "--no-write-commit-graph",
+                          "--no-write-fetch-head", "--", destinations["url"],
+                          f"+refs/heads/{base_branch}:refs/dbsctr-fetch/base"])
+        result = _forgejo_run(arguments, cwd=control, env=environment,
+                              timeout=max(0.001, deadline - time.monotonic()))
+        if result.returncode:
+            fail("Forgejo comparison fetch unavailable")
+        observed = _forgejo_run([executable, "rev-parse", "--verify", "refs/dbsctr-fetch/base"],
+                                 cwd=control, env=environment, timeout=max(0.001, deadline - time.monotonic()))
+        head = observed.stdout.strip()
+        if observed.returncode or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", head):
+            fail("Forgejo comparison object unavailable")
+        kind = _forgejo_run([executable, "cat-file", "-t", head], cwd=control, env=environment,
+                            timeout=max(0.001, deadline - time.monotonic()))
+        if kind.returncode or kind.stdout.strip() != "commit":
+            fail("Forgejo comparison object unavailable")
+        if forgejo_remote_urls(root, remote, identity) != destinations:
+            fail("Forgejo remote selection changed")
+        old = previous.stdout.strip() if previous.returncode == 0 else "0" * len(head)
+        result = _forgejo_run([executable, "-c", "core.hooksPath=/dev/null", "update-ref",
+                              "--no-deref", tracking, head, old], cwd=root, env=_forgejo_environment(),
+                              timeout=max(0.001, deadline - time.monotonic()))
+        if result.returncode:
+            fail("Forgejo comparison ref changed")
+        return head
+
+
 def initiative_repository(value, label):
     if (not isinstance(value, str)
             or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", value)):
         fail(f"{label} must be a canonical owner/repository identity")
+
+
+def typed_repository_identity(value, label="repository"):
+    """Validate the full public identity without inferring a host or account."""
+    if not isinstance(value, dict) or set(value) != {"provider", "origin", "repository"}:
+        fail(f"{label} requires exactly provider, origin and repository")
+    provider, origin, repository = (value[key] for key in ("provider", "origin", "repository"))
+    if not isinstance(provider, str) or provider not in {"github", "forgejo"}:
+        fail(f"{label} provider is unsupported")
+    if (not isinstance(origin, str) or len(origin) > 1024
+            or not re.fullmatch(r"https://[A-Za-z0-9.-]+(?::[1-9][0-9]{0,4})?", origin)):
+        fail(f"{label} origin must be a canonical HTTPS authority")
+    try:
+        parsed = urlsplit(origin)
+        hostname, port = parsed.hostname, parsed.port
+    except ValueError:
+        fail(f"{label} origin is invalid")
+    if (not hostname or len(hostname) > 253 or hostname.endswith(".")
+            or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", part)
+                   for part in hostname.split("."))
+            or port is not None and not 1 <= port <= 65535):
+        fail(f"{label} origin is invalid")
+    canonical = "https://" + hostname + (":" + str(port) if port not in (None, 443) else "")
+    if provider == "github" and canonical != "https://github.com":
+        fail(f"{label} GitHub origin must be https://github.com")
+    initiative_repository(repository, label)
+    if any(not OPAQUE_ID.fullmatch(part) for part in repository.split("/")):
+        fail(f"{label} repository components exceed their portable bounds")
+    return {"provider": provider, "origin": canonical, "repository": repository}
+
+
+def repository_equal(left, right):
+    if isinstance(left, str) or isinstance(right, str):
+        return isinstance(left, str) and isinstance(right, str) and left.lower() == right.lower()
+    left = typed_repository_identity(left)
+    right = typed_repository_identity(right)
+    return (left["provider"] == right["provider"] and left["origin"] == right["origin"]
+            and (left["repository"].lower() == right["repository"].lower()
+                 if left["provider"] == "github" else left["repository"] == right["repository"]))
+
+
+def repository_identity_from_url(url, provider):
+    if provider == "github":
+        try:
+            parsed = urlsplit(url)
+            if parsed.scheme == "https" and parsed.port not in (None, 443):
+                fail("typed GitHub repository requires its canonical HTTPS port")
+        except ValueError:
+            fail("typed GitHub repository origin is invalid")
+        return typed_repository_identity({"provider": provider, "origin": "https://github.com",
+            "repository": github_repository_from_url(url, "GitHub repository origin is invalid")})
+    if not isinstance(url, str):
+        fail("repository origin is invalid")
+    match = re.fullmatch(r"(https://[^/]+)/([A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*?)\.git", url)
+    if not match:
+        fail("Forgejo repository origin requires its canonical HTTPS Git endpoint")
+    identity = typed_repository_identity({"provider": provider, "origin": match[1], "repository": match[2]})
+    if url != identity["origin"] + "/" + identity["repository"] + ".git":
+        fail("Forgejo repository origin must be canonical")
+    return identity
+
+
+def require_repository_home(root, expected):
+    if isinstance(expected, str):
+        matches = repository_equal(git_repository_slug(root), expected)
+    else:
+        expected = typed_repository_identity(expected)
+        matches = True
+        for push in (False, True):
+            arguments = ("remote", "get-url", "--all", "--push", "origin") if push else (
+                "remote", "get-url", "--all", "origin")
+            urls = git(root, *arguments, check=False).stdout.splitlines()
+            if expected["provider"] == "forgejo":
+                raw = git(root, "config", "--get-all", "remote.origin." + ("pushurl" if push else "url"),
+                          check=False).stdout.splitlines()
+                if push and not raw:
+                    raw = git(root, "config", "--get-all", "remote.origin.url", check=False).stdout.splitlines()
+                matches &= raw == urls
+            matches &= bool(urls) and all(repository_equal(
+                repository_identity_from_url(url, expected["provider"]), expected) for url in urls)
+    if not matches:
+        fail("Initiative repository identity does not match its Git origin")
+
+
+def forgejo_selection(args):
+    selected = [getattr(args, "forge_" + field, None)
+                for field in ("provider", "origin", "repository", "account")]
+    if not any(value is not None for value in selected):
+        return None
+    if (not all(isinstance(value, str) and value for value in selected)
+            or selected[0] != "forgejo"
+            or getattr(args, "github_account", None) is not None
+            or getattr(args, "github_repository", None) is not None):
+        fail("Forgejo selection requires all four selectors and cannot mix GitHub selectors")
+    if args.delivery_intent != "local":
+        fail("Forgejo supports local-only registration; remote delivery is unavailable")
+    identity = typed_repository_identity(dict(zip(("provider", "origin", "repository"), selected[:3])),
+                                         "Forgejo selection")
+    if not OPAQUE_ID.fullmatch(selected[3]):
+        fail("Forgejo account selection is invalid")
+    return {**identity, "account": selected[3], "credential_source": "osxkeychain"}
+
+
+def expected_repository(args, schema):
+    legacy = getattr(args, "expected_repository", None)
+    encoded = getattr(args, "expected_repository_json", None)
+    if schema == 1:
+        if encoded is not None or legacy is None:
+            fail("schema 1 requires the legacy expected repository")
+        initiative_repository(legacy, "expected repository")
+        return legacy
+    if legacy is not None or not isinstance(encoded, str):
+        fail("schema 2 requires a typed expected repository JSON object")
+    try:
+        value = json.loads(encoded, object_pairs_hook=no_duplicate_keys)
+    except (ValueError, json.JSONDecodeError):
+        fail("typed expected repository JSON is invalid")
+    return typed_repository_identity(value, "expected repository")
+
+
+def validate_local_initiative_receipt(receipt):
+    fields = {"schema_version", "initiative_id", "slice_id", "manifest_digest", "manifest_blob",
+              "manifest_commit", "manifest_path", "coordinator_repository", "context", "repository",
+              "requirements", "depends_on", "artifacts", "release_group", "execution_owner"}
+    if (not isinstance(receipt, dict) or set(receipt) != fields
+            or type(receipt["schema_version"]) is not int or receipt["schema_version"] != 2
+            or receipt["execution_owner"] != "build"):
+        fail("invalid local-only Initiative receipt")
+    for key in ("initiative_id", "slice_id", "release_group"):
+        if not isinstance(receipt[key], str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", receipt[key]):
+            fail("invalid local-only Initiative identity")
+    for key in ("coordinator_repository", "repository"):
+        if typed_repository_identity(receipt[key]) != receipt[key]:
+            fail("noncanonical local-only Initiative repository")
+    if (not isinstance(receipt["manifest_path"], str)
+            or not re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]*/MANIFEST\.json", receipt["manifest_path"])):
+        fail("invalid local-only Initiative manifest path")
+    initiative_strings(receipt["requirements"], "local-only requirements", allow_empty=False)
+    initiative_strings(receipt["depends_on"], "local-only dependencies")
+    initiative_paths(receipt["artifacts"], "local-only Initiative artifacts")
+    if (not receipt["artifacts"] or any(not re.fullmatch(r"INT-[0-9]{3,}", item) for item in receipt["requirements"])
+            or any(not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", item) for item in receipt["depends_on"])):
+        fail("invalid local-only Initiative coverage")
 
 
 def github_repository_from_url(url, error):
@@ -3474,6 +4320,8 @@ def push_github_branch(root, url, remote_branch, env):
 
 
 def normalize_begin_delivery(root, args, delivery_branch):
+    if forgejo_selection(args) is not None:
+        return
     if args.delivery_intent == "merge" and delivery_branch == args.base_branch:
         args.delivery_intent = "draft_pr"
     elif args.delivery_intent != "draft_pr" and delivery_branch == args.base_branch:
@@ -3523,13 +4371,17 @@ def read_initiative_manifest(source):
         "schema_version", "id", "title", "state", "coordinator_repository", "statements",
         "contexts", "slices", "release_groups",
     }, "Initiative manifest")
-    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
-        fail("Initiative manifest schema_version must be 1")
+    if type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2):
+        fail("Initiative manifest schema_version must be 1 or 2")
     if not isinstance(value["id"], str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", value["id"]):
         fail("Initiative ID is invalid")
     if not isinstance(value["title"], str) or not value["title"].strip():
         fail("Initiative title is invalid")
-    initiative_repository(value["coordinator_repository"], "Initiative coordinator_repository")
+    if value["schema_version"] == 2:
+        value["coordinator_repository"] = typed_repository_identity(
+            value["coordinator_repository"], "Initiative coordinator_repository")
+    else:
+        initiative_repository(value["coordinator_repository"], "Initiative coordinator_repository")
     if value["state"] not in {"captured", "discovering", "ready", "building", "delivered",
                                "blocked", "deferred", "rejected", "complete"}:
         fail("Initiative state is invalid")
@@ -3564,7 +4416,10 @@ def read_initiative_manifest(source):
             fail("context ID is invalid")
         if identifier in contexts:
             fail(f"duplicate context ID: {identifier}")
-        initiative_repository(item["repository"], f"repository for {identifier}")
+        if value["schema_version"] == 2:
+            item["repository"] = typed_repository_identity(item["repository"], f"repository for {identifier}")
+        else:
+            initiative_repository(item["repository"], f"repository for {identifier}")
         initiative_strings(item["depends_on"], f"depends_on for {identifier}")
         if item["status"] not in {"captured", "approved", "discovering", "ready", "building",
                                    "delivered", "blocked", "deferred", "rejected"}:
@@ -3690,7 +4545,7 @@ def read_initiative_manifest(source):
 def initiative_summary(source):
     value, _, contexts, slices, release_groups, digest = read_initiative_manifest(source)
     return {
-        "schema_version": 1,
+        "schema_version": value["schema_version"],
         "initiative_id": value["id"],
         "state": value["state"],
         "manifest_digest": digest,
@@ -3719,8 +4574,7 @@ def check_initiative_cycle_occupancy(root, cycle_id, receipt):
     if record_path.is_symlink() or not record_path.is_file():
         fail(f"Initiative cycle record is unsafe: {cycle_id}")
     try:
-        record = json.loads(record_path.read_text(encoding="utf-8"),
-                            object_pairs_hook=no_duplicate_keys)
+        record = read_cycle_record(root, record_path, historical=True)
     except (OSError, ValueError, json.JSONDecodeError):
         fail(f"Initiative cycle record is invalid: {cycle_id}")
     if not isinstance(record, dict):
@@ -3732,7 +4586,7 @@ def check_initiative_cycle_occupancy(root, cycle_id, receipt):
                 "git", "metrics", "worktree") + (("source",) if "source" in record or not native else ())
     if (not isinstance(record, dict) or not required_record.issubset(record)
             or record.get("cycle_id") != cycle_id or type(record.get("schema_version")) is not int
-            or record.get("schema_version") not in ((3, 4, 5) if native else (4, 5))
+            or record.get("schema_version") not in ((3, 4, 5, 6) if native else (4, 5))
             or record.get("context") != receipt["context"]
             or any(not isinstance(record.get(field), dict) for field in mappings)
             or not isinstance(record.get("commits"), list)
@@ -3770,11 +4624,11 @@ def command_initiative_cycle_check(args):
                 "context", "repository", "requirements", "depends_on", "artifacts",
                 "release_group", "execution_owner"}
     if (not isinstance(receipt, dict) or not required.issubset(receipt)
-            or receipt.get("schema_version") != 1
+            or type(receipt.get("schema_version")) is not int or receipt.get("schema_version") not in (1, 2)
             or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.cycle_id)
-            or not isinstance(receipt.get("context"), str)
-            or git_repository_slug(root_dir()).lower() != str(receipt.get("repository", "")).lower()):
+            or not isinstance(receipt.get("context"), str)):
         fail("Initiative cycle receipt is invalid")
+    require_repository_home(root_dir(), receipt["repository"])
     check_initiative_cycle_occupancy(root_dir(), args.cycle_id, receipt)
     print(json.dumps({"available": True}, sort_keys=True, separators=(",", ":")))
 
@@ -3805,14 +4659,13 @@ def initiative_receipt(source, slice_id, root=None):
             "manifest_blob": blob,
             "manifest_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
         }
-        if git_repository_slug(root).lower() != value["coordinator_repository"].lower():
-            fail("Initiative coordinator repository does not match the source Git repository")
+        require_repository_home(root, value["coordinator_repository"])
         for artifact in artifacts:
             if (git(root, "status", "--porcelain=v1", "--", artifact).stdout.strip()
                     or git(root, "cat-file", "-e", f"HEAD:{artifact}", check=False).returncode):
                 fail(f"Initiative artifact must be committed and clean before receipt: {artifact}")
     receipt = {
-        "schema_version": 1,
+        "schema_version": value["schema_version"],
         "initiative_id": value["id"],
         "slice_id": slice_id,
         "manifest_digest": digest,
@@ -4112,6 +4965,13 @@ def registration_lock(root, args):
 
 def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiative=None, initiative_approval=None):
     require_native_checkout(root, args)
+    forge = forgejo_selection(args)
+    if forge is not None:
+        if (initiative is None or initiative.get("schema_version") != 2 or initiative_approval is None
+                or initiative.get("repository") != {key: forge[key] for key in ("provider", "origin", "repository")}):
+            fail("Forgejo requires approved typed Initiative begin")
+    else:
+        require_legacy_start_network(root)
     if initiative is not None:
         if initiative_approval is None:
             fail("Initiative registration requires interactive confirmation")
@@ -4141,7 +5001,17 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
     protected_base_branch = args.base_branch
     if git(root, "check-ref-format", "--branch", protected_base_branch, check=False).returncode:
         fail("invalid protected base branch")
-    if args.delivery_intent == "draft_pr":
+    if forge is not None:
+        if not current_upstream or not delivery_remote or delivery_branch != protected_base_branch:
+            fail("Forgejo registration requires its explicit comparison-base upstream")
+        base_head = git(root, "rev-parse", current_upstream).stdout.strip()
+        approved_base = discovery_import["base_head"] if discovery_import else git(root, "rev-parse", "HEAD").stdout.strip()
+        if base_head != approved_base:
+            fail("Forgejo comparison base changed during registration")
+        delivery = {"mode": "local_only", "forge": forge, "upstream": current_upstream,
+                    "remote": delivery_remote, "branch": current_branch,
+                    "base_branch": protected_base_branch, "base_head": base_head, "lock_id": None}
+    elif args.delivery_intent == "draft_pr":
         account = getattr(args, "github_account", None)
         repository = getattr(args, "github_repository", None)
         if (not account or not OPAQUE_ID.fullmatch(account) or not repository
@@ -4189,7 +5059,7 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
                     "lock_id": delivery_lock_id(
             remote_destination(root, current_upstream).get("push_url"), remote_branch=delivery_branch
         )}
-    schema_version = 5
+    schema_version = 6 if forge is not None else 5
     worktree_details = {"id": worktree_id(root), "locator": {"root": "cycle_worktree", "path": "."},
                         "git_dir": git_dir(root).resolve().relative_to(common_git_dir(root).resolve()).as_posix(),
                         "branch": current_branch,
@@ -4229,6 +5099,10 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
         record["git"]["head"] = discovery_import["base_head"]
         record["worktree"]["base_commit"] = discovery_import["base_head"]
         record["commits"] = [{"id": discovery_import["commit"], "gates": []}]
+    if forge is not None:
+        record["git"]["remote"] = forgejo_remote_urls(root, delivery_remote, initiative["repository"])
+        record["delivery"]["lock_id"] = local_delivery_lock_id(root, record)
+        validate_schema6_record(root, record)
     active = cycle_dir(root) / "worktrees" / record["worktree"]["id"] / "active"
     exclusive_json(record_path, record)
     try:
@@ -4241,17 +5115,31 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
 
 def command_start(args):
     root = root_dir()
+    require_legacy_start_network(root)
     plan = read_plan(args.plan)
     with registration_lock(root, args):
         record = start_cycle(root, args, plan)
     print(record["cycle_id"])
 
 
+def require_legacy_start_network(root):
+    """Keep legacy local fixtures; untyped network providers cannot bypass begin."""
+    remote, _ = configured_upstream(root)
+    for name in sorted({"origin", remote} - {None}):
+        for push in (False, True):
+            arguments = ["remote", "get-url", "--all", *(["--push"] if push else []), name]
+            for url in git(root, *arguments, check=False).stdout.splitlines():
+                if (url.startswith(("/", "./", "../", "file://"))
+                        or ":" not in url and not url.startswith("-")):
+                    continue
+                github_repository_from_url(url, "non-GitHub network registration requires typed Initiative begin")
+
+
 def initiative_import_plan(source, authority, receipt, plan, target, args):
     base = git(source, "rev-parse", target).stdout.strip()
     result = {"base_head": base, "source_commit": receipt["manifest_commit"],
               "receipt": receipt, "plan_digest": args.expected_plan_digest,
-              "repository": args.expected_repository, "base_branch": args.base_branch,
+              "repository": expected_repository(args, receipt["schema_version"]), "base_branch": args.base_branch,
               "cycle_id": args.cycle_id, "context": args.context, "risk": args.risk,
               "delivery_intent": args.delivery_intent, "artifacts": []}
     if common_git_dir(source).resolve() != common_git_dir(authority).resolve():
@@ -4324,6 +5212,13 @@ def initiative_launch_plan(source, authority, receipt, plan, target, args):
         "fetch_url": git(source, "remote", "get-url", remote).stdout.strip(),
         "account": args.github_account, "repository": args.github_repository,
     })
+    if receipt["schema_version"] == 2:
+        forge = forgejo_selection(args)
+        result["delivery_digest"] = continuation_digest({
+            "upstream": target, "forge": forge,
+            "destinations": forgejo_remote_urls(source, remote, {
+                key: forge[key] for key in ("provider", "origin", "repository")}),
+        })
     return result
 
 
@@ -4336,6 +5231,7 @@ def command_begin(args):
 
 def begin_registration(args):
     source = root_dir()
+    forge = forgejo_selection(args)
     require_native_checkout(source, args, clean=not args.resume_existing)
     if args.worktree_root is not None:
         fail("worktree allocation belongs to Worktrunk; select the checkout before registration")
@@ -4353,9 +5249,10 @@ def begin_registration(args):
         fail("Initiative source requires manifest, slice, and digest")
     if args.initiative_manifest is not None:
         if (not re.fullmatch(r"[0-9a-f]{64}", args.expected_plan_digest or "")
-                or args.expected_repository is None):
+                or (args.expected_repository is None and getattr(args, "expected_repository_json", None) is None)):
             fail("Initiative begin requires approved plan and repository identities")
-        initiative_repository(args.expected_repository, "expected repository")
+    elif forge is not None:
+        fail("Forgejo local-only registration requires an approved schema 2 Initiative begin")
     initiative = None
     if args.initiative_manifest is not None:
         if not re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]*/MANIFEST\.json",
@@ -4367,9 +5264,17 @@ def begin_registration(args):
         initiative["manifest_path"] = args.initiative_manifest
         if initiative["manifest_digest"] != args.initiative_digest:
             fail("Initiative manifest changed after approval")
-        if git_repository_slug(source).lower() != initiative["repository"].lower():
-            fail("Initiative context home does not match the target Git repository")
-        if initiative["repository"].lower() != args.expected_repository.lower():
+        expected = expected_repository(args, initiative["schema_version"])
+        if initiative["schema_version"] == 2:
+            if initiative["repository"]["provider"] != "forgejo":
+                fail("schema 2 GitHub target registration is unsupported")
+            if forge is None or not repository_equal(initiative["repository"], {
+                    key: forge[key] for key in ("provider", "origin", "repository")}):
+                fail("Forgejo selection does not match the Initiative target identity")
+        elif forge is not None:
+            fail("Forgejo requires a schema 2 Initiative target identity")
+        require_repository_home(source, initiative["repository"])
+        if not repository_equal(initiative["repository"], expected):
             fail("Initiative target repository changed after approval")
     if initiative is not None:
         if initiative["context"] != args.context:
@@ -4386,7 +5291,7 @@ def begin_registration(args):
         validate_plan(profile_source, args.context, args.delivery_intent, plan)
     target = upstream(source)
     remote, remote_branch = configured_upstream(source)
-    if (initiative is not None and args.delivery_intent == "draft_pr"
+    if (initiative is not None and (args.delivery_intent == "draft_pr" or forge is not None)
             and common_git_dir(source).resolve() == common_git_dir(initiative_source).resolve()):
         if git(source, "check-ref-format", "--branch", args.base_branch, check=False).returncode:
             fail("invalid protected base branch")
@@ -4395,12 +5300,16 @@ def begin_registration(args):
     if not target or not remote or not remote_branch:
         fail("begin requires a configured remote upstream")
     normalize_begin_delivery(source, args, remote_branch)
-    if args.delivery_intent == "draft_pr":
+    if forge is not None:
+        remote_url, delivery_env = None, None
+    elif args.delivery_intent == "draft_pr":
         remote_url = github_remote_url(source, remote, args.github_repository)
         delivery_env = github_environment(args.github_account)
     else:
         remote_url, delivery_env = remote, None
-    if args.delivery_intent == "draft_pr":
+    if forge is not None:
+        fetch_forgejo_branch(source, remote, initiative["repository"], remote_branch, forge["account"])
+    elif args.delivery_intent == "draft_pr":
         fetch_github_branch(source, remote, remote_url, remote_branch, delivery_env)
     else:
         git(source, "fetch", remote, remote_branch)
@@ -4437,7 +5346,7 @@ def begin_registration(args):
             for name, gate in gates.items()
         }, **({"graphify": graphify} if graphify else {})}
         protected_base = record.get("delivery", {}).get(
-            "base_branch" if args.delivery_intent == "draft_pr" else "protected_base_branch")
+            "base_branch" if args.delivery_intent == "draft_pr" or forge is not None else "protected_base_branch")
         expected_github = ({"host": "github.com", "account": args.github_account,
                             "repository": args.github_repository}
                            if args.delivery_intent == "draft_pr" else None)
@@ -4452,6 +5361,10 @@ def begin_registration(args):
                 or branch(worktree) != branch_name or protected_base != args.base_branch
                 or (expected_github is not None
                     and record.get("delivery", {}).get("github") != expected_github)
+                or (forge is not None and (record.get("schema_version") != 6
+                    or record.get("delivery", {}).get("forge") != forge
+                    or record.get("delivery", {}).get("base_head") != launch_plan["base_head"]
+                    or record.get("git", {}).get("remote") != forgejo_remote_urls(source, remote, initiative["repository"])))
                 or record.get("engineering_profile") != {"path": profile_path, "blob": profile_blob}
                 or record.get("applicability_plan") != expected_plan):
             fail("existing Initiative cycle does not match the approved launch")
@@ -4478,7 +5391,8 @@ def begin_registration(args):
             "repository": initiative["repository"], "target": target, "base_branch": args.base_branch,
             "manifest_digest": initiative["manifest_digest"], "plan_digest": args.expected_plan_digest,
             "launch_digest": launch_digest, "base_head": launch_plan["base_head"],
-            "github_account": args.github_account, "import_paths": [entry["path"] for entry in launch_plan["artifacts"]]}
+            **({"forge": forge} if forge is not None else {"github_account": args.github_account}),
+            "import_paths": [entry["path"] for entry in launch_plan["artifacts"]]}
         confirmation = f"BEGIN {args.cycle_id} {launch_digest}"
         if agent_confirmed:
             # Caller reports explicit chat approval; this does not authenticate an actor.
@@ -4495,14 +5409,15 @@ def begin_registration(args):
         current = initiative_receipt(initiative_source / args.initiative_manifest,
                                      args.initiative_slice, initiative_source)
         current["manifest_path"] = args.initiative_manifest
-        if (current != initiative or root_dir().resolve() != source.resolve()
-                or git_repository_slug(source).lower() != initiative["repository"].lower()
-                or git_repository_slug(initiative_source).lower() != initiative["coordinator_repository"].lower()
-                or upstream(source) != target):
+        require_repository_home(source, initiative["repository"])
+        require_repository_home(initiative_source, initiative["coordinator_repository"])
+        if (current != initiative or root_dir().resolve() != source.resolve() or upstream(source) != target):
             fail("Initiative authority or checkout changed during confirmation; request fresh preflight")
         check_initiative_cycle_occupancy(source, args.cycle_id, current)
         require_registration_available(source, args.cycle_id)
-        if args.delivery_intent == "draft_pr":
+        if forge is not None:
+            fetch_forgejo_branch(source, remote, initiative["repository"], remote_branch, forge["account"])
+        elif args.delivery_intent == "draft_pr":
             current_url = github_remote_url(source, remote, args.github_repository)
             fetch_github_branch(source, remote, current_url, remote_branch, delivery_env)
         else:
@@ -7703,6 +8618,59 @@ def continuation_guard(args):
             fail("workspace_adoption_required: preserve the legacy cycle and adopt it before lifecycle writes")
 
 
+def local_dispatch_selection(args):
+    """Find an existing new-mode binding using local Git metadata only."""
+    if args.command == "complete-local":
+        return None  # The completion handler owns admission, including explicit retries.
+    found = subprocess.run(["git", "rev-parse", "--show-toplevel"], env=INSPECT_ENV,
+                           text=True, capture_output=True)
+    if found.returncode:
+        return None
+    root = Path(found.stdout.strip()).resolve()
+    pointer = resolved_active_path(root, bindings=False)
+    identifier = getattr(args, "cycle_id", None)
+    if identifier is None and pointer.exists():
+        identifier = active_pointer_id(root, pointer)
+    if identifier is None or not isinstance(identifier, str) or not OPAQUE_ID.fullmatch(identifier):
+        return None
+    path = cycle_dir(root) / "cycles" / f"{identifier}.json"
+    if not path.is_file():
+        return None
+    # Do not introduce new validation of legacy records for unrelated commands.
+    # This bounded peek only selects admission; the guard rereads strict schema 6.
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(1024 * 1024 + 1)
+        record = json.loads(raw) if len(raw) <= 1024 * 1024 else None
+    except (OSError, ValueError, UnicodeError):
+        return None
+    return (root, pointer, path, record) if isinstance(record, dict) and local_only_cycle(record) else None
+
+
+@contextlib.contextmanager
+def local_cli_mutation_guard(args, selected):
+    """Serialize new-mode CLI writes; legacy admission remains unchanged."""
+    if selected is None:
+        yield
+        return
+    root, pointer, path, before = selected
+    before = read_cycle_record(root, path, historical=True)
+    if not local_only_cycle(before):
+        fail("local-only dispatch selection changed")
+    if args.command in CONTINUATION_READ_COMMANDS or args.command in {"final-push", "reconcile-target"}:
+        yield
+        return
+    with evidence_lock(root, "local-mutation-" + before["cycle_id"], timeout=1):
+        record = read_cycle_record(root, path, historical=True)
+        if (not local_only_cycle(record) or record["delivery"] != before["delivery"]
+                or record["worktree"] != before["worktree"]
+                or not pointer.exists() or active_pointer_id(root, pointer) != record["cycle_id"]
+                or not record_worktree_matches(root, record, root, bindings=False)):
+            fail("local-only mutation binding changed")
+        require_active(record)
+        yield
+
+
 def verify_native_workspace_backup(root, record):
     if not native_workspace_execution(record) or record["execution"]["origin"] != "adopted":
         return
@@ -8057,6 +9025,10 @@ def workspace_remove_check(root):
                             for record in records)
     except (RuntimeError, OSError, ValueError, TypeError, KeyError, TimeoutError, subprocess.SubprocessError):
         unavailable = True
+    if any(local_only_cycle(record) for record in records):
+        return {"schema_version": 2, "eligible": False,
+                "reasons": ["unpublished_local_completion"],
+                "state_digest": None, "reservation_id": None}
     if not selected:
         return legacy_workspace_remove_check(root)
     result = {"schema_version": 2, "eligible": False, "reasons": [],
@@ -8153,6 +9125,9 @@ def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
             if not matches:
                 continue
             related.append(record["cycle_id"])
+            if local_only_cycle(record):
+                return {"schema_version": 1, "eligible": False,
+                        "reasons": ["unpublished_local_completion"], "cycle_ids": related}
             if record.get("state") in {"active", "finalizing"}:
                 reasons.append("active_cycle")
                 continue
@@ -15552,7 +16527,7 @@ def command_record_evidence(args):
     with evidence_lock(root, resolved_active_path(root).read_text(encoding="utf-8").strip()):
         path, record = load(root)
         require_active(record)
-        if record.get("schema_version") not in (3, 4, 5):
+        if record.get("schema_version") not in (3, 4, 5, 6):
             fail("record-evidence requires a schema 3 or 4 Cycle Record")
         gate = record["gates"][args.gate]
         if gate["applicability"] != "required":
@@ -15641,7 +16616,7 @@ def command_set_gate(args):
     path, record = load(root)
     require_active(record)
     gate = record["gates"][args.gate]
-    if record.get("schema_version") in (3, 4, 5) and args.evidence is not None:
+    if record.get("schema_version") in (3, 4, 5, 6) and args.evidence is not None:
         item = record["evidence"]["items"].get(args.evidence)
         if not item or item["gate"] != args.gate or item["result"] != args.result:
             fail("schema 3 evidence must be a matching stored evidence ID")
@@ -16395,7 +17370,7 @@ def command_gate_commit(args):
         complete = gate["applicability"] == "not_applicable" or gate["result"] == "passed" or "exception" in gate
         if not complete:
             fail(f"gate is not complete: {name}")
-        if record.get("schema_version") in (3, 4, 5) and gate["result"] in ("passed", "failed", "unavailable"):
+        if record.get("schema_version") in (3, 4, 5, 6) and gate["result"] in ("passed", "failed", "unavailable"):
             item = verify_envelope(root, record, name)
             if set(item.get("paths", {})) != set(args.paths):
                 fail(f"evidence paths differ from commit paths: {name}")
@@ -16421,7 +17396,7 @@ def command_gate_commit(args):
         fail("staged diff is empty")
     git(root, "commit", "-m", args.message)
     commit = git(root, "rev-parse", "HEAD").stdout.strip()
-    if record.get("schema_version") in (3, 4, 5):
+    if record.get("schema_version") in (3, 4, 5, 6):
         for name, item in schema3_items:
             if evidence_path_blobs(root, args.paths, commit=commit) != item["paths"]:
                 fail(f"committed paths differ from evidence: {name}")
@@ -17601,18 +18576,12 @@ def link_improvement_pull_request(record, pull_request, worktree=None, compariso
     improvement_write(ledger_root, link)
 
 
-def finish_push(root, path, record):
-    pointer = resolved_active_path(root)
-    if record["state"] == "completed":
-        pointer.unlink(missing_ok=True)
-        prefix = "draft_pr " + record["delivery"]["pull_request"]["url"] + " " if record["delivery_intent"] == "draft_pr" else ""
-        print(prefix + "pushed " + " ".join(entry["id"] for entry in record["commits"]))
-        return
-    require_pushable(record)
+def require_completion_source(root, record):
+    """Validate local source authority without invoking any delivery operation."""
     verify_discovery_import(root, record)
     require_current_profile(root, record)
     require_graphify_check(root, record)
-    if record.get("schema_version") in (3, 4, 5):
+    if record.get("schema_version") in (3, 4, 5, 6):
         final_head = git(root, "rev-parse", "HEAD").stdout.strip()
         for name, gate in record["gates"].items():
             if gate["applicability"] == "required" and gate["result"] in ("passed", "failed", "unavailable"):
@@ -17622,7 +18591,9 @@ def finish_push(root, path, record):
                     fail(f"evidence commit is not bound to its gate: {name}")
                 if not item.get("commit") and item.get("head") != final_head:
                     fail(f"uncommitted gate evidence HEAD is stale: {name}")
-    if any(gate["applicability"] == "required" and gate["result"] != "passed" and "exception" not in gate
+    if any(gate["applicability"] == "required" and gate["result"] != "passed"
+           and not (gate["result"] in {"failed", "unavailable"} and valid_gate_exception(gate)
+                    if local_only_cycle(record) else "exception" in gate)
            for gate in record["gates"].values()):
         fail("required gates have not all passed")
     completion_artifact_check(record)
@@ -17634,6 +18605,107 @@ def finish_push(root, path, record):
     current_upstream = upstream(root)
     if not baseline["upstream"] or current_upstream != baseline["upstream"]:
         fail("upstream is missing or changed")
+
+
+def local_completion_source(root, record):
+    require_completion_source(root, record)
+    base = record["delivery"]["base_head"]
+    if git(root, "merge-base", "--is-ancestor", base, "HEAD", check=False).returncode:
+        fail("local comparison base is outside the cycle lineage")
+    commits = [entry["id"] for entry in record["commits"]]
+    actual = git(root, "rev-list", "--reverse", f"{base}..HEAD").stdout.splitlines()
+    if not commits or actual != commits:
+        fail("ahead commits are not exactly the recorded cycle commits")
+    changed = set(git(root, "diff", "--name-only", f"{base}..HEAD").stdout.splitlines())
+    if record["artifact_reviews"]["CHANGELOG"]["path"] not in changed:
+        fail("reviewed CHANGELOG path is not committed in this cycle")
+    return (git(root, "rev-parse", "HEAD").stdout.strip(),
+            git(root, "rev-parse", "HEAD^{tree}").stdout.strip(), commits)
+
+
+def command_complete_local(args):
+    """Persist exact local completion; explicit IDs only retry completed records."""
+    with local_completion_git_context():
+        complete_local_offline(args)
+
+
+def complete_local_offline(args):
+    root = root_dir()
+    pointer = resolved_active_path(root, bindings=False)
+    explicit = args.cycle_id is not None
+    identifier = args.cycle_id if explicit else active_pointer_id(root, pointer)
+    if not isinstance(identifier, str) or not OPAQUE_ID.fullmatch(identifier):
+        fail("invalid local completion cycle ID")
+    path = cycle_dir(root) / "cycles" / f"{identifier}.json"
+    managed_directory(root, path.parent)
+    continuation_private(path)
+    record = read_cycle_record(root, path, historical=True)
+    if not local_only_cycle(record):
+        fail("complete-local requires a local-only Cycle Record")
+    if explicit and record["state"] != "completed":
+        fail("explicit cycle ID requires an already completed local-only record")
+    with evidence_lock(root, "local-mutation-" + identifier, timeout=1):
+        record = read_cycle_record(root, path, historical=True)
+        if not local_only_cycle(record) or not record_worktree_matches(root, record, root, bindings=False):
+            fail("local completion requires its original native checkout and task branch")
+        if not explicit and active_pointer_id(root, pointer) != identifier:
+            fail("local completion active pointer changed")
+        if explicit and record["state"] != "completed":
+            fail("explicit cycle ID requires an already completed local-only record")
+        with target_lock(root, record):
+            admitted_record = json.dumps(record, sort_keys=True)
+            head, tree, commits = local_completion_source(root, record)
+            if record["state"] == "completed":
+                completion = record["local_completion"]
+                if completion["head"] != head or completion["tree"] != tree:
+                    fail("completed local source HEAD or tree changed")
+            else:
+                require_active(record)
+                completed_at = now()
+                completion = {"schema_version": 1, "cycle_id": identifier,
+                    "repository": {key: record["delivery"]["forge"][key]
+                                   for key in ("provider", "origin", "repository")},
+                    "base_head": record["delivery"]["base_head"], "head": head, "tree": tree,
+                    "recorded_commits": commits, "completed_at": completed_at,
+                    "manual_delivery": {"status": "pending"}}
+                record.update(state="completed", completed_at=completed_at, local_completion=completion,
+                              source_sync={"status": "not_applicable", "reason": "local_only_completion"})
+                validate_schema6_record(root, record)
+                # CLI mutation serialization cannot prevent a manual Git operation.
+                # Reobserve source immediately before atomic persistence and retain on drift.
+                if (status_paths(root) or branch(root) != record["worktree"]["branch"]
+                        or git(root, "rev-parse", "HEAD").stdout.strip() != head
+                        or git(root, "rev-parse", "HEAD^{tree}").stdout.strip() != tree):
+                    fail("local source changed during completion")
+                if active_pointer_id(root, pointer) != identifier:
+                    fail("local completion active pointer changed")
+                if json.dumps(read_cycle_record(root, path, historical=True), sort_keys=True) != admitted_record:
+                    fail("local completion record changed during validation")
+                save(path, record)
+            if not explicit:
+                if active_pointer_id(root, pointer) != identifier:
+                    fail("local completion active pointer changed; retained completion")
+                pointer.unlink()
+            print(json.dumps({"status": "locally_validated", **completion}, sort_keys=True))
+
+
+def refuse_local_delivery(record):
+    if local_only_cycle(record):
+        fail("local-only cycles cannot use Final Push or target reconciliation; use complete-local")
+
+
+def finish_push(root, path, record):
+    refuse_local_delivery(record)
+    pointer = resolved_active_path(root)
+    if record["state"] == "completed":
+        pointer.unlink(missing_ok=True)
+        prefix = "draft_pr " + record["delivery"]["pull_request"]["url"] + " " if record["delivery_intent"] == "draft_pr" else ""
+        print(prefix + "pushed " + " ".join(entry["id"] for entry in record["commits"]))
+        return
+    require_pushable(record)
+    require_completion_source(root, record)
+    baseline = record["git"]
+    current_upstream = upstream(root)
     delivery = record.get("delivery", {})
     delivery_env = (github_environment(delivery["github"]["account"])
                     if record["delivery_intent"] == "draft_pr" else None)
@@ -17768,6 +18840,7 @@ def finish_push(root, path, record):
 def command_final_push(args):
     root = root_dir()
     path, record = load(root)
+    refuse_local_delivery(record)
     with target_lock(root, record):
         finish_push(root, path, record)
 
@@ -17780,6 +18853,7 @@ def validate_reconciliation_paths(paths):
 def command_reconcile_target(args):
     root = root_dir()
     _, record = load(root)
+    refuse_local_delivery(record)
     require_active(record)
     require_current_profile(root, record)
     if status_paths(root):
@@ -18365,6 +19439,10 @@ def parser():
     begin.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
     begin.add_argument("--github-account")
     begin.add_argument("--github-repository")
+    begin.add_argument("--forge-provider")
+    begin.add_argument("--forge-origin")
+    begin.add_argument("--forge-repository")
+    begin.add_argument("--forge-account")
     begin.add_argument("--base-branch", default="main")
     begin.add_argument("--worktree-root")
     begin.add_argument("--opencode-session-id")
@@ -18377,7 +19455,9 @@ def parser():
     begin.add_argument("--initiative-digest")
     begin.add_argument("--initiative-source")
     begin.add_argument("--expected-plan-digest")
-    begin.add_argument("--expected-repository")
+    expected = begin.add_mutually_exclusive_group()
+    expected.add_argument("--expected-repository")
+    expected.add_argument("--expected-repository-json")
     begin.add_argument("--preflight", action="store_true")
     begin.add_argument("--expected-launch-digest")
     begin.add_argument("--approval", choices=("interactive", "agent-confirmed"), default="interactive",
@@ -18818,6 +19898,9 @@ def parser():
     commit.add_argument("--gates", required=True, nargs="+", choices=GATES)
     commit.add_argument("--paths", required=True, nargs="+")
     commit.set_defaults(func=command_gate_commit)
+    complete_local = commands.add_parser("complete-local")
+    complete_local.add_argument("--cycle-id", help="retry an already completed local-only cycle in its native checkout")
+    complete_local.set_defaults(func=command_complete_local)
     final = commands.add_parser("final-push")
     final.set_defaults(func=command_final_push)
     reconcile = commands.add_parser("reconcile-target")
@@ -18935,7 +20018,10 @@ def agent_analytics_output(action):
 
 def main():
     capture = None
+    quiet_local = sys.argv[1:2] == ["complete-local"]
     try:
+        if forgejo_internal_main(sys.argv[1:]):
+            return 0
         if sys.argv[1:2] == ["history-source-validate"] and (
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
@@ -18947,23 +20033,31 @@ def main():
         if args.command in {"incident-register", "incident-update", "incident-forget"} or (
                 args.command == "incident-scan" and not args.summary_only):
             fail("native_incident_invocation_unavailable: retain the fork and use incident-scan --summary-only for metadata")
-        continuation_guard(args)
-        capture = workflow_operation_start(args)
-        if args.command in {"review-scan", "history-capture", "review-history", "benchmark", "provider-evaluation"} or (
-                args.command == "incident-scan" and args.summary_only):
-            agent_analytics_output(lambda: args.func(args))
-        else:
-            args.func(args)
-        workflow_operation_finish(capture, True)
+        selected = local_dispatch_selection(args)
+        quiet_local = quiet_local or selected is not None
+        with local_cli_mutation_guard(args, selected):
+            continuation_guard(args)
+            if not quiet_local:
+                capture = workflow_operation_start(args)
+            if args.command in {"review-scan", "history-capture", "review-history", "benchmark", "provider-evaluation"} or (
+                    args.command == "incident-scan" and args.summary_only):
+                agent_analytics_output(lambda: args.func(args))
+            else:
+                args.func(args)
+            if not quiet_local:
+                workflow_operation_finish(capture, True)
     except SourceIndexUnavailable:
-        workflow_operation_finish(capture, False)
+        if not quiet_local:
+            workflow_operation_finish(capture, False)
         print("source_index_unavailable", file=sys.stderr)
         return 75
     except SystemExit as error:
-        workflow_operation_finish(capture, error.code in (None, 0))
+        if not quiet_local:
+            workflow_operation_finish(capture, error.code in (None, 0))
         raise
     except (RuntimeError, OSError, json.JSONDecodeError, sqlite3.Error) as error:
-        workflow_operation_finish(capture, False)
+        if not quiet_local:
+            workflow_operation_finish(capture, False)
         print(f"dbsctrctl: {error}", file=sys.stderr)
         return 1
     return 0
