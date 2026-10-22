@@ -12,6 +12,42 @@ The [native-platform update contract](specs/dotfiles_ai_distribution/features/na
 distinguishes prepared source from deployed qualification; do not infer host state
 from a branch's templates.
 
+The shared `dotfiles-ai-update` skill is the conversational entry point for
+dependency checks and explicit updates. It resolves this selected source even
+when invoked from another project. It reads this runbook rather than maintaining
+a second inventory. Source preparation does not install the skill automatically.
+
+## Check after a package-manager upgrade
+
+A check is read-only. Use the owner table and bounded version/health probes below;
+do not run the update sequence's pull, backup, apply, installer or restart commands.
+Compare actual selected executables with their platform-specific source owner,
+then report each family as checked, incompatible, unavailable or disabled. Version
+output establishes availability only; distinguish it from running-service health,
+authentication, stored-state compatibility and activation. Native diagnostic
+commands may start a service: verify their interface before using them as a check.
+
+“All dependencies” covers the declared families below, including plugins, optional
+services and CI inputs. Resolve effective profile conditions before probing them.
+In particular, disabled knowledge-store ownership also disables its managed
+quality/reconcile routes even if subordinate flags remain true. Configuration
+exclusion does not prove an old installed process has stopped. Do not start a
+disabled feature to complete an inventory or claim fleet health from one host.
+
+For each family record privately: source revision/declaration, selected environment,
+installer owner, source constraint, installed/running version, check/result, and
+remaining action. Review transitive dependencies through their existing locks;
+wheel hashes or direct pins alone are not full dependency locks. Published reports
+contain portable conclusions, not resolved configuration or host inventories.
+
+If a Worktrunk upgrade blocks the repair checkout, preserve installed state and
+seek explicit approval for an isolated official previously qualified binary.
+Verify its archive against the recorded checksum and use it only for native
+checkout creation with unchanged hooks. Keep the normal executable, configuration,
+activation and existing work in place. This is a bounded bootstrap, not a fake
+version response, hook bypass or automatic downgrade; fresh source qualification
+and separately approved activation still follow.
+
 ## Quick checklist
 
 1. Check release notes; select **one tool on one environment**.
@@ -62,7 +98,7 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 | Family | Existing owner and safe maintenance boundary |
 |---|---|
 | Native OpenCode | [Bootstrap](../dot_local/bin/executable_opencode-install.tmpl) is missing-only on supported macOS ARM64 and Linux ARM64/AMD64 source routes; reapply is not an upgrade and must not downgrade a healthy newer binary. The [contract](specs/dotfiles_ai_distribution/features/native-platform-updates.md) selects native notify/manual `/update`, no automatic installation or implicit shared-service restart. Use only after that environment's native ownership is qualified/activated. Do not invoke legacy `opencode-update-all` on selected native routes. Legacy Linux pins in TOML are not native update authority. |
-| Native Codex | macOS ARM64 [bootstrap](../dot_local/bin/executable_codex-install.tmpl) owns the separate native install directory and preserves `CODEX_HOME`. On the qualified native route, use explicit `codex update` through the managed environment exporting `CODEX_INSTALL_DIR`; no legacy `codex-update-all`. Linux source routing remains distinct in [the apply hook](../run_after_update-codex.sh.tmpl)—do not infer native parity. The contract requires native daemon automatic installation disabled independently of notifications; its settings interface was qualified for 0.160.1 and needs requalification on later releases. |
+| Native Codex | macOS ARM64 [bootstrap](../dot_local/bin/executable_codex-install.tmpl) owns the separate native install directory and preserves `CODEX_HOME`. On the qualified native route, use explicit `codex update` through the managed environment exporting `CODEX_INSTALL_DIR`; no legacy `codex-update-all`. The explicit [headless Linux ARM64 profile](../config.headless-server.example.toml) has its own native missing-only route; ordinary Linux routing remains distinct in [the apply hook](../run_after_update-codex.sh.tmpl). The contract requires native daemon automatic installation disabled independently of notifications; its settings interface was qualified for 0.160.1 and needs requalification on later releases. |
 | Herdr | Chezmoi owns the version/protocol/asset URL/SHA-256 tuple in [defaults](../.chezmoidata.toml), with selected local TOML overrides. Review/update the coherent tuple for each supported architecture, installers and matching skill; this is not a `herdr update` command. The [macOS installer](../run_onchange_before_install-herdr.sh.tmpl) checks the asset, version and server protocol, then uses supported live handoff without killing/restarting panes. It refuses incompatible clients, missing handoff support or more than 64 panes. The [Linux installer](../run_onchange_after_install-00-remote-herdr.sh.tmpl) refuses an executable upgrade while its server is active; defer to a separately approved maintenance plan, not an automatic stop. See the operational hold below. |
 | Worktrunk | [Brewfile](../Brewfile) declares it on macOS, but [workflow policy](../dot_local/bin/executable_workflow-policy) requires **exactly `wt v0.80.0`**. [Linux workstation](../run_onchange_after_install-workstation-tools.sh.tmpl), [guest/remote](../run_onchange_after_install-guest-development-tools.sh.tmpl) and [CI](../.github/workflows/test.yml) installers also pin 0.80.0 with architecture-specific checksums. Do **not** blanket `brew upgrade worktrunk`. A newer release needs source/interface/checksum/guard requalification before any host update; do not merely relax the guard. |
 | Homebrew and host prerequisites | Brewfile contains only the Anomaly tap, `mise` and `worktrunk`; it is not a complete host inventory. Chezmoi, Git, Python, uv, Bun, Lima and other preinstalled host prerequisites retain their actual native installation owner unless a source installer explicitly owns them. Review each owner's supported update procedure separately; no blanket Brew/OS upgrade or second competing installer. |
@@ -73,6 +109,34 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 | Embeddings, reranker and models | Optional [embedding installer](../run_onchange_after_install-dbsctr-embedding.sh.tmpl) owns exact llama.cpp/model revisions, sizes and hashes. [Quality installer](../run_onchange_after_install-dbsctr-quality-services.sh.tmpl) and [space manifests](../private_dot_config/dotfiles-ai/knowledge/) own additional runtime/model identities. A new model is not just “latest”: preserve dimensions, space compatibility, artifact verification and required benchmark activation. Keep retrieval activation separate from candidate installation. No paid model requests are needed for this runbook. |
 | Auth CLIs | Guest/remote `op` and gcloud are version/checksum-pinned by the guest installer; host `op`, gcloud, `gh` and optional Tailscale retain their actual installation owner unless explicitly provisioned. Updating a binary is not credential migration or reauthentication consent. Preserve isolated ADC, Keychain and per-environment boundaries; never print tokens or copy credentials between hosts/guests. |
 | Shell tools, skills and Graphify | [Atuin](../run_onchange_after_install-atuin.sh.tmpl), [Starship](../run_onchange_after_install-starship.sh.tmpl) and [bash-preexec](../run_onchange_after_install-bash-preexec.sh.tmpl) have source-owned release/commit and checksum pins for their selected routes. Repository [skills](../dot_agents/skills/) update with reviewed source; [Herdr skill](../run_onchange_after_install-herdr-skill.sh.tmpl) is generated by the matching pinned binary. The optional quality installer stages a specific Graphify SQL runtime (0.9.48), used by [the adapter](../dot_local/bin/executable_dbsctr-graphify); qualify that runtime/adapter together, not an unrelated global Graphify package. Other preinstalled skills are not automatically owned here. |
+| OpenCode plugins and SDKs | [Managed configuration](../.chezmoitemplates/opencode.json.tmpl) selects `@dietrichgebert/ponytail@4.10.3` and unversioned `@ai-sdk/openai-compatible` provider adapters. Repository [DKS tool](../private_dot_config/opencode/tools/dks.ts) and [maintenance observer](../private_dot_config/dotfiles-ai/opencode-maintenance-observer/tui.ts) consume distinct OpenCode plugin APIs. Review their native runtime compatibility and actual resolver ownership; source identifiers alone are not a transitive lock. Preserve vendor-owned caches/locks excluded by [.chezmoiignore](../.chezmoiignore). Loading/installing a plugin is not a read-only probe. |
+| MCP and Node tooling | [Managed configuration](../.chezmoitemplates/opencode.json.tmpl) declares remote Context7, macOS `1password-mcp`, and disabled browser tools `chrome-devtools-mcp@1.10.1` / `@playwright/mcp@0.0.83`. Node/npm/npx and the 1Password MCP executable retain their installed owners. `npx` may download packages; do not invoke it merely to inventory a disabled server. Authentication and enabling a server are separate actions. |
+| Inference providers and local models | [Defaults](../.chezmoidata.toml), [managed configuration](../.chezmoitemplates/opencode.json.tmpl) and [agent definitions](../private_dot_config/opencode/agents/) select hosted model IDs and optional LM Studio models. IDs such as an `@default` model are service selections, not immutable artifact checksums. Report configured identities without issuing paid requests; separately qualify availability, capabilities and any changed model behavior. LM Studio owns its installation and model downloads. |
+| Optional PostgreSQL/pgvector build | [Containerfile](../dot_local/share/pm-kernel/Containerfile.pgvector) pins the PostgreSQL 19beta3 base digest, development-package version and pgvector 0.8.6 source tuple. [Image builder](../dot_local/bin/executable_pm-postgres-image-build) owns building; configured runtime image selection is separate. Build tools still resolve from the package repository. Image rebuild, data migration, backup and service activation each require their own reviewed scope. |
+| Optional Atuin server | [Quadlet](../private_dot_config/containers/systemd/atuin.container) pins Atuin 18.17.1 by image digest and stores SQLite state. This is distinct from the platform's Atuin client owner; changing a client does not update or qualify the server. Preserve server data and review compatibility before container replacement. |
+| Reranker Python closure | [Requirements input](specs/dbsctr_knowledge_store/DKS-003.reranker-requirements.in), [macOS ARM64 hash lock](specs/dbsctr_knowledge_store/DKS-003.reranker-macos-arm64-py312.lock) and [runtime/model manifest](../private_dot_config/dotfiles-ai/knowledge/reranker-space.json.tmpl) jointly own Python 3.12.11, torch 2.9.1, transformers 5.5.0, tokenizers 0.22.2 and safetensors 0.7.0. Preserve artifact/model revisions and activation benchmark boundaries; a different global Python or package set is not equivalent. |
+| Jira and native platform utilities | Jira `acli`, Git/gh, lsof, xz, native mount tools and Apple Swift/SDK are prerequisites with their existing platform owners. [Jira adapter](../dot_local/bin/executable_pm-jira.tmpl) and [Host build hook](../run_onchange_before_build-herdr-host.sh.tmpl) define consumers. Updating the CLI/compiler does not grant authentication, publication, signing, app registration or process-control authority. |
+
+### Platform and lock distinctions
+
+- Host Atuin/Starship may be Homebrew-owned while guest/remote installers pin
+  Atuin 18.17.1 and Starship 1.26.0. Their source installers exclude macOS; do not
+  diagnose newer host clients as guest pin violations.
+- Hermes pins its wheel and Python interpreter, but does not supply a repository
+  transitive dependency lock. Record its resolved environment separately before
+  any explicit upgrade; do not promise reproducibility from the wheel hash alone.
+- [Remote bootstrap](../dot_local/bin/executable_remote-user-bootstrap) separately
+  pins chezmoi 2.69.4 on Linux AMD64. Lima's guest literals and ordinary Codex guest
+  bootstrap are independent of the current host's native installation.
+- CI action tags and runner/container tags may move. The
+  [CentOS job](../.github/workflows/centos-remote-user.yml) uses `ubuntu-latest` and
+  `stream10`; OS package managers own their package versions. Review CI changes
+  as CI input changes, not evidence that the live host was updated.
+- Explicitly select the supported validation interpreter. An unconstrained
+  `uv run` may choose a newer installed Python than the tested CI matrix even
+  while `python3` resolves another interpreter. Package lock identity does not
+  pin the interpreter or keep a Homebrew-backed virtual environment alive after
+  its base interpreter is removed.
 
 ## Managed DVC owner and update boundary
 

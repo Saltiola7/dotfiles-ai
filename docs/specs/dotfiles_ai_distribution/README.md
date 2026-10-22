@@ -27,6 +27,16 @@ returned its shared entry. A second exact-file apply left no diff. Upstream
 validation passed using an existing Python environment with PyYAML; no system
 creator, service restart or model invocation was introduced.
 
+**Dependency maintenance source evidence:**
+`dot_agents/skills/dotfiles-ai-update/` contains the shared check/update workflow
+and native UI metadata. The [dependency-maintenance contract](features/dependency-maintenance.md)
+and [operator runbook](../../UPDATES.md) own scope and installer routing.
+The bundle passed original creator validation and isolated exact-file reapply;
+independent scenarios reviewed read-only checks, Worktrunk mismatch recovery and
+explicit service-change boundaries. The private `DEPENDENCY-MAINTENANCE` Cycle
+Record owns final gates/delivery and bounded inventory observations. Source
+delivery does not install the skill or qualify unavailable guest/model services.
+
 **Shared sprint ticket refinement skill:** the source-owned
 `dot_agents/skills/sprint-ticket-refinement/` bundle installs
 through chezmoi to `~/.agents/skills/sprint-ticket-refinement/`, alongside its

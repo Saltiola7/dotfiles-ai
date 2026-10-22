@@ -22,6 +22,11 @@ replace the DBSCTR specifications as lifecycle authority.
 | Maintain this repository | [Update And Validate](#update-and-validate) and [Documentation Authority](#documentation-authority) |
 | Update tools and dependencies | [Manual update runbook](docs/UPDATES.md) |
 
+The shared `dotfiles-ai-update` skill uses that runbook for dependency checks and
+explicit updates, including when invoked from another project. A check inventories
+declared dependencies without installing or restarting them. Source delivery and
+installation of the skill remain separate; see the runbook's owner boundaries.
+
 ## Requirements
 
 - macOS
