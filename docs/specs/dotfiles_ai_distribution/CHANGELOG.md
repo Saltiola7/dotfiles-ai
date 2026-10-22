@@ -21,6 +21,27 @@
   remain separate slices. No Gate Exceptions approved. Intended delivery:
   feature branch and draft PR into `Saltiola7/dotfiles-ai:main`.
 
+## 2026-10-22 — DEPENDENCY-MAINTENANCE source
+
+- Added portable `dotfiles-ai-update` instructions and native UI metadata, using
+  `docs/UPDATES.md` as the single owner/procedure inventory. Check requests remain
+  read-only; explicit updates use existing installer owners and exact deployment
+  approval. Source resolution supports invocation from another project.
+- Reviewed declared manifests, installers, runtime/model locks, CI, plugins and
+  optional services. Expanded missing MCP/SDK/model, PostgreSQL build, reranker
+  lock, headless Codex and platform-prerequisite ownership. Documented interpreter
+  selection, unlocked transitive inputs and host/guest pin distinctions.
+- Bounded host version/health observations remain private. Unavailable guest,
+  process-visibility, model and service checks are not reported as healthy. The
+  separate Worktrunk source repair does not establish live activation here.
+- Validation: original skill creator validator, isolated exact-bundle render and
+  second apply, local-reference checks, publication/instruction checks and
+  independent check/update scenario review. The Cycle Record owns final evidence,
+  retained failures and Gate Commits. No Gate Exceptions approved.
+- No live skill install, dependency update, authentication, restart or fleet
+  operation. Intended delivery: feature branch and draft PR into
+  `Saltiola7/dotfiles-ai:main`; installation remains separately approved.
+
 ## 2026-10-21 — Shared Leadership Reporting and Creator Discovery
 
 - Added the reusable leadership accomplishment workflow and existing OpenAI
