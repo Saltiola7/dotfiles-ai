@@ -1,5 +1,66 @@
 # dotfiles-ai Distribution
 
+**Shared leadership accomplishment reporting:**
+`dot_agents/skills/leadership-accomplishments/` contains the portable reporting
+instructions and OpenAI metadata, deployed to `~/.agents/skills/` for shared
+discovery. Employer-specific profiles remain outside this public source and the
+installed bundle, under the user's private
+`${XDG_CONFIG_HOME:-$HOME/.config}/leadership-accomplishments/profiles/` directory
+or an explicitly supplied private path. Profile directories use mode `0700` and
+files mode `0600`; reports may read the selected profile without publishing it.
+Private profile provisioning and backup are separate from chezmoi skill delivery.
+Targeted host installation matched the complete two-file bundle; the original
+runtime bundle was preserved outside discovery after private-profile byte and
+permission checks. Native OpenCode inventory returned one shared leadership skill.
+A thin native `/leadership-accomplishments` command loads that skill and forwards
+the request. OpenCode's `/skills` selector and `@leadership-accomplishments` remain
+available; skill discovery alone does not register a same-name slash command.
+
+**Creator dependency discovery:** a client that does not list the upstream
+`skill-creator` may load its existing original installation from an explicit
+path, the active Codex home, the configured managed CLI home, or Codex's default
+home. The wrapper delegates to the original skill and validator in place; no
+system skill is copied into this source or into shared discovery. Missing
+installations remain an explicit dependency gap.
+The targeted wrapper update matched source bytes and native OpenCode inventory
+returned its shared entry. A second exact-file apply left no diff. Upstream
+validation passed using an existing Python environment with PyYAML; no system
+creator, service restart or model invocation was introduced.
+
+**Shared sprint ticket refinement skill:** the source-owned
+`dot_agents/skills/sprint-ticket-refinement/` bundle installs
+through chezmoi to `~/.agents/skills/sprint-ticket-refinement/`, alongside its
+managed `jira-ticket` dependency. The shared user-skill location supports discovery
+by Codex Desktop and managed Codex CLI independently of their runtime homes.
+The bundle includes `SKILL.md` and `agents/openai.yaml`; it resolves `jira-ticket`
+through the skill catalog. Its existing workflow and approval boundaries are
+preserved. Targeted live installation is complete with exact source-byte
+comparison; the identical Desktop original was preserved outside discovery in
+private storage. No other skill, runtime home, profile or launcher was changed.
+
+**Shared skill authoring:** `dot_agents/skills/dotfiles-skill-creator/` is a
+portable prompt-only wrapper around the catalog's built-in `skill-creator`.
+It routes creation and updates to `dot_agents/skills/<name>` in the selected
+dotfiles-ai task checkout, then to `~/.agents/skills/<name>` for Desktop and CLI,
+independently of runtime home. Built-in authoring and validation remain upstream;
+the wrapper adds source selection, collision reconciliation, public-source
+privacy and exact-bundle installation guidance. Outside a selected task checkout,
+it discovers the machine's independent chezmoi config and follows the repository's
+Worktrunk/native session routing. Installation guidance preserves existing
+authorization and uses explicit selected source plus machine config, script
+exclusion and exact file targets. It does not authorize repository publication
+or the operations described by an authored skill.
+
+The wrapper is installed with normal automatic discovery enabled. Built-in
+validation and isolated explicit-target rendering of the wrapper, sprint skill
+and `jira-ticket` passed: seven files matched source, dependency references were
+present, and a second apply left no diff. Targeted live installation matched the
+complete wrapper file set and source bytes. Native managed CLI discovery returned
+one enabled entry for each new skill and the `jira-ticket` dependency without a
+model invocation. Desktop selector behavior was not independently exercised;
+a client refresh/restart may be needed. Source is retained on a feature branch;
+no remote publication or completed lifecycle gate is claimed.
+
 **Guarded OpenCode maintenance source:** the explicit
 [`opencode-maintenance` contract](features/opencode-safe-maintenance.md) adds private
 immutable checkpoints, exact viewed-session observations and per-pane assessments.

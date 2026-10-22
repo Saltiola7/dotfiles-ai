@@ -1,0 +1,4 @@
+interface:
+  display_name: "Leadership Accomplishments"
+  short_description: "Evidence-backed leadership wins with focused interviews"
+  default_prompt: "Use $leadership-accomplishments to review GitHub, Jira, and Confluence, interview me for missing business context, and draft this week’s leadership accomplishment bullets."
