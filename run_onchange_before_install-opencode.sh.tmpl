@@ -12,4 +12,32 @@ command -v brew >/dev/null || {
 }
 
 export HOMEBREW_NO_AUTO_UPDATE=1
-brew bundle --file="{{ .chezmoi.sourceDir }}/Brewfile"
+# Worktrunk is qualified independently of Homebrew's current candidate.
+# Missing/other versions require the reviewed procedure in docs/UPDATES.md.
+expected='wt v0.81.0'
+native="$(brew --prefix worktrunk)/bin/wt"
+[[ -x "$native" && "$("$native" --version)" == "$expected" && "$(wt --version)" == "$expected" ]] || {
+    echo 'Worktrunk 0.81.0 must be qualified before bundle apply; see docs/UPDATES.md' >&2
+    exit 1
+}
+python3 -c 'import pathlib,shutil,sys; sys.exit(pathlib.Path(shutil.which("wt")).resolve() != pathlib.Path(sys.argv[1]).resolve())' "$native" || {
+    echo 'Worktrunk PATH owner differs from Homebrew; retain and review' >&2
+    exit 1
+}
+# Native pin selects the newest installed keg. Refuse unqualified retained kegs.
+for version in $(brew list --versions worktrunk); do
+    case "$version" in worktrunk|0.80.0|0.81.0) ;; *) echo 'Unqualified Worktrunk keg; retain and review' >&2; exit 1 ;; esac
+done
+pinned=$(brew list --pinned --versions)
+existing=$(printf '%s\n' "$pinned" | awk '$1 == "worktrunk" {print}')
+[[ -z "$existing" || "$existing" == 'worktrunk 0.81.0' ]] || {
+    echo 'Worktrunk pin differs; use reviewed update procedure' >&2
+    exit 1
+}
+brew bundle check --no-upgrade --file="{{ .chezmoi.sourceDir }}/Brewfile" || {
+    echo 'Missing bundle prerequisites; preview and install them separately before apply' >&2
+    exit 1
+}
+brew pin worktrunk
+[[ $(brew list --pinned --versions worktrunk) == 'worktrunk 0.81.0' ]]
+brew bundle --no-upgrade --file="{{ .chezmoi.sourceDir }}/Brewfile"

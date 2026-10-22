@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution
 
+**Worktrunk maintenance source evidence:** the
+[dependency-maintenance contract](features/dependency-maintenance.md) owns the
+macOS 0.81.0 successor and retained 0.80.0 compatibility. Disposable native
+policy, launch and preservation fixtures passed on both versions; the additional
+detached-navigation regression passed after adapting the hook's destination
+fallback. These are source qualification observations, not host activation.
+The private `WORKTRUNK-081` Cycle Record owns final gate and delivery results.
+The separate maintenance-skill and Mac activation slices remain unfinished.
+
 **Shared leadership accomplishment reporting:**
 `dot_agents/skills/leadership-accomplishments/` contains the portable reporting
 instructions and OpenAI metadata, deployed to `~/.agents/skills/` for shared

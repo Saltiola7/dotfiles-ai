@@ -98,6 +98,9 @@ from the configured references before searching; scope glob/grep to that project
 Use native Git and `wt list` for inventory, not a duplicate task registry.
 Worktrunk owns the qualified native layout. Existing legacy/sibling checkouts stay
 in place; activated storage identity failures retain work without fallback.
+Use native template-based creation. Worktrunk `switch --path` is an explicit
+operator exception, not an automatic agent route. Its custom creation destination
+is unavailable to the 0.81.0 pre-switch hook; do not claim storage validation for it.
 Keep primary paths and branches stable. Independent writers use distinct task
 worktrees and native sessions; changing a shell directory does not retarget a
 resumed conversation. Prepare an operator handoff when a new native session is

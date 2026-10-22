@@ -58,9 +58,11 @@ For external-state routing and recovery from missing session history, see
 [ADR 0001](docs/specs/opencode_control_plane/adr/0001-preserve-machine-state-routing.md).
 Always supply this machine config when deploying from another source worktree;
 changing `--source` alone does not supply its machine-local overrides.
-The first macOS apply installs the native OpenCode release from
-`anomalyco/tap/opencode`; later applies rerun Homebrew only when the Brewfile
-changes.
+OpenCode uses its native missing-only installer. The separate macOS bundle hook
+retains Homebrew-owned prerequisites without requesting upgrades. Worktrunk must
+first match the qualified macOS version; the hook pins it through native Homebrew.
+Follow the [Worktrunk procedure](docs/UPDATES.md#worktrunk-on-macos) before initial
+setup or an intentional upgrade.
 
 ## Configuration
 
@@ -152,6 +154,13 @@ repository/branch namespace; older installations retain their existing layout
 until separately activated. Existing primary and linked checkout paths and branches
 stay stable. Start a native OpenCode or Codex session in the selected checkout. A shell
 directory change does not retarget an existing conversation.
+
+Native path templates remain the default. Worktrunk `switch --path` is an explicit
+operator exception requiring destination review; managed agents do not select it
+automatically. Worktrunk 0.81.0 computes a new custom destination after pre-switch,
+so the existing storage hook cannot validate that destination before creation.
+macOS source supports exact 0.80.0 and 0.81.0; Linux/guest routes retain 0.80.0.
+Changing native version requires matching policy activation after qualification.
 
 For example, an operator can prepare a task against the repository's protected
 upstream base and launch Build there:

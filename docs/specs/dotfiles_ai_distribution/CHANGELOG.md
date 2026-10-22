@@ -1,5 +1,26 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-22 — WORKTRUNK-081 source
+
+- Added exact macOS 0.81.0 compatibility while retaining 0.80.0 and Linux's
+  existing pin. Snapshots bind the observed native version; unsupported version
+  diagnostics are bounded. Matching activation is still required after an update.
+- Corrected detached-worktree pre-switch destination fallback for 0.81.0.
+  Native template allocation remains default; custom paths require explicit
+  operator handling and are excluded from automatic managed agent commands.
+- Added native Homebrew pin verification, missing-prerequisite refusal and
+  non-upgrading bundle reapply; updated the Worktrunk update/recovery runbook and
+  checksum-pinned two-version CI coverage. Independent source review prompted the
+  missing-prerequisite guard; follow-up review confirmed that correction.
+- Validation includes failing-first platform/version fixtures, native policy and
+  reservation tests on both versions, detached-navigation regression, isolated
+  Homebrew command fixtures, and V2 native configuration parsing. Final scoped
+  results, retained failed evidence and Gate Commits belong to the Cycle Record.
+- No live Homebrew pin/apply, workflow reactivation, guest change, restart or
+  production removal. Broader dependency inventory/skill and host activation
+  remain separate slices. No Gate Exceptions approved. Intended delivery:
+  feature branch and draft PR into `Saltiola7/dotfiles-ai:main`.
+
 ## 2026-10-21 — Shared Leadership Reporting and Creator Discovery
 
 - Added the reusable leadership accomplishment workflow and existing OpenAI

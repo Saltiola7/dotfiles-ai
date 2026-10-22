@@ -64,7 +64,7 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 | Native OpenCode | [Bootstrap](../dot_local/bin/executable_opencode-install.tmpl) is missing-only on supported macOS ARM64 and Linux ARM64/AMD64 source routes; reapply is not an upgrade and must not downgrade a healthy newer binary. The [contract](specs/dotfiles_ai_distribution/features/native-platform-updates.md) selects native notify/manual `/update`, no automatic installation or implicit shared-service restart. Use only after that environment's native ownership is qualified/activated. Do not invoke legacy `opencode-update-all` on selected native routes. Legacy Linux pins in TOML are not native update authority. |
 | Native Codex | macOS ARM64 [bootstrap](../dot_local/bin/executable_codex-install.tmpl) owns the separate native install directory and preserves `CODEX_HOME`. On the qualified native route, use explicit `codex update` through the managed environment exporting `CODEX_INSTALL_DIR`; no legacy `codex-update-all`. Linux source routing remains distinct in [the apply hook](../run_after_update-codex.sh.tmpl)—do not infer native parity. The contract requires native daemon automatic installation disabled independently of notifications; its settings interface was qualified for 0.160.1 and needs requalification on later releases. |
 | Herdr | Chezmoi owns the version/protocol/asset URL/SHA-256 tuple in [defaults](../.chezmoidata.toml), with selected local TOML overrides. Review/update the coherent tuple for each supported architecture, installers and matching skill; this is not a `herdr update` command. The [macOS installer](../run_onchange_before_install-herdr.sh.tmpl) checks the asset, version and server protocol, then uses supported live handoff without killing/restarting panes. It refuses incompatible clients, missing handoff support or more than 64 panes. The [Linux installer](../run_onchange_after_install-00-remote-herdr.sh.tmpl) refuses an executable upgrade while its server is active; defer to a separately approved maintenance plan, not an automatic stop. See the operational hold below. |
-| Worktrunk | [Brewfile](../Brewfile) declares it on macOS, but [workflow policy](../dot_local/bin/executable_workflow-policy) requires **exactly `wt v0.80.0`**. [Linux workstation](../run_onchange_after_install-workstation-tools.sh.tmpl), [guest/remote](../run_onchange_after_install-guest-development-tools.sh.tmpl) and [CI](../.github/workflows/test.yml) installers also pin 0.80.0 with architecture-specific checksums. Do **not** blanket `brew upgrade worktrunk`. A newer release needs source/interface/checksum/guard requalification before any host update; do not merely relax the guard. |
+| Worktrunk | Homebrew owns the Mac executable. The source validator supports exact **0.80.0 and 0.81.0 on macOS**, and only **0.80.0 on Linux**; activation binds the actual version. The macOS bundle hook requires and pins 0.81.0 before non-upgrading reapply. [Linux workstation](../run_onchange_after_install-workstation-tools.sh.tmpl) and [guest/remote](../run_onchange_after_install-guest-development-tools.sh.tmpl) remain on checksum-pinned 0.80.0. [CI](../.github/workflows/test.yml) exercises both Mac versions. Follow [Worktrunk on macOS](#worktrunk-on-macos); source support does not activate a host. |
 | Homebrew and host prerequisites | Brewfile contains only the Anomaly tap, `mise` and `worktrunk`; it is not a complete host inventory. Chezmoi, Git, Python, uv, Bun, Lima and other preinstalled host prerequisites retain their actual native installation owner unless a source installer explicitly owns them. Review each owner's supported update procedure separately; no blanket Brew/OS upgrade or second competing installer. |
 | Python / uv / Bun / CI | [pyproject.toml](../pyproject.toml) requires Python >=3.12 and a pytest test group; [uv.lock](../uv.lock) owns its resolved transitive test dependencies. Review constraints and regenerate/review the lock together when changing that family; updating uv itself is separate from updating this lock. [CI](../.github/workflows/test.yml) owns Python 3.12–3.14, setup actions, Bun 1.3.14 and the separate `opencode-ai@1.18.35` test fixture. Those are not live OpenCode pins or permission for a global Bun upgrade. Review the [CentOS workflow](../.github/workflows/centos-remote-user.yml) independently. |
 | Optional Hermes | Disabled by default. [Installer](../run_onchange_before_install-hermes.sh.tmpl) pins Hermes 0.19.0 wheel/SHA and Python 3.13.16 and rejects unsupported existing versions. README documents manual `hermes update --backup` followed by profile health verification, but a newer version can conflict with that installer guard. Reconcile/requalify the source pin before approved maintenance; do not promise any latest release works on reapply. Preserve the backup and authenticate only interactively in that environment. |
@@ -73,6 +73,55 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 | Embeddings, reranker and models | Optional [embedding installer](../run_onchange_after_install-dbsctr-embedding.sh.tmpl) owns exact llama.cpp/model revisions, sizes and hashes. [Quality installer](../run_onchange_after_install-dbsctr-quality-services.sh.tmpl) and [space manifests](../private_dot_config/dotfiles-ai/knowledge/) own additional runtime/model identities. A new model is not just “latest”: preserve dimensions, space compatibility, artifact verification and required benchmark activation. Keep retrieval activation separate from candidate installation. No paid model requests are needed for this runbook. |
 | Auth CLIs | Guest/remote `op` and gcloud are version/checksum-pinned by the guest installer; host `op`, gcloud, `gh` and optional Tailscale retain their actual installation owner unless explicitly provisioned. Updating a binary is not credential migration or reauthentication consent. Preserve isolated ADC, Keychain and per-environment boundaries; never print tokens or copy credentials between hosts/guests. |
 | Shell tools, skills and Graphify | [Atuin](../run_onchange_after_install-atuin.sh.tmpl), [Starship](../run_onchange_after_install-starship.sh.tmpl) and [bash-preexec](../run_onchange_after_install-bash-preexec.sh.tmpl) have source-owned release/commit and checksum pins for their selected routes. Repository [skills](../dot_agents/skills/) update with reviewed source; [Herdr skill](../run_onchange_after_install-herdr-skill.sh.tmpl) is generated by the matching pinned binary. The optional quality installer stages a specific Graphify SQL runtime (0.9.48), used by [the adapter](../dot_local/bin/executable_dbsctr-graphify); qualify that runtime/adapter together, not an unrelated global Graphify package. Other preinstalled skills are not automatically owned here. |
+
+## Worktrunk on macOS
+
+Use Homebrew's native pin so ordinary `brew update && brew upgrade` skips
+Worktrunk. A pin protects the installed version; it is neither a lockfile nor a
+promise that an arbitrary older release can later be installed by Homebrew.
+
+1. Inspect the selected `wt --version`, Homebrew executable owner,
+   `brew list --versions worktrunk`, `brew list --pinned --versions`, and private
+   workflow activation. Keep effective roots and host details private.
+2. Select an exact upstream release. Review hooks, templates, destination
+   variables, project selectors, config precedence and foreground removal. Verify
+   official archive checksums and run disposable native compatibility tests before
+   changing the live binary. Test both retained 0.80.0 and candidate 0.81.0 routes.
+3. Prepare the matching source helper, removal check, CI checksums, guidance and
+   configuration. The current 0.81.0 successor preserves template creation; custom
+   `switch --path` remains an explicit operator exception outside automatic agent
+   allocation. Do not describe its destination as validated by pre-switch.
+4. Preview the exact host generation and preserve binary/configuration preimages.
+   Confirm the proposed Brew candidate still matches the qualified release using
+   `brew info --json=v2 worktrunk`. If it advanced, stop and requalify; do not
+   unpin and silently install whatever is latest. Include any prerequisite changes
+   and rollback route in the separately approved host plan.
+5. After approval, use native `brew unpin worktrunk`, the selected `brew upgrade
+   worktrunk` (or reviewed first installation), and `brew pin worktrunk` only as
+   needed for the exact version. Preserve preimages before Brew cleanup can remove
+   a previous keg. Verify actual selected binary and pinned version afterwards.
+   Stop on failure; retain/report actual state rather than claiming rollback.
+6. Apply the reviewed helpers and generated policy/configuration coherently, then
+   install the freshly validated activation snapshot **last**. `workflow-policy
+   snapshot` only prints a proposal; it does not activate it. Old-version snapshots
+   deliberately remain invalid after upgrading.
+7. Check installed byte identities, `workflow-policy check`, and disposable native
+   creation/navigation and hook refusal. Preserve existing branches, worktrees and
+   data. A successful version command alone is not a successful deployment.
+
+The managed bundle hook refuses missing, shadowed or unsupported Worktrunk and a
+conflicting pin before invoking the bundle. It verifies the pin and uses
+`brew bundle --no-upgrade`. That flag suppresses requested upgrades, but installing
+a missing formula may still change required dependencies; review missing
+prerequisites before applying. `HOMEBREW_NO_AUTO_UPDATE=1` alone only suppresses
+formula metadata refresh, not package upgrades. Unrelated package pins are kept.
+
+Recovery when new Worktrunk blocks repair checkout creation: explicitly approve
+an isolated, official checksum-verified previously qualified binary for that
+bootstrap only. Select it consistently for native Worktrunk and its unchanged
+hooks; never fake version output or bypass hooks. Keep the Homebrew installation
+and saved activation unchanged while preparing the repair. Later activation
+requires its own compatible generation and approval.
 
 ## Managed DVC owner and update boundary
 
