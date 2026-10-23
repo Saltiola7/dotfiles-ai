@@ -1,6 +1,6 @@
 ---
 name: dbsctr-pr-review
-description: Review exact pull requests against settled intent, recommend an ordered checkpoint, and retain work when integration authority is unavailable.
+description: Review pull requests and execute operator-approved single-PR merges after verified gates, CI and native protections; retain work when authority is unavailable.
 ---
 
 # DBSCTR PR Review
@@ -36,7 +36,10 @@ Use the repository's DBSCTR profile and `qa` affected-scope authorities.
 
 ## Recommend and checkpoint
 
-Produce the existing schema-1 Recommendation records selected by
+For an operator-approved single PR, use the route below. Disabled automatic
+delivery or a blocked diagnostic checker does not by itself forbid that route.
+Do not fabricate policy/mapping digests or a cycle for exempt work. For
+policy-driven or batch recommendations, produce the existing schema-1 records selected by
 `docs/specs/dbsctr_v3_lifecycle/features/workflow-integration-ci.md`; keep them
 private in existing cycle evidence. Each recommendation binds repository identity,
 PR, exact head/base, target, ultimate default, policy digest, mapping digest,
@@ -72,6 +75,57 @@ improvement batch/claim admission. It is not arbitrary-PR authority. `dbsctr-rev
 owns private session review, not this generic PR workflow. Do not revive native
 Incident mutation or create/read PM Kernel tickets to supply missing evidence.
 
+## Operator-approved single PR
+
+The primary may execute an ordinary native GitHub merge; a human GUI action is not required.
+This route takes precedence over broader automation, immutable-base checkpoint and
+waiver restrictions below. It does not enable unattended merges or turn the
+diagnostic `check pr-review` into an authorizing CLI.
+
+1. Bind explicit user authorization to one repository, PR, exact head, target branch
+   and ordinary merge-commit consequence, not an immutable base SHA. A separately
+   qualified unchanged exact-repository policy may supply that authority; unavailable
+   policy never substitutes for consent. Helpers report evidence read-only.
+2. Inspect actual cycle records, required gate results and Gate Commit ancestry
+   where DBSCTR applies. For dependency-only or other policy-exempt work, record a
+   documented scope exemption against the applicable instructions. CI alone and a
+   changelog assertion do not prove lifecycle completion. Missing required evidence blocks.
+3. Use authenticated GitHub reads to verify repository/default/target, open non-draft
+   PR, mergeability, native permissions, required reviews, protection/rulesets and
+   actual workflow/run/job producers. Derive every applicable check from trusted-base
+   authorities plus the reviewed change closure; unknown scope requires broad checks
+   or blocks. Require fresh success on the exact tested head/base; synthetic tested
+   merge parents must equal `[base, head]`. Supplied green JSON or non-success
+   required checks cannot authorize a merge.
+4. Immediately recheck head, observed base and authority. Require strict current-base
+   protections enforced by GitHub across the request, including successful applicable
+   checks covering the actual current tested base/result. A read plus head guard
+   alone is insufficient. Record observation times, tested object/parents, checks
+   and protection evidence; reads are not atomic base CAS. Revalidate observed base
+   advances against trusted scope/check authority and fresh CI. Unchanged approved
+   scope/protections need no renewed consent solely for base advancement. Changed
+   head, target, material intent or protections require renewed approval; unavailable
+   authority blocks. Never reuse old base evidence for a newly advanced base.
+5. Check automatic branch deletion settings; refuse if they violate retention and
+   do not change settings. With native guards proven, use
+   `gh pr merge PR --repo OWNER/REPO --merge --match-head-commit HEAD`.
+   Ordinary immediate merge only: no --admin, no --auto, squash, rebase, queue
+   enrollment, direct default push, force, reset, branch deletion or cleanup.
+   Native denial blocks; do not bypass it through another route.
+6. Reconcile uncertain outcomes with read-only queries before retrying. Verify the
+   returned merge commit has two parents: second parent equals approved head;
+   first parent identifies the actual merged base, not necessarily the earlier
+   observed base. Verify target inclusion, head/Gate Commit ancestry and native
+   check coverage for the actual result/base through strict protections enforced at
+   merge. Reconcile any intervening base advance; missing coverage prevents a
+   verified-merge claim even if GitHub reports merged. Preserve actual outcome and
+   uncertainty, never relabel old evidence. Keep private evidence and credentials
+   outside public Git; retain branches and worktrees.
+
+Source-only gates retain justified applicability: installation of unmerged
+instructions is not a precondition for source delivery. New instructions require
+separate activation after merge; this source change does not activate itself.
+
 ## Guard any integration
 
 Optional `--ci-evidence PRIVATE_FILE` on `check pr-review` inspects an array of
@@ -92,15 +146,17 @@ qualified by this source; retain the bounded watch/repair rules below and block
 their automated execution until the existing evidence owner qualifies them.
 
 - Request a merge only after fresh exact-head/base evidence and native permissions
-  are qualified. The integration-review source slice alone supplies no qualified
-  automated mutation route. CI contracts/producer qualification must exist first;
-  unavailable authority blocks, never a direct `gh` or API workaround.
+  are verified through the operator-approved single-PR route above or a separately
+  qualified automation route. The integration-review source alone supplies no
+  qualified automated mutation route. Unavailable actual evidence blocks; the
+  diagnostic checker's blocked result is not a ban on the explicit native route.
 - Require a native base guard across the request or native policy enforcing current
   base validation; head-only comparison does not close the base race. Synthetic
   tested merge parents must equal `[base, head]`. Use merge commits and an exact
   head guard. Requery uncertain outcomes before retry; verify returned parents,
   head inclusion and every Gate Commit before reporting merged.
-- Only a verified preceding ordered-batch merge permits planned base rebinding.
+- For batch/policy recommendations only, a verified preceding ordered-batch merge
+  permits planned base rebinding; the explicit single-PR route governs its own base advances.
   Rerun affected validation for the next PR and discard stale evidence/waivers.
   A changed head, reordered membership, material repair or external base advance
   means renew the checkpoint unless exact automatic policy independently covers
@@ -131,8 +187,9 @@ their automated execution until the existing evidence owner qualifies them.
 
 No direct protected/default push, no force, no reset, no branch deletion, no
 worktree cleanup or active-primary takeover belongs to this review. Report
-`completed_unmerged` with exact target/default and blocker when integration is
-unverified. Retain refs/work until ultimate-default, data and artifact preservation
+`completed_unmerged` only when the remote is confirmed unmerged; otherwise preserve
+the observed merged/unverified or unknown outcome with exact target/default and
+blocker. Retain refs/work until ultimate-default, data and artifact preservation
 plus separate retirement authority hold. Native `session_move` and safe primary
 synchronization remain separately governed, never implicit CLI actor proof.
 

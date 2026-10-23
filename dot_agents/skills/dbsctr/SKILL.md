@@ -268,7 +268,13 @@ product/domain truth merely to make documents agree.
 
 For generic pull-request review, use `dbsctr-pr-review`: inspect settled intent,
 existing functionality/callers and shared ownership, then recommend the minimum
-ordered exact-head/base batch and obtain its checkpoint before authorized mutation.
+ordered batch and obtain its checkpoint before authorized mutation. Batch/policy
+routes bind exact head/base; the single-PR route below has its own consent boundary.
+Its operator-approved single-PR route permits ordinary native GitHub merges after
+actual applicable gates, authenticated CI and strict current-base protections pass.
+Consent binds exact head and target; observed base is evidence, not immutable
+consent. A human GUI click is not required. Preserve documented scope exemptions
+without inventing cycle passes; diagnostic automation limits do not forbid this route.
 This does not broaden improvement-batch admission or activate automatic merges;
 unavailable native CI/base guards retain work as `completed_unmerged`.
 
