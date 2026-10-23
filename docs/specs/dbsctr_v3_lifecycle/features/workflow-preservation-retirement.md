@@ -1,5 +1,17 @@
 # Workflow preservation and immediate retirement
 
+## Approved non-success recovery amendment
+
+[Cycle retirement recovery](cycle-retirement-recovery.md) defines an explicit
+manual exception to the completed/ultimate-default predicates below: an approved
+superseded/cancelled disposition may use verified local archival preservation,
+and proven empty retirement uses baseline/no-work evidence. It includes exact
+approved file capture and preparation, separate record closure, retained branches,
+and fresh process/hook checks. It never infers delivery, changes historical gate
+results or enables automatic cleanup. The rules below remain canonical for
+automatic removal and successful-delivery proof; the new manual path requires
+its own source and installed qualification.
+
 **SPECIFICATION READY; IMPLEMENTATION/ROLLOUT UNQUALIFIED.** Owner: lifecycle maintainers; Discovery
 primary integrates this contract. Profile: [../PROFILE.md](../PROFILE.md).
 Risk: critical (irreversible data loss). Covers workflow-convergence

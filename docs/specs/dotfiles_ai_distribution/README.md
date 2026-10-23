@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution
 
+**Retirement recovery Discovery:** [targeted rollout](features/cycle-retirement-rollout.md)
+specifies compatible helper/supervisor/guidance installation, real disposable
+archive/Worktrunk qualification and one separately approved nominated-cycle
+recovery. Source delivery alone does not authorize live closure, preparation,
+consumer shutdown or deletion. Existing private evidence and retained archives
+remain recoverable through compatible readers.
+
 **Worktrunk maintenance source evidence:** the
 [dependency-maintenance contract](features/dependency-maintenance.md) owns the
 macOS 0.81.0 successor and retained 0.80.0 compatibility. Disposable native

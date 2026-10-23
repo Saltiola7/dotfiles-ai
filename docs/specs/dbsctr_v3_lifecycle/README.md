@@ -1,5 +1,31 @@
 # DBSCTR V3 Lifecycle
 
+## Effective Initiative authority prerequisite Discovery
+
+[Digest-bound authority amendment](features/initiative-authority-amendment.md)
+specifies the approved narrow source prerequisite for explicitly updating effective
+Initiative authority on an existing ACTIVE native-owned schema 3/4/5/6 cycle.
+Original registration, import, approval, commits and failed evidence remain intact;
+validated ordered amendments reopen required gates, not erase their history.
+Ordinary begin/resume retains exact effective-receipt matching without silent
+amendment. The proposed command changes no Git state and imports no documents;
+later ordinary Gate Commit validation owns exact document import and lineage.
+The source plan is pending launch, not implemented/deployed CLI capability.
+Separate merged installation, exact real-cycle amendment consent and independent
+native permission repair remain required; preserve the blocked retirement cycle.
+The linked feature owns accessible boundary/interaction/state/trust/dependency
+tables and Text Equivalent; revisit them together on represented contract changes.
+
+## Administrative retirement Discovery
+
+[Cycle retirement recovery](features/cycle-retirement-recovery.md) specifies
+record-only superseded/cancelled/empty dispositions, verified local archival,
+separately approved preparation/manual Worktrunk removal, and required lifecycle
+reachability across migrations. It reuses existing evidence owners; completion,
+preservation and checkout existence remain independent. This is an approved
+specification amendment, not implemented CLI behavior or automatic cleanup
+activation. Existing failures and immutable local completions remain truthful.
+
 ## Forgejo local-only source interface
 
 The [bounded Forgejo contract](features/forgejo-local-registration.md) adds typed
