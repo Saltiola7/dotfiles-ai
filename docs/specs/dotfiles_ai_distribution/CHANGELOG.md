@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-22 — JavaScript security dependency refresh
+
+- Updated CI dependencies to Node 26.12.1, Bun 1.4.4 and the OpenCode 1.19.4
+  compatibility fixture; checkout and setup actions use Node 24. Action runtimes
+  remain runner-owned, independently of the Node test pin.
+- Updated disabled Chrome DevTools MCP to 1.12.0; Playwright MCP remains 0.0.83.
+  Native OpenCode installation and running-service updates remain separate.
+- Validation: 96 affected tests passed, three optional checks skipped; host Bun
+  1.4.4 passed its Homebrew test. Targeted configuration preview changes only the
+  Chrome DevTools command. Actual deployment evidence is retained privately;
+  no service restart or vendor-bundled Node replacement is included.
+
 ## 2026-10-22 — WORKTRUNK-081 source
 
 - Added exact macOS 0.81.0 compatibility while retaining 0.80.0 and Linux's
