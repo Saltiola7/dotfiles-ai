@@ -1,5 +1,13 @@
 # DBSCTR V3 Lifecycle
 
+## Operator Git setup
+
+Use the portable [Git identity and signing guide](../../git-identity-signing.md)
+to configure native profiles and signing for normal lifecycle commits. Git
+configuration supplies these defaults; this reference adds no lifecycle policy,
+record schema, or runtime identity checks. Inspect the effective settings in the
+actual checkout before committing.
+
 ## Forgejo local-only source interface
 
 The [bounded Forgejo contract](features/forgejo-local-registration.md) adds typed
