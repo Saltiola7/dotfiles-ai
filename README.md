@@ -16,6 +16,7 @@ replace the DBSCTR specifications as lifecycle authority.
 | Install on a new workstation | [Safe Quickstart](#safe-quickstart) |
 | Transfer files from another chezmoi source | [Existing Chezmoi Migration](#existing-chezmoi-migration) |
 | Start isolated native task work | [Native Task Workspaces](#native-task-workspaces) |
+| Configure Git identities and signed commits | [Git identity and signing guide](docs/git-identity-signing.md) |
 | Enable autonomous R&D | [Optional Autonomous RD](#optional-autonomous-rd) |
 | Create isolated Fedora workspaces | [Optional Lima Workspaces](#optional-lima-workspaces) |
 | Configure a standalone CentOS user | [CentOS Remote User Foundation](#centos-remote-user-foundation) |
