@@ -60,6 +60,14 @@ the recorded gate or Initiative state.
 Use `qa` for DBSCTR touched-scope gates. Run repository-wide QA only when the
 user explicitly requests it; Dependabot alerts are QA inputs.
 
+Use `dbsctr-pr-review` for an operator-approved single-PR merge. The primary may
+execute an ordinary native GitHub merge after actual applicable DBSCTR gates,
+authenticated CI and strict current-base protections pass. Consent binds exact
+head and target; observed base is evidence, not immutable consent. Document scope
+exemptions without inventing cycle evidence. A human GUI click is not required.
+Diagnostic-only automation limits do not forbid this explicit route. No admin
+bypass, automatic branch deletion or implicit worktree cleanup is granted.
+
 Treat "DBSCTR audit" as a report-only lifecycle reconciliation audit at a fixed
 commit unless the user explicitly requests updates. It inventories and traces
 specs, profiles, backlogs, changelogs, decisions, tests, and source claims;

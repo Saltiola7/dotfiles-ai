@@ -42,6 +42,26 @@ def test_pr_review_uses_existing_functionality_and_keeps_distinct_owners():
     assert "dbsctr-pr-review" in text(SKILLS / "dbsctr-integrate/SKILL.md")
 
 
+def test_operator_merge_keeps_consent_and_native_evidence_distinct():
+    review = " ".join(text(SKILLS / "dbsctr-pr-review/SKILL.md").split())
+    route = review.split("## Operator-approved single PR", 1)[1].split("## ", 1)[0]
+    for requirement in (
+        "human GUI action is not required", "explicit user authorization",
+        "not an immutable base SHA", "actual cycle records", "documented scope exemption",
+        "authenticated GitHub", "mergeability", "every applicable check",
+        "strict current-base protections", "--match-head-commit", "second parent",
+        "actual merged base", "no --admin", "no --auto", "automatic branch deletion",
+        "uncertain outcomes", "separate activation", "no renewed consent solely",
+    ):
+        assert requirement in route, requirement
+    assert "never a direct `gh` or API workaround" not in review
+    assert "all-green supplied JSON still exits blocked" in review
+    for source in (SKILLS / "dbsctr/SKILL.md", ROOT / "private_dot_config/opencode/AGENTS.md"):
+        guidance = " ".join(text(source).split())
+        assert "operator-approved single-PR" in guidance
+        assert "dbsctr-pr-review" in guidance
+
+
 def test_pr_review_checkpoint_and_failure_dispositions_are_exact():
     review = text(SKILLS / "dbsctr-pr-review/SKILL.md")
     for term in ("1–32", "explicit order", "starting base", "ultimate default", "policy digest",

@@ -1,5 +1,25 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-23 — Operator-approved native PR merge policy
+
+- Added the explicit single-PR native GitHub route to shared review/lifecycle
+  guidance and managed OpenCode instructions. Consent binds repository, PR head,
+  target and ordinary merge consequence; strict native protections enforce the
+  current tested base. No human GUI action or new merge engine is required.
+- Retained actual cycle-gate evidence or documented scope exemptions, authenticated
+  successful CI, native permissions, branch retention and verified remote outcome.
+  Unavailable automation diagnostics remain non-authorizing; no admin bypass,
+  automatic merge, branch/worktree deletion or CLI behavior change is included.
+- Failing-first instruction regression retained; affected publication/instruction
+  checks passed 89 tests with one existing optional skip. The PR-review skill passes
+  its original creator validator. The unchanged DBSCTR `trigger` frontmatter fails
+  that validator on both the installed baseline and candidate; it is not changed
+  by this bounded policy revision. Independent review and final gate evidence are
+  retained in the private Cycle Record.
+- Modules: Security and ML/AI. Source-only delivery; no live instruction activation
+  or merge is performed by this cycle. Intended Final Push: feature branch and
+  draft PR into `main`; activation remains separately authorized after merge.
+
 ## 2026-10-21 — Native credential child home
 
 - Kept the controlled Git transport's home isolated while binding only its
