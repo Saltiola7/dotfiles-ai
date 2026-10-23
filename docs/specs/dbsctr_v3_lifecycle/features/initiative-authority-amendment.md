@@ -2,8 +2,11 @@
 
 ## Status, intent and boundaries
 
-Approved narrow prerequisite **source repair**, pending Build launch and validation;
-not an installed command, live amendment, replacement cycle or gate pass.
+Approved narrow prerequisite **source repair**; normative reconciliation is pending
+primary validation. The registered source cycle remains retained `readiness_reopened`
+under its prior receipt. No supported live authority-adoption route is currently
+qualified; these prospective refinements authorize neither current implementation
+under changed authority nor fresh launch approval, replacement cycle or gate pass.
 INT-077..080 in the workflow-convergence manifest own this scope. Reuse the
 existing lifecycle CLI, record validators, locks, receipts and approval machinery;
 no second lifecycle engine or self-amending bootstrap.
@@ -90,14 +93,45 @@ document closure without relaxing commit/final-push lineage.
 Completion requires one recorded ordinary Gate Commit whose resulting tree
 establishes the entire approved selected `{path,blob,mode}` closure. Files already
 identical need not be staged; changed selected files use exact explicit paths,
-never bulk staging. Existing evidence path-set checks stay unchanged. Record this
-checkpoint through existing gate/commit evidence and an amendment-owned projection
-of its commit ID and validated closure identity, not a second commit engine.
-Completion must revalidate the effective closure at HEAD, as must final-push
-readiness; a historical checkpoint alone does not permit drift. Subsequent material
-normative edits require fresh Discovery/amendment. Editorial remediation requires
-explicit existing scope authority and recorded exact validation of the resulting
-closure; no general editorial exemption from completion checks. Original
+never bulk staging. Existing evidence path-set checks stay unchanged. Record the
+checkpoint through existing gate/commit evidence and this optional top-level
+ordered array in supported record schemas:
+
+```text
+"initiative_authority_checkpoints": [
+  {"schema_version":1,"launch_digest":SHA256,"commit":GIT_OID,"closure_sha256":SHA256}
+]
+```
+
+Each entry has exactly those four fields. `closure_sha256` is SHA-256 of canonical
+JSON UTF-8 of the full selected sorted-by-path `{path,blob,mode}` array from the
+approved immutable envelope, using the existing canonical digest helper. Permit
+at most one entry per amendment launch digest, referencing an existing validated
+amendment and ordered by amendment order. Absence is valid for unamended records;
+an amended record may lack a checkpoint while work is pending, but cannot complete
+without its latest amendment's checkpoint.
+
+An ordinary recorded Gate Commit with nonempty gates and existing current fresh
+evidence/path-set validation appends the projection when its resulting tree first
+establishes the latest full closure. Keep `commits` entries' existing `id`/`gates`
+shape. Do not create a checkpoint during `initiative-amend`. Subsequent amendment
+preimages/outcomes retain earlier checkpoint entries; each newer amendment needs
+its own qualifying checkpoint. The projection changes no immutable amendment
+entry, envelope or outcome and adds no second commit engine.
+
+Historical readers validate the referenced commit is recorded, its exact tree
+closure, custody and lineage using existing safe local no-fetch Git access.
+Completion and final-push readiness additionally require the latest checkpoint
+to be an ancestor of HEAD and the full exact effective closure at HEAD. Coincidentally
+matching HEAD documents without a qualifying recorded Gate Commit cannot complete.
+
+In this v1 operation, ANY change to the effective selected closure's path/blob/mode,
+including editorial change, needs a fresh committed Discovery receipt, preflight
+and exact amendment approval before the replacement closure can satisfy completion.
+General bounded editorial remediation remains applicable outside this exact selected
+closure; it cannot override these bytes or create a parallel exemption/mutable
+envelope. This is prospective tightening, not authority to change an already-approved
+active cycle. Original
 `discovery_import` remains unchanged and independently validated.
 
 ## Persistent chain, atomicity and replay
@@ -150,8 +184,9 @@ receipt, ordered link and preimage/hash/custody before resolving the latest rece
 Unknown entry versions or inconsistent chains block; no fallback to an earlier
 apparently valid authority. Helper-observed time is not native actor attribution.
 
-Original `initiative`, `initiative_approval`, `discovery_import`, IDs, baseline,
-commits, original approvals and evidence history are immutable. Material amendment
+The amendment cannot overwrite original `initiative`, `initiative_approval`,
+`discovery_import`, registration identity, baseline, recorded commit prefix or
+ledger history. This does not freeze normal lifecycle progress. Material amendment
 reopens **all required gates to pending**, removing their current evidence AND
 exception fields. Retain the evidence ledger, failed evidence, exception history and
 prior gate outcomes in recoverable history/preimage. No exception disposes a gate
@@ -165,6 +200,19 @@ per-evidence schema fields. Enforce this in set-gate, Gate Commit, completion an
 final-push readiness, not only the interactive gate setter. Previous results and
 exceptions remain recoverable in the preimage/history, not active dispositions.
 
+Ordinary readers validate every historical preimage, envelope and deterministic
+outcome, and immutable amendment prefixes; they do NOT require current record bytes
+to equal the last outcome. Current records and each next amendment's immediate
+preimage preserve original registration identity/receipt/approval/import/baseline,
+the immutable amendment prefix, recorded commit prefix and ledger history. Existing
+validated commands may append evidence/commits, bind evidence to its Gate Commit,
+update gate/exception/artifact/metrics state and perform otherwise authorized
+profile/risk/plan changes and terminal transitions. The amendment itself still
+cannot perform those separate changes. Validate normal intrinsic record, evidence
+and commit invariants and checkpoint retention; raw mutable JSON is not proof of
+authenticated writer identity or complete event history. No new event engine is
+introduced to make that unsupported claim.
+
 Under existing deterministic cycle/checkout locks: freshly revalidate all bound
 state and terminal guards, exclusively persist and fsync an original-byte preimage,
 then durably atomically replace the record with the appended entry and gate
@@ -176,8 +224,12 @@ must be kept out operationally. Updated terminal checks remain mandatory.
 
 Retry of the exact same approved digest/new receipt, with verified preimage and
 exact expected postimage, returns `already_applied` without another entry or gate
-reopening. No broad receipt-equality shortcut: changed record bytes/chain block
-stale replay. An exclusively persisted preimage without replacement is recoverable
+reopening. Exact current-postimage equality governs `initiative-amend` replay
+admission ONLY, not ordinary historical reading. Legitimate progress after apply
+makes that old replay `blocked`, with no gate reopening; it does not invalidate
+ordinary readers or prohibit a second fresh amendment bound to immediate current
+bytes. No broad receipt-equality shortcut: changed record bytes/chain block stale
+replay. An exclusively persisted preimage without replacement is recoverable
 only under the same exact bound state and approval. Lost reply must be reconciled
 from durable evidence before any different effect is attempted.
 
@@ -187,6 +239,12 @@ from durable evidence before any different effect is attempted.
 |---|---|---|
 | Registered native cycle with failed evidence and changed committed authority | Fresh receipt, preflight and exact consent are applied | Append one amendment; preserve registration/import/failures; required gates pending; status/resume use validated effective authority. |
 | Same receipt/digest and exact verified postimage after lost reply | Retry | `already_applied`; no duplicate or repeated gate invalidation. |
+| Valid evidence/commit bindings, gate/artifact/metrics or authorized plan/terminal progress after apply | Ordinary read/status/resume | Validate historical outcomes and preserved prefixes/intrinsic invariants, not current-postimage equality; valid progress remains readable. |
+| Legitimate record progress after apply | Retry old approved amendment | `blocked`; do not reopen gates or reject valid progress as a corrupt historical outcome. |
+| ACTIVE progressed record | Second fresh amendment with fresh exact approval | Bind immediate current bytes; preserve historical chain/checkpoints/commits/ledger, require new evidence and its own checkpoint. |
+| No checkpoint, duplicate/out-of-order/foreign checkpoint or mismatched recorded commit/tree | Read/complete as applicable | Invalid projection blocks reading; missing latest qualifying checkpoint blocks completion even if HEAD docs match. |
+| Latest qualifying checkpoint and matching HEAD closure | Completion | Validate recorded nonempty-gate commit, exact closure, custody/lineage and ancestry plus ordinary gates. |
+| Editorial-only selected blob/mode/path change without fresh amendment | Completion/final-push readiness | Refuse replacement closure; no editorial exemption. |
 | Stale consent, dirty selected docs, changed unrelated dirt/index, pointer or chain | Preflight/apply/resume | Block; no Git mutation, record rewrite or approval reuse. |
 | Two updated writers or terminal transition | Locked recheck | Serialize and reject stale/terminal operation; no claimed universal process fencing. |
 | Old supported record with no amendments | Read or continue | Existing receipt and behavior remain valid; no migration or invented amendment. |
@@ -202,7 +260,16 @@ assert status/exit mapping and sanitized summaries. Test old evidence rejection
 through gate setter, Gate Commit, completion and final push even at unchanged
 HEAD; test cleared current exceptions with preserved history. Verify one Gate
 Commit establishes the full closure including already-identical files, HEAD drift
-blocks completion, and editorial remediation needs explicit scope/exact validation.
+blocks completion, and selected editorial changes require a fresh amendment.
+Exercise normal evidence binding, commit/gate/artifact/metrics updates, separately
+authorized plan changes and terminal reads after amendment without exact-postimage
+reader rejection. Then retry stale consent (blocked, no reopening) and apply a
+second fresh amendment against immediate current bytes. Verify immutable-prefix
+and ledger-history protection without claiming authenticated mutation history.
+Test exact checkpoint fields, canonical sorted closure digest, one per launch,
+ordering/retention across amendments, no checkpoint on amendment itself, recorded
+nonempty-gate commit/tree/ancestry validation, missing checkpoint despite matching
+HEAD, no-fetch refusal and editorial replacement-closure refusal.
 Assert original failed evidence survives, old records still read, ordinary begin/
 resume exact-match refusal remains, final-push lineage is unchanged, and local-only
 completion/replay performs no network. Source-only fixtures do not qualify a live
@@ -233,6 +300,8 @@ history intact. Separate approved merged installation and exact real-cycle
 amendment follow source delivery; separate native permission repair is independent.
 Only then can fresh retirement readiness/approval proceed. Manifest `ready` means
 settled specification, not verified publication, receipt, preflight or deployment.
+The retained manifest label is not fresh readiness validation of this reconciliation
+and cannot supersede the registered source cycle's prior receipt/reopened state.
 
 ## Visual Evidence
 
@@ -245,7 +314,7 @@ Scope: this amendment only; accessible tables above are editable visual sources.
 | Interaction | required: ordered transition table below |
 | State | required: ordered transition table below |
 | Data/trust | required: ownership/transfer table below |
-| Schema | not_applicable: exact entry shape and persistent-chain prose are canonical; no duplicate schema diagram |
+| Schema | not_applicable: exact amendment/checkpoint shapes and chain prose are canonical; no duplicate schema diagram |
 | Dependency/deployment | required: ownership/transfer table below |
 | Quantitative | not_applicable: no measured comparison or performance claim |
 
@@ -262,7 +331,11 @@ Scope: this amendment only; accessible tables above are editable visual sources.
 | ACTIVE exact owned pointer | Preflight, supported schema and stable unchanged plan | ACTIVE unchanged; private bound plan only |
 | ACTIVE approved preimage | Locked exact recheck + consent + durable preimage | ACTIVE with appended effective authority; required gates pending |
 | Exact applied postimage | Same digest/receipt retry and verified preimage | `already_applied`, no mutation |
-| Drift, malformed chain, terminal or wrong pointer | Any admission/recheck | Block and retain evidence; no replacement |
+| Valid progressed record | Ordinary reader validates historical outcomes/prefixes and intrinsic invariants | Progress remains readable; no exact current-postimage requirement |
+| Valid progressed ACTIVE record | Fresh second amendment approval bound to immediate current bytes | Append new authority; retain checkpoint history, require own checkpoint |
+| Latest closure established by recorded nonempty-gate commit | Existing fresh evidence/path-set validation | Append exact checkpoint projection; completion also checks ancestor and HEAD closure |
+| Progressed record | Old amendment replay | `blocked`, no reopening |
+| Drift, malformed chain, terminal or wrong pointer | Amendment admission/recheck | Block and retain evidence; no replacement |
 
 **Text Equivalent:** Discovery supplies committed same-repository authority to a
 private preflight. Exact operator consent permits a locked, durable preimage then
@@ -271,9 +344,14 @@ Validated readers resolve the full chain; required gates lose current evidence
 and exceptions without erasing failures/history. Preimage ledger IDs cannot
 dispose reopened gates; new execution is required even at unchanged HEAD. The
 immutable envelope and separate deterministic outcome avoid recursive hashes.
-Exact retry does nothing; drift or terminal state blocks. Build imports
-docs only later through an ordinary recorded Gate Commit establishing the full
-closure; completion/final push revalidate it at HEAD. Source merge, separately
+Exact-postimage equality is replay-only: legitimate progress remains readable
+under historical/prefix and intrinsic invariant checks, but old replay is blocked.
+A fresh second amendment binds current bytes and retains checkpoint history.
+Build imports docs only later through an ordinary nonempty-gate recorded Gate
+Commit establishing full closure and appending the exact launch/commit/closure
+checkpoint. Each amendment needs its own checkpoint; completion/final push check
+its ancestry and exact HEAD closure. Even editorial changes to selected bytes need
+fresh Discovery/receipt/preflight/exact amendment consent. Source merge, separately
 approved installation and exact real-cycle amendment precede retirement recovery.
 Canonical source: this contract and manifest; owner: lifecycle Discovery primary;
 change trigger: any represented interface, state, ownership, trust or dependency

@@ -11,8 +11,12 @@ Discovery. Stable intent coverage is INT-061 onward in MANIFEST.json.
 
 Operator subsequently approved a distinct narrow prerequisite source repair,
 [effective Initiative authority amendment](../../specs/dbsctr_v3_lifecycle/features/initiative-authority-amendment.md),
-covered by INT-077..080. Its source plan is pending fresh validation and launch,
-not a claim that `initiative-amend` exists or is deployed. Preserve the blocked
+covered by INT-077..080. Following registration, three normative gaps reopened
+source-cycle readiness. Reconciled Discovery is pending primary validation; the
+registered source cycle remains retained `readiness_reopened` under its prior
+receipt. No supported live authority-adoption route is currently qualified, and
+these prospective docs confer no current implementation authority, fresh launch
+approval or gate pass. They do not claim `initiative-amend` is deployed. Preserve the blocked
 original retirement cycle, original receipt/approval/import/commits and failed
 evidence. Do not replace, re-register or silently relabel it. The new slice supplies
 the mechanism only; separately approved merged installation and exact real-cycle
@@ -70,9 +74,13 @@ bypass is authorized. The original retirement remedy source scope stays unchange
 
 ## Serial delivery, ownership and gates
 
+The source-scope table records intended delivery ownership, not renewed readiness
+or authority adoption for the retained registered cycle. The current reconciliation
+below supersedes earlier readiness descriptions; primary validation remains pending.
+
 | Slice | Owner / dependencies | Writable implementation closure |
 |---|---|---|
-| `cycle-authority-amendment` (prerequisite, specification ready) | lifecycle; safety-inventory | `dot_local/bin/executable_dbsctrctl`; new `tests/test_initiative_authority_amendment.py`; existing `tests/test_initiative_cli_approval.py`, `tests/test_initiative_local_launch.py`, `tests/test_native_workspace_records.py`, `tests/test_worktrunk_registration.py`, `tests/test_dbsctr_forgejo_identity.py`, `tests/test_dbsctr_forgejo_completion.py` as necessary; lifecycle README/CHANGELOG completion notes. No helper configuration source. |
+| `cycle-authority-amendment` (prerequisite; reconciliation pending primary validation) | lifecycle; safety-inventory | `dot_local/bin/executable_dbsctrctl`; new `tests/test_initiative_authority_amendment.py`; existing `tests/test_initiative_cli_approval.py`, `tests/test_initiative_local_launch.py`, `tests/test_native_workspace_records.py`, `tests/test_worktrunk_registration.py`, `tests/test_dbsctr_forgejo_identity.py`, `tests/test_dbsctr_forgejo_completion.py` as necessary; lifecycle README/CHANGELOG completion notes. No helper configuration source. |
 | `cycle-record-retirement` (P0, captured pending prerequisite) | lifecycle; safety-inventory, cycle-authority-amendment | `dot_local/bin/executable_dbsctrctl`; `tests/test_cycle_retirement_recovery.py`, `tests/test_dbsctrctl.py`, `tests/test_workspace_adoption.py`, `tests/test_orphan_workspace_recovery.py`, `tests/test_native_workspace_execution.py`, `tests/test_native_workspace_records.py`, `tests/test_worktrunk_registration.py`, `tests/test_dbsctr_forgejo_completion.py`, `tests/test_dbsctr_forgejo_identity.py`, `tests/test_dbsctr_forgejo_local_safety.py`; record closure, readers, pointer reconciliation and CLI reachability only. |
 | `cycle-disposition-removal` (P1) | lifecycle; cycle-record-retirement, merge-cleanup | Same CLI and journey test; `dot_local/bin/executable_agent-worktree`; `tests/test_workspace_remove_check.py`, `tests/test_agent_worktree.py`, `tests/test_native_dvc_removal.py`, `tests/test_native_workspace_records.py`, `tests/test_dbsctrctl.py`; archive/capture/restore/preparation and approved manual removal. |
 | `cycle-retirement-journey` (P1) | OpenCode; both lifecycle slices | `private_dot_config/opencode/AGENTS.md`, `.chezmoitemplates/opencode.json.tmpl`, `dot_agents/skills/dbsctr/SKILL.md`, `dot_agents/skills/discovery/SKILL.md`; control-plane/lifecycle/native permission/projection tests named in journey contract. No new control-plane engine. |
@@ -206,10 +214,34 @@ latest preimage ledger cannot dispose reopened gates: require newly executed
 evidence even at unchanged HEAD, enforced by gate setter, Gate Commit, completion
 and final push. One recorded ordinary Gate Commit must establish the entire
 selected path/blob/mode closure, including already-identical files without staging
-them. Completion/final push revalidate effective closure at HEAD; original
-discovery_import and existing evidence path-set checks remain intact. Material
-normative drift requires fresh Discovery/amendment; editorial remediation requires
-explicit existing scope authority and recorded exact validation.
+them. The optional ordered top-level `initiative_authority_checkpoints` array has
+exact entries `{schema_version:1,launch_digest:SHA256,commit:GIT_OID,closure_sha256:SHA256}`.
+The closure digest uses existing canonical JSON UTF-8 hashing of the full approved
+sorted-by-path `{path,blob,mode}` array. At most one checkpoint per validated
+amendment, in amendment order: append only through a recorded ordinary nonempty-gate
+Gate Commit with current fresh evidence/path-set checks when its resulting tree
+first establishes latest closure. Amendment itself creates none; later amendments
+retain earlier checkpoints and require their own. Readers validate recorded commit,
+exact tree, custody/lineage through safe local no-fetch Git access. Completion/final
+push require latest checkpoint ancestry and exact closure at HEAD; coincidentally
+matching docs without a qualifying checkpoint cannot complete. Original
+discovery_import and evidence path-set checks remain intact.
+
+Exact current-postimage equality is only amendment replay admission, not ordinary
+reading. Validate every historical preimage/envelope/deterministic outcome and
+immutable prefixes. Preserve registration/original receipt/approval/import/baseline,
+recorded commit prefix, ledger history and checkpoints while existing commands
+append/bind evidence and commits or update gate/exception/artifact/metrics state
+and otherwise authorized profile/risk/plan/terminal state. Apply normal intrinsic
+invariants; mutable JSON does not authenticate a writer/event history. Old replay
+after legitimate progress is blocked without reopening; a second fresh amendment
+may bind immediate current bytes. No second event engine or replacement cycle.
+
+ANY effective selected path/blob/mode change, including editorial, requires fresh
+committed Discovery receipt/preflight/exact amendment approval before replacement
+closure can satisfy completion. General editorial remediation policy applies
+outside the selected closure only; no alternate authority or mutable envelope.
+This prospective tightening does not authorize changing active-cycle authority.
 Risk/profile/applicability/delivery stay unchanged; changes use existing routes
 before fresh preflight. Exact terminal `AMEND ID SHA` or exact chat assertion is
 new live consent, never inferred from this approved source plan.
@@ -227,15 +259,21 @@ Deploy and Operate not applicable for their existing source-only reasons. Result
 are pending. Test registration -> failed evidence -> amend -> status -> resume;
 concurrency, stale approval, lost reply, denied/no-mutation, chain/schema 3/4/5/6
 compatibility, retained failures, final-push lineage and schema 6 local completion
-replay/no-network. No historical checkpoint qualifies these new paths.
+replay/no-network. Also test normal progress/readability, stale replay refusal,
+second amendment on immediate current bytes, exact checkpoint schema/digest/order/
+retention and recorded tree/ancestry, missing checkpoint despite matching HEAD and
+editorial replacement-closure refusal. No historical checkpoint qualifies these paths.
 
 Primary verification still required: native `initiative-check`, publication/
 instruction authority including the new file, JSON/link/whitespace checks, actual
 changed-document closure, fresh receipt and launch preflight. This docs helper has
 no native shell route and ran none of those commands; no new check or gate pass
-is asserted. No material contract question remains from the approved selection;
-runtime feasibility, installed compatibility and exact real-cycle approval remain
-separate evidence/authorization blockers, not assumed success.
+is asserted. These three normative gaps are reconciled prospectively, pending
+primary validation. The retained registered source cycle remains readiness_reopened
+under its prior receipt, with no currently qualified live authority-adoption route.
+Runtime feasibility, installed compatibility and exact authority adoption/approval
+remain blockers; these docs neither authorize current implementation nor replace
+the cycle or establish fresh launch consent.
 
 ## Visual Evidence
 
@@ -252,7 +290,13 @@ separate evidence/authorization blockers, not assumed success.
 **Text Equivalent:** Lifecycle first delivers the narrow authority-amendment
 source mechanism with no live mutation or self-amending bootstrap. Separate merged
 installation and exact live-cycle consent precede renewed retirement readiness;
-the original blocked cycle and failed evidence stay intact. Lifecycle then restores
+the original blocked cycle and failed evidence stay intact. Historical outcomes
+validate normal progress without current-postimage equality; old replay blocks,
+while fresh second amendment preserves prefixes/checkpoint history. Each authority
+requires its own exact recorded Gate Commit checkpoint and matching HEAD closure;
+selected editorial changes need fresh amendment approval, not an exemption.
+Reconciliation remains pending primary validation and live authority adoption is
+not currently qualified. Lifecycle then restores
 non-success record closure and its
 reachability tests, then archival/manual removal. OpenCode exposes the supported
 journey after both interfaces exist. Distribution qualifies the installed set and
