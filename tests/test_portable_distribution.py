@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tomllib
+import sys
 from pathlib import Path
 
 import pytest
@@ -250,7 +251,60 @@ def test_macos_retains_other_brew_tools_without_competing_opencode_owner() -> No
     assert '{{ include "Brewfile" | sha256sum }}' in installer
     assert '{{ if ne .chezmoi.os "darwin" -}}\nexit 0' in installer
     assert "Homebrew is required to install managed agent packages" in installer
-    assert 'brew bundle --file="{{ .chezmoi.sourceDir }}/Brewfile"' in installer
+    assert 'brew bundle --no-upgrade --file="{{ .chezmoi.sourceDir }}/Brewfile"' in installer
+
+
+@pytest.mark.parametrize("problem", [None, "version", "pin", "keg", "shadow", "missing-prerequisite"])
+def test_worktrunk_bundle_pin_precedes_non_upgrading_reapply(tmp_path, problem):
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    native = tools / "wt"
+    native.write_text("#!/bin/sh\nprintf '%s\\n' \"${FIXTURE_WT_VERSION:-wt v0.81.0}\"\n")
+    native.chmod(0o755)
+    log = tmp_path / "calls"
+    pin = tmp_path / "pin"
+    if problem == "pin":
+        pin.write_text("worktrunk 0.80.0")
+    brew = tools / "brew"
+    brew.write_text(f"#!{sys.executable}\n" + '''import json, os, sys
+from pathlib import Path
+root = Path(os.environ["FIXTURE_ROOT"])
+args = sys.argv[1:]
+with (root / "calls").open("a") as stream: stream.write(json.dumps(args) + "\\n")
+if args == ["--prefix", "worktrunk"]: print(root)
+elif args == ["list", "--versions", "worktrunk"]:
+    print("worktrunk " + ("0.82.0" if os.environ.get("FIXTURE_PROBLEM") == "keg" else "0.80.0 0.81.0"))
+elif args[:3] == ["list", "--pinned", "--versions"]:
+    if (root / "pin").exists(): print((root / "pin").read_text())
+elif args == ["pin", "worktrunk"]: (root / "pin").write_text("worktrunk 0.81.0")
+elif args[:3] == ["bundle", "check", "--no-upgrade"]:
+    raise SystemExit(1 if os.environ.get("FIXTURE_PROBLEM") == "missing-prerequisite" else 0)
+elif args[:2] == ["bundle", "--no-upgrade"]: pass
+else: raise SystemExit(42)
+''')
+    brew.chmod(0o755)
+    env = {**os.environ, "PATH": f"{tools}:{os.environ['PATH']}", "FIXTURE_ROOT": str(tmp_path),
+           "FIXTURE_PROBLEM": problem or ""}
+    if problem == "version":
+        env["FIXTURE_WT_VERSION"] = "wt v0.82.0"
+    if problem == "shadow":
+        shadow = tmp_path / "shadow"
+        shadow.mkdir()
+        shutil.copy2(native, shadow / "wt")
+        env["PATH"] = f"{shadow}:{env['PATH']}"
+    script = chezmoi("execute-template", template=(ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text()).stdout
+    subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+    for _ in range(2 if problem is None else 1):
+        result = subprocess.run(["bash"], input=script, text=True, capture_output=True, env=env)
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        if problem:
+            assert result.returncode != 0
+            assert not any(call[0] == "pin" or call[:2] == ["bundle", "--no-upgrade"] for call in calls)
+        else:
+            assert result.returncode == 0, result.stderr
+            assert pin.read_text() == "worktrunk 0.81.0"
+            assert calls.index(["pin", "worktrunk"]) < next(i for i, call in enumerate(calls) if call[:2] == ["bundle", "--no-upgrade"])
+            assert all(call[1] in {"check", "--no-upgrade"} for call in calls if call[0] == "bundle")
 
 
 def test_remote_workspace_config_stays_machine_local() -> None:

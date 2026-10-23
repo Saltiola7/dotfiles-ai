@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dotfiles AI Update"
+  short_description: "Check and maintain dotfiles-ai dependencies"
+  default_prompt: "Use $dotfiles-ai-update to check dotfiles-ai dependencies and guide the requested updates through their existing owners."

@@ -16,7 +16,6 @@ import sys
 import tomllib
 
 
-VERSION = "wt v0.80.0"
 LAYOUT = "/{{ repo }}-{{ repo_path | hash }}/{{ branch | sanitize }}"
 PREFIXES = dict(task="dbsctr", discovery="discovery", integration="integration")
 ENV = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "WORKTRUNK_"))}
@@ -26,6 +25,19 @@ ENV.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1",
 
 def refuse():
     raise ValueError("workflow_policy_invalid_or_unavailable")
+
+
+class UnsupportedWorktrunk(ValueError):
+    """Only bounded version diagnostics may reach the operator."""
+
+
+def worktrunk_version():
+    supported = ("wt v0.80.0", "wt v0.81.0") if platform.system() == "Darwin" else ("wt v0.80.0",)
+    observed = run("wt", "--version").decode(errors="replace").strip()
+    if observed not in supported:
+        safe = observed if re.fullmatch(r"wt v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}", observed) else "unrecognized"
+        raise UnsupportedWorktrunk(f"unsupported_worktrunk_version; expected {', '.join(supported)}; observed {safe}")
+    return observed
 
 
 def fields(value, allowed):
@@ -262,7 +274,7 @@ def native_config(value, home, previous):
     managed = {"remove": {"delete-branch": False}, "commit": {"stage": "none"},
                "merge": dict(commit=False, squash=False, rebase=False, remove=False),
                "pre-remove": {"preservation": "exec dbsctrctl workspace-remove-check --json"},
-               "pre-switch": {"workflow-storage": "exec " + shlex.quote(str(Path(home) / ".local/bin/workflow-policy")) + " check --target {{ target }}"}}
+               "pre-switch": {"workflow-storage": "exec " + shlex.quote(str(Path(home) / ".local/bin/workflow-policy")) + " check --target {{ target | default(target_worktree_path) }}"}}
     for table, settings in managed.items():
         current = native.get(table, {})
         if table in {"pre-remove", "pre-switch"} and isinstance(current, (str, list)):
@@ -362,8 +374,7 @@ def validate_document(value, home):
 
 def snapshot(value, home):
     validate_document(value, home)
-    if run("wt", "--version").decode().strip() != VERSION:
-        refuse()
+    version = worktrunk_version()
     roots, caches = roots_of(value)
     defaults = {Path(home) / "Worktrees", Path(home) / ".cache/dotfiles-ai/dvc"}
     identities = []
@@ -374,7 +385,7 @@ def snapshot(value, home):
         identities.append(dict(canonical_path=str(path), kind="owned_home" if owned else "external",
                                filesystem_uuid=uuid, mountpoint=mountpoint))
     return dict(schema_version=1, policy_digest=value["policy_digest"], roots=identities,
-                worktrunk_version=VERSION)
+                 worktrunk_version=version)
 
 
 def verify_snapshot(value, saved, home):
@@ -460,6 +471,9 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except UnsupportedWorktrunk as error:
+        print(f"workflow-policy: {error}; existing work retained", file=sys.stderr)
+        sys.exit(1)
     except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
         print("workflow-policy: invalid_or_unavailable; existing work retained", file=sys.stderr)
         sys.exit(1)

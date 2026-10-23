@@ -233,6 +233,32 @@ def test_mount_replacement_and_partial_generation_refuse(policy, storage_home, m
         policy.verify_snapshot(value, snapshot, storage_home)
 
 
+@pytest.mark.parametrize("system,version,accepted", [
+    ("Darwin", "wt v0.80.0", True), ("Darwin", "wt v0.81.0", True),
+    ("Linux", "wt v0.80.0", True), ("Linux", "wt v0.81.0", False),
+    ("Darwin", "wt v0.82.0", False), ("Darwin", "private-output\nsecret", False),
+])
+def test_qualified_snapshot_binds_actual_platform_version(policy, storage_home, monkeypatch,
+                                                         system, version, accepted):
+    value = policy.resolve(None, storage_home)
+    value["source_commit"] = "a" * 40
+    value["policy_digest"] = policy.digest(value)
+    monkeypatch.setattr(policy.platform, "system", lambda: system)
+    monkeypatch.setattr(policy, "run", lambda *args, **kwargs: version.encode())
+    if not accepted:
+        with pytest.raises(ValueError, match="unsupported_worktrunk_version") as failure:
+            policy.snapshot(value, storage_home)
+        assert "private-output" not in str(failure.value)
+        assert "secret" not in str(failure.value)
+        return
+    snapshot = policy.snapshot(value, storage_home)
+    assert snapshot["worktrunk_version"] == version
+    policy.verify_snapshot(value, snapshot, storage_home)
+    snapshot["worktrunk_version"] = "wt v0.79.0"
+    with pytest.raises(ValueError):
+        policy.verify_snapshot(value, snapshot, storage_home)
+
+
 def test_native_selector_conflict_refuses_whole_generation(policy, storage_home, fixture):
     other = fixture.repo.parent / "clone"
     subprocess.run(["git", "clone", str(fixture.repo), str(other)], check=True, capture_output=True)
@@ -435,6 +461,16 @@ def test_native_user_hook_blocks_forced_dirty_removal_then_preserves_branch(fixt
                   if line.startswith("worktree ") and Path(line.removeprefix("worktree ")) != fixture.repo.resolve())
     assert target.is_relative_to(home / "Worktrees")
     assert target.is_dir()
+    # Existing membership remains reachable by path even with stale activation.
+    detached = home / "Worktrees/detached"
+    git(fixture.repo, "worktree", "add", "--detach", str(detached), "HEAD")
+    activated = activation.read_bytes()
+    activation.write_text('{}')
+    try:
+        wt("switch", str(target), "--no-cd", "--yes")
+        wt("switch", str(detached), "--no-cd", "--yes")
+    finally:
+        activation.write_bytes(activated)
     wt("switch", "--create", "collision/a", "--no-cd", "--yes")
     collision = next(p for p in target.parent.iterdir() if p.name == "collision-a")
     wt("switch", "--create", "collision-a", "--no-cd", "--yes", ok=False)

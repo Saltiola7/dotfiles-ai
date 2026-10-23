@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "dependency-maintenance",
+  "title": "Qualified Worktrunk and dependency maintenance",
+  "state": "discovering",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id":"INT-001","kind":"requirement","text":"Qualify exact Worktrunk 0.81.0 on macOS and repair the version/activation mismatch while retaining unchanged Linux and guest 0.80.0 support.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/dependency-maintenance.md"]},
+    {"id":"INT-002","kind":"requirement","text":"Use native Homebrew pinning and non-upgrading managed reapply so routine Brew upgrades do not incidentally advance qualified Worktrunk.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/dependency-maintenance.md"]},
+    {"id":"INT-003","kind":"decision","text":"Keep native templates as default; custom --path is an explicit operator exception, not automatic agent allocation. Document the pre-switch enforcement limit and qualify normal native routes without adding an allocator.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/dependency-maintenance.md"]},
+    {"id":"INT-004","kind":"requirement","text":"Review every dotfiles-ai declared dependency and provide an easy central update runbook plus portable skill using existing installer owners.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/dependency-maintenance.md"]},
+    {"id":"INT-005","kind":"constraint","text":"Preserve existing work, branch identities, storage and retirement guards, private state and historical evidence. Separate source delivery from exact approved Mac activation; no guest rollout or unrelated restarts.","disposition":"ready","artifacts":["docs/initiatives/dependency-maintenance/README.md","docs/specs/dotfiles_ai_distribution/features/dependency-maintenance.md"]},
+    {"id":"INT-006","kind":"decision","text":"An explicitly approved isolated checksum-verified official 0.80.0 bootstrap may create repair checkouts through unchanged hooks while keeping Homebrew 0.81.0 installed.","disposition":"ready","artifacts":["docs/initiatives/dependency-maintenance/README.md"]},
+    {"id":"INT-007","kind":"non-goal","text":"No new updater CLI, polling daemon, automatic upgrade-all, native custom-path enforcement claim, or competing permanent executable owner.","disposition":"ready","artifacts":["docs/specs/dotfiles_ai_distribution/features/dependency-maintenance.md"]}
+  ],
+  "contexts": [
+    {"id":"dotfiles_ai_distribution","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":["opencode_control_plane"]},
+    {"id":"opencode_control_plane","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":[]}
+  ],
+  "slices": [
+    {"id":"worktrunk-source","context":"dotfiles_ai_distribution","state":"ready","execution_owner":"build","requirements":["INT-001","INT-002","INT-003","INT-005","INT-006","INT-007"],"depends_on":[],"artifacts":["docs/initiatives/dependency-maintenance/README.md","docs/initiatives/dependency-maintenance/SOURCE.plan.json","docs/specs/dotfiles_ai_distribution/features/dependency-maintenance.md","docs/specs/dotfiles_ai_distribution/PROFILE.md","docs/specs/dotfiles_ai_distribution/PRODUCT.md","docs/specs/opencode_control_plane/PROFILE.md"],"release_group":"maintenance"},
+    {"id":"maintenance-source","context":"dotfiles_ai_distribution","state":"ready","execution_owner":"build","requirements":["INT-004","INT-005","INT-007"],"depends_on":[],"artifacts":["docs/initiatives/dependency-maintenance/README.md","docs/initiatives/dependency-maintenance/SOURCE.plan.json","docs/specs/dotfiles_ai_distribution/features/dependency-maintenance.md","docs/specs/dotfiles_ai_distribution/PROFILE.md","docs/specs/dotfiles_ai_distribution/PRODUCT.md"],"release_group":"maintenance"},
+    {"id":"mac-activation","context":"dotfiles_ai_distribution","state":"discovering","execution_owner":"discovery","requirements":["INT-001","INT-002","INT-003","INT-004","INT-005"],"depends_on":["worktrunk-source","maintenance-source"],"artifacts":["docs/initiatives/dependency-maintenance/README.md","docs/specs/dotfiles_ai_distribution/features/dependency-maintenance.md"],"release_group":"maintenance"}
+  ],
+  "release_groups": [{"id":"maintenance","members":["worktrunk-source","maintenance-source","mac-activation"],"state":"planning"}]
+}

@@ -292,7 +292,8 @@ def remove_checkout(value):
                 or decision.get("reservation_id") != attempt["attempt_id"] or not isinstance(digest, str)
                 or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest)):
             raise ValueError("qualified strict retirement decision unavailable")
-        if subprocess.check_output(["wt", "--version"], text=True, timeout=10).strip() != "wt v0.80.0":
+        supported = ("wt v0.80.0", "wt v0.81.0") if sys.platform == "darwin" else ("wt v0.80.0",)
+        if subprocess.check_output(["wt", "--version"], text=True, timeout=10).strip() not in supported:
             raise ValueError("qualified Worktrunk version unavailable")
         attempt.update(expected_state_digest=digest, outcome="started")
         reservation_write(fd, attempt)

@@ -15,6 +15,9 @@ session. Invoke `dbsctrctl` through native shell permissions; it registers the
 explicit checkout and preserves lifecycle gates, not transparent task routing.
 Do not use retired continuation receipts, attachment or writer-transfer commands.
 Unavailable native actor/message/call identity stays unavailable.
+Use native template-based creation. Worktrunk `switch --path` is an explicit
+operator exception, not an automatic agent route. Its custom creation destination
+is unavailable to the 0.81.0 pre-switch hook; do not claim storage validation for it.
 
 For Initiative registration, obtain fresh receipt/preflight and present scope,
 risk, delivery target and launch digest. Ask for explicit chat approval of that

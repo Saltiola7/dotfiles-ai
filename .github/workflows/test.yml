@@ -18,6 +18,7 @@ concurrency:
 
 jobs:
   test:
+    name: ${{ matrix.worktrunk-version == '0.81.0' && format('test ({0})', matrix.python-version) || format('test ({0}, {1})', matrix.python-version, matrix.worktrunk-version) }}
     runs-on: macos-26
     timeout-minutes: 45
     strategy:
@@ -26,6 +27,10 @@ jobs:
         # PR/main feedback uses one full native suite. Compatibility stays full
         # on the weekly schedule and explicit manual runs.
         python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14"]' || '["3.14"]') }}
+        worktrunk-version: ["0.81.0"]
+        include:
+          - python-version: "3.14"
+            worktrunk-version: "0.80.0"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,28 +44,38 @@ jobs:
       - run: brew install chezmoi
       - name: Install qualified Worktrunk
         shell: bash
+        env:
+          WORKTRUNK_VERSION: ${{ matrix.worktrunk-version }}
         run: |
           set -euo pipefail
-          case "$(uname -m)" in
-            arm64)
+          case "$WORKTRUNK_VERSION:$(uname -m)" in
+            0.80.0:arm64)
               target=aarch64-apple-darwin
               sha256=8a2bb053c4bc80dea7d9ce6c221ff038d10a3d2dca2dc8f60d1b1a094fa783a9
               ;;
-            x86_64)
+            0.80.0:x86_64)
               target=x86_64-apple-darwin
               sha256=aa898aa301617abaf91cb3078de4c8c11444a061016dc8f6dd80aa17cc1c46be
               ;;
+            0.81.0:arm64)
+              target=aarch64-apple-darwin
+              sha256=b9c3f2f8071554cf88500466d65d35e18ad5edad5762479a1f14bcddd5ab7882
+              ;;
+            0.81.0:x86_64)
+              target=x86_64-apple-darwin
+              sha256=211fa3585afa0ce243de0f007fbe2d8b86c5c88c85eda17d09311b32e8533714
+              ;;
             *) echo "Unsupported Worktrunk CI architecture" >&2; exit 1 ;;
           esac
-          install_dir="$RUNNER_TEMP/worktrunk-0.80.0"
+          install_dir="$RUNNER_TEMP/worktrunk-$WORKTRUNK_VERSION"
           mkdir -p "$install_dir"
           archive="$install_dir/worktrunk.tar.xz"
           curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
-            "https://github.com/max-sixty/worktrunk/releases/download/v0.80.0/worktrunk-$target.tar.xz" \
+            "https://github.com/max-sixty/worktrunk/releases/download/v$WORKTRUNK_VERSION/worktrunk-$target.tar.xz" \
             --output "$archive"
           echo "$sha256  $archive" | shasum -a 256 --check
           tar -xJf "$archive" -C "$install_dir" --strip-components=1
-          test "$("$install_dir/wt" --version)" = 'wt v0.80.0'
+          test "$("$install_dir/wt" --version)" = "wt v$WORKTRUNK_VERSION"
           echo "$install_dir" >> "$GITHUB_PATH"
       - run: bun install --global opencode-ai@1.18.35
       - name: Check publication and instruction contracts

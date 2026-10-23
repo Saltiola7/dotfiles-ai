@@ -508,6 +508,7 @@ def test_probe_fails_closed_on_unbounded_command_output(tmp_path: Path) -> None:
     result = run_control("probe", env={"PATH": f"{fake_bin}:{os.environ['PATH']}"})
 
     assert result.returncode == 1
+    assert result.stdout, result.stderr.decode(errors="replace")
     assert json.loads(result.stdout)["runtime"]["reason"] == "runtime_probe_failed"
 
 

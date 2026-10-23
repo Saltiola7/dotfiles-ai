@@ -217,7 +217,8 @@ def test_git_location_override_is_not_silently_accepted(workspace, tmp_path):
 @pytest.mark.skipif(not shutil.which("wt"), reason="pinned native Worktrunk unavailable")
 def test_native_remove_hook_retains_parent_reservation_descriptor(workspace, tmp_path):
     main, trees, _, env = workspace
-    assert subprocess.check_output(["wt", "--version"], text=True).strip() == "wt v0.80.0"
+    supported = ("wt v0.80.0", "wt v0.81.0") if sys.platform == "darwin" else ("wt v0.80.0",)
+    assert subprocess.check_output(["wt", "--version"], text=True).strip() in supported
     target = trees[1]
     admin = Path(subprocess.check_output(["git", "rev-parse", "--absolute-git-dir"], cwd=target, text=True).strip()).resolve()
     directory = main / ".git/agent-worktree-locks"

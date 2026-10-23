@@ -7,6 +7,7 @@ or deployment qualification.
 """
 import json
 import hashlib
+import fnmatch
 import os
 import re
 import shutil
@@ -21,6 +22,50 @@ OC = ROOT / "private_dot_config/opencode"
 # Source-only rubric. No installed filter, provider route or runtime is selected.
 WORKFLOW_SOURCE_COMMIT = "9989a649bd220a9eabc2b1c7e12062b1ce39f293"
 WORKFLOW_BYPASS_CASES = {"policy-expiry", "stale-checks", "approval-binding", "compaction-recovery"}
+
+
+def test_custom_worktrunk_path_is_an_operator_exception():
+    config = rendered_config()
+    rules = config["permission"]["bash"]
+    def decision(command):
+        return [value for pattern, value in rules.items() if fnmatch.fnmatchcase(command, pattern)][-1]
+    assert decision("wt switch --create topic --base origin/main") == "ask"
+    for command in ("wt switch --create topic --path ../custom", "wt switch --path=../custom topic",
+                    "/opt/tools/wt switch --create topic --path ../custom"):
+        assert decision(command) == "deny"
+    for relative in ("private_dot_config/opencode/AGENTS.md", "private_dot_config/dotfiles-ai/codex-managed/AGENTS.md"):
+        text = (ROOT / relative).read_text()
+        assert "operator exception" in text and "pre-switch hook" in text
+
+
+@pytest.mark.skipif(not os.environ.get("OPENCODE_V2_TEST_BINARY"), reason="explicit native V2 test binary not selected")
+def test_native_v2_loads_worktrunk_permission_boundary(tmp_path):
+    binary = os.environ["OPENCODE_V2_TEST_BINARY"]
+    config = tmp_path / ".config/opencode"
+    config.mkdir(parents=True)
+    (config / "opencode.json").write_text(json.dumps({"permission": rendered_config()["permission"]}))
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("OPENCODE_", "XDG_", "GIT_", "HERDR_"))}
+    env.update(HOME=str(tmp_path), XDG_CONFIG_HOME=str(tmp_path / ".config"),
+               XDG_DATA_HOME=str(tmp_path / "data"), XDG_STATE_HOME=str(tmp_path / "state"),
+               XDG_CACHE_HOME=str(tmp_path / "cache"))
+    # This fixture's private state must use an ephemeral server, not the user's
+    # shared service port. `debug` does not expose the TUI's --standalone flag.
+    configured = subprocess.run([binary, "service", "set", "disabled", "true"], cwd=tmp_path,
+                                env=env, text=True, capture_output=True, timeout=30)
+    assert configured.returncode == 0, configured.stderr
+    result = subprocess.run([binary, "debug", "config"], cwd=tmp_path, env=env,
+                            text=True, capture_output=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    documents = [entry for entry in json.loads(result.stdout) if entry["type"] == "document"]
+    assert len(documents) == 1
+    rules = documents[0]["info"]["permissions"]
+    for command, expected in (("wt switch --create topic", "ask"),
+                              ("wt switch --create topic --path ../custom", "deny"),
+                              ("wt switch --path=../custom topic", "deny")):
+        matches = [rule["effect"] for rule in rules if rule["action"] == "shell"
+                   and fnmatch.fnmatchcase(command, rule["resource"])]
+        assert matches[-1] == expected
 
 
 def workflow_json(value):
