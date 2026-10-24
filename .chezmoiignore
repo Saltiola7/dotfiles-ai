@@ -21,6 +21,23 @@ graphify-out/
 .agents/.skill-lock.json
 Brewfile
 
+{{ $clineDesktop := eq .dotfiles_ai.cline_desktop.enabled true }}
+{{ $clineCLI := eq .dotfiles_ai.cline_cli.enabled true }}
+{{ $clineVertex := eq .dotfiles_ai.cline_vertex.enabled true }}
+{{ if not (and $clineDesktop (eq .chezmoi.os "darwin")) }}
+install-cline-desktop.sh
+.local/bin/cline-desktop
+{{ end }}
+{{ if not $clineCLI }}
+install-cline-cli.sh
+{{ end }}
+{{ if not (and $clineVertex (or $clineCLI (and $clineDesktop (eq .chezmoi.os "darwin")))) }}
+.config/dotfiles-ai/cline-vertex.json
+.local/bin/cline-vertex
+.local/bin/cline-desktop
+configure-cline-vertex.sh
+{{ end }}
+
 # Runtime/vendor-managed OpenCode artifacts.
 .config/opencode/node_modules
 .config/opencode/package.json
@@ -185,6 +202,9 @@ load-dbsctr-reranker.sh
 .config/dotfiles-ai/*
 !.config/dotfiles-ai/codex-managed
 !.config/dotfiles-ai/codex-managed/**
+{{ if and $clineVertex $clineCLI }}
+!.config/dotfiles-ai/cline-vertex.json
+{{ end }}
 {{ end }}
 
 {{ if eq .chezmoi.os "darwin" }}

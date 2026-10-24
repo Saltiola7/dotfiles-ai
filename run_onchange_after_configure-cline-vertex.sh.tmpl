@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Launcher hash: {{ include "dot_local/bin/executable_cline-vertex" | sha256sum }}
+# Configuration hash: {{ includeTemplate "private_dot_config/dotfiles-ai/private_cline-vertex.json.tmpl" . | sha256sum }}
+set -euo pipefail
+{{ if not (and (eq .dotfiles_ai.cline_vertex.enabled true) (or (eq .dotfiles_ai.cline_cli.enabled true) (and (eq .dotfiles_ai.cline_desktop.enabled true) (eq .chezmoi.os "darwin")))) -}}
+exit 0
+{{ end -}}
+"$HOME/.local/bin/cline-vertex" --configure

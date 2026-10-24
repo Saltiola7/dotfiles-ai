@@ -81,9 +81,60 @@ setup or an intentional upgrade.
 - `onepassword`: optional account UUID, alias, and Keychain service.
 - `tailscale`: default-off workspace enrollment and SSH policy switch; secrets,
   peer identities, and tailnet policy stay external.
+- `cline_desktop` / `cline_cli`: independent default-off Cline installations.
+- `cline_vertex`: optional shared Vertex Claude selection using the existing
+  `opencode.vertex_*` project, region and isolated ADC settings.
 
 When 1Password is disabled, `op-session` is not managed. Herdr and OpenCode keep
 their ordinary environment-based authentication.
+
+### Optional Cline Desktop And CLI
+
+Enable either tool in the machine-local chezmoi TOML:
+
+```toml
+[data.dotfiles_ai.cline_desktop]
+enabled = true
+
+[data.dotfiles_ai.cline_cli]
+enabled = true
+
+[data.dotfiles_ai.cline_vertex]
+enabled = true
+model = "claude-sonnet-5-5@default"
+hub_port = 25464
+```
+
+Desktop uses Homebrew's `cline-app` cask on macOS. New CLI installations use
+`npm install --global cline@3.0.73`; npm must already be available. Installation
+hooks preserve existing versions. Shared Vertex settings require CLI 3 or later;
+review an explicit npm update for an older installation before using them.
+Other providers and settings are preserved, with private preimages retained.
+
+Set `opencode.vertex_project`, `vertex_location`, and `vertex_credentials` as
+described in [config.example.toml](config.example.toml), then renew credentials
+with `vertex-reauth` when required. Use `cline-vertex` for CLI and `cline-desktop`
+for Desktop so the process receives the exact isolated ADC path. They share a
+dedicated `~/.cline-vertex` profile and localhost Hub, separate from default Cline
+profiles and history. Bare `cline` and Finder launches use their native profile.
+`cline-vertex --check` and
+`cline-desktop --check` verify local readiness without model requests. Opus is
+available by selecting `claude-opus-5-5@default`, subject to project access.
+
+Before changing the ADC path or Hub port, finish managed sessions, quit its
+Desktop instance and stop only that profile's Hub:
+
+```sh
+cline hub --discovery-path "$HOME/.cline-vertex/data/locks/hub/production.json" stop
+```
+
+Reauthentication can also require restarting this Hub. Keep native profiles,
+credential files and private backups; none are automatically migrated or removed.
+
+Preview and apply only the selected Cline scripts/configuration/launchers. Setting
+flags false stops future management; uninstall and application-data removal remain
+explicit. See the [distribution contract](docs/specs/dotfiles_ai_distribution/README.md#optional-cline-domain)
+and [maintenance runbook](docs/UPDATES.md) for recovery and update ownership.
 
 ### Choose your storage paths
 
