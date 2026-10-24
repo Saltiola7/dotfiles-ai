@@ -43,6 +43,63 @@ authority.
   actionable diagnostic. Running `vertex-reauth` renews the shared credential;
   the launcher never performs a browser login or paid model probe automatically.
 
+### Cline Interfaces
+
+- `[data.dotfiles_ai.cline_desktop] enabled = false` selects the macOS-only
+  `run_onchange_after_install-cline-desktop.sh.tmpl` Homebrew hook.
+- `[data.dotfiles_ai.cline_cli] enabled = false` selects the macOS/Linux
+  `run_onchange_after_install-cline-cli.sh.tmpl` npm hook. New installations use
+  `cline@3.0.73`; an existing CLI is not silently upgraded or downgraded.
+- `[data.dotfiles_ai.cline_vertex] enabled = false` opts into shared Vertex
+  settings and process-local launchers when at least one Cline tool is enabled.
+  `model = "claude-sonnet-5-5@default"` selects Sonnet; a supported Vertex model
+  such as `claude-opus-5-5@default` may be selected explicitly.
+- The private `.config/dotfiles-ai/cline-vertex.json` carries inherited project,
+  region, ADC path, model, and enabled tools. It contains no credential content.
+  Remote-user rendering selects that user's canonical ADC as `vertex-reauth` does.
+- `.local/bin/cline-vertex [--configure|--check] [CLI arguments...]` configures,
+  checks, or launches the native CLI. `.local/bin/cline-desktop [arguments...]`
+  launches the macOS app through the same ADC environment. These entry points
+  leave bare native commands and Finder launches unchanged.
+- The configuration hook invokes `cline-vertex --configure`. It merges the
+  version-1 native `.cline/data/settings/providers.json`: `lastUsedProvider` is
+  `vertex`, and `providers.vertex.settings` selects `provider`, `model`, and
+  `gcp.projectId`/`gcp.region`. Other providers, mode preferences and settings
+  remain native-owned. CLI 2.x needs a separately selected native npm update
+  before using the shared settings; retained legacy state is not rewritten.
+
+Canonical upstream interfaces: [Desktop](https://cline.bot/desktop),
+[CLI](https://cline.bot/cli), and the
+[reviewed Desktop source](https://github.com/cline/cline/tree/desktop-v0.0.48).
+Source defaults do not assert cloud model entitlement or live inference health.
+
+#### Cline Visual Evidence
+
+Boundary, interaction, state, and data/trust evidence use the transition table
+below. Schema is a flat optional configuration with a native-owned JSON file;
+no entity-relationship view is needed. Dependency/deployment is represented by
+the installer/launcher ownership columns. Quantitative evidence is not applicable:
+no metric comparison determines this behavior.
+
+| Input/state | Owner/action | Result and privacy boundary |
+|---|---|---|
+| Installation switch false | Chezmoi excludes that hook | No install, update or removal |
+| Enabled and absent | Homebrew Desktop / npm CLI | Install the selected upstream tool |
+| Enabled and already present | Existing installer | Preserve installed version |
+| Vertex false | Cline | Preserve native provider configuration |
+| Vertex true and valid local values | Distribution configuration helper | Merge only Vertex selection; retain private preimage |
+| Managed launch | Native Cline process | Read the exact isolated ADC; no global export or credential copy |
+| Missing/unsafe configuration | Distribution helper | Fail before replacement or launch; operator repairs or runs vertex-reauth |
+
+**Text Equivalent:** Each tool installs independently only when enabled and
+missing. Vertex selection is a separate opt-in. The helper preserves native
+settings, backs up changes privately, and supplies the shared ADC only to its
+child process. Invalid input refuses mutation or launch. Bare CLI and Finder
+remain native entry points and do not receive this process-local environment.
+The distribution owner maintains this table when flags, owners, file schema,
+launch ordering, or credential boundaries change. This section and the focused
+tests are its canonical sources.
+
 **Worktrunk maintenance source evidence:** the
 [dependency-maintenance contract](features/dependency-maintenance.md) owns the
 macOS 0.81.0 successor and retained 0.80.0 compatibility. Disposable native
