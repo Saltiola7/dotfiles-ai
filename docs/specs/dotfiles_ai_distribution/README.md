@@ -100,6 +100,52 @@ The distribution owner maintains this table when flags, owners, file schema,
 launch ordering, or credential boundaries change. This section and the focused
 tests are its canonical sources.
 
+### Cline Contracts And Validation
+
+All three `enabled` values must be TOML booleans. Disabled tools exclude their
+installer and tool-specific launcher. Desktop is supported only on macOS; CLI
+installation requires the existing npm owner. Hooks are missing-only, do not
+upgrade unrelated packages, and propagate installer failures.
+
+Vertex configuration requires a nonempty project, region, Claude model and
+existing absolute ADC path. Configuration and native settings must be regular,
+owner-controlled files, with no symbolic-link ancestors. Provider JSON must have
+version 1, an object provider map and well-formed Vertex settings. Unknown schema,
+malformed JSON, unsafe paths and incomplete values fail before replacement.
+Changed provider bytes receive a mode-0600 content-addressed preimage under
+`.config/dotfiles-ai/backups/cline/`; replacement is atomic and private. An
+identical apply preserves the provider file bytes and timestamp. These backups
+may contain native provider secrets and must remain private; retention/deletion
+is an explicit operator decision.
+
+Launchers override `GOOGLE_APPLICATION_CREDENTIALS`, select its parent as
+`CLOUDSDK_CONFIG`, and remove credential-file override/active-config variables in
+the child environment. CLI launch requires version 3 or later. Desktop locates
+its executable through the installed bundle's `Info.plist`. Missing tools, stale
+provider selection and unreadable ADC fail explicitly. No launcher changes
+approval settings, starts tasks automatically, performs browser authentication,
+or probes paid inference. Users quit an already running Desktop instance before
+changing its credential environment; Finder does not inherit launcher settings.
+
+The operator previews and applies only selected Cline targets/hooks after scoped
+QA. A prior CLI 2.x npm installation can be updated explicitly to the reviewed
+3.0.73 package with its legacy configuration retained privately; session-history
+migration remains unqualified. Recovery restores the private provider preimage
+with Cline stopped; uninstall and state deletion are separate manual actions.
+Desktop updates remain owned by its native updater/Homebrew; CLI updates remain
+explicit npm operations. Setting flags false stops future management without
+uninstalling or deleting application data. New upstream schemas/models require
+requalification against the native settings/catalog before source changes.
+
+Validation authorities are focused pytest fixtures for flag/platform matrices,
+rendered Bash syntax, fake installer failures and no-op reapply, private JSON
+merge/recovery invariants, argument/environment forwarding, and refusal cases.
+Publication checks and runbook-link validation cover public artifacts. Live
+deployment verifies exact targets, npm CLI version, cask/app signature, saved
+provider selection, launcher checks and drift-free second apply. ADC validity
+uses the existing `vertex-reauth --check`; cloud entitlement and paid inference
+remain untested unless separately requested.
+
 **Worktrunk maintenance source evidence:** the
 [dependency-maintenance contract](features/dependency-maintenance.md) owns the
 macOS 0.81.0 successor and retained 0.80.0 compatibility. Disposable native
