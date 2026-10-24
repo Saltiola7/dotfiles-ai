@@ -1,16 +1,24 @@
 # DBSCTR V3 Lifecycle
 
-## Effective Initiative authority prerequisite Discovery
+## Effective Initiative authority source interface
 
 [Digest-bound authority amendment](features/initiative-authority-amendment.md)
-specifies the approved narrow source prerequisite for explicitly updating effective
+defines the narrow source interface for explicitly updating effective
 Initiative authority on an existing ACTIVE native-owned schema 3/4/5/6 cycle.
 Original registration, import, approval, commits and failed evidence remain intact;
 validated ordered amendments reopen required gates, not erase their history.
 Ordinary begin/resume retains exact effective-receipt matching without silent
 amendment. The proposed command changes no Git state and imports no documents;
 later ordinary Gate Commit validation owns exact document import and lineage.
-The source plan is pending launch, not implemented/deployed CLI capability.
+`initiative-amend` provides offline preflight and exact-digest terminal or
+agent-confirmed apply. Durable private preimages, approved-plan envelopes and
+deterministic outcomes preserve exact retry without freezing normal record progress.
+Required gates need newly executed evidence. An ordinary recorded Gate Commit
+establishes the approved document closure and its versioned checkpoint; completion
+checks that closure again at HEAD. Changed selected blobs, including editorial
+changes, require fresh amendment authority. Native updated writers share local
+serialization; old/incompatible writers must still be kept out operationally.
+This is source delivery, not installed/deployed CLI qualification.
 Separate merged installation, exact real-cycle amendment consent and independent
 native permission repair remain required; preserve the blocked retirement cycle.
 The linked feature owns accessible boundary/interaction/state/trust/dependency
