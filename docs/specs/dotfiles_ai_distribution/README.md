@@ -22,6 +22,27 @@ inference provider. The owner is the local operator; installation does not grant
 authentication, browser-login, model-request, global-environment, or service-restart
 authority.
 
+### Cline Behavior
+
+- Given either installation switch is false, applying the source does not install,
+  update, remove, or configure that tool.
+- Given Desktop alone is enabled on macOS and missing, applying its selected hook
+  installs the official `cline-app` cask without installing CLI or other packages.
+- Given CLI alone is enabled and missing, applying its selected hook installs the
+  reviewed npm CLI version. An existing executable is preserved on reapply.
+- Given an installation or prerequisite fails, the hook reports failure without
+  starting authentication, a task, or another installer as a fallback.
+- Given Vertex configuration is enabled for an installed tool, its managed
+  launcher selects the configured project, region, Claude model, and exact ADC
+  path, overriding conflicting ambient credential variables for that process.
+- Given Vertex is disabled, existing native Cline provider settings are preserved.
+- Given existing native provider settings, configuration preserves unrelated
+  providers and settings, retains a private preimage, and is idempotent.
+- Given malformed or unsafe settings, configuration refuses before replacing them.
+- Given missing ADC or project configuration, the Vertex launcher fails with an
+  actionable diagnostic. Running `vertex-reauth` renews the shared credential;
+  the launcher never performs a browser login or paid model probe automatically.
+
 **Worktrunk maintenance source evidence:** the
 [dependency-maintenance contract](features/dependency-maintenance.md) owns the
 macOS 0.81.0 successor and retained 0.80.0 compatibility. Disposable native
