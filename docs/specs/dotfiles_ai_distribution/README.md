@@ -1,5 +1,27 @@
 # dotfiles-ai Distribution
 
+## Optional Cline Domain
+
+Cline Desktop and Cline CLI are independently enabled developer tools. Their
+machine-local installation switches default to false. Homebrew owns the macOS
+Desktop cask; npm owns new CLI installations. Existing installations and native
+application data remain owned by their current installer and Cline respectively.
+
+An optional Vertex profile selects Claude models through the existing
+`opencode.vertex_project`, `vertex_location`, and `vertex_credentials` values.
+`vertex-reauth` owns renewal of that same isolated Application Default Credentials
+(ADC) file. Cline receives its path only in the launched process environment;
+credentials, tokens, accounts, sessions, and private project identity never enter
+this public source. The distribution owns opt-in installation, launchers and
+the selected provider fields, while Cline retains its other native settings.
+
+The affected scope is this distribution context, its TOML defaults/example,
+chezmoi hooks and targets, focused tests, and the manual update runbook. Risk is
+elevated because the change installs upstream executables and selects an external
+inference provider. The owner is the local operator; installation does not grant
+authentication, browser-login, model-request, global-environment, or service-restart
+authority.
+
 **Worktrunk maintenance source evidence:** the
 [dependency-maintenance contract](features/dependency-maintenance.md) owns the
 macOS 0.81.0 successor and retained 0.80.0 compatibility. Disposable native
