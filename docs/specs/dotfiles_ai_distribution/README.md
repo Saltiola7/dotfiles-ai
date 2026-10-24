@@ -56,7 +56,8 @@ authority.
   the dedicated loopback Hub port; a supported Vertex model
   such as `claude-opus-5-5@default` may be selected explicitly.
 - The private `.config/dotfiles-ai/cline-vertex.json` carries inherited project,
-  region, ADC path, model, Hub port, and enabled tools. It contains no credential content.
+  region, ADC path, model, Hub port, and enabled tools. It contains no credential
+  content.
   Remote-user rendering selects that user's canonical ADC as `vertex-reauth` does.
 - `.local/bin/cline-vertex [--configure|--check] [CLI arguments...]` configures,
   checks, or launches the native CLI. `.local/bin/cline-desktop [arguments...]`
@@ -68,7 +69,8 @@ authority.
   `gcp.projectId`/`gcp.region`. Other providers, mode preferences and settings
   remain native-owned. `CLINE_DIR` and `CLINE_DATA_DIR` select this dedicated
   profile, and `CLINE_HUB_PORT` isolates its daemon from the default Cline Hub.
-  Existing Cline profiles and history are not imported or rewritten. CLI 2.x needs a separately selected native npm update
+  Existing Cline profiles and history are not imported or rewritten. CLI 2.x
+  needs a separately selected native npm update
   before using the shared settings; retained legacy state is not rewritten.
 
 Canonical upstream interfaces: [Desktop](https://cline.bot/desktop),
@@ -110,7 +112,8 @@ installer and tool-specific launcher. Desktop is supported only on macOS; CLI
 installation requires the existing npm owner. Hooks are missing-only, do not
 upgrade unrelated packages, and propagate installer failures.
 
-Vertex configuration requires a nonempty project, region, Claude model, unprivileged Hub port and
+Vertex configuration requires a nonempty project, region, Claude model,
+unprivileged Hub port and
 existing absolute ADC path. Configuration and native settings must be regular,
 owner-controlled files, with no symbolic-link ancestors. Provider JSON must have
 version 1, an object provider map, native entry timestamps/token sources,

@@ -72,6 +72,11 @@ target files.
     feature/version-linked regression evidence. External incident reporting is
     opt-in; incompatible data/schema downgrades remain blocked.
 
+21. A developer independently enables Cline Desktop or CLI and optionally uses
+    Vertex Claude through a dedicated native profile and Hub, reusing the ADC
+    renewed by `vertex-reauth` without changing default Cline state or global
+    credentials. Disabled installation switches do not uninstall native tools.
+
 ## Visual Evidence
 
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
@@ -96,6 +101,7 @@ flowchart LR
     W -->|Explicit invocation| O[OpenCode]
     W -->|Managed wrapper| X[Codex CLI dedicated home]
     D[Codex desktop default state] -. separate and unmanaged .-> X
+    W -->|Optional Vertex launchers| T[Cline dedicated profile and Hub]
     W -->|Optional opt-in| A[Isolated automation profiles]
     W -->|Optional personal service role| S[Rootless personal services]
     C -->|Standalone CentOS x86_64 role| V[Remote user-owned workspace]
@@ -112,7 +118,9 @@ flowchart LR
 **Text Equivalent:** Public defaults become usable only after private local
 values are supplied. Applying them creates managed host and workspace
 environments with explicitly invoked OpenCode and a managed Codex CLI wrapper;
-Codex desktop state remains separate. Automation remains optional and isolated. Evidence-ready
+Codex desktop state remains separate. Optional Cline launchers use a dedicated
+native profile and Hub with process-local Vertex ADC; default Cline state stays
+separate. Automation remains optional and isolated. Evidence-ready
 P0/P1 Discovery may proceed automatically when evidence resolves every material
 question, while uncertain work waits for the operator. Delivery defaults to a
 draft pull request for human review. Exact-repository local policy may enable
@@ -158,6 +166,11 @@ approval outcome changes.
   findings, branches, documentation, or pull requests.
 
 ## Success Evidence
+
+- Cline installation flags are independent and default off; scoped reapply
+  preserves native installations. Optional Vertex launchers select the configured
+  Claude model and isolated ADC without credential copies, default-profile
+  mutation, automatic login, or paid readiness probes.
 
 - Isolated rendering passes with and without optional 1Password values.
 - OpenCode resolves the expected agents, commands, skills, and DBSCTR tools.
