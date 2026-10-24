@@ -1,5 +1,27 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-23 — Digest-bound Initiative authority amendment
+
+- Added offline `initiative-amend` preflight/apply, exact terminal or chat-asserted
+  approval, immutable original registration/import and an ordered effective chain.
+  Durable preimages, envelopes and deterministic outcomes support exact retry;
+  ordinary progress remains readable without permitting stale approval replay.
+- Reopened required gates with fresh evidence, preserved failures/exceptions in
+  history, and required recorded exact-closure checkpoints plus HEAD validation.
+  Shared native-writer locks, source/destination/index checks, no-fetch reads and
+  sanitized results retain the operational old-client exclusion prerequisite.
+- Validation: 70 amendment cases, 152 registration/native/Forgejo compatibility
+  cases and 45 affected lifecycle evidence cases passed serially against unchanged
+  source, plus configured publication/instruction checks and Python 3.12 compilation.
+  Independent critical review findings were remediated and regression-covered.
+- A one-time approved source-only bootstrap retained original authority and failed
+  evidence while reconciling the prerequisite specification; the mechanism was
+  not used on itself. No required-gate failure waiver or dependency was added.
+- Python/Security source delivery only; no installation, live amendment, retirement
+  or cleanup. Implementation Gate Commit: `5480183`; authority Gate Commit:
+  `bcf38ab`. Final checks, artifact reviews and actual push remain in the private
+  Cycle Record. Intended Final Push: feature branch and draft PR into `main`.
+
 ## 2026-10-23 — Operator-approved native PR merge policy
 
 - Added the explicit single-PR native GitHub route to shared review/lifecycle

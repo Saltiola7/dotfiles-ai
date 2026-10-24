@@ -1,5 +1,14 @@
 # DBSCTR Workflow Convergence
 
+## Retirement recovery amendment
+
+[Retirement recovery](RETIREMENT-RECOVERY.md) extends this existing Initiative
+with approved record-only non-success closure, disposition-aware local archival
+and manual removal, migration reachability tests, supported OpenCode journey and
+one separately approved installed recovery. MANIFEST.json owns current states;
+the original Discovery checkpoint below is historical, not a current delivery count.
+New specification readiness does not qualify source, launch or live deletion.
+
 **Discovery complete; specification ready, not implemented.** The Initiative is
 `ready`, not delivered. All 52 intent statements and three contexts are ready for
 source implementation. All ten slices are specification-ready and Build-owned;

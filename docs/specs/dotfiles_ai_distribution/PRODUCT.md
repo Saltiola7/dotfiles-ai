@@ -69,8 +69,16 @@ target files.
     merge and applicable preservation. Unknown, active or unmerged work remains
     visible and retained; no arbitrary age delay replaces preservation evidence.
 20. A developer can disable compatible optional behavior and inspect sanitized
-    feature/version-linked regression evidence. External incident reporting is
-    opt-in; incompatible data/schema downgrades remain blocked.
+     feature/version-linked regression evidence. External incident reporting is
+     opt-in; incompatible data/schema downgrades remain blocked.
+21. A developer can explicitly supersede, cancel or retire proven empty work
+    through supported tooling without fictitious successful gates or ad hoc
+    record edits. Separate exact consent permits verified local preservation,
+    narrowly scoped checkout preparation and native hooked removal while retaining
+    recoverable Git/private evidence. Local retention does not protect against
+    disk loss. This approved exception to journey 19's unmerged retention requires
+    the [retirement recovery rollout](features/cycle-retirement-rollout.md), never
+    automatic abandonment or implicit deletion.
 
 ## Visual Evidence
 
@@ -102,6 +110,8 @@ flowchart LR
     A -->|Ready P0 or P1 work| I[Isolated implementation cycle]
     A -->|Uncertain work| U[Operator approval]
     U -->|Explicit proceed| I
+    U -->|Exact non-success closure approval| T[Administrative retirement; checkout retained]
+    T -->|Separate preservation and removal approval| L[Verified local archive and native hooked removal]
     I -->|Default draft pull request| R[PR review and merge]
     C -->|Exact repository opt-in| G[Guarded PR merge policy]
     I -->|Qualified PR evidence only| G
@@ -120,7 +130,9 @@ guarded PR merging against configured targets without extending worker authority
 One personal workspace may separately host rootless services without
 mounting project files into those containers. Secrets and machine identity never
 enter the public repository.
-The product owner updates this view when a core journey, privacy boundary, or
+Explicit non-success retirement retains the checkout; separately approved local
+archival and native hooked removal preserve recovery evidence without claiming
+successful delivery. The product owner updates this view when a core journey, privacy boundary, or
 approval outcome changes.
 
 ## Constraints And Trust
