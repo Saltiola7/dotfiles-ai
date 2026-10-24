@@ -25,7 +25,7 @@ authority.
 ### Cline Behavior
 
 - Given either installation switch is false, applying the source does not install,
-  update, remove, or configure that tool.
+  update, remove, or launch that tool. Shared Vertex settings are an independent opt-in.
 - Given Desktop alone is enabled on macOS and missing, applying its selected hook
   installs the official `cline-app` cask without installing CLI or other packages.
 - Given CLI alone is enabled and missing, applying its selected hook installs the
@@ -52,20 +52,23 @@ authority.
   `cline@3.0.73`; an existing CLI is not silently upgraded or downgraded.
 - `[data.dotfiles_ai.cline_vertex] enabled = false` opts into shared Vertex
   settings and process-local launchers when at least one Cline tool is enabled.
-  `model = "claude-sonnet-5-5@default"` selects Sonnet; a supported Vertex model
+  `model = "claude-sonnet-5-5@default"` selects Sonnet; `hub_port = 25464` selects
+  the dedicated loopback Hub port; a supported Vertex model
   such as `claude-opus-5-5@default` may be selected explicitly.
 - The private `.config/dotfiles-ai/cline-vertex.json` carries inherited project,
-  region, ADC path, model, and enabled tools. It contains no credential content.
+  region, ADC path, model, Hub port, and enabled tools. It contains no credential content.
   Remote-user rendering selects that user's canonical ADC as `vertex-reauth` does.
 - `.local/bin/cline-vertex [--configure|--check] [CLI arguments...]` configures,
   checks, or launches the native CLI. `.local/bin/cline-desktop [arguments...]`
   launches the macOS app through the same ADC environment. These entry points
   leave bare native commands and Finder launches unchanged.
 - The configuration hook invokes `cline-vertex --configure`. It merges the
-  version-1 native `.cline/data/settings/providers.json`: `lastUsedProvider` is
+  version-1 native `.cline-vertex/data/settings/providers.json`: `lastUsedProvider` is
   `vertex`, and `providers.vertex.settings` selects `provider`, `model`, and
   `gcp.projectId`/`gcp.region`. Other providers, mode preferences and settings
-  remain native-owned. CLI 2.x needs a separately selected native npm update
+  remain native-owned. `CLINE_DIR` and `CLINE_DATA_DIR` select this dedicated
+  profile, and `CLINE_HUB_PORT` isolates its daemon from the default Cline Hub.
+  Existing Cline profiles and history are not imported or rewritten. CLI 2.x needs a separately selected native npm update
   before using the shared settings; retained legacy state is not rewritten.
 
 Canonical upstream interfaces: [Desktop](https://cline.bot/desktop),
@@ -107,10 +110,11 @@ installer and tool-specific launcher. Desktop is supported only on macOS; CLI
 installation requires the existing npm owner. Hooks are missing-only, do not
 upgrade unrelated packages, and propagate installer failures.
 
-Vertex configuration requires a nonempty project, region, Claude model and
+Vertex configuration requires a nonempty project, region, Claude model, unprivileged Hub port and
 existing absolute ADC path. Configuration and native settings must be regular,
 owner-controlled files, with no symbolic-link ancestors. Provider JSON must have
-version 1, an object provider map and well-formed Vertex settings. Unknown schema,
+version 1, an object provider map, native entry timestamps/token sources,
+well-formed voice-mode preferences and provider settings. Unknown schema,
 malformed JSON, unsafe paths and incomplete values fail before replacement.
 Changed provider bytes receive a mode-0600 content-addressed preimage under
 `.config/dotfiles-ai/backups/cline/`; replacement is atomic and private. An
@@ -120,12 +124,15 @@ is an explicit operator decision.
 
 Launchers override `GOOGLE_APPLICATION_CREDENTIALS`, select its parent as
 `CLOUDSDK_CONFIG`, and remove credential-file override/active-config variables in
-the child environment. CLI launch requires version 3 or later. Desktop locates
+the child environment. They also override native Cline profile/Hub variables
+with the dedicated managed paths and loopback port, and refuse path-changing
+CLI arguments. CLI launch requires version 3 or later. Desktop locates
 its executable through the installed bundle's `Info.plist`. Missing tools, stale
 provider selection and unreadable ADC fail explicitly. No launcher changes
 approval settings, starts tasks automatically, performs browser authentication,
-or probes paid inference. Users quit an already running Desktop instance before
-changing its credential environment; Finder does not inherit launcher settings.
+or probes paid inference. Users stop the managed profile Hub and quit its Desktop instance before
+changing the ADC path or Hub port; reauthentication may require a Hub restart.
+The default Cline Hub remains separate. Finder does not inherit launcher settings.
 
 The operator previews and applies only selected Cline targets/hooks after scoped
 QA. A prior CLI 2.x npm installation can be updated explicitly to the reviewed
