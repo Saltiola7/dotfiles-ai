@@ -123,7 +123,8 @@ def install_chezmoi() -> Path:
     safe_path(binary.parent, "directory")
     with tempfile.TemporaryDirectory(dir=binary.parent) as temporary:
         archive_path = Path(temporary) / "chezmoi.tgz"
-        with urllib.request.urlopen(CHEZMOI_URL, timeout=60) as response, archive_path.open("wb") as stream:
+        # The release URL is a fixed HTTPS constant; the archive SHA-256 is checked below.
+        with urllib.request.urlopen(CHEZMOI_URL, timeout=60) as response, archive_path.open("wb") as stream:  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             shutil.copyfileobj(response, stream)
         if hashlib.sha256(archive_path.read_bytes()).hexdigest() != CHEZMOI_SHA256:
             raise BootstrapError("bootstrap chezmoi checksum failed")
