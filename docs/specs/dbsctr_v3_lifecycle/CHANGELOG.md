@@ -1,5 +1,20 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-24 — Explicit checkout use from Codex clients
+
+- Reconciled managed instructions, DBSCTR, Discovery and skill-authoring guidance
+  with the existing explicit-checkout implementation. Codex CLI and Desktop can
+  retain their conversation while commands use the selected task working directory
+  and edits use absolute paths; Desktop attachment is not a lifecycle prerequisite.
+- Retained Worktrunk ownership, protected-primary refusal, clean state, committed
+  profile/base validation, exact launch approval, native permissions and unavailable
+  actor attribution. No helper execution or gate semantics changed.
+- Isolated disposable Git fixtures from host commit-signing requirements through
+  local fixture configuration; test assertions and actual signing policy are intact.
+- Updated only the three selected shared skill entrypoints and two managed
+  instruction files through the existing distribution owner. Byte/target checks
+  passed; live client catalog refresh and fleet rollout are not claimed.
+
 ## 2026-10-23 — Operator-approved native PR merge policy
 
 - Added the explicit single-PR native GitHub route to shared review/lifecycle
