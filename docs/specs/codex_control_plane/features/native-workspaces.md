@@ -7,14 +7,19 @@ Authority: OpenCode rolling-stable Initiative INT-027–INT-030 and the shared
 
 ## Behavior and boundary
 
-Codex CLI uses its native cwd, sessions, sandbox and approvals in a Worktrunk task
-checkout. Skills invoke the same dbsctrctl CLI as OpenCode. Remove task allocation,
+Codex CLI and Desktop may retain their current conversation while selecting a
+Worktrunk task checkout as the explicit operation target. Repository commands use
+that checkout's working directory and file operations use absolute paths under it.
+Desktop attachment and native conversation relocation are not prerequisites.
+This does not retarget the conversation or authenticate its native identity.
+Skills invoke the same dbsctrctl CLI as OpenCode. Remove task allocation,
 root-target redirection and continuation receipt/admission orchestration; never
 add an MCP replacement or a second lifecycle implementation.
 
 Preserve the managed CODEX_HOME boundary, native login, provider affinity,
 release-lock validation, rolling updater and unrelated supported history hooks.
-Codex Desktop is not managed by this change. Do not read undocumented session
+Desktop binary, configuration and session management remain outside this change;
+its native tools may consume the existing shared lifecycle CLI. Do not read undocumented session
 databases or infer native call identity from arbitrary arguments/environment.
 Missing attribution remains unavailable. Plain CLI execution does not require a
 manufactured native receipt.
@@ -49,7 +54,11 @@ permission semantics is explicitly unavailable, not silently elevated.
 
 ## Acceptance
 
-- Native cwd is the selected task checkout; another checkout's branch is unchanged.
+- Each repository command targets the selected task checkout explicitly; another
+  checkout's branch is unchanged. Conversation cwd may differ and is not rewritten
+  or presented as verified session association.
+- Missing Desktop attachment does not block otherwise authorized CLI operations.
+  Native tool access failures still block the affected operation and preserve work.
 - Both allowed and denied native commands obey the configured sandbox/approval mode.
 - Lifecycle registration, evidence, gate progression and PR delivery work through CLI.
 - No new native task requires continuation enrollment, native receipts or root routing.

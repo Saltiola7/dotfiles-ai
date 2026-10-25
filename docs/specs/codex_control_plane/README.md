@@ -1,5 +1,11 @@
 # Codex Control Plane
 
+Codex CLI and Desktop may consume the existing shared DBSCTR CLI through native
+tools targeting an explicit validated task checkout. A Desktop attachment failure
+does not block otherwise authorized checkout operations or require a new chat.
+This does not manage Desktop state, relocate the conversation or establish native
+actor identity. See the [workspace contract](features/native-workspaces.md).
+
 **WORKTRUNK-NATIVE-WORKSPACES source implementation:** The
 [approved native-workspace delta](features/native-workspaces.md) retires the task
 receipt/admission producer, probe and requalifier. Native sandbox/approval modes,

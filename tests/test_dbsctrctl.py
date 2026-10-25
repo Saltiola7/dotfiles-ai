@@ -1333,7 +1333,7 @@ class DbsctrctlTest(unittest.TestCase):
         artifacts = self.repo / "docs/specs/test"
         artifacts.mkdir(parents=True)
         for args in (("init", "-b", "master"), ("config", "user.email", "test@example.com"),
-                     ("config", "user.name", "Test")):
+                     ("config", "user.name", "Test"), ("config", "commit.gpgsign", "false")):
             subprocess.run(["git", *args], cwd=self.repo, check=True, capture_output=True)
         (self.repo / "tracked.txt").write_text("base\n")
         for name in ("README.md", "BACKLOG.md", "CHANGELOG.md"):
