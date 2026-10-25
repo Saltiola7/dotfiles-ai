@@ -16,10 +16,13 @@
   interactive CLI 0.163.0 active delivery and idle wake passed synthetic fixtures;
   closed batch execution and Desktop feedback remain unqualified.
 - Validation includes red/green behavior regressions, affected native authorities,
-  153 checks under Python 3.12, real Linux ARM Dagger execution, native Swift
+  Python 3.12 checks, real Linux ARM Dagger execution, native Swift
   compilation, owned in-engine cancellation and default-off managed installation.
   Local Mermaid syntax/readability passed; live runtime details remain private.
   This is scoped evidence, not a whole-repository CI or performance claim.
+- Reject malformed or duplicate telemetry comparisons and keep crashed running
+  admissions charged until owned execution completion is established. Focused
+  regressions cover both running and queued abrupt controller exits.
 - Modules: Python, Security and Cloud for the optional local runtime. Existing
   forge checks, formal gates, promotion and release authority remain unchanged.
   GCP, native amd64 qualification and authoritative evidence reuse are deferred
