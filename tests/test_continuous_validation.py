@@ -258,15 +258,98 @@ def test_budget_serializes_expensive_checks_across_processes(tmp_path):
     assert [event[0] for event in sorted(events, key=lambda item: item[2])] == ['start', 'end', 'start', 'end']
 
 
+def comparison_observation(tmp_path, **changes):
+    return {
+        'schema_version': 1, 'id': 'observation-one', 'request_id': 'request-one',
+        'snapshot_id': 'a' * 64, 'generation': 1, 'check_id': 'quick',
+        'lane': {'os': 'linux', 'architecture': 'arm64', 'python': '3.14',
+                 'tools': {'uv': '0.9.2'}, 'dependencies': {'uv.lock': 'f' * 64}},
+        'manifest_digest': 'b' * 64, 'selection_digest': 'c' * 64, 'cache_key': 'd' * 64,
+        'status': 'passed', 'exit_code': 0,
+        'runtime': {'os': 'linux', 'architecture': 'arm64', 'python': '3.14.4', 'tools': {'uv': '0.9.2'}},
+        'test_ids': ['fixture::case'], 'diagnostic_codes': [], 'executed': True,
+        'cache_reused': False, 'queue_seconds': 0.0, 'elapsed_seconds': 1.0,
+        'execution_seconds': 1.0, 'at': '2026-10-24T00:00:00+00:00',
+        'log_path': str(tmp_path / 'private.log'), 'advisory': True,
+        'resource_metrics': 'unavailable', 'dagger_cache_metrics': 'unavailable', **changes,
+    }
+
+
+def compare_pair(tmp_path, left, right, *, distinct_samples=True):
+    # Independent samples share modeled inputs, not immutable observation IDs.
+    if distinct_samples:
+        right = dict(right)
+        if right.get('id') == 'observation-one':
+            right['id'] = 'observation-two'
+        if right.get('request_id') == 'request-one':
+            right['request_id'] = 'request-two'
+    paths = [private_json(tmp_path / 'left.json', left), private_json(tmp_path / 'right.json', right)]
+    return runner.compare({'schema_version': 1, 'observations': [str(path) for path in paths]})
+
+
 def test_compare_refuses_different_source_or_runtime(tmp_path):
-    common = {'snapshot_id': 'a' * 64, 'check_id': 'quick', 'lane': {'os': 'darwin'},
-              'manifest_digest': 'b' * 64, 'selection_digest': 'c' * 64,
-              'elapsed_seconds': 1.0, 'executed': True}
-    left = private_json(tmp_path / 'left.json', common)
-    right = private_json(tmp_path / 'right.json', {**common, 'lane': {'os': 'linux'}})
-    result = runner.compare({'schema_version': 1, 'observations': [str(left), str(right)]})
+    common = comparison_observation(tmp_path)
+    result = compare_pair(tmp_path, common, {**common, 'lane': {**common['lane'], 'os': 'darwin'}})
     assert result['matched'] is False
     assert result['differences'] == ['lane']
+
+
+def test_compare_rejects_sparse_json_instead_of_matching_missing_fields(tmp_path):
+    with pytest.raises(runner.ValidationError):
+        compare_pair(tmp_path, {'schema_version': 1}, {'schema_version': 1})
+
+
+@pytest.mark.parametrize('changes,field', [
+    ({'runtime': {'os': 'linux', 'architecture': 'arm64', 'python': '3.13.9', 'tools': {'uv': '0.9.2'}}}, 'runtime'),
+    ({'cache_key': 'e' * 64}, 'cache_key'),
+    ({'test_ids': ['fixture::different_case']}, 'test_ids'),
+])
+def test_compare_binds_actual_runtime_cache_and_selected_tests(tmp_path, changes, field):
+    common = comparison_observation(tmp_path)
+    result = compare_pair(tmp_path, common, {**common, **changes})
+    assert result['matched'] is False
+    assert field in result['differences']
+
+
+@pytest.mark.parametrize('changes', [
+    {'elapsed_seconds': -1.0}, {'elapsed_seconds': float('nan')},
+    {'execution_seconds': float('inf')}, {'elapsed_seconds': True},
+    {'executed': 1}, {'cache_reused': 1}, {'generation': True},
+    {'cache_key': 'missing'}, {'unexpected': True}, {'status': {}},
+    {'runtime': {'os': {}, 'architecture': 'arm64', 'python': '3.14.4'}},
+])
+def test_compare_rejects_malformed_controller_observations(tmp_path, changes):
+    common = comparison_observation(tmp_path)
+    with pytest.raises(runner.ValidationError):
+        compare_pair(tmp_path, common, {**common, **changes})
+
+
+@pytest.mark.parametrize('runtime', [{}, {'python': 'identity unresolved'},
+    {'capability': 'dagger_backend_unavailable'}, {'adapter_python': '3.14.4', 'os': 'linux', 'architecture': 'arm64'},
+    {'os': 'darwin', 'architecture': 'arm64', 'python': '3.14.4'}])
+def test_compare_marks_unknown_runtime_unqualified_even_when_equal(tmp_path, runtime):
+    observation = comparison_observation(tmp_path, runtime=runtime)
+    result = compare_pair(tmp_path, observation, observation)
+    assert result['matched'] is False
+    assert result['qualified'] is False
+    assert result['status'] == 'unqualified'
+
+
+def test_compare_separates_outcomes_and_cache_measurements_from_input_identity(tmp_path):
+    common = comparison_observation(tmp_path)
+    left = {**common, 'runtime': {**common['runtime'], 'cache': 'miss', 'cache_metrics': {'hits': 0}}}
+    right = {**common, 'status': 'failed', 'exit_code': 1,
+        'runtime': {**common['runtime'], 'cache': 'hit', 'cache_metrics': {'hits': 3}},
+        'elapsed_seconds': 0.5, 'execution_seconds': 0.5,
+        'resource_metrics': {'cpu_seconds': 0.2}}
+    result = compare_pair(tmp_path, left, right)
+    assert result['matched'] is True
+    assert result['qualified'] is True
+    assert result['statuses'] == ['passed', 'failed']
+    assert result['executed'] == [True, True]
+    assert result['cache_reused'] == [False, False]
+    assert result['metric_availability'][0]['resource_metrics'] == 'unavailable'
+    assert result['metric_availability'][1]['resource_metrics'] == 'available'
 
 
 def test_default_status_has_no_state_side_effect(tmp_path):
@@ -531,3 +614,64 @@ def test_declared_excluded_history_never_travels_and_tracked_changes_refuse(work
 def test_input_exclusions_require_positive_and_safe_nonempty_relative_globs(worktree, tmp_path, patterns):
     with pytest.raises(runner.ValidationError):
         runner.capture_snapshot(worktree, patterns, tmp_path / 'state', git(worktree, 'rev-parse', 'HEAD'))
+
+
+def test_abrupt_controller_exit_does_not_reclaim_recorded_running_lease(tmp_path):
+    shared = tmp_path / 'budget'
+    script = """import os,sys
+sys.path.insert(0,sys.argv[1])
+from continuous_validation import runner
+with runner.Budget(sys.argv[2],1,1).slot('cheap',timeout=3):
+    os._exit(23)
+"""
+    exited = subprocess.run([sys.executable, '-c', script,
+        str(ROOT / 'private_dot_config/dotfiles-ai'), str(shared)], timeout=5)
+    assert exited.returncode == 23
+    assert runner.read_private(shared / 'index.json')['entries'][0]['state'] == 'running'
+    with pytest.raises(runner.ValidationError, match='admission_completion_unknown'):
+        with runner.Budget(shared, 1, 1).slot('cheap', timeout=1):
+            raise AssertionError('unconfirmed execution must keep its slot charged')
+    assert runner.read_private(shared / 'index.json')['entries'][0]['state'] == 'running'
+
+
+def test_abrupt_queued_exit_can_be_reclaimed_without_running_work(tmp_path):
+    import time
+    shared = tmp_path / 'budget'
+    budget = runner.Budget(shared, 1, 1)
+    script = """import sys
+sys.path.insert(0,sys.argv[1])
+from continuous_validation import runner
+with runner.Budget(sys.argv[2],1,1).slot('cheap',timeout=10):
+    raise AssertionError('parent still owns only slot')
+"""
+    with budget.slot('cheap', timeout=2):
+        queued = subprocess.Popen([sys.executable, '-c', script,
+            str(ROOT / 'private_dot_config/dotfiles-ai'), str(shared)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if any(item['state'] == 'queued' for item in runner.read_private(shared / 'index.json')['entries']):
+                    break
+                time.sleep(0.02)
+            else:
+                raise AssertionError('fixture did not queue')
+            queued.kill()
+            queued.wait(timeout=2)
+        finally:
+            if queued.poll() is None:
+                queued.kill()
+            queued.communicate(timeout=2)
+    with budget.slot('cheap', timeout=1):
+        assert len(runner.read_private(shared / 'index.json')['entries']) == 1
+    assert runner.read_private(shared / 'index.json')['entries'] == []
+
+
+@pytest.mark.parametrize('same_observation', [False, True])
+def test_compare_never_counts_one_request_as_two_samples(tmp_path, same_observation):
+    common = comparison_observation(tmp_path)
+    right = {**common, 'id': common['id'] if same_observation else 'observation-two'}
+    result = compare_pair(tmp_path, common, right, distinct_samples=False)
+    assert result['matched'] is False
+    assert result['status'] == 'unqualified'
+    assert all('duplicate_sample' in reasons for reasons in result['qualification_reasons'])

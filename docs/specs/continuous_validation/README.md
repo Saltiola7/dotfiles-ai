@@ -557,9 +557,16 @@ failures, cancellation, and instrumented host signals. Missing resource/cache or
 feedback-consumption instrumentation is `unavailable`, never zero. Same request
 IDs query an existing result and do not create another benchmark execution;
 omit the ID or choose a new one for a measured repeat. The `compare` operation
-accepts exactly two private observation paths and reports whether snapshot,
-check, lane, manifest, and selection match. Affected/full or ARM/amd64 samples
-are separate dimensions and must not be presented as matching inputs.
+accepts exactly two complete, versioned private controller observations, validates
+required identities/types and finite timings, and compares snapshot, check, lane,
+manifest, selection, cache key, actual test IDs and resolved runtime identity.
+Sparse backend receipts and malformed records are rejected; unresolved runtime
+identity is unqualified and unmatched. Repeated observation or request IDs are
+unqualified as `duplicate_sample`, not counted as two executions. Known cache/resource counters are measured
+outcomes, not input identity. Status, execution, controller reuse and measurement
+availability are reported separately; matching inputs do not imply both checks
+passed or authenticate provenance. Affected/full or ARM/amd64 samples are separate
+dimensions and must not be presented as matching inputs.
 
 Start with bounded samples rather than a promised speedup or latency target.
 Use the results to decide useful edit/checkpoint cadence, sustainable concurrency,

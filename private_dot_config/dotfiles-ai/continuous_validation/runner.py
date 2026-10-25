@@ -12,6 +12,7 @@ import fcntl
 import fnmatch
 import hashlib
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -596,6 +597,11 @@ class Budget:
                     fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except BlockingIOError:
                     active.append(entry)
+                else:
+                    # A released controller lock does not prove its admitted
+                    # subprocess or engine work stopped after a crash.
+                    if entry["state"] == "running":
+                        raise ValidationError("admission_completion_unknown")
             finally:
                 os.close(descriptor)
         value["entries"] = active
@@ -1129,16 +1135,152 @@ def watch(enrollment_path, once=False):
         time.sleep(0.5)
 
 
+def validate_observation(value):
+    """Accept complete controller records, never sparse backend receipts."""
+    required = {"schema_version", "id", "request_id", "snapshot_id", "generation", "check_id", "lane",
+                "manifest_digest", "selection_digest", "cache_key", "status", "exit_code", "runtime", "test_ids",
+                "diagnostic_codes", "executed", "cache_reused", "queue_seconds", "elapsed_seconds",
+                "execution_seconds", "at", "log_path", "advisory", "resource_metrics", "dagger_cache_metrics"}
+    reuse_fields = {"reused_from", "original_elapsed_seconds", "original_at"}
+    closed(value, required, required | reuse_fields | {"feedback"})
+    for name in ("id", "request_id", "check_id"):
+        identifier(value[name])
+    for name in ("snapshot_id", "manifest_digest", "selection_digest", "cache_key"):
+        if not isinstance(value[name], str) or not DIGEST.fullmatch(value[name]):
+            raise ValidationError("invalid_observation_identity")
+    if type(value["generation"]) is not int or value["generation"] < 1:
+        raise ValidationError("invalid_observation_generation")
+    closed(value["lane"], LANE_FIELDS, LANE_FIELDS)
+    for name in ("os", "architecture", "python"):
+        text(value["lane"][name], 256)
+    if any(not isinstance(value["lane"][name], dict) for name in ("tools", "dependencies")):
+        raise ValidationError("invalid_observation_lane")
+    if not isinstance(value["status"], str) or value["status"] not in {"passed", "failed", "unavailable", "interrupted", "pending"}:
+        raise ValidationError("invalid_observation_status")
+    code = value["exit_code"]
+    if code is not None and (type(code) is not int or not 0 <= code <= 255):
+        raise ValidationError("invalid_observation_exit_code")
+    if value["status"] == "passed" and code != 0:
+        raise ValidationError("invalid_observation_pass")
+    if not isinstance(value["runtime"], dict):
+        raise ValidationError("invalid_observation_runtime")
+    for name in ("os", "architecture", "python", "platform", "adapter_python", "backend", "execution",
+                 "sdk_version", "engine_version", "uv", "image_digest"):
+        if name in value["runtime"]:
+            text(value["runtime"][name], 4096)
+    if "tools" in value["runtime"] and not isinstance(value["runtime"]["tools"], dict):
+        raise ValidationError("invalid_observation_runtime")
+    for name in ("test_ids", "diagnostic_codes"):
+        if not isinstance(value[name], list) or len(value[name]) > 10000:
+            raise ValidationError("invalid_observation_diagnostics")
+        for item in value[name]:
+            text(item, 1024)
+    if any(not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", item) for item in value["diagnostic_codes"]):
+        raise ValidationError("invalid_observation_diagnostics")
+    if any(type(value[name]) is not bool for name in ("executed", "cache_reused")) or value["advisory"] is not True:
+        raise ValidationError("invalid_observation_flag")
+    if value["executed"] and value["cache_reused"]:
+        raise ValidationError("invalid_observation_reuse")
+    if value["status"] in {"passed", "failed"} and not (value["executed"] or value["cache_reused"]):
+        raise ValidationError("invalid_observation_execution")
+    if value["cache_reused"]:
+        if not reuse_fields <= value.keys() or value["status"] != "passed":
+            raise ValidationError("invalid_observation_reuse")
+        identifier(value["reused_from"])
+    elif reuse_fields & value.keys():
+        raise ValidationError("invalid_observation_reuse")
+    for name in ("queue_seconds", "elapsed_seconds", "execution_seconds", "original_elapsed_seconds"):
+        if name in value and (type(value[name]) not in {int, float} or value[name] < 0
+                              or type(value[name]) is float and not math.isfinite(value[name])):
+            raise ValidationError("invalid_observation_timing")
+    for name in ("at", "original_at"):
+        if name in value:
+            try:
+                if datetime.fromisoformat(text(value[name], 128)).tzinfo is None:
+                    raise ValueError()
+            except ValueError:
+                raise ValidationError("invalid_observation_timestamp") from None
+    if not Path(text(value["log_path"])).is_absolute():
+        raise ValidationError("invalid_observation_log")
+    for name in ("resource_metrics", "dagger_cache_metrics"):
+        if value[name] != "unavailable" and not isinstance(value[name], dict):
+            raise ValidationError("invalid_observation_metrics")
+    if "feedback" in value and not isinstance(value["feedback"], dict):
+        raise ValidationError("invalid_observation_feedback")
+    return value
+
+
+RUNTIME_MEASUREMENTS = {"cache", "cache_metrics", "cache_counters", "metrics", "resource_metrics",
+                        "dagger_cache_metrics", "artifacts", "termination_signal"}
+
+
+def comparison_runtime(observation):
+    """Project measured runtime identity without treating cache hits as inputs."""
+    identity = {key: value for key, value in observation["runtime"].items() if key not in RUNTIME_MEASUREMENTS}
+    def unresolved(value):
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return not value or bool(re.search(r"(?:^|[ _-])(unknown|unresolved|unavailable|unconfigured|not_probed)(?:$|[ _-])", value, re.I))
+        if isinstance(value, dict):
+            return any(unresolved(item) for item in value.values())
+        if isinstance(value, list):
+            return any(unresolved(item) for item in value)
+        return False
+    architectures = {"arm64": "arm64", "aarch64": "arm64", "amd64": "amd64", "x86_64": "amd64"}
+    if isinstance(identity.get("platform"), str) and identity["platform"] in {"linux/arm64", "linux/amd64"}:
+        os_name, architecture = identity["platform"].split("/")
+    else:
+        os_name = identity.get("os", "")
+        architecture = identity.get("architecture", "")
+    architecture = architectures.get(architecture) if isinstance(architecture, str) else None
+    python = identity.get("python")
+    complete = (os_name in {"linux", "darwin"} and architecture is not None
+                and isinstance(python, str) and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", python) is not None)
+    lane = observation["lane"]
+    agrees_with_lane = (os_name == lane["os"] and architecture == architectures.get(lane["architecture"])
+                        and isinstance(python, str) and (python == lane["python"] or python.startswith(lane["python"] + ".")))
+    qualified = complete and agrees_with_lane and not unresolved(identity) and not unresolved(lane)
+    return identity, bool(qualified)
+
+
+def metric_availability(value):
+    if not isinstance(value, dict) or not value or value.get("available") is False:
+        return "unavailable"
+    if isinstance(value.get("availability"), str) and value["availability"] in {"unavailable", "unknown", "unsupported"}:
+        return "unavailable"
+    return "available"
+
+
 def compare(value):
     closed(value, {"schema_version", "observations"}, {"schema_version", "observations"})
     if not isinstance(value["observations"], list) or len(value["observations"]) != 2:
         raise ValidationError("comparison_requires_pair")
-    left, right = (read_private(Path(path)) for path in value["observations"])
-    fields = ("snapshot_id", "check_id", "lane", "manifest_digest", "selection_digest")
-    differences = [field for field in fields if left.get(field) != right.get(field)]
-    return {"schema_version": 1, "matched": not differences, "differences": differences,
-            "elapsed_seconds": [left.get("elapsed_seconds"), right.get("elapsed_seconds")],
-            "executed": [left.get("executed"), right.get("executed")], "advisory": True}
+    observations = [validate_observation(read_private(Path(text(path)))) for path in value["observations"]]
+    left, right = observations
+    runtimes = [comparison_runtime(item) for item in observations]
+    duplicate_sample = left["id"] == right["id"] or left["request_id"] == right["request_id"]
+    qualified = all(item[1] for item in runtimes) and not duplicate_sample
+    qualification_reasons = [([] if item[1] else ["runtime_identity_unresolved"])
+                             + (["duplicate_sample"] if duplicate_sample else []) for item in runtimes]
+    fields = ("snapshot_id", "check_id", "lane", "manifest_digest", "selection_digest", "cache_key", "test_ids")
+    differences = [field for field in fields if left[field] != right[field]]
+    if runtimes[0][0] != runtimes[1][0]:
+        differences.append("runtime")
+    matched = qualified and not differences
+    return {"schema_version": 1, "status": "unqualified" if not qualified else "matched" if matched else "unmatched",
+            "qualified": qualified, "matched": matched, "differences": differences,
+            "qualification_reasons": qualification_reasons,
+            "statuses": [item["status"] for item in observations],
+            "elapsed_seconds": [item["elapsed_seconds"] for item in observations],
+            "execution_seconds": [item["execution_seconds"] for item in observations],
+            "queue_seconds": [item["queue_seconds"] for item in observations],
+            "executed": [item["executed"] for item in observations],
+            "cache_reused": [item["cache_reused"] for item in observations],
+            "metric_availability": [{name: metric_availability(item[name])
+                                     for name in ("resource_metrics", "dagger_cache_metrics")} for item in observations],
+            "runtime_cache_reports": [item["runtime"].get("cache", "unavailable") for item in observations],
+            "advisory": True}
 
 
 def main(argv=None):
