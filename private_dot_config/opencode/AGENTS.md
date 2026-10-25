@@ -110,9 +110,13 @@ Use native template-based creation. Worktrunk `switch --path` is an explicit
 operator exception, not an automatic agent route. Its custom creation destination
 is unavailable to the 0.81.0 pre-switch hook; do not claim storage validation for it.
 Keep primary paths and branches stable. Independent writers use distinct task
-worktrees and native sessions; changing a shell directory does not retarget a
-resumed conversation. Prepare an operator handoff when a new native session is
-needed for independent cycles; bounded helpers are not independent cycle owners.
+worktrees and native sessions. A coordinator may retain its current conversation
+and target its selected task checkout through explicit command working directories
+and absolute file paths; attachment or conversation relocation is not required.
+Changing a shell directory does not retarget or authenticate a resumed conversation.
+Prepare an operator handoff when an independent cycle needs its own session or
+native tools cannot access the selected checkout; bounded helpers are not
+independent cycle owners.
 
 Managed launches use `agent-worktree -- opencode|codex ...` through Worktrunk's
 native `-x` interface. Its busy check covers foreground launches only; direct

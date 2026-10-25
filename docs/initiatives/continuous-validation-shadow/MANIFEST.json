@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "id": "continuous-validation-shadow",
+  "title": "Opt-in continuous validation shadow",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "Provide opt-in continuous advisory validation for parallel agent work across independently owned repositories.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "kind": "constraint",
+      "text": "Keep the feature disabled by default and require explicit worktree and active DBSCTR-task enrollment.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "kind": "requirement",
+      "text": "Author reusable pipeline and orchestration logic in Python, using Dagger for Linux execution and native execution for host-specific checks.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "kind": "requirement",
+      "text": "Request bounded affected checks after stable file changes and expensive checks at explicit DBSCTR checkpoints.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-005",
+      "kind": "requirement",
+      "text": "Execute against immutable snapshots including relevant uncommitted changes and bind observations to snapshot, selection, runtime and configuration identity.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "kind": "requirement",
+      "text": "Share one local concurrency and resource budget across enrolled worktrees while prioritizing foreground responsiveness.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-007",
+      "kind": "requirement",
+      "text": "Coalesce duplicate requests, supersede obsolete queued work, cancel obsolete execution where safe and suppress stale repair feedback.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-008",
+      "kind": "requirement",
+      "text": "Deliver bounded structured current failures to the exact originating Codex CLI primary session at a safe boundary.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-009",
+      "kind": "requirement",
+      "text": "Qualify queued feedback that can wake the same idle session while its enrolled DBSCTR task remains open; never resume a competing process.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-010",
+      "kind": "constraint",
+      "text": "Agent remediation remains inside the current authorized task scope and existing lifecycle authority.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-011",
+      "kind": "constraint",
+      "text": "Shadow observations never grant a formal gate pass, replace required CI evidence, change branch rules or authorize production promotion.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-012",
+      "kind": "requirement",
+      "text": "Keep check definitions and affected-selection contracts in each owning repository and preserve existing fallback, coverage and runtime authorities.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-013",
+      "kind": "requirement",
+      "text": "Capture request, queue, preparation, execution, cache reuse, cancellation, resource pressure and feedback-delivery telemetry without retaining secrets or raw transcripts.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-014",
+      "kind": "requirement",
+      "text": "Use matched snapshot comparisons for cold/warm execution, single/concurrent worktrees, affected/full selection audits and required platform lanes.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-015",
+      "kind": "decision",
+      "text": "Derive performance targets, cadence and eventual evidence-admission policy from collected telemetry rather than invented benchmark claims.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-016",
+      "kind": "requirement",
+      "text": "Validate disabled behavior, enrollment isolation, source freshness, concurrency limits, cancellation, wrong-session refusal and failure delivery before activation.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-017",
+      "kind": "requirement",
+      "text": "Provide explicit stop/disable controls, bounded local retention and owner-visible health and capability gaps.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-018",
+      "kind": "idea",
+      "text": "Evaluate controlled remote compute after the local baseline; remote provisioning, networking and spend require a separately bounded delivery slice.",
+      "disposition": "deferred",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-019",
+      "kind": "idea",
+      "text": "Consider authoritative reuse of locally produced evidence only after trust, dependency closure and final integrated-snapshot verification are qualified.",
+      "disposition": "deferred",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-020",
+      "kind": "non-goal",
+      "text": "Initial delivery does not migrate release/deployment authority, change protected merge rules or enable validation for other users.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-021",
+      "kind": "constraint",
+      "text": "Do not weaken mandatory quality checks, existing no-rerun evidence rules or platform requirements to make the shadow appear faster.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-022",
+      "kind": "requirement",
+      "text": "Keep public reusable artifacts client-neutral; consumer infrastructure and private repository details remain in consumer-owned authority.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-023",
+      "kind": "constraint",
+      "text": "Current installed Codex queue and background hooks are candidate transports; supported syntax is not end-to-end wake or identity qualification.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "id": "continuous_validation",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    }
+  ],
+  "slices": [
+    {
+      "id": "local-shadow",
+      "context": "continuous_validation",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-001",
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-009",
+        "INT-010",
+        "INT-011",
+        "INT-012",
+        "INT-013",
+        "INT-014",
+        "INT-015",
+        "INT-016",
+        "INT-017",
+        "INT-020",
+        "INT-021",
+        "INT-022",
+        "INT-023"
+      ],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/initiatives/continuous-validation-shadow/BUILD.plan.json",
+        "docs/specs/continuous_validation/PROFILE.md",
+        "docs/specs/continuous_validation/README.md",
+        "docs/specs/continuous_validation/CHANGELOG.md"
+      ],
+      "release_group": "local-shadow"
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "local-shadow",
+      "members": [
+        "local-shadow"
+      ],
+      "state": "ready"
+    }
+  ]
+}

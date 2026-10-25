@@ -9,10 +9,15 @@ URLs, environment data, and machine paths out of shared evidence. Use only the
 explicit sandbox and approval policy supplied by the parent launch.
 
 Worktrunk owns task checkout creation, navigation and removal. Keep primary
-checkouts stable; open native Codex sessions in the selected task checkout and
-scope searches there. A shell directory change does not retarget a resumed
-session. Invoke `dbsctrctl` through native shell permissions; it registers the
-explicit checkout and preserves lifecycle gates, not transparent task routing.
+checkouts stable. Codex CLI and Desktop may retain the current conversation and
+select a Worktrunk task checkout as the explicit operation target. Give every
+repository command that working directory and edit files through absolute paths
+under it. Desktop worktree attachment and conversation relocation are not DBSCTR
+prerequisites. A shell directory change does not retarget or authenticate the
+conversation. Invoke `dbsctrctl` through native tool permissions against that
+explicit checkout; it preserves lifecycle gates, not transparent task routing.
+If native tools cannot access the selected checkout, report that capability gap
+and retain the work; do not invent session identity or bypass a denied operation.
 Do not use retired continuation receipts, attachment or writer-transfer commands.
 Unavailable native actor/message/call identity stays unavailable.
 Use native template-based creation. Worktrunk `switch --path` is an explicit

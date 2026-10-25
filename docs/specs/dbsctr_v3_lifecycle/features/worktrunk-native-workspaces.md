@@ -71,9 +71,13 @@ explicit current checkout. No optional legacy allocation mode is permitted.
 - CLI registration verifies the actual registered checkout and branch. Native
   session/message/call attribution is optional and unavailable unless independently
   verified; shell arguments or environment claims do not authenticate an actor.
-  Root-level navigation sessions cannot claim a shell directory switch retargeted
-  their native session. Native harness permissions/sandboxing govern execution.
-  Return a native-worktree handoff when the primary checkout is selected.
+  Codex CLI and Desktop may keep the current conversation while each command uses
+  the selected task checkout's explicit working directory and edits use absolute
+  paths under it. Desktop attachment and native conversation relocation are not
+  registration prerequisites. This operation target does not change or authenticate
+  the conversation's native directory or identity. Native harness permissions govern
+  execution; denied access remains a capability gap. The primary checkout remains
+  a navigation context, never the implementation target.
 - Retire custom allocator path selection, branch/worktree creation, direct
   cleanup allocation ownership and transparent file/shell path rewriting from
   supported new-work paths. Remove obsolete typed attach/bind/handover/recovery
@@ -117,7 +121,9 @@ and Codex's task continuation receipt/admission bridge. Retain native skills,
 agent roles, provider affinity, managed state-root checks, signed updater behavior,
 and independent history/identity hooks where still used. Dependency review must
 separate Codex control-plane lifecycle hooks from its continuation executable;
-they are not interchangeable. Codex Desktop is not newly managed by this change.
+they are not interchangeable. Codex Desktop can invoke the shared lifecycle CLI
+through its native tools without becoming a managed Desktop runtime. This adds
+no Desktop attachment bridge, binary updater or private-session parser.
 
 Both harnesses invoke the same CLI from an explicit task checkout. Preserve
 gate validation and private evidence. Empty/unavailable native actor metadata is

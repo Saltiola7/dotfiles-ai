@@ -1,5 +1,17 @@
 # Codex Control Plane Changelog
 
+## 2026-10-24 — Desktop and CLI explicit lifecycle checkout
+
+- Clarified Desktop and CLI consumption of the existing shared lifecycle through
+  explicit tool working directories and absolute file paths. Attachment and native
+  conversation relocation are optional UI operations, not registration authority.
+- Preserved Desktop runtime-management boundaries, unavailable native attribution,
+  existing hook semantics, permission checks and exact launch approval. No Desktop
+  attachment bridge, new session parser or runtime executable change is included.
+- Installed the selected managed instructions and shared skill entrypoints locally
+  through their existing owner and verified target contents; source delivery remains
+  on its review branch and no wider runtime rollout is claimed.
+
 ## 2026-10-19 — Headless native Linux role
 
 - Added an exclusive opt-in Fedora ARM64 role with separate chezmoi state.
