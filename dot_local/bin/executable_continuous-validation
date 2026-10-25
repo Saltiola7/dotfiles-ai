@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""Run the managed default-off advisory validator."""
+from pathlib import Path
+import sys
+
+source = Path(__file__).resolve().parents[2] / 'private_dot_config/dotfiles-ai'
+installed = Path.home() / '.config/dotfiles-ai'
+sys.path.insert(0, str(source if (source / 'continuous_validation').is_dir() else installed))
+from continuous_validation.runner import main
+
+raise SystemExit(main())
