@@ -1,6 +1,8 @@
 # Opt-in continuous validation shadow
 
-Status: specification preparation; implementation and runtime qualification are pending.
+Status: source implementation and bounded local qualification; activation and
+performance results remain separately evidenced. This document does not publish
+live lifecycle gate state.
 
 ## Purpose
 
@@ -16,7 +18,9 @@ The initial source slice implements the new context through additive interfaces.
 
 - The feature is disabled by default. Enrollment is explicit for one DBSCTR worktree and task, not automatically inherited by other worktrees or users.
 - Both participating repositories share one local compute budget. Foreground responsiveness has priority over background throughput.
-- Stable file changes request bounded affected checks; DBSCTR checkpoints request expensive validation.
+- Stable file changes request bounded affected checks; explicit checkpoint requests
+  make expensive validation eligible. Automatic lifecycle hooks remain outside
+  this slice.
 - Python owns pipelines and orchestration. Dagger executes Linux lanes; required native host checks retain their own backend.
 - Current failures return to their exact originating Codex CLI primary session at a safe boundary. In-scope remediation is permitted.
 - An idle session may be awakened only while its enrolled task remains open and a supported, fixture-qualified exact-session route exists.
@@ -27,7 +31,7 @@ The initial source slice implements the new context through additive interfaces.
 
 The local-shadow slice includes the standalone runner, versioned repository check contract, default-off controls, snapshot and scheduling behavior, telemetry, Codex CLI transport qualification and one repository's generic adapter examples. Consumer-specific check definitions are delivered in their owning repositories without publishing private context here.
 
-Runtime acceptance requires actual source-snapshot isolation, shared-budget execution and same-session feedback evidence. Mocked transport tests alone do not qualify an installed CLI. Unavailable Dagger or wake behavior is an explicit capability gap, never a pass. Feature activation may remain unavailable until these checks succeed; installing source does not enable it.
+Runtime acceptance requires actual source-snapshot isolation, shared-budget execution and same-session feedback evidence. Optional local setup owns a dedicated 2-CPU/4-GiB/40-GiB ARM64 Lima worker with no host mounts or SSH-agent forwarding; it does not provision GCP. Mocked transport tests alone do not qualify an installed CLI. A synthetic open interactive Codex CLI 0.163.0 fixture exercised active delivery and idle wake; closed noninteractive execution remains unqualified. Queue acceptance remains distinct from observed consumption. Unavailable Dagger or wake behavior is an explicit capability gap, never a pass. Feature activation may remain unavailable until these checks succeed; installing source does not enable it.
 
 ## Candidate artifacts and validation
 
@@ -37,9 +41,22 @@ Validation covers default-off absence of background/network/session actions; enr
 
 ## Native launch feasibility
 
-Worktrunk created isolated Discovery and Build checkouts. Shared lifecycle registration already supports explicit validated checkout operations from Codex CLI and Desktop. The obsolete instruction requiring conversation relocation or Desktop attachment was corrected separately, installed locally, and preserved in source commit 7a2eebc. Missing Desktop attachment is not a launch blocker. Every operation must still target the selected checkout under actual native tool permissions; native session association and actor attribution remain unavailable unless independently verified. No workspace move or identity may be fabricated.
+Worktrunk owns isolated task checkouts. Shared lifecycle registration supports
+explicit validated checkout operations from Codex CLI and Desktop without
+requiring conversation relocation or Desktop attachment. Commands use the
+selected checkout explicitly and native tool permissions remain authoritative.
+An exact caller-supplied session UUID does not authenticate actor identity or
+establish native session association. No workspace move or identity is fabricated.
 
-After the Discovery closure is committed, same-repository Build starts from the freshly fetched approved remote base and imports only the approved regular documentation closure. New profile import is supported. Fresh receipt and preflight must precede exact launch-digest approval; general implementation authorization is not that approval.
+Source implementation uses the registered lifecycle authority. Current cycle
+registration, gate results, exact runtime identities and qualification artifacts
+remain private. The source [runbook](../../specs/continuous_validation/README.md#local-pilot-runbook)
+covers read-only engine planning, explicit optional setup, per-worktree enrollment,
+bounded watching, explicit checkpoints, observation comparison, and separate
+enrollment/VM stop controls. There is no automatic lifecycle hook or always-on
+service. The [Engineering Profile](../../specs/continuous_validation/PROFILE.md#local-runtime-platform-contract)
+records local resource ownership, drift checks, network boundaries, recovery,
+maintenance pins and authorized disposal.
 
 ## Deferred work
 
@@ -54,9 +71,9 @@ Controlled remote execution and authoritative local-evidence admission are expli
 | State | not_applicable: the manifest is the authoritative slice-state inventory |
 | Data/trust | not_applicable: the canonical context specification owns snapshot, result and session trust boundaries |
 | Schema | not_applicable: the manifest and versioned context contract define canonical fields without duplicate diagrams |
-| Dependency/deployment | not_applicable: one local source slice has no independently deployable dependency graph in this Initiative |
+| Dependency/deployment | required: the canonical profile and source runbook identify the optional dedicated VM, private socket, pins, rollout, and separate stop/disposal boundaries |
 | Quantitative | not_applicable: no pilot measurements exist; comparisons are experiment designs, not measured charts |
 
 ## Build handoff
 
-Scope: additive default-off local shadow. Risk: elevated because project code executes and diagnostics can cause agent work. Modules: Python and Security; Cloud applies when a remote-compute slice is prepared. Owner: repository operator. Delivery: draft pull request, with bounded local runtime qualification required for activation. Recommended primary: the current authorized Build agent once native launch eligibility and exact preflight approval are resolved. Helpers may own disjoint artifacts, never independent lifecycle state or integration.
+Scope: additive default-off local shadow. Risk: elevated because project code executes and diagnostics can cause agent work. Modules: Python, Security, and Cloud for the optional local runtime bootstrap; remote compute remains deferred. Owner: repository operator. Delivery: draft pull request, with bounded local runtime qualification required for activation. The registered Build primary owns current evidence and delivery decisions. Helpers may own disjoint artifacts, never independent lifecycle state or integration.
