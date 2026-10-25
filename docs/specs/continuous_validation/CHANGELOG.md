@@ -1,14 +1,31 @@
 # Continuous Validation Changelog
 
-## Unreleased — Initial advisory-shadow discovery draft
+## 2026-10-24 — CVS-001: default-off local advisory shadow
 
-- Specify a default-off portable Python runner, per-worktree enrollment, shared
-  local admission, Dagger Linux and native macOS lanes, immutable dirty snapshots,
-  affected checks, checkpoint execution, cancellation, and advisory observations.
-- Define check/result identity, repository-owned adapters, stale-feedback
-  suppression, exact-session queue qualification, private telemetry, and matched
-  experiments before selecting latency targets.
-- Preserve separate DBSCTR gate, control-plane transport, and distribution
-  ownership. Source implementation, cycle registration, validation, publication,
-  installation, runtime activation, performance, and end-to-end feedback evidence
-  remain pending; no completed delivery or approved Gate Exception is recorded.
+- Add Python enrollment, debounced edit watching, explicit checkpoint requests,
+  immutable filtered Git snapshots, shared host admission, cancellation, bounded
+  observations, comparison, status and stop controls. Captured source remains
+  immutable while declared generated outputs stay outside its input closure.
+- Add repository-owned native macOS checks and a locked Python Dagger backend.
+  Optional explicit setup owns one mountless 2-CPU/4-GiB/40-GiB Lima worker,
+  checksum-pinned CLI, digest-pinned images and isolated SDK. Host environments,
+  registry/Cloud credentials, SSH agents and external telemetry are excluded.
+  Only the policy-bound uv package cache persists between workload invocations.
+- Add separately enabled exact-session Codex CLI feedback with current-source and
+  open-task checks, bounded diagnostics and stable failure deduplication. Open
+  interactive CLI 0.163.0 active delivery and idle wake passed synthetic fixtures;
+  closed batch execution and Desktop feedback remain unqualified.
+- Validation includes red/green behavior regressions, affected native authorities,
+  153 checks under Python 3.12, real Linux ARM Dagger execution, native Swift
+  compilation, owned in-engine cancellation and default-off managed installation.
+  Local Mermaid syntax/readability passed; live runtime details remain private.
+  This is scoped evidence, not a whole-repository CI or performance claim.
+- Modules: Python, Security and Cloud for the optional local runtime. Existing
+  forge checks, formal gates, promotion and release authority remain unchanged.
+  GCP, native amd64 qualification and authoritative evidence reuse are deferred
+  scope; no Gate Exception is approved. Support follows the documented pin,
+  requalification, bounded retention and explicit stop/disposal policies.
+- Gate commits: `5704508` (runtime profile), `f18b928` (protocol), `1f74617`
+  (implementation). Delivery intent is branch
+  `dbsctr/continuous_validation/CVS-001` and a draft PR into `main`; the private
+  Cycle Record and completion report retain final commit and delivery identity.
