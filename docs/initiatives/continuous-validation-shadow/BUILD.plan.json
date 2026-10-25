@@ -1,0 +1,39 @@
+{
+  "profile": "docs/specs/continuous_validation/PROFILE.md",
+  "gates": {
+    "domain": {
+      "applicability": "required"
+    },
+    "behavior": {
+      "applicability": "required"
+    },
+    "spec": {
+      "applicability": "required"
+    },
+    "contract": {
+      "applicability": "required"
+    },
+    "test_driven_implementation": {
+      "applicability": "required"
+    },
+    "refactor": {
+      "applicability": "required"
+    },
+    "review_integrate": {
+      "applicability": "required"
+    },
+    "release": {
+      "applicability": "not_applicable",
+      "reason": "This slice delivers repository source and an opt-in local tool, with no separately versioned artifact publication."
+    },
+    "deploy": {
+      "applicability": "required"
+    },
+    "operate": {
+      "applicability": "required"
+    },
+    "maintain_retire": {
+      "applicability": "required"
+    }
+  }
+}
