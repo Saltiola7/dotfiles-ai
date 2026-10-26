@@ -442,7 +442,7 @@ def test_environment_uses_private_local_prefect_and_drops_inherited_credentials(
     assert environment["PREFECT_RESULTS_PERSIST_BY_DEFAULT"] == "false"
     assert environment["PREFECT_SERVER_ANALYTICS_ENABLED"] == "false"
     assert environment["PREFECT_SERVER_EPHEMERAL_ENABLED"] == "false"
-    assert environment["PREFECT_API_KEY"] == ""
+    assert "PREFECT_API_KEY" not in environment
     assert not {"PREFECT_API_DATABASE_CONNECTION_URL", "PREFECT_PROFILE"} & environment.keys()
     assert "private-api-key" not in json.dumps(environment)
     assert os.environ["PREFECT_API_KEY"] == inherited["PREFECT_API_KEY"]
@@ -571,10 +571,17 @@ def test_installer_and_uninstaller_touch_only_their_two_labels(adapter, setup, t
     config_path.write_text(json.dumps(values))
     commands = []
 
+    attempts = {}
     def run(command, **kwargs):
         commands.append(command)
+        if command[1] == "bootstrap":
+            key = command[-1]
+            attempts[key] = attempts.get(key, 0) + 1
+            if attempts[key] == 1:
+                return subprocess.CompletedProcess(command, 5, stdout=b"", stderr=b"removal pending")
         return subprocess.CompletedProcess(command, 0, stdout=b"", stderr=b"")
 
+    monkeypatch.setattr(adapter.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(adapter.Path, "home", classmethod(lambda cls: home))
     monkeypatch.setattr(adapter.sys, "platform", "darwin")
     monkeypatch.setattr(adapter.os, "umask", lambda value: 0o077)
@@ -589,7 +596,7 @@ def test_installer_and_uninstaller_touch_only_their_two_labels(adapter, setup, t
     for path in created:
         document = plistlib.loads(path.read_bytes())
         assert document["ProgramArguments"][0] == str(config.python)
-        assert document["WorkingDirectory"] == str(config.state_root / "runtime")
+        assert document["WorkingDirectory"] == str(Path.home())
         assert document["LimitLoadToSessionType"] == "Aqua"
         assert document["EnvironmentVariables"]["PREFECT_API_URL"] == config.api_url
         assert path.stat().st_mode & 0o777 == 0o600
@@ -628,6 +635,7 @@ def test_server_wrapper_executes_selected_python_on_loopback_with_clean_environm
     monkeypatch.setattr(adapter.os, "environ", environment)
     monkeypatch.setattr(adapter.os, "umask", lambda value: 0o077)
     monkeypatch.setattr(adapter.os, "execve", execve)
+    monkeypatch.chdir(config.lab_root)
     monkeypatch.setattr(adapter.sys, "argv", [str(ADAPTER), "--config", str(config_path), "server"])
     with pytest.raises(StopExec):
         adapter.main()
@@ -638,7 +646,7 @@ def test_server_wrapper_executes_selected_python_on_loopback_with_clean_environm
     assert command[command.index("--port") + 1] == "4299"
     assert isolated["PREFECT_API_URL"] == config.api_url
     assert isolated["PREFECT_HOME"] == str(config.state_root / "prefect")
-    assert isolated["PREFECT_API_KEY"] == ""
+    assert "PREFECT_API_KEY" not in isolated
     assert "PRIVATE_OLD_KEY" not in json.dumps(isolated)
 
 
@@ -676,3 +684,51 @@ def test_completed_generations_are_bounded_and_current_is_retained(adapter, setu
     generations = list((config.lab_root / 'data/generations').iterdir())
     assert len(generations) == 2
     assert (config.lab_root / 'data/current').resolve() in generations
+
+
+def test_relative_config_is_resolved_before_runtime_directory_change(adapter, setup, monkeypatch):
+    config, values, _ = setup
+    selected = config.lab_root / 'selected.json'
+    selected.write_text(json.dumps(values))
+    received = []
+    monkeypatch.chdir(config.lab_root)
+    monkeypatch.setattr(adapter.os, 'umask', lambda value: 0o077)
+    monkeypatch.setattr(sys, 'argv', [str(ADAPTER), '--config', 'selected.json', 'install'])
+    monkeypatch.setattr(adapter, 'install', lambda c, p: received.append(p))
+    assert adapter.main() == 0
+    assert received == [selected.resolve()]
+
+
+def test_referenced_attachment_existence_is_captured_without_binary_copy(adapter, setup):
+    config, _, note = setup
+    note.write_text('State A [[Attachments/probe.png]]')
+    image = config.vault_path / 'Attachments/probe.png'
+    image.parent.mkdir(); image.write_bytes(b'PRIVATE_BINARY')
+    first = adapter.capture(config)
+    assert set(first.files) == {'Records/issue.md'}
+    assert 'Attachments/probe.png' in first.link_targets
+    assert 'PRIVATE_BINARY' not in repr(first)
+    image.write_bytes(b'DIFFERENT_BINARY')
+    assert adapter.capture(config).digest == first.digest
+    image.unlink()
+    assert adapter.capture(config).digest != first.digest
+
+
+def test_generation_preserves_captured_noncanonical_link_existence(adapter, setup):
+    config, _, note = setup
+    note.write_text('State A [[Attachments/probe.png]]')
+    image = config.vault_path / 'Attachments/probe.png'
+    image.parent.mkdir(); image.write_bytes(b'PRIVATE_BINARY')
+    with config.exporter_path.open('a') as handle:
+        handle.write('''
+def _rows(vault_root):
+    return {"note_links": [{"target_path":"Attachments/probe.png", "target_exists":(Path(vault_root)/"Attachments/probe.png").is_file()}]}
+_original_export = export_projection
+def export_projection(vault_root, output_root):
+    counts = _original_export(vault_root, output_root)
+    (Path(output_root)/"knowledge.duckdb").write_text(json.dumps(_rows(vault_root)))
+    return counts
+''')
+    manifest = adapter.build_generation(config, adapter.capture(config), occurrence())
+    data = json.loads((Path(manifest['path'])/'knowledge.duckdb').read_text())
+    assert data['note_links'][0]['target_exists'] is True

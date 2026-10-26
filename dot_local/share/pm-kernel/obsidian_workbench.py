@@ -106,6 +106,7 @@ class Config:
 class Snapshot:
     digest: str
     files: dict[str, bytes] = field(repr=False)
+    link_targets: frozenset[str] = field(default_factory=frozenset, repr=False)
 
 
 def private_root(path: Path) -> None:
@@ -180,8 +181,19 @@ def capture(config: Config) -> Snapshot:
                         raise SafeFailure("source_symlink")
                     files[path.relative_to(config.vault_path).as_posix()] = path.read_bytes()
         hasher = hashlib.sha256()
+        link_targets = set()
         for name, content in sorted(files.items()):
             hasher.update(name.encode() + b"\0" + hashlib.sha256(content).digest())
+            for link in re.findall(r"\[\[([^\]]+)\]\]", content.decode("utf-8", errors="replace")):
+                target = link.partition("|")[0].split("#", 1)[0].replace("\\", "")
+                if not target:
+                    continue
+                path = Path(target if Path(target).suffix else target + ".md")
+                if path.is_absolute() or ".." in path.parts:
+                    continue
+                if (config.vault_path / path).is_file():
+                    link_targets.add(path.as_posix())
+        hasher.update(json.dumps(sorted(link_targets)).encode())
         hasher.update(config.exporter_path.read_bytes())
         hasher.update(Path(__file__).read_bytes())
         hasher.update(json.dumps({"reports": config.reports, "vault": str(config.vault_path),
@@ -190,7 +202,7 @@ def capture(config: Config) -> Snapshot:
         source = config.lab_root / ".source/linear/snapshot.json"
         if source.exists():
             hasher.update(source.read_bytes())
-        return Snapshot(hasher.hexdigest(), files)
+        return Snapshot(hasher.hexdigest(), files, frozenset(link_targets))
     except OSError:
         raise SafeFailure("source_unavailable") from None
 
@@ -218,6 +230,18 @@ def build_generation(config: Config, snapshot: Snapshot, occurrence: str) -> dic
             # Compile trusted exporter bytes directly: Python's timestamp-based
             # bytecode cache must not defeat the code fingerprint on fast saves.
             exec(compile(config.exporter_path.read_bytes(), str(config.exporter_path), "exec"), module.__dict__)
+            if hasattr(module, "_rows"):
+                original_rows = module._rows
+
+                def captured_rows(vault_root: Path):
+                    rows = original_rows(vault_root)
+                    for link in rows.get("note_links", []):
+                        link["target_exists"] = link["target_path"] in snapshot.link_targets
+                    return rows
+
+                # The exporter must see captured existence, not the absence of
+                # uncopied binaries inside its temporary input directory.
+                module._rows = captured_rows
             try:
                 findings = module.validate_vault(vault)
                 if findings:
@@ -438,7 +462,6 @@ def isolated_environment(config: Config) -> dict[str, str]:
     private_root(prefect_home)
     environment.update({
         "PREFECT_HOME": str(prefect_home), "PREFECT_PROFILES_PATH": str(prefect_home / "profiles.toml"),
-        "PREFECT_API_KEY": "", "PREFECT_API_AUTH_STRING": "", "PREFECT_SERVER_API_AUTH_STRING": "",
         "PREFECT_SERVER_DATABASE_CONNECTION_URL": "sqlite+aiosqlite:///" + str(prefect_home / "prefect.db"),
         "PREFECT_API_URL": config.api_url, "PREFECT_SERVER_EPHEMERAL_ENABLED": "false",
         "PREFECT_SERVER_ANALYTICS_ENABLED": "false", "PREFECT_LOGGING_LOG_PRINTS": "false",
@@ -474,7 +497,11 @@ def run_flow(config: Config) -> dict:
     except Exception:
         # Prefect receives only sanitized failures from pipeline. Transport
         # errors are handled by the outer watcher with bounded retries.
-        pass
+        # A failure before the flow body (API/auth/version availability) must
+        # also be visible locally; otherwise a watcher can appear silently idle.
+        state = read_json(config.state_root / "checkpoint.json")
+        if state.get("state") not in {"error", "building", "refresh_pending"}:
+            checkpoint(config, state="error", error="prefect_run_unavailable")
     state = read_json(config.state_root / "checkpoint.json")
     return state if state.get("state") == "error" else {"state": "error", "error": "flow_failed"}
 
@@ -489,7 +516,7 @@ def healthy(config: Config) -> bool:
 
 def bound_logs(config: Config) -> None:
     """Bound private launchd logs without moving files held open by launchd."""
-    for path in (config.state_root / "logs").glob("*.log"):
+    for path in log_root(config).glob("*.log"):
         if path.stat().st_size > 5 * 1024 * 1024:
             with path.open("r+b") as handle:
                 handle.seek(-512 * 1024, os.SEEK_END)
@@ -573,12 +600,17 @@ def agent_labels(config: Config) -> list[str]:
     return [f"dev.dotfiles-ai.obsidian-{identity}-server", f"dev.dotfiles-ai.obsidian-{identity}-watcher"]
 
 
+def log_root(config: Config) -> Path:
+    identity = hashlib.sha256(str(config.state_root).encode()).hexdigest()[:10]
+    return Path.home() / "Library/Logs/obsidian-workbench" / identity
+
+
 def install(config: Config, config_path: Path) -> None:
     if sys.platform != "darwin":
         raise SafeFailure("macos_required")
     os.umask(0o077)
     private_root(config.state_root)
-    logs = config.state_root / "logs"
+    logs = log_root(config)
     private_root(logs)
     install_facade(config)
     agents = Path.home() / "Library/LaunchAgents"
@@ -595,16 +627,26 @@ def install(config: Config, config_path: Path) -> None:
     for label, command in zip(agent_labels(config), commands, strict=True):
         path = agents / (label + ".plist")
         contents = {"Label": label, "ProgramArguments": command,
-                    "WorkingDirectory": str(runtime_directory(config)), "EnvironmentVariables": environment,
+                    # launchd itself cannot open files on all external mounts.
+                    # The user process enters its clean runtime before SDK import.
+                    "WorkingDirectory": str(Path.home()), "EnvironmentVariables": environment,
                     "RunAtLoad": True, "KeepAlive": True, "ThrottleInterval": 15,
                     "LimitLoadToSessionType": "Aqua", "ProcessType": "Background",
                     "StandardOutPath": str(logs / (label + ".out.log")),
                     "StandardErrorPath": str(logs / (label + ".err.log"))}
         path.write_bytes(plistlib.dumps(contents))
         path.chmod(0o600)
+        for stream in (contents["StandardOutPath"], contents["StandardErrorPath"]):
+            Path(stream).touch(mode=0o600, exist_ok=True)
+            Path(stream).chmod(0o600)
         subprocess.run(["/bin/launchctl", "bootout", f"gui/{os.getuid()}/{label}"], capture_output=True)
-        result = subprocess.run(["/bin/launchctl", "bootstrap", f"gui/{os.getuid()}", str(path)], capture_output=True)
-        if result.returncode:
+        # bootout can return while the old job is still being removed.
+        for attempt in range(20):
+            result = subprocess.run(["/bin/launchctl", "bootstrap", f"gui/{os.getuid()}", str(path)], capture_output=True)
+            if not result.returncode:
+                break
+            time.sleep(0.25)
+        else:
             raise SafeFailure("launchagent_install_failed")
 
 
@@ -619,6 +661,7 @@ def main() -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("command", choices=("run", "watch", "status", "install", "uninstall", "server"))
     args = parser.parse_args()
+    args.config = args.config.resolve()
     os.umask(0o077)
     try:
         config = Config.load(args.config)

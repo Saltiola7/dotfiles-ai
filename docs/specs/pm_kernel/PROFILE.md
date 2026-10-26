@@ -23,7 +23,7 @@ Jira approval contract, or optional PostgreSQL service.
 | Field | Adapter commitment |
 |---|---|
 | Deliverable and owner | Managed note-projection automation; the personal operator owns activation, operation, recovery, and retirement |
-| Runtime | Python 3.12+ and Prefect 3.7.7, resolved from the selected lab's exact uv metadata and lock with its existing exporter dependencies |
+| Runtime | Python 3.12+, Prefect 3.7.7, and FastAPI 0.136.3, resolved from the selected lab's exact uv metadata and lock with its existing exporter dependencies |
 | Platform and services | macOS user session; one host watcher and one isolated localhost Prefect server; Obsidian CLI refresh requires the existing app to be available |
 | Compatibility | Personal Markdown/YAML remains authoritative under the existing lab exporter schema; no conversion into Local Tickets or lifecycle evidence |
 | Trust/data | Private local configuration, captures, checkpoints, generations, and diagnostics; no note content, credentials, or raw CLI output enters Prefect metadata |

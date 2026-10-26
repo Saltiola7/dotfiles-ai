@@ -1,18 +1,25 @@
 # PM Kernel Changelog
 
-## 2026-10-26 - Optional Obsidian Projection Automation (In Progress)
+## 2026-10-26 - Optional Obsidian Projection Automation
 
 - Defined a separately opted-in personal-note adapter for stable capture,
   validated derived generations, atomic publication, and recoverable Obsidian
   SQL report refresh. Personal Markdown/YAML and the existing lab exporter
   schema remain authoritative; PM tickets, Jira approval, and lifecycle boundaries
   are unchanged.
-- Specified a macOS watcher and isolated loopback Prefect 3.7.7 server using the
+- Specified a macOS watcher and isolated loopback Prefect 3.7.7 / FastAPI 0.136.3 server using the
   selected lab's exact uv runtime and lock, with private local state, scoped
   supervision, retention, rollback, and operator ownership.
-- Automation validation and completion evidence remain pending. This entry does
-  not claim passing gates, deployment, successful host operation, commits, or
-  delivery; the final cycle record must supply verified outcomes.
+- Added serial local flows, immutable captured inputs, complete generation publication,
+  awaited plugin reset, report verification, and pending-refresh recovery. Synthetic
+  and affected PM/distribution checks pass; host evidence verifies SQL/Bases parity
+  and unchanged canonical notes after disposable edit/correction/deletion tests.
+  Initial startup failures are retained in the private cycle record: external-volume
+  log access, a relative configuration path, FastAPI compatibility, empty authentication
+  settings, asynchronous LaunchAgent removal, and captured attachment-existence metadata were repaired. The operator granted
+  macOS removable-volume permission. Final supervised operation evidence and actual
+  push outcome are recorded in the Cycle Record. Intended delivery: feature branch
+  and draft pull request into main; no merge or public service exposure.
 
 ## 2026-08-29 - Explicit Local Reporting Workflow
 
