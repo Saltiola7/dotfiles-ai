@@ -39,6 +39,23 @@ refresh_timeout_seconds = 3600
 [data.dotfiles_ai.codex]
 channel = "stable"
 
+[data.dotfiles_ai.cline_desktop]
+# Optional macOS app, installed through Homebrew's cline-app cask.
+enabled = false
+
+[data.dotfiles_ai.cline_cli]
+# Optional npm CLI; an existing installation keeps its current version.
+enabled = false
+
+[data.dotfiles_ai.cline_vertex]
+# Requires at least one Cline tool above. Reuses opencode.vertex_* below and
+# the isolated ADC renewed by vertex-reauth. Launch via cline-vertex or
+# cline-desktop; Finder does not inherit this process-local credential path.
+enabled = false
+model = "claude-sonnet-5-5@default" # or claude-opus-5-5@default
+# Dedicated local Vertex profile and Hub; default Cline profiles stay separate.
+hub_port = 25464
+
 [data.dotfiles_ai.opencode]
 version = "1.18.25"
 linux_amd64_asset_url = "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-x64.tar.gz"
