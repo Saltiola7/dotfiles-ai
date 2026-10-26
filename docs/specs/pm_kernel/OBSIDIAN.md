@@ -22,7 +22,7 @@ The operator owns this personal macOS service. A dedicated loopback Prefect serv
 flowchart LR
     accTitle: Personal Obsidian projection automation
     accDescr: Canonical notes feed a host watcher and immutable captured generation. A local Prefect server records metadata. Atomic publication precedes Obsidian CLI reset and report refresh. Bases reads notes directly.
-    N[Canonical Records and Knowledge] --> W[Host watcher and Prefect flow]
+    N[Canonical notes and referenced local file existence] --> W[Host watcher and Prefect flow]
     W --> S[Immutable captured notes]
     S --> G[Validated generation: DuckDB, Parquet, JSON]
     G --> P[Atomic current generation pointer]
@@ -31,7 +31,7 @@ flowchart LR
     W --> F[Loopback personal Prefect API and UI]
 ```
 
-**Text Equivalent:** Only Records and Knowledge trigger the host watcher. A Prefect flow validates an immutable capture and publishes a complete derived generation through one pointer, then resets the plugin and refreshes configured SQL reports using Obsidian CLI. Native Bases reads notes directly. The loopback personal Prefect server receives operational metadata; no source content leaves this Mac. Canonical source: this adapter contract and exporter; owner: operator; update when ordering, boundaries, or topology changes.
+**Text Equivalent:** Canonical Records and Knowledge bytes and their referenced local file existence feed the host watcher. A Prefect flow validates an immutable capture and publishes a complete derived generation through one pointer, then resets the plugin and refreshes configured SQL reports using Obsidian CLI. Native Bases reads notes directly. The loopback personal Prefect server receives operational metadata; no source content leaves this Mac. Canonical source: this adapter contract and exporter; owner: operator; update when ordering, boundaries, or topology changes.
 
 ## Behavior
 
@@ -42,7 +42,8 @@ flowchart LR
 5. Given a process restart or API outage, the private checkpoint and current generation recover unfinished work. Generated reports, Data, templates, .obsidian, and journal writes never trigger another build.
 6. Given concurrent adapter invocations, only one publisher/refresh process operates. Manual builds use the same safe adapter once enabled; the old in-place exporter is not a supported concurrent writer.
 7. Given a query refresh resolves with nonzero errors or unexpected block count, the refresh remains pending. Source notes remain byte-identical throughout publication and refresh.
-8. Given a newly introduced symlink in canonical roots, an unexpected vault path, or a non-loopback Prefect endpoint, the adapter rejects the boundary without executing note text or publishing data.
+8. Given a retained local attachment referenced by a note, when building isolated captured inputs, its link-existence flag remains true without copying binary contents.
+9. Given a newly introduced symlink in canonical roots, an unexpected vault path, or a non-loopback Prefect endpoint, the adapter rejects the boundary without executing note text or publishing data.
 
 ```mermaid
 sequenceDiagram
@@ -77,7 +78,7 @@ Source: `dot_local/share/pm-kernel/obsidian_workbench.py`, deployed into the sel
 
 Machine-local JSON configuration fields: absolute `lab_root`, `vault_path`, `state_root`, `python`, `obsidian_cli`; `vault_name`; loopback HTTP `api_url`; `reports` mapping vault-relative Markdown paths to expected SQL block counts; positive `poll_seconds` (default 1), `quiet_seconds` (default 2), `retry_seconds` (default 15). Reject symlinks in source roots, invalid report paths, root overlap, non-loopback network targets, and unexpected vault identity.
 
-Interfaces: `capture(config) -> Snapshot(digest, files)` captures canonical bytes; `build_generation(config, snapshot, occurrence) -> manifest` stages and validates the trusted exporter against immutable copies; `publish_generation(config, manifest)` atomically switches `data/current`; `refresh(config)` awaits targeted Obsidian CLI reset then verifies report refresh results; `reconcile(config) -> status` resumes pending publication/refresh; `watch(config)` coalesces changes and recovers after restart. Internal exceptions expose only safe error categories to Prefect.
+Interfaces: `capture(config) -> Snapshot(digest, files, link_targets)` captures canonical bytes; `build_generation(config, snapshot, occurrence) -> manifest` stages and validates the trusted exporter against immutable copies; `publish_generation(config, manifest)` atomically switches `data/current`; `refresh(config)` awaits targeted Obsidian CLI reset then verifies report refresh results; `reconcile(config) -> status` resumes pending publication/refresh; `watch(config)` coalesces changes and recovers after restart. Internal exceptions expose only safe error categories to Prefect.
 
 Generation layout: `lab/data/generations/<occurrence>/{knowledge.duckdb,Data/{parquet,json},manifest.json}`. `lab/data/current` points to one complete generation. `sample-vault/Data` and `lab/data/knowledge.duckdb` become stable symlinks through that pointer. Initial migration preserves old files as private recovery backups. A valid current target is installed before serving links migrate; interrupted migration is repaired before UI acknowledgement, even when newer source input is invalid. Publication uses a temporary symlink plus atomic replacement of current. Old open readers can finish on the previous generation; separate user queries may naturally straddle a generation boundary. Retain current and one previous generation. The adapter does not claim one transaction across separate queries.
 

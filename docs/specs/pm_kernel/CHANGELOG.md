@@ -2,24 +2,20 @@
 
 ## 2026-10-26 - Optional Obsidian Projection Automation
 
-- Defined a separately opted-in personal-note adapter for stable capture,
-  validated derived generations, atomic publication, and recoverable Obsidian
-  SQL report refresh. Personal Markdown/YAML and the existing lab exporter
-  schema remain authoritative; PM tickets, Jira approval, and lifecycle boundaries
-  are unchanged.
-- Specified a macOS watcher and isolated loopback Prefect 3.7.7 / FastAPI 0.136.3 server using the
-  selected lab's exact uv runtime and lock, with private local state, scoped
-  supervision, retention, rollback, and operator ownership.
-- Added serial local flows, immutable captured inputs, complete generation publication,
-  awaited plugin reset, report verification, and pending-refresh recovery. Synthetic
-  and affected PM/distribution checks pass; host evidence verifies SQL/Bases parity
-  and unchanged canonical notes after disposable edit/correction/deletion tests.
-  Initial startup failures are retained in the private cycle record: external-volume
-  log access, a relative configuration path, FastAPI compatibility, empty authentication
-  settings, asynchronous LaunchAgent removal, and captured attachment-existence metadata were repaired. The operator granted
-  macOS removable-volume permission. Final supervised operation evidence and actual
-  push outcome are recorded in the Cycle Record. Intended delivery: feature branch
-  and draft pull request into main; no merge or public service exposure.
+- Added opt-in local Prefect flows for debounced note edits, immutable capture,
+  validated generation publication, awaited plugin reset, and SQL report refresh.
+  Personal Markdown/YAML remains authoritative; PM tickets and Jira are unchanged.
+- Deployed two user LaunchAgents for an isolated loopback Prefect server and host
+  watcher after operator-granted macOS volume access. Runtime pins are Prefect
+  3.7.7 and FastAPI 0.136.3; private state, rollback, and retention are documented.
+- Validation passed 65 affected checks and supervised create/edit/invalid/correct/
+  body-edit/delete scenarios. All 25 table contents match the live projection;
+  SQL and Bases reconcile, all 313 original notes are unchanged, and retained
+  attachments have no false dangling links. Generated writes cause no run loop.
+- Implementation Gate Commits: `2b2ab80`, `5186142`, `56a6986`, `9d39fba`,
+  `aab2587`, `55b550c`, and `a5feafd`. Closure commits are bound in the Cycle
+  Record. Gate Exceptions: none. Intended Final Push: feature branch and draft
+  pull request into main; the Cycle Record retains the actual delivery outcome.
 
 ## 2026-08-29 - Explicit Local Reporting Workflow
 
