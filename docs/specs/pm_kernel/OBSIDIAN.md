@@ -70,3 +70,17 @@ sequenceDiagram
 ```
 
 **Text Equivalent:** The watcher waits for quiet inputs, then invokes one flow. The flow builds captured notes. Invalid or superseded builds leave current outputs untouched. Valid complete builds publish atomically before awaiting plugin reset and refresh. Unavailable Obsidian or refresh errors retain pending UI state; success records completion. The watcher then checks newer inputs and pending work. Canonical source: Behavior and Contract; owner: operator; update when ordering or recovery changes.
+
+## Spec
+
+Source: `dot_local/share/pm-kernel/obsidian_workbench.py`, deployed into the selected lab as `scripts/auto_refresh.py`. Python 3.12+; runtime dependencies come from the lab's exact uv metadata and lock (Prefect 3.7.7 plus existing exporter dependencies). CLI: `--config PATH run|watch|status|install|uninstall`. `run` and `watch` invoke the same decorated Prefect flow synchronously; no remote queue, worker, deployment runner, AI task, or paid service is needed. The watcher holds an advisory process lock and the flow holds a separate publisher lock.
+
+Machine-local JSON configuration fields: absolute `lab_root`, `vault_path`, `state_root`, `python`, `obsidian_cli`; `vault_name`; loopback HTTP `api_url`; `reports` mapping vault-relative Markdown paths to expected SQL block counts; positive `poll_seconds` (default 1), `quiet_seconds` (default 2), `retry_seconds` (default 15). Reject symlinks in source roots, invalid report paths, root overlap, non-loopback network targets, and unexpected vault identity.
+
+Interfaces: `capture(config) -> Snapshot(digest, files)` captures canonical bytes; `build_generation(config, snapshot, occurrence) -> manifest` stages and validates the trusted exporter against immutable copies; `publish_generation(config, manifest)` atomically switches `data/current`; `refresh(config)` awaits targeted Obsidian CLI reset then verifies report refresh results; `reconcile(config) -> status` resumes pending publication/refresh; `watch(config)` coalesces changes and recovers after restart. Internal exceptions expose only safe error categories to Prefect.
+
+Generation layout: `lab/data/generations/<occurrence>/{knowledge.duckdb,Data/{parquet,json},manifest.json}`. `lab/data/current` points to one complete generation. `sample-vault/Data` and `lab/data/knowledge.duckdb` become stable symlinks through that pointer. Initial migration preserves old files as private recovery backups. Publication uses a temporary symlink plus atomic replacement of current. Old open readers can finish on the previous generation; separate user queries may naturally straddle a generation boundary. Retain current and one previous generation. The adapter does not claim one transaction across separate queries.
+
+The original exporter is preserved as `workbench_source.py`; a compatible `workbench.py` facade retains read/query APIs and routes persistent manual builds through this serialized adapter. Its output and vault arguments must match the configured lab. The captured builder imports only the preserved trusted exporter, preventing recursion.
+
+`install` prepares private state and two user LaunchAgents with unique labels: loopback Prefect server and host watcher. They run in the user's GUI session with explicit runtime/configuration and private logs, clear inherited Prefect credentials, disable telemetry/ephemeral startup, and restart on failure. `uninstall` unloads only those two agents; generation files remain recoverable. No general chezmoi apply or other service change is required.
