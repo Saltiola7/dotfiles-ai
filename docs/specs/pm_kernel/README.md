@@ -3,7 +3,7 @@ title: PM Kernel
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-18
-last_updated: 2026-08-19
+last_updated: 2026-10-26
 ---
 
 # PM Kernel
@@ -40,6 +40,12 @@ after direct `pmctl`, `/pm-kernel`, or `/jira-ticket` invocation and have no
 Discovery, DBSCTR, Initiative, DKS, or autonomous-R&D authority. PostgreSQL is a
 rebuildable cache and Jira is an explicitly requested external projection.
 
+The separately opted-in [Obsidian note adapter](OBSIDIAN.md) automates projections
+of configured personal Markdown/YAML notes. Those notes remain authoritative for
+their own content and retain the existing lab exporter's schema; they are not
+Local Tickets or engineering lifecycle evidence. The adapter does not activate
+PM reporting, invoke Jira publication, or change either workflow's contracts.
+
 ## Goals
 
 - Replace monolithic `BACKLOG.md` tables with one human-readable Markdown file per
@@ -64,6 +70,11 @@ rebuildable cache and Jira is an explicitly requested external projection.
 - Client names, project keys, people, custom Jira fields, model providers, or
   organization-specific metrics in portable source.
 
+The first-release exclusions above describe the original PM reporting workflow.
+The current opt-in Obsidian extension specifies Prefect and DuckDB use within its
+separate personal-note boundary; it does not introduce arbitrary SQL agent
+access, a custom MCP server, or sprint scheduling into PM Kernel.
+
 ## Bounded Context
 
 `pm_kernel` owns local work-item identity, schema, workflow, readiness gates,
@@ -76,6 +87,9 @@ Adjacent contexts:
 - `dotfiles_ai_distribution` owns optional workspace services and deployment.
 - `opencode_control_plane` owns skill, command, and permission loading.
 - Jira owns external issue workflows and project-specific fields.
+- The configured personal lab exporter owns note schemas and transformations;
+  the optional Obsidian adapter owns capture, projection publication, refresh
+  acknowledgement, and host supervision as defined in [OBSIDIAN.md](OBSIDIAN.md).
 
 ## Ubiquitous Language
 
@@ -293,6 +307,16 @@ never runs DVC or Git mutation commands. Direct `psql` is operator/debug access 
 future MCP may wrap the same CLI contracts if multiple clients require typed
 remote discovery; it is not required for the first OpenCode workflow.
 
+### Optional Obsidian interface
+
+[OBSIDIAN.md](OBSIDIAN.md#spec) defines the adapter's configuration and CLI.
+Activation is explicit and independent of PM/Jira configuration. One macOS host
+watcher calls a Prefect 3.7.7 flow against an isolated loopback server; the selected
+lab's exact uv metadata and lock own its runtime dependencies. Native Bases reads
+canonical notes, while DuckDB, Parquet, JSON, and frozen SQL reports remain
+rebuildable projections. Automatic refresh never mutates canonical notes or
+converts them into the Local Ticket schema.
+
 ### Configuration
 
 ```toml
@@ -404,6 +428,12 @@ consumer tests pass. Re-running the same migration produces the same files.
   leaves the prior volume authoritative.
 - Operations expose version, readiness, last successful projection, source lag,
   failed envelope count, backup age, and schema version without payload content.
+- The personal operator owns activation, health, recovery, and retirement of the
+  optional Obsidian adapter. Its private state, captured notes, logs, and runtime
+  configuration stay local; the Prefect endpoint is loopback-only and receives
+  bounded orchestration metadata rather than note content. Its exact privacy,
+  supervision, retention, and recovery contracts are in
+  [OBSIDIAN.md](OBSIDIAN.md#contract).
 
 ## Explicit Invocation Boundary
 
@@ -411,6 +441,11 @@ Discovery, DBSCTR, Initiative handling, DKS, and autonomous R&D never invoke PM
 Kernel or inspect its files. An operator may directly invoke `pmctl`, `/pm-kernel`,
 or `/jira-ticket` to create reporting material from already authoritative evidence.
 That material does not enter Initiative manifests or Build contracts.
+
+An explicitly enabled personal-note watcher has only the separate adapter scope
+defined in [OBSIDIAN.md](OBSIDIAN.md). Its automatic runs do not inspect PM ticket
+files, create reporting tickets, publish Jira issues, or grant lifecycle authority
+to personal notes or their projections.
 
 ## Validation Strategy
 
@@ -427,8 +462,19 @@ That material does not enter Initiative manifests or Build contracts.
   disabled behavior, backup/restore, and version mismatch refusal.
 - Distribution validation proves default-off rendering, rootless private service,
   pinned identity, health, deployment idempotence, and removal behavior.
+- Optional Obsidian validation follows [its adapter contract](OBSIDIAN.md#contract)
+  for stable capture, atomic publication, failed-input retention, refresh retry,
+  process locking, privacy, opt-in supervision, and recovery. Host evidence must
+  prove the configured runtime and note/SQL/Bases parity before operation is
+  reported complete.
 
 ## Visual Evidence
+
+The existing diagrams below remain canonical for the PM ticket/Jira workflow.
+The optional personal-note adapter's additional boundary, interaction, state,
+data/trust, and deployment evidence is canonical in
+[OBSIDIAN.md](OBSIDIAN.md#visual-evidence); it is referenced rather than duplicated
+here. The adapter adds no ticket schema or replacement lifecycle diagram.
 
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|

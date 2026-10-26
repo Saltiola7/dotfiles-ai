@@ -1,5 +1,19 @@
 # PM Kernel Changelog
 
+## 2026-10-26 - Optional Obsidian Projection Automation (In Progress)
+
+- Defined a separately opted-in personal-note adapter for stable capture,
+  validated derived generations, atomic publication, and recoverable Obsidian
+  SQL report refresh. Personal Markdown/YAML and the existing lab exporter
+  schema remain authoritative; PM tickets, Jira approval, and lifecycle boundaries
+  are unchanged.
+- Specified a macOS watcher and isolated loopback Prefect 3.7.7 server using the
+  selected lab's exact uv runtime and lock, with private local state, scoped
+  supervision, retention, rollback, and operator ownership.
+- Automation validation and completion evidence remain pending. This entry does
+  not claim passing gates, deployment, successful host operation, commits, or
+  delivery; the final cycle record must supply verified outcomes.
+
 ## 2026-08-29 - Explicit Local Reporting Workflow
 
 - Moved directly invoked PM files to `data/backlog/tickets/` and replaced Git
