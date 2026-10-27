@@ -18,7 +18,8 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import tempfile
-from typing import Callable, Iterator
+from typing import Callable, Iterable, Iterator
+import unicodedata
 import uuid
 
 
@@ -60,6 +61,16 @@ def _path(value: object) -> str:
             or path.suffix != ".md"):
         raise SyncFailure("invalid_path")
     return value
+
+
+def _check_path_aliases(paths: Iterable[str]) -> None:
+    """Reject names that could select the same file on a supported filesystem."""
+    seen = {}
+    for path in paths:
+        key = unicodedata.normalize("NFC", unicodedata.normalize("NFC", path).casefold())
+        previous = seen.setdefault(key, path)
+        if previous != path:
+            raise SyncFailure("invalid_duplicate")
 
 
 def _flat(metadata: object) -> None:
@@ -116,6 +127,7 @@ def validate_bundle(bundle: dict) -> dict:
     records = [_record(value, bundle["source_system"]) for value in bundle["records"]]
     identities = [value["metadata"]["id"] for value in records]
     paths = [value["path"] for value in records]
+    _check_path_aliases(paths)
     source_ids = [(value["metadata"]["entity_type"], value["metadata"]["source_id"]) for value in records]
     if len(set(identities)) != len(records) or len(set(paths)) != len(records) or len(set(source_ids)) != len(records):
         raise SyncFailure("invalid_duplicate")
@@ -188,6 +200,7 @@ def _scan(vault: Path) -> dict[str, bytes]:
                 if path.suffix == ".md":
                     relative = path.relative_to(vault).as_posix()
                     files[relative] = _safe_path(vault, relative).read_bytes()
+    _check_path_aliases(files)
     return files
 
 
@@ -217,6 +230,7 @@ def plan_sync(vault: Path, bundle: dict, baseline: dict | None, reader: Reader) 
     if original is not None and any(incoming[key] != original[key] for key in ("source_system", "scope")):
         raise SyncFailure("source_mismatch")
     files = _scan(vault)
+    _check_path_aliases([*files, *(value["path"] for value in incoming["records"])])
     local_by_id = {}
     local_by_path = {}
     for path, data in files.items():
@@ -430,16 +444,21 @@ def apply_sync(vault: Path, plan: Plan, baseline_path: Path, state_root: Path,
             stage = Path(directory)
             for name in ("Records", "Knowledge"):
                 (stage / name).mkdir()
-            for path, data in {**plan.files, **rendered}.items():
+            expected_files = {**plan.files, **rendered}
+            for path, data in expected_files.items():
                 target = stage / _path(path)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data)
+            if _scan(stage) != expected_files:
+                raise SyncFailure("invalid_stage")
             try:
                 findings = validator(stage)
                 if findings:
                     raise SyncFailure("validation_failed")
             except Exception:
                 raise SyncFailure("validation_failed") from None
+            if _scan(stage) != expected_files:
+                raise SyncFailure("invalid_stage")
         if _scan(vault) != plan.files:
             raise SyncFailure("stale_plan")
         if _read_baseline(baseline_path)[1] != baseline_bytes:
@@ -482,6 +501,7 @@ def _finish(vault: Path, baseline_path: Path, state_root: Path, journal: dict,
             _path(path)
             if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
                 raise SyncFailure("invalid_journal")
+        _check_path_aliases([*files, *decoded])
         for path, (old, _new) in decoded.items():
             if ((old is None and path in files)
                     or (old is not None and hashlib.sha256(old).hexdigest() != files.get(path))):

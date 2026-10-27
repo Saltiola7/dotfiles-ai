@@ -359,3 +359,49 @@ def test_invalid_journal_path_never_writes_outside_vault(paths):
     with pytest.raises(sync.SyncFailure, match="invalid_path"):
         sync.recover(vault, baseline_path, state)
     assert not (vault.parent / "outside.md").exists()
+
+
+@pytest.mark.parametrize("names", [("A", "a"), ("caf\u00e9", "cafe\u0301")])
+def test_bundle_path_aliases_rejected_before_any_write(paths, names):
+    incoming = []
+    for index, name in enumerate(names):
+        value = record(f"source-{index}")
+        value["path"] = f"Records/entity=issue/{name}.md"
+        incoming.append(value)
+    with pytest.raises(sync.SyncFailure, match="invalid_duplicate"):
+        apply(paths, bundle(*incoming))
+    assert not list(paths[0].rglob("*.md"))
+    assert not paths[1].exists()
+
+
+@pytest.mark.parametrize("names", [("Existing", "existing"), ("caf\u00e9", "cafe\u0301")])
+def test_incoming_path_alias_to_local_note_rejected(paths, names):
+    vault, baseline_path, _ = paths
+    local = record("local-1", source_system="local", source_id=None)
+    local["path"] = f"Records/entity=issue/{names[0]}.md"
+    write(vault, local)
+    incoming = record()
+    incoming["path"] = f"Records/entity=issue/{names[1]}.md"
+    before = {p.relative_to(vault): p.read_bytes() for p in vault.rglob("*.md")}
+    with pytest.raises(sync.SyncFailure, match="invalid_duplicate"):
+        sync.plan_sync(vault, bundle(incoming), None, reader)
+    assert before == {p.relative_to(vault): p.read_bytes() for p in vault.rglob("*.md")}
+    assert not baseline_path.exists()
+
+
+def test_staged_byte_mismatch_stops_before_validation_or_live_writes(paths, monkeypatch):
+    vault, baseline_path, _ = paths
+    original = Path.write_bytes
+    validated = []
+
+    def corrupt_stage(path, data):
+        if any(part.startswith("obsidian-sync-") for part in path.parts):
+            data = renderer(record(body="Different staged bytes"))
+        return original(path, data)
+
+    monkeypatch.setattr(Path, "write_bytes", corrupt_stage)
+    with pytest.raises(sync.SyncFailure, match="invalid_stage"):
+        apply(paths, bundle(record()), validator=lambda stage: validated.append(stage))
+    assert not validated
+    assert not list(vault.rglob("*.md"))
+    assert not baseline_path.exists()

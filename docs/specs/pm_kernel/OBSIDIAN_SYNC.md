@@ -141,6 +141,12 @@ Identity, entity type, source identity, and existing record path cannot be silen
 reassigned. Scan the full vault for identity/path collisions, including unrelated
 local notes. Reject path traversal, absolute paths, noncanonical roots, symlinked
 ancestors, duplicate YAML keys, nested metadata, and source/provider mismatches.
+Reject casefold-equivalent and canonically equivalent Unicode paths on every
+platform so portable vaults cannot alias on macOS. Re-read staged file bytes and
+require the complete expected set before any live writes. Normalize remote body
+format at the adapter boundary so rendering adds no false local edit; preserve
+local body bytes on metadata-only writes. Existing remote baselines migrate only
+from their own retained remote representation, never current local prose.
 Check both initial inputs and pre-write bytes. New filenames are deterministic
 and mutable titles do not move records. Seed never overwrites an existing baseline.
 
