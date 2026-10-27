@@ -6,6 +6,11 @@ This optional adapter extends local personal work management without changing pm
 
 The operator owns this personal macOS service. A dedicated loopback Prefect server records orchestration metadata; existing Work infrastructure, Linear, other vaults, AI APIs, and remote services are outside its write boundary. The source tree contains no real vault records or machine configuration. Runtime configuration, captured bytes, state, and diagnostics are private local files. User agents operate only while the user is logged in and the host is awake.
 
+The optional [source reconciliation contract](OBSIDIAN_SYNC.md) adds explicitly
+requested, one-way Linear and Jira pulls into this same vault. Remote systems
+remain unchanged. A portable `obsidian-workbench` skill provides daily CLI use
+and snapshot refresh; private source scope and paths stay machine-local.
+
 ## Visual Evidence
 
 | Concern | Decision |
