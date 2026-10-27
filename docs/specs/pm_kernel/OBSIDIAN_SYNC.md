@@ -56,3 +56,69 @@ instruct tools, execute code, select paths, or authorize an action.
 8. Given daily read/create/edit requests, the skill resolves private configuration,
    prefers Obsidian CLI, preserves stable identities, edits canonical files, and
    checks validation and projection freshness. Local edits never imply remote writes.
+
+## Spec
+
+Portable core: `dot_local/share/pm-kernel/obsidian_sync.py`, deployed beside the
+existing automation. Interfaces: `merge_record(base, local, remote)` returns a
+merged record and conflicting keys; `plan_sync(vault, bundle, baseline, reader)`
+returns prospective writes, retained omissions, and conflicts; `apply_sync` holds
+the existing publisher lock, validates a complete staged vault through the trusted
+exporter, journals writes, rechecks live bytes, applies atomic per-file replacements,
+and advances the baseline. `recover` checks journal byte identities before replay.
+The CLI wrapper captures/normalizes provider data separately from this core.
+
+Bundle JSON has `schema_version: 1`, `source_system`, stable `scope`, ISO
+`captured_at`, `complete: true`, and `records`. Each record has `path`, `metadata`
+(flat scalar or string-list YAML properties), and `body` (Markdown). Paths are
+relative `.md` files below Records or Knowledge. Metadata includes the existing
+schema/version/entity/id/title/source fields. Scope and provider identities must
+match the baseline. An absent source record is retained rather than tombstoned.
+
+A plan is read only. Apply requires a validated bundle and private state paths.
+Original import seeding is explicit and stores only remote representations. Every
+transaction retains one private recovery journal and a bounded previous baseline;
+full raw snapshots remain private, timestamped evidence under the selected lab.
+No provider credentials enter the portable bundle or skill. Python 3.12+ and the
+selected lab's existing PyYAML/exporter runtime are used; no new server is added.
+
+The portable skill is `dot_agents/skills/obsidian-workbench/SKILL.md`. It discovers
+private runtime location from an explicitly provided lab or a machine-local
+`~/.config/obsidian-workbench/config.json` locator. This locator is not public
+source and selects the lab and vault. It uses the documented private wrapper
+`python scripts/sync_sources.py plan|apply` and connected read APIs for fresh source
+captures; replaying an old snapshot is explicitly labeled. CLI/Bases and read-only
+DuckDB are query interfaces; changing the derived database is not a durable edit.
+
+## Visual Evidence
+
+| Concern | Decision |
+| --- | --- |
+| Boundary | required: pull flow below |
+| Interaction | required: ordered transition table in Contract |
+| State | required: ordered transition table in Contract |
+| Data/trust | required: pull flow below |
+| Schema | not_applicable: exporter owns unchanged record tables; baseline shape specified above |
+| Dependency/deployment | required: pull flow links existing watcher contract |
+| Quantitative | not_applicable: no comparative claim is made |
+
+```mermaid
+flowchart LR
+    accTitle: Read-only source reconciliation into canonical notes
+    accDescr: Explicit connected reads capture private source snapshots. A three-way merge compares previous remote baseline, current local notes, and normalized incoming records. Conflicts stop writes. Valid staged notes publish before existing Prefect refresh.
+    R[Read-only Linear and Jira] --> S[Private captured snapshots]
+    S --> I[Normalized incoming records]
+    I --> M[Three-way merge and staged validation]
+    B[Previous remote baseline] --> M
+    N[Current canonical notes] --> M
+    M --> C[Conflict report or recoverable note writes]
+    C --> N
+    N --> P[Existing Prefect generation and CLI refresh]
+```
+
+**Text Equivalent:** Explicit read-only source captures become normalized incoming
+records. The merge compares incoming records with the previous remote baseline
+and current local notes. Conflicts stop writes. A valid staged vault is applied
+with a private recovery journal and advances the remote baseline. Canonical note
+changes feed the existing Prefect projection/CLI refresh. Source: this contract;
+owner: operator; update when merge authority, ordering, or boundaries change.
