@@ -122,3 +122,51 @@ and current local notes. Conflicts stop writes. A valid staged vault is applied
 with a private recovery journal and advances the remote baseline. Canonical note
 changes feed the existing Prefect projection/CLI refresh. Source: this contract;
 owner: operator; update when merge authority, ordering, or boundaries change.
+
+## Contract
+
+| State | Guard and next step | Failure/recovery |
+| --- | --- | --- |
+| captured | Complete declared scope, unique IDs and paths, valid source identity | Partial/empty unexpected capture rejected |
+| planned | Three-way property/body merge, no conflicts | Private report; canonical files unchanged |
+| staged | Full merged vault passes trusted exporter validation | No canonical or baseline change |
+| applying | Publisher lock, immutable journal, live preconditions rechecked | Recover only matching old/new bytes; stop on intervening edits |
+| accepted | Every write matches planned bytes, baseline advanced | Idempotent replay; prior baseline/journal retained |
+| projected | Existing watcher validates and refreshes generation | Its existing pending/error recovery applies |
+
+Identity, entity type, source identity, and existing record path cannot be silently
+reassigned. Scan the full vault for identity/path collisions, including unrelated
+local notes. Reject path traversal, absolute paths, noncanonical roots, symlinked
+ancestors, duplicate YAML keys, nested metadata, and source/provider mismatches.
+Check both initial inputs and pre-write bytes. New filenames are deterministic
+and mutable titles do not move records. Seed never overwrites an existing baseline.
+
+The full batch stops on any merge conflict or validation error. No upstream
+omission deletes a canonical note. No remote snapshot recreates a locally removed
+baseline note without resolution. Private reports use counts/keys in general
+output and retain source contents only in approved private files. Journal replay
+has no arbitrary path or executable input. User-selected exporter code is trusted;
+notes, source descriptions, and snapshot URLs remain untrusted data.
+
+The importer shares the generation publisher lock and source writer lock so its
+batch cannot interleave with a projection build or another importer. Per-file
+replacement cannot make Obsidian Bases transactional across all notes; Bases may
+briefly observe a partial batch. SQL publication waits for the final valid batch.
+Complete staged validation and journal recovery protect failure/restart behavior.
+The operator can stop the watcher and restore recorded before-bytes only after
+checking that no newer local edit would be overwritten.
+
+Validation includes synthetic first/repeat pulls, nonoverlapping merge, equal and
+conflicting concurrent edits, local additions/deletions, remote omissions, malformed
+bundles, collisions, unsafe paths/symlinks, whole-vault validation failure, interrupted
+apply/recovery, source mismatch, and no-op rerun. Host evidence reconciles source
+counts, status categories, comments, relations, references, and SQL/Bases counts.
+Skill validation uses the original creator validator, exact managed install byte
+comparison, and a read-only daily-use smoke. No private payload enters Git.
+
+Maintenance follows the existing Python/runtime lock and exporter schema. Retain
+raw capture evidence and the latest recoverable baseline/journal privately; the
+operator chooses disposal. Retire by ceasing explicit pulls and removing only the
+skill/adapter if requested; canonical notes and existing projection automation
+continue independently. No remote scheduler, writeback, release, or paid API is
+introduced by this change.
