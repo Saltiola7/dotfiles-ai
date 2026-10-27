@@ -1,5 +1,28 @@
 # PM Kernel Changelog
 
+## 2026-10-27 - Explicit Obsidian Source Reconciliation
+
+- Added repeatable read-only source pulls with per-property/body three-way merges,
+  whole-vault staged validation, protected identities, case/Unicode path collision
+  rejection, shared publication locking, and journal-based recovery. Omissions do
+  not delete notes; conflicting local edits stop the batch.
+- Installed the portable `obsidian-workbench` skill through the selected managed
+  source and deployed the adapter to the opted-in private lab. Source-specific
+  Bases views, a local-issue template, provenance, notebook specification, and
+  SQL/Bases checks retain their private payloads outside this repository. Remote
+  pulls remain explicitly invoked; the existing local Prefect watcher refreshes SQL.
+- Validation: 40 core scenarios and 105 affected regression checks passed, plus
+  three deployed-wrapper body/conflict regressions. Host checks reconcile every
+  table, source identities and counts, file hashes, no-op replay, SQL/Bases views,
+  local knowledge/media preservation, scoped services, and generation retention.
+  Independent review findings for body formatting and filesystem aliases were
+  repaired with red/green evidence. Gate Exceptions: none.
+- Gate Commits: `78e16fd`, `c009dd9`, `886396d`, `03ca537`, `822828b`,
+  `9162d1e`, and `d4373fc`; closure commit identity is in the Cycle Record.
+  Intended Final Push: existing feature branch and draft pull request into main.
+  The Cycle Record retains the actual delivery outcome. No versioned release,
+  remote scheduler, upstream writeback, or paid AI task was introduced.
+
 ## 2026-10-26 - Optional Obsidian Projection Automation
 
 - Added opt-in local Prefect flows for debounced note edits, immutable capture,
