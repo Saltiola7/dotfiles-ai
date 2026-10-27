@@ -23,6 +23,9 @@ Workflow categories map to unstarted, started, or completed while source names
 remain readable. Raw priorities remain properties alongside normalized 0–4 values.
 Only in-scope parents and relations become canonical foreign keys. External or
 unavailable references retain source keys, URLs, and direction in flat properties.
+Normalized records also carry source_scope, source_snapshot_at, and
+source_snapshot_sha256 as flat provenance properties. The exporter derives import
+run rows from these captured properties, keeping generation inputs immutable.
 Snapshot evidence retains rich text, custom fields, and attachment metadata;
 linked binary downloads and full history are separate explicit scopes.
 

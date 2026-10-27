@@ -3,7 +3,7 @@ title: PM Kernel
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-18
-last_updated: 2026-10-26
+last_updated: 2026-10-27
 ---
 
 # PM Kernel
@@ -45,6 +45,14 @@ of configured personal Markdown/YAML notes. Those notes remain authoritative for
 their own content and retain the existing lab exporter's schema; they are not
 Local Tickets or engineering lifecycle evidence. The adapter does not activate
 PM reporting, invoke Jira publication, or change either workflow's contracts.
+
+Its optional [source reconciliation](OBSIDIAN_SYNC.md) explicitly pulls selected
+Linear and Jira captures into the same vault through a protected three-way merge.
+The `obsidian-workbench` skill supplies daily CLI use, source capture, preview,
+validation, and freshness checks. Private configuration and source payloads remain
+outside the portable skill. No remote writeback or unattended source polling is
+configured by this adapter.
+
 
 ## Goals
 
