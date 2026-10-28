@@ -1,5 +1,13 @@
 # Worktrunk-owned native workspaces
 
+The approved [retirement recovery amendment](cycle-retirement-recovery.md)
+adds prospective record-only administrative closure for legacy/adopted/native
+cycles and independently approved archival/manual removal. Adoption is not a
+prerequisite for that narrowly validated administrative operation; ordinary
+legacy execution still requires adoption. Failed evidence and old identities are
+preserved. Native Worktrunk remains the physical removal owner; implementation
+and rollout qualification are separate.
+
 For new cycles bound to workflow-convergence, the finalized
 [storage policy](../../dotfiles_ai_distribution/features/workflow-storage-policy.md),
 [preservation contract](workflow-preservation-retirement.md) and

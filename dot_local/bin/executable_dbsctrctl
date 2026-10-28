@@ -10,6 +10,7 @@ import contextlib
 import contextvars
 import fcntl
 import fnmatch
+import functools
 import hashlib
 import io
 import json
@@ -3173,6 +3174,12 @@ def read_cycle_record(root, path, label="Cycle Record", *, historical=False, max
             fail("invalid local-only Cycle Record")
         if path.stem != record["cycle_id"]:
             fail("local-only Cycle Record filename identity changed")
+    if "initiative_amendments" in record or "initiative_authority_checkpoints" in record:
+        with local_completion_git_context():
+            try:
+                validate_initiative_amendments(root, record)
+            except (KeyError, TypeError, ValueError, AttributeError, OSError):
+                fail("invalid Initiative amendment history")
     return record
 
 
@@ -3194,7 +3201,8 @@ def validate_schema6_record(root, record):
         "state", "commits", "gates", "evidence", "metrics", "artifact_reviews", "runtime",
         "preservation_policy", "execution", "initiative", "initiative_approval"}
     optional = {"discovery_import", "profile_history", "graphify_check", "phase_profile", "dvc_push",
-                "dvc_preservation", "local_completion", "completed_at", "source_sync"}
+                "dvc_preservation", "local_completion", "completed_at", "source_sync",
+                "initiative_amendments", "initiative_authority_checkpoints"}
     if (not required <= set(record) or not set(record) <= required | optional
             or not native_workspace_execution(record) or record["execution"]["origin"] != "registered"
             or record["delivery_intent"] != "local" or record["state"] not in {"active", "completed"}
@@ -4409,9 +4417,9 @@ def initiative_acyclic(dependencies, label):
         visit(node)
 
 
-def read_initiative_manifest(source):
+def read_initiative_manifest(source, *, raw=None):
     try:
-        raw = Path(source).read_bytes()
+        raw = Path(source).read_bytes() if raw is None else raw
         if len(raw) > 1024 * 1024:
             fail("Initiative manifest exceeds 1 MiB")
         value = json.loads(raw.decode("utf-8"), object_pairs_hook=initiative_no_duplicate_keys)
@@ -4658,7 +4666,7 @@ def check_initiative_cycle_occupancy(root, cycle_id, receipt):
         fail(f"Initiative cycle worktree identity mismatch: {cycle_id}")
     if record.get("initiative") is None:
         fail(f"Initiative cycle ID is already occupied by an unbound cycle: {cycle_id}")
-    if record["initiative"] != receipt:
+    if effective_initiative(record) != receipt:
         fail(f"Initiative cycle ID is already occupied by a different Initiative receipt: {cycle_id}")
     if record.get("state") != "active":
         fail(f"Initiative cycle ID is already occupied by a non-active cycle: {cycle_id}")
@@ -4683,8 +4691,9 @@ def command_initiative_cycle_check(args):
     print(json.dumps({"available": True}, sort_keys=True, separators=(",", ":")))
 
 
-def initiative_receipt(source, slice_id, root=None):
-    value, statements, contexts, slices, release_groups, digest = read_initiative_manifest(source)
+def initiative_receipt(source, slice_id, root=None, *, committed=None):
+    raw = git(root, "show", f"{committed}:{source}").stdout.encode() if committed is not None else None
+    value, statements, contexts, slices, release_groups, digest = read_initiative_manifest(source, raw=raw)
     item = slices.get(slice_id)
     if item is None:
         fail(f"unknown Initiative slice: {slice_id}")
@@ -4697,23 +4706,25 @@ def initiative_receipt(source, slice_id, root=None):
         *(statements[requirement]["artifacts"] for requirement in item["requirements"])))
     if root is not None:
         try:
-            relative = Path(source).resolve().relative_to(root.resolve()).as_posix()
+            relative = (str(source) if committed is not None else
+                        Path(source).resolve().relative_to(root.resolve()).as_posix())
         except ValueError:
             fail("Initiative manifest must be inside the current repository")
-        if git(root, "status", "--porcelain=v1", "--", relative).stdout.strip():
+        if committed is None and git(root, "status", "--porcelain=v1", "--", relative).stdout.strip():
             fail("Initiative manifest must be committed and clean before receipt")
-        blob = git(root, "rev-parse", f"HEAD:{relative}", check=False).stdout.strip()
+        revision = committed or "HEAD"
+        blob = git(root, "rev-parse", f"{revision}:{relative}", check=False).stdout.strip()
         if not re.fullmatch(r"[0-9a-f]{40,64}", blob):
             fail("Initiative manifest must be committed at HEAD before receipt")
         identity = {
             "manifest_blob": blob,
-            "manifest_commit": git(root, "rev-parse", "HEAD").stdout.strip(),
+            "manifest_commit": git(root, "rev-parse", revision).stdout.strip(),
         }
         require_repository_home(root, value["coordinator_repository"],
             "Initiative coordinator repository does not match the source Git repository")
         for artifact in artifacts:
-            if (git(root, "status", "--porcelain=v1", "--", artifact).stdout.strip()
-                    or git(root, "cat-file", "-e", f"HEAD:{artifact}", check=False).returncode):
+            if ((committed is None and git(root, "status", "--porcelain=v1", "--", artifact).stdout.strip())
+                    or git(root, "cat-file", "-e", f"{revision}:{artifact}", check=False).returncode):
                 fail(f"Initiative artifact must be committed and clean before receipt: {artifact}")
     receipt = {
         "schema_version": value["schema_version"],
@@ -4735,7 +4746,617 @@ def initiative_receipt(source, slice_id, root=None):
 
 def command_initiative_receipt(args):
     print(json.dumps(initiative_receipt(args.manifest, args.slice, root_dir()),
-                     sort_keys=True, separators=(",", ":")))
+                      sort_keys=True, separators=(",", ":")))
+
+
+def amendment_bytes(value):
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def amendment_hash(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def amendment_location(root, cycle_id, digest, name):
+    if (not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id)
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or name not in {"plan.json", "before.json", "envelope.json", "outcome.json"}):
+        fail("invalid Initiative amendment custody")
+    return cycle_dir(root) / "evidence" / cycle_id / "initiative-amendments" / digest / name
+
+
+def amendment_read(root, path):
+    managed_directory(root, path.parent)
+    continuation_private(path)
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
+                or before.st_nlink != 1 or before.st_mode & 0o077):
+            fail("unsafe Initiative amendment evidence")
+        data = stream.read(32 * 1024 * 1024 + 1)
+        after = os.fstat(stream.fileno())
+    stable = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns,
+                           item.st_ctime_ns, item.st_mode, item.st_uid, item.st_nlink)
+    if len(data) > 32 * 1024 * 1024 or stable(before) != stable(after):
+        fail("unstable Initiative amendment evidence")
+    return data
+
+
+def amendment_write_once(root, path, data):
+    managed_directory(root, path.parent, create=True)
+    for directory in (path.parent, path.parent.parent):
+        os.chmod(directory, 0o700)
+    if os.path.lexists(path):
+        if amendment_read(root, path) != data:
+            fail("conflicting Initiative amendment evidence")
+        return
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.link(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    # Persist the complete newly created directory chain, not just its leaf.
+    current = path.parent
+    while True:
+        fsync_directory(current)
+        if current == cycle_dir(root):
+            break
+        current = current.parent
+
+
+def amendment_json(root, path):
+    return json.loads(amendment_read(root, path), object_pairs_hook=no_duplicate_keys)
+
+
+def amendment_tree(root, revision, closure):
+    for entry in closure:
+        name = entry["path"]
+        actual = git(root, "ls-tree", "-z", revision, "--", name).stdout
+        if actual != f"{entry['mode']} blob {entry['blob']}\t{name}\0":
+            return False
+        if git(root, "cat-file", "-e", entry["blob"], check=False).returncode:
+            return False
+    return True
+
+
+def amendment_closure(root, receipt, plan):
+    paths = sorted(set(receipt["artifacts"]) | {receipt["manifest_path"], plan["profile"]})
+    closure = []
+    for name in paths:
+        if (not isinstance(name, str) or not name.startswith("docs/")
+                or any(part in {"", ".", ".."} for part in name.split("/"))
+                or Path(name).suffix not in {".md", ".json"}):
+            fail("unsafe Initiative amendment document")
+        raw = git(root, "ls-tree", "-z", receipt["manifest_commit"], "--", name).stdout
+        header, separator, tail = raw.partition("\t")
+        fields = header.split()
+        if (separator != "\t" or tail != name + "\0" or len(fields) != 3
+                or fields[0] not in {"100644", "100755"} or fields[1] != "blob"):
+            fail("invalid Initiative amendment document tree")
+        closure.append({"path": name, "mode": fields[0], "blob": fields[2]})
+    return closure
+
+
+def amendment_clean_documents(root, closure):
+    for entry in closure:
+        name = entry["path"]
+        path = root / name
+        if (path.is_symlink() or not path.is_file()
+                or ("100755" if path.stat().st_mode & 0o111 else "100644") != entry["mode"]
+                or any((root / parent).is_symlink() for parent in Path(name).parents if str(parent) != ".")
+                or git(root, "status", "--porcelain=v1", "--", name).stdout
+                or git(root, "ls-files", "--stage", "-z", "--", name).stdout
+                != f"{entry['mode']} {entry['blob']} 0\t{name}\0"
+                or git(root, "hash-object", "--no-filters", "--", name).stdout.strip() != entry["blob"]):
+            fail("Initiative amendment selected documents are not clean")
+
+
+def amendment_checkout(root, selected):
+    require_local_read_filters(root)
+    if any(entry and not entry.startswith("H ") for entry in git(root, "ls-files", "-v", "-z").stdout.split("\0")):
+        fail("unsupported Initiative amendment index flags")
+    if git(root, "ls-files", "--unmerged").stdout:
+        fail("Initiative amendment index is unresolved")
+    dirty = sorted(set(filter(None, (
+        git(root, "diff", "--name-only", "-z", "HEAD").stdout
+        + git(root, "ls-files", "--others", "--exclude-standard", "-z").stdout).split("\0"))))
+    if set(dirty) & set(selected):
+        fail("Initiative amendment selected documents are dirty")
+    inventory = []
+    for name in dirty:
+        path = root / name
+        if not path.resolve().is_relative_to(root.resolve()) or path.is_symlink():
+            fail("unsupported Initiative amendment dirty artifact")
+        if not os.path.lexists(path):
+            inventory.append({"path": name, "absent": True})
+            continue
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 32 * 1024 * 1024:
+            fail("unsupported Initiative amendment dirty artifact")
+        data = path.read_bytes()
+        after = path.lstat()
+        if any(getattr(after, key) != getattr(info, key) for key in
+               ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns", "st_mode", "st_uid", "st_nlink")):
+            fail("changing Initiative amendment dirty artifact")
+        inventory.append({"path": name, "sha256": amendment_hash(data), "mode": stat.S_IMODE(info.st_mode)})
+    index = git_dir(root) / "index"
+    if index.is_symlink() or not index.is_file():
+        fail("unsafe Initiative amendment index")
+    return {"identity": continuation_digest([str(common_git_dir(root).resolve()),
+             str(git_dir(root).resolve()), str(root.resolve())]), "branch": branch(root),
+            "head": git(root, "rev-parse", "HEAD").stdout.strip(), "upstream": upstream(root),
+            "index_sha256": amendment_hash(index.read_bytes()),
+            "index_entries": git(root, "ls-files", "--stage", "-z").stdout,
+            "dirty": inventory}
+
+
+def amendment_checkout_documents(root, closure):
+    for entry in closure:
+        name = entry["path"]
+        path = root / name
+        if any((root / parent).is_symlink() for parent in Path(name).parents if str(parent) != "."):
+            fail("unsafe Initiative amendment selected parent")
+        tree = git(root, "ls-tree", "-z", "HEAD", "--", name).stdout
+        indexed = git(root, "ls-files", "--stage", "-z", "--", name).stdout
+        if not tree:
+            if indexed or os.path.lexists(path):
+                fail("unapproved Initiative amendment selected path")
+            continue
+        header, _, tail = tree.partition("\t")
+        fields = header.split()
+        if (len(fields) != 3 or fields[0] not in {"100644", "100755"} or fields[1] != "blob"
+                or tail != name + "\0" or indexed != f"{fields[0]} {fields[2]} 0\t{name}\0"
+                or path.is_symlink() or not path.is_file()
+                or ("100755" if path.stat().st_mode & 0o111 else "100644") != fields[0]
+                or git(root, "hash-object", "--no-filters", "--", name).stdout.strip() != fields[2]):
+            fail("Initiative amendment selected checkout bytes changed")
+
+
+def amendment_receipt(root, receipt):
+    commit = receipt["manifest_commit"]
+    path = receipt["manifest_path"]
+    if (not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", commit)
+            or not isinstance(path, str)
+            or not re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]*/MANIFEST\.json", path)
+            or git(root, "rev-parse", "--verify", f"{commit}^{{commit}}").stdout.strip() != commit):
+        fail("invalid Initiative amendment committed authority")
+    expected = initiative_receipt(path, receipt["slice_id"], root, committed=commit)
+    expected["manifest_path"] = path
+    if receipt != expected:
+        fail("Initiative amendment receipt disagrees with committed manifest")
+
+
+def amendment_replacement(before, entry):
+    replacement = json.loads(json.dumps(before))
+    replacement.setdefault("initiative_amendments", []).append(entry)
+    for gate in replacement["gates"].values():
+        if gate["applicability"] == "required":
+            gate["result"] = "pending"
+            gate.pop("evidence", None)
+            gate.pop("exception", None)
+    return replacement
+
+
+def amendment_progress(before, current):
+    for key in ("schema_version", "cycle_id", "context", "created_at", "method_revision",
+                "initiative", "initiative_approval", "discovery_import", "git", "worktree", "delivery_intent",
+                "execution", "source"):
+        if before.get(key) != current.get(key):
+            fail("Initiative amendment immutable history changed")
+    for key in ("github", "forge", "remote", "upstream", "branch", "base_branch", "base_head", "lock_id"):
+        if before.get("delivery", {}).get(key) != current.get("delivery", {}).get(key):
+            fail("Initiative amendment delivery history changed")
+    for key in ("commits", "initiative_amendments", "initiative_authority_checkpoints"):
+        prefix = before.get(key, [])
+        if current.get(key, [])[:len(prefix)] != prefix:
+            fail("Initiative amendment history prefix changed")
+    if RISK_RANK[current["risk"]] < RISK_RANK[before["risk"]]:
+        fail("Initiative amendment risk decreased")
+    for name, gate in before["gates"].items():
+        if gate["applicability"] == "required" and current["gates"][name]["applicability"] != "required":
+            fail("Initiative amendment required gate was weakened")
+    for identifier, item in before.get("evidence", {}).get("items", {}).items():
+        actual = current.get("evidence", {}).get("items", {}).get(identifier)
+        if actual == item:
+            continue
+        if (not isinstance(actual, dict) or "commit" in item
+                or {k: v for k, v in actual.items() if k != "commit"} != item
+                or not any(c["id"] == actual.get("commit") and item["gate"] in c["gates"]
+                           for c in current["commits"])):
+            fail("Initiative amendment evidence history changed")
+
+
+def offline_amendment_read(function):
+    @functools.wraps(function)
+    def read(root, record, *args, **kwargs):
+        if LOCAL_COMPLETION_GIT.get() is not None or not (
+                record.get("initiative_amendments") or record.get("initiative_authority_checkpoints")):
+            return function(root, record, *args, **kwargs)
+        with local_completion_git_context():
+            return function(root, record, *args, **kwargs)
+    return read
+
+
+def amendment_checkpoint_evidence(root, record, entry, commit):
+    before = amendment_json(root, common_git_dir(root) / entry["preimage_locator"])
+    commit_entry = next((c for c in record["commits"] if c["id"] == commit), None)
+    if (not commit_entry or not commit_entry["gates"]
+            or any(c["id"] == commit for c in before["commits"])):
+        return False
+    changed = set(filter(None, git(root, "diff", "--name-only", "-z", commit + "^1", commit).stdout.split("\0")))
+    fresh = [item for identifier, item in record["evidence"]["items"].items()
+             if identifier not in before["evidence"]["items"] and item.get("commit") == commit
+             and item.get("gate") in commit_entry["gates"] and item.get("result") in {"passed", "failed", "unavailable"}]
+    return bool(fresh) and all(set(item["paths"]) == changed and
+        evidence_path_blobs(root, changed, commit=commit) == item["paths"] for item in fresh)
+
+
+@offline_amendment_read
+def validate_initiative_amendments(root, record):
+    entries = record.get("initiative_amendments", [])
+    checkpoints = record.get("initiative_authority_checkpoints", [])
+    if not isinstance(entries, list) or not isinstance(checkpoints, list):
+        fail("invalid Initiative amendment chain")
+    if not entries:
+        if checkpoints or "initiative_amendments" in record or "initiative_authority_checkpoints" in record:
+            fail("invalid empty Initiative amendment chain")
+        return []
+    if record.get("schema_version") not in (3, 4, 5, 6) or not native_workspace_execution(record):
+        fail("unsupported Initiative amendment record")
+    original = record.get("initiative")
+    if not isinstance(original, dict):
+        fail("missing original Initiative authority")
+    prior = original
+    envelopes, digests = [], []
+    fields = {"schema_version", "previous_effective_receipt_digest", "receipt", "before_record_sha256",
+              "preimage_locator", "launch_digest", "reason", "approval_method", "approved_at", "plan_digest",
+              "envelope_sha256", "envelope_locator"}
+    for index, entry in enumerate(entries):
+        if (not isinstance(entry, dict) or set(entry) != fields or type(entry["schema_version"]) is not int
+                or entry["schema_version"] != 1 or entry["launch_digest"] in digests
+                or entry["previous_effective_receipt_digest"] != continuation_digest(prior)
+                or entry["approval_method"] not in {"interactive_cli", "agent_confirmed"}
+                or not isinstance(entry["reason"], str) or not entry["reason"].strip()
+                or not isinstance(entry["approved_at"], str)
+                or datetime.fromisoformat(entry["approved_at"].replace("Z", "+00:00")).utcoffset() != timedelta(0)):
+            fail("invalid Initiative amendment entry")
+        digest = entry["launch_digest"]
+        paths = {name: amendment_location(root, record["cycle_id"], digest, name)
+                 for name in ("before.json", "envelope.json", "outcome.json")}
+        if (entry["preimage_locator"] != str(paths["before.json"].relative_to(common_git_dir(root)))
+                or entry["envelope_locator"] != str(paths["envelope.json"].relative_to(common_git_dir(root)))):
+            fail("invalid Initiative amendment evidence locator")
+        before_bytes = amendment_read(root, paths["before.json"])
+        envelope_bytes = amendment_read(root, paths["envelope.json"])
+        before = json.loads(before_bytes, object_pairs_hook=no_duplicate_keys)
+        envelope = json.loads(envelope_bytes, object_pairs_hook=no_duplicate_keys)
+        plan = envelope["plan"]
+        receipt = entry["receipt"]
+        if (amendment_hash(before_bytes) != entry["before_record_sha256"]
+                or amendment_hash(envelope_bytes) != entry["envelope_sha256"]
+                or set(envelope) != {"schema_version", "plan", "approval_method", "approved_at"}
+                or type(envelope["schema_version"]) is not int or envelope["schema_version"] != 1
+                or continuation_digest(plan) != digest or plan["receipt"] != receipt
+                or plan["before_record_sha256"] != entry["before_record_sha256"]
+                or plan["previous_effective_receipt_digest"] != entry["previous_effective_receipt_digest"]
+                or plan["reason"] != entry["reason"] or plan["plan_digest"] != entry["plan_digest"]
+                or plan["source_commit"] != receipt["manifest_commit"]
+                or plan["cycle_id"] != before["cycle_id"]
+                or plan["applicability_plan"] != before["applicability_plan"]
+                or plan["risk"] != before["risk"] or plan["delivery"] != before["delivery"]
+                or envelope["approved_at"] != entry["approved_at"]
+                or envelope["approval_method"] != entry["approval_method"]
+                or before.get("initiative_amendments", []) != entries[:index]):
+            fail("inconsistent Initiative amendment evidence")
+        for key in ("initiative_id", "context", "slice_id", "repository", "coordinator_repository", "schema_version"):
+            if receipt.get(key) != original.get(key):
+                fail("Initiative amendment changed authority identity")
+        if receipt.get("execution_owner") != "build" or receipt.get("context") != record.get("context"):
+            fail("invalid Initiative amendment receipt")
+        if receipt["schema_version"] == 2:
+            validate_local_initiative_receipt(receipt)
+        amendment_receipt(root, receipt)
+        if (plan["closure"] != amendment_closure(root, receipt, before["applicability_plan"])
+                or not amendment_tree(root, receipt["manifest_commit"], plan["closure"])):
+            fail("Initiative amendment approved document closure changed")
+        replacement = amendment_replacement(before, entry)
+        expected = amendment_bytes(replacement)
+        outcome = amendment_json(root, paths["outcome.json"])
+        if outcome != {"schema_version": 1, "envelope_sha256": entry["envelope_sha256"],
+                       "replacement": expected.decode(), "replacement_sha256": amendment_hash(expected)}:
+            fail("invalid Initiative amendment outcome")
+        amendment_progress(replacement, record)
+        digests.append(digest)
+        envelopes.append(envelope)
+        prior = receipt
+    # Older native schemas retain their format; amended records still cannot
+    # smuggle stale evidence or an undisposed exception through a reader.
+    latest_before = amendment_json(root, common_git_dir(root) / entries[-1]["preimage_locator"])
+    if set(record["gates"]) != set(GATES):
+        fail("invalid amended gate inventory")
+    for name, gate in record["gates"].items():
+        if (record["applicability_plan"]["gates"][name] !=
+                {k: v for k, v in gate.items() if k in {"applicability", "reason"}}
+                or name in MANDATORY_GATES and gate["applicability"] != "required"):
+            fail("amended gate applicability disagrees with its required plan")
+        if gate["applicability"] == "not_applicable":
+            if gate["result"] != "not_run":
+                fail("invalid amended non-applicable gate")
+            continue
+        if gate["applicability"] != "required" or gate["result"] not in {"pending", "passed", "failed", "unavailable"}:
+            fail("invalid amended required gate")
+        if gate["result"] == "pending":
+            if "evidence" in gate or "exception" in gate:
+                fail("pending amended gate contains stale disposition")
+            continue
+        identifier = gate.get("evidence")
+        item = record["evidence"]["items"].get(identifier)
+        if (identifier in latest_before["evidence"]["items"] or not item
+                or item.get("gate") != name or item.get("result") != gate["result"]):
+            fail("invalid or stale amended gate evidence")
+        if "exception" in gate and (gate["result"] not in {"failed", "unavailable"}
+                or not valid_gate_exception(gate)
+                or datetime.fromisoformat(gate["exception"]["approved_at"].replace("Z", "+00:00"))
+                < datetime.fromisoformat(entries[-1]["approved_at"].replace("Z", "+00:00"))):
+            fail("invalid amended gate exception")
+    order = -1
+    for checkpoint in checkpoints:
+        if (not isinstance(checkpoint, dict)
+                or set(checkpoint) != {"schema_version", "launch_digest", "commit", "closure_sha256"}
+                or type(checkpoint["schema_version"]) is not int or checkpoint["schema_version"] != 1
+                or checkpoint["launch_digest"] not in digests):
+            fail("invalid Initiative authority checkpoint")
+        position = digests.index(checkpoint["launch_digest"])
+        if position <= order:
+            fail("duplicate or unordered Initiative authority checkpoint")
+        order = position
+        closure = envelopes[position]["plan"]["closure"]
+        if (checkpoint["closure_sha256"] != continuation_digest(closure)
+                or not amendment_checkpoint_evidence(root, record, entries[position], checkpoint["commit"])
+                or not amendment_tree(root, checkpoint["commit"], closure)
+                or git(root, "merge-base", "--is-ancestor", record["git"]["head"], checkpoint["commit"], check=False).returncode):
+            fail("invalid Initiative authority checkpoint tree")
+    return envelopes
+
+
+def effective_initiative(record):
+    return record["initiative_amendments"][-1]["receipt"] if record.get("initiative_amendments") else record.get("initiative")
+
+
+def amendment_fresh_evidence(root, record, identifier):
+    envelopes = validate_initiative_amendments(root, record)
+    if envelopes:
+        entry = record["initiative_amendments"][-1]
+        before = amendment_json(root, common_git_dir(root) / entry["preimage_locator"])
+        if identifier in before.get("evidence", {}).get("items", {}):
+            fail("gate evidence predates effective Initiative authority")
+
+
+@offline_amendment_read
+def amendment_checkpoint(root, record, commit):
+    envelopes = validate_initiative_amendments(root, record)
+    if not envelopes:
+        return
+    digest = record["initiative_amendments"][-1]["launch_digest"]
+    closure = envelopes[-1]["plan"]["closure"]
+    if (not any(c["launch_digest"] == digest for c in record.get("initiative_authority_checkpoints", []))
+            and amendment_tree(root, commit, closure)
+            and amendment_checkpoint_evidence(root, record, record["initiative_amendments"][-1], commit)):
+        record.setdefault("initiative_authority_checkpoints", []).append({"schema_version": 1,
+            "launch_digest": digest, "commit": commit, "closure_sha256": continuation_digest(closure)})
+
+
+@offline_amendment_read
+def require_amendment_completion(root, record):
+    envelopes = validate_initiative_amendments(root, record)
+    if not envelopes:
+        return
+    digest = record["initiative_amendments"][-1]["launch_digest"]
+    checkpoints = record.get("initiative_authority_checkpoints", [])
+    if (not checkpoints or checkpoints[-1]["launch_digest"] != digest
+            or git(root, "merge-base", "--is-ancestor", checkpoints[-1]["commit"], "HEAD", check=False).returncode
+            or not amendment_tree(root, "HEAD", envelopes[-1]["plan"]["closure"])):
+        fail("effective Initiative authority needs its exact Gate Commit closure at HEAD")
+
+
+def amendment_selection(root, args):
+    require_local_read_filters(root)
+    path, record = load(root)
+    require_active(record)
+    if (record.get("cycle_id") != args.cycle_id or record.get("schema_version") not in (3, 4, 5, 6)
+            or not native_workspace_execution(record) or not record_worktree_matches(root, record, root)
+            or not isinstance(effective_initiative(record), dict)):
+        fail("unsupported Initiative amendment selection")
+    raw = amendment_read(root, path)
+    if json.loads(raw, object_pairs_hook=no_duplicate_keys) != record:
+        fail("Initiative amendment record changed")
+    if not re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]*/MANIFEST\.json", args.initiative_manifest):
+        fail("unsafe Initiative amendment manifest")
+    authority = repo_root(args.initiative_source) if args.initiative_source else root
+    if common_git_dir(authority).resolve() != common_git_dir(root).resolve():
+        fail("Initiative amendment requires native same-repository authority")
+    require_local_read_filters(authority)
+    receipt = initiative_receipt(authority / args.initiative_manifest, args.initiative_slice, authority)
+    receipt["manifest_path"] = args.initiative_manifest
+    original = record["initiative"]
+    if receipt["manifest_digest"] != args.initiative_digest:
+        fail("Initiative amendment receipt changed")
+    for key in ("initiative_id", "context", "slice_id", "repository", "coordinator_repository", "schema_version"):
+        if receipt[key] != original[key]:
+            fail("Initiative amendment identity changed")
+    require_repository_home(root, receipt["repository"])
+    if upstream(root) != record["git"]["upstream"]:
+        fail("Initiative amendment upstream changed")
+    if local_only_cycle(record):
+        destination = forgejo_remote_urls(root, record["delivery"]["remote"], receipt["repository"])
+    else:
+        destination = remote_destination(root, upstream(root))
+        remote = destination["name"]
+        push_urls = git(root, "remote", "get-url", "--push", "--all", remote).stdout.splitlines()
+        if push_urls != [destination["push_url"]]:
+            fail("ambiguous Initiative amendment push destination")
+    if destination != record["git"]["remote"]:
+        fail("Initiative amendment destination changed")
+    plan = read_plan(args.plan, args.expected_plan_digest)
+    profile, blob, gates, graphify = validate_plan(root, record["context"], record["delivery_intent"], plan)
+    normalized = {"profile": profile, "gates": {name: {k: v for k, v in gate.items()
+                   if k in ("applicability", "reason")} for name, gate in gates.items()},
+                  **({"graphify": graphify} if graphify else {})}
+    if (normalized != record["applicability_plan"]
+            or record["engineering_profile"] != {"path": profile, "blob": blob}):
+        fail("Initiative amendment applicability changed")
+    closure = amendment_closure(authority, receipt, plan)
+    if next(c["blob"] for c in closure if c["path"] == profile) != blob:
+        fail("Initiative amendment source profile changed")
+    amendment_clean_documents(authority, closure)
+    # Selected checkout documents must match their current HEAD, not new authority.
+    if git(root, "status", "--porcelain=v1", "--", *[c["path"] for c in closure]).stdout:
+        fail("Initiative amendment selected documents are dirty")
+    amendment_checkout_documents(root, closure)
+    reason = args.reason
+    if not isinstance(reason, str) or not reason.strip() or len(reason.encode()) > 4096 or "\0" in reason:
+        fail("invalid Initiative amendment reason")
+    launch = {"schema_version": 1, "cycle_id": args.cycle_id, "receipt": receipt,
+              "previous_effective_receipt_digest": continuation_digest(effective_initiative(record)),
+              "before_record_sha256": amendment_hash(raw), "plan_digest": args.expected_plan_digest,
+              "applicability_plan": normalized, "risk": record["risk"], "delivery": record["delivery"],
+              "reason": reason, "source_commit": receipt["manifest_commit"], "closure": closure,
+              "destination": destination,
+              "checkout": amendment_checkout(root, [c["path"] for c in closure])}
+    return path, record, raw, launch
+
+
+def amendment_custody(root, cycle_id):
+    directory = amendment_location(root, cycle_id, "0" * 64, "plan.json").parent.parent
+    if not os.path.lexists(directory):
+        return []
+    managed_directory(root, directory)
+    prepared = []
+    for child in sorted(directory.iterdir()):
+        if child.is_symlink() or not child.is_dir() or not re.fullmatch(r"[0-9a-f]{64}", child.name):
+            fail("unsafe Initiative amendment custody")
+        managed_directory(root, child)
+        leaves = list(child.iterdir())
+        for item in leaves:
+            if item.name not in {"plan.json", "before.json", "envelope.json", "outcome.json"}:
+                fail("unknown retained Initiative amendment evidence")
+            amendment_read(root, item)
+        if any(item.name != "plan.json" for item in leaves):
+            prepared.append(child.name)
+    return prepared
+
+
+def initiative_amend_offline(args):
+    root = root_dir()
+    digest = None
+    durable = False
+    try:
+        with evidence_lock(root, "local-mutation-" + args.cycle_id, timeout=1), evidence_lock(root, args.cycle_id, timeout=1):
+            if active_pointer_id(root, resolved_active_path(root, bindings=False)) != args.cycle_id:
+                fail("Initiative amendment pointer changed")
+            custody_root = amendment_location(root, args.cycle_id, "0" * 64, "plan.json").parent.parent
+            durable = os.path.lexists(custody_root)
+            custody = amendment_custody(root, args.cycle_id)
+            durable = bool(custody)
+            if args.expected_launch_digest in custody:
+                durable, digest = True, args.expected_launch_digest
+            admitted = read_cycle_record(root, cycle_dir(root) / "cycles" / f"{args.cycle_id}.json")
+            applied = {e["launch_digest"] for e in admitted.get("initiative_amendments", [])}
+            outstanding = set(custody) - applied
+            durable = bool(outstanding)
+            path, record, raw, launch = amendment_selection(root, args)
+            current_digest = continuation_digest(launch)
+            if outstanding and outstanding != {current_digest}:
+                durable = True
+                fail("unreconciled prepared Initiative amendment")
+            if outstanding:
+                durable, digest = True, current_digest
+            digest = continuation_digest(launch)
+            expected = args.expected_launch_digest
+            # An exact applied replay must use its retained original plan, not a new
+            # digest computed from the already amended record.
+            previous = next((e for e in record.get("initiative_amendments", []) if e["launch_digest"] == expected), None)
+            if not args.preflight and previous:
+                envelope = amendment_json(root, common_git_dir(root) / previous["envelope_locator"])
+                original = envelope["plan"]
+                outcome = amendment_json(root, amendment_location(root, args.cycle_id, expected, "outcome.json"))
+                unchanged = {k: v for k, v in launch.items() if k not in {"before_record_sha256", "previous_effective_receipt_digest"}}
+                bound = {k: v for k, v in original.items() if k not in {"before_record_sha256", "previous_effective_receipt_digest"}}
+                digest = expected
+                if unchanged != bound or raw != outcome["replacement"].encode():
+                    durable = False  # Verified history plus normal progress: stale replay, not uncertain custody.
+                    fail("stale Initiative amendment replay")
+                return "already_applied", digest
+            if launch["receipt"] == effective_initiative(record):
+                fail("Initiative authority is unchanged")
+            plan_path = amendment_location(root, args.cycle_id, digest, "plan.json")
+            if args.preflight:
+                amendment_write_once(root, plan_path, amendment_bytes(launch))
+                return "preflight", digest
+            if expected != digest or amendment_json(root, plan_path) != launch:
+                fail("Initiative amendment approval is stale")
+            if args.approval == "interactive":
+                if not sys.stdin.isatty():
+                    fail("Initiative amendment requires operator confirmation")
+                print(f"Type AMEND {args.cycle_id} {digest}: ", file=sys.stderr, end="", flush=True)
+                if sys.stdin.readline(512).strip() != f"AMEND {args.cycle_id} {digest}":
+                    fail("Initiative amendment confirmation declined")
+            method = "agent_confirmed" if args.approval == "agent-confirmed" else "interactive_cli"
+            if amendment_selection(root, args)[3] != launch:
+                fail("Initiative amendment state changed during approval")
+            envelope_path = amendment_location(root, args.cycle_id, digest, "envelope.json")
+            before_path = amendment_location(root, args.cycle_id, digest, "before.json")
+            outcome_path = amendment_location(root, args.cycle_id, digest, "outcome.json")
+            if os.path.lexists(envelope_path):
+                durable = True
+                envelope = amendment_json(root, envelope_path)
+                if envelope["plan"] != launch or envelope["approval_method"] != method:
+                    fail("conflicting prepared Initiative amendment")
+            else:
+                envelope = {"schema_version": 1, "plan": launch, "approval_method": method, "approved_at": now()}
+                durable = True
+                amendment_write_once(root, envelope_path, amendment_bytes(envelope))
+            amendment_write_once(root, before_path, raw)
+            entry = {"schema_version": 1, "previous_effective_receipt_digest": launch["previous_effective_receipt_digest"],
+                     "receipt": launch["receipt"], "before_record_sha256": amendment_hash(raw),
+                     "preimage_locator": str(before_path.relative_to(common_git_dir(root))),
+                     "launch_digest": digest, "reason": args.reason, "approval_method": method,
+                     "approved_at": envelope["approved_at"], "plan_digest": args.expected_plan_digest,
+                     "envelope_sha256": amendment_hash(amendment_bytes(envelope)),
+                     "envelope_locator": str(envelope_path.relative_to(common_git_dir(root)))}
+            replacement = amendment_replacement(record, entry)
+            replacement_bytes = amendment_bytes(replacement)
+            outcome = {"schema_version": 1, "envelope_sha256": entry["envelope_sha256"],
+                       "replacement": replacement_bytes.decode(), "replacement_sha256": amendment_hash(replacement_bytes)}
+            amendment_write_once(root, outcome_path, amendment_bytes(outcome))
+            validate_initiative_amendments(root, replacement)
+            if local_only_cycle(replacement):
+                validate_schema6_record(root, replacement)
+            if amendment_selection(root, args)[3] != launch:
+                fail("Initiative amendment state changed before replacement")
+            private_json(path, replacement, strict=True)
+            return "applied", digest
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        # Detailed inputs, private reasons and host errors never cross this result.
+        status = "recovery_required" if durable else "blocked"
+        return status, digest
+
+
+def command_initiative_amend(args):
+    with local_completion_git_context():
+        status, digest = initiative_amend_offline(args)
+    print(json.dumps({"schema_version": 1, "cycle_id": args.cycle_id if OPAQUE_ID.fullmatch(args.cycle_id) else None, "status": status,
+                      "state_digest": digest, "reasons": [] if status in {"preflight", "applied", "already_applied"}
+                      else ["amendment_recovery_required" if status == "recovery_required" else "amendment_blocked"],
+                      "next_action": "continue" if status in {"applied", "already_applied"} else
+                      "approve_exact_plan" if status == "preflight" else "retain_and_reconcile"}, sort_keys=True))
+    if status in {"blocked", "recovery_required"}:
+        raise SystemExit(75 if status == "recovery_required" else 1)
 
 
 def managed_graphify_adapter():
@@ -5405,7 +6026,7 @@ def begin_registration(args):
         if (active_record != record or record.get("cycle_id") != args.cycle_id
                 or record.get("context") != args.context or record.get("risk") != args.risk
                 or record.get("delivery_intent") != args.delivery_intent
-                or record.get("initiative") != initiative
+                or effective_initiative(record) != initiative
                 or record.get("git", {}).get("upstream") != target
                 or not native_workspace_execution(record) or worktree.resolve() != source.resolve()
                 or record.get("worktree", {}).get("branch") != branch_name
@@ -7059,6 +7680,13 @@ def command_status(args):
     if args.json:
         if native:
             record = {**record, "historical_runtime": record.get("runtime", {}), "runtime": {"adapters": {}}}
+        if record.get("initiative_amendments"):
+            entries = record["initiative_amendments"]
+            record = {key: value for key, value in record.items()
+                      if key not in {"initiative_amendments", "initiative_authority_checkpoints"}}
+            record["initiative_amendments"] = {"schema_version": 1, "count": len(entries),
+                "effective_receipt_digest": continuation_digest(entries[-1]["receipt"]),
+                "latest_launch_digest": entries[-1]["launch_digest"]}
         print(json.dumps(record, sort_keys=True, separators=(",", ":")))
     else:
         suffix = " execution=native_workspace attribution=unavailable" if native else ""
@@ -8692,34 +9320,43 @@ def local_dispatch_selection(args):
     # This bounded peek only selects admission; the guard rereads strict schema 6.
     try:
         with path.open("rb") as stream:
-            raw = stream.read(1024 * 1024 + 1)
-        record = json.loads(raw) if len(raw) <= 1024 * 1024 else None
+            raw = stream.read(32 * 1024 * 1024 + 1)
+        if len(raw) > 32 * 1024 * 1024:
+            fail("active Cycle Record exceeds safe dispatch budget")
+        record = json.loads(raw)
     except (OSError, ValueError, UnicodeError):
-        return None
-    return (root, pointer, path, record) if isinstance(record, dict) and local_only_cycle(record) else None
+        fail("active Cycle Record is unreadable; mutation admission unavailable")
+    execution = record.get("execution") if isinstance(record, dict) else None
+    return ((root, pointer, path, record) if isinstance(record, dict) and (
+        local_only_cycle(record) or isinstance(execution, dict) and execution.get("mode") == "native_workspace"
+        and record.get("initiative") is not None) else None)
 
 
 @contextlib.contextmanager
 def local_cli_mutation_guard(args, selected):
-    """Serialize new-mode CLI writes; legacy admission remains unchanged."""
+    """Serialize native Initiative writers with amendment; legacy admission unchanged."""
     if selected is None:
         yield
         return
     root, pointer, path, before = selected
     before = read_cycle_record(root, path, historical=True)
-    if not local_only_cycle(before):
-        fail("local-only dispatch selection changed")
-    if args.command in CONTINUATION_READ_COMMANDS or args.command in {"final-push", "reconcile-target"}:
+    if not native_workspace_execution(before):
+        fail("native dispatch selection changed")
+    if args.command in CONTINUATION_READ_COMMANDS or (
+            local_only_cycle(before) and args.command in {"final-push", "reconcile-target"}):
         yield
         return
     with evidence_lock(root, "local-mutation-" + before["cycle_id"], timeout=1):
         record = read_cycle_record(root, path, historical=True)
-        if (not local_only_cycle(record) or record["delivery"] != before["delivery"]
+        if (not native_workspace_execution(record) or record["delivery"] != before["delivery"]
                 or record["worktree"] != before["worktree"]
                 or not pointer.exists() or active_pointer_id(root, pointer) != record["cycle_id"]
                 or not record_worktree_matches(root, record, root, bindings=False)):
             fail("local-only mutation binding changed")
-        require_active(record)
+        if args.command in {"final-push", "reconcile-target"}:
+            require_pushable(record)
+        else:
+            require_active(record)
         yield
 
 
@@ -16533,6 +17170,7 @@ def write_sidecar(root, cycle_id, data):
 def verify_envelope(root, record, gate_name, require_bound=False, require_head=True):
     gate = record["gates"][gate_name]
     evidence_id = gate.get("evidence")
+    amendment_fresh_evidence(root, record, evidence_id)
     item = record.get("evidence", {}).get("items", {}).get(evidence_id)
     if not item or item.get("gate") != gate_name or item.get("result") != gate.get("result"):
         fail(f"invalid evidence for gate: {gate_name}")
@@ -16669,6 +17307,7 @@ def command_set_gate(args):
     require_active(record)
     gate = record["gates"][args.gate]
     if record.get("schema_version") in (3, 4, 5, 6) and args.evidence is not None:
+        amendment_fresh_evidence(root, record, args.evidence)
         item = record["evidence"]["items"].get(args.evidence)
         if not item or item["gate"] != args.gate or item["result"] != args.result:
             fail("schema 3 evidence must be a matching stored evidence ID")
@@ -17457,6 +18096,7 @@ def command_gate_commit(args):
             if gate.get("evidence"):
                 record["evidence"]["items"][gate["evidence"]]["commit"] = commit
     record["commits"].append({"id": commit, "gates": args.gates})
+    amendment_checkpoint(root, record, commit)
     save(path, record)
     print(commit)
 
@@ -18631,6 +19271,7 @@ def link_improvement_pull_request(record, pull_request, worktree=None, compariso
 def require_completion_source(root, record):
     """Validate local source authority without invoking any delivery operation."""
     verify_discovery_import(root, record)
+    require_amendment_completion(root, record)
     require_current_profile(root, record)
     require_graphify_check(root, record)
     if record.get("schema_version") in (3, 4, 5, 6):
@@ -19889,6 +20530,20 @@ def parser():
     initiative_cycle_check.add_argument("--cycle-id", required=True)
     initiative_cycle_check.add_argument("--receipt-json", required=True)
     initiative_cycle_check.set_defaults(func=command_initiative_cycle_check)
+    amend = commands.add_parser("initiative-amend")
+    amend.add_argument("--cycle-id", required=True)
+    amend.add_argument("--initiative-manifest", required=True)
+    amend.add_argument("--initiative-slice", required=True)
+    amend.add_argument("--initiative-source")
+    amend.add_argument("--initiative-digest", required=True)
+    amend.add_argument("--plan", required=True)
+    amend.add_argument("--expected-plan-digest", required=True)
+    amend.add_argument("--reason", required=True)
+    amend.add_argument("--preflight", action="store_true")
+    amend.add_argument("--expected-launch-digest")
+    amend.add_argument("--approval", choices=("interactive", "agent-confirmed"), default="interactive")
+    amend.add_argument("--json", action="store_true")
+    amend.set_defaults(func=command_initiative_amend)
     review = commands.add_parser("review-artifact")
     review.add_argument("name", choices=ARTIFACTS)
     review.add_argument("--result", required=True, choices=("changed", "unchanged"))
@@ -20078,6 +20733,11 @@ def main():
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
         args = parser().parse_args()
+        if args.command == "initiative-amend":
+            # This command owns offline admission, locks and bounded error output.
+            # No generic telemetry, continuation transport or credential discovery.
+            args.func(args)
+            return 0
         if args.command == "provider-evaluation-save":
             fail("native_capture_authority_unavailable: retain existing reports; supplied receipt digests do not authenticate a federated capture")
         if args.command in {"improvement-register", "improvement-claim", "improvement-update", "improvement-recover"}:
@@ -20086,7 +20746,7 @@ def main():
                 args.command == "incident-scan" and not args.summary_only):
             fail("native_incident_invocation_unavailable: retain the fork and use incident-scan --summary-only for metadata")
         selected = local_dispatch_selection(args)
-        quiet_local = quiet_local or selected is not None
+        quiet_local = quiet_local or (selected is not None and local_only_cycle(selected[3]))
         with local_cli_mutation_guard(args, selected):
             continuation_guard(args)
             if not quiet_local:

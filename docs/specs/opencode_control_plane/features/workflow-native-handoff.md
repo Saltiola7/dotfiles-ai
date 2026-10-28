@@ -1,5 +1,13 @@
 # Workflow native handoff
 
+For explicitly approved non-success retirement, the
+[retirement journey](cycle-retirement-journey.md) and lifecycle archival contract
+replace merge proof with verified local preservation before handoff/removal.
+Primary compatibility, native identity/history preservation and consumer checks
+remain. Record-only closure may precede consumer exit; preparation/removal may
+not. This approved specification amendment does not qualify installed shutdown
+or automatic cleanup behavior.
+
 **Specification ready; implementation and rollout unqualified.** Owner: OpenCode
 control-plane maintainers. Profile: [../PROFILE.md](../PROFILE.md). Risk: critical
 for retained history and checkout identity. This contract resolves convergence
