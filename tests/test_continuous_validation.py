@@ -259,6 +259,13 @@ def test_budget_serializes_expensive_checks_across_processes(tmp_path):
 
 
 def comparison_observation(tmp_path, **changes):
+    identities = changes.get('test_ids', ['fixture::case'])
+    receipt = {'schema_version': 1, 'kind': 'pytest-junit-v1',
+               'encoding': 'pytest-nodeid-or-sha256-v1', 'scope': 'completed', 'complete': True,
+               'case_count': len(identities), 'reported_count': len(identities),
+               'outcomes': {'passed': len(identities), 'failed': 0, 'error': 0, 'skipped': 0},
+               'opaque_count': 0, 'omitted_count': 0,
+               'ids_digest': runner.digest(identities), 'failed_test_ids': []}
     return {
         'schema_version': 1, 'id': 'observation-one', 'request_id': 'request-one',
         'snapshot_id': 'a' * 64, 'generation': 1, 'check_id': 'quick',
@@ -266,7 +273,7 @@ def comparison_observation(tmp_path, **changes):
                  'tools': {'uv': '0.9.2'}, 'dependencies': {'uv.lock': 'f' * 64}},
         'manifest_digest': 'b' * 64, 'selection_digest': 'c' * 64, 'cache_key': 'd' * 64,
         'status': 'passed', 'exit_code': 0,
-        'runtime': {'os': 'linux', 'architecture': 'arm64', 'python': '3.14.4', 'tools': {'uv': '0.9.2'}},
+        'runtime': {'os': 'linux', 'architecture': 'arm64', 'python': '3.14.4', 'tools': {'uv': '0.9.2'}, 'test_identity': receipt},
         'test_ids': ['fixture::case'], 'diagnostic_codes': [], 'executed': True,
         'cache_reused': False, 'queue_seconds': 0.0, 'elapsed_seconds': 1.0,
         'execution_seconds': 1.0, 'at': '2026-10-24T00:00:00+00:00',
@@ -306,7 +313,10 @@ def test_compare_rejects_sparse_json_instead_of_matching_missing_fields(tmp_path
 ])
 def test_compare_binds_actual_runtime_cache_and_selected_tests(tmp_path, changes, field):
     common = comparison_observation(tmp_path)
-    result = compare_pair(tmp_path, common, {**common, **changes})
+    right = {**common, **changes}
+    if 'test_ids' in changes:
+        right['runtime'] = {**right['runtime'], 'test_identity': comparison_observation(tmp_path, test_ids=changes['test_ids'])['runtime']['test_identity']}
+    result = compare_pair(tmp_path, common, right)
     assert result['matched'] is False
     assert field in result['differences']
 

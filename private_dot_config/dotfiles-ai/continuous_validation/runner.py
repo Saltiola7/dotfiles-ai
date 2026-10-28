@@ -41,7 +41,7 @@ ENROLLMENT_FIELDS = {
     "adapter_python", "adapter_config", "repository_id", "session_id", "cycle_id",
     "base", "state_dir", "feedback_enabled", "feedback_qualification", "feedback_qualification_receipt", "max_running",
     "max_expensive", "debounce_seconds", "max_debounce_seconds", "load_limit",
-    "admission_timeout_seconds",
+    "admission_timeout_seconds", "client", "checkpoints_enabled",
 }
 CHECK_FIELDS = {"id", "class", "backend", "lane", "timeout_seconds", "cacheable", "configuration"}
 LANE_FIELDS = {"os", "architecture", "python", "tools", "dependencies"}
@@ -216,11 +216,15 @@ def cycle_open(enrollment):
 
 
 def validate_feedback_receipt(value, *, stored=False):
-    fields = {"schema_version", "transport", "codex_version", "active_delivery", "idle_wake"}
+    version_key = "codex_version" if isinstance(value, dict) and "codex_version" in value else "client_version"
+    fields = {"schema_version", "transport", version_key, "active_delivery", "idle_wake"}
     if stored:
         fields.add("assertion")
     closed(value, fields, fields)
-    if (value["transport"] != "codex-queue" or value["codex_version"] != "0.163.0"
+    supported = {"codex-queue": {"0.163.0", "0.164.0"}, "opencode-prompt": {"2.1.2"}}
+    if (not isinstance(value["transport"], str) or not isinstance(value[version_key], str)
+            or value["transport"] not in supported or value[version_key] not in supported[value["transport"]]
+            or version_key == "codex_version" and value["transport"] != "codex-queue"
             or value["active_delivery"] is not True or value["idle_wake"] is not True
             or stored and value["assertion"] != "operator_supplied"):
         raise ValidationError("invalid_feedback_receipt")
@@ -238,11 +242,16 @@ def validate_enrollment(value):
         raise ValidationError("invalid_enrollment")
     value = dict(value)
     value.setdefault("mode", "shadow")
+    value.setdefault("client", "codex")
+    if not isinstance(value["client"], str) or value["client"] not in {"codex", "opencode"}:
+        raise ValidationError("invalid_client")
     try:
-        session = str(uuid.UUID(value["session_id"]))
+        session = (str(uuid.UUID(value["session_id"])) if value["client"] == "codex"
+                   else value["session_id"] if isinstance(value["session_id"], str)
+                   and re.fullmatch(r"ses_[A-Za-z0-9]{1,120}", value["session_id"]) else None)
     except (ValueError, TypeError, AttributeError):
         raise ValidationError("invalid_session") from None
-    if session != value["session_id"]:
+    if session is None or session != value["session_id"]:
         raise ValidationError("invalid_session")
     identifier(value["cycle_id"])
     root = no_alias(Path(value["worktree"]))
@@ -286,20 +295,31 @@ def validate_enrollment(value):
     if value["max_debounce_seconds"] < value["debounce_seconds"]:
         raise ValidationError("invalid_timing")
     value.setdefault("feedback_enabled", False)
+    value.setdefault("checkpoints_enabled", False)
+    if type(value["checkpoints_enabled"]) is not bool:
+        raise ValidationError("invalid_checkpoint_flag")
     if type(value["feedback_enabled"]) is not bool:
         raise ValidationError("invalid_feedback_flag")
     qualification = value.get("feedback_qualification")
     if qualification is not None:
-        closed(qualification, {"transport", "codex_version", "qualified"}, {"transport", "codex_version", "qualified"})
-        if qualification["transport"] != "codex-queue" or type(qualification["qualified"]) is not bool:
+        if not isinstance(qualification, dict):
             raise ValidationError("invalid_feedback_qualification")
-        text(qualification["codex_version"], 128)
+        version_key = "codex_version" if "codex_version" in qualification else "client_version"
+        fields = {"transport", version_key, "qualified"}
+        closed(qualification, fields, fields)
+        if (qualification["transport"] != {"codex": "codex-queue", "opencode": "opencode-prompt"}[value["client"]]
+                or type(qualification["qualified"]) is not bool):
+            raise ValidationError("invalid_feedback_qualification")
+        text(qualification[version_key], 128)
     receipt = value.get("feedback_qualification_receipt")
     if receipt is not None:
         validate_feedback_receipt(receipt, stored=True)
-    if value["feedback_enabled"] and (receipt is None or qualification is None
-            or qualification != {"transport": receipt["transport"], "codex_version": receipt["codex_version"], "qualified": True}):
-        raise ValidationError("invalid_feedback_receipt")
+    if value["feedback_enabled"]:
+        if receipt is None or qualification is None:
+            raise ValidationError("invalid_feedback_receipt")
+        version_key = "codex_version" if "codex_version" in receipt else "client_version"
+        if qualification != {"transport": receipt["transport"], version_key: receipt[version_key], "qualified": True}:
+            raise ValidationError("invalid_feedback_receipt")
     if value.get("load_limit") is not None and (type(value["load_limit"]) not in {int, float} or value["load_limit"] <= 0):
         raise ValidationError("invalid_load_limit")
     return value
@@ -797,6 +817,10 @@ def validate_manifest(value):
         closed(check["lane"], LANE_FIELDS, LANE_FIELDS)
         if type(check["timeout_seconds"]) is not int or not 1 <= check["timeout_seconds"] <= 3600 or type(check["cacheable"]) is not bool or not isinstance(check["configuration"], dict):
             raise ValidationError("invalid_check")
+        declaration = check["configuration"].get("test_identity")
+        if declaration is not None and (not isinstance(declaration, str)
+                                        or declaration not in {"pytest-junit-v1", "not_applicable"}):
+            raise ValidationError("invalid_test_identity_declaration")
     return value
 
 
@@ -921,7 +945,12 @@ def _run_request(request):
             if cancel():
                 raise Interrupted("superseded")
             if reuse and cache.exists():
-                result = read_private(cache)
+                result = validate_observation(read_private(cache))
+                bindings = {"check_id": check_id, "snapshot_id": snapshot["id"],
+                            "manifest_digest": digest(manifest), "selection_digest": digest(selection),
+                            "lane": check["lane"], "cache_key": key}
+                if result["status"] != "passed" or any(result[name] != expected for name, expected in bindings.items()):
+                    raise ValidationError("cached_observation_identity_changed")
                 result["reused_from"] = result["id"]
                 result["original_elapsed_seconds"] = result["elapsed_seconds"]
                 result["original_at"] = result["at"]
@@ -947,6 +976,10 @@ def _run_request(request):
                         text(item, 1024)
                 if any(not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", item) for item in result["diagnostic_codes"]):
                     raise ValidationError("invalid_diagnostic_code")
+            declaration = check["configuration"].get("test_identity")
+            receipt = result["runtime"].get("test_identity")
+            if receipt is not None or declaration is not None and result["status"] in {"passed", "failed"}:
+                validate_test_identity(receipt, result["test_ids"], declaration, result["status"])
             if inventory(Path(snapshot["path"]), patterns) != snapshot["files"]:
                 raise ValidationError("snapshot_modified_by_check")
             if (cancel() or not cycle_open(enrollment) or inventory(root, patterns) != snapshot["files"]
@@ -1092,20 +1125,36 @@ def enroll(args):
              "adapter_digest": hashlib.sha256((root / adapter).read_bytes()).hexdigest(), "adapter_python": str(Path(args.python).expanduser().absolute()),
              "adapter_config": config, "repository_id": repository_id(root), "session_id": args.session_id,
              "cycle_id": args.cycle_id, "base": git(root, "rev-parse", args.base + "^{commit}").decode().strip(),
-             "state_dir": str(state), "feedback_enabled": False}
+             "state_dir": str(state), "feedback_enabled": False,
+             "client": args.client, "checkpoints_enabled": args.checkpoints}
     if args.feedback_qualification:
         qualification_path = no_alias(Path(args.feedback_qualification))
         outside_git(qualification_path.parent)
         receipt = validate_feedback_receipt(read_private(qualification_path))
         value["feedback_qualification_receipt"] = receipt
+        version_key = "codex_version" if "codex_version" in receipt else "client_version"
         value["feedback_qualification"] = {"transport": receipt["transport"],
-            "codex_version": receipt["codex_version"], "qualified": True}
+            version_key: receipt[version_key], "qualified": True}
         value["feedback_enabled"] = True
     value = validate_enrollment(value)
     if not cycle_open(value):
         raise ValidationError("enrolled_task_closed")
     write_private(no_alias(Path(args.enrollment)), value)
+    if value["checkpoints_enabled"]:
+        from . import checkpoints
+        checkpoints.register(Path(args.enrollment), value)
     return {"schema_version": 1, "status": "enrolled", "enabled": True, "feedback_enabled": value["feedback_enabled"]}
+
+
+def worker(enrollment_path):
+    """Drain at most one explicitly enrolled checkpoint; never start a service."""
+    enrollment = load_enrollment(enrollment_path)
+    if not enrollment["enabled"] or not enrollment.get("checkpoints_enabled"):
+        return {"schema_version": 1, "status": "disabled"}
+    if not cycle_open(enrollment):
+        raise ValidationError("enrolled_task_closed")
+    from . import checkpoints
+    return checkpoints.drain_one(enrollment_path, run_request) or {"schema_version": 1, "status": "not_selected"}
 
 
 def watch(enrollment_path, once=False):
@@ -1121,6 +1170,13 @@ def watch(enrollment_path, once=False):
         current = load_enrollment(enrollment_path)
         if not current["enabled"] or not cycle_open(current):
             return {"schema_version": 1, "status": "stopped"}
+        if current.get("checkpoints_enabled"):
+            from . import checkpoints
+            checkpoint = checkpoints.drain_one(enrollment_path, run_request)
+            if checkpoint is not None:
+                if once:
+                    return checkpoint
+                print(json.dumps(checkpoint), flush=True)
         value = digest(inventory(Path(enrollment["worktree"]), patterns, content=False))
         if value != previous:
             previous = value
@@ -1133,6 +1189,18 @@ def watch(enrollment_path, once=False):
                 return result
             print(json.dumps(result), flush=True)
         time.sleep(0.5)
+
+
+def validate_test_identity(receipt, identities, declared=None, status=None):
+    from . import test_identity
+    try:
+        validated = test_identity.validate_receipt(receipt, identities, declared)
+        if (status == "passed" and validated["kind"] == "pytest-junit-v1"
+                and validated["outcomes"]["failed"] + validated["outcomes"]["error"]):
+            raise ValueError("test_identity_outcome_invalid")
+        return validated
+    except (ValueError, TypeError, KeyError) as error:
+        raise ValidationError("test_identity_receipt_invalid") from error
 
 
 def validate_observation(value):
@@ -1207,11 +1275,13 @@ def validate_observation(value):
             raise ValidationError("invalid_observation_metrics")
     if "feedback" in value and not isinstance(value["feedback"], dict):
         raise ValidationError("invalid_observation_feedback")
+    if "test_identity" in value["runtime"]:
+        validate_test_identity(value["runtime"]["test_identity"], value["test_ids"], status=value["status"])
     return value
 
 
 RUNTIME_MEASUREMENTS = {"cache", "cache_metrics", "cache_counters", "metrics", "resource_metrics",
-                        "dagger_cache_metrics", "artifacts", "termination_signal"}
+                        "dagger_cache_metrics", "artifacts", "termination_signal", "test_identity"}
 
 
 def comparison_runtime(observation):
@@ -1260,9 +1330,12 @@ def compare(value):
     left, right = observations
     runtimes = [comparison_runtime(item) for item in observations]
     duplicate_sample = left["id"] == right["id"] or left["request_id"] == right["request_id"]
-    qualified = all(item[1] for item in runtimes) and not duplicate_sample
+    identities_qualified = ["test_identity" in item["runtime"] for item in observations]
+    qualified = all(item[1] for item in runtimes) and all(identities_qualified) and not duplicate_sample
     qualification_reasons = [([] if item[1] else ["runtime_identity_unresolved"])
-                             + (["duplicate_sample"] if duplicate_sample else []) for item in runtimes]
+                             + (["duplicate_sample"] if duplicate_sample else [])
+                             + ([] if identities_qualified[index] else ["test_identity_unqualified"])
+                             for index, item in enumerate(runtimes)]
     fields = ("snapshot_id", "check_id", "lane", "manifest_digest", "selection_digest", "cache_key", "test_ids")
     differences = [field for field in fields if left[field] != right[field]]
     if runtimes[0][0] != runtimes[1][0]:
@@ -1272,6 +1345,7 @@ def compare(value):
             "qualified": qualified, "matched": matched, "differences": differences,
             "qualification_reasons": qualification_reasons,
             "statuses": [item["status"] for item in observations],
+            "test_outcomes": [item["runtime"].get("test_identity", {}).get("outcomes") for item in observations],
             "elapsed_seconds": [item["elapsed_seconds"] for item in observations],
             "execution_seconds": [item["execution_seconds"] for item in observations],
             "queue_seconds": [item["queue_seconds"] for item in observations],
@@ -1300,6 +1374,8 @@ def main(argv=None):
     add.add_argument("--python", default=sys.executable)
     add.add_argument("--adapter-config")
     add.add_argument("--feedback-qualification")
+    add.add_argument("--client", choices=("codex", "opencode"), default="codex")
+    add.add_argument("--checkpoints", action="store_true")
     for name in ("run", "checkpoint"):
         command = commands.add_parser(name)
         command.add_argument("--request", required=True)
@@ -1307,6 +1383,10 @@ def main(argv=None):
     command = commands.add_parser("watch")
     command.add_argument("--enrollment", required=True)
     command.add_argument("--once", action="store_true")
+    command.add_argument("--json", action="store_true")
+    command = commands.add_parser("worker")
+    command.add_argument("--enrollment", required=True)
+    command.add_argument("--once", action="store_true", required=True)
     command.add_argument("--json", action="store_true")
     for name in ("status", "stop"):
         command = commands.add_parser(name)
@@ -1326,6 +1406,8 @@ def main(argv=None):
             result = run_request(request)
         elif args.operation == "watch":
             result = watch(Path(args.enrollment), args.once)
+        elif args.operation == "worker":
+            result = worker(Path(args.enrollment))
         elif args.operation == "compare":
             result = compare(read_private(Path(args.experiment)))
         elif not args.enrollment:

@@ -430,7 +430,7 @@ existing distribution owner installs it, use
 closed protocol. Source availability does not install anything. Set
 `DOTFILES_SOURCE`, `WORKTREE`, `ADAPTER_PYTHON`, `SESSION_ID`, `CYCLE_ID`, and
 `INTEGRATION_BASE` from the selected source, prepared interpreter, exact native
-session, open registered task, and intended integration base. The session UUID
+session, open registered task, and intended integration base. The Codex UUID or typed OpenCode session ID
 is an explicit caller binding, not authenticated actor attribution. Never use a
 name, `latest`, an invented session, or conversation relocation as identity proof.
 Codex CLI and Desktop can target an explicit task checkout without Desktop
@@ -500,14 +500,16 @@ in only this worktree and leaves feedback disabled:
 
 Use `--feedback-qualification "$STATE/qualification.json"` on explicit enrollment
 only after the operator accepts the supported-version qualification. The owned
-0600 receipt must contain the exact five fields documented above; it is retained
-as an operator assertion. An open interactive CLI fixture qualified active
-queue consumption and idle wake on 0.163.0. A closed noninteractive session did
-not qualify. Never launch a competing resume process as a fallback. In-scope
+0600 typed receipt contains `schema_version: 1`, `transport`, `client_version`,
+`active_delivery: true` and `idle_wake: true`; it is retained as an operator
+assertion. Select `--client codex` (default) or `--client opencode` explicitly
+for the matching native target and receipt. The source currently supports
+qualified Codex queue versions 0.163.0/0.164.0 and OpenCode queued prompts on
+2.1.2. Existing Codex-only `codex_version` receipts remain readable, but runtime
+version drift prevents delivery. A closed noninteractive session is unqualified. Never launch a competing resume process as a fallback. In-scope
 repairs remain inside the enrolled task, and feedback does not change its gates.
 
-An explicit checkpoint uses a private request file. There is no automatic DBSCTR
-lifecycle hook or gate-history polling in this slice. Submit at a safe task
+An explicit checkpoint uses a private request file. Submit at a safe task
 boundary when expensive checks are appropriate:
 
 ```bash
@@ -524,6 +526,32 @@ PYTHON
 "$VALIDATION" status --enrollment "$STATE/enrollment.json" --json
 "$VALIDATION" stop --enrollment "$STATE/enrollment.json" --json
 ```
+
+Automatic checkpoint requests require an additional explicit `--checkpoints`
+option when enrolling the worktree. After a successful durable Gate Commit,
+the lifecycle performs bounded private enqueue outside its mutation guard.
+Missing/disabled enrollment has no optional effects. No checks execute inside
+the lifecycle command and no service is started there. The foreground watcher
+prioritizes queued checkpoints; alternatively drain at most one with:
+
+```bash
+"$VALIDATION" worker --enrollment "$STATE/enrollment.json" --once --json
+```
+
+A one-shot drain is bounded by the existing selected-check timeouts and shared
+admission. A shorter whole-experiment deadline requires explicit cancellation
+and terminal confirmation, as in the bounded pilot. A queued event with no
+worker stays pending. Changed binding, closed task or stale committed HEAD
+prevents execution. Attempting/terminal event records remain private and prevent
+automatic replay after uncertain worker failure. These are advisory requests;
+status, evidence recording, set-gate and final delivery never enqueue work.
+
+New pytest observations retain every completed JUnit identity and a typed
+completion receipt; long/unprintable cases use stable opaque identities. Feedback
+uses only failed identities and encodes parameter payloads before sending.
+Legacy observations without completion receipts remain readable but cannot
+qualify complete identity parity. See [SESSION-HOOKS.md](SESSION-HOOKS.md) for
+closed fields, encoding, ownership and qualification contracts.
 
 Stop disables the enrollment and requests owned-work cancellation. It does not
 claim every process already terminated or stop the engine. Confirm terminal

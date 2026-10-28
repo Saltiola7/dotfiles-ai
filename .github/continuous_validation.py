@@ -2,6 +2,7 @@
 
 import ast
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -21,7 +22,61 @@ INSTRUCTIONS = [
     "tests/test_opencode_control_plane.py", "tests/test_dbsctr_lifecycle.py", "-q",
 ]
 SWIFT = [*UV, "pytest", "tests/test_herdr_launchagent.py::test_herdr_host_swift_source_compiles_with_warnings_as_errors", "-q"]
-PORTABLE = ["uv", "run", "--frozen", "--no-sync", "pytest", "tests/test_continuous_validation.py", "tests/test_continuous_validation_feedback.py", "tests/test_continuous_validation_dagger.py", "-q"]
+PORTABLE = ["uv", "run", "--frozen", "--no-sync", "pytest", "tests/test_continuous_validation.py", "tests/test_continuous_validation_feedback.py", "tests/test_continuous_validation_dagger.py", "tests/test_continuous_validation_identity.py", "tests/test_continuous_validation_activation.py", "tests/test_dotfiles_validation_adapter.py", "-q"]
+
+
+def _identity_module():
+    source = Path(__file__).resolve().parents[1] / "private_dot_config/dotfiles-ai/continuous_validation/test_identity.py"
+    spec = importlib.util.spec_from_file_location("dotfiles_test_identity", source)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _test_files(root):
+    value = subprocess.run(["git", "ls-files", "-z", "--", "tests"], cwd=root,
+                           capture_output=True, timeout=10, check=True)
+    return [name.decode() for name in value.stdout.split(b"\0") if name.endswith(b".py")]
+
+
+def _artifacts(log_path):
+    log = Path(log_path)
+    path = log.with_suffix(".artifacts")
+    if (not log.is_absolute() or ".." in log.parts
+            or any(parent.is_symlink() for parent in (log, *log.parents))):
+        raise ValueError("invalid artifact directory")
+    path.mkdir(mode=0o700, exist_ok=True)
+    item = path.stat()
+    if not stat.S_ISDIR(item.st_mode) or item.st_uid != os.getuid() or item.st_mode & 0o077:
+        raise ValueError("invalid artifact directory")
+    return path
+
+
+def _syntax_log(path, failures):
+    payload = json.dumps({"syntax_error_paths": failures}).encode()
+    if len(payload) > LIMIT:
+        raise ValueError("syntax diagnostic capacity")
+    descriptor = os.open(path, os.O_CREAT | os.O_WRONLY | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        item = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
+                or item.st_nlink != 1 or item.st_mode & 0o077):
+            raise ValueError("unsafe syntax log")
+        stream.truncate(0)
+        stream.write(payload)
+
+
+def _with_identities(value, junit, root):
+    if value["status"] not in {"passed", "failed"}:
+        return value
+    try:
+        ids, receipt = _identity_module().collect_junit(junit, _test_files(root))
+        if value["status"] == "passed" and receipt["outcomes"]["failed"] + receipt["outcomes"]["error"]:
+            raise ValueError("inconsistent outcome")
+    except (OSError, ValueError):
+        return _result(value["check_id"], "unavailable", "test_identity_evidence_unavailable",
+                       runtime=value.get("runtime", {}))
+    return {**value, "runtime": {**value["runtime"], "test_identity": receipt}, "test_ids": ids}
 
 
 def _config(config):
@@ -69,7 +124,8 @@ def describe(config=None):
     return {"schema_version": 1, "adapter_id": "dotfiles.continuous-validation",
             "input_patterns": ["**", ".github/**", ".coveragerc*", ".chezmoi*"],
             "checks": [{"id": identity, "class": kind, "backend": backend, "lane": lane,
-                        "timeout_seconds": timeout, "cacheable": False, "configuration": settings}
+                        "timeout_seconds": timeout, "cacheable": False, "configuration": {
+                            **settings, "test_identity": "not_applicable" if identity == "dotfiles.syntax" else "pytest-junit-v1"}}
                        for identity, kind, backend, lane, timeout, settings in checks]}
 
 
@@ -197,10 +253,12 @@ def execute(request):
             pins, helper = config.get("dagger", {}), config.get("dagger_helper_argv", [])
             if not {"engine", "image", "python_version", "uv_version"} <= pins.keys() or not helper:
                 return _result(identity, "unavailable", "dagger_runtime_unconfigured")
-            _snapshot(request)
-            payload = {**request, "check": {**check, "configuration": {
+            root = _snapshot(request)
+            artifacts = _artifacts(request["log_path"])
+            payload = {**request, "log_path": str(artifacts / "dagger.log"), "check": {**check, "configuration": {
                 **pins, "platform": "linux/" + check["lane"]["architecture"],
-                "argv": PORTABLE, "groups": ["test"], "project_path": ".",
+                "argv": [*PORTABLE, "--junitxml=.ci-select/junit.xml"], "groups": ["test"], "project_path": ".",
+                "artifacts": [".ci-select/junit.xml"],
             }}}
             process = subprocess.run([*helper, "--enabled"], input=json.dumps(payload), capture_output=True,
                                      text=True, timeout=check["timeout_seconds"])
@@ -209,18 +267,24 @@ def execute(request):
             value = json.loads(process.stdout)
             if value.get("schema_version") != 1 or value.get("check_id") != identity or value.get("status") not in {"passed", "failed", "unavailable", "interrupted"}:
                 raise ValueError("invalid helper result")
-            return value
+            return _with_identities(value, artifacts / ".ci-select/junit.xml", root)
         if platform.system() != "Darwin":
             return _result(identity, "unavailable", "native_macos_required")
         root = _snapshot(request)
         runtime = {"os": "darwin", "architecture": _architecture(), "python": platform.python_version(), "tools": {}}
         if identity == "dotfiles.syntax":
             failures = _syntax(root)
+            _artifacts(request["log_path"])
+            _syntax_log(request["log_path"], failures)
+            runtime["test_identity"] = _identity_module().not_applicable()
             return _result(identity, "failed" if failures else "passed", "python_syntax_error" if failures else None,
-                           exit_code=1 if failures else 0, runtime=runtime, tests=failures)
+                           exit_code=1 if failures else 0, runtime=runtime)
         if not shutil.which("uv") or not shutil.which("python3.14"):
             return _result(identity, "unavailable", "native_python_toolchain_unavailable")
-        code, error = _run(check["configuration"]["argv"], root, request["log_path"], check["timeout_seconds"])
+        artifacts = _artifacts(request["log_path"])
+        junit = artifacts / "junit.xml"
+        code, error = _run([*check["configuration"]["argv"], "--junitxml=" + str(junit)],
+                           root, request["log_path"], check["timeout_seconds"])
         interpreter = root / ".venv/bin/python"
         if interpreter.is_file():
             probe = subprocess.run([str(interpreter), "-c", "import platform; print(platform.python_version())"],
@@ -233,8 +297,8 @@ def execute(request):
             return _result(identity, "unavailable", error, runtime=runtime)
         if code < 0:
             return _result(identity, "unavailable", "native_process_crashed", exit_code=128-code, runtime=runtime)
-        return _result(identity, "passed" if code == 0 else "failed", "pytest_failed" if code else None,
-                       exit_code=code, runtime=runtime)
+        return _with_identities(_result(identity, "passed" if code == 0 else "failed", "pytest_failed" if code else None,
+                                       exit_code=code, runtime=runtime), junit, root)
     except (ValueError, KeyError, OSError, subprocess.SubprocessError, json.JSONDecodeError, TypeError):
         return _result(identity, "unavailable", "adapter_execution_unavailable")
 

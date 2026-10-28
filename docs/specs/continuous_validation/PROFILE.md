@@ -53,8 +53,9 @@ copy a strict operator-supplied qualification receipt, but the dispatcher still
 checks version and freshness and never infers ordinary consumption from queue
 acceptance. Desktop checkout work is supported independently of Desktop feedback.
 
-No automatic lifecycle checkpoint hook, login service, or forever watcher is
-part of this activation. GCP topology, networking, spend and authoritative evidence
+The initial local-shadow activation did not include automatic lifecycle
+checkpoint hooks. The follow-up below adds explicit per-task checkpoint
+enrollment; installation still starts no login service or forever watcher. GCP topology, networking, spend and authoritative evidence
 reuse require separately bounded delivery decisions. Current gate results and
 runtime identities remain in private lifecycle/qualification evidence.
 

@@ -17459,6 +17459,60 @@ def command_gate_commit(args):
     record["commits"].append({"id": commit, "gates": args.gates})
     save(path, record)
     print(commit)
+    return {"worktree": root.resolve(), "cycle": record["cycle_id"], "head": commit, "gates": list(args.gates)}
+
+
+def optional_shadow_checkpoint(checkpoint):
+    """Bounded optional enqueue after lifecycle locks; missing binding is inert."""
+    registry = Path.home() / ".local/state/dotfiles-ai/continuous-validation/checkpoint-bindings"
+    if not os.path.lexists(registry):
+        return
+    try:
+        def private_record(path, maximum):
+            if (not path.is_absolute() or ".." in path.parts
+                    or any(parent.is_symlink() for parent in (path, *path.parents))):
+                raise ValueError("unsafe checkpoint record")
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(descriptor, "rb") as stream:
+                item = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
+                        or item.st_mode & 0o077 or item.st_nlink != 1 or item.st_size > maximum):
+                    raise ValueError("unsafe checkpoint record")
+                return json.loads(stream.read(maximum + 1), object_pairs_hook=no_duplicate_keys)
+
+        root = checkpoint["worktree"]
+        metadata = subprocess.run(["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                                  capture_output=True, text=True, timeout=1,
+                                  env={**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0"})
+        if metadata.returncode:
+            raise RuntimeError("checkpoint repository unavailable")
+        repository = hashlib.sha256(os.fsencode(Path(metadata.stdout.strip()).resolve())).hexdigest()
+        worktree_id = hashlib.sha256(os.fsencode(root)).hexdigest()
+        binding = registry / repository / worktree_id / (checkpoint["cycle"] + ".json")
+        if not os.path.lexists(binding):
+            return
+        record = private_record(binding, 32 * 1024)
+        if (record.get("repository_id") != repository or record.get("worktree") != str(root)
+                or record.get("cycle_id") != checkpoint["cycle"]):
+            raise ValueError("checkpoint binding changed")
+        enrollment = private_record(Path(record["enrollment"]), 8 * 1024 * 1024)
+        if enrollment.get("enabled") is not True or enrollment.get("checkpoints_enabled") is not True:
+            return
+        digest = hashlib.sha256(json.dumps(enrollment, sort_keys=True, separators=(",", ":"),
+                                          ensure_ascii=True, allow_nan=False).encode()).hexdigest()
+        if record.get("enrollment_digest") != digest:
+            return
+        source = Path(__file__).resolve().parents[2] / "private_dot_config/dotfiles-ai"
+        installed = Path.home() / ".config/dotfiles-ai"
+        package = source if (source / "continuous_validation").is_dir() else installed
+        if not (package / "continuous_validation/checkpoints.py").is_file():
+            raise RuntimeError("checkpoint owner unavailable")
+        sys.path.insert(0, str(package))
+        from continuous_validation.checkpoints import enqueue_gate_commit
+        enqueue_gate_commit(root, checkpoint["cycle"], checkpoint["head"], checkpoint["gates"])
+    except Exception:
+        # Optional diagnostics never replace a completed native lifecycle outcome.
+        print("continuous_validation_checkpoint_unavailable", file=sys.stderr)
 
 
 def command_check(args):
@@ -20070,6 +20124,7 @@ def agent_analytics_output(action):
 
 def main():
     capture = None
+    checkpoint = None
     quiet_local = sys.argv[1:2] == ["complete-local"]
     try:
         if forgejo_internal_main(sys.argv[1:]):
@@ -20095,9 +20150,13 @@ def main():
                     args.command == "incident-scan" and args.summary_only):
                 agent_analytics_output(lambda: args.func(args))
             else:
-                args.func(args)
+                outcome = args.func(args)
+                if args.command == "gate-commit":
+                    checkpoint = outcome
             if not quiet_local:
                 workflow_operation_finish(capture, True)
+        if checkpoint is not None:
+            optional_shadow_checkpoint(checkpoint)
     except SourceIndexUnavailable:
         if not quiet_local:
             workflow_operation_finish(capture, False)

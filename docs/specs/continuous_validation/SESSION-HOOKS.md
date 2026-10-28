@@ -176,22 +176,38 @@ owner decision; no shared cache or worktree cleanup is implicit.
 | Dependency/deployment | required: lifecycle enqueue and explicitly running worker topology below |
 | Quantitative | not_applicable: timeboxes define experiment bounds, not measured performance claims |
 
-```mermaid
-flowchart TD
-    accTitle: Default-off lifecycle checkpoint and CLI feedback
-    accDescr: After a successful durable Gate Commit and outside its mutation lock, an explicit enrollment permits a bounded private enqueue. An explicitly started worker rechecks currentness, captures source and runs checks through shared admission. Complete identity receipts accompany advisory observations. Current failures may enter one qualified existing Codex or OpenCode CLI session; no path changes a formal gate.
-    G[Successful durable Gate Commit] --> B{Explicit current binding?}
-    B -->|absent or disabled| N[No optional effects]
-    B -->|enabled, outside mutation lock| Q[Bounded private checkpoint queue]
-    Q --> W[Explicitly started watcher or bounded worker]
-    W --> F{Task, binding, HEAD and source still current?}
-    F -->|no| H[Retain stale or pending history]
-    F -->|yes| S[Immutable snapshot and shared admission]
-    S --> O[Advisory observation and complete identity receipt]
-    O --> C{Current failure and qualified exact target?}
-    C -->|no| H
-    C -->|yes, journal before send| T[Existing Codex or OpenCode native queue]
-    T --> A[Same session: safe boundary or idle wake]
+```text
+Successful durable Gate Commit
+        |
+        v
+Explicit current binding?
+        | absent/disabled                | enabled, outside mutation lock
+        v                                v
+No optional effects              Bounded private checkpoint queue
+                                         |
+                                         v
+                              Explicit watcher / one-shot worker
+                                         |
+                                         v
+                         Task, binding, HEAD and source current?
+                              | no                  | yes
+                              v                     v
+                      Retain history       Snapshot + shared admission
+                                                    |
+                                                    v
+                                  Advisory observation + identity receipt
+                                                    |
+                                                    v
+                                  Current failure + qualified target?
+                                      | no              | yes
+                                      v                 v
+                                Retain history    Journal before send
+                                                        |
+                                                        v
+                                         Existing native CLI queue
+                                                        |
+                                                        v
+                                     Same session: safe boundary / idle wake
 ```
 
 **Text Equivalent:** A successful durable Gate Commit checks an explicit binding
@@ -211,6 +227,10 @@ or idle wake. No arrow represents gate acceptance.
 | Current open task, admitted worker | Advisory execution | Only current qualified failure |
 | Changed binding, source, HEAD or closed task | Stale/cancelled, retain evidence | Suppressed |
 | Unknown termination or send outcome | Preserve uncertainty; no lease reclamation | No automatic replay |
+
+The editable plaintext flowchart is selected for direct reading in CLI clients,
+terminal documentation and Markdown. Its layout is rendered directly without
+a version-dependent diagram engine.
 
 Canonical source: this contract and the existing context records. Owners are the
 continuous-validation, lifecycle and native control-plane contexts named above.
