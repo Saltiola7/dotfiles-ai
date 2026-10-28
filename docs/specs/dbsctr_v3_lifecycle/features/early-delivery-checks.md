@@ -65,7 +65,7 @@ without repeating every compatibility run on every edit. Python support remains
 | Manual workflow dispatch | Python 3.12, 3.13, 3.14 | Maintainers can request the complete compatibility matrix without changing source |
 
 Every selected runtime retains the same pinned tooling, early publication checks,
-native Swift authority and full pytest command. Each job has a 45-minute timeout.
+native Swift authority and full pytest command. Each job has a 90-minute timeout.
 Workflow tokens have read-only repository contents permission. No path filter,
 test exclusion, failure waiver, dependency change or privileged PR event is added.
 
