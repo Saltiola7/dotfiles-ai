@@ -1,0 +1,10 @@
+--- a/references/reporting.md
++++ b/references/reporting.md
+@@ -0,0 +1,2 @@
++<!-- Adapted by dotfiles-ai, 2026-10-28; see UPSTREAM.md and security-toolkit provenance. -->
++
+@@ -38 +40,3 @@
+-End with a CI-ready rule derived from whichever pattern found the most variants.
++Propose a regression rule derived from the successful pattern only after testing
++positive and negative fixtures, sink-specific sanitizers and coverage limits. A
++search heuristic is not a CI-ready security control without that validation.

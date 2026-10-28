@@ -1,0 +1,105 @@
+{
+  "minimum_macos": "13.0",
+  "osv_database": {
+    "freshness": "unavailable",
+    "installed": false,
+    "network_bootstrap": false,
+    "reason": "Strict offline scanning needs separately selected ecosystem databases; installation performs no download or scan."
+  },
+  "platform": "darwin-arm64",
+  "reviewed": "2026-10-28",
+  "schema_version": 1,
+  "subscription_integrations": {
+    "codex_security": {
+      "commit": "71bd7ae0e9bc859fb8fe9bc4b590b8f8998b19aa",
+      "enabled": false,
+      "license": "Apache-2.0",
+      "reason": "External provider entitlement not confirmed; no installation, login, MCP registration or scan.",
+      "version": "0.8.0"
+    },
+    "daybreak": {
+      "enabled": false,
+      "reason": "Subscription/access not secured."
+    },
+    "gitleaks_action": {
+      "enabled": false,
+      "reason": "Organizational Action license not confirmed; local CLI only."
+    },
+    "semgrep_pro": {
+      "enabled": false,
+      "reason": "Subscription/access not secured; CE local runtime only."
+    }
+  },
+  "tools": [
+    {
+      "archive_member": "gitleaks",
+      "asset": {
+        "bytes": 7897593,
+        "name": "gitleaks_8.30.1_darwin_arm64.tar.gz",
+        "sha256": "b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5",
+        "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_darwin_arm64.tar.gz"
+      },
+      "binary_sha256": "ba52fb1bfabbcde42f032afad3d6e0b19dff8ed105229a16e7caa338bbc0e84f",
+      "commit": "83d9cd684c87d95d656c1458ef04895a7f1cbd8e",
+      "kind": "binary",
+      "license": "MIT",
+      "license_file": "gitleaks-LICENSE.upstream",
+      "license_sha256": "e3884b252b3bfc045e55be43a34d1e80da070bc6f804ac95bf4660e97d62ebc6",
+      "name": "gitleaks",
+      "provenance": {
+        "binary_codesign": "adhoc linker signature; no Team ID",
+        "checksum_manifest_matches": true,
+        "github_asset_digest_matches": true,
+        "independently_signed_build_provenance_verified": false,
+        "slsa_or_signature_asset": "not present in release asset inventory",
+        "tag_signature": "lightweight tag; target commit unsigned"
+      },
+      "repository": "https://github.com/gitleaks/gitleaks",
+      "version": "8.30.1"
+    },
+    {
+      "asset": {
+        "bytes": 55336530,
+        "name": "osv-scanner_darwin_arm64",
+        "sha256": "d4926ef8da134332543be276dff157e4c170f99ad91fc48e89448a8816bdf70b",
+        "url": "https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_darwin_arm64"
+      },
+      "binary_sha256": "d4926ef8da134332543be276dff157e4c170f99ad91fc48e89448a8816bdf70b",
+      "commit": "bfe2f84abd2f09fe0b83ba7f6dad40d296762f40",
+      "kind": "binary",
+      "license": "Apache-2.0",
+      "license_file": "osv-scanner-LICENSE.upstream",
+      "license_sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "name": "osv-scanner",
+      "provenance": {
+        "buildInvocationID": "38189709636-1",
+        "builder": "https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@refs/tags/v2.1.0",
+        "configSource": {
+          "digest": {
+            "sha1": "bfe2f84abd2f09fe0b83ba7f6dad40d296762f40"
+          },
+          "entryPoint": ".github/workflows/goreleaser.yml",
+          "uri": "git+https://github.com/google/osv-scanner@refs/tags/v2.7.0"
+        },
+        "digest_and_source_match": true,
+        "reason": "slsa-verifier is not installed; no new verifier installed or executed",
+        "signature_verified": false
+      },
+      "repository": "https://github.com/google/osv-scanner",
+      "version": "2.7.0"
+    },
+    {
+      "arm64_wheel_sha256": "89fe0afe240455800f806145f5679707892ea9bbd442a56eab1ea0b25a95f4c6",
+      "distribution": "https://pypi.org/project/semgrep/1.182.1/",
+      "kind": "python",
+      "license": "LGPL-2.1-or-later",
+      "name": "semgrep",
+      "provenance": "Official PyPI trusted-publisher wheel; only binary distributions, all transitive dependencies hash-pinned. No source builds.",
+      "python": "3.13",
+      "repository": "https://github.com/semgrep/semgrep",
+      "requirements": "semgrep-requirements.txt",
+      "requirements_sha256": "26821e7e6bbad635ad30fd4bf694af61f6c10f9e74d4ba0cc857b2e30e3a6e3a",
+      "version": "1.182.1"
+    }
+  ]
+}

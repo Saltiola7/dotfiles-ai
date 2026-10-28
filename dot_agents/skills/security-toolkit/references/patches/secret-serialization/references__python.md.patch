@@ -1,0 +1,29 @@
+--- a/references/python.md
++++ b/references/python.md
+@@ -0,0 +1,2 @@
++<!-- Adapted by dotfiles-ai, 2026-10-28; see UPSTREAM.md and security-toolkit provenance. -->
++
+@@ -1,0 +4,5 @@
++
++These examples are serializer-specific leads. Confirm actual configuration and
++unauthorized holder-to-sink exposure before reporting a vulnerability; holder-only
++examples are hardening candidates without severity. The selected primary
++workflow determines severity from concrete impact.
+@@ -43 +50 @@
+-**Report (high): credential field added to a dataclass that existing instrumentation stringifies**
++**Exposure example (confirm impact before severity): credential field added to a dataclass that existing instrumentation stringifies**
+@@ -67 +74 @@
+-**Report (medium): unexcluded field, instances travel, no sink found**
++**Hardening candidate (no confirmed exposure): unexcluded field, instances travel, no sink found**
+@@ -81 +88 @@
+-**Report (high): partial exclusion with a sink on the unblocked path**
++**Exposure example (confirm impact before severity): partial exclusion with a sink on the unblocked path**
+@@ -93 +100 @@
+-**Report (medium): new wholesale sink with no filter**
++**Hardening candidate (no confirmed exposure): new wholesale sink with no filter**
+@@ -120 +127 @@
+-**Report (high): `Field(exclude=True)` with a `str()` sink**
++**Exposure example (confirm impact before severity): `Field(exclude=True)` with a `str()` sink**
+@@ -132 +139 @@
+-**Report (high): fully excluded field with a raw attribute sink**
++**Exposure example (confirm impact before severity): fully excluded field with a raw attribute sink**

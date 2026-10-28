@@ -1,0 +1,37 @@
+--- a/references/triage.md
++++ b/references/triage.md
+@@ -0,0 +1,2 @@
++<!-- Adapted by dotfiles-ai, 2026-10-28; see UPSTREAM.md and security-toolkit provenance. -->
++
+@@ -4,2 +6,2 @@
+-bug. The job is to determine which ones actually carry it, and to say so with a severity
+-attached.
++bug. Establish which candidates violate a reachable trust boundary. Assign severity
++only after the primary workflow confirms the affected principal, control and impact.
+@@ -19,4 +21,3 @@
+-Note what is *not* on that list: having no callers. Code that nothing reaches today is
+-still unprotected code, and a variant hunt is exactly the search that finds it before a
+-caller arrives. Report it at lower severity — see Exploitability below — rather than
+-refuting it as dead.
++Having no callers is a reachability limitation. Record unprotected but unreachable
++code as a hardening candidate with the condition that would make it reachable;
++do not label it a confirmed vulnerability merely because a caller might appear.
+@@ -33,3 +34,2 @@
+-false positive worth recording, not a finding. A candidate that is unreachable *today* but
+-unprotected is a real finding at lower severity: say so explicitly, and say what would make
+-it reachable.
++false positive worth recording, not a finding. An unreachable or unresolved candidate stays unconfirmed, with no vulnerability
++severity. State the missing reachability evidence and safe next validation step.
+@@ -79,8 +79,4 @@
+-Attach a severity to **every** verdict, including informational ones. Do not suppress
+-findings you judge minor: filtering happens downstream, where the full set is visible, and a
+-finding you decline to mention is a finding nobody sees.
+-
+-Separate the two axes:
+-
+-- **Severity** — the impact if this is real
+-- **Confidence** — how sure you are that it is real
++Assign severity only to confirmed boundary violations under the primary policy,
++using concrete impact and reachability. Needs-validation, rejected and hardening
++candidates have their own disposition, without vulnerability severity. Keep
++unresolved facts and safe next checks explicit.

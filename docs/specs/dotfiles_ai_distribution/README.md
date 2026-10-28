@@ -1818,3 +1818,10 @@ stale copy of Herdr command syntax in the repository.
   credential, and macOS path integrations do not belong inside isolated guests.
 - Retirement removes Hermes jobs, gateway, executable, credentials, and runtime
   data only under this cycle's explicit destructive authorization.
+
+**Portable security skills:** the [security-skills contract](features/security-skills.md)
+owns a pinned, licensed, selectively adapted shared skill profile and DBSCTR routing.
+The `security-toolkit` inventory distinguishes source bundles, live discovery,
+provider/scanner prerequisites and validated audit coverage. Updates use complete
+source review and exact-target isolated/host application; no scanner, provider
+permission or audit starts as an installation side effect.

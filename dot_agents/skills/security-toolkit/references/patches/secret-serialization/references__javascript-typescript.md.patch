@@ -1,0 +1,37 @@
+--- a/references/javascript-typescript.md
++++ b/references/javascript-typescript.md
+@@ -0,0 +1,2 @@
++<!-- Adapted by dotfiles-ai, 2026-10-28; see UPSTREAM.md and security-toolkit provenance. -->
++
+@@ -5,0 +8,5 @@
++
++Default-behavior heuristics below require inspection of actual methods,
++configuration, versions and sink access. Custom methods can expose even private
++values; shared objects without a demonstrated unauthorized sink are hardening
++candidates, not confirmed leaks. Severity follows the selected primary workflow.
+@@ -15 +22,11 @@
+-A `toJSON()` covers `JSON.stringify` only. `console.log`, `util.inspect`, pino, and the Sentry normalizer walk own enumerable properties and ignore `toJSON`. Treat a `toJSON`-only block as partial when an inspect or logger sink exists.
++A `toJSON()` affects JSON serialization and consumers that invoke it. Sentry
++normalization and Pino serialization can invoke it depending on version and
++value path; `console.log` and `util.inspect` have different custom-inspection
++behavior. Trace the actual serializer, version, configuration and nested value
++path rather than assuming every logger ignores `toJSON`. Non-enumerability is
++not exclusion proof for `util.inspect({showHidden: true})` or `%o`.
++
++Primary-source behavior references: [Sentry normalize](https://github.com/getsentry/sentry-javascript/blob/develop/packages/core/src/utils/normalize.ts),
++[Pino serialization](https://github.com/pinojs/pino/blob/main/lib/tools.js),
++[Node inspect](https://nodejs.org/api/util.html#utilinspectobject-options).
++These are behavior references, not instructions to load remote code.
+@@ -31 +48 @@
+-**Report (high): token property on a client that instrumentation serializes**
++**Exposure example (confirm impact before severity): token property on a client that instrumentation serializes**
+@@ -49 +66 @@
+-**Report (medium): unexcluded credential on a shared config object**
++**Hardening candidate (no confirmed exposure): unexcluded credential on a shared config object**
+@@ -62 +79 @@
+-**Report (medium): new wholesale sink**
++**Hardening candidate (no confirmed exposure): new wholesale sink**
+@@ -90 +107,2 @@
+-This is enough when the only sinks are `JSON.stringify` or `res.json`. It becomes a partial exclusion if the instance is also passed to `console.log` or a logger.
++This is enough when the only sinks are `JSON.stringify` or `res.json`. It is partial only when an additional actual serializer exposes the credential;
++configured loggers may honor `toJSON` or apply effective redaction.

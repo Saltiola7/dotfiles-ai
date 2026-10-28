@@ -1,0 +1,7 @@
+--- a/rules/codeguard-0-data-storage.md
++++ b/rules/codeguard-0-data-storage.md
+@@ -13,0 +14 @@
++<!-- Adapted by dotfiles-ai, 2026-10-28: whitespace normalization only; see UPSTREAM.md. -->
+@@ -78 +79 @@
+-Summary:  
++Summary:

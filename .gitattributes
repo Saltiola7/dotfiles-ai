@@ -1,0 +1,2 @@
+# Exact upstream patch preimages preserve whitespace for offline reconstruction.
+dot_agents/skills/security-toolkit/references/patches/** -whitespace

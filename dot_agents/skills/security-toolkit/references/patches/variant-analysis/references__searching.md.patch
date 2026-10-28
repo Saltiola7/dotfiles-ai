@@ -1,0 +1,10 @@
+--- a/references/searching.md
++++ b/references/searching.md
+@@ -0,0 +1,2 @@
++<!-- Adapted by dotfiles-ai, 2026-10-28; see UPSTREAM.md and security-toolkit provenance. -->
++
+@@ -115,2 +117,2 @@
+-Run every search against the **entire codebase root**, not the directory the original bug
+-lived in. A bug found in `api/handlers/` with a variant in `utils/auth.py` is the normal
++Run searches across the **entire approved scope**, rather than only the original bug directory.
++Expand beyond that scope only with authorization, and report omitted coverage. A bug found in `api/handlers/` with a variant in `utils/auth.py` is the normal
