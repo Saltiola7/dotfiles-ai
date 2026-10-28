@@ -65,8 +65,8 @@ capacity is bounded; full or unsafe state is unavailable without deleting older
 evidence. Stop disables enrollment before owned process shutdown; unknown
 termination retains its lease and blocks further admission.
 
-Each check declares either `pytest-junit-v1` or `not_applicable` test-identity
-evidence. Pytest checks retain bounded JUnit and report all completed identities,
+Each check declares `configuration.test_identity` as either `pytest-junit-v1`
+or `not_applicable` test-identity evidence. Pytest checks retain bounded JUnit and report all completed identities,
 counts by outcome, zero omissions, encoded identity digest and separate failed
 identities. Complete means every retained JUnit case is represented; it does not
 prove complete selection, changed coverage or a final integrated-source pass.
@@ -88,6 +88,27 @@ malformed new receipts cannot qualify comparison. Legacy observations remain
 readable but lack complete-identity qualification, including legacy empty lists.
 Explicit non-test evidence stays comparable. Receipt outcome/measurement fields
 do not become Python/tool identity; outcome differences remain visible separately.
+
+The typed `runtime.test_identity` receipt has schema version 1. Non-test checks
+emit exactly `schema_version` and `kind: not_applicable`. Pytest receipts use
+`kind: pytest-junit-v1`, `encoding: pytest-nodeid-or-sha256-v1`, `scope: completed`,
+`complete: true`, integer `case_count`, `reported_count`, `opaque_count`,
+`omitted_count: 0`, `outcomes` (`passed`, `failed`, `error`, `skipped`),
+`ids_digest` and sorted `failed_test_ids`. Digest bytes use sorted identities as
+canonical JSON with sorted keys, ASCII escaping and compact separators. Opaque
+logical tuples use keys `version: 1`, `kind` (`testcase` or `module_skip`), `file`,
+`classname` and `name`, serialized with the same canonical rules. New receipts
+must agree with actual returned identities and declared check capability.
+
+Checkpoint enrollment uses an explicit `--checkpoints` opt-in independent of
+`--feedback-qualification`. Typed CLI enrollment selects `--client codex|opencode`
+(default Codex for compatibility). Registry lookup is keyed by exact common-Git
+repository identity, absolute worktree and cycle; it is not native-session
+location proof. An enrollment-disabled record revokes queued eligibility even
+when its historical binding remains retained. One explicit worker drains at most
+one event at a time through the ordinary request owner. Its attempting/terminal
+journal prevents replay after an uncertain crash; no background service starts
+from a Gate Commit. Enqueue and worker terminal outcomes remain private telemetry.
 
 Feedback enrollment selects a closed typed transport contract. Codex uses an
 exact canonical UUID and the native queue command. OpenCode uses its bounded
