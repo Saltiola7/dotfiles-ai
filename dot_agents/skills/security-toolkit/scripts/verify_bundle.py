@@ -7,9 +7,10 @@ import argparse
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 
-def verify(skills_root, lock):
+def verify(skills_root: Path, lock: dict[str, Any]) -> list[str]:
     failures = []
     if skills_root.is_symlink() or not skills_root.is_dir():
         return ["skills root must be a real directory"]
@@ -41,7 +42,7 @@ def verify(skills_root, lock):
     return failures
 
 
-def main():
+def main() -> int:
     toolkit = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skills-root", type=Path, default=toolkit.parent)

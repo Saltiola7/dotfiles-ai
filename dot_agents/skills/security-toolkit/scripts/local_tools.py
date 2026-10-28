@@ -11,12 +11,34 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+from typing import Any, Literal, TypedDict
+
+
+class ReleaseAsset(TypedDict):
+    name: str
+    url: str
+    bytes: int
+    sha256: str
+
+
+class ToolSpec(TypedDict, total=False):
+    name: str
+    version: str
+    kind: Literal["binary", "python"]
+    asset: ReleaseAsset
+    binary_sha256: str
+    archive_member: str
+    license_file: str
+    license_sha256: str
+    requirements: str
+    requirements_sha256: str
+    python: str
 
 DATA = Path(__file__).resolve().parents[1] / "references/runtime"
 DEFAULT_ROOT = Path.home() / ".config/dotfiles-ai/runtime/security"
 
 
-def digest(path):
+def digest(path: Path) -> str:
     value = hashlib.sha256()
     with path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
@@ -24,21 +46,21 @@ def digest(path):
     return value.hexdigest()
 
 
-def load_profile():
+def load_profile() -> dict[str, Any]:
     profile = json.loads((DATA / "tools.lock.json").read_text())
     if not isinstance(profile, dict) or profile["schema_version"] != 1 or any(x["enabled"] for x in profile["subscription_integrations"].values()):
         raise ValueError("unsupported or enabled subscription profile")
     return profile
 
 
-def check_platform():
+def check_platform() -> None:
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise ValueError("local runtime installation is qualified only for Apple Silicon macOS")
     if tuple(map(int, platform.mac_ver()[0].split(".")[:2])) < (13, 0):
         raise ValueError("local runtime installation requires macOS 13 or later")
 
 
-def validate_directory(path):
+def validate_directory(path: Path) -> None:
     if not path.is_absolute():
         raise ValueError("runtime and cache roots must be absolute")
     for parent in reversed([path, *path.parents]):
@@ -51,20 +73,20 @@ def validate_directory(path):
             raise ValueError("unsafe runtime directory or ancestor")
 
 
-def real_directory(path):
+def real_directory(path: Path) -> None:
     validate_directory(path)
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     validate_directory(path)
 
 
-def regular_file(path):
+def regular_file(path: Path) -> None:
     item = path.lstat()
     if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
             or item.st_mode & 0o022 or item.st_nlink != 1):
         raise ValueError("unsafe runtime file")
 
 
-def inventory(root):
+def inventory(root: Path) -> dict[str, dict[str, str | int]]:
     result = {}
     for path in sorted(root.rglob("*")):
         name = path.relative_to(root).as_posix()
@@ -85,7 +107,7 @@ def inventory(root):
     return result
 
 
-def secure_uv_lock(path):
+def secure_uv_lock(path: Path) -> None:
     item = path.lstat()
     if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
             or item.st_nlink != 1 or item.st_size != 0):
@@ -94,7 +116,7 @@ def secure_uv_lock(path):
     path.chmod(0o600)
 
 
-def preflight(tool):
+def preflight(tool: ToolSpec) -> dict[str, Any]:
     if not re.fullmatch(r"[a-z-]+", tool["name"]) or not re.fullmatch(r"[0-9.]+", tool["version"]):
         raise ValueError("unsafe tool identity")
     if tool["kind"] == "binary" and tool["name"] in ("gitleaks", "osv-scanner"):
@@ -130,7 +152,7 @@ def preflight(tool):
     raise ValueError("unsupported tool kind")
 
 
-def check_archive(archive, member_name):
+def check_archive(archive: Path, member_name: str) -> bytes:
     with tarfile.open(archive) as bundle:
         for member in bundle.getmembers():
             path = PurePosixPath(member.name)
@@ -142,11 +164,11 @@ def check_archive(archive, member_name):
         return bundle.extractfile(selected).read()
 
 
-def binary_path(tool, generation):
+def binary_path(tool: ToolSpec, generation: Path) -> Path:
     return generation / ("venv/bin/semgrep" if tool["kind"] == "python" else tool["name"])
 
 
-def smoke(tool, generation):
+def smoke(tool: ToolSpec, generation: Path) -> None:
     executable = binary_path(tool, generation)
     with tempfile.TemporaryDirectory(prefix="security-tool-version-") as temporary:
         env = {"PATH": str(executable.parent) + ":/opt/homebrew/bin:/usr/bin:/bin", "HOME": temporary,
@@ -161,12 +183,12 @@ def smoke(tool, generation):
             raise ValueError(tool["name"] + ": version qualification failed")
 
 
-def generation_for(tool, root):
+def generation_for(tool: ToolSpec, root: Path) -> Path:
     identity = tool.get("requirements_sha256", tool.get("binary_sha256"))
     return root / tool["name"] / (tool["version"] + "-" + identity[:12])
 
 
-def verify_generation(tool, generation):
+def verify_generation(tool: ToolSpec, generation: Path) -> None:
     validate_directory(generation)
     marker = generation / "installed.json"
     if not marker.exists() and not marker.is_symlink():
@@ -184,7 +206,7 @@ def verify_generation(tool, generation):
         raise ValueError(tool["name"] + ": binary checksum mismatch")
 
 
-def install(tool, root, cache):
+def install(tool: ToolSpec, root: Path, cache: Path) -> None:
     prerequisites = preflight(tool)
     real_directory(root)
     real_directory(root / tool["name"])
@@ -242,7 +264,7 @@ def install(tool, root, cache):
     print(tool["name"], tool["version"], "installed; version smoke passed; no scan")
 
 
-def status(profile, root, run_smoke=False):
+def status(profile: dict[str, Any], root: Path, run_smoke: bool = False) -> dict[str, Any]:
     tools = []
     for tool in profile["tools"]:
         generation = generation_for(tool, root)
@@ -263,7 +285,7 @@ def status(profile, root, run_smoke=False):
             "osv_database": profile["osv_database"], "audit_performed": False}
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["status", "install"])
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
