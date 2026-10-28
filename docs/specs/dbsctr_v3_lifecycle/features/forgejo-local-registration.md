@@ -1,5 +1,13 @@
 # Forgejo local-only lifecycle registration
 
+Approved [administrative retirement](cycle-retirement-recovery.md) adds a
+prospective non-success exit for schema 6 and explicitly approved local archival
+removal. A completed local-only record stays immutable; its later administrative
+disposition does not authorize publication or claim integration. Without that
+separate qualified disposition/preservation path, unpublished completion still
+blocks removal as specified below. No credential or network access is needed for
+the new local retirement/archive operations.
+
 **Bounded source interface; managed installation and real-consumer operation
 remain unqualified.** This feature belongs to `dbsctr_v3_lifecycle`, owned by the dotfiles
 maintainer under [the Engineering Profile](../PROFILE.md). Risk is **critical**;

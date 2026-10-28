@@ -1,5 +1,14 @@
 # Build handoff — workflow convergence
 
+## Next corrective release group
+
+[RETIREMENT-RECOVERY.md](RETIREMENT-RECOVERY.md) owns the approved additional
+record-retirement, disposition-removal, journey and rollout slices, exact source
+closures and reachability acceptance. Use its first ready slice and complete
+manifest artifact closure instead of replaying the historical first-launch recipe
+below. Automatic cleanup remains unqualified; this amendment qualifies a distinct
+exactly approved manual recovery path. Original delivery evidence is unchanged.
+
 **All ten source slices integrated; staged activation in progress.** This file is a resumption
 index, not a launch approval. Re-read `MANIFEST.json`, `DECISIONS.md` and referenced
 contracts from Git after compaction. Validate them with `initiative-check`; never

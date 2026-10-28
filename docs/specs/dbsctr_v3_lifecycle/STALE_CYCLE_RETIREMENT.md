@@ -1,5 +1,12 @@
 # Stale Cycle Retirement
 
+**Historical mechanism, currently disabled.** The approved
+[retirement recovery](features/cycle-retirement-recovery.md) specification replaces
+logical closure separately from physical removal. Its prospective `cycle-retire`
+requires fresh preview/approval and never directly deletes worktrees. Until source
+and installed qualification complete, the commands below remain unavailable.
+This historical contract is not permission to bypass Worktrunk hooks.
+
 ## Scope
 
 Retire stale DBSCTR-created cycle worktrees without fabricating successful gates,

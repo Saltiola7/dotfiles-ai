@@ -1,5 +1,14 @@
 # OpenCode Control Plane
 
+## Retirement recovery Discovery
+
+[Supported retirement journey](features/cycle-retirement-journey.md) specifies
+exact chat/terminal consent, record closure independent of idle MCP consumers,
+native same-conversation handoff and separately approved archival/removal. Runtime
+shutdown behavior requires installed qualification; session movement alone never
+proves MCP consumers exited. Source/activation remain pending under the existing
+workflow-convergence Initiative.
+
 ## Offline compression evaluation source
 
 `WORKFLOW-COMPRESSION-EVALUATION` embeds the version-1 public/synthetic fixture
