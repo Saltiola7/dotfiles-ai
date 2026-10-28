@@ -162,6 +162,93 @@ def test_native_enqueue_failure_does_not_change_commit_exit_or_stdout(enrolled):
     assert events(enrolled) == []
 
 
+@pytest.mark.parametrize("record_kind", ["binding", "enrollment"])
+def test_native_optional_checkpoint_fifo_cannot_block_outcome(enrolled, record_kind):
+    binding = manual_binding(enrolled)
+    path = binding if record_kind == "binding" else enrolled["path"]
+    path.unlink()
+    os.mkfifo(path, mode=0o600)
+    script = """
+import importlib.machinery
+import importlib.util
+from pathlib import Path
+import sys
+loader = importlib.machinery.SourceFileLoader('fifo_native_checkpoint', sys.argv[1])
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+module.optional_shadow_checkpoint({'worktree': Path(sys.argv[2]), 'cycle': 'cycle-1',
+                                  'head': sys.argv[3], 'gates': ['domain']})
+print('native_outcome_preserved')
+"""
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", script, str(ROOT / "dot_local/bin/executable_dbsctrctl"),
+         str(enrolled["worktree"]), git(enrolled["worktree"], "rev-parse", "HEAD")],
+        cwd=enrolled["worktree"], env=enrolled["env"], capture_output=True, text=True,
+        timeout=3,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "native_outcome_preserved"
+    assert result.stderr.strip() == "continuous_validation_checkpoint_unavailable"
+    assert events(enrolled) == []
+
+
+def test_checkpoint_record_fifo_is_rejected_without_waiting(checkpoints, tmp_path):
+    path = tmp_path / "record.json"
+    os.mkfifo(path, mode=0o600)
+    script = """
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[1])
+from continuous_validation import checkpoints, runner
+try:
+    checkpoints._read(Path(sys.argv[2]))
+except runner.ValidationError:
+    print('record_rejected')
+else:
+    raise AssertionError('special checkpoint record accepted')
+"""
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", script,
+         str(ROOT / "private_dot_config/dotfiles-ai"), str(path)],
+        capture_output=True, text=True, timeout=3,
+    )
+    assert result.returncode == 0 and result.stdout.strip() == "record_rejected"
+
+
+def test_checkpoint_record_replacement_cannot_block_after_validation(tmp_path):
+    path = private_json(tmp_path / "record.json", {"safe": "record"})
+    script = """
+from pathlib import Path
+import os
+import sys
+from unittest.mock import patch
+sys.path.insert(0, sys.argv[1])
+from continuous_validation import checkpoints, runner
+target = Path(sys.argv[2])
+original = Path.read_text
+def replace_before_read(path, *args, **kwargs):
+    if path == target:
+        path.unlink()
+        os.mkfifo(path, mode=0o600)
+    return original(path, *args, **kwargs)
+with patch.object(Path, 'read_text', replace_before_read):
+    try:
+        value = checkpoints._read(target)
+    except runner.ValidationError:
+        pass
+    else:
+        assert value == {'safe': 'record'}
+print('reader_terminal')
+"""
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", script,
+         str(ROOT / "private_dot_config/dotfiles-ai"), str(path)],
+        capture_output=True, text=True, timeout=3,
+    )
+    assert result.returncode == 0 and result.stdout.strip() == "reader_terminal"
+
+
 def test_disabled_registration_creates_nothing(checkpoints, tmp_path):
     missing = tmp_path / "absent" / "enrollment.json"
     assert checkpoints.register(missing, {"schema_version": 1, "enabled": False}) is None
@@ -228,7 +315,8 @@ def test_drain_claims_before_ordinary_request_and_does_not_replay(checkpoints, e
         calls.append(request)
         assert events(enrolled)[0]["state"] == "attempting"
         assert request == {"schema_version": 1, "enrollment": str(enrolled["path"]),
-                           "trigger": "checkpoint", "request_id": "checkpoint-" + queued["event_id"]}
+                           "trigger": "checkpoint", "request_id": "checkpoint-" + queued["event_id"],
+                           "checkpoint_head": events(enrolled)[0]["head"]}
         return {"schema_version": 1, "status": "pending", "observations": [], "pending_checks": ["heavy"]}
     result = checkpoints.drain_one(enrolled["path"], run_request)
     assert result["status"] == "pending"

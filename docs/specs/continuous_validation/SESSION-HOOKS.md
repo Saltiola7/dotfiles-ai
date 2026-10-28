@@ -55,11 +55,19 @@ the enrollment path and digest to the exact repository/worktree/cycle using the
 existing private lifecycle/state authority. The lifecycle performs a bounded
 lookup, not a repository scan or environment-based target search. Missing binding
 is a no-op. A bounded enqueue happens outside lifecycle locks; no checks run in
-the lifecycle process, and no detached worker is launched there.
+the lifecycle process, and no detached worker is launched there. Checkpoint file
+reads open without blocking or following a final symlink, validate the opened
+regular file and its private ownership/permissions before bounded JSON parsing,
+and reject special files or replacement races without delaying Gate Commit.
 
 The explicit watcher/worker consumes checkpoint events as well as debounced edit
 requests. It rechecks binding, cycle, HEAD and source freshness before execution.
-The normal request-generation and cancellation rules remain authoritative.
+Internal Gate Commit requests carry an optional `checkpoint_head` containing the
+event's full Git object ID, valid only for a checkpoint trigger. The runner binds
+it into request identity and rejects a captured snapshot from a different HEAD
+before selection or check execution. Older explicit checkpoint requests without
+this field remain compatible. The normal request-generation and cancellation
+rules remain authoritative.
 Checkpoint event identity coalesces retries of the same durable commit. Queue
 capacity is bounded; full or unsafe state is unavailable without deleting older
 evidence. Stop disables enrollment before owned process shutdown; unknown
@@ -118,6 +126,20 @@ managed service-registration and credential owner; never auto-start or replace a
 service during dispatch. Transport version and active/idle qualification must
 match the installed binary. Retain compatibility for existing readable Codex
 receipts without treating old-version qualification as current proof.
+
+Codex qualification binds both the CLI and its existing app-server runtime to
+that same version. Before journaling and immediately before send, read-only
+`codex app-server daemon version` must return bounded, duplicate-free JSON with
+`status: running` and both `cliVersion` and `appServerVersion` equal to the
+qualified client version. If `managedCodexVersion` is present, it must also match;
+a selected upgrade cannot silently retain old qualification. Missing, malformed,
+oversized or drifted runtime identity makes delivery unavailable without starting
+a service. This narrow local IPC probe does not request provider model metadata
+or inference.
+The existing managed Codex home owner disables native daemon auto-updates;
+dispatch does not change that policy. Disposable native qualification fixtures
+apply the same existing home policy before starting their owned clients. A
+front-end version alone cannot qualify a later independently updated daemon.
 
 One shared journal persists intent before sending and binds transport, exact
 session, cycle, snapshot, check and failure identity. Recheck open task, current

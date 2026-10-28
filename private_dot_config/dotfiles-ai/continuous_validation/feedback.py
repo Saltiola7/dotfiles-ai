@@ -207,6 +207,31 @@ def _transport(enrollment):
     return client, expected[client], version
 
 
+def _codex_server_identity(worktree, version):
+    """Read existing-server versions through native IPC without provider probes."""
+    unavailable = "feedback_runtime_identity_unavailable"
+    try:
+        result = _command(["codex", "app-server", "daemon", "version"], worktree)
+        if (result.returncode or not isinstance(result.stdout, str)
+                or len(result.stdout.encode("utf-8")) > 64 * 1024):
+            return unavailable
+        value = _json(result.stdout)
+        if not isinstance(value, dict) or value.get("status") != "running":
+            return unavailable
+        fields = ["cliVersion", "appServerVersion"]
+        if "managedCodexVersion" in value:
+            fields.append("managedCodexVersion")
+        for field in fields:
+            actual = value.get(field)
+            if not isinstance(actual, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", actual):
+                return unavailable
+            if actual != version:
+                return "feedback_server_version_drift"
+        return None
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
+        return unavailable
+
+
 def _opencode_connection(worktree, version):
     status = _command(["opencode", "service", "status"], worktree)
     endpoint = status.stdout.strip()
@@ -377,6 +402,10 @@ def _deliver(enrollment, observation, *, current_snapshot_id, state_dir, eligibl
         expected = ("codex-cli " if client == "codex" else "opencode v") + version
         if installed.returncode or installed.stdout.strip() != expected:
             return _result("unavailable", code="feedback_version_drift")
+        if client == "codex":
+            diagnostic = _codex_server_identity(worktree, version)
+            if diagnostic:
+                return _result("unavailable", code=diagnostic)
         if client == "opencode":
             connection = _opencode_connection(worktree, version)
             _opencode_target(connection, target, worktree)
@@ -447,6 +476,12 @@ def _deliver(enrollment, observation, *, current_snapshot_id, state_dir, eligibl
                 installed = _command([client, "--version"], worktree)
                 if installed.returncode or installed.stdout.strip() != expected:
                     raise ValueError("feedback_version_drift")
+                if client == "codex":
+                    diagnostic = _codex_server_identity(worktree, version)
+                    if diagnostic:
+                        entry["status"] = "eligibility_unavailable"
+                        _write(record, entry)
+                        return _result("unavailable", feedback_id=key, code=diagnostic)
                 if client == "opencode":
                     latest_connection = _opencode_connection(worktree, version)
                     if latest_connection["identity"] != connection["identity"]:

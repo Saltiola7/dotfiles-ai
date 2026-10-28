@@ -1,10 +1,11 @@
 # Continuous Validation
 
-**Status:** source implementation for an opt-in, local advisory shadow.
-Installed execution backends and performance improvements require separate
-qualification. Codex CLI 0.163.0 active delivery and idle wake have been exercised
-in a synthetic open interactive session; that result does not qualify closed
-noninteractive sessions, arbitrary versions, or a production task.
+**Status:** implemented default-off local advisory shadow with explicit checkpoint
+hooks, complete test-identity receipts and typed Codex/OpenCode CLI feedback.
+Native transports and local ARM execution have bounded synthetic qualification;
+exact runtime evidence remains private. Qualification does not cover closed
+noninteractive sessions, arbitrary versions, production tasks, native amd64,
+GCP or measured performance improvements.
 
 ## Overview
 
@@ -65,8 +66,8 @@ The stable defaults are in [PROFILE.md](PROFILE.md).
 | `codex_control_plane` | Supported CLI capability probing, exact session enrollment, safe-boundary feedback transport, acknowledgment semantics, and runtime qualification |
 | `dotfiles_ai_distribution` | Installation, feature configuration projection, service lifecycle, version pins, rollout, rollback, and uninstall |
 
-The protocol remains reusable, but initial enrollment requires an open DBSCTR
-task and its exact Codex CLI primary session. Terminal callers can inspect or
+The protocol remains reusable, but enrollment requires an open DBSCTR
+task and its exact supported CLI primary session. Terminal callers can inspect or
 request checks only for that enrollment. General non-DBSCTR development remains
 a later extension. Integrations do not duplicate the scheduler or create a
 second gate ledger.
@@ -96,7 +97,7 @@ Enrollment is local and per worktree, is revocable, and is never committed.
 
 Enrollment identifies the real worktree root, Git repository identity, approved
 adapter path and digest, input allowlist, selected local engines, open DBSCTR task,
-and exact Codex CLI primary-session UUID. Paths, host identities, session identifiers, and credentials remain
+and exact typed native CLI primary-session identifier. Paths, host identities, session identifiers, and credentials remain
 private. Moving a worktree, changing its identity or adapter, or changing feedback
 target invalidates enrollment until explicitly reconciled.
 
@@ -208,6 +209,10 @@ state-directory, queue, or message side effects.
 
 Requests contain `schema_version`, private enrollment-file path `enrollment`,
 `trigger` (`edit`, `checkpoint`, or `manual`), and optional bounded `request_id`.
+A Gate Commit request also carries `checkpoint_head`, a full lowercase Git object
+ID allowed only for a checkpoint trigger. Its captured snapshot must match that
+HEAD before selection or execution; request identity includes the field. Explicit
+legacy checkpoint requests without it remain supported.
 The runner assigns an opaque ID when absent. The same ID and source/configuration
 are an idempotent query: duplicate in-flight requests return pending, completed
 requests return the original observations with `new_execution: false`, and changed
@@ -506,7 +511,12 @@ assertion. Select `--client codex` (default) or `--client opencode` explicitly
 for the matching native target and receipt. The source currently supports
 qualified Codex queue versions 0.163.0/0.164.0 and OpenCode queued prompts on
 2.1.2. Existing Codex-only `codex_version` receipts remain readable, but runtime
-version drift prevents delivery. A closed noninteractive session is unqualified. Never launch a competing resume process as a fallback. In-scope
+version drift prevents delivery. A closed noninteractive session is unqualified. Codex also requires a fresh read-only `codex app-server daemon version` IPC
+check proving the existing app-server and CLI match the qualified version; a
+present managed-version field must match too. This probe makes no provider calls. Runtime drift makes feedback
+unavailable while retaining the original check failure. The managed home owner
+keeps its existing daemon-update policy; dispatch starts no replacement service.
+Never launch a competing resume process as a fallback. In-scope
 repairs remain inside the enrolled task, and feedback does not change its gates.
 
 An explicit checkpoint uses a private request file. Submit at a safe task

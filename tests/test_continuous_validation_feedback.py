@@ -41,6 +41,13 @@ def data(tmp_path):
     return enrollment, observation, tmp_path / "state"
 
 
+def server_version_payload(version="0.164.0", *, state="running", client_version=None,
+                           managed_version=None):
+    return json.dumps({"status": state, "cliVersion": client_version or version,
+                       "appServerVersion": version,
+                       "managedCodexVersion": managed_version or version})
+
+
 def runtime(monkeypatch, *, state="active", version="0.163.0", queue_code=0):
     calls = []
 
@@ -50,6 +57,8 @@ def runtime(monkeypatch, *, state="active", version="0.163.0", queue_code=0):
             return subprocess.CompletedProcess(argv, 0, f"CVS-fixture {state} elevated local execution=native_workspace attribution=unavailable\n", "")
         if argv[:2] == ["codex", "--version"]:
             return subprocess.CompletedProcess(argv, 0, f"codex-cli {version}\n", "")
+        if argv == ["codex", "app-server", "daemon", "version"]:
+            return subprocess.CompletedProcess(argv, 0, server_version_payload(version), "")
         assert argv[:2] == ["codex", "queue"]
         return subprocess.CompletedProcess(argv, queue_code, "accepted", "private native detail")
 
@@ -145,6 +154,8 @@ def test_uncertain_queue_outcome_is_not_retried(data, monkeypatch):
             return subprocess.CompletedProcess(argv, 0, "CVS-fixture active elevated local\n", "")
         if argv[:2] == ["codex", "--version"]:
             return subprocess.CompletedProcess(argv, 0, "codex-cli 0.163.0\n", "")
+        if argv == ["codex", "app-server", "daemon", "version"]:
+            return subprocess.CompletedProcess(argv, 0, server_version_payload("0.163.0"), "")
         raise subprocess.TimeoutExpired(argv, 10)
 
     monkeypatch.setattr(feedback, "run_command", run, raising=False)
@@ -216,6 +227,8 @@ def test_cycle_closing_during_probes_prevents_dispatch(data, monkeypatch):
             return subprocess.CompletedProcess(argv, 0, f"CVS-fixture {next(statuses)} elevated local\n", "")
         if argv[:2] == ["codex", "--version"]:
             return subprocess.CompletedProcess(argv, 0, "codex-cli 0.163.0\n", "")
+        if argv == ["codex", "app-server", "daemon", "version"]:
+            return subprocess.CompletedProcess(argv, 0, server_version_payload("0.163.0"), "")
         pytest.fail("closed cycle was queued")
 
     monkeypatch.setattr(feedback, "run_command", run)
@@ -300,6 +313,8 @@ def test_failed_final_probe_is_known_unsent_and_can_be_revalidated(data, monkeyp
             return subprocess.CompletedProcess(argv, 0, "CVS-fixture active elevated local\n", "")
         if argv[:2] == ["codex", "--version"]:
             return subprocess.CompletedProcess(argv, 0, "codex-cli 0.163.0\n", "")
+        if argv == ["codex", "app-server", "daemon", "version"]:
+            return subprocess.CompletedProcess(argv, 0, server_version_payload("0.163.0"), "")
         pytest.fail("failed preflight dispatched a message")
 
     monkeypatch.setattr(feedback, "run_command", run)
@@ -338,6 +353,8 @@ def native_runtime(data, monkeypatch, *, lookup="current", native_version="2.1.2
             return subprocess.CompletedProcess(argv, 0, "CVS-fixture active elevated local\n", "")
         if argv[:2] == ["codex", "--version"]:
             return subprocess.CompletedProcess(argv, 0, "codex-cli 0.164.0\n", "")
+        if argv == ["codex", "app-server", "daemon", "version"]:
+            return subprocess.CompletedProcess(argv, 0, server_version_payload("0.164.0"), "")
         if argv[:2] == ["codex", "queue"]:
             if queue_error:
                 raise queue_error
@@ -584,4 +601,120 @@ def test_opencode_session_archives_after_journal_without_dispatch(data, monkeypa
 
     monkeypatch.setattr(feedback, "run_command", run)
     assert invoke(data)["status"] == "unavailable"
+    assert sent_commands(calls) == []
+
+
+def test_codex_server_version_is_checked_twice_on_healthy_route(data, monkeypatch):
+    typed_target(data)
+    calls, _ = native_runtime(data, monkeypatch)
+    assert invoke(data)["status"] == "accepted"
+    assert sum(argv == ["codex", "app-server", "daemon", "version"] for argv, _ in calls) == 2
+    assert len(sent_commands(calls)) == 1
+    assert not any(argv[:2] == ["codex", "doctor"] for argv, _ in calls)
+
+
+@pytest.mark.parametrize("late", [False, True])
+def test_codex_server_version_drift_blocks_unchanged_cli(data, monkeypatch, late):
+    typed_target(data)
+    calls, _ = native_runtime(data, monkeypatch)
+    original = feedback.run_command
+    doctors = 0
+
+    def run(argv, **kwargs):
+        nonlocal doctors
+        if argv == ["codex", "app-server", "daemon", "version"]:
+            doctors += 1
+            calls.append((argv, kwargs))
+            version = "0.165.0" if not late or doctors > 1 else "0.164.0"
+            return subprocess.CompletedProcess(argv, 0, server_version_payload(version, client_version="0.164.0"), "")
+        return original(argv, **kwargs)
+
+    monkeypatch.setattr(feedback, "run_command", run)
+    result = invoke(data)
+    assert result["status"] == "unavailable"
+    assert result["code"] == "feedback_server_version_drift"
+    assert sent_commands(calls) == []
+    if late:
+        records = list((data[2] / "feedback").glob("*.json"))
+        assert len(records) == 1
+        assert json.loads(records[0].read_text())["status"] == "eligibility_unavailable"
+    else:
+        assert not data[2].exists()
+
+
+@pytest.mark.parametrize("body,code", [
+    (server_version_payload(state="stopped"), 0),
+    ("{}", 0),
+    ('{"status":"running","cliVersion":null,"appServerVersion":"0.164.0"}', 0),
+    ('{"status":"failed","cliVersion":"0.164.0","appServerVersion":"0.164.0"}', 0),
+    ('{"status":"running","cliVersion":"0.164.0"}', 0),
+    ("{malformed", 0),
+    ('{"status":"running","status":"stopped"}', 0),
+    (" " * 65536 + server_version_payload(), 0),
+    (server_version_payload(), 1),
+], ids=["stopped", "missing", "invalid-cli-version", "failed-status", "missing-version",
+        "malformed", "duplicate", "oversized", "command-failed"])
+def test_codex_missing_or_untrusted_server_metadata_never_dispatches(data, monkeypatch, body, code):
+    typed_target(data)
+    calls, _ = native_runtime(data, monkeypatch)
+    original = feedback.run_command
+
+    def run(argv, **kwargs):
+        if argv == ["codex", "app-server", "daemon", "version"]:
+            calls.append((argv, kwargs))
+            return subprocess.CompletedProcess(argv, code, body, "PRIVATE_NATIVE_VERSION_DETAIL")
+        return original(argv, **kwargs)
+
+    monkeypatch.setattr(feedback, "run_command", run)
+    result = invoke(data)
+    assert result["status"] == "unavailable"
+    assert result["code"] == "feedback_runtime_identity_unavailable"
+    assert sent_commands(calls) == []
+    assert "PRIVATE_NATIVE_VERSION_DETAIL" not in json.dumps(result)
+    assert not data[2].exists()
+
+
+@pytest.mark.parametrize("condition", ["disabled", "stale", "closed"])
+def test_codex_ineligible_target_does_not_probe_server(data, monkeypatch, condition):
+    typed_target(data)
+    calls, _ = native_runtime(data, monkeypatch)
+    options = {}
+    if condition == "disabled":
+        data[0]["feedback_enabled"] = False
+    elif condition == "stale":
+        options["current"] = "b" * 64
+    else:
+        original = feedback.run_command
+        def run(argv, **kwargs):
+            if argv[:2] == ["dbsctrctl", "status"]:
+                calls.append((argv, kwargs))
+                return subprocess.CompletedProcess(argv, 0, "CVS-fixture completed elevated local\n", "")
+            return original(argv, **kwargs)
+        monkeypatch.setattr(feedback, "run_command", run)
+    assert invoke(data, **options)["status"] == condition
+    assert not any(argv == ["codex", "app-server", "daemon", "version"] for argv, _ in calls)
+    assert sent_commands(calls) == []
+
+
+@pytest.mark.parametrize("client_version,managed_version", [
+    ("0.165.0", "0.164.0"), ("0.164.0", "0.165.0")
+])
+def test_codex_native_version_metadata_drift_blocks_dispatch(data, monkeypatch,
+                                                            client_version, managed_version):
+    typed_target(data)
+    calls, _ = native_runtime(data, monkeypatch)
+    original = feedback.run_command
+
+    def run(argv, **kwargs):
+        if argv == ["codex", "app-server", "daemon", "version"]:
+            calls.append((argv, kwargs))
+            return subprocess.CompletedProcess(argv, 0,
+                server_version_payload(client_version=client_version,
+                                       managed_version=managed_version), "")
+        return original(argv, **kwargs)
+
+    monkeypatch.setattr(feedback, "run_command", run)
+    result = invoke(data)
+    assert result["status"] == "unavailable"
+    assert result["code"] == "feedback_server_version_drift"
     assert sent_commands(calls) == []

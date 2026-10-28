@@ -167,6 +167,85 @@ def test_checkpoint_runs_both_owned_checks_and_preserves_private_evidence(config
         assert artifact.stat().st_mode & 0o077 == 0
 
 
+@pytest.mark.parametrize('boundary', ['before_run', 'after_describe', 'inside_capture', 'after_capture'])
+def test_checkpoint_head_advance_never_reaches_selection_or_checks(configured, monkeypatch, boundary):
+    path, value = configured
+    root = Path(value['worktree'])
+    head = git(root, 'rev-parse', 'HEAD')
+    selected = []
+    original_adapter = runner.adapter_call
+    original_capture = runner.capture_snapshot
+
+    def advance():
+        git(root, 'commit', '--allow-empty', '-m', 'advance after checkpoint eligibility')
+
+    def adapter_call(enrollment, action, *args, **kwargs):
+        if action in {'select', 'execute'}:
+            selected.append(action)
+        result = original_adapter(enrollment, action, *args, **kwargs)
+        if action == 'describe' and boundary == 'after_describe':
+            advance()
+        return result
+
+    def capture(*args, **kwargs):
+        if boundary == 'inside_capture':
+            advance()
+        result = original_capture(*args, **kwargs)
+        if boundary == 'after_capture':
+            advance()
+        return result
+
+    monkeypatch.setattr(runner, 'adapter_call', adapter_call)
+    monkeypatch.setattr(runner, 'capture_snapshot', capture)
+    if boundary == 'before_run':
+        advance()
+    result = runner.run_request({**request(path, 'checkpoint'), 'checkpoint_head': head})
+    assert result['status'] == 'interrupted'
+    assert result['error_code'] == 'checkpoint_head_changed'
+    assert result['observations'] == []
+    assert selected == []
+
+
+def test_checkpoint_head_matching_capture_runs_and_is_digest_bound(configured):
+    path, value = configured
+    head = git(Path(value['worktree']), 'rev-parse', 'HEAD')
+    payload = {**request(path, 'checkpoint'), 'request_id': 'bound-checkpoint', 'checkpoint_head': head}
+    first = runner.run_request(payload)
+    assert first['status'] == 'passed'
+    assert len(first['observations']) == 2
+    repeated = runner.run_request(payload)
+    assert repeated['new_execution'] is False
+    assert repeated['coalesced_with'] == payload['request_id']
+    with pytest.raises(runner.ValidationError, match='request_identity_reused'):
+        runner.run_request({**payload, 'checkpoint_head': 'a' * 40})
+
+
+@pytest.mark.parametrize('head', [True, None, {}, [], 'HEAD', 'a' * 39, 'a' * 41, 'A' * 40, 'g' * 64])
+def test_checkpoint_head_requires_a_full_lowercase_object_id(configured, head):
+    path, value = configured
+    with pytest.raises(runner.ValidationError, match='invalid_checkpoint_head'):
+        runner.run_request({**request(path, 'checkpoint'), 'checkpoint_head': head})
+    assert not Path(value['state_dir']).exists()
+
+
+@pytest.mark.parametrize('trigger', ['edit', 'manual'])
+def test_checkpoint_head_is_not_accepted_for_other_triggers(configured, trigger):
+    path, value = configured
+    head = git(Path(value['worktree']), 'rev-parse', 'HEAD')
+    with pytest.raises(runner.ValidationError, match='invalid_checkpoint_head'):
+        runner.run_request({**request(path, trigger), 'checkpoint_head': head})
+    assert not Path(value['state_dir']).exists()
+
+
+@pytest.mark.parametrize('length', [40, 64])
+def test_checkpoint_head_full_formats_are_valid_but_mismatched_capture_is_interrupted(configured, length):
+    path, _ = configured
+    result = runner.run_request({**request(path, 'checkpoint'), 'checkpoint_head': 'a' * length})
+    assert result['status'] == 'interrupted'
+    assert result['error_code'] == 'checkpoint_head_changed'
+    assert result['observations'] == []
+
+
 def test_closed_task_does_not_create_state_or_execute_adapter(configured, monkeypatch):
     path, value = configured
     monkeypatch.setattr(runner, 'cycle_open', lambda _: False)

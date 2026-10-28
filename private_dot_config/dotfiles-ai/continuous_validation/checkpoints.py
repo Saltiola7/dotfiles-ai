@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from datetime import datetime
 import fcntl
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -91,10 +92,21 @@ def _safe_parents(path):
 
 def _read(path, limit=MAX_RECORD):
     _safe_parents(path)
-    item = path.lstat()
-    if item.st_size > limit:
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as stream:
+        item = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
+                or item.st_nlink != 1 or item.st_mode & 0o077):
+            raise runner.ValidationError("unsafe_private_record")
+        if item.st_size > limit:
+            raise runner.ValidationError("checkpoint_record_limit")
+        raw = stream.read(limit + 1)
+    if len(raw) > limit:
         raise runner.ValidationError("checkpoint_record_limit")
-    return runner.read_private(path)
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeError):
+        raise runner.ValidationError("invalid_json") from None
 
 
 def _write(path, value):
@@ -338,7 +350,8 @@ def drain_one(enrollment_path, run_request):
             _write(target, value)
         return None
     result = run_request({"schema_version": 1, "enrollment": str(path), "trigger": "checkpoint",
-                          "request_id": "checkpoint-" + value["event_id"]})
+                          "request_id": "checkpoint-" + value["event_id"],
+                          "checkpoint_head": value["head"]})
     if not isinstance(result, dict) or result.get("status") not in RESULTS:
         raise runner.ValidationError("invalid_checkpoint_result")
     with _lock(directory / "queue.lock"):

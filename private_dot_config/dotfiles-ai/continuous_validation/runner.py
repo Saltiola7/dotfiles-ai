@@ -848,10 +848,26 @@ def summarize(observations, pending):
     return "passed" if observations else "not_selected"
 
 
-def _run_request(request):
-    closed(request, {"schema_version", "enrollment", "trigger"}, {"schema_version", "enrollment", "trigger", "request_id"})
-    if request["trigger"] not in {"edit", "checkpoint", "manual"}:
+def _validate_request(request):
+    closed(request, {"schema_version", "enrollment", "trigger"},
+           {"schema_version", "enrollment", "trigger", "request_id", "checkpoint_head"})
+    if not isinstance(request["trigger"], str) or request["trigger"] not in {"edit", "checkpoint", "manual"}:
         raise ValidationError("invalid_trigger")
+    if "checkpoint_head" in request and (
+            request["trigger"] != "checkpoint" or not isinstance(request["checkpoint_head"], str)
+            or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", request["checkpoint_head"]) is None):
+        raise ValidationError("invalid_checkpoint_head")
+
+
+def _require_checkpoint_head(request, root, captured_head):
+    expected = request.get("checkpoint_head")
+    if expected is not None and (captured_head != expected
+            or git(root, "rev-parse", "HEAD").decode().strip() != expected):
+        raise Interrupted("checkpoint_head_changed")
+
+
+def _run_request(request):
+    _validate_request(request)
     request_id = identifier(request.get("request_id", uuid.uuid4().hex))
     enrollment_path = no_alias(Path(request["enrollment"]))
     enrollment_source_digest = digest(read_private(enrollment_path))
@@ -875,6 +891,7 @@ def _run_request(request):
         manifest = validate_manifest(adapter_call(enrollment, "describe", {"schema_version": 1}, root, state))
         patterns = list(dict.fromkeys([*manifest["input_patterns"], enrollment["adapter"]]))
         snapshot = capture_snapshot(root, patterns, state, enrollment["base"])
+        _require_checkpoint_head(request, root, snapshot["head"])
         if inventory(root, patterns) != snapshot["files"]:
             raise Interrupted("superseded")
         source_signature = inventory(root, patterns, content=False)
@@ -907,6 +924,7 @@ def _run_request(request):
         except (OSError, ValidationError):
             cancel_state["canceled"] = True
             return True
+    _require_checkpoint_head(request, root, snapshot["head"])
     selection = adapter_call(enrollment, "select", {"schema_version": 1, "snapshot": snapshot["path"], "base": snapshot["base"], "trigger": request["trigger"], "changed_paths": snapshot["changed_paths"]}, Path(snapshot["path"]), state, cancel)
     closed(selection, {"schema_version", "checks", "reason", "complete"}, {"schema_version", "checks", "reason", "complete"})
     checks = {check["id"]: check for check in manifest["checks"]}
@@ -1032,7 +1050,7 @@ def _run_request(request):
 
 def run_request(request):
     """A repeated request ID is an idempotent query, never another execution."""
-    closed(request, {"schema_version", "enrollment", "trigger"}, {"schema_version", "enrollment", "trigger", "request_id"})
+    _validate_request(request)
     request = {**request, "request_id": identifier(request.get("request_id", uuid.uuid4().hex))}
     enrollment = load_enrollment(Path(request["enrollment"]))
     if not enrollment["enabled"]:
