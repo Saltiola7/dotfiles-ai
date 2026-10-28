@@ -662,3 +662,11 @@ Canonical source: this specification's ownership, behavior, schema, and
 cancellation contracts. Owner: continuous-validation maintainer with the adjacent
 context owners. Update the visual and Text Equivalent in the same change whenever
 ownership, data flow, freshness, feedback authority, or activation topology changes.
+
+## Checkpoint and CLI feedback extension
+
+The [default-off checkpoint and CLI feedback contract](SESSION-HOOKS.md) extends
+the existing records with post-commit enqueue, typed exact-target Codex/OpenCode
+transports and explicit complete test-identity receipts. Its activation requires
+fresh regression and native runtime evidence. Earlier local-shadow qualification
+does not establish automatic checkpoint hooks or newly installed CLI behavior.

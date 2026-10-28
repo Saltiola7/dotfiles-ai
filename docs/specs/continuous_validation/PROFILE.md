@@ -66,3 +66,16 @@ Dependency/deployment are required and represented there through an ownership
 flowchart and contract tables. Quantitative is not_applicable because this profile
 makes no measured performance claim. The context owner updates those representations
 when profile boundaries, identity, feedback, platform, or activation contracts change.
+
+## Checkpoint and CLI feedback follow-up
+
+[SESSION-HOOKS.md](SESSION-HOOKS.md) selects Python, Security and ML/AI for typed
+native agent feedback, plus the existing local-runtime Cloud controls for the
+bounded pilot. The lifecycle owns post-success event production outside its
+mutation guard; the executor owns private queue draining and freshness; native
+control planes own existing-session lookup and delivery. Explicit enrollment
+selects checkpoint and feedback capabilities independently. Installation remains
+default-off, with no automatic worker/service start. Complete-identity receipts
+are required for new parity qualification; older observations stay readable and
+unqualified for that claim. Native credentials, transcripts and consumer identities
+remain private; no paid provider evaluation is introduced.

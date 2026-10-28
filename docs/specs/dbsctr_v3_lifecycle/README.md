@@ -3728,3 +3728,13 @@ Existing schema migrations, malformed-state refusal, worker caps and reservation
 cadence remain unchanged. The regression uses a competing database connection to
 prove writer exclusion at the initial version read; the concurrent reservation
 test continues to require exactly one reservation when only one slot remains.
+
+## Optional advisory checkpoint producer
+
+The [default-off checkpoint contract](../continuous_validation/SESSION-HOOKS.md)
+selects successful durable Gate Commit as the sole automatic advisory trigger.
+Optional enqueue happens after the lifecycle mutation guard is released. Missing
+opt-in or enqueue failure cannot change the native commit, ledger result, stdout
+or exit status. Status, evidence recording, set-gate and final delivery never
+trigger execution. Only an explicitly running shared worker executes checks;
+shadow evidence grants no lifecycle or delivery authority.

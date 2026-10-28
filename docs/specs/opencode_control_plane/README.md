@@ -1392,3 +1392,14 @@ columns or synchronously repairs projection state.
 | Deploy | Apply managed OpenCode configuration | required | passed | Targeted chezmoi apply, empty second dry-run, source identity, resolved config | - | Primary |
 | Operate | Verify routing, telemetry, and available live providers | required | passed | Fresh GPT activation passed; Opus SSO adapter follow-up recorded without fallback | - | Primary |
 | Maintain/Retire | Retire Opus 4.8 and review five-cycle reports | required | passed | Opus 4.8 absent; first real report tracked after five eligible cycles | - | Primary |
+
+## Optional continuous-validation feedback
+
+The [typed CLI feedback contract](../continuous_validation/SESSION-HOOKS.md) uses
+existing-session lookup and native queued input through the existing managed
+service-registration/credential owner. Dispatch never starts or replaces a service
+or creates a missing session. Exact target, installed version, freshness, active
+queue delivery and idle wake require qualification. Task checkout and native
+session location remain separate bindings; caller identity remains unavailable
+without independent proof. The feature is default-off and grants no new native
+permission, provider, model or lifecycle authority.
