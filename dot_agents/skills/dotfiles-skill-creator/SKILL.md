@@ -26,11 +26,14 @@ than inventing a substitute or silently installing one.
    of `CODEX_HOME` or client. If already in that task checkout, use it rather
    than chezmoi's configured primary source. Otherwise discover the machine's
    dotfiles-ai source through `~/.config/dotfiles-ai/chezmoi.toml`, verify the
-   project through local instructions, and follow its Worktrunk/native task-session
-   routing and shared lifecycle. Keep primary checkouts stable. If the current
-   session cannot be retargeted, give a precise handoff naming the selected
-   checkout, native launch command and remaining work; a shell directory change
-   does not retarget a session. Never infer unavailable identity or bypass gates.
+   project through local instructions, and follow its Worktrunk ownership and
+   shared lifecycle. Keep primary checkouts stable. Codex CLI and Desktop may
+   retain the current conversation and target the selected task checkout through
+   explicit command working directories and absolute file paths. Attachment or
+   conversation relocation is not required; a shell directory change does not
+   retarget or authenticate a session. If native tools cannot access the checkout,
+   retain work and report the actual capability gap. Never infer unavailable
+   identity or bypass gates.
 
 2. **Check ownership.** Inspect same-name source, shared target, catalog and
    existing runtime-home copies before editing. Limit collision checks to those

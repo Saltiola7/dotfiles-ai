@@ -1,0 +1,9 @@
+{
+  "project": {{ .dotfiles_ai.opencode.vertex_project | toJson }},
+  "region": {{ .dotfiles_ai.opencode.vertex_location | toJson }},
+  "credentials": {{ if .dotfiles_ai.remote_user_environment.enabled }}{{ joinPath .chezmoi.homeDir ".config/gcloud/application_default_credentials.json" | toJson }}{{ else }}{{ .dotfiles_ai.opencode.vertex_credentials | toJson }}{{ end }},
+  "model": {{ .dotfiles_ai.cline_vertex.model | toJson }},
+  "hub_port": {{ .dotfiles_ai.cline_vertex.hub_port | toJson }},
+  "cli_enabled": {{ eq .dotfiles_ai.cline_cli.enabled true | toJson }},
+  "desktop_enabled": {{ and (eq .dotfiles_ai.cline_desktop.enabled true) (eq .chezmoi.os "darwin") | toJson }}
+}

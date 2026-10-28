@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""Configure and launch native Cline with the existing isolated Vertex ADC."""
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import plistlib
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timezone
+from urllib.parse import urlsplit
+
+
+HOME = Path.home()
+CONFIG = HOME / ".config/dotfiles-ai/cline-vertex.json"
+PROFILE = HOME / ".cline-vertex"
+PROVIDERS = PROFILE / "data/settings/providers.json"
+BACKUPS = HOME / ".config/dotfiles-ai/backups/cline"
+
+
+def refuse(message: str) -> None:
+    raise ValueError(message)
+
+
+def safe_path(path: Path) -> None:
+    """Reject symlinks, foreign ownership, and writable shared state paths."""
+    if not path.is_relative_to(HOME):
+        refuse("settings path must remain inside the user home")
+    current = HOME
+    for part in ("", *path.relative_to(HOME).parts):
+        current = current / part
+        if not os.path.lexists(current):
+            continue
+        info = current.lstat()
+        if (stat.S_ISLNK(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o022):
+            refuse("unsafe settings path; retain existing files for review")
+        if current != path and not stat.S_ISDIR(info.st_mode):
+            refuse("settings parent is not a directory")
+        if current == path and (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
+            refuse("settings file must be a regular single-link file")
+
+
+def unique_object(pairs: list) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            refuse("duplicate settings key")
+        result[key] = value
+    return result
+
+
+def read_object(path: Path) -> tuple[dict, bytes]:
+    safe_path(path)
+    if path.stat().st_size > 1024 * 1024:
+        refuse("settings file exceeds the supported size")
+    raw = path.read_bytes()
+    value = json.loads(raw, object_pairs_hook=unique_object)
+    if not isinstance(value, dict):
+        refuse("settings must be a JSON object")
+    return value, raw
+
+
+def configuration() -> dict:
+    config, _ = read_object(CONFIG)
+    for key in ("project", "region", "model", "credentials"):
+        value = config.get(key)
+        if not isinstance(value, str) or not value.strip() or any(ord(c) < 32 for c in value):
+            refuse("Vertex project, region, Claude model and ADC path must be configured")
+    if not config["model"].startswith("claude-"):
+        refuse("select a supported Vertex Claude model")
+    for key in ("cli_enabled", "desktop_enabled"):
+        if type(config.get(key)) is not bool:
+            refuse("tool switches must be booleans")
+    if not (config["cli_enabled"] or config["desktop_enabled"]):
+        refuse("enable at least one Cline tool")
+    if type(config.get("hub_port")) is not int or not 1024 <= config["hub_port"] <= 65535:
+        refuse("Vertex Hub port must be an integer between 1024 and 65535")
+    adc = Path(config["credentials"])
+    if not adc.is_absolute() or not adc.is_file() or not os.access(adc, os.R_OK):
+        refuse("Vertex ADC unavailable; check vertex_credentials and run vertex-reauth")
+    return config
+
+
+# Known optional fields from the reviewed upstream ProviderSettingsSchema.
+# Unknown fields are preserved so native additions do not lose operator state.
+SETTING_FIELDS = {
+    **dict.fromkeys(("provider", "apiKey", "model", "routingProviderId", "region"), str),
+    **dict.fromkeys(("maxTokens", "contextWindow", "timeout"), "positive"),
+    "baseUrl": "url", "headers": "string-map",
+    "protocol": ("anthropic", "gemini", "openai-chat", "openai-responses", "openai-r1", "ai-sdk"),
+    "client": ("anthropic", "ai-sdk", "ai-sdk-community", "openai", "openai-compatible",
+               "openai-r1", "gemini", "bedrock", "custom", "fetch", "vertex"),
+    "apiLine": ("china", "international"),
+    "auth": {**dict.fromkeys(("apiKey", "accessToken", "refreshToken", "accountId",
+                              "organizationId", "organizationName", "memberId"), str),
+             "expiresAt": "positive", "metadata": dict},
+    "reasoning": {"enabled": bool, "effort": ("none", "minimal", "low", "medium", "high", "xhigh", "max"),
+                  "budgetTokens": "positive"},
+    "aws": {**dict.fromkeys(("accessKey", "secretKey", "sessionToken", "region", "profile", "customModelBaseId"), str),
+            **dict.fromkeys(("usePromptCache", "useCrossRegionInference", "useGlobalInference"), bool),
+            "authentication": ("iam", "api-key", "apikey", "profile"), "endpoint": "url"},
+    "gcp": {"projectId": str, "region": str},
+    "azure": {"apiVersion": str, "useIdentity": bool},
+    "sap": {**dict.fromkeys(("clientId", "clientSecret", "resourceGroup", "deploymentId"), str),
+            "tokenUrl": "url", "useOrchestrationMode": bool,
+            "api": ("orchestration", "foundation-models"), "defaultSettings": dict},
+    "oca": {"mode": ("internal", "external"), "usePromptCache": bool},
+    "modelCatalog": {**dict.fromkeys(("loadLatestOnInit", "includeClineCloudModels", "loadPrivateOnAuth", "failOnError"), bool),
+                     "url": "url", "cacheTtlMs": "positive"},
+}
+
+
+def validate_fields(value: dict, fields: dict) -> None:
+    if not isinstance(value, dict):
+        refuse("malformed native provider settings")
+    for key, rule in fields.items():
+        if key not in value:
+            continue
+        item = value[key]
+        if isinstance(rule, dict):
+            validate_fields(item, rule)
+            continue
+        if isinstance(rule, type):
+            valid = type(item) is rule
+        elif isinstance(rule, tuple):
+            valid = isinstance(item, str) and item in rule
+        elif rule == "positive":
+            valid = type(item) is int and item > 0
+        elif rule == "string-map":
+            valid = isinstance(item, dict) and all(isinstance(v, str) for v in item.values())
+        else:
+            valid = isinstance(item, str) and bool(urlsplit(item).scheme) and (
+                not item.startswith(("http:", "https:")) or bool(urlsplit(item).netloc))
+        if not valid:
+            refuse("malformed native provider settings")
+
+
+def validate_native_settings(value: dict) -> None:
+    if type(value.get("version")) is not int or value["version"] != 1:
+        refuse("unsupported native provider schema; retain settings for review")
+    if "lastUsedProvider" in value and (not isinstance(value["lastUsedProvider"], str) or not value["lastUsedProvider"]):
+        refuse("malformed native provider selection")
+    providers, modes = value.get("providers"), value.get("modes", {})
+    if not isinstance(providers, dict) or not isinstance(modes, dict):
+        refuse("malformed native providers or mode preferences")
+    if "voiceInput" in modes:
+        voice = modes["voiceInput"]
+        if not isinstance(voice, dict) or any(not isinstance(voice.get(k), str) or not voice[k]
+                                             for k in ("providerId", "modelId")):
+            refuse("malformed native voice-mode preferences")
+    if "repairs" in value:
+        validate_fields(value["repairs"], {"bedrockProfile": bool})
+    for entry in providers.values():
+        if not isinstance(entry, dict) or not isinstance(entry.get("settings"), dict):
+            refuse("malformed native provider entry")
+        timestamp = entry.get("updatedAt")
+        if not isinstance(timestamp, str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z", timestamp):
+            refuse("malformed native provider timestamp")
+        datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        if entry.get("tokenSource", "manual") not in ("manual", "oauth", "migration"):
+            refuse("malformed native provider token source")
+        settings = entry["settings"]
+        provider = settings.get("provider")
+        if not isinstance(provider, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", provider, re.I):
+            refuse("malformed native provider identifier")
+        if "routingProviderId" in settings and (not isinstance(settings["routingProviderId"], str)
+                or not re.fullmatch(r"[a-z0-9][a-z0-9-]*", settings["routingProviderId"], re.I)):
+            refuse("malformed native routing provider identifier")
+        validate_fields(settings, SETTING_FIELDS)
+        if "capabilities" in settings and (not isinstance(settings["capabilities"], list)
+                or any(v not in ("reasoning", "prompt-cache", "streaming", "tools", "vision",
+                                 "computer-use", "oauth", "popular") for v in settings["capabilities"])):
+            refuse("malformed native provider capabilities")
+
+
+def desired_settings(config: dict) -> tuple[dict, bytes | None]:
+    safe_path(PROVIDERS)
+    if PROVIDERS.exists():
+        value, raw = read_object(PROVIDERS)
+    else:
+        value, raw = {"version": 1, "providers": {}, "modes": {}}, None
+    validate_native_settings(value)
+    providers = value.get("providers")
+    vertex = providers.setdefault("vertex", {})
+    if not isinstance(vertex, dict):
+        refuse("malformed Vertex provider")
+    settings = vertex.setdefault("settings", {})
+    if not isinstance(settings, dict) or not isinstance(settings.get("gcp", {}), dict):
+        refuse("malformed Vertex settings")
+    settings.update(provider="vertex", model=config["model"])
+    settings.setdefault("gcp", {}).update(projectId=config["project"], region=config["region"])
+    value["lastUsedProvider"] = "vertex"
+    vertex.setdefault("tokenSource", "manual")
+    if raw is None or json.loads(raw) != value:
+        vertex["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return value, raw
+
+
+def configure(config: dict) -> None:
+    value, previous = desired_settings(config)
+    if previous is not None and json.loads(previous) == value:
+        print("Cline Vertex configuration unchanged")
+        return
+    safe_path(PROVIDERS)
+    PROVIDERS.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if previous is not None:
+        backup = BACKUPS / (hashlib.sha256(previous).hexdigest() + ".json")
+        safe_path(backup)
+        BACKUPS.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if backup.exists():
+            if backup.read_bytes() != previous:
+                refuse("provider backup conflicts; retain settings for review")
+        else:
+            descriptor = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(previous)
+    descriptor, temporary = tempfile.mkstemp(prefix=".providers-", dir=PROVIDERS.parent)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            json.dump(value, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        safe_path(PROVIDERS)
+        if (PROVIDERS.read_bytes() if PROVIDERS.exists() else None) != previous:
+            refuse("native settings changed during configuration; retry with Cline stopped")
+        os.replace(temporary, PROVIDERS)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    print("Cline Vertex configuration saved")
+
+
+def desktop_executable() -> str:
+    if sys.platform != "darwin":
+        refuse("Cline Desktop launcher supports macOS only")
+    for app in (Path("/Applications/Cline.app"), HOME / "Applications/Cline.app"):
+        info = app / "Contents/Info.plist"
+        if info.is_file():
+            with info.open("rb") as stream:
+                executable = plistlib.load(stream).get("CFBundleExecutable", "")
+            if not executable or Path(executable).name != executable:
+                refuse("invalid Cline application executable")
+            binary = app / "Contents/MacOS" / executable
+            if binary.is_file() and os.access(binary, os.X_OK):
+                return str(binary)
+    refuse("Cline Desktop is not installed")
+
+
+def main() -> None:
+    arguments = sys.argv[1:]
+    desktop = bool(arguments and arguments[0] == "--desktop")
+    if desktop:
+        arguments = arguments[1:]
+    if any(argument in ("--config", "--data-dir") or argument.startswith(("--config=", "--data-dir="))
+           for argument in arguments):
+        refuse("native Cline path overrides conflict with the managed Vertex profile")
+    config = configuration()
+    if arguments == ["--configure"]:
+        configure(config)
+        return
+    enabled = config["desktop_enabled" if desktop else "cli_enabled"]
+    if not enabled:
+        refuse("requested Cline tool is disabled")
+    value, raw = desired_settings(config)
+    if raw is None or json.loads(raw) != value:
+        refuse("Vertex selection differs; run cline-vertex --configure with Cline stopped")
+    if desktop:
+        executable = desktop_executable()
+    else:
+        executable = shutil.which("cline")
+        if not executable:
+            refuse("Cline CLI is not installed")
+        result = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=15)
+        version = re.search(r"\b(\d+)\.\d+\.\d+\b", result.stdout)
+        if result.returncode or not version or int(version[1]) < 3:
+            refuse("Cline CLI 3 or later required; review a native npm update first")
+    if arguments == ["--check"]:
+        print("Cline Vertex configuration and launcher ready; inference not tested")
+        return
+    if arguments and arguments[0] == "--":
+        arguments = arguments[1:]
+    # Native Cline supports narrower DB/session/settings overrides too. A fresh
+    # managed profile must not inherit any of those paths or an ambient Hub token.
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("CLINE_")}
+    environment.update(GOOGLE_APPLICATION_CREDENTIALS=config["credentials"],
+                       CLOUDSDK_CONFIG=str(Path(config["credentials"]).parent),
+                       CLINE_DIR=str(PROFILE), CLINE_DATA_DIR=str(PROFILE / "data"),
+                       CLINE_PROVIDER_SETTINGS_PATH=str(PROVIDERS),
+                       CLINE_HUB_HOST="127.0.0.1", CLINE_HUB_PORT=str(config["hub_port"]))
+    for key in ("CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE", "CLOUDSDK_ACTIVE_CONFIG_NAME"):
+        environment.pop(key, None)
+    os.execve(executable, [executable, *arguments], environment)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, subprocess.SubprocessError, plistlib.InvalidFileException) as error:
+        # Native files may contain secrets: diagnostics intentionally omit raw input.
+        print("cline-vertex: " + (str(error) if type(error) is ValueError else "configuration or executable unavailable; retain files for review"), file=sys.stderr)
+        sys.exit(1)

@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 
+# SQL exceptions below use code-owned identifiers; external values stay bound parameters.
 SUPPORTED_TABLES = {
     "__drizzle_migrations", "account", "account_state", "control_account", "credential",
     "data_migration", "event", "event_sequence", "message", "migration", "part", "permission",
@@ -54,7 +55,7 @@ def schema(connection: sqlite3.Connection) -> None:
     if extra:
         raise ValueError("unsupported tables: " + ", ".join(sorted(extra)))
     for table, required in REQUIRED_COLUMNS.items():
-        columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+        columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query, python.lang.security.audit.formatted-sql-query.formatted-sql-query
         absent = required - columns
         if absent:
             raise ValueError(f"required columns are missing from {table}: " + ", ".join(sorted(absent)))
@@ -82,7 +83,7 @@ def parse_mapping(values: list[str]) -> dict[str, str]:
 
 
 def count(connection: sqlite3.Connection, table: str) -> int:
-    return connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    return connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query, python.lang.security.audit.formatted-sql-query.formatted-sql-query
 
 
 def validate(connection: sqlite3.Connection, old_prefixes: tuple[str, ...]) -> None:
@@ -102,7 +103,7 @@ def validate(connection: sqlite3.Connection, old_prefixes: tuple[str, ...]) -> N
             raise ValueError(f"semantic validation failed for {label}")
     for table, column in STRUCTURED_PATH_FIELDS:
         for prefix in old_prefixes:
-            if connection.execute(
+            if connection.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
                 f"SELECT 1 FROM {table} WHERE {column}=? OR {column} LIKE ? LIMIT 1",
                 (prefix, prefix + "/%"),
             ).fetchone():
@@ -137,7 +138,7 @@ def migrate(source: Path, output: Path, projects: dict[str, str], paths: dict[st
             database.execute("PRAGMA synchronous=OFF")
             database.execute("PRAGMA foreign_keys=ON")
             schema(database)
-            rows = database.execute(
+            rows = database.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
                 f"SELECT id,worktree FROM project WHERE worktree IN ({','.join('?' for _ in projects)})",
                 tuple(projects),
             ).fetchall()
@@ -150,28 +151,28 @@ def migrate(source: Path, output: Path, projects: dict[str, str], paths: dict[st
                 f"(SELECT id FROM session WHERE project_id IN ({','.join('?' for _ in project_ids)}))",
                 project_ids,
             )
-            database.execute(
+            database.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
                 f"DELETE FROM project WHERE id NOT IN ({','.join('?' for _ in project_ids)})",
                 project_ids,
             )
             for table in IDENTITY_TABLES:
-                database.execute(f"DELETE FROM {table}")
+                database.execute(f"DELETE FROM {table}")  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query, python.lang.security.audit.formatted-sql-query.formatted-sql-query
 
             mappings = {**projects, **paths}
             for table, column in STRUCTURED_PATH_FIELDS:
-                for rowid, value in database.execute(
+                for rowid, value in database.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query, python.lang.security.audit.formatted-sql-query.formatted-sql-query
                     f"SELECT rowid,{column} FROM {table} WHERE {column} IS NOT NULL"
                 ).fetchall():
                     replacement = rebased(value, mappings)
                     if replacement != value:
-                        database.execute(f"UPDATE {table} SET {column}=? WHERE rowid=?", (replacement, rowid))
+                        database.execute(f"UPDATE {table} SET {column}=? WHERE rowid=?", (replacement, rowid))  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
 
             print("migration stage: validate", file=sys.stderr, flush=True)
             validate(database, tuple(mappings))
             opaque_mentions = 0
             for table, column in OPAQUE_PATH_FIELDS:
                 for prefix in mappings:
-                    opaque_mentions += database.execute(
+                    opaque_mentions += database.execute(  # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
                         f"SELECT COUNT(*) FROM {table} WHERE {column} LIKE ?", ("%" + prefix + "%",)
                     ).fetchone()[0]
             result = {

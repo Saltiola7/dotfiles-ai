@@ -1,5 +1,31 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-24 — Optional Cline Desktop, CLI and Vertex
+
+- Added independent default-off Desktop and CLI installation switches. Homebrew
+  owns the macOS `cline-app` cask; new npm CLI installations select 3.0.73.
+  Reapply preserves existing installations and does not uninstall disabled tools.
+- Added optional Vertex Claude launchers using the existing isolated ADC renewed
+  by `vertex-reauth`. Sonnet 5.5 is the configurable default; a dedicated native
+  profile and loopback Hub preserve default Cline state and keep credential
+  environment changes local to the launched process. Native provider merges
+  validate the reviewed schema and retain private preimages.
+- Validation: 140 scoped tests passed on Python 3.14, including installer failure,
+  flag/platform, schema, privacy, environment and reapply scenarios. Publication
+  and runbook-link checks passed. Independent review found and resolved shared-Hub,
+  path-override and native-schema issues. No Gate Exceptions were approved.
+- Qualified one selected macOS installation: Desktop 0.0.48, npm CLI 3.0.73,
+  native signature and Gatekeeper checks, valid existing ADC, exact-target apply,
+  drift-free rendering, and a running isolated Hub with the expected credential
+  path/profile/port. Default native state remained unchanged. Legacy package and
+  local configuration preimages are retained privately. No paid inference request,
+  default-profile migration, fleet activation or unrelated service restart ran.
+- Gate Commits cover Domain, Behavior, Spec, Contract, implementation and
+  Refactor; the private Cycle Record retains exact commits, failures, replacement
+  evidence and deployment receipts. Intended Final Push: feature branch and draft
+  pull request into the configured protected `main`; actual delivery belongs to
+  that record and the final response.
+
 ## 2026-10-22 — JavaScript security dependency refresh
 
 - Updated CI dependencies to Node 26.12.1, Bun 1.4.4 and the OpenCode 1.19.4

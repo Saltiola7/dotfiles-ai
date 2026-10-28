@@ -773,7 +773,8 @@ def jira_matches(issue, manifest):
 def jira_receipt_path(args, publication_id):
     root = Path.home() / ".local/state/pm-kernel/jira"
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(root, 0o700)
+    # Private directories require owner-only traversal and access.
+    os.chmod(root, 0o700)  # nosemgrep: python.lang.security.audit.insecure-file-permissions.insecure-file-permissions
     return root / f"{publication_id}.json"
 
 
@@ -1032,7 +1033,8 @@ def private_report_directory(root, generated):
             os.close(descriptor)
             descriptor = child
             if index >= private_from:
-                os.fchmod(descriptor, 0o700)
+                # Private directories require owner-only traversal and access.
+                os.fchmod(descriptor, 0o700)  # nosemgrep: python.lang.security.audit.insecure-file-permissions.insecure-file-permissions
         return directory, descriptor
     except Exception:
         os.close(descriptor)

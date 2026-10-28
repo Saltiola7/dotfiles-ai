@@ -1,5 +1,161 @@
 # dotfiles-ai Distribution
 
+## Optional Cline Domain
+
+Cline Desktop and Cline CLI are independently enabled developer tools. Their
+machine-local installation switches default to false. Homebrew owns the macOS
+Desktop cask; npm owns new CLI installations. Existing installations and native
+application data remain owned by their current installer and Cline respectively.
+
+An optional Vertex profile selects Claude models through the existing
+`opencode.vertex_project`, `vertex_location`, and `vertex_credentials` values.
+`vertex-reauth` owns renewal of that same isolated Application Default Credentials
+(ADC) file. Cline receives its path only in the launched process environment;
+credentials, tokens, accounts, sessions, and private project identity never enter
+this public source. The distribution owns opt-in installation, launchers and
+the selected provider fields, while Cline retains its other native settings.
+
+The affected scope is this distribution context, its TOML defaults/example,
+chezmoi hooks and targets, focused tests, and the manual update runbook. Risk is
+elevated because the change installs upstream executables and selects an external
+inference provider. The owner is the local operator; installation does not grant
+authentication, browser-login, model-request, global-environment, or service-restart
+authority.
+
+### Cline Behavior
+
+- Given either installation switch is false, applying the source does not install,
+  update, remove, or launch that tool. Shared Vertex settings are an independent opt-in.
+- Given Desktop alone is enabled on macOS and missing, applying its selected hook
+  installs the official `cline-app` cask without installing CLI or other packages.
+- Given CLI alone is enabled and missing, applying its selected hook installs the
+  reviewed npm CLI version. An existing executable is preserved on reapply.
+- Given an installation or prerequisite fails, the hook reports failure without
+  starting authentication, a task, or another installer as a fallback.
+- Given Vertex configuration is enabled for an installed tool, its managed
+  launcher selects the configured project, region, Claude model, and exact ADC
+  path, overriding conflicting ambient credential variables for that process.
+- Given Vertex is disabled, existing native Cline provider settings are preserved.
+- Given existing native provider settings, configuration preserves unrelated
+  providers and settings, retains a private preimage, and is idempotent.
+- Given malformed or unsafe settings, configuration refuses before replacing them.
+- Given missing ADC or project configuration, the Vertex launcher fails with an
+  actionable diagnostic. Running `vertex-reauth` renews the shared credential;
+  the launcher never performs a browser login or paid model probe automatically.
+
+### Cline Interfaces
+
+- `[data.dotfiles_ai.cline_desktop] enabled = false` selects the macOS-only
+  `run_onchange_after_install-cline-desktop.sh.tmpl` Homebrew hook.
+- `[data.dotfiles_ai.cline_cli] enabled = false` selects the macOS/Linux
+  `run_onchange_after_install-cline-cli.sh.tmpl` npm hook. New installations use
+  `cline@3.0.73`; an existing CLI is not silently upgraded or downgraded.
+- `[data.dotfiles_ai.cline_vertex] enabled = false` opts into shared Vertex
+  settings and process-local launchers when at least one Cline tool is enabled.
+  `model = "claude-sonnet-5-5@default"` selects Sonnet; `hub_port = 25464` selects
+  the dedicated loopback Hub port; a supported Vertex model
+  such as `claude-opus-5-5@default` may be selected explicitly.
+- The private `.config/dotfiles-ai/cline-vertex.json` carries inherited project,
+  region, ADC path, model, Hub port, and enabled tools. It contains no credential
+  content.
+  Remote-user rendering selects that user's canonical ADC as `vertex-reauth` does.
+- `.local/bin/cline-vertex [--configure|--check] [CLI arguments...]` configures,
+  checks, or launches the native CLI. `.local/bin/cline-desktop [arguments...]`
+  launches the macOS app through the same ADC environment. These entry points
+  leave bare native commands and Finder launches unchanged.
+- The configuration hook invokes `cline-vertex --configure`. It merges the
+  version-1 native `.cline-vertex/data/settings/providers.json`: `lastUsedProvider` is
+  `vertex`, and `providers.vertex.settings` selects `provider`, `model`, and
+  `gcp.projectId`/`gcp.region`. Other providers, mode preferences and settings
+  remain native-owned. `CLINE_DIR` and `CLINE_DATA_DIR` select this dedicated
+  profile, and `CLINE_HUB_PORT` isolates its daemon from the default Cline Hub.
+  Existing Cline profiles and history are not imported or rewritten. CLI 2.x
+  needs a separately selected native npm update
+  before using the shared settings; retained legacy state is not rewritten.
+
+Canonical upstream interfaces: [Desktop](https://cline.bot/desktop),
+[CLI](https://cline.bot/cli), and the
+[reviewed Desktop source](https://github.com/cline/cline/tree/desktop-v0.0.48).
+Source defaults do not assert cloud model entitlement or live inference health.
+
+#### Cline Visual Evidence
+
+Boundary, interaction, state, and data/trust evidence use the transition table
+below. Schema is a flat optional configuration with a native-owned JSON file;
+no entity-relationship view is needed. Dependency/deployment is represented by
+the installer/launcher ownership columns. Quantitative evidence is not applicable:
+no metric comparison determines this behavior.
+
+| Input/state | Owner/action | Result and privacy boundary |
+|---|---|---|
+| Installation switch false | Chezmoi excludes that hook | No install, update or removal |
+| Enabled and absent | Homebrew Desktop / npm CLI | Install the selected upstream tool |
+| Enabled and already present | Existing installer | Preserve installed version |
+| Vertex false | Cline | Preserve native provider configuration |
+| Vertex true and valid local values | Distribution configuration helper | Merge only Vertex selection; retain private preimage |
+| Managed launch | Native Cline process | Read the exact isolated ADC; no global export or credential copy |
+| Missing/unsafe configuration | Distribution helper | Fail before replacement or launch; operator repairs or runs vertex-reauth |
+
+**Text Equivalent:** Each tool installs independently only when enabled and
+missing. Vertex selection is a separate opt-in. The helper preserves native
+settings, backs up changes privately, and supplies the shared ADC only to its
+child process. Invalid input refuses mutation or launch. Bare CLI and Finder
+remain native entry points and do not receive this process-local environment.
+The distribution owner maintains this table when flags, owners, file schema,
+launch ordering, or credential boundaries change. This section and the focused
+tests are its canonical sources.
+
+### Cline Contracts And Validation
+
+All three `enabled` values must be TOML booleans. Disabled tools exclude their
+installer and tool-specific launcher. Desktop is supported only on macOS; CLI
+installation requires the existing npm owner. Hooks are missing-only, do not
+upgrade unrelated packages, and propagate installer failures.
+
+Vertex configuration requires a nonempty project, region, Claude model,
+unprivileged Hub port and
+existing absolute ADC path. Configuration and native settings must be regular,
+owner-controlled files, with no symbolic-link ancestors. Provider JSON must have
+version 1, an object provider map, native entry timestamps/token sources,
+well-formed voice-mode preferences and provider settings. Unknown schema,
+malformed JSON, unsafe paths and incomplete values fail before replacement.
+Changed provider bytes receive a mode-0600 content-addressed preimage under
+`.config/dotfiles-ai/backups/cline/`; replacement is atomic and private. An
+identical apply preserves the provider file bytes and timestamp. These backups
+may contain native provider secrets and must remain private; retention/deletion
+is an explicit operator decision.
+
+Launchers override `GOOGLE_APPLICATION_CREDENTIALS`, select its parent as
+`CLOUDSDK_CONFIG`, and remove credential-file override/active-config variables in
+the child environment. They also override native Cline profile/Hub variables
+with the dedicated managed paths and loopback port, and refuse path-changing
+CLI arguments. CLI launch requires version 3 or later. Desktop locates
+its executable through the installed bundle's `Info.plist`. Missing tools, stale
+provider selection and unreadable ADC fail explicitly. No launcher changes
+approval settings, starts tasks automatically, performs browser authentication,
+or probes paid inference. Users stop the managed profile Hub and quit its Desktop instance before
+changing the ADC path or Hub port; reauthentication may require a Hub restart.
+The default Cline Hub remains separate. Finder does not inherit launcher settings.
+
+The operator previews and applies only selected Cline targets/hooks after scoped
+QA. A prior CLI 2.x npm installation can be updated explicitly to the reviewed
+3.0.73 package with its legacy configuration retained privately; session-history
+migration remains unqualified. Recovery restores the private provider preimage
+with Cline stopped; uninstall and state deletion are separate manual actions.
+Desktop updates remain owned by its native updater/Homebrew; CLI updates remain
+explicit npm operations. Setting flags false stops future management without
+uninstalling or deleting application data. New upstream schemas/models require
+requalification against the native settings/catalog before source changes.
+
+Validation authorities are focused pytest fixtures for flag/platform matrices,
+rendered Bash syntax, fake installer failures and no-op reapply, private JSON
+merge/recovery invariants, argument/environment forwarding, and refusal cases.
+Publication checks and runbook-link validation cover public artifacts. Live
+deployment verifies exact targets, npm CLI version, cask/app signature, saved
+provider selection, launcher checks and drift-free second apply. ADC validity
+uses the existing `vertex-reauth --check`; cloud entitlement and paid inference
+remain untested unless separately requested.
+
 **Retirement recovery Discovery:** [targeted rollout](features/cycle-retirement-rollout.md)
 specifies compatible helper/supervisor/guidance installation, real disposable
 archive/Worktrunk qualification and one separately approved nominated-cycle

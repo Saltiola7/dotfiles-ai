@@ -1,0 +1,8 @@
+[project]
+name = "dotfiles-ai-continuous-validation-dagger"
+version = "0.1.0"
+requires-python = ">=3.12,<3.15"
+dependencies = ["dagger-io==0.21.10"]
+
+[tool.uv]
+package = false

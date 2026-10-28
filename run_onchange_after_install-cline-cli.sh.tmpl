@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+{{ if not (eq .dotfiles_ai.cline_cli.enabled true) -}}
+exit 0
+{{ end -}}
+
+if command -v cline >/dev/null; then
+    cline --version >/dev/null
+    exit 0
+fi
+command -v npm >/dev/null || { echo 'Cline CLI requires npm; install it through its existing owner.' >&2; exit 1; }
+npm install --global cline@3.0.73
+cline --version

@@ -30,9 +30,14 @@ git-only, dependency-only, or non-behavioral configuration work unless invoked.
 4. Record current affected scope, risk, delivery intent, applicable modules, and
    required capabilities.
 5. Report Method Revision `3.29` (older V3 records remain readable). Use
-   `dbsctrctl status` in the explicit native checkout to resume its Cycle Record.
-   Worktrunk owns task checkout creation and navigation; start a native OpenCode
-   or Codex session there. A shell directory change does not retarget a session.
+   `dbsctrctl status` in the explicit task checkout to resume its Cycle Record.
+   Worktrunk owns task checkout creation and navigation. Codex CLI and Desktop
+   may retain the current conversation while commands use the selected checkout's
+   explicit working directory and file edits use absolute paths under it. Desktop
+   attachment and conversation relocation are not lifecycle prerequisites. A shell
+   directory change does not retarget a session or authenticate its identity.
+   Existing native tool permissions still govern access; unavailable access is a
+   capability gap, not permission to bypass it.
    For new work, create a JSON applicability plan under the checkout's ignored
    `.dbsctr/plans/`, bound to the committed Engineering Profile. Use
    `dbsctrctl begin --plan PATH` to register the prepared clean linked checkout;

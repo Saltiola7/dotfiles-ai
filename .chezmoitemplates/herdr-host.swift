@@ -1617,7 +1617,8 @@ private func validateRegistrationIdentity(config: HostConfig) throws {
     guard sha256.caseInsensitiveCompare(config.signingIdentitySHA256) == .orderedSame else {
         throw HostFailure.operation("Herdr Host leaf certificate does not match the configured SHA-256")
     }
-    let sha1 = hexadecimalDigest(Insecure.SHA1.hash(data: certificateData))
+    // SHA-256 already pins this certificate; SHA-1 only encodes the codesign requirement.
+    let sha1 = hexadecimalDigest(Insecure.SHA1.hash(data: certificateData)) // nosemgrep: swift.commoncrypto.insecure-hashing-algorithm-sha1.insecure-hashing-algorithm-sha1
     let expectedRequirement = "designated => identifier \"\(bundleIdentifier)\" and certificate leaf = H\"\(sha1)\""
     let requirement = try runProcess(
         "/usr/bin/codesign",

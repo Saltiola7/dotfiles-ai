@@ -1,0 +1,61 @@
+# Optional dedicated worker. Existing agent guests retain their rootless policy.
+minimumLimaVersion: "2.1.4"
+vmType: vz
+arch: aarch64
+cpus: 2
+memory: "4GiB"
+disk: "40GiB"
+images:
+  - location: "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/aarch64/images/Fedora-Cloud-Base-Generic-44-1.7.aarch64.qcow2"
+    arch: aarch64
+    digest: sha256:55c60a3b80d3616a08705afd0459e75fe9f03c54aba7a46e4002a41a72fa0d5b
+mounts: []
+containerd:
+  system: false
+  user: false
+ssh:
+  loadDotSSHPubKeys: false
+  forwardAgent: false
+  forwardX11: false
+propagateProxyEnv: false
+portForwards:
+  - guestSocket: /run/cvs-dagger/engine.sock
+    hostSocket: "{{.Dir}}/sock/cvs-dagger.sock"
+  - guestIP: "0.0.0.0"
+    proto: any
+    ignore: true
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      dnf -y install podman
+      install -d -m 0711 /run/cvs-dagger
+      podman pull registry.dagger.io/engine:v0.21.10@sha256:2a7c054e0864e297671c24a0726ebf1c9747d70291b8843b1726daaff200a334
+      cat >/etc/systemd/system/continuous-validation-dagger.service <<'UNIT'
+      [Unit]
+      Description=Optional continuous validation Dagger engine
+      Wants=network-online.target
+      After=network-online.target
+      [Service]
+      Type=simple
+      ExecStartPre=/usr/bin/mkdir -p /run/cvs-dagger
+      ExecStart=/usr/bin/podman run --rm --name continuous-validation-dagger --privileged --cgroupns=host --pull=never -v cvs-dagger-cache:/var/lib/dagger -v /run/cvs-dagger:/run/dagger:Z registry.dagger.io/engine:v0.21.10@sha256:2a7c054e0864e297671c24a0726ebf1c9747d70291b8843b1726daaff200a334 --addr unix:///run/dagger/engine.sock
+      ExecStartPost=/usr/bin/bash -c 'for i in $(seq 1 60); do if test -S /run/cvs-dagger/engine.sock; then chown {{.UID}}:{{.UID}} /run/cvs-dagger/engine.sock; chmod 0600 /run/cvs-dagger/engine.sock; exit 0; fi; sleep 1; done; exit 1'
+      ExecStop=/usr/bin/podman stop --time 30 continuous-validation-dagger
+      Restart=on-failure
+      RestartSec=3
+      TimeoutStartSec=90
+      TimeoutStopSec=45
+      [Install]
+      WantedBy=multi-user.target
+      UNIT
+      systemctl daemon-reload
+      systemctl enable --now continuous-validation-dagger.service
+probes:
+  - mode: readiness
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      sudo -n systemctl is-active --quiet continuous-validation-dagger.service
+      test -S /run/cvs-dagger/engine.sock

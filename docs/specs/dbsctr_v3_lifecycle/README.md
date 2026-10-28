@@ -1,5 +1,13 @@
 # DBSCTR V3 Lifecycle
 
+Codex CLI and Desktop can use the shared lifecycle from the current conversation
+by targeting a validated Worktrunk task checkout explicitly. Repository commands
+use its working directory and file edits use absolute paths. Desktop attachment
+and conversation relocation are not prerequisites; neither explicit targeting
+nor unavailable metadata authenticates native session identity. The
+[workspace contract](features/worktrunk-native-workspaces.md) preserves checkout,
+profile, launch approval and native permission checks.
+
 ## Effective Initiative authority source interface
 
 [Digest-bound authority amendment](features/initiative-authority-amendment.md)

@@ -53,8 +53,12 @@ dependencies, and artifacts. Immediately before
 promotion, use `dbsctrctl initiative-receipt --manifest PATH --slice ID --json`.
 A changed manifest digest invalidates earlier readiness. Before asking the operator
 to approve registration, a Build primary invokes `dbsctrctl begin` with explicit
-Initiative arguments and `--preflight` in the selected native task checkout.
+Initiative arguments and `--preflight` in the selected explicit task checkout.
 Worktrunk creates that checkout; lifecycle registration never allocates it.
+Codex CLI and Desktop can keep the current conversation while targeting that
+checkout through explicit command working directories and absolute file paths.
+Desktop attachment and conversation relocation are not readiness prerequisites;
+this targeting does not establish native session location or identity.
 Preflight checks real feasibility without collecting approval or creating a cycle.
 Specification readiness alone is not launch readiness. Resolve
 reported blockers first; never ask for a preliminary Discovery publication merely
@@ -70,8 +74,10 @@ the operator enters `BEGIN CYCLE_ID LAUNCH_DIGEST` in their own terminal.
 The CLI rechecks authority before registering; changed state requires renewed
 approval. Agents must not synthesize terminal consent or create a pseudo-terminal.
 General continuation and native shell permission are not plan-specific approval.
-The custom child-session launcher is retired. Continue the registered cycle in
-its native checkout; do not infer that changing shell cwd retargets a session.
+The custom child-session launcher is retired. Continue the registered cycle with
+its explicit checkout as the operation target; do not infer that changing shell
+cwd retargets a session. If native tools cannot access it, retain work and report
+the capability gap rather than manufacturing an attachment or identity.
 Plan records a handoff and never implements. Ordinary begin, compressed prose,
 and Herdr state are never readiness authority. Discovery continues for unfinished
 slices serially in the primary. Independent slice orchestration is deferred;

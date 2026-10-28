@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+{{ if not (and (eq .dotfiles_ai.cline_desktop.enabled true) (eq .chezmoi.os "darwin")) -}}
+exit 0
+{{ end -}}
+
+if [[ -d /Applications/Cline.app || -d "$HOME/Applications/Cline.app" ]]; then
+    exit 0
+fi
+command -v brew >/dev/null || { echo 'Cline Desktop requires Homebrew.' >&2; exit 1; }
+export HOMEBREW_NO_AUTO_UPDATE=1
+if brew list --cask cline-app >/dev/null 2>&1; then exit 0; fi
+brew install --cask cline-app
