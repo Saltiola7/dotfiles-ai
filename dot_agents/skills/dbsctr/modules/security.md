@@ -57,3 +57,15 @@
 - **CONDITIONAL:** For supported or long-lived systems, evaluate vulnerability intake, dependency/runtime maintenance, incident readiness, deprecation, and secure retirement.
 - **PROJECT POLICY:** Security review cadence, maintenance commitments, and retirement evidence are defined by project policy.
 - **EXAMPLE:** A local change may rule out deployment evidence while retaining a documented maintenance obligation.
+
+## Optional Skill Routing
+
+- **CONDITIONAL:** When a security task benefits from a managed specialist, load
+  `security-toolkit` and its `references/routing.md` from the shared skill catalog.
+  Choose one coordinator and the smallest applicable technique; keep project-selected
+  authorities and the current approved scope.
+- **REQUIRED:** Distinguish portable skill files, provider/runtime availability,
+  scanner installation, and validated audit coverage. An installed skill proves
+  none of the other capabilities. Missing or denied capability remains a gap;
+  do not reroute a denied audit, expand permissions, or take over separately owned
+  work. Secure coding guidance does not automatically start a repository audit.

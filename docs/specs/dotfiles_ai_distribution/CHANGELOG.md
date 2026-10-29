@@ -1,5 +1,28 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-29 — Skill discovery and OSV data verification
+
+- Verified all six installed shared skills with a fresh native catalog read and
+  added bounded, pinned PyPI-only OSV cache provisioning and truthful snapshot
+  status. npm remains unprovisioned pending a scope/size decision.
+- Documented concrete deferred-source findings and remaining specialist gaps;
+  setup validation does not claim repository audit coverage or subscriptions.
+
+
+## 2026-10-28 — Portable security skills
+
+- Added pinned Cloudflare, Trail of Bits variant methodology, Sentry CI/serialization review,
+  and selected CodeGuard guidance, preserving licenses, source hashes and exact
+  local patches. Added an offline integrity verifier and DBSCTR routing.
+- Added explicit pinned local Semgrep CE/Gitleaks/OSV tool setup and safe version
+  probes; subscription profiles remain disabled and OSV databases are pending.
+- Scoped integrity/render/idempotency and instruction checks qualify setup;
+  live installation, discovery and gate evidence remain in the private Cycle
+  Record. Deferred unsafe/overlapping or runtime-dependent packs explicitly.
+- Local branch delivery only for this request; no push, publication, repository
+  audit, provider recovery or credential/permission changes.
+
+
 ## 2026-10-24 — Optional Cline Desktop, CLI and Vertex
 
 - Added independent default-off Desktop and CLI installation switches. Homebrew

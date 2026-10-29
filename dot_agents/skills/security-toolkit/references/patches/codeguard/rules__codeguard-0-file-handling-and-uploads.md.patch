@@ -1,0 +1,7 @@
+--- a/rules/codeguard-0-file-handling-and-uploads.md
++++ b/rules/codeguard-0-file-handling-and-uploads.md
+@@ -14,0 +15 @@
++<!-- Adapted by dotfiles-ai, 2026-10-28: whitespace normalization only; see UPSTREAM.md. -->
+@@ -74 +75 @@
+-Summary:  
++Summary:

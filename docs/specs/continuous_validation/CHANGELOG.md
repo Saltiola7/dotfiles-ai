@@ -1,5 +1,19 @@
 # Continuous Validation Changelog
 
+## 2026-10-29 — Bounded native command cleanup
+
+Keep native feedback cleanup fail closed when process-group signalling raises
+`OSError`: still attempt bounded child reaping and report termination uncertainty
+as `native_termination_unconfirmed`. Confirmed cleanup preserves the original
+command failure. Qualification stays unavailable before send; journaled uncertain
+sends stay unknown without automatic replay.
+
+Deterministic process/signal stubs reproduce four original cleanup failures; all
+eight cleanup cases and 101 focused feedback, identity and activation tests pass.
+This is source error-path evidence; exact CI and delivery outcomes remain in the
+private Cycle Record. No installed runtime activation, native-session qualification,
+provider, permission or replay-policy change is included.
+
 ## 2026-10-28 — CVS-HOOKS-002: checkpoint and exact-session shadow feedback
 
 Add separately opted-in post-success Gate Commit events, private bounded queue

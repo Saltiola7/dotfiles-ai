@@ -1,0 +1,17 @@
+{
+  "compressed_bytes": 37425891,
+  "ecosystem": "PyPI",
+  "entries": 26726,
+  "expanded_bytes": 81044683,
+  "generation": "1793228588883577",
+  "largest_entry_bytes": 75641,
+  "max_compressed_bytes": 67108864,
+  "max_expanded_bytes": 268435456,
+  "md5_base64": "r84426J6l7d8GgQdJ7CLZw==",
+  "schema_version": 1,
+  "sha256": "ea75803254efddb864a5d93c2231938df2c89e5899f48e0329dfccbf10e70abb",
+  "upstream_updated_at": "2026-10-28T23:03:09.009Z",
+  "url": "https://osv-vulnerabilities.storage.googleapis.com/PyPI/all.zip?generation=1793228588883577",
+  "validation": "size, generation, upstream MD5, SHA256, ZIP CRC; no extraction or scan",
+  "verified_at": "2026-10-29T00:06:10.477104+00:00"
+}

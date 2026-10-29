@@ -50,13 +50,18 @@ def _native_command(argv, *, cwd, capture_output, text, timeout, env=None):
             buffers["stdout"].decode("utf-8", errors="replace"),
             buffers["stderr"].decode("utf-8", errors="replace"))
     except BaseException:
+        uncertain = False
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        except OSError:
+            uncertain = True
         try:
             process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
+        except (OSError, subprocess.TimeoutExpired):
+            uncertain = True
+        if uncertain:
             raise subprocess.SubprocessError("native_termination_unconfirmed") from None
         raise
     finally:

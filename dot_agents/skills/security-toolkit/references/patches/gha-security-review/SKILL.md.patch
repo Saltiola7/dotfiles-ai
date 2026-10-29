@@ -1,0 +1,66 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -6,0 +7 @@
++<!-- Adapted by dotfiles-ai, 2026-10-28; see UPSTREAM.md and security-toolkit provenance. -->
+@@ -13,0 +15,12 @@
++## Integration scope
++
++This is a focused external-contributor review technique, not a complete CI audit.
++Project controls and pinning policy take precedence over the heuristics below.
++Trace actual downstream action/shell sinks, effective token permissions, runner
++isolation, reusable callers, caches and artifacts before deciding a path is safe.
++Values passed through `with:` or `env:` can reach an unsafe action or shell sink.
++A `pull_request` event, first-party tag, or trigger name alone proves no safety.
++Do not execute illustrative payloads, probe GitHub, publish findings, or change
++workflow permissions without the corresponding user authorization.
++
++
+@@ -20,5 +33,7 @@
+-Review the workflows provided (file, diff, or repo). Research the codebase as needed to trace complete attack paths before reporting.
+-
+-### Files to Review
+-
+-- `.github/workflows/*.yml` — all workflow definitions
++Review the exact workflows or diff requested, plus the direct dependency closure
++needed to trace attack paths. For a diff, do not silently expand to all workflows;
++name missing or out-of-scope closure before making a coverage claim.
++
++### Relevant Files Within Approved Scope
++
++- `.github/workflows/*.yml` — selected workflow definitions
+@@ -135,3 +150,4 @@
+-## Safe Patterns (Do Not Flag)
+-
+-Before reporting, check if the pattern is actually safe:
++## Patterns Requiring Context
++
++These are upstream triage heuristics, not blanket exemptions. Check the complete
++execution path and stricter project policy before reporting or clearing:
+@@ -153 +169,3 @@
+-**Key distinction:** `${{ }}` is dangerous in `run:` blocks (shell expansion) but safe in `if:`, `with:`, and `env:` at the job/step level (Actions runtime evaluation).
++**Key distinction:** direct expression interpolation into shell source creates
++one injection path. Passing data through `with:` or `env:` avoids that direct
++interpolation but does not prove safety of the receiving action or shell command.
+@@ -172,0 +191,12 @@
++
++## Integration scope
++
++This is a focused external-contributor review technique, not a complete CI audit.
++Project controls and pinning policy take precedence over the heuristics below.
++Trace actual downstream action/shell sinks, effective token permissions, runner
++isolation, reusable callers, caches and artifacts before deciding a path is safe.
++Values passed through `with:` or `env:` can reach an unsafe action or shell sink.
++A `pull_request` event, first-party tag, or trigger name alone proves no safety.
++Do not execute illustrative payloads, probe GitHub, publish findings, or change
++workflow permissions without the corresponding user authorization.
++
+@@ -188,2 +218,2 @@
+-### Reviewed and Cleared
+-[Workflows reviewed and confirmed safe]
++### Scope Reviewed and Coverage Limits
++[Exact files/revisions and checks reviewed; exclusions and unresolved facts]
+@@ -192 +222,3 @@
+-If no findings: "No exploitable vulnerabilities identified. All workflows reviewed and cleared."
++If no findings, state the exact files, revisions, external-contributor threat
++model and checks reviewed, plus exclusions and unresolved evidence. Report zero
++confirmed findings within that scope; do not imply broader CI clearance.

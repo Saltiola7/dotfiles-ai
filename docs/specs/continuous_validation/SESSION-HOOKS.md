@@ -47,6 +47,14 @@ nor a supplied session identifier authenticates an actor.
 7. Given an uncertain send or prior attempt, the durable journal prevents automatic
    replay. Queue acceptance remains `consumed: false`; actual consumption needs
    independent runtime evidence. Closed tasks and revoked opt-ins cannot wake.
+8. Given a native command whose combined captured output exceeds 64 KiB, capture
+   rejects the next chunk before retaining it and enters bounded cleanup. No raw
+   output is written to disk or admitted as qualification evidence.
+9. Given a started native command whose capture fails, cleanup attempts
+   process-group termination and a bounded direct-child wait. A signalling error
+   other than an absent group, a wait error or a wait timeout reports termination
+   uncertainty. Qualification remains unavailable; an already journaled send
+   remains unknown and cannot replay automatically.
 
 ## Interfaces and contracts
 
@@ -141,6 +149,24 @@ dispatch does not change that policy. Disposable native qualification fixtures
 apply the same existing home policy before starting their owned clients. A
 front-end version alone cannot qualify a later independently updated daemon.
 
+Native command capture bounds stdout and stderr together to 64 KiB, checked
+before each chunk is appended. On a capture exception, cleanup attempts `SIGKILL`
+for the owned process group and always attempts `wait(timeout=1)` for the direct
+child, including when signalling raises `OSError`. An absent group is compatible
+with cleanup only if the direct child is reaped. When signalling succeeds or the
+group is absent and the wait succeeds, preserve the original command failure,
+including `native_output_limit`. Any other signalling error, wait error or wait
+timeout instead raises `SubprocessError("native_termination_unconfirmed")`.
+A successful direct-child wait alone does not clear a signalling error or prove
+that arbitrary descendants terminated. Cleanup uncertainty never becomes a
+successful command result, broader permissions or an alternative transport.
+
+Before dispatch, command or cleanup failure leaves runtime qualification
+`unavailable` and performs no send. During a journaled send, the outcome is
+`unknown`; preserve the attempted record and suppress automatic replay. These
+states qualify neither session consumption nor a formal gate. Source validation
+of this cleanup path does not activate or requalify an installed native runtime.
+
 One shared journal persists intent before sending and binds transport, exact
 session, cycle, snapshot, check and failure identity. Recheck open task, current
 generation, unchanged enrollment and immutable source immediately before dispatch.
@@ -168,6 +194,14 @@ queue delivery and idle wake in the same existing session, plus negative cases
 for missing/closed/wrong targets, drift, revoked enrollment and uncertain send.
 No paid provider calls or messages to unrelated tasks are permitted.
 
+Use deterministic process and signal stubs to cover output-limit cleanup with
+signalling permission errors, other `OSError` values, wait errors and timeouts.
+Prove that each path still attempts the one-second wait, uncertainty has its fixed
+exception code, and confirmed cleanup preserves the original failure. Keep red
+evidence from the original source and passing replacement evidence. These tests
+qualify error-path control flow and classification, rather than the cause of a
+host signalling race or termination of arbitrary descendants.
+
 Then run a separately bounded two-repository advisory pilot: at most ten minutes
 of observed work, a shared two-total/one-expensive budget, explicit checkpoint
 timeboxes and bounded cancellation grace. Retain failures, pending work and all
@@ -192,11 +226,11 @@ owner decision; no shared cache or worktree cleanup is implicit.
 |---|---|
 | Boundary | required: ownership and request flow below |
 | Interaction | required: ordered flow below |
-| State | required: eligibility table below |
+| State | required: eligibility and native-command failure table below |
 | Data/trust | required: private queue and bounded diagnostic flow below |
 | Schema | not_applicable: the typed contracts above extend the canonical context records without a second storage model |
 | Dependency/deployment | required: lifecycle enqueue and explicitly running worker topology below |
-| Quantitative | not_applicable: timeboxes define experiment bounds, not measured performance claims |
+| Quantitative | not_applicable: resource limits and timeboxes define bounds, not measured performance claims |
 
 ```text
 Successful durable Gate Commit
@@ -241,6 +275,10 @@ observations and complete identity receipts. Stale or ineligible work remains
 history. A current failure with a qualified exact target is journaled before
 native queue delivery to the same Codex or OpenCode session at its safe boundary
 or idle wake. No arrow represents gate acceptance.
+Native command capture has a combined 64 KiB bound. Failure always attempts
+bounded cleanup; signalling or wait uncertainty remains unavailable before send
+and unknown when failure occurs during the journaled send, with no automatic
+replay or runtime activation implied by source tests.
 
 | State | Execution | Feedback |
 |---|---|---|
@@ -248,6 +286,8 @@ or idle wake. No arrow represents gate acceptance.
 | Current queued checkpoint, worker absent | Pending | No send |
 | Current open task, admitted worker | Advisory execution | Only current qualified failure |
 | Changed binding, source, HEAD or closed task | Stale/cancelled, retain evidence | Suppressed |
+| Native command failure before dispatch | Qualification unavailable; bounded cleanup attempted | No send |
+| Native command cleanup uncertain during journaled send | Preserve unknown attempt | No automatic replay |
 | Unknown termination or send outcome | Preserve uncertainty; no lease reclamation | No automatic replay |
 
 The editable plaintext flowchart is selected for direct reading in CLI clients,

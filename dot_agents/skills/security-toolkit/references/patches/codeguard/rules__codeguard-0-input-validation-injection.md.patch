@@ -1,0 +1,7 @@
+--- a/rules/codeguard-0-input-validation-injection.md
++++ b/rules/codeguard-0-input-validation-injection.md
+@@ -21,0 +22 @@
++<!-- Adapted by dotfiles-ai, 2026-10-28: whitespace normalization only; see UPSTREAM.md. -->
+@@ -49 +50 @@
+-String query = "SELECT account_balance FROM user_data WHERE user_name = ? ";  
++String query = "SELECT account_balance FROM user_data WHERE user_name = ? ";

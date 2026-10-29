@@ -1,0 +1,39 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -5,0 +6 @@
++<!-- Adapted by dotfiles-ai, 2026-10-28; see UPSTREAM.md and security-toolkit provenance. -->
+@@ -20 +21 @@
+-- Initial vulnerability discovery — use audit-context-building or a domain-specific audit
++- Initial vulnerability discovery — use the selected primary security workflow
+@@ -22,2 +23,2 @@
+-- Writing fix recommendations — use issue-writer
+-- Understanding unfamiliar code — use audit-context-building first
++- Writing fix recommendations — use the selected primary reporting workflow
++- Understanding unfamiliar code — build bounded source context first
+@@ -44 +45,2 @@
+-**5. Triage.** Decide which candidates are real, and say so with a severity attached.
++**5. Triage.** Confirm actual boundary violations under the primary evidence policy.
++Assign severity only to confirmed findings; unresolved candidates have no severity.
+@@ -50 +52 @@
+-## Running it as a Workflow
++## Portable workflow
+@@ -52,6 +54,6 @@
+-This plugin ships `/variant-analysis:variants`, which runs the five steps across parallel
+-subagents — one per expansion axis, looping until the sweep stops finding anything new.
+-Each stage reads the reference above that matches its job.
+-
+-Use the workflow when the codebase is large or the root cause has many manifestations. Work
+-the steps directly when the search is narrow or you want a say in each generalization.
++Use the five steps directly within the approved target and scope. The upstream
++plugin slash command and named agents are not part of this portable bundle.
++Delegate bounded searches through native tools only when available and authorized.
++Use existing approved tools; this skill does not install scanners, fetch rules,
++or authorize target-code execution. Keep incomplete traces as needs-validation;
++only confirmed boundary violations receive severity under the primary workflow.
+@@ -72,3 +74,3 @@
+-**CodeQL** (`resources/codeql/`): `python.ql`, `javascript.ql`, `java.ql`, `go.ql`, `cpp.ql`
+-
+-**Semgrep** (`resources/semgrep/`): `python.yaml`, `javascript.yaml`, `java.yaml`, `go.yaml`, `cpp.yaml`
++Scanner query templates are intentionally not bundled. Write and validate any
++new rule against positive and negative fixtures before proposing CI use; missing
++CodeQL packs, build requirements, or private-code license eligibility are gaps.
