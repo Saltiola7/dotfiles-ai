@@ -1,5 +1,44 @@
 # Continuous Validation Changelog
 
+## 2026-10-28 — CVS-HOOKS-002: checkpoint and exact-session shadow feedback
+
+Add separately opted-in post-success Gate Commit events, private bounded queue
+draining and current-source checks outside the lifecycle mutation guard. Disabled
+or unenrolled worktrees create no optional activity. Explicit workers and watchers
+share the existing admission budget; uncertain sends and checkpoint attempts are
+not replayed automatically.
+
+Emit complete typed pytest identity receipts, preserving passing and skipped
+cases and hashing unsafe parameter identities. Reject malformed XML, ambiguous
+mapping, duplicate identities, capacity overflow and invalid cached receipts.
+Legacy observations stay readable without qualifying identity parity. Preserve
+failed-case subsets separately from complete comparison identities.
+
+Support typed Codex and OpenCode CLI targets through their existing native
+session owners. Recheck source, open task, enrollment, transport and runtime
+immediately before queued delivery. Codex runtime qualification uses narrow local
+version IPC without provider calls. Bound messages and journals retain acceptance
+separately from observed native acknowledgment. No session creation, permission
+bypass, replacement service or gate acceptance is introduced.
+
+Validation includes red/green identity, adapter, cache, queue, native-runtime and
+optional-hook regressions; supported Python runtimes; instruction/publication
+checks; and bounded synthetic native CLI qualification. A two-repository ARM
+pilot exercised automatic checkpoint production, complete receipts and exact
+native acknowledgments. Heavy work stopped at the deadline; a private reporting
+failure and its bounded recovery remain explicit. This is component and advisory
+pilot evidence, not full repository CI, a speedup, native amd64 parity or production
+agent repair qualification.
+
+Modules are Python, Security, ML/AI for diagnostic agent input and existing local
+Cloud controls. Source remains default-off. No Gate Exception is approved; GCP,
+forge replacement, authoritative evidence reuse and activation for others remain
+separate decisions. The owner retains exact-version requalification, private
+retention and explicit enrollment/worker stop policies. Gate commits include
+`7238e4e` and `82b7ae4`; delivery intent is
+`dbsctr/continuous_validation/CVS-HOOKS-002` as a draft PR into `main`. Final
+commits, private runtime identities and push results remain in the Cycle Record.
+
 ## 2026-10-24 — CVS-001: default-off local advisory shadow
 
 - Add Python enrollment, debounced edit watching, explicit checkpoint requests,

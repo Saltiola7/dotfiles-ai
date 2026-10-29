@@ -77,3 +77,14 @@ Controlled remote execution and authoritative local-evidence admission are expli
 ## Build handoff
 
 Scope: additive default-off local shadow. Risk: elevated because project code executes and diagnostics can cause agent work. Modules: Python, Security, and Cloud for the optional local runtime bootstrap; remote compute remains deferred. Owner: repository operator. Delivery: draft pull request, with bounded local runtime qualification required for activation. The registered Build primary owns current evidence and delivery decisions. Helpers may own disjoint artifacts, never independent lifecycle state or integration.
+
+## Checkpoint and CLI feedback follow-up
+
+The `checkpoint-cli-feedback` slice extends this Initiative with post-Gate-Commit
+private enqueue, complete bounded pytest identity evidence, and typed existing
+Codex/OpenCode CLI feedback. The existing ownership map remains authoritative: the
+lifecycle owns successful durable events, the shared runner owns admission and
+freshness, and native control planes own transport. See the normative
+[follow-up contract](../../specs/continuous_validation/SESSION-HOOKS.md) and its
+explicit default-off activation and bounded qualification requirements. This is
+source readiness, not a claim that hooks or current native transports are active.

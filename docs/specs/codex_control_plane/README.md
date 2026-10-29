@@ -577,3 +577,12 @@ The opt-in Fedora ARM64 role is specified in
 It reuses native selection and policy guards while preserving upstream executable,
 private authentication and session ownership. Dotfiles retains shared shell and
 package ownership; this role does not enroll unrelated services or credentials.
+
+## Optional continuous-validation feedback
+
+The [typed CLI feedback contract](../continuous_validation/SESSION-HOOKS.md) uses
+only the exact explicitly enrolled existing native thread and a freshly qualified
+queue transport. Session association remains distinct from the selected task
+checkout and does not authenticate the caller. Queue acceptance is not consumption.
+Existing permissions, safe-boundary repair scope and closed-task suppression remain
+authoritative; no model override, fork, fallback or competing resume is introduced.
