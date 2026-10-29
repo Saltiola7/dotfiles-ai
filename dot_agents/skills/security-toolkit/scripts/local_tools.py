@@ -1,5 +1,7 @@
 """Install or report pinned local tools; never scan, authenticate or register integrations."""
 import argparse
+import base64
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -11,6 +13,7 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+import zipfile
 from typing import Any, Literal, TypedDict
 
 
@@ -264,6 +267,115 @@ def install(tool: ToolSpec, root: Path, cache: Path) -> None:
     print(tool["name"], tool["version"], "installed; version smoke passed; no scan")
 
 
+def database_pin() -> dict[str, Any]:
+    path = DATA / "osv-database.lock.json"
+    regular_file(path)
+    pin = json.loads(path.read_text())
+    if (pin["schema_version"] != 1 or pin["ecosystem"] != "PyPI"
+            or not re.fullmatch(r"[0-9]+", pin["generation"])
+            or pin["url"] != "https://osv-vulnerabilities.storage.googleapis.com/PyPI/all.zip?generation=" + pin["generation"]
+            or not re.fullmatch(r"[0-9a-f]{64}", pin["sha256"])):
+        raise ValueError("invalid official database pin")
+    if (not 0 < pin["compressed_bytes"] <= pin["max_compressed_bytes"] <= 64 * 1024 * 1024
+            or not 0 < pin["expanded_bytes"] <= pin["max_expanded_bytes"] <= 256 * 1024 * 1024
+            or not 0 < pin["entries"] <= 100000):
+        raise ValueError("database size exceeds approved bounds")
+    if len(base64.b64decode(pin["md5_base64"], validate=True)) != 16:
+        raise ValueError("invalid database digest")
+    datetime.fromisoformat(pin["upstream_updated_at"].replace("Z", "+00:00"))
+    return pin
+
+
+def verify_database(path: Path, pin: dict[str, Any], full: bool = False) -> None:
+    regular_file(path)
+    if path.stat().st_size != pin["compressed_bytes"] or digest(path) != pin["sha256"]:
+        raise ValueError("database size or checksum mismatch")
+    if not full:
+        return
+    md5 = hashlib.md5()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            md5.update(block)
+    if base64.b64encode(md5.digest()).decode() != pin["md5_base64"]:
+        raise ValueError("database upstream checksum mismatch")
+    with zipfile.ZipFile(path) as archive:
+        entries = archive.infolist()
+        if len(entries) != pin["entries"] or sum(item.file_size for item in entries) != pin["expanded_bytes"]:
+            raise ValueError("database expanded size or entry mismatch")
+        names = set()
+        for item in entries:
+            relative = PurePosixPath(item.filename)
+            kind = stat.S_IFMT(item.external_attr >> 16)
+            if (relative.is_absolute() or ".." in relative.parts or item.filename in names
+                    or not item.filename.endswith(".json") or item.flag_bits & 1
+                    or kind not in (0, stat.S_IFREG) or item.file_size > 4 * 1024 * 1024
+                    or item.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)):
+                raise ValueError("unsupported database ZIP entry")
+            names.add(item.filename)
+        if archive.testzip() is not None:
+            raise ValueError("database ZIP CRC mismatch")
+
+
+def provision_osv_database(root: Path, archive: Path | None = None) -> None:
+    pin = database_pin()
+    target = root / "cache/osv/osv-scanner/PyPI/all.zip"
+    validate_directory(root)
+    if target.exists() or target.is_symlink():
+        validate_directory(target.parent)
+        verify_database(target, pin, full=True)
+        print("PyPI database already cached and integrity verified; no scan")
+        return
+    if archive is not None:
+        verify_database(archive, pin, full=True)
+    real_directory(target.parent)
+    with tempfile.NamedTemporaryFile(prefix="database-", dir=target.parent, delete=False) as stream:
+        pending = Path(stream.name)
+        if archive is not None:
+            with archive.open("rb") as source:
+                remaining = pin["max_compressed_bytes"]
+                while block := source.read(min(1024 * 1024, remaining + 1)):
+                    remaining -= len(block)
+                    if remaining < 0:
+                        raise ValueError("database size exceeds approved bound")
+                    stream.write(block)
+    if archive is None:
+        with tempfile.TemporaryDirectory(prefix="osv-public-download-") as temporary:
+            subprocess.run(["/usr/bin/curl", "--disable", "--fail", "--silent", "--show-error", "--proto", "=https",
+                            "--max-redirs", "0", "--max-filesize", str(pin["max_compressed_bytes"]), "--max-time", "120",
+                            "--output", str(pending), pin["url"]], check=True, timeout=125,
+                           env={"PATH": "/usr/bin:/bin", "HOME": temporary})
+    verify_database(pending, pin, full=True)
+    # Link exclusively, then remove only our temporary name: never replace a user's cache.
+    os.link(pending, target)
+    pending.unlink()
+    regular_file(target)
+    print("Cached pinned PyPI database; generation, size, hashes and ZIP CRC verified; no extraction or scan")
+
+
+def osv_database_status(policy: dict[str, Any], root: Path) -> dict[str, Any]:
+    result = dict(policy, installed=False, ecosystems=[], scan_validated=False)
+    cache = root / "cache/osv"
+    result["cache_environment"] = {"OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY": str(cache)}
+    try:
+        pin = database_pin()
+        result.update(generation=pin["generation"], snapshot_updated_at=pin["upstream_updated_at"],
+                      compressed_bytes=pin["compressed_bytes"], expanded_bytes=pin["expanded_bytes"])
+        target = cache / "osv-scanner/PyPI/all.zip"
+        if not target.exists() and not target.is_symlink():
+            result.update(state="missing", freshness="unavailable")
+            return result
+        validate_directory(target.parent)
+        verify_database(target, pin)
+        updated = datetime.fromisoformat(pin["upstream_updated_at"].replace("Z", "+00:00"))
+        result.update(installed=True, ecosystems=["PyPI"], state="cached_integrity_verified", sha256=pin["sha256"],
+                      snapshot_age_hours=round((datetime.now(timezone.utc) - updated).total_seconds() / 3600, 2),
+                      freshness="pinned snapshot age recorded; latest upstream not checked",
+                      reason="PyPI cache verified; other ecosystems and scan-time RAM/behavior remain unvalidated")
+    except (OSError, ValueError, KeyError, TypeError):
+        result.update(state="drift_or_unqualified", freshness="unavailable", reason="database pin or cached archive failed validation")
+    return result
+
+
 def status(profile: dict[str, Any], root: Path, run_smoke: bool = False) -> dict[str, Any]:
     tools = []
     for tool in profile["tools"]:
@@ -282,14 +394,15 @@ def status(profile: dict[str, Any], root: Path, run_smoke: bool = False) -> dict
         tools.append({"name": tool["name"], "version": tool["version"], "state": state,
                       "entrypoint": str(binary_path(tool, generation)) if state.startswith("installed_") else None})
     return {"tools": tools, "subscription_integrations": profile["subscription_integrations"],
-            "osv_database": profile["osv_database"], "audit_performed": False}
+            "osv_database": osv_database_status(profile["osv_database"], root), "audit_performed": False}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["status", "install"])
+    parser.add_argument("action", choices=["status", "install", "provision-osv-db"])
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--cache", type=Path)
+    parser.add_argument("--database-archive", type=Path, help="use an existing exact pinned database archive")
     parser.add_argument("--smoke", action="store_true", help="only sanitized version probes, never scans")
     args = parser.parse_args()
     try:
@@ -298,12 +411,14 @@ def main() -> int:
             check_platform()
             for tool in profile["tools"]:
                 install(tool, args.root, args.cache or args.root / "cache/downloads")
+        elif args.action == "provision-osv-db":
+            provision_osv_database(args.root, args.database_archive)
         else:
             result = status(profile, args.root, args.smoke)
             print(json.dumps(result, indent=2, sort_keys=True))
             if args.smoke and any(t["state"] != "installed_version_qualified" for t in result["tools"]):
                 return 1
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, tarfile.TarError) as error:
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError, tarfile.TarError, zipfile.BadZipFile) as error:
         print("Local tooling setup failed:", str(error))
         return 1
     return 0

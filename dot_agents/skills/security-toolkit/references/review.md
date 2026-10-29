@@ -117,10 +117,32 @@ build verification.
 Semgrep version checks can contact the vendor by default, so setup uses disabled
 version checks/metrics and empty temporary settings/environment. It never runs
 Pro flags, login, registry rules or CI/MCP setup. Gitleaks setup never scans;
-later scans require redaction and scope. OSV setup downloads no vulnerability
-database: strict-offline scan readiness and freshness remain unavailable.
+later scans require redaction and scope. Tool installation downloads no OSV database. A separately requested, bounded
+PyPI-only provisioning action pins an official public snapshot and records its
+age; scan behavior and other ecosystems remain unvalidated.
 
 Codex Security, Daybreak, Semgrep Pro and organizational Gitleaks Actions stay
 subscription-gated and disabled. The local CLI/source pins do not establish
 entitlement. No subscription purchase, credentials, provider configuration or
 permission expansion occurs in setup.
+
+## Coverage gaps retained by selection
+
+The omissions leave dedicated preventive-guidance gaps in crypto/PKI/PQC,
+language/API footguns, XML hardening, mobile/privacy and a safe automated
+hostile-skill scanner. Cloudflare supplies broader review prompts for these
+topics; it is not equivalent specialized preventive guidance. Gitleaks and
+secret-serialization add secrets techniques. The bundle integrity checker is
+for trusted-directory drift and does not replace hostile-skill analysis. Use
+corrected target-specific authorities for the remaining controls.
+
+Concrete sharp-edges problems at the recorded pin include decrypt-then-MAC
+(`references/crypto-apis.md:141`), prefix-only path containment
+(`references/lang-ruby.md:218`), reversed Rust field-drop labels
+(`references/lang-rust.md:223–230`), constructor/copy claims in Kotlin
+(`references/lang-kotlin.md:90–91`), and shared-default claims in Ruby
+(`references/lang-ruby.md:168–175`). The named plugin agent is also absent from
+a standalone Markdown install. Sentry's scanner helper prints original matched
+secret lines (`scripts/scan_skill.py:308–309`), reads before symlink checks
+(`:544`, `:574`, `:592` before `:602`), uses unbounded reads and unpinned PyYAML.
+These deferrals are content/safety findings, not missing-local-runtime exclusions.

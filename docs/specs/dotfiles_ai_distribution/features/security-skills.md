@@ -73,7 +73,7 @@ Existing Semgrep CI and broader audit ownership remain unchanged.
 | Data/trust | required: trust boundaries below |
 | Schema | not_applicable: flat source inventory, no persistent relational domain |
 | Dependency/deployment | required: owner and prerequisite columns below |
-| Quantitative | not_applicable: selection is source review, not a detection benchmark |
+| Quantitative | required: snapshot size and provisioning-cap table below; no detection benchmark |
 
 | Transition | Owner/prerequisite | Result and trust boundary |
 |---|---|---|
@@ -81,6 +81,7 @@ Existing Semgrep CI and broader audit ownership remain unchanged.
 | Reviewed → vendored | Distribution selects files, records patches/hashes/notices | Offline public content; no credential or audit evidence copied |
 | Vendored → isolated render | Chezmoi, exact targets, scripts excluded | Complete byte/file-set checks and second-apply no drift |
 | Rendered → shared files | Review collisions; exact-target host preview/apply | Shared discovery content only; native scanner/provider remains separate |
+| Explicit PyPI provisioning → local cache | Frozen official generation; 64 MiB compressed/256 MiB expanded caps | Verify hashes and ZIP CRC without extraction or target data upload |
 | Shared files → available technique | Active client discovers skill; prerequisites checked | Discovery is not runtime readiness or coverage |
 | Technique → review evidence | Current approved scope/provider/isolation | Private target data stays under its existing disclosure policy |
 | Prior pin → update/rollback | Maintainer review, Git history, exact-target diff | Previous bundle/lock retained; divergent live data never overwritten silently |
@@ -157,6 +158,44 @@ changed generations refuse reuse and retain their contents.
 Subscription integrations remain disabled until explicit entitlement confirmation.
 Codex Security/Daybreak, Semgrep Pro and organizational Gitleaks Actions are
 separate gated profiles. Local executables, ChatGPT access and source availability
-prove no subscription. OSV strict-offline readiness separately requires selected
-local databases and documented freshness; setup downloads none and scans nothing.
+prove no subscription. OSV strict-offline readiness separately requires selected local databases and
+documented freshness. An explicit bounded PyPI provisioning action is now
+available; it downloads no npm data and never scans a repository.
 Update/rollback preserves prior generations and the exact source/lock records.
+
+### Database Behavior and Validation
+
+- Given explicit PyPI database provisioning, fetch only the immutable official
+  public generation under a 64 MiB compressed cap and 256 MiB expanded cap.
+- Given valid pinned bytes, verify upstream MD5, SHA-256, ZIP structure/CRC and
+  exact entry/size totals; place `all.zip` atomically without extraction.
+- Given a different preexisting cache, linked/unsafe path, size or digest mismatch,
+  refuse replacement and preserve existing data.
+- Given a cached snapshot, report its identity, age and per-process cache variable;
+  do not claim scanner behavior, memory use, other-ecosystem coverage or a passing audit.
+
+The PyPI-only data pin and explicit provisioner are source-owned; advisory payloads
+remain private local cache, outside the public source. Unit fixtures cover caps,
+drift refusal, no-network reuse and idempotency. Fresh-client catalog checks use
+`skills/list` with `forceReload` in a temporary Codex home, without starting or
+resuming a conversation. Local evidence belongs in the private Cycle Record.
+
+### Snapshot Size Evidence
+
+Official object metadata checked 2026-10-29 at 00:02 UTC; PyPI directory metadata
+and full ZIP integrity were checked before cache provisioning. Sizes are archive
+bytes and summed member bytes, not measured scanner RAM.
+
+| Snapshot / limit | Compressed bytes | Expanded bytes | Decision / evidence |
+|---|---:|---:|---|
+| PyPI generation `1793228588883577` | 37,425,891 | 81,044,683 | Provision; exact pin and hashes in `osv-database.lock.json` |
+| npm generation `1793230388097253` | 219,383,850 | Not inspected | Defer; no committed npm lockfile and above selected cap |
+| Provisioning caps | 67,108,864 | 268,435,456 | Refuse larger data before placement |
+
+Sources: official Google Storage object metadata for
+[PyPI](https://storage.googleapis.com/storage/v1/b/osv-vulnerabilities/o/PyPI%2Fall.zip?generation=1793228588883577)
+and [npm](https://storage.googleapis.com/storage/v1/b/osv-vulnerabilities/o/npm%2Fall.zip?generation=1793230388097253).
+Maintainer owns this table and refreshes it when a dataset pin or cap changes.
+**Text Equivalent:** The chosen PyPI ZIP and its expanded member total fit the
+selected 64 MiB/256 MiB caps; npm's archive alone exceeds the compressed cap and
+is not selected. Expanded npm size and future scanner RAM remain unknown.

@@ -255,3 +255,94 @@ def test_uv_empty_lock_is_private_and_linked_lock_is_preserved(tmp_path):
     with pytest.raises(ValueError, match="unexpected uv environment lock"):
         module.secure_uv_lock(lock)
     assert lock.stat().st_nlink == 2
+
+
+def database_fixture(module, tmp_path, monkeypatch):
+    import base64
+    import zipfile
+    data = tmp_path / "source"
+    data.mkdir()
+    archive = tmp_path / "advisories.zip"
+    payload = b'{"id":"OSV-TEST-1","modified":"2026-10-28T00:00:00Z"}'
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as stream:
+        stream.writestr("OSV-TEST-1.json", payload)
+    content = archive.read_bytes()
+    pin = {"schema_version": 1, "ecosystem": "PyPI", "generation": "1",
+           "url": "https://osv-vulnerabilities.storage.googleapis.com/PyPI/all.zip?generation=1",
+           "compressed_bytes": len(content), "expanded_bytes": len(payload), "entries": 1,
+           "sha256": hashlib.sha256(content).hexdigest(),
+           "md5_base64": base64.b64encode(hashlib.md5(content).digest()).decode(),
+           "upstream_updated_at": "2026-10-28T00:00:00Z",
+           "max_compressed_bytes": 64 * 1024 * 1024, "max_expanded_bytes": 256 * 1024 * 1024}
+    (data / "osv-database.lock.json").write_text(json.dumps(pin))
+    monkeypatch.setattr(module, "DATA", data)
+    return archive, pin
+
+
+def test_pypi_database_provision_is_bounded_idempotent_and_scan_free(tmp_path, monkeypatch):
+    module = load_local_tools()
+    archive, pin = database_fixture(module, tmp_path, monkeypatch)
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected external command")))
+    root = tmp_path / "runtime"
+    module.provision_osv_database(root, archive)
+    first = module.osv_database_status({}, root)
+    assert first["installed"] is True and first["ecosystems"] == ["PyPI"]
+    assert first["scan_validated"] is False
+    target = root / "cache/osv/osv-scanner/PyPI/all.zip"
+    assert target.read_bytes() == archive.read_bytes()
+    module.provision_osv_database(root, archive)
+    assert target.read_bytes() == archive.read_bytes()
+    assert list(target.parent.iterdir()) == [target]
+
+
+def test_pypi_database_refuses_drift_and_size_caps(tmp_path, monkeypatch):
+    import pytest
+    module = load_local_tools()
+    archive, pin = database_fixture(module, tmp_path, monkeypatch)
+    pin["max_expanded_bytes"] = 1
+    (module.DATA / "osv-database.lock.json").write_text(json.dumps(pin))
+    with pytest.raises(ValueError, match="database size"):
+        module.provision_osv_database(tmp_path / "runtime", archive)
+    pin["max_expanded_bytes"] = 256 * 1024 * 1024
+    (module.DATA / "osv-database.lock.json").write_text(json.dumps(pin))
+    archive.write_bytes(b"changed")
+    with pytest.raises(ValueError, match="database.*mismatch"):
+        module.provision_osv_database(tmp_path / "runtime", archive)
+    assert not (tmp_path / "runtime/cache/osv/osv-scanner/PyPI/all.zip").exists()
+
+
+def test_pypi_database_preserves_existing_cache_and_rejects_links(tmp_path, monkeypatch):
+    import pytest
+    module = load_local_tools()
+    archive, pin = database_fixture(module, tmp_path, monkeypatch)
+    root = tmp_path / "runtime"
+    target = root / "cache/osv/osv-scanner/PyPI/all.zip"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"keep existing snapshot")
+    with pytest.raises(ValueError, match="database.*mismatch"):
+        module.provision_osv_database(root, archive)
+    assert target.read_bytes() == b"keep existing snapshot"
+    target.unlink()
+    target.symlink_to(archive)
+    with pytest.raises(ValueError, match="unsafe runtime file"):
+        module.provision_osv_database(root, archive)
+    assert target.is_symlink()
+
+
+def test_pypi_download_uses_bounded_credential_free_curl(tmp_path, monkeypatch):
+    module = load_local_tools()
+    archive, pin = database_fixture(module, tmp_path, monkeypatch)
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/synthetic/not-for-child")
+    calls = []
+    def download(argv, **kwargs):
+        calls.append((argv, kwargs))
+        Path(argv[argv.index("--output") + 1]).write_bytes(archive.read_bytes())
+        return subprocess.CompletedProcess(argv, 0)
+    monkeypatch.setattr(module.subprocess, "run", download)
+    module.provision_osv_database(tmp_path / "runtime")
+    argv, options = calls[0]
+    assert argv[:2] == ["/usr/bin/curl", "--disable"]
+    assert argv[-1] == pin["url"]
+    assert argv[argv.index("--max-filesize") + 1] == str(64 * 1024 * 1024)
+    assert options["timeout"] == 125
+    assert set(options["env"]) == {"PATH", "HOME"}

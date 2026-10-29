@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-29 — Skill discovery and OSV data verification
+
+- Verified all six installed shared skills with a fresh native catalog read and
+  added bounded, pinned PyPI-only OSV cache provisioning and truthful snapshot
+  status. npm remains unprovisioned pending a scope/size decision.
+- Documented concrete deferred-source findings and remaining specialist gaps;
+  setup validation does not claim repository audit coverage or subscriptions.
+
+
 ## 2026-10-28 — Portable security skills
 
 - Added pinned Cloudflare, Trail of Bits variant methodology, Sentry CI/serialization review,
