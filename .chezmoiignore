@@ -51,6 +51,10 @@ configure-cline-vertex.sh
 !.config/opencode/plugins/continuation.ts
 .config/opencode/skills
 
+{{ if not (and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64")) }}
+install-graphify.sh
+{{ end }}
+
 {{ if eq .chezmoi.os "darwin" }}
 .bashrc
 .bash_profile

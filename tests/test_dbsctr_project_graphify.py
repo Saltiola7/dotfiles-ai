@@ -95,6 +95,10 @@ revision=$(printf '%s' "$head" | cut -c1-8)
   printf 'No code-graph topology changes detected; outputs left untouched.\\n'
   exit 0
 }
+[ ! -f NO_RELEVANT_CHANGE ] || {
+  printf '[graphify watch] No relevant changes; graphify-out left untouched.\\n'
+  exit 0
+}
 cat > graphify-out/GRAPH_REPORT.md <<EOF
 # Graph Report
 - Built from commit: \\`$revision\\`
@@ -140,7 +144,7 @@ esac
     git(repo, "commit", "-qm", "fixture")
     env = {**os.environ, "PATH": f"{tools}:{os.environ['PATH']}",
            "DBSCTR_GRAPHIFY_VERSION": "0.9.50", "GEMINI_API_KEY": "forbidden",
-           "AWS_PROFILE": "forbidden", "HTTPS_PROXY": "http://forbidden.invalid"}
+           "AWS_PROFILE": "forbidden", "HTTPS_PROXY": "http://forbidden.invalid", "PYTHONHASHSEED": "1234"}
     return repo, env
 
 
@@ -173,6 +177,7 @@ def test_check_publishes_bounded_output_and_sanitizes_environment(
         "graph.json.dvc", "manifest.json",
     ]
     assert git(repo, "rev-parse", "HEAD") in (output / "GRAPH_REPORT.md").read_text()
+    assert "PYTHONHASHSEED=0\n" in (repo / ".git/graphify.env").read_text()
     for log in ("graphify.env", "shadow-env.log", "bootstrap-env.log"):
         text = (repo / ".git" / log).read_text()
         assert "GEMINI_API_KEY=" not in text
@@ -243,19 +248,263 @@ def test_primary_graph_fallback_rejects_unsafe_parent(project, tmp_path: Path, c
     assert not (linked / ".git/graphify.log").exists()
 
 
-def test_topology_no_change_normalizes_prior_report(project, tmp_path: Path) -> None:
+@pytest.mark.parametrize("control", ["NO_GRAPH_CHANGE", "TOPOLOGY_NO_CHANGE", "NO_RELEVANT_CHANGE"])
+@pytest.mark.parametrize("revision_length", [8, 40])
+def test_no_change_normalizes_ancestor_report(project, tmp_path: Path, control: str, revision_length: int) -> None:
     repo, env = project
     prior = git(repo, "rev-parse", "HEAD")
-    (repo / "TOPOLOGY_NO_CHANGE").write_text("1\n")
+    (repo / control).write_text("1\n")
     (repo / "graphify-out/GRAPH_REPORT.md").write_text(
-        f"# Graph Report\n- Built from commit: `{prior[:8]}`\n"
+        f"# Graph Report\n- Built from commit: `{prior[:revision_length]}`\n"
     )
-    git(repo, "add", "TOPOLOGY_NO_CHANGE", "graphify-out/GRAPH_REPORT.md")
+    git(repo, "add", control, "graphify-out/GRAPH_REPORT.md")
     git(repo, "commit", "-qm", "topology unchanged")
     output = tmp_path / "output"
     result = adapter(repo, env, output)
     assert result.returncode == 0, result.stderr
     assert git(repo, "rev-parse", "HEAD") in (output / "GRAPH_REPORT.md").read_text()
+
+
+@pytest.mark.parametrize("control", ["NO_GRAPH_CHANGE", "TOPOLOGY_NO_CHANGE", "NO_RELEVANT_CHANGE"])
+@pytest.mark.parametrize("case", ["malformed", "missing", "duplicate", "non_ancestor"])
+def test_no_change_rejects_invalid_report_provenance(project, tmp_path: Path, control: str, case: str) -> None:
+    repo, env = project
+    revision = git(repo, "rev-parse", "HEAD")
+    if case == "malformed":
+        revision = "HEAD"
+    elif case == "missing":
+        revision = "0" * 40
+    elif case == "non_ancestor":
+        revision = git(repo, "commit-tree", git(repo, "rev-parse", "HEAD^{tree}"), "-m", "unrelated fixture")
+    text = f"# Graph Report\n- Built from commit: `{revision}`\n"
+    if case == "duplicate":
+        text += f"- Built from commit: `{revision}`\n"
+    (repo / "graphify-out/GRAPH_REPORT.md").write_text(text)
+    (repo / control).write_text("1\n")
+    output = tmp_path / "output"
+    result = adapter(repo, env, output)
+    assert result.returncode != 0
+    assert not output.exists()
+    assert not (repo / ".git/uv.log").exists()
+    if case == "missing":
+        assert "does not exist" in result.stderr
+    elif case == "non_ancestor":
+        assert "not an ancestor" in result.stderr
+
+
+@pytest.mark.parametrize("value", [{"nodes": [], "partial": True}, {"nodes": [], "error": "failed"}, []])
+def test_legacy_incomplete_or_invalid_cache_is_not_a_hit(project, tmp_path: Path, value) -> None:
+    repo, env = project
+    (repo / "graphify-out/cache/ast/v0.9.50-s2/warm.json").write_text(json.dumps(value))
+    result = adapter(repo, env, tmp_path / "output")
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"cache_hits": 0, "cache_misses": 2}
+
+
+@pytest.fixture
+def native_project(project, tmp_path: Path):
+    raw = os.environ.get("DBSCTR_GRAPHIFY_NATIVE_TEST_EXECUTABLE")
+    if not raw:
+        pytest.skip("set DBSCTR_GRAPHIFY_NATIVE_TEST_EXECUTABLE to an already-qualified graphify 0.9.97 executable")
+    cli = Path(raw)
+    assert cli.is_absolute() and cli.is_file(), "native test executable must be an existing absolute path"
+    cli = cli.resolve()
+    python = cli.parent / "python"
+    assert python.is_file(), "native Graphify interpreter must accompany executable"
+    repo, original_env = project
+    home, temporary = tmp_path / "native-home", tmp_path / "native-tmp"
+    home.mkdir(mode=0o700)
+    temporary.mkdir(mode=0o700)
+    env = {"PATH": original_env["PATH"], "HOME": str(home), "TMPDIR": str(temporary),
+           "LANG": "C.UTF-8", "LC_ALL": "C", "UV_CACHE_DIR": str(tmp_path / "uv-cache"),
+           "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1",
+           "DBSCTR_GRAPHIFY_VERSION": "0.9.97"}
+    version = run(cli, "--version", cwd=repo, env=env)
+    assert version.returncode == 0 and version.stdout.strip() == "graphify 0.9.97", version.stderr
+    tools = tmp_path / "tools"
+    (tools / "graphify").unlink()
+    (tools / "graphify").symlink_to(cli)
+    (repo / "a.py").write_text("from b import double\n\ndef calculate(value):\n    return double(value)\n")
+    (repo / "b.py").write_text("def double(value):\n    return value * 2\n")
+    (repo / "alias.inc").write_text("def remapped(value):\n    return value + 1\n")
+    (repo / ".graphifyrc").write_text("language.inc=python\n")
+    git(repo, "add", "a.py", "b.py", "alias.inc", ".graphifyrc")
+    git(repo, "commit", "-qm", "native code-only fixture")
+    return repo, env, cli, python
+
+
+@pytest.mark.parametrize("case", ["cold", "warm", "partial", "wrong_generation", "error", "no_change", "topology_no_change"])
+def test_native_candidate_adapter_cache_and_provenance(native_project, tmp_path: Path, case: str) -> None:
+    repo, env, cli, python = native_project
+    graph = repo / "graphify-out"
+    # Native manifest also stamps outside.txt, which has no AST extractor: always a miss.
+    expected = {"cache_hits": 0, "cache_misses": 4}
+    if case != "cold":
+        prepared = run(cli, "update", ".", cwd=repo, env=env)
+        (tmp_path / "native-prepare.stdout").write_text(prepared.stdout)
+        (tmp_path / "native-prepare.stderr").write_text(prepared.stderr)
+        assert prepared.returncode == 0, prepared.stderr
+        expected = {"cache_hits": 3, "cache_misses": 1}
+        key = run(python, "-I", "-B", "-c", """
+from pathlib import Path
+from graphify import cache
+from graphify.rcfile import activate_language_overrides, cache_salt
+root = Path.cwd()
+activate_language_overrides(root)
+path = root / 'alias.inc'
+key = cache._salted_key(cache.file_hash(path, root), cache_salt(path))
+print(cache.cache_dir(root) / (key + '.json'))
+""", cwd=repo, env=env)
+        assert key.returncode == 0, key.stderr
+        entry = Path(key.stdout.strip())
+        assert entry.is_file()
+        assert entry.parent.name.startswith("v0.9.97-s29-g")
+        manifest = json.loads((graph / "manifest.json").read_text())
+        assert manifest["alias.inc"]["ast_hash"] != entry.stem
+        if case in {"partial", "error"}:
+            original = entry.read_bytes()
+            (tmp_path / "native-cache-before.json").write_bytes(original)
+            value = json.loads(original)
+            value[case] = True if case == "partial" else "failed fixture extraction"
+            entry.write_text(json.dumps(value))
+            expected = {"cache_hits": 2, "cache_misses": 2}
+        elif case == "wrong_generation":
+            entry.parent.rename(entry.parent.with_name("v0.9.97-s28-gunqualified"))
+            expected = {"cache_hits": 0, "cache_misses": 4}
+        if case in {"warm", "partial", "wrong_generation"}:
+            # Retain the state preimage but force actual native extraction, not its early no-change shortcut.
+            state = graph / ".graphify_build_state.json"
+            state.rename(state.with_suffix(".retained"))
+        if case in {"no_change", "topology_no_change"}:
+            if case == "no_change":
+                (repo / ".gitignore").write_text("# fixture metadata only\n")
+                changed = ".gitignore"
+            else:
+                with (repo / "a.py").open("a") as writer:
+                    writer.write("\n# unchanged graph topology\n")
+                changed = "a.py"
+                expected = {"cache_hits": 2, "cache_misses": 2}
+            git(repo, "add", changed)
+            git(repo, "commit", "-qm", "native unchanged graph with new HEAD")
+    output = tmp_path / "output"
+    result = adapter(repo, env, output)
+    (tmp_path / "native-adapter.stdout").write_text(result.stdout)
+    (tmp_path / "native-adapter.stderr").write_text(result.stderr)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == expected
+    assert {path.name for path in output.iterdir()} == {
+        ".gitignore", "GRAPH_REPORT.md", "cost.json", "graph.json", "graph.json.dvc", "manifest.json",
+    }
+    assert (output / "cost.json").read_bytes() == b"{}\n", "preserve canonical cost baseline, never invent a receipt"
+    report = (output / "GRAPH_REPORT.md").read_text()
+    assert f"- Built from commit: `{git(repo, 'rev-parse', 'HEAD')}`\n" in report
+    value = json.loads((output / "graph.json").read_text())
+    assert value["nodes"] and value["links"]
+    assert (repo / ".git/uv.log").read_text().splitlines() == [
+        "run --frozen --offline dvc add graphify-out/graph.json",
+    ]
+
+
+def test_native_snapshot_counts_only_valid_sources_in_final_manifest(native_project, tmp_path: Path) -> None:
+    repo, env, cli, python = native_project
+    prepared = run(cli, "update", ".", cwd=repo, env=env)
+    assert prepared.returncode == 0, prepared.stderr
+    setup = run(python, "-I", "-B", "-c", """
+import json
+from pathlib import Path
+from graphify import cache
+from graphify.detect import _md5_file
+root = Path.cwd()
+manifest_path = root / 'graphify-out/manifest.json'
+manifest = json.loads(manifest_path.read_text())
+for name in ('outside.txt', '.aws/credentials.py', 'missing.py', '../outside.py', 'error.py', 'script.js', 'excluded.py'):
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('def fixture(): pass\\n' if path.suffix == '.py' else 'fixture only\\n')
+    cache.save_cached(path, {'nodes': [], 'edges': []}, root)
+    manifest[name] = {'ast_hash': _md5_file(path)}
+    if name == 'missing.py':
+        path.unlink()
+    elif name == 'error.py':
+        entry = cache.cache_dir(root) / (cache.file_hash(path, root) + '.json')
+        value = json.loads(entry.read_text())
+        value['error'] = 'failed fixture extraction'
+        entry.write_text(json.dumps(value))
+(root / '.graphifyignore').write_text('excluded.py\\n')
+del manifest['a.py']
+manifest_path.write_text(json.dumps(manifest))
+""", cwd=repo, env=env)
+    assert setup.returncode == 0, setup.stderr
+    tools = tmp_path / "tools"
+    (tools / "graphify").unlink()
+    executable(tools / "graphify", """#!/bin/sh
+if [ "${1:-}" = --version ]; then printf 'graphify 0.9.97\\n'; exit 0; fi
+printf '[graphify watch] No relevant changes; graphify-out left untouched.\\n'
+""")
+    executable(tools / "python", f'#!/bin/sh\nexec "{python}" "$@"\n')
+    output = tmp_path / "output"
+    result = adapter(repo, env, output)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"cache_hits": 2, "cache_misses": 7}
+
+
+@pytest.mark.parametrize("case", ["unsafe_output", "unsafe_graph"])
+def test_native_cache_waits_for_path_and_graph_guards(native_project, tmp_path: Path, case: str) -> None:
+    repo, env, _, _ = native_project
+    output = tmp_path / "output"
+    if case == "unsafe_output":
+        output.mkdir()
+    else:
+        (repo / "graphify-out/cache").chmod(0o777)
+    before = {path.relative_to(repo): path.read_bytes() for path in (repo / "graphify-out").rglob("*") if path.is_file()}
+    result = adapter(repo, env, output)
+    assert result.returncode != 0
+    after = {path.relative_to(repo): path.read_bytes() for path in (repo / "graphify-out").rglob("*") if path.is_file()}
+    assert after == before
+
+
+@pytest.mark.parametrize("name", ["graphify.py", "boto3.py", "tree_sitter_sql.py"])
+def test_native_cache_imports_selected_runtime_not_project_modules(native_project, tmp_path: Path, name: str) -> None:
+    repo, env, _, _ = native_project
+    (repo / name).write_text("raise RuntimeError('project module must not be imported')\n")
+    result = adapter(repo, env, tmp_path / "output")
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("case", ["malformed", "non_ancestor"])
+def test_native_no_change_refuses_invalid_provenance(native_project, tmp_path: Path, case: str) -> None:
+    repo, env, cli, _ = native_project
+    prepared = run(cli, "update", ".", cwd=repo, env=env)
+    assert prepared.returncode == 0, prepared.stderr
+    revision = "HEAD" if case == "malformed" else git(
+        repo, "commit-tree", git(repo, "rev-parse", "HEAD^{tree}"), "-m", "unrelated native fixture",
+    )
+    (repo / "graphify-out/GRAPH_REPORT.md").write_text(f"# Graph Report\n- Built from commit: `{revision}`\n")
+    output = tmp_path / "output"
+    result = adapter(repo, env, output)
+    assert result.returncode != 0
+    assert not output.exists()
+    assert not (repo / ".git/uv.log").exists()
+    assert ("not an ancestor" if case == "non_ancestor" else "identity is invalid") in result.stderr
+
+
+def test_native_finalize_failure_restores_graph_and_index(native_project) -> None:
+    repo, env, cli, _ = native_project
+    prepared = run(cli, "update", ".", cwd=repo, env=env)
+    assert prepared.returncode == 0, prepared.stderr
+    (repo / "FAIL_DVC_ADD").write_text("1\n")
+    git(repo, "add", "graphify-out", "FAIL_DVC_ADD")
+    git(repo, "commit", "-qm", "native finalize baseline")
+    graph = repo / "graphify-out"
+    before = {path.relative_to(graph): path.read_bytes() for path in graph.rglob("*") if path.is_file()}
+    index = repo / ".git/index"
+    index_before = index.read_bytes()
+    result = adapter(repo, env, graph, "finalize")
+    assert result.returncode != 0
+    assert "DVC metadata staging failed" in result.stderr
+    assert {path.relative_to(graph): path.read_bytes() for path in graph.rglob("*") if path.is_file()} == before
+    assert index.read_bytes() == index_before
+    assert not git(repo, "status", "--porcelain=v1", "--", "graphify-out")
 
 
 def test_finalize_requires_exact_clean_canonical_path(project) -> None:

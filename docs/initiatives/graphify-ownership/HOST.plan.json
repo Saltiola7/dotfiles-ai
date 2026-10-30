@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/host_tool_maintenance/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Host maintenance profile is used for declaration-only source reconciliation, not an independently published package or release."},
+    "deploy": {"applicability": "not_applicable", "reason": "Source-only host draft PR; no chezmoi apply, uninstall, deployed-file removal or environment migration. Live transition needs separate approval."},
+    "operate": {"applicability": "not_applicable", "reason": "Removing source declarations and adding an owner pointer changes no live host process or runtime; host operation is not claimed."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}
