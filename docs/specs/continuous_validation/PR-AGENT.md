@@ -128,6 +128,27 @@ completion-notification opt-in; existing feedback enrollment and qualification
 remain necessary. Disabled review capability performs no credential lookup,
 container execution, source disclosure, or completion notification.
 
+The closed private configuration has exactly `schema_version: 1`,
+`provider: "vertex"`, `model`, `project`, `location`, `adc_file`,
+`source_patterns`, `real_inference_enabled`, and `dagger`. The model uses an
+explicit supported `vertex_ai/` identifier. Source patterns are bounded positive
+relative globs over already captured inputs. The boolean real-inference flag
+defaults to false in configuration examples and must be explicit in enabled
+configuration. It is independent of review enrollment. The `dagger` object has
+exactly `platform`, `engine`, `cli`, `cli_sha256`, and `sdk_python`: it selects
+the existing private local engine, checksum-bound CLI and prepared isolated SDK
+interpreter. No configuration field supplies an arbitrary image, command,
+provider endpoint, environment body, secret value or test fixture.
+
+The shared controller module exposes configuration loading, a reserved
+`pr-agent-review` descriptor, bounded patch preparation and execution. A separate
+process under the explicitly selected SDK interpreter evaluates the trusted
+image strategy. Its closed request carries version, check descriptor, private
+log and patch paths, and validated private configuration; it never enters the
+repository adapter protocol. Exported `review.md` and `review.json` belong under
+the observation log's sibling `.artifacts` directory. Existing artifact lists
+retain their relative filenames; completion points to one of those exact files.
+
 The runner adds its own stable expensive review descriptor for opted-in checkpoint
 or manual requests. Repository test adapters remain unchanged and never receive
 review configuration or credentials. Their existing input allowlists and source
