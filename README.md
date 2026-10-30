@@ -41,6 +41,14 @@ installation of the skill remain separate; see the runbook's owner boundaries.
 - Optional: Hermes for autonomous R&D; enabled installations manage it through
   this source
 
+### Graphify ownership
+
+The [Graphify contract](docs/specs/dotfiles_ai_distribution/features/graphify-ownership.md)
+assigns the global CLI, dependency recipe and matching OpenCode skill to this
+source. The disabled, hash-pinned DKS runtime remains separate. Consult the
+[update runbook](docs/UPDATES.md) before changing a native installation; source
+delivery does not approve a live upgrade or ownership migration.
+
 ## Safe Quickstart
 
 > [!WARNING]
