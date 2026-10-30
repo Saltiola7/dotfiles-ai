@@ -1,0 +1,4 @@
+# Optional adapter only. The selected lab owns its complete uv lock.
+prefect==3.7.7
+# Prefect 3.7.7 still uses FastAPI Body(min_items=...), removed in 0.162.
+fastapi==0.136.3
