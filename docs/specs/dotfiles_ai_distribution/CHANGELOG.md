@@ -1,5 +1,27 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-29 — Global Graphify source ownership
+
+- Added one missing-only macOS ARM64 native uv recipe for Graphify 0.9.97 and
+  its required extras. Healthy existing runtimes retain their owner/version;
+  only the matching packaged OpenCode skill is refreshed from private sandboxed
+  scratch, with prior skill preimages preserved outside discovery.
+- Preserved adapter contracts while qualifying current cache generations,
+  language-salted keys and native no-change provenance. Isolated Python imports,
+  six-file publication, local-only DVC behavior and finalize rollback remain tested.
+- Validation: 96 scoped tests passed, including genuine 0.9.97 adapter behavior,
+  OpenCode 2.1.2 skill discovery, caller-module rejection, preserved-version
+  fixtures and unchanged DKS pins. Native candidate parsing/import evidence also
+  covers installed Python 3.13.1 and 3.14.9; no broader platform claim is made.
+- The single update runbook covers actual uv ownership, preserved extras, active
+  cycle pins and approved recovery. Direct requirements are not a full transitive
+  hash lock. Host declaration removal and live activation remain separate slices.
+- No live apply, upgrade, deletion, provider request or real-project graph rebuild.
+  No Gate Exceptions approved. Gate Commits and retained failed/replacement evidence
+  belong to the private `GRAPHIFY-GLOBAL-SOURCE` Cycle Record. Intended Final Push:
+  feature branch and draft PR into `Saltiola7/dotfiles-ai:main`; actual delivery is
+  recorded privately and reported separately.
+
 ## 2026-10-29 — Skill discovery and OSV data verification
 
 - Verified all six installed shared skills with a fresh native catalog read and

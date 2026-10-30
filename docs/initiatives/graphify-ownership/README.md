@@ -98,3 +98,31 @@ early to manufacture launch readiness.
 | Schema | not_applicable: existing schema-1 Initiative shape; no new runtime schema |
 | Dependency/deployment | required: delivered dependencies and separate activation in that table |
 | Quantitative | not_applicable: no measured performance or fleet-health claim |
+
+## Global-source implementation evidence
+
+The Discovery sections above preserve launch-time authority; this section records
+implementation evidence, not a scope or activation change. The private
+`GRAPHIFY-GLOBAL-SOURCE` Cycle Record owns current gates and actual delivery.
+
+- The source hook owns the single native recipe and retains healthy installed
+  runtimes. Its isolated native installer publishes only a complete matching skill;
+  project-local plugins/configuration remain outside managed targets.
+- Passed 96 affected-scope tests: installer/profile/admission and preservation
+  checks, native OpenCode 2.1.2 discovery, genuine Graphify 0.9.97 cache/provenance
+  and rollback cases, preserved-version fixtures, controller receipts, DKS pins,
+  runbook links and publication. Failed-first and interrupted/harness evidence
+  remains retained; a persistent private server resolved the cold-registry test
+  race without changing live OpenCode configuration or creating a session.
+- Retained isolated qualification covers exact candidate imports, Python/SQL/HCL/R
+  parsing, native update/query and the complete packaged skill. Full native
+  update/query/skill checks used Python 3.13.1; additional Python 3.14.9 evidence
+  covers imports/parsers/cache behavior only. No other platform is qualified.
+- Direct requirements and uv receipts are not a full transitive hash lock.
+  Native skill discovery proves metadata registration, not inference/tool execution.
+  No provider calls, live installation, deletion, DKS change or real graph rebuild
+  occurred. No Gate Exception is approved.
+
+The next source handoff still requires delivered global source, fresh host
+authority/preflight and exact launch approval. Neither this evidence nor draft
+delivery authorizes live activation or source removal in the host repository.
