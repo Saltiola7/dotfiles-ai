@@ -1412,3 +1412,13 @@ queue delivery and idle wake require qualification. Task checkout and native
 session location remain separate bindings; caller identity remains unavailable
 without independent proof. The feature is default-off and grants no new native
 permission, provider, model or lifecycle authority.
+
+The independently opted-in [PR-Agent review contract](../continuous_validation/PR-AGENT.md)
+adds a typed advisory completion reference for a successfully executed review.
+Only a controller-validated private artifact locator and complete/partial
+disposition may enter the existing queue; raw model findings remain untrusted
+private artifacts. A model finding is not a failed test or formal gate result.
+Existing service ownership, exact-target, intent-journal, freshness and runtime
+qualification guards remain required. PR-Agent uses Vertex directly; this
+extension does not run OpenCode inside the review worker or turn its session API
+into a model proxy.

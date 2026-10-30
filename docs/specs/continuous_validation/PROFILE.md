@@ -80,3 +80,30 @@ default-off, with no automatic worker/service start. Complete-identity receipts
 are required for new parity qualification; older observations stay readable and
 unqualified for that claim. Native credentials, transcripts and consumer identities
 remain private; no paid provider evaluation is introduced.
+
+## Optional Vertex review follow-up
+
+[PR-AGENT.md](PR-AGENT.md) adds a separately default-off, controller-owned
+advisory review capability. Python, Security, ML/AI and the existing local-runtime
+Cloud controls apply. A pinned PR-Agent image reviews a bounded immutable patch
+inside the existing local Dagger worker. Repository test adapters, selectors,
+coverage and formal gates retain their existing authority.
+
+Vertex uses the existing isolated credential owner and interactive authentication
+on the operator's Mac. An explicitly selected authorized-user ADC may be passed
+to the pinned review process as an ephemeral Dagger secret. This transfers a
+refresh-capable credential into the isolated worker for that execution; it is not
+a token-only or Mac-exclusive credential guarantee. No host credential directory,
+implicit credential discovery or unattended interactive login is permitted.
+Provider project, location, model and disclosure scope must be configured
+explicitly before inference. The ordinary disabled path performs no credential
+lookup, installation or provider call.
+
+The source/install slice permits private runtime installation and bounded
+offline or synthetic-provider qualification. It performs no live Vertex
+inference, private-source upload or GCP provisioning. Real provider evaluation,
+model quality and metered cost remain separately qualified activation concerns.
+Existing exact-session transports may deliver explicitly opted-in advisory
+completion references; successful review findings never become failed tests or
+formal gate evidence. Local OpenCode is a feedback client, not an inference
+proxy in this slice.

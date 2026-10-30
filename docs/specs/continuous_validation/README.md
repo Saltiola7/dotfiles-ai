@@ -708,3 +708,20 @@ the existing records with post-commit enqueue, typed exact-target Codex/OpenCode
 transports and explicit complete test-identity receipts. Its activation requires
 fresh regression and native runtime evidence. Earlier local-shadow qualification
 does not establish automatic checkpoint hooks or newly installed CLI behavior.
+
+## Optional Vertex advisory review
+
+The separately default-off [PR-Agent review contract](PR-AGENT.md) adds a
+controller-owned review capability alongside repository checks. It uses the
+same immutable snapshots and shared expensive admission budget at checkpoints or
+manual requests. Repository adapters and deterministic validation remain
+unchanged. The feature contract owns the additional provider-disclosure flow,
+private review artifacts and explicitly opted-in advisory completion references;
+the existing diagram above continues to describe repository-check execution.
+
+Interactive Vertex authentication belongs to the existing isolated local
+credential owner. The native review route uses an explicitly selected ephemeral
+Dagger credential secret, with its transfer and revocation boundaries stated in
+the feature contract. Installation does not select credentials, enable review,
+start an interactive login or authorize a live provider call. The initial
+source/install qualification uses offline or synthetic-provider fixtures.
