@@ -1,5 +1,41 @@
 # Continuous Validation Changelog
 
+## 2026-10-30 — CVS-PRAGENT-003: private Vertex review capability
+
+Add original PR-Agent as an independently default-off, controller-owned expensive
+check for checkpoint/manual requests. Construct bounded patches from immutable
+captured inputs, including dirty changes and literal Git filenames. Preserve
+repository test adapters, affected selection and shared admission. Uncertain
+termination stays charged; no automatic replay or provider fallback is added.
+
+Use the digest-pinned upstream image through the existing isolated Dagger worker.
+Validate explicit private Vertex configuration and authorized-user ADC custody;
+interactive renewal remains the foreground Mac `vertex-reauth` owner's job.
+Credential and source disclosure require separately activated real inference.
+Installation and synthetic qualification read no real ADC and call no paid model.
+
+Validate private Markdown/JSON artifacts and bind typed completion references to
+their hashes and coverage. Separately opted-in Codex/OpenCode CLI feedback reuses
+existing exact-session and freshness checks. Findings remain untrusted advisory
+data and cannot pass tests, formal gates or delivery checks. Preserve legacy
+failure feedback and reject stale, substituted or malformed artifacts.
+
+Validation includes red/green boundary regressions, 542 passing affected tests
+with one skip on each of Python 3.12 and 3.14, publication checks, private
+default-off installation and real Linux ARM Dagger help/synthetic output checks.
+Native completion qualification uses isolated synthetic recipients; exact
+results, versions, failed attempts and cleanup remain private. These checks do
+not establish real Vertex availability, model quality, full CI parity, AMD64,
+GCP or a measured speedup.
+
+Modules are Python, Security, ML/AI and existing local Cloud controls. No Gate
+Exception is approved. Pin changes require regression and runtime requalification;
+disable enrollment before stopping owned work, retain private reports/journals,
+and keep credential revocation and data disposal with their existing owners.
+Contract Gate Commit is `9406f45`; final commits and installation identities stay
+in the Cycle Record. Delivery intent is branch
+`dbsctr/continuous_validation/CVS-PRAGENT-003` as a draft PR into `main`.
+
 ## 2026-10-29 — Bounded native command cleanup
 
 Keep native feedback cleanup fail closed when process-group signalling raises

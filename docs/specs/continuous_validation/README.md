@@ -1,7 +1,8 @@
 # Continuous Validation
 
 **Status:** implemented default-off local advisory shadow with explicit checkpoint
-hooks, complete test-identity receipts and typed Codex/OpenCode CLI feedback.
+hooks, complete test-identity receipts, typed Codex/OpenCode CLI feedback and
+independently opted-in PR-Agent review.
 Native transports and local ARM execution have bounded synthetic qualification;
 exact runtime evidence remains private. Qualification does not cover closed
 noninteractive sessions, arbitrary versions, production tasks, native amd64,
@@ -708,3 +709,29 @@ the existing records with post-commit enqueue, typed exact-target Codex/OpenCode
 transports and explicit complete test-identity receipts. Its activation requires
 fresh regression and native runtime evidence. Earlier local-shadow qualification
 does not establish automatic checkpoint hooks or newly installed CLI behavior.
+
+## Optional Vertex advisory review
+
+The separately default-off [PR-Agent review contract](PR-AGENT.md) adds a
+controller-owned review capability alongside repository checks. It uses the
+same immutable snapshots and shared expensive admission budget at checkpoints or
+manual requests. Repository adapters and deterministic validation remain
+unchanged. The feature contract owns the additional provider-disclosure flow,
+private review artifacts and explicitly opted-in advisory completion references;
+the existing diagram above continues to describe repository-check execution.
+
+Interactive Vertex authentication belongs to the existing isolated local
+credential owner. The native review route uses an explicitly selected ephemeral
+Dagger credential secret, with its transfer and revocation boundaries stated in
+the feature contract. Installation does not select credentials, enable review,
+start an interactive login or authorize a live provider call. The initial
+source/install qualification uses offline or synthetic-provider fixtures.
+
+Installation records a private package generation and leaves review disabled.
+Synthetic qualification exercises the selected image/output and session paths
+without establishing real-model availability or quality. Real activation requires
+separately authorized private configuration and `--reviews --review-config FILE`;
+completion messages also require `--review-feedback` and the existing exact-session
+feedback qualification. No edit-triggered check starts a review. See the feature
+contract's [operator workflow](PR-AGENT.md#installation-and-operator-workflow) for
+authentication, checkpoint opt-in, bounded evaluation and disable controls.

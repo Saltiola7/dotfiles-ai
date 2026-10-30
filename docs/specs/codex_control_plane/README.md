@@ -586,3 +586,12 @@ queue transport. Session association remains distinct from the selected task
 checkout and does not authenticate the caller. Queue acceptance is not consumption.
 Existing permissions, safe-boundary repair scope and closed-task suppression remain
 authoritative; no model override, fork, fallback or competing resume is introduced.
+
+The independently opted-in [PR-Agent review contract](../continuous_validation/PR-AGENT.md)
+adds a typed advisory completion reference for a successfully executed review.
+Only a controller-validated private artifact locator and complete/partial
+disposition may enter the existing queue; raw model findings remain untrusted
+private artifacts. A model finding is not a failed test or formal gate result.
+The same exact-target, intent-journal, freshness and runtime-qualification guards
+apply. This extension does not supply a model backend to PR-Agent or authorize a
+new native session, provider call or broader repair scope.

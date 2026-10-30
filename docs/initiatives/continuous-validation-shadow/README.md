@@ -88,3 +88,28 @@ freshness, and native control planes own transport. See the normative
 [follow-up contract](../../specs/continuous_validation/SESSION-HOOKS.md) and its
 explicit default-off activation and bounded qualification requirements. This is
 source readiness, not a claim that hooks or current native transports are active.
+
+## Optional Vertex review follow-up
+
+The `vertex-pr-agent-review` slice adds an independently default-off PR-Agent
+review at opted-in checkpoints or manual requests, using the same immutable
+snapshot and shared local admission authority. The controller owns this generic
+diagnostic capability; repository test adapters remain unchanged. The
+[review contract](../../specs/continuous_validation/PR-AGENT.md) defines pinned
+image execution, private advisory artifacts, explicit Vertex configuration and
+existing-session completion references.
+
+Interactive authentication stays with the existing isolated credential owner
+on the operator's Mac. The native Vertex route explicitly transfers an
+authorized-user ADC as an ephemeral Dagger secret to the pinned review process;
+it does not mount the host credential directory or claim token-only isolation.
+Authentication renewal never starts from a background review. OpenCode receives
+bounded private review references through its qualified existing-session route;
+using OpenCode as an inference proxy is deferred.
+
+This source/install slice includes bounded offline and synthetic-provider
+qualification. It makes no live provider call, private-source disclosure,
+metered-model-quality claim, remote-compute rollout or global activation.
+Configuration and interactive authentication must be established before a later
+explicit real-provider qualification. Existing CI and formal gate authority
+remain unchanged.
