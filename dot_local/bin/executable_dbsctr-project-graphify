@@ -57,6 +57,7 @@ LOCAL_PATH=$(printf '%s:%s:%s:%s:/usr/bin:/bin' \
   "${GRAPHIFY%/*}" "${GIT%/*}" "${UV%/*}" "${PYTHON%/*}")
 
 run_local() {
+  # Pre-pin upstream's seed so its module re-exec cannot import project graphify.py.
   /usr/bin/env -i \
     HOME="${HOME:?}" \
     TMPDIR="${TMPDIR:-/tmp}" \
@@ -65,6 +66,7 @@ run_local() {
     LANG=C.UTF-8 \
     LC_ALL=C \
     DVC_NO_ANALYTICS=1 \
+    PYTHONHASHSEED=0 \
     GRAPHIFY_LLM_TEMPERATURE=none \
     GRAPHIFY_OUT=graphify-out \
     "$@"
@@ -94,7 +96,7 @@ while IFS= read -r line; do
   fi
 done <<<"$LAST_OUTPUT"
 ((version_matches == 1)) || die "Graphify version mismatch: ${LAST_OUTPUT: -1000}"
-run_local "$GRAPHIFY_PYTHON" -c \
+run_local "$GRAPHIFY_PYTHON" -I -B -c \
   'import boto3, tree_sitter_hcl, tree_sitter_language_pack, tree_sitter_sql' >/dev/null 2>&1 ||
   die "Graphify runtime additions are missing"
 
@@ -403,7 +405,48 @@ PY
   fi
 fi
 
-cache_snapshot=$(run_local "$PYTHON" - "$DBSCTR_GRAPHIFY_VERSION" <<'PY'
+if [[ $DBSCTR_GRAPHIFY_VERSION == "0.9.97" ]]; then
+  cache_snapshot=$(run_local "$GRAPHIFY_PYTHON" -I -B - <<'PY'
+import contextlib
+import io
+import json
+from pathlib import Path
+
+from graphify.cache import load_cached
+from graphify.detect import _md5_file, _to_relative_for_storage, detect
+from graphify.extract import _get_extractor, _JS_CACHE_BYPASS_SUFFIXES
+from graphify.rcfile import cache_salt, effective_suffix
+from graphify.watch import _read_build_excludes, _read_build_gitignore
+
+root = Path.cwd().resolve()
+out = root / "graphify-out"
+accepted = {}
+# Native lookup selects this runtime's schema/grammar epoch and language-salted key.
+# It may maintain the disposable cache, so run only after the safety guards above.
+with contextlib.redirect_stdout(io.StringIO()):
+    detected = detect(root, extra_excludes=_read_build_excludes(out) or None,
+                      gitignore=_read_build_gitignore(out), google_workspace=False)
+    for kind in ("code", "document", "paper"):
+        for raw in detected["files"].get(kind, []):
+            path = Path(raw)
+            try:
+                if (path.is_symlink() or not path.resolve().is_relative_to(root)
+                        or _get_extractor(path) is None
+                        or effective_suffix(path) in _JS_CACHE_BYPASS_SUFFIXES):
+                    continue
+                cached = load_cached(path, root, cache_root=root, salt=cache_salt(path))
+                if (not isinstance(cached, dict) or cached.get("partial") or cached.get("error")
+                        or not isinstance(cached.get("nodes"), list)
+                        or not isinstance(cached.get("edges"), list)):
+                    continue
+                accepted[_to_relative_for_storage(str(path), root)] = _md5_file(path)
+            except (OSError, ValueError):
+                continue
+print(json.dumps(accepted, separators=(",", ":")))
+PY
+  ) || die "cannot inspect Graphify cache"
+else
+  cache_snapshot=$(run_local "$PYTHON" - "$DBSCTR_GRAPHIFY_VERSION" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -416,18 +459,20 @@ for path in Path(f"graphify-out/cache/ast/v{sys.argv[1]}-s2").glob("*.json"):
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         continue
-    if isinstance(value, dict) and value.get("partial"):
+    if not isinstance(value, dict) or value.get("partial") or value.get("error"):
         continue
     accepted.append(path.stem)
 print(json.dumps(accepted, separators=(",", ":")))
 PY
-) || die "cannot inspect Graphify cache"
+  ) || die "cannot inspect Graphify cache"
+fi
 
 LAST_OUTPUT=""
 run_checked "Graphify update failed" "$GRAPHIFY" update . || die "Graphify update failed"
 validate_tree graphify-out || die "Graphify created an unsafe path"
 no_change=0
-[[ $LAST_OUTPUT == *"No code-graph"*"changes detected"* ]] && no_change=1
+[[ $LAST_OUTPUT == *"No code-graph"*"changes detected"* ||
+   $LAST_OUTPUT == *"[graphify watch] No relevant changes; graphify-out left untouched."* ]] && no_change=1
 head=$(run_local "$GIT" rev-parse HEAD) || die "cannot read current HEAD"
 prior_revision=$(run_local "$PYTHON" - <<'PY'
 from pathlib import Path
@@ -508,14 +553,18 @@ import sys
 
 root = Path("graphify-out")
 required = {".gitignore", "GRAPH_REPORT.md", "cost.json", "graph.json", "graph.json.dvc", "manifest.json"}
-accepted = set(json.loads(sys.argv[1]))
+accepted = json.loads(sys.argv[1])
 manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
 if not isinstance(manifest, dict):
     raise SystemExit(1)
-hashes = [entry.get("ast_hash") for entry in manifest.values() if isinstance(entry, dict)]
-hashes = [value for value in hashes if isinstance(value, str) and value]
-hits = sum(value in accepted for value in hashes)
-misses = len(hashes) - hits
+entries = [(name, entry.get("ast_hash")) for name, entry in manifest.items() if isinstance(entry, dict)]
+entries = [(name, value) for name, value in entries if isinstance(value, str) and value]
+if isinstance(accepted, dict):
+    hits = sum(accepted.get(name) == value for name, value in entries)
+else:
+    accepted = set(accepted)
+    hits = sum(value in accepted for _name, value in entries)
+misses = len(entries) - hits
 
 for path in list(root.iterdir()):
     if path.name in required:

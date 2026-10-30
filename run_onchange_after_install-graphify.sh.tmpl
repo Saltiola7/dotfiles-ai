@@ -1,0 +1,186 @@
+#!/bin/bash
+set -euo pipefail
+{{ if not (and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64")) -}}
+exit 0
+{{ else -}}
+UV=$(type -P uv) || { echo 'Graphify requires uv from its existing installer owner.' >&2; exit 1; }
+PYTHON=$("$UV" python find --system --offline --no-python-downloads '>=3.12,<3.15') || {
+    echo 'Graphify requires installed Python 3.12–3.14; no interpreter was downloaded.' >&2
+    exit 1
+}
+"$PYTHON" -I -B - <<'PY'
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import tomllib
+
+# Single bootstrap recipe. Existing native installations are never upgraded here.
+VERSION = "0.9.97"
+ADDITIONS = ("anthropic[vertex]", "boto3", "tree-sitter-hcl",
+             "tree-sitter-language-pack==0.11.0", "tree-sitter-sql")
+home = Path.home()
+environment = {name: value for name, value in os.environ.items() if name in {
+    "PATH", "HOME", "TMPDIR", "UV_TOOL_DIR", "UV_TOOL_BIN_DIR", "UV_CACHE_DIR",
+    "XDG_DATA_HOME", "XDG_CACHE_HOME",
+}}
+environment.update(PYTHONDONTWRITEBYTECODE="1", PYTHONNOUSERSITE="1", LANG="C.UTF-8")
+
+
+def refuse(message):
+    raise ValueError(message + "; see docs/UPDATES.md")
+
+
+def run(*arguments, env=environment, cwd=None, private=False):
+    command = arguments
+    if private:
+        profile = ('(version 1) (allow default) (deny network*) (deny file-write*) '
+                   '(allow file-write* (subpath %s))') % json.dumps(str(Path(env["HOME"]).resolve()))
+        command = ("/usr/bin/sandbox-exec", "-p", profile, *arguments)
+    result = subprocess.run(command, env=env, cwd=cwd, stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True)
+    if result.returncode:
+        refuse("native " + Path(arguments[0]).name + " check/install failed; retain its state")
+    return result.stdout.strip()
+
+
+def files(root):
+    if root.is_symlink() or not root.is_dir():
+        refuse("unsafe Graphify skill directory")
+    result = {}
+    for path in root.rglob("*"):
+        if path.is_symlink() or not (path.is_dir() or path.is_file()):
+            refuse("unsafe Graphify skill member")
+        if path.is_file():
+            result[path.relative_to(root).as_posix()] = path.read_bytes()
+    return result
+
+
+def directory(path):
+    if os.path.lexists(path):
+        details = path.lstat()
+        if path.is_symlink() or not path.is_dir() or details.st_uid != os.getuid() or details.st_mode & 0o022:
+            refuse("unsafe Graphify skill owner or permissions")
+
+
+try:
+    if not os.access("/usr/bin/sandbox-exec", os.X_OK):
+        refuse("native macOS sandbox is unavailable")
+    destination = home / ".config/opencode/skills/graphify"
+    config = destination.parent.parent
+    for path in (config, destination.parent, destination, config / "graphify-backups"):
+        directory(path)
+    before = files(destination) if destination.exists() else None
+    uv = shutil.which("uv")
+    if not uv:
+        refuse("Graphify requires uv from its existing installer owner")
+    roots = {Path(run(uv, "tool", "dir")), home / ".local/share/uv/tools"}
+    if any(not root.is_absolute() for root in roots):
+        refuse("uv returned an unresolved tool root")
+    candidates = set()
+    for raw in os.get_exec_path():
+        path = Path(raw) / "graphify"
+        if os.path.lexists(path):
+            if not path.is_file() or not os.access(path, os.X_OK):
+                refuse("broken Graphify executable remains on PATH")
+            candidates.add(path.resolve(strict=True))
+    if len(candidates) > 1:
+        refuse("multiple Graphify executable owners remain on PATH")
+    if not candidates:
+        binary_directory = Path(run(uv, "tool", "dir", "--bin"))
+        if not binary_directory.is_absolute() or os.path.lexists(binary_directory / "graphify"):
+            refuse("unresolved or orphaned Graphify entry point")
+        if any(os.path.lexists(root / "graphifyy") for root in roots):
+            refuse("orphaned Graphify tool environment remains")
+        arguments = [uv, "tool", "install", "--no-config", "--default-index", "https://pypi.org/simple",
+                     "--no-python-downloads", "--python", sys.executable, "graphifyy==" + VERSION]
+        for requirement in ADDITIONS:
+            arguments.extend(("--with", requirement))
+        run(*arguments)
+        executable = shutil.which("graphify", path=str(binary_directory))
+        if not executable:
+            refuse("native uv installation produced no Graphify entry point")
+        candidates.add(Path(executable).resolve(strict=True))
+    executable, = candidates
+    runtime = executable.parent.parent
+    directory(runtime)
+    directory(executable.parent)
+    if any(os.path.lexists(root / "graphifyy") and (root / "graphifyy").resolve() != runtime
+           for root in roots):
+        refuse("conflicting Graphify tool roots remain")
+    receipt = runtime / "uv-receipt.toml"
+    if (receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_uid != os.getuid()
+            or receipt.stat().st_mode & 0o022):
+        refuse("Graphify has no identifiable native uv owner")
+    tool = tomllib.loads(receipt.read_text())["tool"]
+    if (not isinstance(tool, dict) or not isinstance(tool.get("entrypoints"), list)
+            or not isinstance(tool.get("requirements"), list)
+            or any(not isinstance(item, dict) for item in tool["entrypoints"] + tool["requirements"])):
+        refuse("Graphify native receipt is malformed")
+    entries = [item for item in tool["entrypoints"] if item.get("name") == "graphify"]
+    if (len(entries) != 1 or Path(entries[0]["install-path"]).resolve() != executable
+            or not any(item.get("name") == "graphifyy" for item in tool["requirements"])):
+        refuse("Graphify receipt does not match the selected executable")
+    python = runtime / "bin/python"
+    if not python.is_file() or not os.access(python, os.X_OK):
+        refuse("Graphify Python runtime is unavailable")
+    with tempfile.TemporaryDirectory(prefix="graphify-skill-") as scratch:
+        scratch = Path(scratch).resolve()
+        isolated = {**environment, "HOME": str(scratch), "TMPDIR": str(scratch)}
+        probe = run(str(python), "-I", "-B", "-c", """
+import importlib.metadata, json, sys
+from pathlib import Path
+import graphify, boto3, tree_sitter_hcl, tree_sitter_language_pack, tree_sitter_sql
+from anthropic.lib.vertex import AnthropicVertex
+print(json.dumps({"version": importlib.metadata.version("graphifyy"),
+                  "prefix": sys.prefix, "package": str(Path(graphify.__file__).parent)}))
+""", env=isolated, cwd=scratch, private=True)
+        identity = json.loads(probe)
+        version, package = identity["version"], Path(identity["package"])
+        if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", version)
+                or Path(identity["prefix"]).resolve() != runtime
+                or not package.resolve().is_relative_to(runtime)):
+            refuse("Graphify package/interpreter identity mismatch")
+        expected = {"SKILL.md": (package / "skill-opencode.md").read_bytes()}
+        expected.update({"references/" + name: body for name, body in
+                         files(package / "skills/opencode/references").items()})
+        output = run(str(executable), "--version", env=isolated, cwd=scratch, private=True)
+        if output.splitlines().count("graphify " + version) != 1:
+            refuse("Graphify executable/package version mismatch")
+        run(str(executable), "install", "--platform", "opencode", env=isolated, cwd=scratch, private=True)
+        staged = scratch / ".config/opencode/skills/graphify"
+        actual = files(staged)
+        marker = actual.get(".graphify_version", b"")
+        if marker.strip() != version.encode() or actual != {**expected, ".graphify_version": marker}:
+            refuse("native Graphify skill bundle does not match its package")
+        if before != actual:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix=".graphify-stage-", dir=config) as pending:
+                prepared = Path(pending) / "graphify"
+                shutil.copytree(staged, prepared)
+                if prepared.stat().st_dev != destination.parent.stat().st_dev:
+                    refuse("Graphify skill storage needs an explicit cross-filesystem recovery plan")
+                if (files(destination) if destination.exists() else None) != before:
+                    refuse("Graphify skill changed during preparation")
+                preimage = None
+                if before is not None:
+                    backups = config / "graphify-backups"
+                    backups.mkdir(mode=0o700, exist_ok=True)
+                    backups.chmod(0o700)
+                    preimage = Path(tempfile.mkdtemp(prefix="skill-", dir=backups)) / "graphify"
+                    destination.rename(preimage)
+                try:
+                    prepared.rename(destination)
+                except OSError:
+                    if preimage is not None and not os.path.lexists(destination):
+                        preimage.rename(destination)
+                    raise
+    print("Graphify " + version + ": matching OpenCode skill verified")
+except (OSError, ValueError, KeyError, TypeError) as error:
+    sys.exit("graphify: " + str(error))
+PY
+{{ end -}}
