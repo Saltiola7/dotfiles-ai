@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Distribution source consumes an upstream native tool and publishes no independent package or release."},
+    "deploy": {"applicability": "not_applicable", "reason": "Source-only draft PR under the distribution profile; no live apply, CLI upgrade, skill installation or ownership removal. Exact Mac activation is separately approved."},
+    "operate": {"applicability": "not_applicable", "reason": "Source-only delivery changes no live runtime or service; isolated candidate and adapter fixtures do not establish host operation."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

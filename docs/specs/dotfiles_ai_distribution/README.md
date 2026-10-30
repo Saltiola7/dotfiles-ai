@@ -209,6 +209,12 @@ explicit service-change boundaries. The private `DEPENDENCY-MAINTENANCE` Cycle
 Record owns final gates/delivery and bounded inventory observations. Source
 delivery does not install the skill or qualify unavailable guest/model services.
 
+**Graphify ownership Discovery:** the [global source contract](features/graphify-ownership.md)
+assigns the native CLI/dependency recipe, matching OpenCode skill and update runbook
+to this context. Host declaration removal is dependent source-only work; disabled
+DKS 0.9.48, existing graphs and active-cycle pins remain unchanged. Qualification,
+source gates and separately approved live activation remain pending.
+
 **Shared sprint ticket refinement skill:** the source-owned
 `dot_agents/skills/sprint-ticket-refinement/` bundle installs
 through chezmoi to `~/.agents/skills/sprint-ticket-refinement/`, alongside its
