@@ -1,7 +1,8 @@
 # Continuous Validation
 
 **Status:** implemented default-off local advisory shadow with explicit checkpoint
-hooks, complete test-identity receipts and typed Codex/OpenCode CLI feedback.
+hooks, complete test-identity receipts, typed Codex/OpenCode CLI feedback and
+independently opted-in PR-Agent review.
 Native transports and local ARM execution have bounded synthetic qualification;
 exact runtime evidence remains private. Qualification does not cover closed
 noninteractive sessions, arbitrary versions, production tasks, native amd64,
@@ -725,3 +726,12 @@ Dagger credential secret, with its transfer and revocation boundaries stated in
 the feature contract. Installation does not select credentials, enable review,
 start an interactive login or authorize a live provider call. The initial
 source/install qualification uses offline or synthetic-provider fixtures.
+
+Installation records a private package generation and leaves review disabled.
+Synthetic qualification exercises the selected image/output and session paths
+without establishing real-model availability or quality. Real activation requires
+separately authorized private configuration and `--reviews --review-config FILE`;
+completion messages also require `--review-feedback` and the existing exact-session
+feedback qualification. No edit-triggered check starts a review. See the feature
+contract's [operator workflow](PR-AGENT.md#installation-and-operator-workflow) for
+authentication, checkpoint opt-in, bounded evaluation and disable controls.

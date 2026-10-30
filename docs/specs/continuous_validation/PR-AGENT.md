@@ -1,10 +1,11 @@
 # PR-Agent advisory review with Vertex
 
-**Readiness: ready for launch preflight; unregistered and uninstalled.** The
-operator selected Vertex and interactive authentication on the local computer,
-with OpenCode support where available. This contract defines the implementation
-slice. Exact digest-bound launch approval is still required before implementation;
-this document passes no lifecycle gate and activates no runtime.
+**Status: implemented as an independently default-off advisory capability.**
+PR-Agent calls Vertex directly; existing OpenCode and Codex CLI sessions receive
+qualified private completion references. Installation, synthetic runtime
+qualification and real-provider activation are separate states. Exact deployed
+identities and current qualification results remain in private lifecycle evidence;
+this document passes no gate or activates a runtime.
 
 ## Purpose, scope, and ownership
 
@@ -36,6 +37,50 @@ GitHub review/comment publication, automatic merge, test waiver, or authoritativ
 evidence reuse. Draft PR publication of the reviewed source is the delivery route.
 Real inference requires local interactive authentication, explicit private runtime
 configuration, source-disclosure opt-in, and a separately bounded activation.
+
+## Installation and operator workflow
+
+The shared continuous-validation package owns installation. An isolated pilot may
+copy its tracked package files into a private, digest-named generation and use an
+absolute entrypoint under the existing isolated SDK interpreter. Record the file
+hashes, interpreter and entrypoint in a private installation receipt; exclude
+bytecode caches. This does not replace global commands or configuration, enroll a
+worktree, start a service or authenticate to Vertex. `status --json` without an
+enrollment returns disabled. The backend without `--enabled` returns
+`shadow_disabled` without reading its request or credentials.
+
+Explicit operator-only backend `--enabled --qualify help` and
+`--enabled --qualify synthetic` modes accept the closed request on standard input.
+They exercise the pinned container without reading ADC or contacting Vertex.
+Synthetic qualification uses a fixed local handler and synthetic diff; it proves
+the tool/output route, not review quality. Qualification is not selectable through
+repository adapters or enrollment configuration.
+
+For a separately bounded real pilot:
+
+1. Run the existing `vertex-reauth` owner in a foreground Mac terminal and complete
+   its interactive flow. Do not trigger login from the background worker.
+2. Select a supported exact model, project, location, owned isolated ADC and
+   positive source patterns in the closed private configuration. Its
+   `real_inference_enabled` stays `false` until the disclosure/spend scope is
+   authorized. The ADC quota project must match the selected project.
+3. Enroll only the intended open task with `--enable-shadow --reviews
+   --review-config FILE` alongside the ordinary required enrollment arguments.
+   Review completion additionally requires `--review-feedback` and existing
+   `--feedback-qualification FILE` for the exact typed client/session. Checkpoint
+   hooks require their separate `--checkpoints` opt-in.
+4. Submit one bounded checkpoint or manual request. Inspect coverage, artifacts,
+   timing and available usage before broadening the experiment. A missing real
+   configuration or unactivated inference flag produces unavailable, not a clean
+   review. Credential renewal requires a fresh explicit request; no automatic
+   replay follows reauthentication.
+
+Disable the enrollment with `stop --enrollment FILE` to stop new admission, or
+create a fresh enrollment without review/feedback flags for tests-only use.
+Confirm owned execution has terminated before separately stopping the dedicated
+worker. Preserve reports, send journals, installation receipts and ADC under their
+existing owners; disabling does not delete them. Image/dependency or supported
+transport changes require affected regression and fresh runtime qualification.
 
 ## Pinned upstream route
 
