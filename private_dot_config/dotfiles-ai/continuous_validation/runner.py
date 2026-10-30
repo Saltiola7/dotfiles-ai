@@ -41,7 +41,8 @@ ENROLLMENT_FIELDS = {
     "adapter_python", "adapter_config", "repository_id", "session_id", "cycle_id",
     "base", "state_dir", "feedback_enabled", "feedback_qualification", "feedback_qualification_receipt", "max_running",
     "max_expensive", "debounce_seconds", "max_debounce_seconds", "load_limit",
-    "admission_timeout_seconds", "client", "checkpoints_enabled",
+    "admission_timeout_seconds", "client", "checkpoints_enabled", "reviews_enabled",
+    "review_config", "review_feedback_enabled",
 }
 CHECK_FIELDS = {"id", "class", "backend", "lane", "timeout_seconds", "cacheable", "configuration"}
 LANE_FIELDS = {"os", "architecture", "python", "tools", "dependencies"}
@@ -320,6 +321,20 @@ def validate_enrollment(value):
         version_key = "codex_version" if "codex_version" in receipt else "client_version"
         if qualification != {"transport": receipt["transport"], version_key: receipt[version_key], "qualified": True}:
             raise ValidationError("invalid_feedback_receipt")
+    for name in ("reviews_enabled", "review_feedback_enabled"):
+        value.setdefault(name, False)
+        if type(value[name]) is not bool:
+            raise ValidationError("invalid_review_flag")
+    if value["review_feedback_enabled"] and (not value["reviews_enabled"] or not value["feedback_enabled"]):
+        raise ValidationError("invalid_review_feedback")
+    if value["reviews_enabled"]:
+        try:
+            from . import pr_agent_review
+            value["review_config"] = pr_agent_review.validate_config(value.get("review_config"))
+        except (ImportError, ValueError):
+            raise ValidationError("invalid_review_config") from None
+    elif "review_config" in value:
+        raise ValidationError("invalid_review_config")
     if value.get("load_limit") is not None and (type(value["load_limit"]) not in {int, float} or value["load_limit"] <= 0):
         raise ValidationError("invalid_load_limit")
     return value
@@ -811,6 +826,8 @@ def validate_manifest(value):
     for check in value["checks"]:
         closed(check, CHECK_FIELDS, CHECK_FIELDS)
         identifier(check["id"])
+        if check["id"] == "pr-agent-review":
+            raise ValidationError("reserved_review_check")
         if check["id"] in seen or check["class"] not in {"cheap", "expensive"} or check["backend"] not in {"native", "dagger"}:
             raise ValidationError("invalid_check")
         seen.add(check["id"])
@@ -934,6 +951,15 @@ def _run_request(request):
             or type(selection["complete"]) is not bool):
         raise ValidationError("invalid_selection")
     text(selection["reason"], 4096)
+    if enrollment.get("reviews_enabled") is True and request["trigger"] in {"checkpoint", "manual"}:
+        from . import pr_agent_review
+        check = pr_agent_review.descriptor(enrollment["review_config"])
+        manifest = {**manifest, "checks": [*manifest["checks"], check]}
+        checks[check["id"]] = check
+        selection = {**selection, "checks": [*selection["checks"], check["id"]]}
+        event(state, {"type": "review_selected", "request_id": request_id,
+                      "snapshot_id": snapshot["id"], "check_id": check["id"],
+                      "reason": "explicit_checkpoint_or_manual_review_opt_in"})
     event(state, {"type": "selected", "request_id": request_id, "snapshot_id": snapshot["id"], "checks": selection["checks"], "complete": selection["complete"]})
     observations = []
     pending = [] if selection["complete"] else ["selection_incomplete"]
@@ -977,7 +1003,18 @@ def _run_request(request):
                     executed = True
                     execution_started = time.monotonic()
                     try:
-                        result = adapter_call(enrollment, "execute", {"schema_version": 1, "snapshot": snapshot["path"], "base": snapshot["base"], "trigger": request["trigger"], "check": check, "log_path": str(log_path)}, Path(snapshot["path"]), state, cancel, check["timeout_seconds"])
+                        if check_id == "pr-agent-review":
+                            from . import pr_agent_review
+                            try:
+                                result = pr_agent_review.execute(enrollment, snapshot, log_path, cancel=cancel)
+                            except (Interrupted, UncertainTermination):
+                                raise
+                            except ValueError as error:
+                                code = str(error)
+                                raise ValidationError(code if re.fullmatch(r"pr_agent_[a-z0-9_]{1,96}", code)
+                                                      else "pr_agent_execution_unavailable") from None
+                        else:
+                            result = adapter_call(enrollment, "execute", {"schema_version": 1, "snapshot": snapshot["path"], "base": snapshot["base"], "trigger": request["trigger"], "check": check, "log_path": str(log_path)}, Path(snapshot["path"]), state, cancel, check["timeout_seconds"])
                     finally:
                         execution_seconds = time.monotonic() - execution_started
                 closed(result, {"schema_version", "check_id", "status", "exit_code", "runtime", "test_ids", "diagnostic_codes"}, {"schema_version", "check_id", "status", "exit_code", "runtime", "test_ids", "diagnostic_codes"})
@@ -1019,7 +1056,10 @@ def _run_request(request):
         write_private(records / (observation_id + ".json"), result)
         if reuse and result["status"] == "passed" and not result["cache_reused"]:
             write_private(cache, result)
-        if (result["status"] in {"failed", "unavailable"} and not cancel() and cycle_open(enrollment)
+        notify = (result["status"] in {"failed", "unavailable"}
+                  or check_id == "pr-agent-review" and result["status"] == "passed"
+                  and enrollment.get("review_feedback_enabled") is True)
+        if (notify and not cancel() and cycle_open(enrollment)
                 and digest(read_private(enrollment_path)) == enrollment_source_digest
                 and read_private(current)["request_id"] == request_id
                 and inventory(root, patterns) == snapshot["files"]
@@ -1154,6 +1194,18 @@ def enroll(args):
         value["feedback_qualification"] = {"transport": receipt["transport"],
             version_key: receipt[version_key], "qualified": True}
         value["feedback_enabled"] = True
+    value["reviews_enabled"] = bool(getattr(args, "reviews", False))
+    value["review_feedback_enabled"] = bool(getattr(args, "review_feedback", False))
+    if value["reviews_enabled"]:
+        if not getattr(args, "review_config", None):
+            raise ValidationError("review_config_required")
+        from . import pr_agent_review
+        try:
+            value["review_config"] = pr_agent_review.load_config(Path(args.review_config))
+        except ValueError:
+            raise ValidationError("invalid_review_config") from None
+    elif getattr(args, "review_config", None):
+        raise ValidationError("review_opt_in_required")
     value = validate_enrollment(value)
     if not cycle_open(value):
         raise ValidationError("enrolled_task_closed")
@@ -1299,7 +1351,7 @@ def validate_observation(value):
 
 
 RUNTIME_MEASUREMENTS = {"cache", "cache_metrics", "cache_counters", "metrics", "resource_metrics",
-                        "dagger_cache_metrics", "artifacts", "termination_signal", "test_identity"}
+                        "dagger_cache_metrics", "artifacts", "termination_signal", "test_identity", "advisory_review"}
 
 
 def comparison_runtime(observation):
@@ -1394,6 +1446,9 @@ def main(argv=None):
     add.add_argument("--feedback-qualification")
     add.add_argument("--client", choices=("codex", "opencode"), default="codex")
     add.add_argument("--checkpoints", action="store_true")
+    add.add_argument("--reviews", action="store_true")
+    add.add_argument("--review-config")
+    add.add_argument("--review-feedback", action="store_true")
     for name in ("run", "checkpoint"):
         command = commands.add_parser(name)
         command.add_argument("--request", required=True)
