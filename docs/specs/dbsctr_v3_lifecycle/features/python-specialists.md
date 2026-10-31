@@ -57,7 +57,7 @@ selection, authority, evidence or delivery boundaries change.
 ## Repository-wide audit domain
 
 `python-audit` is a standalone assessment entrypoint for existing repositories.
-An explicit full audit considers all four specialist lenses, inventories owned
+An explicit full audit considers all six specialist lenses, inventories owned
 Python across production code, tests, scripts, stubs and notebooks, and returns
 evidence-backed recommendations and an ordered refactoring roadmap. It retains
 one primary and reuses QA for configured validation. The target repository is
@@ -324,6 +324,6 @@ authority or deployment dependencies change.
 
 Focused authority: `uv run --group test pytest tests/test_python_audit.py tests/test_python_specialists.py
 tests/test_dbsctr_lifecycle.py tests/test_portable_distribution.py`. Run the
-original skill creator validator on all four new skill entrypoints. The existing
-DBSCTR entrypoint is unchanged. Keep independent behavioral evaluation artifacts
+original skill creator validator on the six Python specialist entrypoints and
+the audit wrapper. The existing DBSCTR entrypoint is unchanged. Keep independent behavioral evaluation artifacts
 and actual deployment/merge evidence in the cycle; publish only sanitized outcomes.
