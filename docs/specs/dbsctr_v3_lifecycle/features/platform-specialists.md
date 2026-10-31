@@ -20,18 +20,19 @@ thin language modules, implemented within this feature.
 | QA | Execute configured validation and report real evidence and gaps |
 | Distribution maintainer | Review pins/licenses/adaptations, validate full bundles, deploy and recover |
 
-Selected upstream skills are `bash-defensive-patterns`, `bats-testing-patterns`,
+The first expansion selected upstream skills `bash-defensive-patterns`, `bats-testing-patterns`,
 `async-python-patterns`, `k8s-manifest-generator`, `helm-chart-scaffolding`,
 `gcloud`, `google-cloud-recipe-auth`, `gke-workload-troubleshooting`,
 `gke-workload-identity`, `mojo-syntax`, `mojo-gpu-fundamentals`,
 `mojo-python-interop` and `new-modular-project`.
 
-Locally maintained specialists are `linux-host-diagnostics`, `macos-operations`,
+The first expansion locally maintains `linux-host-diagnostics`, `macos-operations`,
 `podman-quadlet` and `python-modernization-review`. Existing Python specialists
 and externally owned macOS app-development skills retain their ownership.
 
-Terraform is excluded by user instruction. Pulumi, Hetzner, Dagger and Django
-are research candidates for operator consideration, not automatic installation.
+Terraform remains excluded by user instruction. Pulumi, Hetzner, Dagger and
+Django were held for research in the first expansion; the explicitly requested
+follow-up below adds selected guidance after separate router qualification.
 MAX model-lifecycle bundles, tool/SDK installation, target infrastructure changes,
 provider authentication changes and a new router service are outside this slice.
 
@@ -203,6 +204,42 @@ findings with QA. Isolated projection precedes shared deployment. Canonical sour
 bytes and preserved unrelated live overlays have distinct verification claims.
 Owner: lifecycle/distribution maintainers; update with any represented boundary,
 execution, target, provenance or recovery change.
+
+
+## Follow-up infrastructure and framework specialists
+
+### Domain and ownership
+
+The approved follow-up adds six capabilities through the existing source,
+distribution and conditional selection owners. The current primary owns both
+source cycles and serializes their delivery: router qualification is deployed and
+merged first, then this follow-up reconciles that source before deployment/merge.
+Source preparation can use a separate clean linked checkout without changing the
+first experiment's frozen guide snapshots or live catalog. Applicable modules are
+Python, Cloud, Security and ML/AI.
+
+| Capability | Source ownership and bounded concern |
+|---|---|
+| `pulumi-best-practices` | Complete official Pulumi bundle; actual resource/program, Output/Input, secret/config or refactor work |
+| `pulumi-component` | Complete official Pulumi bundle; ComponentResource interfaces, parenting, providers and outputs |
+| `pulumi-debug-failed-operation` | Complete official Pulumi bundle; evidence for one identified failed operation |
+| `django-expert` | Complete reviewed community bundle; actual Django/DRF ORM, serializers, views, authorization, migrations or framework tests |
+| `hetzner-operations` | Original local guidance from official sources; actual hcloud context, resource/action and recovery concerns |
+| `dagger-pipelines` | Original local guidance from official sources; selected-version execution graph, SDK, cache, service and secret boundaries |
+
+The first four bundles retain complete selected resources, exact notices,
+immutable original identities and reversible adaptations in the existing shared
+specialist provenance inventory. The two original local bundles do not copy the
+considered broad community trees. The Hetzner candidate has unresolved repository
+versus skill license declarations; Dagger community examples span older APIs and
+the official Dang-only skill has an unselected language dependency. Those
+candidates remain private research inputs, not redistributed dependencies.
+
+Project policy owns actual framework/SDK/CLI/provider versions, state/backend,
+stack or account/resource identity, authentication, data, CI and acceptance.
+Installing guidance grants no infrastructure, database, account, publication or
+tool-installation authority. No new module, router service or universal gate is
+introduced. Existing resolved choices and task authorization persist.
 
 ## Visual Evidence
 
