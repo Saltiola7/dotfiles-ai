@@ -298,6 +298,9 @@ def test_snapshot_copies_complete_guidance_outside_source(tmp_path, guidance):
     source = tmp_path / "source"
     selected = source / "dot_agents/skills"
     shutil.copytree(original, selected)
+    cache = selected / "dbsctr/__pycache__/generated.cpython-313.pyc"
+    cache.parent.mkdir()
+    cache.write_bytes(b"generated interpreter cache, not managed guidance")
     snapshot = tmp_path / "private-snapshot"
     manifest = evaluation.prepare_snapshot(source, snapshot, ["async-python-patterns"])
     assert set(manifest["files"]) == {

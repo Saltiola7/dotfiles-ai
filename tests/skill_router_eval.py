@@ -515,7 +515,8 @@ def prepare_snapshot(source, destination, tracked_names, *, git_ref=None):
         for name in names:
             path = source / "dot_agents/skills" / name
             _inventory(path)
-            shutil.copytree(path, skills / name)
+            shutil.copytree(path, skills / name,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
     for name in names:
         if not (skills / name / "SKILL.md").is_file():
             raise ValueError("snapshot is missing an entrypoint")
