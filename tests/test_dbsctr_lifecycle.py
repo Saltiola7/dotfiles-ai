@@ -59,6 +59,12 @@ def test_qa_distinguishes_python_coverage_from_a_typing_pass():
         assert requirement in policy, requirement
     assert "not repository-wide coverage" in policy
     assert "does not waive" in policy
+    for invariant in (
+        "exclusions never count as checked",
+        "empty population is not applicable, not 100%",
+        "Reject blanket ignores, broad exclusions, unjustified Any/casts",
+    ):
+        assert invariant in policy, invariant
 
 
 def test_ty_migration_keeps_legacy_policy_brief_and_project_owned():

@@ -8,7 +8,7 @@ nor unavailable metadata authenticates native session identity. The
 [workspace contract](features/worktrunk-native-workspaces.md) preserves checkout,
 profile, launch approval and native permission checks.
 
-## Python typing coverage Discovery
+## Python typing coverage
 
 [Python typing coverage](features/python-typing-coverage.md) defines concise
 project-selected typing obligations throughout existing DBSCTR, Discovery and QA.
@@ -16,8 +16,10 @@ For the selected migration, ty is the intended primary checker. Full scope inclu
 tests and notebooks, with environment bindings and separate analysis/diagnostic
 results. Consumer projects own migration comparisons and bounded remediation;
 temporary legacy-checker guidance is removed after migration acceptance.
-This is a proposed core-instruction change, not an implemented checker, new skill,
-module or installed workflow. Existing Python specialist routing remains intact.
+Existing core skill entrypoints and lifecycle instruction contracts implement
+this policy. Managed installation and consumer qualification follow separately;
+source tests do not prove activation. Existing Python specialist routing remains
+intact; no checker runtime, skill, module or shared wrapper was added.
 
 ## Effective Initiative authority source interface
 

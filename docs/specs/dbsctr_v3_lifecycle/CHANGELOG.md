@@ -1,5 +1,23 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Core Python typing coverage
+
+- Added concise project-selected, ty-first typing obligations to existing DBSCTR,
+  Discovery and QA across relevant phases; retained one temporary legacy-checker
+  note with separate retirement. No new skill, module, checker or shared wrapper.
+- Included tests/notebooks and environment bindings; separated inventory,
+  completed analysis, diagnostic failures and precision limitations. Setup cannot
+  waive required typing failures; bounded repairs preserve runtime contracts.
+- Validation: four regression tests red before implementation; affected suite
+  96 passed and one optional native-runtime smoke skipped. Three independent
+  scenarios passed; reversed exclusion/empty-scope/blanket-ignore policies rejected.
+  Publication checks passed. Creator validation retains the pre-existing
+  `trigger` metadata incompatibility in DBSCTR/Discovery; QA validated.
+- Gate Commits: `f6c1071` (domain), `be5af55` (implementation); final closure is
+  recorded in the private Cycle Record. No Gate Exception or managed installation.
+  Intended delivery: feature branch and draft PR against `main`; actual delivery
+  is recorded by the lifecycle and final response. Activation follows merged source.
+
 ## 2026-10-30 — Python typing coverage Discovery
 
 - Defined full-scope Python typing across existing lifecycle phases, including

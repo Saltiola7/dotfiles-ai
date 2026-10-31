@@ -1,6 +1,7 @@
 # Python typing coverage through DBSCTR
 
-Discovery only; no implementation or activation claim. Context: `dbsctr_v3_lifecycle`;
+Implemented in existing core instructions and their contract tests; managed
+activation and consumer qualification remain separate. Context: `dbsctr_v3_lifecycle`;
 [Profile](../PROFILE.md). Owner: lifecycle maintainer.
 Risk: elevated because shared instructions govern validation across projects.
 
@@ -110,7 +111,7 @@ typing gate. Existing Gate Ledger and exception rules remain; setup success is n
 | Relevant source, imports, configuration or environment changes | Refresh affected evidence and required full-scope reconciliation |
 | Selected migration completes | Remove temporary legacy-checker prompting; use the project's current authority |
 
-Add contracts for each changed skill and existing consumers: selected authority,
+Contracts cover each changed skill and existing consumers: selected authority,
 phases, full scope, environments, truthful results and setup/remediation separation.
 Run existing publication/instruction checks before broader tests. Shared artifacts
 contain portable policy and synthetic examples; consumer evidence stays project-owned.
@@ -140,3 +141,21 @@ Source tests do not prove activation or consumer readiness.
 Resolve scope, separate setup from diagnostic success, classify before repair,
 and retire temporary prompting after acceptance. Source: contracts above; owner:
 lifecycle maintainer. Update trigger: ownership, evidence or authority changes.
+
+## Source validation and maintenance
+
+Four instruction regression tests cover Discovery scope, per-phase obligations,
+QA evidence semantics and temporary migration policy. Independent synthetic
+scenarios covered incomplete full-scope setup, intentional negative tests and
+unchanged typing evidence for documentation-only work. A mutation probe verified
+that reversing the exclusion, empty-population and blanket-ignore rules fails the
+QA contract. These checks retain instruction semantics; they do not establish
+live checker behavior, complete consumer coverage or installed-client compliance.
+
+Affected tests passed (96 passed, one native-runtime smoke skipped because its
+explicit test binary was not selected). The original skill-creator validator
+passed QA and rejected the pre-existing `trigger` frontmatter in DBSCTR and
+Discovery; those metadata bytes are unchanged. Existing project publication and
+instruction contracts remain authoritative. No lifecycle schema or method revision
+changed. Future updates must preserve the phase/evidence contracts and requalify
+affected instructions; consumer profiles own checker pins and migration retirement.
