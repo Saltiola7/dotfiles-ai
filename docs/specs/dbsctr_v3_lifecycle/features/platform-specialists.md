@@ -241,6 +241,29 @@ Installing guidance grants no infrastructure, database, account, publication or
 tool-installation authority. No new module, router service or universal gate is
 introduced. Existing resolved choices and task authorization persist.
 
+
+### Follow-up behavior
+
+| Given / when | Required outcome |
+|---|---|
+| Actual Pulumi program/resource work | Preserve selected language, CLI/SDK/provider, backend, stack and dependency authority |
+| A valid Output transformation uses apply | Distinguish a valid transformation from a simpler interpolation style; preserve secret/dependency propagation |
+| Resources depend on apply values | Qualify preview visibility by known/unknown inputs and project structure; do not fabricate universal preview behavior |
+| A ComponentResource is designed | Distinguish its type token from a URN; define parent/provider ownership and registered outputs |
+| One failed Pulumi operation is identified | Reuse exact operation identity and existing authority; inspect bounded available records without guessing latest or forcing repeat consent |
+| A Pulumi preview or diagnostic recipe is read | Treat program/provider execution, state changes and deployments as distinct operations; loading is not authority |
+| Django custom methods are chained | Put chainable methods on a custom QuerySet and expose the selected manager correctly |
+| DRF action/permission behavior changes | Preserve object ownership and configured authentication; unset API-key configuration never authorizes an absent header |
+| Nested/partial serializers or purchase logic are reviewed | Validate quantity and selected update semantics; preserve atomicity, server-owned fields and concurrent data invariants |
+| Framework migrations are discussed | Separate authoring/planning/testing from applying to an environment; preserve user model, database and test authority |
+| hcloud named context is selected | Resolve effective configuration/credential precedence without exposing values; a context label alone does not prove project identity |
+| A cloud action is submitted | Distinguish accepted action, completion and workload readiness; preserve partial failures, persistent data and recovery |
+| Dagger graph objects are constructed | Await/force the selected terminal evaluation before claiming checks/artifacts executed |
+| A Dagger example differs from selected SDK/engine | Preserve actual version/manifest/lock and qualify syntax rather than silently upgrading |
+| Dagger secrets/cache/services are involved | Use typed secret boundaries, explicit mounts/host capabilities and mutable-cache ownership; do not claim universal hermeticity or local/CI parity |
+| A task only mentions a provider/framework | Avoid unrelated specialist loads or another workflow coordinator |
+| Complete guidance is installed | Verify resource sets, provenance, licenses, modes and repeated exact-target projection without running infrastructure or installing SDKs |
+
 ## Visual Evidence
 
 | Concern | Decision and canonical evidence |
