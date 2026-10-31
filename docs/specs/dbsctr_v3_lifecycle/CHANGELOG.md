@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-30 — Python typing coverage Discovery
+
+- Defined full-scope Python typing across existing lifecycle phases, including
+  tests, notebooks, environment bindings and truthful diagnostic outcomes.
+- Selected ty-first migration guidance with a brief temporary legacy-checker note;
+  detailed comparison and remediation remain consumer-owned. No new skill.
+- Recorded source-only delivery and later exact managed installation/qualification.
+  No shared instructions, checker implementation or installed behavior changed.
+
 ## 2026-10-24 — Explicit checkout use from Codex clients
 
 - Reconciled managed instructions, DBSCTR, Discovery and skill-authoring guidance

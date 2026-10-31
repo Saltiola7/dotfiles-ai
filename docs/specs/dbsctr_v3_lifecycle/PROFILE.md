@@ -15,6 +15,22 @@
 Existing active cycles remain bound to the profile path recorded in their Cycle
 Record. New cycles use this file.
 
+## Python typing policy slice
+
+The [typing coverage feature](features/python-typing-coverage.md) is elevated risk:
+shared instructions affect validation decisions. Its source slice changes existing
+DBSCTR, Discovery and QA skill entrypoints and their contracts only. Project
+profiles retain command, environment, scope and diagnostic authority. Tests and
+notebooks are included when full coverage is selected; scope accounting, completed
+analysis and diagnostic cleanliness remain independent outcomes.
+
+Kernel, Review/Integrate and Maintain/Retire gates apply. Release, Deploy and
+Operate are not applicable to this source-only draft PR: it publishes no package
+and installs no instructions. Exact managed installation and consumer qualification
+follow verified merged source through the existing distribution workflow. Preserve
+unrelated installed specialist routing and files. Existing publication and skill
+contract tests are the validation authority; no new skill or lifecycle schema.
+
 ## Bounded Forgejo local-only contract
 
 The approved [local-only feature](features/forgejo-local-registration.md) extends
