@@ -40,7 +40,7 @@ retain their existing evidence requirements even when a preferred skill is absen
 |---|---|
 | Boundary | required: ownership table above |
 | Interaction | required: selection and return table added with interfaces |
-| State | not_applicable: no new state machine; existing lifecycle retains ownership |
+| State | required: audit coverage/disposition table in Audit interfaces; existing lifecycle retains gate ownership |
 | Data/trust | required: source and evidence transfer table added with contracts |
 | Schema | not_applicable: source inventory is provenance, not a new domain entity |
 | Dependency/deployment | required: delivery dependency table added with contracts |
@@ -181,6 +181,50 @@ loads the selected installed guidance at the affected checkpoint, receives a
 bounded result and decides how it changes the existing artifacts. QA remains the
 evidence authority. The table is canonical for trigger/checkpoint relationships;
 maintainers update it with corresponding routing changes.
+
+## Audit interfaces
+
+The new bundle is `dot_agents/skills/python-audit/`, containing `SKILL.md`,
+`agents/openai.yaml` and `references/report.md`. The entrypoint resolves the four
+existing specialist skills through the native catalog or their managed sibling
+paths. It loads entrypoints for assessment and relevant resources progressively;
+it does not duplicate their bodies or change their pinned files. Existing QA is
+the validation owner. A short link in `references/python-specialists.md` exposes
+the explicit audit route without changing ordinary development selection.
+
+Example request: `Use $python-audit to audit this repository across all four Python
+lenses and propose prioritized refactor batches.` The repository defaults to the
+current target; an explicit package or concern narrows the reported scope.
+
+The report identifies the source commit and dirty-overlay treatment, supported
+runtimes and environments, inventory/dispositions, per-component lens coverage,
+configured check results, deduplicated findings and an ordered roadmap. Each
+finding includes location, category, evidence, impact, confidence, proposed change,
+tradeoffs, compatibility and validation. Effort estimates are labeled estimates.
+Output defaults to the conversation; saving a report uses the user's requested
+path or existing project artifact authority. Audit intent does not create tickets
+or a new repository-root documentation hierarchy.
+
+| Handoff | Owner and output |
+|---|---|
+| Project source and policy to inventory | Primary records reviewed snapshot, artifact population and owning environments |
+| Inventory to specialist assessment | Same primary considers four lenses; bounded read-only helpers may report independent evidence |
+| Configured authorities to findings | QA reports actual scope, child results and unavailable capabilities |
+| Findings to roadmap | Primary deduplicates root causes and separates defects, recommendations, migration options and hypotheses |
+| Roadmap to implementation | User selects bounded work; existing DBSCTR handles applicable behavior changes |
+
+| Audit disposition | Required report meaning |
+|---|---|
+| Complete for declared scope | All selected units/lenses assessed or explicitly justified as not applicable; debt and validation failures can remain |
+| Partial | Sampled/unreviewed units, missing lenses or unavailable evidence limit the stated assessment; do not claim full repository coverage |
+| Not applicable | No owned Python in the declared scope; zero units is not 100% coverage |
+
+**Text Equivalent (audit):** The primary inventories project-owned source, uses
+the four existing techniques and QA results, then returns a report and roadmap.
+The user selects implementation separately. Audit disposition describes assessment
+coverage, while validation retains its actual result. Canonical source: these
+tables and the report reference. Owner: lifecycle/skill maintainer. Update when
+audit scope, evidence fields or handoff responsibilities change.
 
 ## Contracts and Validation
 
