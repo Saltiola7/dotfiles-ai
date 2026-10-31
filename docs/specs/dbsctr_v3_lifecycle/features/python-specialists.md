@@ -54,6 +54,28 @@ are this feature, the Python module and the reviewed source inventory. Owner:
 lifecycle and distribution maintainers. Update these tables whenever represented
 selection, authority, evidence or delivery boundaries change.
 
+## Repository-wide audit domain
+
+`python-audit` is a standalone assessment entrypoint for existing repositories.
+An explicit full audit considers all four specialist lenses, inventories owned
+Python across production code, tests, scripts, stubs and notebooks, and returns
+evidence-backed recommendations and an ordered refactoring roadmap. It retains
+one primary and reuses QA for configured validation. The target repository is
+report-only unless the user separately requests artifact writing or remediation.
+
+An audit finding can be a confirmed defect, design recommendation, modernization
+option or performance hypothesis. Specialist opinion is advisory evidence, not a
+project requirement. The audit can challenge an existing design or propose a tool
+or runtime migration while preserving the distinction between a proposal and an
+authorized implementation. Findings identify compatibility costs and reasons to
+retain a sound existing approach. Audit completion and a clean validation result
+are independent outcomes.
+
+The wrapper owns scope, lens coverage, deduplication and synthesis. Existing
+specialists own techniques, the project owns policy and environments, QA owns
+executed validation evidence, and DBSCTR owns subsequent behavior changes. The
+four vendored bundles and their source inventory remain unchanged.
+
 ## Behavior
 
 - Given an ordinary Python bug fix with no affected architecture, invariant,
