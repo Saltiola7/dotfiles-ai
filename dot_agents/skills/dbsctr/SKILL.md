@@ -68,6 +68,8 @@ Load only matching modules before Domain. Multiple modules may apply.
 | Signal | Module |
 |---|---|
 | Python source, metadata, runtime, package, or service | `modules/python.md` |
+| Changed shell execution semantics, scripts or shell-based automation | `modules/shell.md` |
+| Actual Mojo source, interop, GPU work or selected Modular setup | `modules/mojo.md` |
 | Elevated/critical security or sensitive-data impact | `modules/security.md` |
 | Pipeline, ETL/ELT, stream, warehouse, lake, dataset | `modules/data.md` |
 | Cloud, platform, IaC, network, deployment runtime | `modules/cloud.md` |

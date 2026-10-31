@@ -1,6 +1,12 @@
 # Exact upstream patch preimages preserve whitespace for offline reconstruction.
 dot_agents/skills/security-toolkit/references/patches/** -whitespace
 dot_agents/skills/dbsctr/references/python-specialists/patches/** -whitespace
+dot_agents/skills/dbsctr/references/specialist-sources/patches/** -whitespace
 # Preserve verbatim upstream license notices.
 dot_agents/skills/python-design-patterns/LICENSE.upstream -whitespace
 dot_agents/skills/python-performance-optimization/LICENSE.upstream -whitespace
+dot_agents/skills/bash-defensive-patterns/LICENSE.upstream -whitespace
+dot_agents/skills/bats-testing-patterns/LICENSE.upstream -whitespace
+dot_agents/skills/async-python-patterns/LICENSE.upstream -whitespace
+dot_agents/skills/k8s-manifest-generator/LICENSE.upstream -whitespace
+dot_agents/skills/helm-chart-scaffolding/LICENSE.upstream -whitespace

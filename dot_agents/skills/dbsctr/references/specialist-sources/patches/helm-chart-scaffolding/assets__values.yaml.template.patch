@@ -1,0 +1,20 @@
+--- a/assets/values.yaml.template
++++ b/assets/values.yaml.template
+@@ -1,3 +1,8 @@
++# Illustrative resource examples for the selected project and Kubernetes/Helm version.
++# Resolve all placeholders and review target namespace, provider, resource sizing,
++# image identity, secret references and exposure before use. These files are not
++# deployment authorization or evidence of cluster admission/health.
++
+ # Global values shared with subcharts
+ global:
+   imageRegistry: docker.io
+@@ -153,7 +158,7 @@
+   auth:
+     database: myapp
+     username: myapp
+-    password: changeme
++    existingSecret: "<approved-existing-secret>"
+   primary:
+     persistence:
+       enabled: true

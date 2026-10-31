@@ -1,0 +1,486 @@
+# k8s-manifest-generator — detailed patterns and worked examples
+
+## Scope of these examples
+
+Use only the pattern relevant to the selected workload and supported Kubernetes/
+Helm version. Values, namespaces, image versions, resource sizing and provider
+annotations are illustrative, not deployment defaults or universal gates. Read
+existing project facts before asking about a missing material decision. Local
+rendering, server admission and rollout health require distinct evidence. Live
+commands, dependency downloads, hooks, debug workloads and credential changes
+remain under the primary's current task scope and native permissions. Do not
+print secrets or infer authorization from a command example.
+
+
+## Step-by-Step Workflow
+
+### 1. Gather Requirements
+
+**Understand the workload:**
+
+- Application type (stateless/stateful)
+- Container image and version
+- Environment variables and configuration needs
+- Storage requirements
+- Network exposure requirements (internal/external)
+- Resource requirements (CPU, memory)
+- Scaling requirements
+- Health check endpoints
+
+**Questions to ask:**
+
+- What is the application name and purpose?
+- What container image and tag will be used?
+- Does the application need persistent storage?
+- What ports does the application expose?
+- Are there any secrets or configuration files needed?
+- What are the CPU and memory requirements?
+- Does the application need to be exposed externally?
+
+### 2. Create Deployment Manifest
+
+**Follow this structure:**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: <app-name>
+  namespace: <namespace>
+  labels:
+    app: <app-name>
+    version: <version>
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: <app-name>
+  template:
+    metadata:
+      labels:
+        app: <app-name>
+        version: <version>
+    spec:
+      containers:
+        - name: <container-name>
+          image: <image>:<tag>
+          ports:
+            - containerPort: <port>
+              name: http
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          env:
+            - name: ENV_VAR
+              value: "value"
+          envFrom:
+            - configMapRef:
+                name: <app-name>-config
+            - secretRef:
+                name: <app-name>-secret
+```
+
+**Best practices to apply:**
+
+- Select resource requests and limits from workload evidence and policy
+- Use startup, readiness and liveness probes appropriate to the workload
+- Use specific image tags (never `:latest`)
+- Apply security context for non-root users
+- Use labels for organization and selection
+- Set appropriate replica count based on availability needs
+
+**Reference:** See `references/deployment-spec.md` for detailed deployment options
+
+### 3. Create Service Manifest
+
+**Choose the appropriate Service type:**
+
+**ClusterIP (internal only):**
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: <app-name>
+  namespace: <namespace>
+  labels:
+    app: <app-name>
+spec:
+  type: ClusterIP
+  selector:
+    app: <app-name>
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+```
+
+**LoadBalancer (external access):**
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: <app-name>
+  namespace: <namespace>
+  labels:
+    app: <app-name>
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: nlb
+spec:
+  type: LoadBalancer
+  selector:
+    app: <app-name>
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+```
+
+**Reference:** See `references/service-spec.md` for service types and networking
+
+### 4. Create ConfigMap
+
+**For application configuration:**
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: <app-name>-config
+  namespace: <namespace>
+data:
+  APP_MODE: production
+  LOG_LEVEL: info
+  DATABASE_HOST: db.example.com
+  # For config files
+  app.properties: |
+    server.port=8080
+    server.host=0.0.0.0
+    logging.level=INFO
+```
+
+**Best practices:**
+
+- Use ConfigMaps for non-sensitive data only
+- Organize related configuration together
+- Use meaningful names for keys
+- Consider using one ConfigMap per component
+- Version ConfigMaps when making changes
+
+**Reference:** See `assets/configmap-template.yaml` for examples
+
+### 5. Create Secret
+
+Use the project's selected secret authority and credential files kept outside
+the repository with restricted permissions. The commands below are illustrative
+resource-creation proposals, not automatic setup. Resolve KUBE_CONTEXT, APP_NAME,
+NAMESPACE and the approved inputs from task authority. Keep every Secret name
+consistent with the workload's secretRef; the Step 2 template uses
+`<app-name>-secret` while the example below uses `app-secrets`.
+Do not copy placeholder credentials into a manifest. Plain Kubernetes YAML does not
+expand shell environment variables.
+
+`--from-file` preserves every byte, including trailing newlines. Ensure credential files
+contain exactly the intended value; use `printf '%s'` rather than `echo` when creating
+a value that must not end with a newline.
+
+```bash
+kubectl --context "$KUBE_CONTEXT" create secret generic db-credentials \
+  --namespace "$NAMESPACE" \
+  --from-file=url=/secure/path/database-url
+
+kubectl --context "$KUBE_CONTEXT" create secret generic app-secrets \
+  --namespace "$NAMESPACE" \
+  --from-file=API_KEY=/secure/path/api-key
+```
+
+Create TLS secrets separately when required:
+
+```bash
+kubectl --context "$KUBE_CONTEXT" create secret tls "${APP_NAME}-tls" \
+  --namespace "$NAMESPACE" \
+  --cert=/secure/path/tls.crt \
+  --key=/secure/path/tls.key
+```
+
+**Security considerations:**
+
+- Never commit secrets to Git in plain text
+- Use Sealed Secrets, External Secrets Operator, or Vault
+- Rotate secrets regularly
+- Use RBAC to limit secret access
+- Consider using Secret type: `kubernetes.io/tls` for TLS secrets
+
+### 6. Create PersistentVolumeClaim (if needed)
+
+**For stateful applications:**
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: <app-name>-data
+  namespace: <namespace>
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3
+  resources:
+    requests:
+      storage: 10Gi
+```
+
+**Mount in Deployment:**
+
+```yaml
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/app
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: <app-name>-data
+```
+
+**Storage considerations:**
+
+- Choose appropriate StorageClass for performance needs
+- `ReadWriteOnce` (RWO) permits writable mounting on one node; multiple Pods on that node may still read or write the volume. It does not guarantee a single writer.
+- For single-Pod access across the cluster, consider `ReadWriteOncePod` (RWOP) only when the selected Kubernetes version, CSI driver and required CSI sidecars support it.
+- `ReadWriteMany` permits writable mounting on multiple nodes when supported by the storage provider.
+- Define application/storage concurrency, locking, failover and recovery behavior independently of access-mode selection. See the [Kubernetes access-mode semantics and compatibility requirements](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes).
+- Consider backup strategies
+- Set appropriate retention policies
+
+### 7. Apply Security Best Practices
+
+**Add security context to Deployment:**
+
+```yaml
+spec:
+  template:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+```
+
+**Security checklist:**
+
+- [ ] Run as non-root user
+- [ ] Drop all capabilities
+- [ ] Use read-only root filesystem
+- [ ] Disable privilege escalation
+- [ ] Set seccomp profile
+- [ ] Use Pod Security Standards
+
+### 8. Add Labels and Annotations
+
+**Standard labels (recommended):**
+
+```yaml
+metadata:
+  labels:
+    app.kubernetes.io/name: <app-name>
+    app.kubernetes.io/instance: <instance-name>
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: <system-name>
+    app.kubernetes.io/managed-by: kubectl
+```
+
+**Useful annotations:**
+
+```yaml
+metadata:
+  annotations:
+    description: "Application description"
+    contact: "team@example.com"
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+    prometheus.io/path: "/metrics"
+```
+
+### 9. Organize Multi-Resource Manifests
+
+**File organization options:**
+
+**Option 1: Single file with `---` separator**
+
+```yaml
+# app-name.yaml
+---
+apiVersion: v1
+kind: ConfigMap
+...
+---
+apiVersion: v1
+kind: Secret
+...
+---
+apiVersion: apps/v1
+kind: Deployment
+...
+---
+apiVersion: v1
+kind: Service
+...
+```
+
+**Option 2: Separate files**
+
+```
+manifests/
+├── configmap.yaml
+├── secret.yaml
+├── deployment.yaml
+├── service.yaml
+└── pvc.yaml
+```
+
+**Option 3: Kustomize structure**
+
+```
+base/
+├── kustomization.yaml
+├── deployment.yaml
+├── service.yaml
+└── configmap.yaml
+overlays/
+├── dev/
+│   └── kustomization.yaml
+└── prod/
+    └── kustomization.yaml
+```
+
+### 10. Validate and Test
+
+**Validation examples: use only project-selected available tools; server dry-run contacts the selected cluster:**
+
+```bash
+# Dry-run validation
+kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" apply -f manifest.yaml --dry-run=client
+
+# Server-side validation
+kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" apply -f manifest.yaml --dry-run=server
+
+# Validate with kubeval
+kubeval manifest.yaml
+
+# Validate with kube-score
+kube-score score manifest.yaml
+
+# Check with kube-linter
+kube-linter lint manifest.yaml
+```
+
+**Testing checklist:**
+
+- [ ] Manifest passes dry-run validation
+- [ ] All required fields are present
+- [ ] Resource limits are reasonable
+- [ ] Health checks are configured
+- [ ] Security context is set
+- [ ] Labels follow conventions
+- [ ] The intended namespace and authority for any required creation are resolved
+
+## Common Patterns
+
+### Pattern 1: Simple Stateless Web Application
+
+**Use case:** Standard web API or microservice
+
+**Components needed:**
+
+- Deployment with replicas/capacity selected from the availability contract
+- ClusterIP Service
+- ConfigMap for configuration
+- Secret for API keys
+- HorizontalPodAutoscaler (optional)
+
+**Reference:** See `assets/deployment-template.yaml`
+
+### Pattern 2: Stateful Database Application
+
+**Use case:** Database or persistent storage application
+
+**Components needed:**
+
+- StatefulSet (not Deployment)
+- Headless Service
+- PersistentVolumeClaim template
+- ConfigMap for DB configuration
+- Secret for credentials
+
+### Pattern 3: Background Job or Cron
+
+**Use case:** Scheduled tasks or batch processing
+
+**Components needed:**
+
+- CronJob or Job
+- ConfigMap for job parameters
+- Secret for credentials
+- ServiceAccount with RBAC
+
+### Pattern 4: Multi-Container Pod
+
+**Use case:** Application with sidecar containers
+
+**Components needed:**
+
+- Deployment with multiple containers
+- Shared volumes between containers
+- Init containers for setup
+- Service (if needed)
+
+## Templates
+
+The following templates are available in the `assets/` directory:
+
+- `deployment-template.yaml` - Standard deployment with best practices
+- `service-template.yaml` - Service configurations (ClusterIP, LoadBalancer, NodePort)
+- `configmap-template.yaml` - ConfigMap examples with different data types
+Secret and PVC resources must be generated from the selected requirements; no
+separate secret-template.yaml or pvc-template.yaml is bundled. Keep real secret
+material outside committed manifests.
+
+## Reference Documentation
+
+- `references/deployment-spec.md` - Detailed Deployment specification
+- `references/service-spec.md` - Service types and networking details

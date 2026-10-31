@@ -1,5 +1,38 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+
+## 2026-10-31 — Conditional platform and language specialists
+
+- Added 17 independently discoverable skills for shell reliability/testing,
+  Linux/macOS diagnosis, Podman/Quadlet, async Python, modernization review,
+  Kubernetes/Helm, GCP/GKE and the four selected official Modular Mojo bundles.
+  Added thin Shell/Mojo modules and shared progressive selection guidance;
+  preserved existing project tools, lifecycle ownership and authorization.
+- Retained complete selected resources, immutable original blobs, exact licenses
+  and reversible adaptations for 13 vendor bundles. Corrected reviewed helper,
+  cancellation, credential, chart, storage and GPU arithmetic examples. Scoped
+  regression/publication/distribution checks: 159 passed, one optional native
+  smoke skipped; all 17 original-creator entrypoint validations passed.
+- Independent ten-case baseline and candidate planning checks selected the same
+  specialist sets in nine cases; the candidate used fewer GKE entrypoints in one.
+  Both recovered a named sibling from a cached catalog and identified Helm library
+  defects. The common full catalog and limited sample prevent a demonstrated
+  reliability or token-saving claim. Vendor entrypoints total 45,730 characters
+  versus 152,821 originally; complete resources remain available on demand.
+- Deployed 115 canonical files and one reconciled core entrypoint through exact
+  chezmoi targets, with scripts excluded. Repeated application/diff, complete
+  bytes/file sets and declared projected modes passed. Preserved unrelated live
+  core instructions using a privately retained disjoint three-way overlay.
+  Native catalog refresh and actual Helm/Mojo/GPU/cloud/cluster execution were
+  not observed; filesystem deployment does not claim those capabilities.
+- Terraform excluded. Pulumi, Hetzner, Dagger and Django remain researched
+  candidates; no bundles or operational tools for them were installed.
+  No Gate Exception. Kernel commits include `b2a44e8`, `f53ffb1`, `ca653b9`,
+  `a98cf27` and `bd69f2c`; final closure/evidence and recovery preimages remain
+  in cycle `PLATFORM-SPECIALISTS-001`. Intended Final Push: feature branch and
+  draft PR against `main`, followed by the explicitly requested ordinary merge
+  only after fresh native CI and current-base protections pass.
+
 ## 2026-10-31 — Python specialist typing reconciliation
 
 - Integrated the current core typing policy while preserving conditional specialist

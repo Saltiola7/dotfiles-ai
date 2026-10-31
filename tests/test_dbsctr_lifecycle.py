@@ -744,7 +744,7 @@ def test_opencode_rolling_stable_preserves_v1_and_gates_v2() -> None:
 def test_v3_module_registry_is_extensible_and_normalized():
     modules = SKILLS / "dbsctr/modules"
     references = SKILLS / "dbsctr/references"
-    expected = {"python.md", "security.md", "data.md", "cloud.md", "ml.md", "analytics.md", "web.md"}
+    expected = {"python.md", "shell.md", "mojo.md", "security.md", "data.md", "cloud.md", "ml.md", "analytics.md", "web.md"}
     assert {path.name for path in modules.glob("*.md")} == expected
     assert {path.name for path in references.glob("*.md")} == {
         "data.md",
@@ -753,6 +753,8 @@ def test_v3_module_registry_is_extensible_and_normalized():
         "analytics.md",
         "python.md",
         "python-specialists.md",
+        "platform-specialists.md",
+        "specialist-selection.md",
             "semantic-audit.md",
             "spec-visuals.md",
             "web.md",

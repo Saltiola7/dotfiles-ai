@@ -1,5 +1,9 @@
 # DBSCTR V3 Lifecycle
 
+[Platform and language specialists](features/platform-specialists.md) extends
+conditional selection to shell, host/container/cloud operations, async Python,
+modernization review and Mojo while preserving existing lifecycle and QA ownership.
+
 [Conditional Python specialists](features/python-specialists.md) defines bounded
 selection of design, property-testing, profiling and tooling guidance. The Python
 module routes; project policy and existing lifecycle/QA authorities retain control.

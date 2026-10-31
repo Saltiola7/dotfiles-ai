@@ -1,0 +1,743 @@
+--- a/references/details.md
++++ b/references/details.md
+@@ -1,504 +1,255 @@
+-# bash-defensive-patterns — detailed patterns and worked examples
+-
+-## Core Defensive Principles
+-
+-### 1. Strict Mode
+-
+-Enable bash strict mode at the start of every script to catch errors early.
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail  # Exit on error, unset variables, pipe failures
+-```
+-
+-**Key flags:**
+-
+-- `set -E`: Inherit ERR trap in functions
+-- `set -e`: Exit on any error (command returns non-zero)
+-- `set -u`: Exit on undefined variable reference
+-- `set -o pipefail`: Pipe fails if any command fails (not just last)
+-
+-### 2. Error Trapping and Cleanup
+-
+-Implement proper cleanup on script exit or error.
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-trap 'echo "Error on line $LINENO"' ERR
+-TMPDIR=$(mktemp -d)
+-trap 'echo "Cleaning up..."; rm -rf "$TMPDIR"' EXIT
+-
+-# Script code here
+-```
+-
+-### 3. Variable Safety
+-
+-Always quote variables to prevent word splitting and globbing issues.
+-
+-```bash
+-# Wrong - unsafe
+-cp $source $dest
+-
+-# Correct - safe
+-cp "$source" "$dest"
+-
+-# Required variables - fail with message if unset
+-: "${REQUIRED_VAR:?REQUIRED_VAR is not set}"
+-```
+-
+-### 4. Array Handling
+-
+-Use arrays safely for complex data handling.
+-
+-```bash
+-# Safe array iteration
+-declare -a items=("item 1" "item 2" "item 3")
+-
+-for item in "${items[@]}"; do
+-    echo "Processing: $item"
+-done
+-
+-# Reading output into array safely
+-mapfile -t lines < <(some_command)
+-readarray -t numbers < <(seq 1 10)
+-```
+-
+-### 5. Conditional Safety
+-
+-Use `[[ ]]` for Bash-specific features, `[ ]` for POSIX.
+-
+-```bash
+-# Bash - safer
+-if [[ -f "$file" && -r "$file" ]]; then
+-    content=$(<"$file")
++# Bash defensive patterns: worked decisions
++
++Read only the sections relevant to the current shell contract. Examples target
++Bash 3.2+ unless explicitly qualified; they do not establish POSIX sh support or
++GNU/BSD utility parity. Commands that change files or processes remain within
++the current task's authorization.
++
++## Shell options and status boundaries
++
++Select shell options deliberately, especially in sourced code. `set -e` does not
++exit for every nonzero status: conditionals, `!`, lists, pipelines, functions and
++subshells have important exceptions. `ERR` follows related exceptions. `pipefail`
++changes pipeline semantics; `nounset` can break legitimate optional inputs.
++
++Use explicit checks where the result determines correctness:
++
++```bash
++if generate_report "$input_file" "$output_file"; then
++    printf '%s\n' 'Report generated' >&2
++else
++    report_status=$?
++    printf 'Report generation failed (%s)\n' "$report_status" >&2
++    exit "$report_status"
+ fi
+-
+-# POSIX - portable
+-if [ -f "$file" ] && [ -r "$file" ]; then
+-    content=$(cat "$file")
+-fi
+-
+-# Test for existence before operations
+-if [[ -z "${VAR:-}" ]]; then
+-    echo "VAR is not set or is empty"
+-fi
+-```
+-
+-## Fundamental Patterns
+-
+-### Pattern 1: Safe Script Directory Detection
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-# Correctly determine script directory
+-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+-SCRIPT_NAME="$(basename -- "${BASH_SOURCE[0]}")"
+-
+-echo "Script location: $SCRIPT_DIR/$SCRIPT_NAME"
+-```
+-
+-### Pattern 2: Comprehensive Function Templat
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-# Prefix for functions: handle_*, process_*, check_*, validate_*
+-# Include documentation and error handling
+-
+-validate_file() {
+-    local -r file="$1"
+-    local -r message="${2:-File not found: $file}"
+-
+-    if [[ ! -f "$file" ]]; then
+-        echo "ERROR: $message" >&2
+-        return 1
+-    fi
+-    return 0
+-}
+-
+-process_files() {
+-    local -r input_dir="$1"
+-    local -r output_dir="$2"
+-
+-    # Validate inputs
+-    [[ -d "$input_dir" ]] || { echo "ERROR: input_dir not a directory" >&2; return 1; }
+-
+-    # Create output directory if needed
+-    mkdir -p "$output_dir" || { echo "ERROR: Cannot create output_dir" >&2; return 1; }
+-
+-    # Process files safely
+-    while IFS= read -r -d '' file; do
+-        echo "Processing: $file"
+-        # Do work
+-    done < <(find "$input_dir" -maxdepth 1 -type f -print0)
+-
+-    return 0
+-}
+-```
+-
+-### Pattern 3: Safe Temporary File Handling
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-# Create temporary directory
+-TMPDIR=$(mktemp -d) || { echo "ERROR: Failed to create temp directory" >&2; exit 1; }
+-trap 'rm -rf -- "$TMPDIR"' EXIT
+-
+-# Create temporary files in directory
+-TMPFILE1="$TMPDIR/temp1.txt"
+-TMPFILE2="$TMPDIR/temp2.txt"
+-
+-# Use temporary files
+-touch "$TMPFILE1" "$TMPFILE2"
+-
+-echo "Temp files created in: $TMPDIR"
+-```
+-
+-### Pattern 4: Robust Argument Parsing
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-# Default values
+-VERBOSE=false
+-DRY_RUN=false
+-OUTPUT_FILE=""
+-THREADS=4
++```
++
++Retain a failed command's status before logging another command. Do not combine
++a fallible substitution with `local`, `readonly` or `export`, whose own status
++can hide the failure:
++
++```bash
++find_runtime() {
++    local runtime_path
++    runtime_path=$(command -v python3) || return 1
++    printf '%s\n' "$runtime_path"
++}
++```
++
++When output travels through `tee` or another formatter, preserve the intended
++producer status using the selected shell's pipeline facilities. A process
++substitution's producer status is not automatically the consuming command's
++status; use a checked intermediate result or explicitly owned process when that
++failure matters.
++
++## Owned temporary state and signals
++
++Do not repurpose `TMPDIR`: other commands and callers may depend on its original
++meaning. This executable-script example creates one owned directory; its cleanup
++does not select or delete unrelated paths:
++
++```bash
++#!/usr/bin/env bash
++
++work_dir=$(mktemp -d "${TMPDIR:-/tmp}/report-work.XXXXXX") || exit 1
++
++cleanup() {
++    local original_status="$1"
++    if [[ -n "${work_dir:-}" && -d "$work_dir" ]]; then
++        rm -rf -- "$work_dir" || printf '%s\n' 'Temporary cleanup failed' >&2
++    fi
++    return "$original_status"
++}
++
++trap 'cleanup "$?"' EXIT
++trap 'exit 130' INT
++trap 'exit 143' TERM
++
++printf '%s\n' 'temporary content' > "$work_dir/input.txt" || exit 1
++```
++
++Adapt signal codes and cleanup policy to callers; a sourced library should not
++replace its caller's traps or call `exit` unexpectedly. If cleanup failure is
++itself material, define its precedence without concealing the original failure.
++The `mktemp` form and `rm --` support still need the selected platform authority.
++
++## Arguments, paths and parsing
++
++Quote data expansions and preserve argv boundaries with arrays in Bash:
++
++```bash
++copy_args=(-p)
++copy_args+=("$source_file" "$destination_file")
++cp "${copy_args[@]}"
++```
++
++This assumes the source cannot be interpreted as an option; otherwise use a
++supported `--`, normalize an owned relative path, or the utility's documented
++argument mechanism. Quoting alone does not prevent option interpretation.
++
++Validate option values before reading them:
++
++```bash
++output_file=''
++jobs=1
+ 
+ usage() {
+-    cat <<EOF
+-Usage: $0 [OPTIONS]
+-
+-Options:
+-    -v, --verbose       Enable verbose output
+-    -d, --dry-run       Run without making changes
+-    -o, --output FILE   Output file path
+-    -j, --jobs NUM      Number of parallel jobs
+-    -h, --help          Show this help message
+-EOF
+-    exit "${1:-0}"
+-}
+-
+-# Parse arguments
++    printf 'Usage: %s --output PATH [--jobs N]\n' "$0"
++}
++
+ while [[ $# -gt 0 ]]; do
+     case "$1" in
+-        -v|--verbose)
+-            VERBOSE=true
+-            shift
+-            ;;
+-        -d|--dry-run)
+-            DRY_RUN=true
+-            shift
+-            ;;
+         -o|--output)
+-            OUTPUT_FILE="$2"
++            [[ $# -ge 2 && -n "$2" ]] || {
++                printf '%s\n' 'Missing output path' >&2
++                exit 2
++            }
++            output_file=$2
+             shift 2
+             ;;
+         -j|--jobs)
+-            THREADS="$2"
++            [[ $# -ge 2 && "$2" =~ ^[1-9][0-9]*$ ]] || {
++                printf '%s\n' 'Jobs must be a positive integer' >&2
++                exit 2
++            }
++            jobs=$2
+             shift 2
+             ;;
+-        -h|--help)
+-            usage 0
+-            ;;
+-        --)
+-            shift
+-            break
+-            ;;
+-        *)
+-            echo "ERROR: Unknown option: $1" >&2
+-            usage 1
+-            ;;
++        --) shift; break ;;
++        -h|--help) usage; exit "$?" ;;
++        *) printf '%s\n' 'Unknown option or argument' >&2; exit 2 ;;
+     esac
+ done
+ 
+-# Validate required arguments
+-[[ -n "$OUTPUT_FILE" ]] || { echo "ERROR: -o/--output is required" >&2; usage 1; }
+-```
+-
+-### Pattern 5: Structured Logging
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-# Logging functions
+-log_info() {
+-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] INFO: $*" >&2
+-}
+-
+-log_warn() {
+-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] WARN: $*" >&2
+-}
+-
+-log_error() {
+-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2
+-}
+-
+-log_debug() {
+-    if [[ "${DEBUG:-0}" == "1" ]]; then
+-        echo "[$(date +'%Y-%m-%d %H:%M:%S')] DEBUG: $*" >&2
+-    fi
+-}
+-
+-# Usage
+-log_info "Starting script"
+-log_debug "Debug information"
+-log_warn "Warning message"
+-log_error "Error occurred"
+-```
+-
+-### Pattern 6: Process Orchestration with Signals
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-# Track background processes
+-PIDS=()
+-
+-cleanup() {
+-    log_info "Shutting down..."
+-
+-    # Terminate all background processes
+-    for pid in "${PIDS[@]}"; do
+-        if kill -0 "$pid" 2>/dev/null; then
+-            kill -TERM "$pid" 2>/dev/null || true
++[[ -n "$output_file" ]] || { printf '%s\n' 'Output is required' >&2; exit 2; }
++```
++
++Select a range/budget for `jobs` from the actual workload. Named `--input=value`
++forms can use `${1#*=}`; validate the resulting value and unknown names under the
++same contract. Do not log an arbitrary unknown argument if it may contain a secret.
++
++For script location, decide whether symlink invocation and sourced-file location
++matter before using `${BASH_SOURCE[0]}` plus `dirname`/`pwd -P`. Those utility
++options and symlink semantics are platform-specific.
++
++## Reading records and arrays
++
++`mapfile` and `readarray` require Bash 4+. A Bash 3.2 line-reader can use:
++
++```bash
++lines=()
++while IFS= read -r line || [[ -n "$line" ]]; do
++    lines+=("$line")
++done < "$checked_input_file"
++```
++
++This preserves a final unterminated line but is a text-record pattern, not a
++filename encoding. Use NUL-delimited records for arbitrary filesystem names when
++the selected producer and shell support them. Do not parse `ls` output. Check
++producer success separately before consuming an intermediate file when required.
++
++## Required child outcomes and interruption
++
++Retain only owned, unreaped PIDs. Bare `wait` can return success after a child
++fails; collect each required result and still reap the other children:
++
++```bash
++#!/usr/bin/env bash
++
++child_pids=()
++
++stop_children() {
++    local child_index child_pid
++    for child_index in "${!child_pids[@]}"; do
++        child_pid=${child_pids[$child_index]}
++        kill -TERM "$child_pid" 2>/dev/null || :
++    done
++    for child_index in "${!child_pids[@]}"; do
++        child_pid=${child_pids[$child_index]}
++        wait "$child_pid" 2>/dev/null || :
++    done
++}
++
++on_interrupt() {
++    trap '' INT TERM
++    stop_children
++    exit "$1"
++}
++
++trap 'on_interrupt 130' INT
++trap 'on_interrupt 143' TERM
++
++worker alpha &
++child_pids+=("$!")
++worker beta &
++child_pids+=("$!")
++
++overall_status=0
++for child_index in "${!child_pids[@]}"; do
++    if wait "${child_pids[$child_index]}"; then
++        :
++    else
++        child_status=$?
++        if [[ "$overall_status" -eq 0 ]]; then
++            overall_status=$child_status
+         fi
+-    done
+-
+-    # Wait for graceful shutdown
+-    for pid in "${PIDS[@]}"; do
+-        wait "$pid" 2>/dev/null || true
+-    done
+-}
+-
+-trap cleanup SIGTERM SIGINT
+-
+-# Start background tasks
+-background_task &
+-PIDS+=($!)
+-
+-another_task &
+-PIDS+=($!)
+-
+-# Wait for all background processes
+-wait
+-```
+-
+-### Pattern 7: Safe File Operations
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-# Use -i flag to move safely without overwriting
+-safe_move() {
+-    local -r source="$1"
+-    local -r dest="$2"
+-
+-    if [[ ! -e "$source" ]]; then
+-        echo "ERROR: Source does not exist: $source" >&2
++    fi
++    unset "child_pids[$child_index]"
++done
++exit "$overall_status"
++```
++
++The illustration defines `worker` in the consuming program. It handles direct
++children; descendants, process groups, graceful-shutdown deadlines and escalation
++need the owning launcher contract. A timeout or signal must not imply that all
++external work stopped. Avoid broad `pkill`/`killall` matching unrelated processes.
++
++## Filesystem writes, ownership and reruns
++
++Check existence, readability, directory types and destination ownership where
++they are real preconditions. A preflight existence check followed by `mv` is not
++race-free no-clobber protection. Use the platform's supported atomic no-replace
++mechanism if concurrent creation is part of the contract.
++
++Write replacement content on the target filesystem before renaming:
++
++```bash
++atomic_write() {
++    local target="$1"
++    local candidate
++    candidate=$(mktemp "${target}.XXXXXX") || return 1
++    if ! cat > "$candidate"; then
++        rm -f -- "$candidate"
+         return 1
+     fi
+-
+-    if [[ -e "$dest" ]]; then
+-        echo "ERROR: Destination already exists: $dest" >&2
++    if ! mv -- "$candidate" "$target"; then
++        rm -f -- "$candidate"
+         return 1
+     fi
+-
+-    mv "$source" "$dest"
+-}
+-
+-# Safe directory cleanup
+-safe_rmdir() {
+-    local -r dir="$1"
+-
+-    if [[ ! -d "$dir" ]]; then
+-        echo "ERROR: Not a directory: $dir" >&2
+-        return 1
+-    fi
+-
+-    # Use -I flag to prompt before rm (BSD/GNU compatible)
+-    rm -rI -- "$dir"
+-}
+-
+-# Atomic file writes
+-atomic_write() {
+-    local -r target="$1"
+-    local tmpfile
+-    # Temp file in the target's directory, so the rename stays on one filesystem
+-    tmpfile=$(mktemp "$(dirname -- "$target")/.atomic_write.XXXXXX") || return 1
+-
+-    # Write to temp file first; on failure leave the target untouched
+-    if ! cat > "$tmpfile"; then
+-        rm -f -- "$tmpfile"
+-        return 1
+-    fi
+-
+-    # Atomic rename
+-    if ! mv -- "$tmpfile" "$target"; then
+-        rm -f -- "$tmpfile"
+-        return 1
+-    fi
+-}
+-```
+-
+-### Pattern 8: Idempotent Script Design
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-# Check if resource already exists
+-ensure_directory() {
+-    local -r dir="$1"
+-
+-    if [[ -d "$dir" ]]; then
+-        log_info "Directory already exists: $dir"
+-        return 0
+-    fi
+-
+-    mkdir -p "$dir" || {
+-        log_error "Failed to create directory: $dir"
+-        return 1
+-    }
+-
+-    log_info "Created directory: $dir"
+-}
+-
+-# Ensure configuration state
+-ensure_config() {
+-    local -r config_file="$1"
+-    local -r default_value="$2"
+-
+-    if [[ ! -f "$config_file" ]]; then
+-        echo "$default_value" > "$config_file"
+-        log_info "Created config: $config_file"
+-    fi
+-}
+-
+-# Rerunning script multiple times should be safe
+-ensure_directory "/var/cache/myapp"
+-ensure_config "/etc/myapp/config" "DEBUG=false"
+-```
+-
+-### Pattern 9: Safe Command Substitution
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-# Use $() instead of backticks
+-name=$(<"$file")  # Modern, safe variable assignment from file
+-output=$(command -v python3)  # Get command location safely
+-
+-# Handle command substitution with error checking
+-result=$(command -v node) || {
+-    log_error "node command not found"
+-    return 1
+-}
+-
+-# For multiple lines
+-mapfile -t lines < <(grep "pattern" "$file")
+-
+-# NUL-safe iteration
+-while IFS= read -r -d '' file; do
+-    echo "Processing: $file"
+-done < <(find /path -type f -print0)
+-```
+-
+-### Pattern 10: Dry-Run Support
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-DRY_RUN="${DRY_RUN:-false}"
+-
+-run_cmd() {
+-    if [[ "$DRY_RUN" == "true" ]]; then
+-        echo "[DRY RUN] Would execute: $*"
+-        return 0
+-    fi
+-
+-    "$@"
+-}
+-
+-# Usage
+-run_cmd cp "$source" "$dest"
+-run_cmd rm "$file"
+-run_cmd chown "$owner" "$target"
+-```
+-
+-## Advanced Defensive Techniques
+-
+-### Named Parameters Pattern
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-process_data() {
+-    local input_file=""
+-    local output_dir=""
+-    local format="json"
+-
+-    # Parse named parameters
+-    while [[ $# -gt 0 ]]; do
+-        case "$1" in
+-            --input=*)
+-                input_file="${1#*=}"
+-                ;;
+-            --output=*)
+-                output_dir="${1#*=}"
+-                ;;
+-            --format=*)
+-                format="${1#*=}"
+-                ;;
+-            *)
+-                echo "ERROR: Unknown parameter: $1" >&2
+-                return 1
+-                ;;
+-        esac
+-        shift
+-    done
+-
+-    # Validate required parameters
+-    [[ -n "$input_file" ]] || { echo "ERROR: --input is required" >&2; return 1; }
+-    [[ -n "$output_dir" ]] || { echo "ERROR: --output is required" >&2; return 1; }
+-}
+-```
+-
+-### Dependency Checking
+-
+-```bash
+-#!/bin/bash
+-set -Eeuo pipefail
+-
+-check_dependencies() {
+-    local -a missing_deps=()
+-    local -a required=("jq" "curl" "git")
+-
+-    for cmd in "${required[@]}"; do
+-        if ! command -v "$cmd" &>/dev/null; then
+-            missing_deps+=("$cmd")
+-        fi
+-    done
+-
+-    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+-        echo "ERROR: Missing required commands: ${missing_deps[*]}" >&2
+-        return 1
+-    fi
+-}
+-
+-check_dependencies
+-```
++}
++```
++
++This allows replacement and illustrates same-filesystem rename only. Define
++symlink, ownership, permissions, ACL/xattr, concurrent-writer and durability
++requirements before using it. It does not promise preservation of old metadata
++or crash durability. Interactive deletion flags differ across GNU/BSD systems;
++an unattended script needs an explicit bounded deletion contract.
++
++For idempotency, compare intended state before a change, then verify its result.
++An existing directory or configuration file is not evidence that its mode,
++owner or contents meet the requirement. Avoid silently overwriting live edits.
++
++## Logging, preview and dependencies
++
++Prefer `printf` with fixed format strings. Select output streams, timestamps and
++verbosity according to the caller; redact credentials, tokens and sensitive paths
++or arguments. `set -x` and naive `$*` logging can expose secrets.
++
++A dry run should expose reviewed intended effects without executing them. Render
++argument boundaries accurately and redact sensitive values; a printed command is
++not proof that the actual argv or eventual execution will match.
++
++Use `command -v` for selected dependencies and report missing capabilities. Do not
++install packages, change `PATH` globally or replace the selected shell merely to
++make a pattern run. Test the chosen GNU/BSD utilities and shell versions, actual
++failure/exit behavior, cleanup, interruption and concurrent child outcomes.

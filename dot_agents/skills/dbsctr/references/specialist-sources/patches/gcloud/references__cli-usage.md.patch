@@ -1,0 +1,62 @@
+--- a/references/cli-usage.md
++++ b/references/cli-usage.md
+@@ -12,20 +12,15 @@
+ for platform-specific installation instructions (Linux, macOS, Windows, package
+ managers, and container images).
+ 
+-> [!CAUTION]
+-> **Explicit User Confirmation Required Before Installing `gcloud` CLI:**
+-> Never install the Google Cloud CLI (`gcloud` CLI) or additional `gcloud` CLI
+-> components (`gcloud components install` / `gcloud components update`)
+-> autonomously.
+->
+-> Before executing any installation command or package manager script:
+-> 1. Inform the user that the `gcloud` CLI (or required component) is not
+->    installed and summarize the installation method you plan to use.
+-> 2. Ask the user for explicit consent: `"I am ready to install the Google Cloud
+->    CLI (gcloud) on your machine. Do you want me to proceed?"`
+-> 3. **CRITICAL**: The agent **MUST NOT** execute any `gcloud` installation or
+->    component installation commands during this turn. You must ask the consent
+->    query and **strictly stop** to wait for the user's positive affirmation.
++Installation and component updates are optional setup, not a prerequisite imposed
++by skill loading. Use an existing project-selected environment when available.
++Prepare a concrete plan and proceed within existing installation authorization;
++ask only for genuinely missing permission or material information. Missing tools
++remain a capability gap when setup is outside scope. Do not repeat a settled
++consent question or stop solely to require another turn.
++
++All state-changing examples below are proposals to use only in an authorized
++setup/configuration task. They are not automatic troubleshooting prerequisites.
+ 
+ ### Component Management
+ 
+@@ -102,12 +97,13 @@
+     without storing long-lived private key files:
+ 
+     ```bash
+-    gcloud config set auth/impersonate_service_account {service_account_email}
++    gcloud <selected-command> --impersonate-service-account={service_account_email}
+     ```
+ 
+-    Requires the `roles/iam.serviceAccountTokenCreator` role on the target
+-    service account. This enforces least privilege and ensures audited access
+-    under the target identity.
++    Requires appropriate existing impersonation permission on the intended
++    service account, such as the applicable Token Creator role. A role example
++    is not authorization to grant it. Prefer scoped flags when sufficient;
++    persistent impersonation defaults are deliberate configuration changes.
+ 
+ -   **Workload Identity Federation:**
+ 
+@@ -120,6 +116,11 @@
+ 
+ The `gcloud config` command group manages local configuration settings,
+ profiles, and default properties.
++
++Local profile creation, activation and property setting change persistent state.
++Do not use them merely to infer or fix a target silently; ordinary commands can
++carry explicit project/location/identity flags. Inspect configuration without
++printing credential files or tokens.
+ 
+ ### Named Configurations
+ 

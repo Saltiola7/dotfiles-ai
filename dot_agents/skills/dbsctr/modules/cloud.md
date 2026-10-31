@@ -4,13 +4,14 @@
 
 - **REQUIRED:** Load this module when a Lifecycle Cycle creates, changes, or retires cloud, platform, infrastructure-as-code, runtime, network, deployment, or managed-service resources.
 - **CONDITIONAL:** Load it for application work when the change alters an operational dependency, deployment path, trust boundary, or production runtime assumption.
+- **CONDITIONAL:** Load for bounded host, container, cluster or cloud diagnosis/operations when the actual task concerns runtime identity, service behavior or a platform failure. Read-only diagnosis does not make unrelated IaC or deployment controls applicable.
 - **PROJECT POLICY:** The Engineering Profile identifies supported environments, delivery intent, operational owner, trust/data classification, and applicable platform policies.
 - **EXAMPLE:** A documentation-only change with no runtime or infrastructure effect does not load this module.
 
 ## Engineering Profile Extensions
 
 - **REQUIRED:** Record topology, resource ownership, environment purpose, stateful data locations, public interfaces, and upstream/downstream dependencies.
-- **REQUIRED:** Record the authoritative IaC state, plan/review workflow, drift-detection authority, and operational owner.
+- **CONDITIONAL:** For IaC-managed resources or IaC changes, record authoritative state, plan/review workflow, drift-detection authority and operational owner.
 - **REQUIRED:** Record identity boundaries, secret classes and authorities, network exposure, resilience target, recovery owner, and delivery/rollback responsibility.
 - **CONDITIONAL:** Record regulated-data, residency, retention, availability, recovery, cost, and supply-chain obligations when they apply.
 - **PROJECT POLICY:** Project requirements, ADRs, and approved service policies select providers, tools, thresholds, budgets, and implementation patterns.
@@ -32,6 +33,12 @@
 
 ## Conditional Controls
 
+- **CONDITIONAL:** Select task-relevant host, container, Kubernetes or GCP guidance
+  using [platform specialists](../references/platform-specialists.md) and the
+  [common selection contract](../references/specialist-selection.md). A platform
+  mention alone does not select every associated skill. Keep project target and
+  tool authority, the current primary and existing gates.
+
 - **CONDITIONAL:** Production, sensitive data, irreversible operations, or critical risk require explicit recovery and rollback evidence; restore capability is exercised when feasible.
 - **CONDITIONAL:** Public exposure, cross-boundary connectivity, or privileged access requires threat-appropriate network and identity controls plus audit evidence.
 - **CONDITIONAL:** Autoscaling, metered services, or material spend require enforceable or reviewable cost bounds and alerts or reports appropriate to the risk.
@@ -42,7 +49,7 @@
 
 ## Validation Capabilities
 
-- **REQUIRED:** Select project authorities or equivalent evidence for IaC syntax and policy validation, plan review, state access, and changed-resource topology.
+- **CONDITIONAL:** For affected IaC concerns, select project authorities or equivalent evidence for syntax/policy validation, plan review, state access and changed-resource topology.
 - **REQUIRED:** Validate applicable identity, secret-handling, network exposure, deletion/data protection, cost bounds, provenance, rollout health, rollback, and observability outcomes.
 - **CONDITIONAL:** Test restore, failover, rollback, and incident procedures for elevated or critical changes when a safe authority exists.
 - **CONDITIONAL:** Record missing validation capability as a gap, deferral, or accepted risk; never infer a pass from an unavailable preferred tool.

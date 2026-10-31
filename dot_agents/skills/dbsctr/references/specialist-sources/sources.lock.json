@@ -1,0 +1,687 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "async-python-patterns",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/python-development/skills/async-python-patterns",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "c2da0b41953cda62a960d37126c0a5cb387b8f8b0093e3f71cc1c78455cb815a",
+        "references/details.md": "c5a97988fb96562bdcf436ba4e022e8e67df46e69f373fe3a93315bcd2a8474c"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "15905ae02e745a00cd235dfb18665344ca76d7d0",
+        "references/details.md": "18de19d2e2457a4d310a64c945fe881baf2a5a01"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/details.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "1fcc219d0394c084d03f68d18ee46917e7dec5046ca9e0eccc7c61d0f092c415",
+        "UPSTREAM.md": "c27940ddb1461af202b090c2e75ed03361422fa2a0bb83212bfdf94f34f4758f",
+        "references/details.md": "3fbfd325e88e3266f59f18df291c62c7a44ef31b7c574097a202682b35029730"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/details.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/details.md": "100644"
+      },
+      "patches": {
+        "patches/async-python-patterns/SKILL.md.patch": "d6c790c02a9df2c72f870ad2c2a1186d91b5cb7419800ee99c64a96be496f2ff",
+        "patches/async-python-patterns/references__details.md.patch": "d84d355e7fbe423242b21b79406a874fd3632e020b291871de7b640040acffb1"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
+    },
+    {
+      "name": "bash-defensive-patterns",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/shell-scripting/skills/bash-defensive-patterns",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "741b42d1fa3167f2131a17f3e0fe891e93be4fc87aa3c19e1de5fd26d763f711",
+        "references/details.md": "79483306c2f5297c3fa1c5e6d05ff2e98a1ea73ea760b6a62230b0822236f981"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "1cb79f63668b7833e6a1377ab957578d84f9d410",
+        "references/details.md": "742ccf274fb7975e033d0407ad593cf5743e37ae"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/details.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "8ddeabe325bf2fd9c034c00eb17797ac3deef3ec0da478ba814badf5646a5447",
+        "UPSTREAM.md": "5b117f352e2a612a99898054391879801ff77d7a772a0f1a3f25645d09746d23",
+        "references/details.md": "42bd4938107c1fb59288561a9c67c5d41ad1a0e5e4cbe738f7e02ec5994278bd"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/details.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/details.md": "100644"
+      },
+      "patches": {
+        "patches/bash-defensive-patterns/SKILL.md.patch": "174af33b0926cbc76be84dab821c44a33abd8d29a7b99cccc869b3b29c5dfb4e",
+        "patches/bash-defensive-patterns/references__details.md.patch": "5ad23ea092413a66bf493577444c1c541e4abdace0a0cf63af4f76df9d2b6579"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
+    },
+    {
+      "name": "bats-testing-patterns",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/shell-scripting/skills/bats-testing-patterns",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "d7992dbf589789f1ae446161d86c1cab026b9dfc4acfed5491d552be97338e62",
+        "references/details.md": "b3a82965886d700debae915949a6eccd7768568d97c0d996d7354abb43fee4b5"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "d28cb6e3a1cc1fe5118fc676041cc29198be3fab",
+        "references/details.md": "0ca451614a7a4df5ad5aad26901a79cf6fc7567e"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/details.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "a2d444a75d2da51274b58cc0d71386d235fc59270f7e58aefff8687f6d0336ee",
+        "UPSTREAM.md": "d222165ab3b11cef997ad2bffeec5bdc02c87ce0bed6860c518d8e15346d1c04",
+        "references/details.md": "101d130093c7bfee7bd8c4cb97f0fcb2bcbcee7d2b03c906ff6ffeca011123a3"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/details.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/details.md": "100644"
+      },
+      "patches": {
+        "patches/bats-testing-patterns/SKILL.md.patch": "c31912f52d143af1131ae9350f7b1e1afc74d34e57acf6695391d5e6cd924ac7",
+        "patches/bats-testing-patterns/references__details.md.patch": "e0075426a5a773178de0ca42eeb8eb786be79a1f5d58ef2e6475152b7d8caa1d"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
+    },
+    {
+      "name": "gcloud",
+      "state": "vendored",
+      "upstream_url": "https://github.com/google/skills",
+      "commit": "bb9b3f464aae37af360d079c1d863524955b0363",
+      "upstream_path": "skills/cloud/gcloud",
+      "license": "Apache-2.0",
+      "upstream_files": {
+        "LICENSE.upstream": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "SKILL.md": "4e8c58e24c71a42803ac211e8c03c5f6f22279960e66819c1ee14f984a4668be",
+        "references/attribution.md": "eb1fd36307c413d79d6030ff26f835c75f2f064f52d3277c8bad8d71acf72141",
+        "references/cli-usage.md": "cb4e2cbea20793d6766cfc2d7ffd81ee20eeefba90270df36892fdcaa1125fab",
+        "references/mcp-usage.md": "a3d75e6ec90a3d0157803faa92a7c0bb43d7481157b45aa3a819f12e1adbda57"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+        "SKILL.md": "c9b7cfb87f3b41c221c120d8dfb85d0fcb2e8f84",
+        "references/attribution.md": "a4cb1e4b1a6bd9c2395c6ef1feaf8a08015dc381",
+        "references/cli-usage.md": "42525d170b0b9e33831dc23fdb55f9d2d1d8a651",
+        "references/mcp-usage.md": "15d058e2fd62ec7446e80cd98127b7a0d1c00890"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/attribution.md": "100644",
+        "references/cli-usage.md": "100644",
+        "references/mcp-usage.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "SKILL.md": "6bd7cfd43de84081b1a793a67b3419dbc6e4fef7554a73cfb3e8575be3317401",
+        "UPSTREAM.md": "83da31d60120cfa1883488825c711f6637d18512c650fe172d4633ee3cc1adb7",
+        "references/attribution.md": "c241aec7fc1fb827dcf7b95a6da498dca60934393513c7a730568eedc481d908",
+        "references/cli-usage.md": "404efd630fb87295719de8409578cbdda57f273483f4cbf5a1bbb9e136201c84",
+        "references/command-patterns.md": "b75bcf64bf98333e2f3ac476168fcd52f72f7620b79c947ff320ffc1b0ecdc1b",
+        "references/mcp-usage.md": "1698405eb6e51dbfe944d06962da7e0f8bf9bea9a738609709212291f759411e"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/attribution.md": "100644",
+        "references/cli-usage.md": "100644",
+        "references/command-patterns.md": "100644",
+        "references/mcp-usage.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/attribution.md": "100644",
+        "references/cli-usage.md": "100644",
+        "references/command-patterns.md": "100644",
+        "references/mcp-usage.md": "100644"
+      },
+      "patches": {
+        "patches/gcloud/SKILL.md.patch": "08ba33e83c41090789f1719cac38ea4acc4425df62524ada3f57fb1ad4e23bac",
+        "patches/gcloud/references__attribution.md.patch": "da55e0afc4646c12908e43cdfd5c60de3fcd8e28b4349b64570e523d0c53f66a",
+        "patches/gcloud/references__cli-usage.md.patch": "1d9d660cf3c71d72f4a0170e3c020fe205671acf412b82183735588f33da436d",
+        "patches/gcloud/references__mcp-usage.md.patch": "4648f42ada161234dd6995918f05a7c4a2472c4f974ad16640b1935f23c96762"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
+    },
+    {
+      "name": "gke-workload-identity",
+      "state": "vendored",
+      "upstream_url": "https://github.com/google/skills",
+      "commit": "bb9b3f464aae37af360d079c1d863524955b0363",
+      "upstream_path": "skills/cloud/gke-workload-identity",
+      "license": "Apache-2.0",
+      "upstream_files": {
+        "LICENSE.upstream": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "SKILL.md": "6ca454feb1f9b0ad3be8b21b64584d9dff6057ea35ff8546be63e06e3fe3a4a1",
+        "references/attribution.md": "555c3c28f290a9db82b37ccc704bed3320a62efba0b330abf6a6c2dfbe07dd37"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+        "SKILL.md": "59a05a90fee05915405aee0d9b39b19bffb95994",
+        "references/attribution.md": "0373c6228276d3aa4ea26e41d4442120f7342fcf"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/attribution.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "SKILL.md": "f1532caedd37289dce941113a380b56c114d34c1aad266ef03584866a6a1b7ef",
+        "UPSTREAM.md": "d5269f245b39adafb6ae1e3a59a271792c523e53633a7bcbd449fb63af967065",
+        "references/attribution.md": "c241aec7fc1fb827dcf7b95a6da498dca60934393513c7a730568eedc481d908",
+        "references/identity-diagnostics.md": "3c5b1576f9d6155e658023916a1e21c4873545879c472b267a995b8db91d76b2"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/attribution.md": "100644",
+        "references/identity-diagnostics.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/attribution.md": "100644",
+        "references/identity-diagnostics.md": "100644"
+      },
+      "patches": {
+        "patches/gke-workload-identity/SKILL.md.patch": "ece1f76a7125d5b76b64a90ba23aed746f8789c3b9a3f286dbc8e05768d62552",
+        "patches/gke-workload-identity/references__attribution.md.patch": "7535b864ec538802550c84878180e4477d232204d072f070474217a873f3ea24"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
+    },
+    {
+      "name": "gke-workload-troubleshooting",
+      "state": "vendored",
+      "upstream_url": "https://github.com/google/skills",
+      "commit": "bb9b3f464aae37af360d079c1d863524955b0363",
+      "upstream_path": "skills/cloud/gke-workload-troubleshooting",
+      "license": "Apache-2.0",
+      "upstream_files": {
+        "LICENSE.upstream": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "SKILL.md": "b62106427fce63e98eb6f399f3bb034da9eec8978faa993264811e1da7c1fc8d",
+        "references/attribution.md": "57bace7d3e4937b5f75bf882550d80a9ec2ec16ac7ddf0bf07cf4b1794cfb7a4"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+        "SKILL.md": "7e7258a428a454e52ea234833afbdfc61b0e3a31",
+        "references/attribution.md": "27594cb7fba282195ca116b4f5bfeff225c638ac"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/attribution.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "SKILL.md": "1e20987221f4b1f9f8f0104a694813c10b45aa8faddf62e1bcbe28ce8b95eeb7",
+        "UPSTREAM.md": "61133ff8c2126a39cfe77bd43066cd51ba0f9f1885d1bbfda5ad51348ecca38c",
+        "references/attribution.md": "c241aec7fc1fb827dcf7b95a6da498dca60934393513c7a730568eedc481d908",
+        "references/workload-diagnostics.md": "0d7f32a98c7078f58908ad4748df084c291dfafb9ffafc2954a49d70e1e7a5e2"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/attribution.md": "100644",
+        "references/workload-diagnostics.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/attribution.md": "100644",
+        "references/workload-diagnostics.md": "100644"
+      },
+      "patches": {
+        "patches/gke-workload-troubleshooting/SKILL.md.patch": "7090c36e85cd399ed9c38e429b495cc6f8eaea942cd244e26f83fa8771ba54b5",
+        "patches/gke-workload-troubleshooting/references__attribution.md.patch": "89f21e45393011bd21855af0d53300441316d22635ff5e2e2a5f299af5648381"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
+    },
+    {
+      "name": "google-cloud-recipe-auth",
+      "state": "vendored",
+      "upstream_url": "https://github.com/google/skills",
+      "commit": "bb9b3f464aae37af360d079c1d863524955b0363",
+      "upstream_path": "skills/cloud/google-cloud-recipe-auth",
+      "license": "Apache-2.0",
+      "upstream_files": {
+        "LICENSE.upstream": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "SKILL.md": "3415b14510b1b32a25a04233d2e81b2c8f4a923e4a40486f5b6fe5a4439afa54",
+        "references/attribution.md": "088a215373cfef7827688fc5f1e99c902d24616614cb978c0b0abf172480fb86"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "d645695673349e3947e8e5ae42332d0ac3164cd7",
+        "SKILL.md": "c0179c9463e9e7e27d1e92fce8a7e393281a9fa9",
+        "references/attribution.md": "9d1bc2db9c2285a8e4386098e3340b3a2d0705ab"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/attribution.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "SKILL.md": "93049b61c7de8065410ab4b195841ec9486b65d9b91b00efaf1612724de1ce5e",
+        "UPSTREAM.md": "c8e07076f23d8a8d0c48c463964d067cc5554ec01e6f626097dd62a0178b6d9d",
+        "references/attribution.md": "c241aec7fc1fb827dcf7b95a6da498dca60934393513c7a730568eedc481d908",
+        "references/auth-methods.md": "d2827a23ab5cdb95bc5168e68cf51c5c52c98e34953f1acf711b7cb238a41dff"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/attribution.md": "100644",
+        "references/auth-methods.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/attribution.md": "100644",
+        "references/auth-methods.md": "100644"
+      },
+      "patches": {
+        "patches/google-cloud-recipe-auth/SKILL.md.patch": "92d2cf41718d9a71ef05094e49144f9fd0d517354580838d7da8f80511796261",
+        "patches/google-cloud-recipe-auth/references__attribution.md.patch": "1cbfa159cf622923a1ebe31196c65f54440c985e549a5a9762320f991021c848"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
+    },
+    {
+      "name": "helm-chart-scaffolding",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/kubernetes-operations/skills/helm-chart-scaffolding",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "d277c3d3a1b669e4fb8bcd3a36fdec7d7ad1becc2f2ff908c841ddf306e622ed",
+        "assets/Chart.yaml.template": "a752ee6b46f5f191d032fe1f4da60772a02651a3be03605acc86489875f4e1dd",
+        "assets/values.yaml.template": "d4ec34d9301b82001a167babcbfcfda8a5f2c39dbbe5b85d336a9c695d35c91a",
+        "references/chart-structure.md": "33bc7dc78368282ce0cc6b21f9df9551afe2482a2886c21082cba6b746373b5d",
+        "references/details.md": "ff0511db5366f0cea3dfa98800e2d921bab2e22f423d5c331853826b54dd39b6",
+        "scripts/validate-chart.sh": "f1de1b886fc8e171fd4c6e10f1cb53796d47dac9b7a76babd710e2a86471089a"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "34880d40ee13f819a21e28558c5c3171a2048a41",
+        "assets/Chart.yaml.template": "74dfe6e6617ac19bdde024f9d5d0b9ca9d8a1d87",
+        "assets/values.yaml.template": "117c1e5b1c314801be618311285fbc34ca43c198",
+        "references/chart-structure.md": "608e03cfcc0eb2cdbce0a25ecd60b86cf5e7166a",
+        "references/details.md": "0a85b508bf639404b60f4a1c826554fba7868b3f",
+        "scripts/validate-chart.sh": "b8d5b0f329bcfd918866c81c19ae04afeaea4b7c"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "assets/Chart.yaml.template": "100644",
+        "assets/values.yaml.template": "100644",
+        "references/chart-structure.md": "100644",
+        "references/details.md": "100644",
+        "scripts/validate-chart.sh": "100755"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "49464031ce69628b09cd7a993d85be526874ea6e3bc5b8ca46167905cb0f3082",
+        "UPSTREAM.md": "6361afe4d6f094d8fb3067df50c7a99da5f3332cf9cd06cd04d30c23ff553836",
+        "assets/Chart.yaml.template": "985df569623a5cbae505941a41fb115f570fe48e423832de2e49fe62eedef742",
+        "assets/values.yaml.template": "1a1d5556f3c025d6ef57913971453fcb8f36b8f2f1e748c138f318c16c203d6e",
+        "references/chart-structure.md": "edfe36a18d904cadeba4105acff517fee70f20c928cd3b57c29a5914ac97b59f",
+        "references/details.md": "6daec2f00b09b573b6603cf1894d9ad61b3398c642b502e481a06858c99deb44",
+        "scripts/validate-chart.sh": "0f4dfcf8500a678a7f89652c8cc09b07f1440f46f00c52551d9f9c6f9c09d7aa"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "assets/Chart.yaml.template": "100644",
+        "assets/values.yaml.template": "100644",
+        "references/chart-structure.md": "100644",
+        "references/details.md": "100644",
+        "scripts/validate-chart.sh": "100755"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "assets/Chart.yaml.template": "100644",
+        "assets/values.yaml.template": "100644",
+        "references/chart-structure.md": "100644",
+        "references/details.md": "100644",
+        "scripts/validate-chart.sh": "100644"
+      },
+      "patches": {
+        "patches/helm-chart-scaffolding/SKILL.md.patch": "b98e09f2940d0c02b6a2faa34d252a2a0fa1d48ac3be3649a96b90480ee128f3",
+        "patches/helm-chart-scaffolding/assets__Chart.yaml.template.patch": "53e0b48e1e4c68b77044dcd44878a7e4263237daabd18f22e18a261afd95028e",
+        "patches/helm-chart-scaffolding/assets__values.yaml.template.patch": "f2478a60c3d3b33e22cf75814df6418d02e644c1310fd5f7ee5cee3e2ff84513",
+        "patches/helm-chart-scaffolding/references__chart-structure.md.patch": "854d0eeb19d6c3619acb86c0c0531fce270ea2047644d96ad88e944f720506f3",
+        "patches/helm-chart-scaffolding/references__details.md.patch": "b56749ca52757537af9aa2d641e8a15b95a3a27aed5fa2333a4f6f1a62eedc9f",
+        "patches/helm-chart-scaffolding/scripts__validate-chart.sh.patch": "4d64986b6591786099e7733cc4cbddb2845d4be0f150f4ca74be76ec72e53bc5"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
+    },
+    {
+      "name": "k8s-manifest-generator",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/kubernetes-operations/skills/k8s-manifest-generator",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "489acd7b8fef07286a9b7d37879252e340e297f51a718d1e4ff30cfaf3b5f262",
+        "assets/configmap-template.yaml": "d991cec7e5653ea24bdec1b0e76ec9de70cc0a7ac4e13c647cdfd893e31cb064",
+        "assets/deployment-template.yaml": "9cbaf979af9c66f8fb64e3430a6751820f8ff3161a3af351fa3728e4eddd1245",
+        "assets/service-template.yaml": "87f085b5502182b7503d332f7c62da69bb3f737cb8f38f65ceb520d7e5557711",
+        "references/deployment-spec.md": "e86131be416480baa0a4dc2b2bb99d0da4b5f361f5616bd18556038013abc394",
+        "references/details.md": "69bf500ff981ab6b5aeb9c7bdb34a461c49f8bfd665e03c1311dafe9aa4b91b1",
+        "references/service-spec.md": "0fecd8ba3e8badca2dd58c2f0a81bf7aec70d7e1817e0fdda36602182a5f7b55"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "72baa433b77930609595d997ef799260bc4a2464",
+        "assets/configmap-template.yaml": "c73ef744e796e6aaa5558f3c493828cfceaa371b",
+        "assets/deployment-template.yaml": "402be745daeb796f626606e479504e501e60db30",
+        "assets/service-template.yaml": "e740d8062fc22223a27fb36b7ab0689c2499eea0",
+        "references/deployment-spec.md": "7b9f45ad066b9ff5e5b47a9a1bfc885218313ab1",
+        "references/details.md": "7942c7667830f77b9831927d1824419d1bba35f9",
+        "references/service-spec.md": "4ddf94acfeb13e5f6bf6c9dd85a7210d33236b2f"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "assets/configmap-template.yaml": "100644",
+        "assets/deployment-template.yaml": "100644",
+        "assets/service-template.yaml": "100644",
+        "references/deployment-spec.md": "100644",
+        "references/details.md": "100644",
+        "references/service-spec.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "3673acc814cea86e2f7daca2138bb4a2e0d25bbd32da44bc211b01c7109fa85e",
+        "UPSTREAM.md": "82451d58594635e6a25adc315668aec96fbc44d2f8426d646a32840ab0d320ce",
+        "assets/configmap-template.yaml": "ec3d4adda5ba95f6f67f2a72cd550952cd19647707aed6313224583dcb785222",
+        "assets/deployment-template.yaml": "ad6d8f1873d833184080ea0de6423c2dfd2f28678c31f5b2515c9f4c34805dd9",
+        "assets/service-template.yaml": "84e553f2473e826fa3358cf565e42b24d4e0767cd388e86f79068a6c53c113a3",
+        "references/deployment-spec.md": "640e17d209a0228ad481a734371ef45d6719ed41fd6e90de1d9d678006bbe061",
+        "references/details.md": "2f0d46888ee07a6241d2a6149050537083f139c7c1e94414fc7860ad26d9acad",
+        "references/service-spec.md": "97775fc5c1e0cf64632064482f974d9bd130f93cbe0491cdb59180f73ca797ff"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "assets/configmap-template.yaml": "100644",
+        "assets/deployment-template.yaml": "100644",
+        "assets/service-template.yaml": "100644",
+        "references/deployment-spec.md": "100644",
+        "references/details.md": "100644",
+        "references/service-spec.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "assets/configmap-template.yaml": "100644",
+        "assets/deployment-template.yaml": "100644",
+        "assets/service-template.yaml": "100644",
+        "references/deployment-spec.md": "100644",
+        "references/details.md": "100644",
+        "references/service-spec.md": "100644"
+      },
+      "patches": {
+        "patches/k8s-manifest-generator/SKILL.md.patch": "62a7fc2d3e4335e14e7fc627cf439c4a3023aae95a05bf564a55251c9053de09",
+        "patches/k8s-manifest-generator/assets__configmap-template.yaml.patch": "e3b286ca76cad919abc5cbe3bcfe479b9f0a327d71a4c56640912dee05339908",
+        "patches/k8s-manifest-generator/assets__deployment-template.yaml.patch": "f11cadefd1c8c0494432826e359a5feffa12f5d7d8322f8cd04be4c5a6317afd",
+        "patches/k8s-manifest-generator/assets__service-template.yaml.patch": "2b0bc15d6f9367d2d1fbd515081131d9f7a4ac68d7cf40bf2b829576d9ed670e",
+        "patches/k8s-manifest-generator/references__deployment-spec.md.patch": "fb9231cb7a03d73d941e24b032c04a57f975dd03f80a914f08b24cd9513de1cb",
+        "patches/k8s-manifest-generator/references__details.md.patch": "76f1043f59273fcc75f3580506910e66fb55303048549c8346315a8e6f6bdad5",
+        "patches/k8s-manifest-generator/references__service-spec.md.patch": "e39fa1a885d3a977f7c28c0e845368301a4b2250e724fb9e652d27647d98c98f"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
+    },
+    {
+      "name": "mojo-gpu-fundamentals",
+      "state": "vendored",
+      "upstream_url": "https://github.com/modular/skills",
+      "commit": "1b2cc565ca7e0a8b66d96b4ee78fdfb7ec443a88",
+      "upstream_path": "mojo-gpu-fundamentals",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "upstream_files": {
+        "LICENSE.upstream": "3340babe8ac7bc6ae294d93aa01c310a250d43d5b760e5c12954882d4e5c83c7",
+        "SKILL.md": "3dd548f55c281319431ce9c5816ea7a39668f5ae2f03fbfc6946ecba57288f9d"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "5715176572a46103c45532e629f79875c950bb5d",
+        "SKILL.md": "e76065badadd4ffaf53560c3994eed036d052384"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "3340babe8ac7bc6ae294d93aa01c310a250d43d5b760e5c12954882d4e5c83c7",
+        "SKILL.md": "3d31911bc7c06902d6e18dc89f1695744b80dfcf8206c219e0f8d25f1ee1bd67",
+        "UPSTREAM.md": "3c021c2c2b733d003e6cec5d360165a3132e9842a4bf815859b74771b5eb37d8",
+        "references/gpu-patterns.md": "a774dde1ccf91b4060ef0aab1832064d461788d14014b7cbd0b858292b35b232"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/gpu-patterns.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/gpu-patterns.md": "100644"
+      },
+      "patches": {
+        "patches/mojo-gpu-fundamentals/SKILL.md.patch": "c8cba41d08bc911cd03e9c179fa5241c06cd08c208c6cba88fdbc9b0630287d3"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes.",
+      "license_notes": "Exact repository notice retained, including LLVM exceptions and legacy University of Illinois/NCSA terms; see LICENSE.upstream."
+    },
+    {
+      "name": "mojo-python-interop",
+      "state": "vendored",
+      "upstream_url": "https://github.com/modular/skills",
+      "commit": "1b2cc565ca7e0a8b66d96b4ee78fdfb7ec443a88",
+      "upstream_path": "mojo-python-interop",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "upstream_files": {
+        "LICENSE.upstream": "3340babe8ac7bc6ae294d93aa01c310a250d43d5b760e5c12954882d4e5c83c7",
+        "SKILL.md": "3cae8cfe4af5440e19abdf51bb51af608f48588b31a22c45d27d665c91b1773f"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "5715176572a46103c45532e629f79875c950bb5d",
+        "SKILL.md": "2403f07c370110853ba4ab425bb17c157b7a5581"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "3340babe8ac7bc6ae294d93aa01c310a250d43d5b760e5c12954882d4e5c83c7",
+        "SKILL.md": "a0d8fec40b490f091d3ea091cb9669a1de4d44530627b5a408afc7aa97e19543",
+        "UPSTREAM.md": "3326afdc9f01396a1e42b2cddffe8f25b238386fb776a5bd92c30d0eb1f8a757",
+        "references/interop-patterns.md": "354df9df6881c26e8732204fdeba89875d2148255a33ba33d925baa7c4aefdfc"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/interop-patterns.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/interop-patterns.md": "100644"
+      },
+      "patches": {
+        "patches/mojo-python-interop/SKILL.md.patch": "4445b8b376eeb9898851676745d8de4aa4824f1eac92f29c2de334833cd67c62"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes.",
+      "license_notes": "Exact repository notice retained, including LLVM exceptions and legacy University of Illinois/NCSA terms; see LICENSE.upstream."
+    },
+    {
+      "name": "mojo-syntax",
+      "state": "vendored",
+      "upstream_url": "https://github.com/modular/skills",
+      "commit": "1b2cc565ca7e0a8b66d96b4ee78fdfb7ec443a88",
+      "upstream_path": "mojo-syntax",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "upstream_files": {
+        "LICENSE.upstream": "3340babe8ac7bc6ae294d93aa01c310a250d43d5b760e5c12954882d4e5c83c7",
+        "SKILL.md": "e2d86fbec875cb33794b4826ca3a8f36a5a82601288fae119e13789f25b1ac12",
+        "references/idiomatic-mojo.md": "145dd109569f329fcd159e1e3a289e95462e9d3fb973e0ed7679ac06961de160"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "5715176572a46103c45532e629f79875c950bb5d",
+        "SKILL.md": "a3a67d11f59bdcf254036e3ad777b7fd6810eb23",
+        "references/idiomatic-mojo.md": "db537095542f5ad9e46aa7a82764cdde14467ce2"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/idiomatic-mojo.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "3340babe8ac7bc6ae294d93aa01c310a250d43d5b760e5c12954882d4e5c83c7",
+        "SKILL.md": "27292a2d548ed7f0e2435d77f03f52985cc6a080fca3c135fb9dd04810a80c65",
+        "UPSTREAM.md": "c07c69a29af1cbd4d9ee77d776e1fbc63a6696c0aff87aa54ee031ffdc90ff03",
+        "references/idiomatic-mojo.md": "d67ad16f98fe84b92a30223e24d23fc8abeb3bd61c1de0f6f81cc3f6af77b6b0",
+        "references/syntax.md": "bdb2c7b201deb07a4f038d6883d3cde83fe5fbe02b2ef4c00d49a64774b75c3c"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/idiomatic-mojo.md": "100644",
+        "references/syntax.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/idiomatic-mojo.md": "100644",
+        "references/syntax.md": "100644"
+      },
+      "patches": {
+        "patches/mojo-syntax/SKILL.md.patch": "4614b427a461b949ac1e5918c57258f1c79b3b970731e6127160fcf3be8d2fe1",
+        "patches/mojo-syntax/references__idiomatic-mojo.md.patch": "8dd959fdbd505b4e6a3a238c1dc25c992f8d32ca3e2d15de93e57084c71f1dc6"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes.",
+      "license_notes": "Exact repository notice retained, including LLVM exceptions and legacy University of Illinois/NCSA terms; see LICENSE.upstream."
+    },
+    {
+      "name": "new-modular-project",
+      "state": "vendored",
+      "upstream_url": "https://github.com/modular/skills",
+      "commit": "1b2cc565ca7e0a8b66d96b4ee78fdfb7ec443a88",
+      "upstream_path": "new-modular-project",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "upstream_files": {
+        "LICENSE.upstream": "3340babe8ac7bc6ae294d93aa01c310a250d43d5b760e5c12954882d4e5c83c7",
+        "SKILL.md": "972c48e18e49eddef70838b564f5bc7780832039b9cbdd4506065fa31533c5f2"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "5715176572a46103c45532e629f79875c950bb5d",
+        "SKILL.md": "0be6ccadab90c35aa8fc2e44308979e8de38c668"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "3340babe8ac7bc6ae294d93aa01c310a250d43d5b760e5c12954882d4e5c83c7",
+        "SKILL.md": "c2d962695771bdd0499ff4518db188847d9c38c413f14a148af743435ae483d8",
+        "UPSTREAM.md": "c460b3d3b7a3363cf906aef9aab4b34ccbd6bc17ba0106b8bbaa25ac428e6717",
+        "references/setup-choices.md": "55c9f2780e347ae1fe644ada45567246a5607e6a8a9e8413ebc3c3ae65ac01a8"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/setup-choices.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/setup-choices.md": "100644"
+      },
+      "patches": {
+        "patches/new-modular-project/SKILL.md.patch": "e1e0f5f86d045aa61655e6bb2b3a34bb216191743f5188e763dac8d97e82e572"
+      },
+      "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes.",
+      "license_notes": "Exact repository notice retained, including LLVM exceptions and legacy University of Illinois/NCSA terms; see LICENSE.upstream."
+    }
+  ]
+}

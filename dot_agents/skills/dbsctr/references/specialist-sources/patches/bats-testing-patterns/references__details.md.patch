@@ -1,0 +1,619 @@
+--- a/references/details.md
++++ b/references/details.md
+@@ -1,402 +1,221 @@
+-# bats-testing-patterns — detailed patterns and worked examples
+-
+-## Bats Fundamentals
+-
+-### What is Bats?
+-
+-Bats (Bash Automated Testing System) is a TAP (Test Anything Protocol) compliant testing framework for shell scripts that provides:
+-
+-- Simple, natural test syntax
+-- TAP output format compatible with CI systems
+-- Fixtures and setup/teardown support
+-- Assertion helpers
+-- Parallel test execution
+-
+-### Installation
+-
+-```bash
+-# macOS with Homebrew
+-brew install bats-core
+-
+-# Ubuntu/Debian
+-git clone https://github.com/bats-core/bats-core.git
+-cd bats-core
+-./install.sh /usr/local
+-
+-# From npm (Node.js)
+-npm install --global bats
+-
+-# Verify installation
++# Bats patterns: selected-project examples
++
++Examples illustrate Bats behavior after the project selects Bats and compatible
++helpers. They do not authorize installing tools or replacing an existing test
++authority. Resolve syntax and options against the selected Bats version:
++
++```bash
++command -v bats
+ bats --version
+-```
+-
+-### File Structure
+-
+-```
+-project/
+-├── bin/
+-│   ├── script.sh
+-│   └── helper.sh
+-├── tests/
+-│   ├── test_script.bats
+-│   ├── test_helper.sh
+-│   ├── fixtures/
+-│   │   ├── input.txt
+-│   │   └── expected_output.txt
+-│   └── helpers/
+-│       └── mocks.bash
+-└── README.md
+-```
+-
+-## Basic Test Structure
+-
+-### Simple Test File
++bats --help
++```
++
++Use the project's package/environment authority for an explicitly authorized
++setup. Preserve its dependency pins and CI actions; no global installation or
++upstream installer execution is implied by this reference.
++
++## Test layout and executable boundaries
++
++A typical existing layout has an executable in `bin/`, `.bats` files in `tests/`,
++and optional `tests/test_helper.bash` plus `tests/fixtures/`. Adapt to the project;
++these names are examples, not a required directory migration.
+ 
+ ```bash
+ #!/usr/bin/env bats
+ 
+-# Load test helper if present
+-load test_helper
+-
+-# Setup runs before each test
+ setup() {
+-    export TMPDIR=$(mktemp -d)
+-}
+-
+-# Teardown runs after each test
+-teardown() {
+-    rm -rf "$TMPDIR"
+-}
+-
+-# Test: simple assertion
+-@test "Function returns 0 on success" {
+-    run my_function "input"
+-    [ "$status" -eq 0 ]
+-}
+-
+-# Test: output verification
+-@test "Function outputs correct result" {
+-    run my_function "test"
+-    [ "$output" = "expected output" ]
+-}
+-
+-# Test: error handling
+-@test "Function returns 1 on missing argument" {
+-    run my_function
+-    [ "$status" -eq 1 ]
+-}
+-```
+-
+-## Assertion Patterns
+-
+-### Exit Code Assertions
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-@test "Command succeeds" {
+-    run true
+-    [ "$status" -eq 0 ]
+-}
+-
+-@test "Command fails as expected" {
+-    run false
+-    [ "$status" -ne 0 ]
+-}
+-
+-@test "Command returns specific exit code" {
+-    run my_function --invalid
+-    [ "$status" -eq 127 ]
+-}
+-
+-@test "Can capture command result" {
+-    run echo "hello"
+-    [ $status -eq 0 ]
+-    [ "$output" = "hello" ]
+-}
+-```
+-
+-### Output Assertions
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-@test "Output matches string" {
+-    result=$(echo "hello world")
+-    [ "$result" = "hello world" ]
+-}
+-
+-@test "Output contains substring" {
+-    result=$(echo "hello world")
+-    [[ "$result" == *"world"* ]]
+-}
+-
+-@test "Output matches pattern" {
+-    result=$(date +%Y)
+-    [[ "$result" =~ ^[0-9]{4}$ ]]
+-}
+-
+-@test "Multi-line output" {
+-    run printf "line1\nline2\nline3"
+-    [ "$output" = "line1
+-line2
+-line3" ]
+-}
+-
+-@test "Lines variable contains output" {
+-    run printf "line1\nline2\nline3"
+-    [ "${lines[0]}" = "line1" ]
+-    [ "${lines[1]}" = "line2" ]
+-    [ "${lines[2]}" = "line3" ]
+-}
+-```
+-
+-### File Assertions
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-@test "File is created" {
+-    [ ! -f "$TMPDIR/output.txt" ]
+-    my_function > "$TMPDIR/output.txt"
+-    [ -f "$TMPDIR/output.txt" ]
+-}
+-
+-@test "File contents match expected" {
+-    my_function > "$TMPDIR/output.txt"
+-    [ "$(cat "$TMPDIR/output.txt")" = "expected content" ]
+-}
+-
+-@test "File is readable" {
+-    touch "$TMPDIR/test.txt"
+-    [ -r "$TMPDIR/test.txt" ]
+-}
+-
+-@test "File has correct permissions" {
+-    touch "$TMPDIR/test.txt"
+-    chmod 644 "$TMPDIR/test.txt"
+-    [ "$(stat -f %OLp "$TMPDIR/test.txt")" = "644" ]
+-}
+-
+-@test "File size is correct" {
+-    echo -n "12345" > "$TMPDIR/test.txt"
+-    [ "$(wc -c < "$TMPDIR/test.txt")" -eq 5 ]
+-}
+-```
+-
+-## Setup and Teardown Patterns
+-
+-### Basic Setup and Teardown
+-
+-```bash
+-#!/usr/bin/env bats
+-
++    export SCRIPT="${BATS_TEST_DIRNAME}/../bin/example-cli"
++}
++
++@test "missing argument returns usage failure" {
++    run "$SCRIPT"
++    [ "$status" -eq 2 ]
++    [[ "$output" == *"Usage:"* ]]
++}
++
++@test "valid input creates expected output" {
++    output_path="$BATS_TEST_TMPDIR/result.txt"
++    run "$SCRIPT" --output "$output_path" valid-input
++    [ "$status" -eq 0 ]
++    [ -f "$output_path" ]
++    [ "$(cat "$output_path")" = 'expected content' ]
++}
++```
++
++The executable and expected contract come from the consuming project. Use `load`
++for a deliberate test helper/library; sourcing an arbitrary executable can run
++its main body and affect the test environment. Test environment changes by
++deliberately sourcing the library in a controlled shell when that is its API.
++
++## Status, streams and pipelines
++
++`run` captures the subprocess exit code in `$status` and combined output in
++`$output`/`${lines[@]}`. It returns zero to allow assertions. Its subprocess does
++not preserve variable assignments in the parent test.
++
++```bash
++@test "command fails with the documented status" {
++    run "$SCRIPT" --invalid-option
++    [ "$status" -eq 2 ]
++    [[ "$output" == *"invalid option"* ]]
++}
++
++@test "multiline output remains ordered" {
++    run printf 'line1\nline2\nline3\n'
++    [ "$status" -eq 0 ]
++    [ "${lines[0]}" = 'line1' ]
++    [ "${lines[1]}" = 'line2' ]
++    [ "${lines[2]}" = 'line3' ]
++}
++```
++
++If supported by the selected version, `run --separate-stderr` exposes distinct
++stderr fields; `run --keep-empty-lines` preserves empty records. Implicit status
++arguments such as `run -0` and `run !` are also version-dependent alternatives.
++
++Do not write `run command | formatter`: the pipe is parsed outside `run`, and
++the formatter does not receive the captured output as intended. Use a selected
++version's `bats_pipe` or an explicitly invoked, controlled shell pipeline with
++the intended producer-status handling. A reporter or `tee` must not mask failure.
++
++## Per-test and shared fixtures
++
++Use Bats-managed temporary directories appropriate to the resource lifetime:
++`BATS_TEST_TMPDIR`, `BATS_FILE_TMPDIR` or `BATS_SUITE_TMPDIR` when supported.
++Preserve caller-owned `TMPDIR`. Each test should own its paths and external state.
++
++```bash
+ setup() {
+-    # Create test directory
+-    TEST_DIR=$(mktemp -d)
+-    export TEST_DIR
+-
+-    # Source script under test
+-    source "${BATS_TEST_DIRNAME}/../bin/script.sh"
+-}
+-
+-teardown() {
+-    # Clean up temporary directory
+-    rm -rf "$TEST_DIR"
+-}
+-
+-@test "Test using TEST_DIR" {
+-    touch "$TEST_DIR/file.txt"
+-    [ -f "$TEST_DIR/file.txt" ]
+-}
+-```
+-
+-### Setup with Resources
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-setup() {
+-    # Create directory structure
+-    mkdir -p "$TMPDIR/data/input"
+-    mkdir -p "$TMPDIR/data/output"
+-
+-    # Create test fixtures
+-    echo "line1" > "$TMPDIR/data/input/file1.txt"
+-    echo "line2" > "$TMPDIR/data/input/file2.txt"
+-
+-    # Initialize environment
+-    export DATA_DIR="$TMPDIR/data"
+-    export INPUT_DIR="$DATA_DIR/input"
+-    export OUTPUT_DIR="$DATA_DIR/output"
+-}
+-
+-teardown() {
+-    rm -rf "$TMPDIR/data"
+-}
+-
+-@test "Processes input files" {
+-    run my_process_script "$INPUT_DIR" "$OUTPUT_DIR"
+-    [ "$status" -eq 0 ]
+-    [ -f "$OUTPUT_DIR/file1.txt" ]
+-}
+-```
+-
+-### Global Setup/Teardown
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-# Load shared setup from test_helper.sh
+-load test_helper
+-
+-# setup_file runs once before all tests
+-setup_file() {
+-    export SHARED_RESOURCE=$(mktemp -d)
+-    echo "Expensive setup" > "$SHARED_RESOURCE/data.txt"
+-}
+-
+-# teardown_file runs once after all tests
+-teardown_file() {
+-    rm -rf "$SHARED_RESOURCE"
+-}
+-
+-@test "First test uses shared resource" {
+-    [ -f "$SHARED_RESOURCE/data.txt" ]
+-}
+-
+-@test "Second test uses shared resource" {
+-    [ -d "$SHARED_RESOURCE" ]
+-}
+-```
+-
+-## Mocking and Stubbing Patterns
+-
+-### Function Mocking
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-# Mock external command
+-my_external_tool() {
+-    echo "mocked output"
+-    return 0
+-}
+-
+-@test "Function uses mocked tool" {
+-    export -f my_external_tool
+-    run my_function
+-    [[ "$output" == *"mocked output"* ]]
+-}
+-```
+-
+-### Command Stubbing
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-setup() {
+-    # Create stub directory
+-    STUBS_DIR="$TMPDIR/stubs"
+-    mkdir -p "$STUBS_DIR"
+-
+-    # Add to PATH
+-    export PATH="$STUBS_DIR:$PATH"
+-}
+-
+-create_stub() {
+-    local cmd="$1"
+-    local output="$2"
+-    local code="${3:-0}"
+-
+-    cat > "$STUBS_DIR/$cmd" <<EOF
+-#!/bin/bash
+-echo "$output"
+-exit $code
+-EOF
+-    chmod +x "$STUBS_DIR/$cmd"
+-}
+-
+-@test "Function works with stubbed curl" {
+-    create_stub curl "{ \"status\": \"ok\" }" 0
+-    run my_api_function
+-    [ "$status" -eq 0 ]
+-}
+-```
+-
+-### Variable Stubbing
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-@test "Function handles environment override" {
+-    export MY_SETTING="override_value"
+-    run my_function
+-    [ "$status" -eq 0 ]
+-    [[ "$output" == *"override_value"* ]]
+-}
+-
+-@test "Function uses default when var unset" {
+-    unset MY_SETTING
+-    run my_function
+-    [ "$status" -eq 0 ]
+-    [[ "$output" == *"default"* ]]
+-}
+-```
+-
+-## Fixture Management
+-
+-### Using Fixture Files
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-# Fixture directory: tests/fixtures/
+-
+-setup() {
+-    FIXTURES_DIR="${BATS_TEST_DIRNAME}/fixtures"
+-    WORK_DIR=$(mktemp -d)
+-    export WORK_DIR
+-}
+-
+-teardown() {
+-    rm -rf "$WORK_DIR"
+-}
+-
+-@test "Process fixture file" {
+-    # Copy fixture to work directory
+-    cp "$FIXTURES_DIR/input.txt" "$WORK_DIR/input.txt"
+-
+-    # Run function
+-    run my_process_function "$WORK_DIR/input.txt"
+-
+-    # Compare output
+-    diff "$WORK_DIR/output.txt" "$FIXTURES_DIR/expected_output.txt"
+-}
+-```
+-
+-### Dynamic Fixture Generation
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-generate_fixture() {
+-    local lines="$1"
+-    local file="$2"
+-
+-    for i in $(seq 1 "$lines"); do
+-        echo "Line $i content" >> "$file"
+-    done
+-}
+-
+-@test "Handle large input file" {
+-    generate_fixture 1000 "$TMPDIR/large.txt"
+-    run my_function "$TMPDIR/large.txt"
+-    [ "$status" -eq 0 ]
+-    [ "$(wc -l < "$TMPDIR/large.txt")" -eq 1000 ]
+-}
+-```
+-
+-## Advanced Patterns
+-
+-#
++    work_dir="$BATS_TEST_TMPDIR/work"
++    mkdir -p "$work_dir" || return 1
++    cp "$BATS_TEST_DIRNAME/fixtures/input.txt" "$work_dir/input.txt" || return 1
++}
++
++@test "fixture is processed without changing the original" {
++    run "$SCRIPT" "$work_dir/input.txt" "$work_dir/output.txt"
++    [ "$status" -eq 0 ]
++    diff "$work_dir/output.txt" "$BATS_TEST_DIRNAME/fixtures/expected.txt"
++}
++```
++
++For a selected Bats version without the needed managed variable, assign a
++task-specific `mktemp` directory with an explicit failure check, then export it;
++teardown removes only that owned directory. Do not combine fallible substitutions
++with `local` or `export`, or delete an unvalidated caller-provided path.
++
++Use `setup_file`/`teardown_file` only for truly shared resources. Declare their
++ownership, failure cleanup and parallel-test exclusion. Avoid sharing writable
++fixtures merely to make a suite faster.
++
++## Dependencies and skip semantics
++
++Use the built-in `skip` for an explicitly optional capability:
++
++```bash
++@test "optional jq formatting example" {
++    if ! command -v jq >/dev/null 2>&1; then
++        skip 'optional jq example: jq unavailable'
++    fi
++    run jq -r '.key' <<<'{"key":"value"}'
++    [ "$status" -eq 0 ]
++    [ "$output" = 'value' ]
++}
++```
++
++A required dependency's absence remains missing/unavailable validation under
++the project gate; skipping the test cannot establish that required behavior.
++Preserve original failures and avoid broad skip/xfail policies for green CI.
++
++## Files, permissions and platform coverage
++
++Use fixed-format `printf` for byte-exact fixture creation. Assert content, size,
++mode, owner or absence only when that property belongs to the contract. Select
++GNU versus BSD `stat` options from the real target, rather than treating either
++form as portable. An optional platform probe is not evidence for another OS.
++
++Permission-denial integration tests require a suitable unprivileged identity,
++ownership and filesystem semantics. Root, ACLs, mounts and container mappings can
++change a `chmod 000` result. Restore test-owned modes in teardown; if the required
++identity cannot be exercised, report the gap instead of manufacturing a denial.
++
++Run the executable under each claimed shell explicitly. A Bash script is not a
++POSIX sh script simply because Bats can launch both. Preserve minimum versions,
++GNU/BSD utilities, external dependencies and the distinction between syntax and
++behavior. Do not install another shell to avoid a supported-target failure.
++
++## Concurrent child outcomes
++
++Wait for each required PID; a final bare wait can return success despite child
++failure. This self-contained assertion checks the failure path without a service:
++
++```bash
++@test "a failed required child fails the operation" {
++    run bash -c '
++        pids=()
++        (exit 0) & pids+=("$!")
++        (exit 17) & pids+=("$!")
++        status=0
++        for pid in "${pids[@]}"; do
++            if wait "$pid"; then :; else
++                child_status=$?
++                if [[ "$status" -eq 0 ]]; then status=$child_status; fi
++            fi
++        done
++        exit "$status"
++    '
++    [ "$status" -eq 17 ]
++}
++```
++
++For actual asynchronous filesystem work, assert both every required child result
++and the intended files. Define signal forwarding, ownership, deadlines and reaping
++separately. File existence alone cannot establish successful concurrent execution.
++
++## Helpers and narrow mocks
++
++A shared assertion helper should preserve checked-command failure:
++
++```bash
++assert_file_equals() {
++    local file="$1"
++    local expected="$2"
++    local actual
++    [[ -f "$file" ]] || return 1
++    actual=$(cat "$file") || return 1
++    [[ "$actual" = "$expected" ]]
++}
++```
++
++For external commands, prefer a deterministic test-owned stub executable placed
++in a test-local `PATH`. Use a quoted heredoc or a fixed stub fixture so data is
++not expanded into executable shell source. Configure stub output/status through
++arguments or dedicated environment variables; keep real credentials absent.
++
++Function mocks must be loaded/exported into the actual child environment when
++that is how the tested code resolves them. Check calls, arguments and failure
++semantics, not just canned output. Keep real provider/API compatibility tests
++separate from local seam tests.
++
++Generate large fixtures with a shell-compatible loop or a selected tool; do not
++assume `seq` exists on every target. Independent per-test directories allow rerun
++and parallel isolation without clearing unrelated shared state.
++
++## Project-selected execution and CI
++
++Invoke the existing project command and its selected paths. For a project using
++Bats directly, current examples include `bats tests/`, `bats --tap tests/` or
++`bats --verbose-run tests/`; use recursive selection when required by the real
++layout. Verify options against the selected version's help.
++
++Parallel execution uses `--jobs N` in current Bats and requires its selected
++parallel backend. Use it only with independent fixtures and bounded resource
++budgets. Do not silently add a backend, change CI schedules, replace pinned
++actions or add a different test framework.
++
++Retain actual command status when saving TAP or other reports. Report passed,
++failed, skipped and excluded scope separately; test counts and an empty suite
++are not proof of complete required coverage. Existing QA owns acceptance.
++
++Primary references: [Bats test semantics](https://bats-core.readthedocs.io/en/stable/writing-tests.html)
++and [CLI usage](https://bats-core.readthedocs.io/en/stable/usage.html). Resolve
++version-sensitive behavior against the project's selected release.

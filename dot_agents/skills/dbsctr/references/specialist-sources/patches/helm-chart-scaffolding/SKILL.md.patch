@@ -1,0 +1,121 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,68 +1,69 @@
+ ---
+ name: helm-chart-scaffolding
+-description: Design, organize, and manage Helm charts for templating and packaging Kubernetes applications with reusable configurations. Use when creating Helm charts, packaging Kubernetes applications, or implementing templated deployments.
++description: Design and validate Helm chart templates, values and packaging for a project-selected Kubernetes target. Use for actual chart changes; distinguish local rendering from cluster acceptance and deployment.
+ ---
+ 
+-# Helm Chart Scaffolding
++# Helm Chart Design
+ 
+-Comprehensive guidance for creating, organizing, and managing Helm charts for packaging and deploying Kubernetes applications.
++Preserve the project's Helm version, dependency and lock authority, supported
++Kubernetes versions, release identity, namespaces and deployment workflow. Resolve
++existing facts before asking about a material missing decision. The current
++primary owns lifecycle, authorization and delivery.
+ 
+-## Purpose
++## Work at the chart boundary
+ 
+-This skill provides step-by-step instructions for building production-ready Helm charts, including chart structure, templating patterns, values management, and validation strategies.
++- Separate chart version from application/image identity. Follow the existing
++  version and provenance policy instead of changing pins to match an example.
++- Keep values and helper templates understandable; quote rendered values for the
++  Kubernetes field type. Test intended overrides and meaningful empty values.
++- Preserve selectors, names, upgrade compatibility and state ownership. Hooks and
++  chart tests can execute workloads, migrations or destructive operations.
++- Support the actual chart type. A valid library chart need not have values.yaml,
++  runnable workloads or the same files as an application chart.
++- Keep credentials outside ordinary values and rendered evidence. Use the
++  project's existing secret references or operator; never deploy sample passwords.
++- Treat resource sizing, probes, ingress and security context as workload/policy
++  decisions. A global string match is not evidence for every rendered resource.
+ 
+-## When to Use This Skill
++Read [chart patterns](references/details.md) for templates, values and hooks, or
++[chart structure](references/chart-structure.md) for packaging fields. The
++[Chart metadata](assets/Chart.yaml.template) and
++[values](assets/values.yaml.template) assets are illustrative inputs, not a
++production deployment or provider selection.
+ 
+-Use this skill when you need to:
++## Local validation
+ 
+-- Create new Helm charts from scratch
+-- Package Kubernetes applications for distribution
+-- Manage multi-environment deployments with Helm
+-- Implement templating for reusable Kubernetes manifests
+-- Set up Helm chart repositories
+-- Follow Helm best practices and conventions
+-
+-## Detailed patterns and worked examples
+-
+-Detailed pattern documentation lives in `references/details.md`. Read that file when the navigation tier above is insufficient.
+-
+-## Best Practices
+-
+-1. **Use semantic versioning** for chart and app versions
+-2. **Document all values** in values.yaml with comments
+-3. **Use template helpers** for repeated logic
+-4. **Validate charts** before packaging
+-5. **Pin dependency versions** explicitly
+-6. **Use conditions** for optional resources
+-7. **Follow naming conventions** (lowercase, hyphens)
+-8. **Include NOTES.txt** with usage instructions
+-9. **Add labels** consistently using helpers
+-10. **Test installations** in all environments
+-
+-## Troubleshooting
+-
+-**Template rendering errors:**
++Use the project's configured rendering and linting commands. The bundled helper:
+ 
+ ```bash
+-helm template my-app ./my-app --debug
++bash scripts/validate-chart.sh "/path/to/chart"
+ ```
+ 
+-**Dependency issues:**
++checks Chart.yaml, runs `helm lint` and `helm template` locally, and preserves the
++failing command's exit status. It accepts a chart path containing spaces. It does
++not fetch/build dependencies, install a chart, contact a cluster intentionally or
++prove server admission and rollout health. Missing Helm is a capability gap; the
++helper does not install it. Review chart inputs and the helper before execution.
+ 
+-```bash
+-helm dependency update
+-helm dependency list
+-```
++For library charts, use `bash scripts/validate-chart.sh --lint-only "/path/to/chart"`.
++Helm cannot directly render a library chart as an application. Linting alone leaves
++helper behavior unverified: render the project-selected consumer chart or fixture
++that includes the library and exercises its named templates.
+ 
+-**Installation failures:**
++Dependency updates/builds can access registries and rewrite chart state. Perform
++those only within selected dependency work. Preserve locks and report missing
++artifacts rather than resolving them incidentally during validation.
+ 
+-```bash
+-helm install my-app ./my-app --dry-run --debug
+-kubectl get events --sort-by='.lastTimestamp'
+-```
++Server-side validation, `lookup` behavior, hooks, installation and chart tests
++need separate applicable target evidence and existing task authorization. Use
++explicit cluster/context, release and namespace when live work is in scope.
++Avoid `--debug` output containing rendered Secrets. Do not introduce another
++repository/PR/deployment coordinator or ask again for authorization already given.
+ 
++Return template/value decisions, actual local results, compatibility concerns and
++required target checks to the primary and QA. A rendered chart is not a deployed
++or healthy application.
+ 
+-## Related Skills
+-
+-- `k8s-manifest-generator` - For creating base Kubernetes manifests
+-- `gitops-workflow` - For automated Helm chart deployments
++Use installed `k8s-manifest-generator` for base resources when helpful. Optional
++upstream [GitOps guidance](https://github.com/wshobson/agents/tree/7e2fb559cf4b824b27f1fec49fe88f7511066d26/plugins/kubernetes-operations/skills/gitops-workflow)
++is not an installed dependency or a new workflow requirement.
