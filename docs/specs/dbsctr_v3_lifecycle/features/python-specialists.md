@@ -78,6 +78,36 @@ four vendored bundles and their source inventory remain unchanged.
 
 ## Behavior
 
+### Audit behavior
+
+- Given an explicit repository-wide Python audit, the primary assesses all four
+  specialist lenses and reports actual scope, evidence and a prioritized roadmap.
+  Ordinary scoped development does not automatically start this audit.
+- Given existing project policy, the audit distinguishes compatible improvements
+  from proposals that change tooling, runtime support or public contracts. It may
+  recommend a change with tradeoffs; the recommendation does not authorize it.
+- Given a static performance concern without representative measurements, the
+  report labels a hypothesis and proposes validation, without claiming a measured
+  bottleneck, speedup or performance acceptance.
+- Given useful input/state invariants, the audit proposes concrete properties and
+  generators; missing Hypothesis alone is not a defect. Suitable example tests
+  and sound existing architecture can be explicit retain decisions.
+- Given a newer Python feature, the report checks the supported runtime floor,
+  verifies version/support claims against official sources when available, and
+  separates compatible modernization from a proposed floor increase.
+- Given nested projects, notebooks, dirty or untracked source, the audit records
+  the reviewed snapshot and owning environments. Inventory is distinct from
+  inspected coverage; sampling and unreviewed units remain visible.
+- Given a missing specialist, unavailable configured check or unsupported input,
+  the audit continues useful available work and reports the gap. It cannot claim
+  complete all-lens coverage or a passing validation authority it did not observe.
+- Given report-only audit intent, the primary produces findings and refactor
+  batches without source edits, auto-fixes, dependency installation or tool
+  migration. File output follows user-selected artifact authority; remediation
+  follows a separate bounded task and applicable DBSCTR gates.
+
+### Development selection
+
 - Given an ordinary Python bug fix with no affected architecture, invariant,
   performance concern or tooling change, the primary proceeds without loading
   all specialists or inventing an additional review gate.
