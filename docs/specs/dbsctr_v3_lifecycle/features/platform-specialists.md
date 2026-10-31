@@ -230,3 +230,31 @@ then needed resources. Results return to the existing primary and QA; no stage
 creates another coordinator or grants permission. Canonical source: this feature
 and module routing tables. Owner: lifecycle maintainer. Update when selection,
 authority, loading or delivery boundaries change.
+
+
+## Native router qualification
+
+### Domain and ownership
+
+This follow-up qualifies actual automatic skill selection and token usage before
+changing descriptions or removing duplicated routing. The native client remains
+the selector; DBSCTR remains instruction-driven. The evaluation is a bounded,
+explicitly invoked maintenance authority, not a new dispatcher, service, session
+coordinator or universal coding gate. Python, ML/AI and Security modules apply.
+
+| Value or owner | Responsibility |
+|---|---|
+| Task case | A synthetic repository, ordinary task request, independently declared expected/forbidden guidance and split |
+| Guidance snapshot | Complete selected source bytes, metadata, native catalog and invocation configuration identities |
+| Native observation | Actual catalog visibility, completed reads/tool events, final result and provider-reported usage for one fresh run |
+| Paired comparison | Matched cases/repetitions and balanced order; quality and observed usage remain separate outcomes |
+| Current primary and QA | Own evaluation execution, review, acceptance, lifecycle and delivery |
+| Private cycle evidence | Retain raw native events, local identities, failed runs and recovery material outside public source |
+
+Public fixtures contain only synthetic source and portable methodology. Existing
+account credentials remain in their native owner; no copied authentication,
+changed global configuration, new account, provider switch, model migration or
+infrastructure mutation is part of qualification. The configured native model and
+provider stay fixed across each comparison. Missing observations remain missing.
+The existing source-only OpenCode compression fixture keeps its separate purpose
+and unavailable usage/cost fields; native router evidence cannot relabel it.
