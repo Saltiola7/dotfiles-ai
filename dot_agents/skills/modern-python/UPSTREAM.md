@@ -11,7 +11,7 @@ This adapted directory, including local changes to upstream material, remains li
 
 ## Local changes
 
-Preserved the complete upstream skill resource tree. Made tool, dependency, runtime, layout, lock, coverage, hook and migration recipes conditional on project policy and current authorization in the entrypoint and supporting references. Removed scheduled-CI removal and shared-cache cleanup prescriptions; preserved dependency constraints and active consumers. Clarified bounded security setup and optional update automation. Added managed integration boundaries, license metadata and attribution.
+Preserved the complete upstream skill resource tree. Made tool, dependency, runtime, layout, lock, coverage, hook and migration recipes conditional on project policy and current authorization in the entrypoint and supporting references. Removed scheduled-CI removal and shared-cache cleanup prescriptions; preserved dependency constraints and active consumers. Replaced blanket typing-rule ignores with explicit inventory, retained diagnostics and separate setup/remediation acceptance. Clarified bounded security setup and optional update automation. Added managed integration boundaries, license metadata and attribution.
 
 Every original skill-root file is retained. `LICENSE.upstream` is copied unchanged
 from the repository-root `LICENSE`; this attribution file is added locally.

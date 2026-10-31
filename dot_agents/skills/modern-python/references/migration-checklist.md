@@ -86,30 +86,24 @@ uv run ruff check --select=ERA --fix .
 
 ## Gradual ty Adoption
 
-Only when ty adoption is selected, consider a documented staged baseline. Preserve required checks and record any temporary suppression with an owner and removal condition:
+Only when ty adoption is selected, establish an independent inventory of the
+approved Python population and its environment bindings before broad cleanup.
+Include tests, scripts and notebooks when selected; a convenient `src/` target
+does not establish full coverage. Use the project's checker command, configuration
+and runtime targets in every required environment.
 
-```toml
-[tool.ty.terminal]
-error-on-warning = true
+Retain original diagnostics and the actual exit status. Build a conflict census
+that distinguishes code defects, annotation/stub problems, missing dependencies,
+checker limitations and notebook structure. Report completed analysis separately
+from diagnostic cleanliness and remaining coverage gaps; do not substitute a
+count of matching output lines for either result.
 
-[tool.ty.environment]
-python-version = "3.11"
-
-[tool.ty.rules]
-# Start with these ignored for legacy codebases
-possibly-missing-attribute = "ignore"
-unresolved-import = "ignore"
-invalid-argument-type = "ignore"
-not-subscriptable = "ignore"
-unresolved-attribute = "ignore"
-```
-
-Remove rules as you fix errors. Track progress:
-
-```bash
-# Count remaining issues
-uv run ty check src/ 2>&1 | grep -c "error"
-```
+Setup can finish once inventory, environments, execution and the census satisfy
+their contract. That does not pass a required typing gate with failing findings.
+Keep remediation bounded by runtime contracts and project acceptance criteria.
+Do not manufacture a green baseline by disabling diagnostic classes or masking
+exit codes. Narrow suppressions require a reason, owner, precise scope and review
+condition; suppressed concerns are not evidence of a pass.
 
 ## Supply Chain Security
 

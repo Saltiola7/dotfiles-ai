@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
 
@@ -96,6 +97,20 @@ def test_complete_bundles_have_immutable_source_identity_and_attribution():
         assert package["commit"] in upstream
         assert package["upstream_url"] in upstream
     assert_bundles(SKILLS, packages)
+
+
+def test_selected_typing_migration_preserves_diagnostics_and_full_scope():
+    source = (SKILLS / "modern-python/references/migration-checklist.md").read_text()
+    for block in re.findall(r"```toml\n(.*?)```", source, flags=re.DOTALL):
+        rules = tomllib.loads(block).get("tool", {}).get("ty", {}).get("rules", {})
+        assert "ignore" not in rules.values(), "migration must not disable diagnostic classes"
+    normalized = " ".join(source.split())
+    for contract in (
+        "independent inventory", "conflict census", "actual exit status",
+        "required typing gate", "Narrow suppressions",
+    ):
+        assert contract in normalized
+    assert not re.search(r"ty check[^\n]*\|\s*grep", source)
 
 
 @pytest.mark.parametrize("mutation", ["missing", "changed", "extra", "linked"])

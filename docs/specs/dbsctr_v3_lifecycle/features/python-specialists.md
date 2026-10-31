@@ -141,6 +141,12 @@ maintainers update it with corresponding routing changes.
 - Property testing preserves project test policy and does not force a new
   library. Profiling preserves correctness, uses authorized workloads and reports
   uncertainty. Specialist instructions do not select a model or reasoning effort.
+- Selected typing migrations follow the core typing-coverage contract: establish
+  an independent artifact/environment inventory and conflict census, retain actual
+  diagnostic results and exit status, and distinguish setup from remediation.
+  Specialist recipes cannot establish a green baseline through global rule ignores
+  or narrow the approved population to a convenient source directory. Narrow
+  suppressions require justification and a review condition.
 - Source pins are `trailofbits/skills` at
   `2be6433b39e009cd2b6fd3be1895f6b1faa5af9a` and `wshobson/agents` at
   `7e2fb559cf4b824b27f1fec49fe88f7511066d26`. The two Trail of Bits adaptations

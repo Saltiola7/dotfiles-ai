@@ -45,11 +45,11 @@
       "files": {
         "LICENSE.upstream": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
         "SKILL.md": "c335d499dfb74ba9390c744ce4ad7547332c26acde7a42eaa4c4dcb835d9efe2",
-        "UPSTREAM.md": "e632d64cf2c0c63bb4523cb769b4222f116b6ddfcf8a4c165de7ce06c247cfc1",
+        "UPSTREAM.md": "27aea37a83a4c8328ece9525bbccdc9b45e1cfddcb7b64c899507ca5f14d8af0",
         "agents/openai.yaml": "f56c544187af5bd3c76f1cd082619644090ab7b6d8abe77d4d3115d39dced5c1",
         "assets/trail-of-bits-mark.svg": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
         "references/dependabot.md": "c7834f6c71219cc009e336a701277925a7d3e54454c5055e39373727e48ee270",
-        "references/migration-checklist.md": "d20f8366a1ce4ce55e3a9ef45bd5e3a8fb37d7b4e13004632717df56eaee8c3b",
+        "references/migration-checklist.md": "b33523d8edd9e0bfa8f5a452a914a16f157526ca68d0d63d745cc0cc5f1e08ca",
         "references/pep723-scripts.md": "c95f29335e0828ff41ea92ffafdd70505feb84ef5d8225d0558abcfffa3f6434",
         "references/prek.md": "81155f968287eb2d66d5bcb954a71c6ed472314fa132de0a0fc0324c760f1ab5",
         "references/pyproject.md": "796ccd0784bdb99e6a9b9a64c64da6ec5477447c1d60d413718b95c46c1ff384",
@@ -63,7 +63,7 @@
       "patches": {
         "patches/modern-python/SKILL.md.patch": "0a26f998bdd48abf35a19532c06ec6701afb75e4a8d0afdccb2d010c40489e02",
         "patches/modern-python/references__dependabot.md.patch": "af2528adc100c4f41ff056cfff1e01b3f24d8dc0328820a2720d8ed5abeb309f",
-        "patches/modern-python/references__migration-checklist.md.patch": "8a56acd976efab95100d95c38685aa76472451ccfa163769df2015cb847cb17c",
+        "patches/modern-python/references__migration-checklist.md.patch": "a68b7bc3626f85e88d51b2d17c2eeef3de3e745c2aa2cd6843370a0f8cf5f743",
         "patches/modern-python/references__pep723-scripts.md.patch": "87eaa982e957a7b5a0fa1085a5485597fc1cd2ab512bfaae39177433a8a573e4",
         "patches/modern-python/references__prek.md.patch": "4e368c619e947e4f5a235d35de9987efb79f1315783be79c1e6c8470deba0e6d",
         "patches/modern-python/references__pyproject.md.patch": "78288af2e39d524cc47afb499aaa0778a52cec6e2a36995c96d44e9805203698",
@@ -74,7 +74,7 @@
         "patches/modern-python/templates__dependabot.yml.patch": "14714cb3c9ee1eaacc2736cd6f5178d11d17823b2e17533abc2c3b82b4a5e791",
         "patches/modern-python/templates__pre-commit-config.yaml.patch": "c3d8e494438ba6fe98d81741a5834b696a29155153941daf7cc73c967577803f"
       },
-      "changes": "Preserved the complete upstream skill resource tree. Made tool, dependency, runtime, layout, lock, coverage, hook and migration recipes conditional on project policy and current authorization in the entrypoint and supporting references. Removed scheduled-CI removal and shared-cache cleanup prescriptions; preserved dependency constraints and active consumers. Clarified bounded security setup and optional update automation. Added managed integration boundaries, license metadata and attribution."
+      "changes": "Preserved the complete upstream skill resource tree. Made tool, dependency, runtime, layout, lock, coverage, hook and migration recipes conditional on project policy and current authorization in the entrypoint and supporting references. Removed scheduled-CI removal and shared-cache cleanup prescriptions; preserved dependency constraints and active consumers. Clarified bounded security setup and optional update automation. Added managed integration boundaries, license metadata and attribution. Typing migration retains diagnostic classes and actual exit status, with inventory and separate setup/remediation acceptance."
     },
     {
       "name": "property-based-testing",
