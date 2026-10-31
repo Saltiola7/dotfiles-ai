@@ -73,6 +73,48 @@ Skill loading is guidance availability, not proof of execution or acceptance.
 | Guidance is absent or new evidence changes the concern | Use equivalent guidance when sufficient or revise selection in the existing cycle; no new coordinator or invented gate |
 | A reviewed bundle is deployed | Exact-target projection preserves complete resources and unrelated live files; bytes/file sets and repeated application are verified |
 
+## Interfaces and selection
+
+| Concern | Routing surface | Preferred skill |
+|---|---|---|
+| Changed shell execution semantics | Core selects `modules/shell.md` | `bash-defensive-patterns`; Bats only when selected |
+| Async correctness or explicit version/debt review | Existing Python module/reference | `async-python-patterns`, `python-modernization-review` |
+| Linux/macOS host diagnosis and operation | Existing Cloud module plus platform reference | `linux-host-diagnostics`, `macos-operations` |
+| Podman rootless/user-unit/container lifecycle | Existing Cloud module plus platform reference | `podman-quadlet` |
+| Generic Kubernetes manifests or Helm chart work | Existing Cloud module plus platform reference | `k8s-manifest-generator`, `helm-chart-scaffolding` |
+| Actual GCP CLI or identity selection | Existing Cloud module plus platform reference | `gcloud`, `google-cloud-recipe-auth` |
+| GKE workload failure or workload identity | Existing Cloud module plus platform reference | `gke-workload-troubleshooting`, `gke-workload-identity` |
+| Mojo source, GPU code, interop or selected setup | Core selects `modules/mojo.md` | Corresponding selected Modular skill |
+
+`references/specialist-selection.md` holds the common loading/return contract.
+`references/platform-specialists.md` holds host/container/cloud selection detail;
+the Python reference retains Python-specific decisions. Modules keep only useful
+triggers and obligations. Existing plugin-owned macOS app skills are resolved by
+catalog capability when relevant, without copying their implementations.
+
+All selected skills remain independently discoverable sibling directories under
+`dot_agents/skills/`. New vendored packages use the existing schema-1 provenance
+shape in `dbsctr/references/specialist-sources/sources.lock.json`, with reversible
+patches beside it. Existing Python provenance stays in its current owner. No new
+package resolver or updater runs during ordinary skill selection.
+
+The inventory records complete upstream and packaged file sets, Git blob and
+SHA-256 identities, immutable commit/source roots, license and adaptation notes,
+patch hashes and retained executable modes. Repository-root licenses are copied
+verbatim per bundle; complete supporting references/assets/helpers are preserved.
+Original sources are pinned to wshobson/agents `7e2fb559cf4b824b27f1fec49fe88f7511066d26`,
+google/skills `bb9b3f464aae37af360d079c1d863524955b0363` and modular/skills
+`1b2cc565ca7e0a8b66d96b4ee78fdfb7ec443a88`. Modular's exact composite license
+notice, including LLVM exceptions and legacy terms, remains intact.
+
+Validation extends existing lifecycle/publication/distribution authorities with
+complete inventory drift and reverse/reapply checks, selected-resource closure,
+exact-target isolated delivery and an offline regression of the Helm helper.
+Independent task cases evaluate positive, negative and mixed-layer selection,
+project policy, unavailable evidence and resource restraint. Static entrypoint and
+metadata sizes describe packaging footprint only; they do not measure runtime
+context, model reliability or token savings.
+
 ## Visual Evidence
 
 | Concern | Decision and canonical evidence |
