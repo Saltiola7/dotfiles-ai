@@ -6,6 +6,12 @@ runtimes, dependencies, compatibility and acceptance criteria.
 
 ## Select the relevant technique
 
+For an explicitly requested repository-wide Python assessment, use `python-audit`.
+It considers all six Python lenses, records actual review and QA coverage, and
+returns opinionated findings plus ordered refactor batches. Audit intent does not
+select a migration or authorize remediation. Ordinary development continues with
+the conditional selection below.
+
 | Evidence | Preferred guidance |
 |---|---|
 | Changed responsibilities, boundaries or abstractions | `python-design-patterns` |
