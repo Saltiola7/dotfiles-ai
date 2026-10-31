@@ -14,6 +14,72 @@ def text(path: Path | str) -> str:
     return (ROOT / path).read_text() if isinstance(path, str) else path.read_text()
 
 
+def test_discovery_records_the_full_python_typing_contract():
+    source = text(SKILLS / "discovery/SKILL.md")
+    policy = " ".join(source.split("## Python typing contract\n", 1)[1].split("\n## ", 1)[0].split())
+    for requirement in (
+        "command", "version", "configuration", "environments", "dependencies",
+        "tests", "notebooks", "new files", "independent inventory",
+        "100%", "before broad refactoring", "retirement",
+    ):
+        assert requirement in policy, requirement
+    assert "unsupported" in policy and "gaps" in policy
+    assert "project" in policy and "ty" in policy
+
+
+def test_kernel_carries_python_typing_through_relevant_phases():
+    source = text(SKILLS / "dbsctr/SKILL.md")
+    policy = " ".join(source.split("## Python typing through the lifecycle\n", 1)[1].split("\n## ", 1)[0].split())
+    obligations = {
+        "Domain": "domain types",
+        "Behavior": "executable examples",
+        "Spec": "signatures",
+        "Contract": "runtime validation",
+        "Test": "implementation and tests",
+        "Refactor": "consumers",
+        "Review/Integrate": "full approved population",
+        "Maintain/Retire": "upgrades",
+    }
+    for phase, obligation in obligations.items():
+        row = re.search(rf"\| {re.escape(phase)} \| ([^|]+)\|", policy)
+        assert row and obligation in row.group(1), phase
+    for requirement in ("after fixes", "Documentation-only", "source", "environment", "policy"):
+        assert requirement in policy, requirement
+
+
+def test_qa_distinguishes_python_coverage_from_a_typing_pass():
+    source = text(SKILLS / "qa/SKILL.md")
+    policy = " ".join(source.split("## Python typing evidence\n", 1)[1].split("\n## ", 1)[0].split())
+    for requirement in (
+        "independent inventory", "tests", "notebooks", "environment",
+        "denominator", "completed analysis", "diagnostic", "Any", "unknown",
+        "suppressions", "exit", "empty", "not applicable", "gaps",
+        "required typing gate", "exclusions", "casts", "baseline",
+    ):
+        assert requirement in policy, requirement
+    assert "not repository-wide coverage" in policy
+    assert "does not waive" in policy
+    for invariant in (
+        "exclusions never count as checked",
+        "empty population is not applicable, not 100%",
+        "Reject blanket ignores, broad exclusions, unjustified Any/casts",
+    ):
+        assert invariant in policy, invariant
+
+
+def test_ty_migration_keeps_legacy_policy_brief_and_project_owned():
+    source = text(SKILLS / "dbsctr/SKILL.md")
+    policy = " ".join(source.split("## Python typing through the lifecycle\n", 1)[1].split("\n## ", 1)[0].split())
+    for requirement in (
+        "explicitly selected", "ty", "primary", "mypy", "temporary",
+        "project", "retirement", "remove",
+    ):
+        assert requirement in policy, requirement
+    for name in ("dbsctr", "discovery", "qa"):
+        body = text(SKILLS / name / "SKILL.md")
+        assert not re.search(r"(?:uv run|python -m) mypy|--check-untyped-defs|\[tool\.mypy", body)
+
+
 def test_regression_guidance_retains_distinct_availability_and_privacy_owners():
     for name in ("dbsctr-review", "dbsctr-performance-audit"):
         source = " ".join(text(SKILLS / name / "SKILL.md").lower().split())

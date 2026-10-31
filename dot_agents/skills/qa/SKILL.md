@@ -40,6 +40,37 @@ Use configured JFrog Xray as vulnerability authority when declared; otherwise
 use configured `pip-audit` for resolved Python dependencies. Authenticated
 Dependabot alerts are finding inputs, not a competing gate.
 
+## Python typing evidence
+
+Use the project-selected checker, commands and environment bindings. Temporary
+compatibility checks follow the consumer's migration policy; report their distinct
+roles without treating checker agreement as proof of correctness.
+
+Reconcile execution against an independent inventory of the selected Python
+population, including tests, notebooks and relevant new files. Report excluded,
+generated, vendored and archived artifacts with their approved disposition;
+exclusions never count as checked. Bind every selected artifact to each required
+environment. A root invocation does not prove nested-project or notebook coverage.
+
+Report the denominator and completed analysis units separately from diagnostic
+results, actual child exit codes, Any/unknown limitations and suppressions. An
+empty population is not applicable, not 100%. Missing evidence is not zero
+findings; paths or a successful exit alone do not prove every file was analyzed.
+Affected-scope percentages are not repository-wide coverage. Full-coverage
+acceptance requires the full approved population.
+
+Missing environments, crashes, incomplete analysis or unsupported notebook/cell
+mapping remain coverage gaps. Ordinary type errors may coexist with completed
+analysis but remain failed diagnostic evidence. Setup success does not waive a
+required typing gate or create a Gate Exception. Preserve original failures and
+replacement evidence; report gaps and typing failures through the Gate Ledger.
+
+Reject blanket ignores, broad exclusions, unjustified Any/casts, diagnostic
+disabling, exit-code masking or an automatic green baseline. Narrow suppressions
+need rationale, scope and a review condition; suppressed concerns are not passes.
+Classify conflicts before proposing bounded repairs, preserving runtime contracts
+and intentional negative tests. Keep detailed checker comparisons project-owned.
+
 ## Capability Coverage
 
 For PR evidence, select affected mappings and workflow definitions from the trusted

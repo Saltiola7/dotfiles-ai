@@ -150,6 +150,33 @@ Risk guidance:
 
 Risk may rise with evidence but never falls silently.
 
+## Python typing contract
+
+When Python typing is relevant, the project profile records checker command,
+version, configuration and authority; supported targets, environments and
+dependencies; source ownership; evidence location; and acceptance criteria.
+Honor an explicitly selected ty migration without changing unrelated projects'
+tool choices. Record temporary compatibility checks and retirement criteria in
+the consumer profile; keep detailed checker comparisons out of the shared kernel.
+
+For selected 100% coverage, define an independent inventory of all owned Python,
+including production code, tests, fixtures, scripts, notebooks and relevant new
+files. Inventory generated, vendored, archived and reference artifacts explicitly;
+ownership and approved scope govern disposition, not diagnostic volume. Exclusions
+need authority and rationale and never count as checked. Bind each artifact to
+every required environment, including nested projects and notebook metadata.
+
+Define evidence for completed analysis separately from diagnostic cleanliness and
+Any/unknown or suppression exposure. Notebook checking needs supported analysis or
+verified cell-to-source mapping and producer/consumer type flow; unsupported
+inputs remain gaps. Type checking does not authorize notebook execution.
+
+For staged migration, establish coverage and a conflict census before broad
+refactoring. Specify separate setup and remediation acceptance: complete analysis
+may retain failing diagnostics, while a required typing gate still needs its own
+passing evidence or an explicit lifecycle exception. Missing scope, environment
+or acceptance decisions prevent readiness; planned capability work stays visible.
+
 ## Interview
 
 For each round:
