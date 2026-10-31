@@ -1,19 +1,14 @@
 # Python Specialist Guidance
 
-Use the [common selection contract](specialist-selection.md) when selecting a
-specialist. Keep the Python module's outcomes and project-selected tools,
+For selection or discovery questions, see the [common contract](specialist-selection.md).
+Keep the Python module's outcomes and project-selected tools,
 runtimes, dependencies, compatibility and acceptance criteria.
 
-## Select the relevant technique
+## Apply the selected technique
 
-| Evidence | Preferred guidance |
-|---|---|
-| Changed responsibilities, boundaries or abstractions | `python-design-patterns` |
-| Meaningful parser/serializer/validation or state invariant | `property-based-testing` |
-| Performance problem, requirement or measured bottleneck | `python-performance-optimization` |
-| New packaging/tooling setup or selected tooling migration | `modern-python` |
-| Changed async ownership, cancellation, concurrent I/O or sync boundary | `async-python-patterns` |
-| Runtime/support-floor change or requested modernization/debt audit | `python-modernization-review` |
+The [Python module's conditional controls](../modules/python.md#conditional-controls)
+own the canonical trigger/checkpoint table. Read these notes only when their
+method tradeoff or maintenance detail is relevant to the current question.
 
 Ordinary edits can need none. Reassess when evidence changes the concern, using
 only relevant resources and the current primary. A skill need not run in a helper.

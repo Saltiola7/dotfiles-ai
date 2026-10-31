@@ -13,6 +13,10 @@ This adapted directory remains licensed under MIT. The bundled license retains t
 
 Preserved the complete upstream skill resource tree. Added project/lifecycle boundaries and attribution. Made numerical heuristics review signals rather than universal gates, aligned testing with project authority, and replaced unbundled sibling links with optional immutable upstream URLs.
 
+Shortened discovery metadata to front-load the actual task boundary; retained
+method scope and complete supporting guidance. Native selection and usage are
+qualified separately from static character counts.
+
 Every original skill-root file is retained. `LICENSE.upstream` is copied unchanged
 from the repository-root `LICENSE`; this attribution file is added locally.
 Sibling plugin manifests, hooks/shims and external evaluation runners are not part

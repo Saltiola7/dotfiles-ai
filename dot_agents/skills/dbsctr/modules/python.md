@@ -34,10 +34,11 @@
 ## Conditional Controls
 
 - **CONDITIONAL:** Select the smallest applicable installed specialist set using
-  the evidence below. Read [Python specialists](../references/python-specialists.md)
-  when selecting one, then load that skill and only its relevant resources.
-  Reassess when new evidence changes the task; ordinary Python work does not load
-  every specialist or create another phase, coordinator or approval checkpoint.
+  the table below, then load that skill and only its relevant resources. Consult
+  [selection details](../references/specialist-selection.md) for unresolved
+  catalog, discovery or handoff questions and [Python method notes](../references/python-specialists.md)
+  for relevant technique or maintenance detail. Reuse guidance already loaded;
+  ordinary Python work does not load every specialist or add a coordinator/gate.
 
 | Evidence in the current task | Preferred specialist | Checkpoint |
 |---|---|---|
