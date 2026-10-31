@@ -228,6 +228,33 @@ audit scope, evidence fields or handoff responsibilities change.
 
 ## Contracts and Validation
 
+- The explicit audit considers all four installed entrypoints as assessment
+  lenses; loading a recipe does not select its migration or authorize execution.
+  Missing lenses stay visible and preclude a complete all-lens claim.
+- Inventory covers owned Python, stubs, tests, scripts and notebooks with nested
+  environments and generated/vendor/archive dispositions. Record actual inspected
+  coverage per component/lens; sampled units and unchecked cells remain gaps.
+  A clean configured check does not prove architectural review or full coverage.
+- Opinionated recommendations need concrete source evidence, tradeoffs and a
+  retain alternative where appropriate. Existing tools, older supported syntax,
+  example-only tests or a heuristic threshold violation are not defects alone.
+- Version-specific modernization records its minimum runtime and compatibility
+  cost. Current feature/support assertions use official Python/tool sources or
+  remain explicitly unverified. Do not fetch moving skill bodies during an audit.
+- Performance hypotheses remain distinct from representative measurements and
+  acceptance. Property-testing proposals identify meaningful invariants and input
+  strategies without treating library absence as a failure.
+- Audit output defaults to the conversation. Run only existing authorized checks
+  through QA, without auto-fix flags or source/dependency/environment mutation.
+  Notebook execution, new tools, production profiling and expensive workloads
+  require their own applicable authority. Missing evidence remains a limitation.
+- Roadmap batches name affected components, behavior/compatibility constraints,
+  dependencies, effort/risk assumptions and validation. The audit does not start
+  implementation, invent Gate Exceptions or create a second lifecycle ledger.
+- Validate complete isolated installation of the wrapper and its actual resource
+  dependencies, file/link closure and idempotency. Forward-test a realistic audit
+  plus missing-dependency/coverage limits independently; retain synthetic reports
+  privately and make no broad effectiveness claim from these cases.
 - User scope and the project Engineering Profile control supported runtimes,
   selected tools, dependencies, compatibility, test strategy and acceptance
   thresholds. Recipes and numeric heuristics are examples, not universal gates.
@@ -290,7 +317,7 @@ or skill effectiveness. Canonical evidence: inventory, patches, focused tests an
 private cycle deployment receipts. Update these tables when source, context,
 authority or deployment dependencies change.
 
-Focused authority: `uv run --group test pytest tests/test_python_specialists.py
+Focused authority: `uv run --group test pytest tests/test_python_audit.py tests/test_python_specialists.py
 tests/test_dbsctr_lifecycle.py tests/test_portable_distribution.py`. Run the
 original skill creator validator on all four new skill entrypoints. The existing
 DBSCTR entrypoint is unchanged. Keep independent behavioral evaluation artifacts
