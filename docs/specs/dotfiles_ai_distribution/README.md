@@ -1831,3 +1831,9 @@ The `security-toolkit` inventory distinguishes source bundles, live discovery,
 provider/scanner prerequisites and validated audit coverage. Updates use complete
 source review and exact-target isolated/host application; no scanner, provider
 permission or audit starts as an installation side effect.
+
+**Portable Python specialists:** the [lifecycle feature](../dbsctr_v3_lifecycle/features/python-specialists.md)
+owns conditional routing and evidence boundaries for four reviewed, licensed
+skill bundles. Distribution owns their complete shared-skill projection, source
+pins, documented adaptations and exact-target deployment. Project tools and CI
+remain project-owned; installing a bundle does not execute its examples.
