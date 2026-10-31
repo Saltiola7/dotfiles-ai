@@ -264,6 +264,51 @@ introduced. Existing resolved choices and task authorization persist.
 | A task only mentions a provider/framework | Avoid unrelated specialist loads or another workflow coordinator |
 | Complete guidance is installed | Verify resource sets, provenance, licenses, modes and repeated exact-target projection without running infrastructure or installing SDKs |
 
+
+### Follow-up interfaces and distribution
+
+Add sibling `dot_agents/skills/` bundles with the six names above. The existing
+Cloud module and platform reference route actual Pulumi, Hetzner and Dagger work;
+the Python module's canonical table routes Django-specific work. Keep Python
+method/provenance notes separate from the table and preserve the router wave's
+conditional loading and native qualification. No extra module or global prompt
+payload is required.
+
+Extend `dbsctr/references/specialist-sources/sources.lock.json` and its reversible
+patch directory for the four selected vendors; preserve all existing package
+records. Their complete original set contains 19 files including exact copied
+repository notices. Source pins are Pulumi
+`82f222a529a499e8005a820000148cc5e28c934c` and Django
+`078a25cc5bfd8011459be7b91d004e900c1d02d3`. Preserve original Git blobs, SHA-256,
+relative paths, licenses, complete packaged hashes and source/installed modes.
+Each vendor bundle records adaptations in `UPSTREAM.md`; substantial conditional
+examples stay in on-demand resources. Local original bundles link official
+version-appropriate documentation without copying the unselected community trees.
+
+| Concern | Source and evidence owner |
+|---|---|
+| Program/component/failed operation | Selected Pulumi entrypoint and complete adapted resources; project owns stack/backend and real execution |
+| ORM/DRF/framework boundary | Django entrypoint/references; project owns support, authentication, database, migrations and tests |
+| Effective cloud identity and actions | Local Hetzner guidance plus selected-client help/current official docs |
+| Graph evaluation, SDK/cache/secret/service contracts | Local Dagger guidance plus selected-version official docs |
+| Immutable vendor adaptation | Existing shared provenance inventory and complete reverse/reapply tests |
+| Installation | Existing exact-target chezmoi owner with scripts excluded, prior-state comparison and full verification |
+| Native routing smoke | Six predeclared single-arm synthetic native cases using the qualified catalog/read/usage authority; separate from the 46-run router comparison |
+
+The follow-up native smoke retains cases, expected/forbidden choices, exact
+commands, source/runtime identities, actual reads/usage and independent quality
+review privately. It does not claim a fresh statistical comparison or general
+accuracy improvement. Source/AST/pure-logic probes are distinct from actual
+Pulumi-provider, Django-database, hcloud-API or Dagger-engine validation.
+
+**Text Equivalent (follow-up interfaces):** Existing Cloud/Python selection reaches
+six bounded guidance bundles. Projects retain operational targets and acceptance.
+Four vendor trees enter managed source with exact notices and reversible lineage;
+two original local methods link official sources. Existing distribution projects
+reviewed complete files, while separate synthetic native observations qualify
+selection. Owner: lifecycle/distribution maintainer; update with sources, routes,
+resource dependencies, native observation or deployment boundaries.
+
 ## Visual Evidence
 
 | Concern | Decision and canonical evidence |
