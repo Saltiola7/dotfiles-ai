@@ -325,5 +325,6 @@ authority or deployment dependencies change.
 Focused authority: `uv run --group test pytest tests/test_python_audit.py tests/test_python_specialists.py
 tests/test_dbsctr_lifecycle.py tests/test_portable_distribution.py`. Run the
 original skill creator validator on the six Python specialist entrypoints and
-the audit wrapper. The existing DBSCTR entrypoint is unchanged. Keep independent behavioral evaluation artifacts
+the audit wrapper. The existing DBSCTR entrypoint is unchanged. Keep independent
+behavioral evaluation artifacts
 and actual deployment/merge evidence in the cycle; publish only sanitized outcomes.
