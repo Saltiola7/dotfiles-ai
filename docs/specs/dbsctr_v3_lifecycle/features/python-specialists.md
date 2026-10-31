@@ -80,3 +80,47 @@ selection, authority, evidence or delivery boundaries change.
   verification exposes the mismatch; deployment preserves unrelated live edits.
 - Given a skill update, maintainers review the complete pinned revision and local
   adaptations before source inventory and deployed files change together.
+
+## Interfaces
+
+`dot_agents/skills/dbsctr/modules/python.md` contains a small conditional routing
+table. `references/python-specialists.md` supplies the invocation/result and
+maintenance contract; the existing `references/python.md` retains its separate
+secret-settings purpose. Each specialist remains a sibling skill with its full
+upstream resource tree, license and `UPSTREAM.md` attribution.
+
+| Signal | Selection | Return to primary |
+|---|---|---|
+| Changed architecture or abstractions | `python-design-patterns` at Domain/Spec or structural Refactor | Tradeoffs, affected boundaries and justified simplification |
+| Meaningful input/state invariant | `property-based-testing` at Behavior/Contract/Test | Property, generators/counterexamples or reason not to use PBT |
+| Performance problem or requirement | `python-performance-optimization` before optimization | Baseline, equivalent comparison, correctness and measurement limits |
+| New setup or selected tooling migration | `modern-python` at Profile/Spec | Compatible setup/migration decisions and validation plan |
+
+Selection uses current task evidence and remains revisable. The primary uses the
+native skill loader or reads the installed `SKILL.md` when no loader is exposed,
+then only relevant supporting resources. A skill need not run in a subagent.
+Outputs identify scope, applicable project policy, findings or recommendations,
+supporting evidence, affected artifacts and unresolved limitations. They do not
+write a second Gate Ledger or imply that the primary accepted a recommendation.
+
+The source inventory lives at
+`dbsctr/references/python-specialists/sources.lock.json`. Schema 1 records each
+package's immutable repository commit, selected source root, license, original
+Git blob identities/SHA-256 hashes, complete packaged file hashes, local patch
+hashes and adaptation rationale. Unified patches live under the same reference
+directory and reconstruct the original selected files when reversed. A clean
+checkout supplies all deployment bytes offline; network access is needed only
+for a deliberately reviewed upstream update.
+
+`tests/test_python_specialists.py` validates complete inventories, reversible
+adaptations, local resource closure and exact-target isolated delivery. Existing
+lifecycle/publication checks cover the changed instruction surfaces. Small
+independent task evaluations compare baseline and candidate decisions for
+selection, policy preservation and evidence quality; they do not claim broad
+model effectiveness from a few cases.
+
+**Text Equivalent (interaction):** The primary recognizes a concrete signal,
+loads the selected installed guidance at the affected checkpoint, receives a
+bounded result and decides how it changes the existing artifacts. QA remains the
+evidence authority. The table is canonical for trigger/checkpoint relationships;
+maintainers update it with corresponding routing changes.
