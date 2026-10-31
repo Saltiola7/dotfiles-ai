@@ -309,6 +309,63 @@ reviewed complete files, while separate synthetic native observations qualify
 selection. Owner: lifecycle/distribution maintainer; update with sources, routes,
 resource dependencies, native observation or deployment boundaries.
 
+
+### Follow-up contracts and acceptance
+
+- Preserve project-selected versions, tools, native identity/target, state/backend,
+  authentication, data, CI and existing task authorization. Guidance does not
+  install dependencies, choose a new account/provider, apply migrations, start an
+  engine, modify infrastructure or publish artifacts implicitly.
+- Retain complete selected vendor resource trees and exact notices, original
+  hashes/Git blobs/modes and reversible patches. Normalize discovery metadata
+  without dropping meaningful method boundaries; review examples and assets as
+  well as entrypoints. Preserve unrelated inventory records and installed files.
+- Pulumi transformations retain dependency/secret propagation. Component ownership
+  and output contracts are explicit. A preview executes selected program/provider
+  work; diagnostic records do not authorize retry, refresh/import or state writes.
+  Missing record coverage/access remains visible; command failures are preserved.
+- Django examples preserve chainable QuerySet methods, object-level permissions,
+  configured user/authentication models and correct transaction boundaries. Do
+  not include an unset-key authentication bypass, invalid/negative quantity,
+  non-atomic stock decrement or unsupported serializer update semantics. Existing
+  example tests can be sufficient; selected framework/database integration is a
+  separate claim from static/pure-logic validation.
+- hcloud guidance establishes effective configuration and credential precedence
+  without dumping values, respects resource identity/persistent data/network
+  protection and distinguishes submitted action from completion/readiness.
+  Version-dependent output behavior is qualified rather than generalized.
+- Dagger guidance binds engine/SDK/manifest/lock and actual terminal execution.
+  Typed Secret arguments remain valid; secret values stay out of ordinary logs,
+  command text and artifacts. Mutable caches, service/mount/socket ownership and
+  local/CI environment differences require actual evidence when applicable.
+- Shared source/provenance/resource closure, original creator validation,
+  independent method review and exact isolated/shared delivery must pass. Native
+  smoke uses six predeclared read-only tasks and retains true results/limits;
+  no source reachability test is relabeled as runtime selection or SDK coverage.
+- Reconcile the router wave's verified merged main before final closure and
+  preserve its single routing owner, metadata and measurement contracts. Deploy
+  this follow-up only after that wave merges; source preparation grants no early
+  production or infrastructure activation.
+- Deploy exact reviewed targets with scripts excluded, retained prior state,
+  complete byte/file/mode verification and empty second diff. Unresolved live
+  ownership conflict blocks that target; recovery preserves unrelated skills and
+  restores matching routing/inventory. Retain all branches/worktrees.
+
+| Transfer | Acceptance and retained evidence |
+|---|---|
+| Official/community source to managed vendor | Immutable original identity, exact notice, complete adaptation and independent review |
+| Official documentation to original local method | Bounded version/identity/execution guidance; no copied unselected tree |
+| Task to selected specialist | Actual framework/provider concern and project authority; smallest useful set |
+| Native smoke to QA | Actual catalog, successful returned method content, usage and independent decision review |
+| Source to shared files | Exact preview/projection, complete verification, preserved ownership and recovery preimages |
+
+**Text Equivalent (follow-up trust):** Four reviewed vendor trees and two original
+methods enter existing source ownership. Task evidence selects bounded guidance
+under project authority. Native smoke and source checks provide different QA
+evidence. Exact reviewed source enters shared installation with retained recovery;
+loading never grants operational authority. Owner: lifecycle/distribution
+maintainer; update with source, trust, routing, execution or recovery changes.
+
 ## Visual Evidence
 
 | Concern | Decision and canonical evidence |
