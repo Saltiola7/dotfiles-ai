@@ -5,7 +5,7 @@
 | Deliverable | Shared lifecycle skills, routing, modules, helpers, tests, and conforming runtime harness contracts |
 | Owner | Dotfiles owner |
 | Languages/frameworks | Language-neutral Markdown prompts; Python helpers and contract tests; TypeScript OpenCode adapters |
-| Modules | Python, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
+| Modules | Python, Shell, Mojo, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
 | Runtime/platform support | Delivered OpenCode harness and planned Codex peer on the managed dotfiles environment; Python `>=3.12`; Bun for OpenCode adapters |
 | Compatibility | Unversioned lifecycle skills; current Method Revision `3.29` and record schema 5; schemas 3/4 remain readable without implicit migration; V1 removed; V2 source archived |
 | Trust/data | Git specifications contain sanitized durable authority; transcripts, credentials, machine paths, and private runtime identity stay outside Git |
