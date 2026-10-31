@@ -81,3 +81,10 @@ post-failure checks are repair smoke, not fresh held-out evidence or repetitions
 of the original comparison. Report their outcomes separately and retain all
 50 calls. Deployment still requires complete source/provenance/distribution
 checks, exact-target application and installed-byte/file-set verification.
+
+The four declared repair calls all completed and passed independent decision and
+read-proof review. Both positive cases recovered the physical GPU sibling and
+read its method; neither negative looked up or read GPU guidance. Repair-only
+usage was 682,972 input, 594,944 cached input and 3,539 output tokens. Its ambient
+catalog differed from the first comparison, so these counts remain separate and
+support no comparative saving claim. Original 46 captures remain unchanged.
