@@ -1,0 +1,31 @@
+--- a/references/pep723-scripts.md
++++ b/references/pep723-scripts.md
+@@ -1,4 +1,9 @@
+ # PEP 723: Inline Script Metadata
++
++Use only the portions selected by the current task and project policy. Examples
++below do not authorize tool installation, dependency changes, hook activation,
++CI changes or publication. Preserve supported runtimes, dependency constraints,
++existing tools and acceptance criteria unless their change is explicitly in scope.
+ 
+ PEP 723 allows embedding dependency metadata directly in Python scripts, eliminating the need for separate `requirements.txt` or `pyproject.toml` files for simple scripts.
+ 
+@@ -243,8 +248,8 @@
+ ## Best Practices
+ 
+ 1. **Always specify `requires-python`** - Ensures compatibility
+-2. **Pin major versions for Python** - Use `>=3.11` not `==3.11`
+-3. **Omit version constraints for dependencies** - Use `uv add --script` to add dependencies; let uv select versions
++2. **Preserve supported Python versions** - Express the actual tested runtime policy; `>=3.11` above is only an example
++3. **Preserve dependency constraints** - Use the project's selected ranges and locking strategy; do not drop constraints while adding inline metadata
+ 4. **Keep scripts focused** - One script, one purpose
+ 5. **Add docstring** - Document what the script does
+ 6. **Use type hints** - Improves readability and catches errors
+@@ -254,6 +259,6 @@
+ - No support for dependency groups
+ - No support for editable installs
+ - No support for local dependencies (use relative imports)
+-- No lockfile (versions may vary between runs)
++- Reproducibility depends on the selected runner and script-lock policy; inline metadata alone does not pin transitive resolution
+ 
+ For projects needing these features, use a full `pyproject.toml` setup instead.

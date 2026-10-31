@@ -1,0 +1,59 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,9 +1,32 @@
+ ---
+ name: python-performance-optimization
++license: MIT
+ description: Profile and optimize Python code using cProfile, memory profilers, and performance best practices. Use when debugging slow Python code, optimizing bottlenecks, or improving application performance.
+ ---
+ 
+ # Python Performance Optimization
++
++## Project and workflow boundaries
++
++Apply this guidance within the current task and project Engineering Profile.
++Project-selected runtimes, tools, dependencies, compatibility and acceptance
++criteria control examples and heuristics. Loading the skill does not install
++tools or expand scope. Existing authorization persists; ask only about unresolved
++material decisions or required permissions. When used by DBSCTR, the primary owns
++phase order and gate decisions; QA supplies configured validation evidence.
++Return scoped findings, affected artifacts, supporting evidence and limitations.
++See [UPSTREAM.md](UPSTREAM.md) for upstream attribution and local adaptations.
++
++## Measurement contract
++
++Start from a reported slowdown, explicit performance requirement or measured
++bottleneck. Establish the baseline before changing code. Compare equivalent inputs,
++outputs, environments and cache states, with suitable repeats and stated limits.
++Validate correctness separately; timing alone is not success. Prefer authorized
++local workloads. Attaching to production processes or installing profilers requires
++that action to be within existing authorization; missing tools do not justify an
++implicit installation. Return measurements, relevant uncertainty and the affected
++correctness checks rather than an unmeasured speedup claim.
+ 
+ Comprehensive guide to profiling, analyzing, and optimizing Python code for better performance, including CPU profiling, memory optimization, and implementation best practices.
+ 
+@@ -52,12 +75,12 @@
+ 
+ def measure_time():
+     """Simple timing measurement."""
+-    start = time.time()
++    start = time.perf_counter()
+ 
+     # Your code here
+     result = sum(range(1000000))
+ 
+-    elapsed = time.time() - start
++    elapsed = time.perf_counter() - start
+     print(f"Execution time: {elapsed:.4f} seconds")
+     return result
+ 
+@@ -86,7 +109,7 @@
+ 7. **Batch I/O operations** - Reduce system calls
+ 8. **Use generators** for large datasets
+ 9. **Consider NumPy** for numerical operations
+-10. **Profile production code** - Use py-spy for live systems
++10. **Profile authorized workloads** - Use py-spy on live systems only when production attachment is authorized
+ 
+ ## Common Pitfalls
+ 

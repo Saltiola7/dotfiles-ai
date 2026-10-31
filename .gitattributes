@@ -1,2 +1,6 @@
 # Exact upstream patch preimages preserve whitespace for offline reconstruction.
 dot_agents/skills/security-toolkit/references/patches/** -whitespace
+dot_agents/skills/dbsctr/references/python-specialists/patches/** -whitespace
+# Preserve verbatim upstream license notices.
+dot_agents/skills/python-design-patterns/LICENSE.upstream -whitespace
+dot_agents/skills/python-performance-optimization/LICENSE.upstream -whitespace

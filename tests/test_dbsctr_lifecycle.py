@@ -686,6 +686,7 @@ def test_v3_module_registry_is_extensible_and_normalized():
         "ml.md",
         "analytics.md",
         "python.md",
+        "python-specialists.md",
             "semantic-audit.md",
             "spec-visuals.md",
             "web.md",

@@ -1,0 +1,10 @@
+--- a/templates/dependabot.yml
++++ b/templates/dependabot.yml
+@@ -1,5 +1,6 @@
+ # Dependabot configuration for Python projects
+-# Copy to .github/dependabot.yml
++# Adapt into existing .github/dependabot.yml only for selected setup.
++# Preserve project schedules, constraints, cadence and required update behavior.
+ #
+ # See references/dependabot.md for advanced configuration.
+ 

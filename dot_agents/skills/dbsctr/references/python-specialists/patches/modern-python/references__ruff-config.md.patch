@@ -1,0 +1,90 @@
+--- a/references/ruff-config.md
++++ b/references/ruff-config.md
+@@ -1,10 +1,15 @@
+ # Ruff Configuration Reference
+ 
+-Ruff is an extremely fast Python linter and formatter written in Rust. It replaces flake8, black, isort, pyupgrade, pydocstyle, and many other tools.
++Use only the portions selected by the current task and project policy. Examples
++below do not authorize tool installation, dependency changes, hook activation,
++CI changes or publication. Preserve supported runtimes, dependency constraints,
++existing tools and acceptance criteria unless their change is explicitly in scope.
++
++Ruff is a Python linter and formatter written in Rust. It can replace selected checks from other tools after compatibility and project requirements are verified.
+ 
+ ## Basic Setup
+ 
+-Add to `pyproject.toml`:
++Example for a project selecting Ruff. Match `target-version`, source discovery, selected rules and formatting to the project's requirements:
+ 
+ ```toml
+ [tool.ruff]
+@@ -71,7 +76,7 @@
+ 
+ ## Recommended Ignores
+ 
+-### Always Ignore (Formatter Conflicts)
++### Consider Formatter-Conflict Ignores for the Selected Ruff Version
+ 
+ ```toml
+ ignore = [
+@@ -169,7 +174,7 @@
+ 
+ ## Type Checking
+ 
+-Ruff does NOT do type checking. Use **ty** (from Astral, the same team behind ruff and uv):
++Ruff does NOT do type checking. Keep the project's selected checker. Example only when ty was selected:
+ 
+ ```bash
+ # Add ty to dev dependencies
+@@ -179,7 +184,7 @@
+ uv run ty check src/
+ ```
+ 
+-ty is significantly faster than mypy or pyright and integrates well with the modern Python toolchain.
++Evaluate checker capability and project integrations as well as speed before any migration from mypy or Pyright.
+ 
+ ## CI Configuration
+ 
+@@ -194,22 +199,25 @@
+ 
+ ## Migration from Other Tools
+ 
++Apply only an explicitly selected migration. Verify equivalent required checks,
++configuration consumers and CI before retiring superseded packages or settings.
++
+ ### From flake8
+ 
+-Ruff covers most flake8 plugins. Remove:
++After verifying coverage for the selected flake8 migration, possible superseded artifacts include:
+ - flake8
+ - flake8-* plugins
+ - .flake8 config file
+ 
+ ### From black
+ 
+-Remove black and use `ruff format`. Remove:
++If replacing Black is selected and formatting changes are accepted, possible superseded artifacts include:
+ - black
+ - [tool.black] config
+ 
+ ### From isort
+ 
+-Ruff includes isort. Remove:
++If replacing isort is selected and import-order behavior is verified, possible superseded artifacts include:
+ - isort
+ - [tool.isort] config
+ 
+@@ -217,11 +225,11 @@
+ 
+ ## Code Modernization
+ 
+-Run pyupgrade rules to modernize syntax to your target Python version:
++Use pyupgrade rules for compatible syntax changes within scope. Set the target to the minimum supported runtime; preview before applying fixes:
+ 
+ ```bash
+-uv run ruff check --select=UP --fix .  # Auto-fix upgrades
+ uv run ruff check --select=UP .        # Preview only
++uv run ruff check --select=UP --fix .  # Apply reviewed compatible fixes
+ ```
+ 
+ Common modernizations include:

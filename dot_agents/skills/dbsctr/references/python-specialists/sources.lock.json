@@ -1,0 +1,196 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "modern-python",
+      "state": "vendored",
+      "upstream_url": "https://github.com/trailofbits/skills",
+      "commit": "2be6433b39e009cd2b6fd3be1895f6b1faa5af9a",
+      "upstream_path": "plugins/modern-python/skills/modern-python",
+      "license": "CC-BY-SA-4.0",
+      "upstream_files": {
+        "LICENSE.upstream": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "SKILL.md": "ef774b925eb1d1fc12e4f5ddc3f5ad925ecd795315827447228c70cc44c6170c",
+        "agents/openai.yaml": "f56c544187af5bd3c76f1cd082619644090ab7b6d8abe77d4d3115d39dced5c1",
+        "assets/trail-of-bits-mark.svg": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "references/dependabot.md": "d3678e32472305c0ef136bca99b26c3f75554d63675930e396f26a91a97451ad",
+        "references/migration-checklist.md": "58c947e6200a91f350c9adc898af7fc6263fda41d36ae81ffd4dd923b3a1015e",
+        "references/pep723-scripts.md": "c348b136613a4fed8f623d6013c0c6413d2c24f2973b2e5f85b80ecc68646045",
+        "references/prek.md": "4be1c181c71aab64ba58573242a1c451d576a5c61ceeb400bb5827f4e1f9532a",
+        "references/pyproject.md": "aec906835ec687024700d31e5c146baaabc9524129384304857b3aa81809401b",
+        "references/ruff-config.md": "8d247862f1beaf76816ed6775f5a0c8dc96d74c7f2b71bbf1aaedc4937373b17",
+        "references/security-setup.md": "32d6754a87d5006f923706d10446cc617cb22d36cfc30b55d39bd7f4c61d864c",
+        "references/testing.md": "82e36068fbf28a9615d3c96e5d946e304ce8f89ae1ba7475d20934501d55b0d9",
+        "references/uv-commands.md": "348cd69e8c780a0c7d54a2fac3c2956c7efe5630229782753da1685416672cdc",
+        "templates/dependabot.yml": "a85ede8ff9cc3a2f63cb1fba24e65c36a5885ecc95722af15157dc5258f28a12",
+        "templates/pre-commit-config.yaml": "18efd067e75cba5fc71705c2f90c548a03c3cded4cd2a7f9b4a1d617e115db0d"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "3b7b82d0da2db857eda1a798dbd908ea136f07b5",
+        "SKILL.md": "cf5e416095b166547d383e96515377695827defd",
+        "agents/openai.yaml": "9be5d1e78b9f885e5b6aa36422394700d06f5df2",
+        "assets/trail-of-bits-mark.svg": "7cd6e7ca7348897984f2498f301a888bb2f3ca71",
+        "references/dependabot.md": "1d8785f250b817d9691f87a34ade3c3aa50eeb4e",
+        "references/migration-checklist.md": "24b8b478506c48e5266660e70dace65ebd159f03",
+        "references/pep723-scripts.md": "a5c3675430f86b68b3a6999c6e83570554d1913e",
+        "references/prek.md": "c5c1d5e626486578badc576c78e704390ece614a",
+        "references/pyproject.md": "231ab8f908966013975ce0449071b0249df88fff",
+        "references/ruff-config.md": "4c93a7d55d2b5288d1fcc5e58dbd51d367931c37",
+        "references/security-setup.md": "fd2571f390608618e33618c46d1c035aafac8f67",
+        "references/testing.md": "26c0f1b169426401def46920f2dce2939662725b",
+        "references/uv-commands.md": "d60b398e51a93f330675c1be1141b0d6f6b2be82",
+        "templates/dependabot.yml": "205294f75e5b0222d14d4733661c213a2a924275",
+        "templates/pre-commit-config.yaml": "8a163a21f459359c0d72441a092d39daed23aa8d"
+      },
+      "files": {
+        "LICENSE.upstream": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "SKILL.md": "c335d499dfb74ba9390c744ce4ad7547332c26acde7a42eaa4c4dcb835d9efe2",
+        "UPSTREAM.md": "e632d64cf2c0c63bb4523cb769b4222f116b6ddfcf8a4c165de7ce06c247cfc1",
+        "agents/openai.yaml": "f56c544187af5bd3c76f1cd082619644090ab7b6d8abe77d4d3115d39dced5c1",
+        "assets/trail-of-bits-mark.svg": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "references/dependabot.md": "c7834f6c71219cc009e336a701277925a7d3e54454c5055e39373727e48ee270",
+        "references/migration-checklist.md": "d20f8366a1ce4ce55e3a9ef45bd5e3a8fb37d7b4e13004632717df56eaee8c3b",
+        "references/pep723-scripts.md": "c95f29335e0828ff41ea92ffafdd70505feb84ef5d8225d0558abcfffa3f6434",
+        "references/prek.md": "81155f968287eb2d66d5bcb954a71c6ed472314fa132de0a0fc0324c760f1ab5",
+        "references/pyproject.md": "796ccd0784bdb99e6a9b9a64c64da6ec5477447c1d60d413718b95c46c1ff384",
+        "references/ruff-config.md": "d552b87930b8e9790afde1b30b53f2c7f543b49149d79ab2db5d41e5a8d88f15",
+        "references/security-setup.md": "0068e44ebbb5ff333176c585b5f70337c69ddb3e1f48a9484cf61581d51293ec",
+        "references/testing.md": "40f77a03f1668e0d34375d9ff2865f5274ee653eff38795ce64a7936ae40ccf8",
+        "references/uv-commands.md": "289ac0722f9076a09f9f13e18fc8747ccffec337921d453c96d2f3e941197bcb",
+        "templates/dependabot.yml": "f6c9c91033e0e07ef2a68315688da083fb8919ddf2e3aefb90fffd855fb7a922",
+        "templates/pre-commit-config.yaml": "d19e265c9b5d28db845f18a6d0974ee00c255879d61e6ebb2a24eaadd6b15627"
+      },
+      "patches": {
+        "patches/modern-python/SKILL.md.patch": "0a26f998bdd48abf35a19532c06ec6701afb75e4a8d0afdccb2d010c40489e02",
+        "patches/modern-python/references__dependabot.md.patch": "af2528adc100c4f41ff056cfff1e01b3f24d8dc0328820a2720d8ed5abeb309f",
+        "patches/modern-python/references__migration-checklist.md.patch": "8a56acd976efab95100d95c38685aa76472451ccfa163769df2015cb847cb17c",
+        "patches/modern-python/references__pep723-scripts.md.patch": "87eaa982e957a7b5a0fa1085a5485597fc1cd2ab512bfaae39177433a8a573e4",
+        "patches/modern-python/references__prek.md.patch": "4e368c619e947e4f5a235d35de9987efb79f1315783be79c1e6c8470deba0e6d",
+        "patches/modern-python/references__pyproject.md.patch": "78288af2e39d524cc47afb499aaa0778a52cec6e2a36995c96d44e9805203698",
+        "patches/modern-python/references__ruff-config.md.patch": "e7f27d9af4d1ad912afcab0c8be8421ee8cc90bff39bced90ba90d29a148d3e9",
+        "patches/modern-python/references__security-setup.md.patch": "8d6bcfaa6f5c189344d3755adac31a9deeee5233201ff636da6ccc22125a8638",
+        "patches/modern-python/references__testing.md.patch": "22ea5012eadc87778a43f528f29f77bc1328f17712826c2711bf726149181c4d",
+        "patches/modern-python/references__uv-commands.md.patch": "a5b3e8c34e5b6ae76d4f6717200cb069c63a9d09a48de366ee74f00c0090a914",
+        "patches/modern-python/templates__dependabot.yml.patch": "14714cb3c9ee1eaacc2736cd6f5178d11d17823b2e17533abc2c3b82b4a5e791",
+        "patches/modern-python/templates__pre-commit-config.yaml.patch": "c3d8e494438ba6fe98d81741a5834b696a29155153941daf7cc73c967577803f"
+      },
+      "changes": "Preserved the complete upstream skill resource tree. Made tool, dependency, runtime, layout, lock, coverage, hook and migration recipes conditional on project policy and current authorization in the entrypoint and supporting references. Removed scheduled-CI removal and shared-cache cleanup prescriptions; preserved dependency constraints and active consumers. Clarified bounded security setup and optional update automation. Added managed integration boundaries, license metadata and attribution."
+    },
+    {
+      "name": "property-based-testing",
+      "state": "vendored",
+      "upstream_url": "https://github.com/trailofbits/skills",
+      "commit": "2be6433b39e009cd2b6fd3be1895f6b1faa5af9a",
+      "upstream_path": "plugins/property-based-testing/skills/property-based-testing",
+      "license": "CC-BY-SA-4.0",
+      "upstream_files": {
+        "LICENSE.upstream": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "README.md": "ffbe30eec09cc64fb1eae836b07ca1d82939bda3f1e6f0dceadcdd78793a3112",
+        "SKILL.md": "9448cacb65c6237a7c22dc59602667177ecae405524079ae9ff92240590b995a",
+        "agents/openai.yaml": "51d635deefa254d8cdf6dc56450851b6ec9545cd37f88a4eb4035cf3f2262fff",
+        "assets/trail-of-bits-mark.svg": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "references/generating.md": "c0e72dfc89babe3c32de718b81b94044362c85e776d7475e950dfeaab78bb58e",
+        "references/interpreting-failures.md": "dbae7db8773712ba03268a3d56ea5aa6720af0650a5189580bfd88aa2edc3f9a",
+        "references/libraries.md": "f7218acf8e668130ef3048983472579d04e12030c5401926f666363e5f69c686",
+        "references/refactoring.md": "6eb5c206f575704791f089608bb06e41d6eed91b9d3c7fb27912f969aed07a18",
+        "references/reviewing.md": "110b08118a1e7b1a2566def6e9d2a0bf43fc2deefce857d2ce3b4382b07bc774"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "3b7b82d0da2db857eda1a798dbd908ea136f07b5",
+        "README.md": "2c49678009a0e3e796a31dda185935497dec450a",
+        "SKILL.md": "1cc39d8d8cba5955bf9c8d7c9a2aef348722a55e",
+        "agents/openai.yaml": "fdde0c37ebd8f31ea34fd945a0c3b784d51defe7",
+        "assets/trail-of-bits-mark.svg": "7cd6e7ca7348897984f2498f301a888bb2f3ca71",
+        "references/generating.md": "0133ccd27580a6f68d662807832de67cb1d91514",
+        "references/interpreting-failures.md": "10aeac48d239da352206b8c49f72ee776e5ca5be",
+        "references/libraries.md": "6b9964a46c014f5ecee78cd356fb0bdc4cbcd830",
+        "references/refactoring.md": "d4be7fb1fd4f00e53fde109254dd6dc937248011",
+        "references/reviewing.md": "a2ca783a7dabaece9e383f0ace972bb4fe2f7881"
+      },
+      "files": {
+        "LICENSE.upstream": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "README.md": "35f86d844cfbac35ff61707230186a6610b5e4a74eda6e44254f1ce3a3bdecb0",
+        "SKILL.md": "4a562c5346d67deb600ec19252246426fbc406a26d729c052d9cdaa4ed650bb0",
+        "UPSTREAM.md": "ec66a35e6cddd74fa9af1e6998e9f065ba2d879e23235d02b2dcf7770d7f4171",
+        "agents/openai.yaml": "51d635deefa254d8cdf6dc56450851b6ec9545cd37f88a4eb4035cf3f2262fff",
+        "assets/trail-of-bits-mark.svg": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "references/generating.md": "fdb7d6810367edfe0a3edda4a9dbddd94c7d7af054241d4828b5d23e53fc8442",
+        "references/interpreting-failures.md": "1d5a150deaafb8ae37e64562869ac7b11d8ee345344e4c4cd71a5a66c040f108",
+        "references/libraries.md": "f7218acf8e668130ef3048983472579d04e12030c5401926f666363e5f69c686",
+        "references/refactoring.md": "ade8329ed84eb4f5fdc9224e25947690a69ea7c587796d16aaefeaeab6881ed5",
+        "references/reviewing.md": "7dbe41c161cd945172f54468f09db56565291c6e9f604050a2f12e425b017ee2"
+      },
+      "patches": {
+        "patches/property-based-testing/README.md.patch": "2649cab67e5a293500bb8a5a173921c3fe0f8a73948c523f77752479d8749892",
+        "patches/property-based-testing/SKILL.md.patch": "00afa045569fcb1447e80181ca236c575ac24b76b7d6f512d6bc96dee7d3fa9a",
+        "patches/property-based-testing/references__generating.md.patch": "387c8993ebb23fb94096cc221109bd52ecedbfb2a845d45ff7cd16cf00a0e454",
+        "patches/property-based-testing/references__interpreting-failures.md.patch": "fe852fdf3a12c588cb0bf39b490150ff71d222ae08543de11c84677bb934c747",
+        "patches/property-based-testing/references__refactoring.md.patch": "8b4f784ad535f44b16b124112a1a75fa9fd8d0f87174f7b8a96534a44fbaf8aa",
+        "patches/property-based-testing/references__reviewing.md.patch": "272d28268b9111e2502a2033d46d861fddf1817ce0dc29f1806752d2d61a8e8d"
+      },
+      "changes": "Preserved the complete upstream skill resource tree and upstream evaluation history with an explicit historical-context note. Removed effort selection. Added project/lifecycle boundaries and preservation of existing authorization for dependency/refactor choices. Made example budgets, deadlines and severity context-dependent; corrected filtering-result claims and hashability qualification. Explained pre-state testing and meaningful inverses without forcing production redesign."
+    },
+    {
+      "name": "python-design-patterns",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/python-development/skills/python-design-patterns",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "42c99b3bc55a56a65cd3f16aa24ea50672ce0fa4893eb0f34bba0cdb8a0e3319",
+        "references/details.md": "5d85b7a1745446432060bb31ee1fa686d5a41d86cfaf3687dd2710b47b72e5ea"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "93e8a7daf8187c11d0a798fde87d86b1fc7c6449",
+        "references/details.md": "707d9c42f09bbf2b1347562218a8a04de4a6f67d"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "b65cade72afbfefbdf2ace2a5fab74bcbedb8a9fd5aa75903c8447608db6a66d",
+        "UPSTREAM.md": "adf50bd815c7ce7623238b5ecade0e4f5b419923eb2aae141d14ca413290dedb",
+        "references/details.md": "0b47721f28159addb40b380b42c03312819895778f7ad3535ec98f5615effa76"
+      },
+      "patches": {
+        "patches/python-design-patterns/SKILL.md.patch": "6218c80f81cdcd720369854a3f809d76e49aaf9e82687ce0a8ce19bb87d501da",
+        "patches/python-design-patterns/references__details.md.patch": "9063e3c92532842c86d3c4019af61489f8c9d1917d32239162b9dfe9f99b0598"
+      },
+      "changes": "Preserved the complete upstream skill resource tree. Added project/lifecycle boundaries and attribution. Made numerical heuristics review signals rather than universal gates, aligned testing with project authority, and replaced unbundled sibling links with optional immutable upstream URLs."
+    },
+    {
+      "name": "python-performance-optimization",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/python-development/skills/python-performance-optimization",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "807aa725cc2b46b4d68a11a52e5b345be0449e80b7f4b60c32bfd2c35345afb5",
+        "references/advanced-patterns.md": "3109ef651c7591017505aeed1d171fbf9000ee522c1b4dac35f90192974b20f0",
+        "references/details.md": "8643031fabcbaf555ae1b4e702f1b5159689a31a4b286280d4df2822c9731281"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "32d8363f3d69f19f77368724690269e79b604f88",
+        "references/advanced-patterns.md": "528a6ff8beaf057a41fa680cd624173d78fdc526",
+        "references/details.md": "255ebff62e8b3c85aef29668b153aecda532337b"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "96abe689095aca69adc9cfd5bd4c7e8ad9b58597e186757dcc8def6ec0b9cf6a",
+        "UPSTREAM.md": "8dfd58a4c13466b7334589bf17052ee480d6b8a90e2eb5946aaf25d9129ef673",
+        "references/advanced-patterns.md": "a71777431b7727f9df9dcf73f458e89cafc755bae3d81572fb0d1689816b5f4a",
+        "references/details.md": "dfb5bf232a8a38a16a374d1ae4bfe3bd7033d4d52b0ed60635d8129c14a5d5b6"
+      },
+      "patches": {
+        "patches/python-performance-optimization/SKILL.md.patch": "a320033827a8e7bf9a18ab6014be4cc4e7623b00d111877f44c94b7ad3a17169",
+        "patches/python-performance-optimization/references__advanced-patterns.md.patch": "9f83e8cf9569b8cef45b0fbc7ab9cf8e8d53bf710a23d1b47a92f7c7dd62b490",
+        "patches/python-performance-optimization/references__details.md.patch": "1d3985586f78312e3f12b1599d135a30c465a12b907da285e0860011cbc673bb"
+      },
+      "changes": "Preserved the complete upstream skill resource tree. Added project/lifecycle boundaries, a baseline/equivalent-workload/correctness measurement contract, and bounded installation/production-attachment guidance. Used a monotonic timer in the entrypoint example, qualified runtime-dependent speed/memory claims, and made the cache example compare per-call results with equivalent initially empty cache state."
+    }
+  ]
+}

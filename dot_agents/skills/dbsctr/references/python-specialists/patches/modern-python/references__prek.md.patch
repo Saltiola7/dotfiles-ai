@@ -1,0 +1,64 @@
+--- a/references/prek.md
++++ b/references/prek.md
+@@ -1,6 +1,11 @@
+ # prek: Fast Pre-commit Hooks
+ 
+-[prek](https://github.com/j178/prek) is a fast, Rust-native drop-in replacement for pre-commit. It uses the same `.pre-commit-config.yaml` format and is fully compatible with existing configurations.
++Use only the portions selected by the current task and project policy. Examples
++below do not authorize tool installation, dependency changes, hook activation,
++CI changes or publication. Preserve supported runtimes, dependency constraints,
++existing tools and acceptance criteria unless their change is explicitly in scope.
++
++[prek](https://github.com/j178/prek) is a Rust-native hook runner using `.pre-commit-config.yaml`. Verify compatibility with the project's selected versions and hook behavior before a migration.
+ 
+ ## Why prek over pre-commit?
+ 
+@@ -23,7 +28,7 @@
+ 
+ ### For Existing pre-commit Users
+ 
+-prek is fully compatible with `.pre-commit-config.yaml`. Just replace commands:
++When migration to prek is selected, verify the existing configuration and hooks before replacing commands:
+ 
+ ```bash
+ # Instead of: pre-commit install
+@@ -65,7 +70,7 @@
+ 
+ ## Configuration
+ 
+-For a complete, copy-paste-ready configuration, see [templates/pre-commit-config.yaml](../templates/pre-commit-config.yaml).
++For an illustrative configuration, see [templates/pre-commit-config.yaml](../templates/pre-commit-config.yaml). Select required hooks and compatible versions; do not replace the existing configuration wholesale.
+ 
+ ### Recommended `.pre-commit-config.yaml`
+ 
+@@ -194,18 +199,20 @@
+ 
+ ## Migration from pre-commit
+ 
+-1. Install prek: `uv tool install prek`
+-2. Remove pre-commit: `pip uninstall pre-commit` or `uv tool uninstall pre-commit`
+-3. Re-install hooks: `prek install`
+-4. (Optional) Clean old environments: `rm -rf ~/.cache/pre-commit`
+-
+-Your existing `.pre-commit-config.yaml` works unchanged.
++For an explicitly selected migration:
++
++1. Install prek through the project-selected installation authority if authorized
++2. Validate required hooks against the existing configuration and supported runtimes
++3. Replace the selected Git hooks only after previewing their changed behavior
++4. Retire pre-commit only when no active consumer still needs it; preserve shared caches and unrelated environments
++
++Keep the existing configuration where compatible and record any required changes.
+ 
+ ## Best Practices
+ 
+-1. **Use `prek run --all-files` in CI** - Ensures all files are checked, not just changed ones
++1. **Follow configured CI scope** - Run `prek run --all-files` when the project's validation authority requires it
+ 2. **Pin hook versions** - Use specific `rev` values, not branches
+-3. **Use `--cooldown-days` for auto-update** - Mitigates supply chain attacks: `prek auto-update --cooldown-days 7`
++3. **Follow update policy** - A selected cooldown, such as `prek auto-update --cooldown-days 7`, may allow time for issues to be discovered; it is not a safety guarantee
+ 4. **Prefer built-in hooks** - Use `repo: builtin` for common checks (faster, offline)
+-5. **Run hooks before commit** - `prek install` sets this up automatically
+-6. **Initialize detect-secrets baseline** - Run `detect-secrets scan > .secrets.baseline` before first commit
++5. **Preserve selected hooks** - Installing or replacing hooks is part of authorized setup, not an effect of loading this reference
++6. **Preserve secret-scanning authority** - Create and review a baseline only when selected; do not overwrite an existing baseline without review

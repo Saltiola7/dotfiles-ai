@@ -1,0 +1,36 @@
+--- a/references/reviewing.md
++++ b/references/reviewing.md
+@@ -3,8 +3,9 @@
+ A property test can pass for years while asserting nothing. These are the ways that
+ happens, worst first.
+ 
+-Report every issue you find with its severity attached. Do not decide on the author's
+-behalf that a MEDIUM is not worth mentioning.
++Report evidenced issues within the requested scope. The labels below describe test
++quality, not automatic security severity or lifecycle gates; calibrate impact and
++priority using the project context.
+ 
+ | Issue | Severity | How it shows up |
+ |---|---|---|
+@@ -14,7 +15,7 @@
+ | Reimplementation | HIGH | Assertion recomputes the function's own logic |
+ | Weaker property available | MEDIUM | Length checked, ordering not |
+ | Over-filtered | MEDIUM | Stacked `assume()` where a strategy constraint belongs |
+-| Settings | LOW | `max_examples=5`, or no deadline on an expensive strategy |
++| Settings | Context-dependent | Example budget or runtime bounds fail the project's validation needs |
+ 
+ ## Tautological
+ 
+@@ -43,9 +44,9 @@
+     assert compute(x) > 0
+ ```
+ 
+-Hypothesis reports this as passing before it eventually errors on exhausted filters —
+-and in CI nobody reads the warning. `assume(x == 42)` is the subtler version: it runs,
+-it passes, and it is an example test wearing a `@given` decorator.
++Contradictory assumptions make the test unsatisfiable; excessive filtering can fail a
++health check. Neither is a successful validation result. A narrow condition such as
++`assume(x == 42)` can also discard most inputs and exercise little meaningful coverage.
+ 
+ ## Reimplementation
+ 

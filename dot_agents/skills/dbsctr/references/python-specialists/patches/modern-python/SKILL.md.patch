@@ -1,0 +1,214 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,9 +1,23 @@
+ ---
+ name: modern-python
+-description: Configures Python projects with modern tooling (uv, ruff, ty). Use when creating projects, writing standalone scripts, or migrating from pip/Poetry/mypy/black.
++description: Guides new Python packaging/tooling setup and explicitly selected tooling migrations, respecting project-selected runtimes, tools, dependency constraints, and acceptance criteria. Use for setup or migration decisions, not routine Python edits.
++license: CC-BY-SA-4.0
+ ---
+ 
+ # Modern Python
++
++## Managed use
++
++Project instructions and the Engineering Profile own runtimes, tooling, dependency
++constraints, layout, CI schedules, lock strategy and acceptance criteria. Existing
++choices remain valid without an explicit request to keep them. Use the recipes
++below only for tools and migrations selected within the current task; they are
++examples, not automatic replacements or universal gates. Loading this skill does
++not install tools, add dependencies, activate hooks or authorize publication.
++Existing task authorization persists; ask only about unresolved material choices.
++When used by DBSCTR, return setup/migration decisions, affected artifacts,
++validation evidence and limitations to the primary; DBSCTR and QA retain lifecycle
++and evidence ownership. See [UPSTREAM.md](UPSTREAM.md) for provenance and changes.
+ 
+ Guide for modern Python tooling and best practices, based on [trailofbits/cookiecutter-python](https://github.com/trailofbits/cookiecutter-python).
+ 
+@@ -17,34 +31,33 @@
+ 
+ ## When NOT to Use This Skill
+ 
+-- **User wants to keep legacy tooling**: Respect existing workflows if explicitly requested
+-- **Python < 3.11 required**: These tools target modern Python
+-- **Non-Python projects**: Mixed codebases where Python isn't primary
+-
+-## Anti-Patterns to Avoid
+-
+-| Avoid | Use Instead |
+-|-------|-------------|
+-| `[tool.ty]` python-version | `[tool.ty.environment]` python-version |
+-| `uv pip install` | `uv add` and `uv sync` |
+-| Editing pyproject.toml manually to add deps | `uv add <pkg>` / `uv remove <pkg>` |
+-| `hatchling` build backend | `uv_build` (simpler, sufficient for most cases) |
+-| Poetry | uv (faster, simpler, better ecosystem integration) |
+-| requirements.txt | PEP 723 for scripts, pyproject.toml for projects |
+-| mypy / pyright | ty (faster, from Astral team) |
+-| `[project.optional-dependencies]` for dev tools | `[dependency-groups]` (PEP 735) |
+-| Manual virtualenv activation (`source .venv/bin/activate`) | `uv run <cmd>` |
+-| pre-commit | prek (faster, no Python runtime needed) |
++- **Routine Python code changes**: Use this skill only when setup or tooling is affected
++- **Unsupported recipe**: Check each selected tool against the project's supported runtimes; do not raise the runtime floor to fit an example
++- **Unrelated tooling**: In mixed codebases, limit the guidance to the affected Python component
++
++## Tool-specific options
++
++| Selected context | Recipe |
++|------------------|--------|
++| ty configuration | Put `python-version` under `[tool.ty.environment]` |
++| uv-managed project | Use `uv add` / `uv remove` for dependency metadata and `uv sync` for its environment |
++| Authorized build-backend evaluation | Compare `uv_build` with the existing backend's capabilities before changing it |
++| Authorized package-manager migration | uv is an option; Poetry and other project-selected managers remain valid |
++| Selected standalone-script packaging | Consider PEP 723; preserve existing requirements and constraints when still authoritative |
++| Authorized type-checker evaluation | Compare ty with the project's current mypy/Pyright coverage and integrations |
++| Tooling supporting PEP 735 | Consider `[dependency-groups]` for development dependencies |
++| uv-managed execution | Prefer `uv run <cmd>` within that project |
++| Authorized hook-runner migration | Consider prek after checking existing hooks and project requirements |
+ 
+ **Key principles:**
+-- Always use `uv add` and `uv remove` to manage dependencies
+-- Never manually activate or manage virtual environments—use `uv run` for all commands
+-- Use `[dependency-groups]` for dev/test/docs dependencies, not `[project.optional-dependencies]`
++- Follow the selected package manager and preserve dependency constraints
++- Keep environment ownership explicit; uv recipes apply only to uv-managed environments
++- Preserve project-selected dependency groups, extras and lock authority unless their migration is in scope
+ 
+ ## Decision Tree
+ 
+ ```
+-What are you doing?
++After confirming the selected tools, what are you doing?
+ │
+ ├─ Single-file script with dependencies?
+ │   └─ Use PEP 723 inline metadata (./references/pep723-scripts.md)
+@@ -84,7 +97,7 @@
+ 
+ ## Quick Start: Minimal Project
+ 
+-For simple multi-file projects not intended for distribution:
++For an authorized new uv-managed project not intended for distribution. Select only dependencies needed by the project:
+ 
+ ```bash
+ # Create project with uv
+@@ -106,7 +119,7 @@
+ ```
+ 
+ ## Full Project Setup
+-If starting from scratch, ask the user if they prefer to use the Trail of Bits cookiecutter template to bootstrap a complete project with already preconfigured tooling.
++For a new project, the Trail of Bits cookiecutter is an optional bootstrap when its tool choices fit the agreed setup. Do not fetch or execute it merely because this skill was loaded; use existing setup decisions or resolve an otherwise material choice.
+ 
+ ```bash
+ uvx cookiecutter gh:trailofbits/cookiecutter-python
+@@ -134,7 +147,7 @@
+ 
+ See [pyproject.md](./references/pyproject.md) for complete configuration reference.
+ 
+-Key sections:
++Example sections for a project that selected these tools. Match runtime versions, layout, lint rules and test configuration to project policy:
+ ```toml
+ [project]
+ name = "myproject"
+@@ -157,7 +170,7 @@
+ ignore = ["D", "COM812", "ISC001"]
+ 
+ [tool.pytest]
+-addopts = ["--cov=myproject", "--cov-fail-under=80"]
++addopts = ["--cov=myproject"]  # Only when project policy selects coverage
+ 
+ [tool.ty.terminal]
+ error-on-warning = true
+@@ -204,7 +217,7 @@
+ 
+ ## Migration Guide
+ 
+-When a user requests migration from legacy tooling:
++Apply only the explicitly selected migration below. Inspect consumers first, preserve dependency constraints and supported runtimes, and validate replacement behavior before retiring any artifact.
+ 
+ ### From requirements.txt + pip
+ 
+@@ -230,9 +243,9 @@
+ ```
+ 
+ Then:
+-1. Delete `requirements.txt`, `requirements-dev.txt`
+-2. Delete virtual environment (`venv/`, `.venv/`)
+-3. Add `uv.lock` to version control
++1. Retire requirements files only after every affected consumer uses the verified replacement
++2. Recreate an environment only when needed within migration scope; do not delete unrelated environments or caches
++3. Apply the project's lockfile version-control policy
+ 
+ ### From setup.py / setup.cfg
+ 
+@@ -240,23 +253,22 @@
+ 2. Use `uv add` to add each dependency from `install_requires`
+ 3. Use `uv add --group dev` for dev dependencies
+ 4. Copy non-dependency metadata (name, version, description, etc.) to `[project]`
+-5. Delete `setup.py`, `setup.cfg`, `MANIFEST.in`
++5. Retire only superseded setup files after verifying metadata, package contents and all affected consumers
+ 
+ ### From flake8 + black + isort
+ 
+-1. Remove flake8, black, isort via `uv remove`
+-2. Delete `.flake8`, `pyproject.toml [tool.black]`, `[tool.isort]` configs
+-3. Add ruff: `uv add --group dev ruff`
+-4. Add ruff configuration (see [ruff-config.md](./references/ruff-config.md))
+-5. Run `uv run ruff check --fix .` to apply fixes
+-6. Run `uv run ruff format .` to format
+-
+-### From mypy / pyright
+-
+-1. Remove mypy/pyright via `uv remove`
+-2. Delete `mypy.ini`, `pyrightconfig.json`, or `[tool.mypy]`/`[tool.pyright]` sections
+-3. Add ty: `uv add --group dev ty`
+-4. Run `uv run ty check src/`
++1. Map existing rules, suppressions, format expectations and CI consumers
++2. Add Ruff through the selected package manager and configure equivalent checks (see [ruff-config.md](./references/ruff-config.md))
++3. Preview changes, then apply the agreed affected-scope fixes and formatting
++4. Validate the replacement before removing superseded tools or configuration
++
++### Selected migration from mypy / Pyright to ty
++
++Keep the existing checker unless this migration is explicitly selected. Compare
++supported annotations, plugins, stubs, strictness and diagnostics before choosing ty.
++If selected, add it through the project's dependency authority, run both against
++representative code and validate required coverage. Retire the former checker and
++its configuration only after the replacement meets the project's requirements.
+ 
+ ## Quick Reference: uv Commands
+ 
+@@ -276,7 +288,7 @@
+ 
+ ### Ad-hoc Dependencies with `--with`
+ 
+-Use `uv run --with` for one-off commands that need packages not in your project:
++For authorized one-off dependency use in a uv-selected workflow, `uv run --with` can run packages not in project metadata. It may download/install packages and is not a permission bypass:
+ 
+ ```bash
+ # Run Python with a temporary package
+@@ -309,16 +321,16 @@
+ 
+ Install with: `uv sync --group dev --group test`
+ 
+-## Best Practices Checklist
+-
+-- [ ] Use `src/` layout for packages
+-- [ ] Set `requires-python = ">=3.11"`
+-- [ ] Configure ruff with `select = ["ALL"]` and explicit ignores
+-- [ ] Use ty for type checking
+-- [ ] Enforce test coverage minimum (80%+)
+-- [ ] Use dependency groups instead of extras for dev tools
+-- [ ] Add `uv.lock` to version control
+-- [ ] Use PEP 723 for standalone scripts
++## Project-aligned Checklist
++
++- [ ] Preserve or select a layout appropriate to the deliverable
++- [ ] Match `requires-python` and tool targets to supported runtimes
++- [ ] Use project-selected linting, formatting and type-checking authorities
++- [ ] Apply the project's test strategy and coverage policy; no universal percentage
++- [ ] Keep dependency metadata, constraints and lock authority consistent
++- [ ] Validate any selected migration before retiring old consumers or artifacts
++- [ ] Preserve scheduled CI and unrelated tooling
++- [ ] Use PEP 723 only where standalone-script packaging fits the project
+ 
+ ## Read Next
+ 

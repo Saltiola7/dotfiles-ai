@@ -1,0 +1,56 @@
+--- a/references/refactoring.md
++++ b/references/refactoring.md
+@@ -5,9 +5,10 @@
+ write has a property; it just does not have a seam to assert it through. These are the
+ rearrangements that expose one, strongest first.
+ 
+-Suggest the refactor, name the property it unlocks, and let the author decide. A change
+-to production code to make a test possible is their call, not yours — the same rule that
+-governs adding a PBT dependency at all.
++Name the property and the smallest relevant seam. Apply a refactor only within the
++authorized task and compatibility policy; otherwise propose it as a separate decision.
++Do not restructure working production code solely to force a property-test library.
++Existing scope authorization is sufficient for already selected changes.
+ 
+ ## 1. Extract the pure core
+ 
+@@ -50,9 +51,9 @@
+ def decode_message(data: bytes) -> dict: ...   # unlocks decode(encode(x)) == x
+ ```
+ 
+-Unlocks roundtrip, the strongest property in the catalog. Worth asking for even when the
+-production code never decodes: a serializer nobody can read back is usually a latent
+-bug, not a design.
++This can enable a roundtrip property when decoding is meaningful for the contract.
++One-way serialization is not itself a defect. Prefer an existing independent reader
++or test oracle; add a production inverse only when its product value justifies it.
+ 
+ ## 3. Structured representation plus a renderer
+ 
+@@ -81,11 +82,11 @@
+ 
+ ## 4. Return a value instead of mutating
+ 
+-An in-place mutation gives you nothing to compare against, because the input is gone by
+-the time you want to assert on it.
++For an in-place mutation, retain a copy of the pre-state and compare it with the
++post-state. Changing the public mutation contract is usually unnecessary.
+ 
+ ```python
+-def sort_tasks(tasks: list[Task]) -> None: ...      # before/after comparison impossible
++def sort_tasks(tasks: list[Task]) -> None: ...      # retain a pre-state copy in the test
+ def sorted_tasks(tasks: list[Task]) -> list[Task]:  # unlocks is_sorted, permutation,
+     ...                                             # idempotence, length preservation
+ ```
+@@ -95,8 +96,9 @@
+ 
+ ## 5. Inject the dependency
+ 
+-A function reading a global, a module constant, or `os.environ` can only be tested at
+-whatever those happen to be, so the edges of its input domain are unreachable.
++A function reading global state can be tested with bounded fixtures or monkeypatching.
++Explicit parameters may provide a cleaner seam when changing that interface is already
++appropriate to the task:
+ 
+ ```python
+ def validate(data: str) -> bool:          return len(data) <= CONFIG.max_length

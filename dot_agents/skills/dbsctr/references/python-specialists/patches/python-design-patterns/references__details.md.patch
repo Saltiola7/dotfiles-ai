@@ -1,0 +1,36 @@
+--- a/references/details.md
++++ b/references/details.md
+@@ -1,4 +1,9 @@
+ # python-design-patterns — detailed patterns and worked examples
++
++Apply patterns to the project's actual architecture. Layering diagrams, constructor
++injection and numeric heuristics are options, not requirements for every Python
++program. Preserve task scope and compatibility; validate any proposed split against
++real responsibilities and change patterns.
+ 
+ ## Fundamental Patterns
+ 
+@@ -206,7 +211,7 @@
+ 
+ ### Pattern 5: Rule of Three
+ 
+-Wait until you have three instances before abstracting.
++Use repeated examples to identify a stable abstraction. Three is a heuristic; demonstrated divergence or contract risk can justify earlier extraction.
+ 
+ ```python
+ # Two similar functions? Don't abstract yet
+@@ -236,11 +241,9 @@
+ 
+ ### Pattern 6: Function Size Guidelines
+ 
+-Keep functions focused. Extract when a function:
+-
+-- Exceeds 20-50 lines (varies by complexity)
+-- Serves multiple distinct purposes
+-- Has deeply nested logic (3+ levels)
++Keep functions focused. Consider extraction when a function has multiple independent
++responsibilities or obscures important behavior. Length and nesting can prompt review,
++but no line-count or depth threshold alone requires a refactor.
+ 
+ ```python
+ # Too long, multiple concerns mixed

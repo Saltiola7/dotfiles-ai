@@ -1,0 +1,98 @@
+--- a/references/migration-checklist.md
++++ b/references/migration-checklist.md
+@@ -1,16 +1,21 @@
+ # Migration Checklist
++
++Use only the portions selected by the current task and project policy. Examples
++below do not authorize tool installation, dependency changes, hook activation,
++CI changes or publication. Preserve supported runtimes, dependency constraints,
++existing tools and acceptance criteria unless their change is explicitly in scope.
+ 
+ Comprehensive checklist for migrating Python projects to modern tooling.
+ 
+ ## Before Migration
+ 
+ - [ ] **Determine layout**: `src/` or flat? Configure `[tool.uv.build-backend]` if flat
+-- [ ] **Decide uv.lock strategy**: app (commit) vs library (.gitignore)
++- [ ] **Confirm lock strategy**: follow project policy for applications and libraries; preserve development reproducibility
+ - [ ] **Backup current state**: Create a branch or tag before starting
+ 
+ ## Cleanup Old Artifacts
+ 
+-Find and remove legacy linter comments:
++Find legacy linter comments; remove only those made obsolete by the selected, validated replacement:
+ 
+ ```bash
+ # Find files with old linter pragmas
+@@ -20,7 +25,7 @@
+ uv run ruff check --select=INP001 .
+ ```
+ 
+-Remove these files after migration:
++Review these candidates after migration. Remove only confirmed superseded artifacts whose consumers have moved; retained tools and delivery paths keep their files:
+ - [ ] `requirements.txt`, `requirements-dev.txt`
+ - [ ] `setup.py`, `setup.cfg`, `MANIFEST.in`
+ - [ ] `.flake8`, `mypy.ini`, `pyrightconfig.json`
+@@ -42,11 +47,10 @@
+ .ruff_cache/
+ .ty/
+ 
+-# uv (for libraries only - apps should commit uv.lock)
+-# uv.lock
++# uv.lock tracking follows the project's lock policy
+ ```
+ 
+-## pyproject.toml Sections to Remove
++## pyproject.toml Sections to Review for Superseded Tools
+ 
+ - [ ] `[tool.black]`
+ - [ ] `[tool.isort]`
+@@ -57,7 +61,7 @@
+ 
+ ## Post-Migration Easy Wins
+ 
+-Run these to modernize code automatically:
++Preview relevant checks first and apply only reviewed affected-scope fixes. Configure the minimum supported Python version; an upgrade suggestion does not justify raising it:
+ 
+ ```bash
+ # Pyupgrade modernization (typing, syntax)
+@@ -75,14 +79,14 @@
+ 
+ ## CI Cleanup
+ 
+-- [ ] Remove scheduled CI triggers (activity without progress is theater)
+-- [ ] Update CI to use `uv sync` and `uv run`
+-- [ ] Pin GitHub Actions to SHA hashes
+-- [ ] Set up security tooling (see [security-setup.md](./security-setup.md))
++- [ ] Preserve scheduled CI, compatibility coverage and unrelated jobs
++- [ ] Update affected commands only when the selected migration changes them
++- [ ] Preserve the project's GitHub Actions pinning policy
++- [ ] Reuse selected security authorities; introduce tooling only within authorized setup (see [security-setup.md](./security-setup.md))
+ 
+ ## Gradual ty Adoption
+ 
+-For legacy codebases with many type errors, start lenient:
++Only when ty adoption is selected, consider a documented staged baseline. Preserve required checks and record any temporary suppression with an owner and removal condition:
+ 
+ ```toml
+ [tool.ty.terminal]
+@@ -109,15 +113,15 @@
+ 
+ ## Supply Chain Security
+ 
+-- [ ] Add pip-audit to dependency groups
+-- [ ] Configure Dependabot with 7-day cooldown
+-- [ ] Pin exact versions in production (`==` not `>=`)
++- [ ] Use the project's selected vulnerability-scanning authority
++- [ ] Preserve or explicitly select update automation and cadence
++- [ ] Follow the project's runtime ranges and deployment-lock policy
+ 
+ See [security-setup.md](./security-setup.md) for pip-audit and Dependabot configuration.
+ 
+ ## Verification
+ 
+-After migration, verify everything works:
++After migration, run the project-selected affected checks. The following uv/Ruff/ty/pytest commands are examples for projects that selected those tools; do not install missing tools simply to run this list:
+ 
+ ```bash
+ # Install all dependencies

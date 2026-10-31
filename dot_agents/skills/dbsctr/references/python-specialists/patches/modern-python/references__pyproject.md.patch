@@ -1,0 +1,77 @@
+--- a/references/pyproject.md
++++ b/references/pyproject.md
+@@ -1,10 +1,18 @@
+ # pyproject.toml Configuration Reference
+ 
++Use only the portions selected by the current task and project policy. Examples
++below do not authorize tool installation, dependency changes, hook activation,
++CI changes or publication. Preserve supported runtimes, dependency constraints,
++existing tools and acceptance criteria unless their change is explicitly in scope.
++
+ Complete reference for configuring `pyproject.toml` for modern Python projects.
+ 
+-**Important**: Always use `uv add` and `uv remove` to manage dependencies. Do not edit the `dependencies` or `dependency-groups` sections directly.
++For uv-managed projects, prefer `uv add` and `uv remove` so metadata and locks stay consistent. Other projects retain their selected dependency authority.
+ 
+ ## Complete Example
++
++Illustrative uv/Ruff/ty/pytest setup. Retain the project's runtime floor, backend,
++layout, metadata and checks rather than copying all sections verbatim.
+ 
+ ```toml
+ [project]
+@@ -84,7 +92,6 @@
+ addopts = [
+     "--cov=myproject",
+     "--cov-report=term-missing",
+-    "--cov-fail-under=80",
+ ]
+ 
+ [tool.coverage.run]
+@@ -126,7 +133,7 @@
+ postgres = ["psycopg2"]
+ ```
+ 
+-**Do NOT use for dev tools**—use `[dependency-groups]` instead.
++For new setups whose tooling supports PEP 735, prefer `[dependency-groups]` for development tools. Preserve existing extras when consumers still rely on them.
+ 
+ ### [project.scripts]
+ 
+@@ -140,7 +147,7 @@
+ 
+ ### [build-system]
+ 
+-Build backend configuration. Use `uv_build` for most projects:
++Build backend configuration. Example when the project selected `uv_build`:
+ 
+ ```toml
+ [build-system]
+@@ -148,7 +155,7 @@
+ build-backend = "uv_build"
+ ```
+ 
+-`uv_build` is simpler and sufficient for most use cases. Use static versioning in `[project] version` rather than VCS-aware dynamic versioning.
++Check the selected backend against required packaging capabilities. Preserve the project's static or dynamic versioning strategy.
+ 
+ For flat layout (no `src/` directory), configure the module root:
+ 
+@@ -157,7 +164,7 @@
+ module-root = ""
+ ```
+ 
+-> **Note:** These tools evolve rapidly. Prefer `>=X.Y,<X+1` constraints to automatically get newer releases within the same major version.
++> **Note:** Preserve project-selected version ranges and locks. Change constraints only as part of the selected dependency work.
+ 
+ ### [dependency-groups]
+ 
+@@ -200,8 +207,8 @@
+ 
+ | Project Type | uv.lock in Git? | Why |
+ |--------------|-----------------|-----|
+-| Application | ✅ Commit | Reproducible deploys |
+-| Library | ❌ .gitignore | Users resolve their own deps |
++| Application | Project policy; commonly commit | Reproducible deployment environments |
++| Library | Project policy; often commit development lock | Consumers resolve runtime ranges; development can still be locked |
+ 
+ ## Common Patterns
+ 

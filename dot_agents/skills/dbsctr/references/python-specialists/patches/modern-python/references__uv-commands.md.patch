@@ -1,0 +1,37 @@
+--- a/references/uv-commands.md
++++ b/references/uv-commands.md
+@@ -1,10 +1,18 @@
+ # uv Command Reference
+ 
++Use only the portions selected by the current task and project policy. Examples
++below do not authorize tool installation, dependency changes, hook activation,
++CI changes or publication. Preserve supported runtimes, dependency constraints,
++existing tools and acceptance criteria unless their change is explicitly in scope.
++
+ `uv` is an extremely fast Python package and project manager written in Rust. It replaces pip, virtualenv, pip-tools, pipx, and pyenv.
+ 
+-**Key principle:** Always use `uv run` to execute commands. Never manually activate virtual environments.
++**For uv-managed projects:** prefer `uv run` so the selected environment is explicit. Preserve other project-owned environment workflows.
+ 
+ ## Installation
++
++Only for explicitly selected uv setup within existing authorization. Prefer the
++project's managed installation method; the examples below are not automatic steps.
+ 
+ ```bash
+ # macOS/Linux
+@@ -43,7 +51,7 @@
+ 
+ ### Environment Management
+ 
+-uv manages virtual environments automatically. Do not manually create or activate venvs.
++uv can manage virtual environments automatically. Within a uv-managed project, use its environment workflow; do not take ownership of unrelated environments.
+ 
+ | Command | Description |
+ |---------|-------------|
+@@ -197,4 +205,4 @@
+ 
+ - uv caches aggressively; first install may be slower
+ - Use `uv sync --frozen` in CI for reproducible builds
+-- Use `uv cache clean` if cache grows too large
++- Cache cleanup is separate maintenance; preserve shared caches unless cleanup is explicitly authorized
