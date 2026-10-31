@@ -258,3 +258,26 @@ infrastructure mutation is part of qualification. The configured native model an
 provider stay fixed across each comparison. Missing observations remain missing.
 The existing source-only OpenCode compression fixture keeps its separate purpose
 and unavailable usage/cost fields; native router evidence cannot relabel it.
+
+### Native qualification behavior
+
+| Given / when | Observable outcome |
+|---|---|
+| An ordinary synthetic task implicitly matches a specialist | Observe the native catalog and successful body/resource reads; naming a skill in the answer is insufficient |
+| A task is adjacent but needs no specialist | Preserve the negative case; unrelated tracked loads are visible |
+| A task crosses platform/language concerns | Select only justified techniques and retain project-selected tools and target boundaries |
+| An existing property suite shrinks a counterexample | Evaluate the existing property and implementation without replacing the project test authority |
+| A native catalog omits an unregistered but readable managed sibling | Test exact-sibling recovery separately; do not call this cache-staleness proof or override an explicit disable policy |
+| Native output lacks usage, fails or times out | Retain the attempt and unavailable fields; do not infer tokens from characters, bytes, answer length or account percentages |
+| Direct implicit selection bypasses DBSCTR references | Count its selection and end-to-end usage only; it cannot prove savings from module/reference deduplication |
+| An explicit DBSCTR navigation control exercises the changed route | Label it separately from implicit-trigger results |
+| Descriptions change after development observations | Freeze candidate bytes before revealing held-out cases and preserve the original baseline |
+| Python routing is maintained | Keep one canonical six-technique table in the Python module; retain unique method/provenance notes in the reference |
+| A qualified candidate is deployed | Preserve complete bundles, native default model/provider, unrelated live edits and existing gate/authorization semantics |
+
+The predeclared case set separates four development tasks from eight held-out
+tasks. Run both snapshots on identical synthetic inputs; keep expected skill and
+quality decisions scorer-owned. The current native CLI exposes the two long Python
+descriptions in full, so conversation-catalog shortening is not a proven native
+selection failure. Native discovery, loading, instruction compliance and completed
+validation remain distinct observations.
