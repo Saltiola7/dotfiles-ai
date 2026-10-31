@@ -281,3 +281,68 @@ quality decisions scorer-owned. The current native CLI exposes the two long Pyth
 descriptions in full, so conversation-catalog shortening is not a proven native
 selection failure. Native discovery, loading, instruction compliance and completed
 validation remain distinct observations.
+
+### Native qualification interfaces and evidence
+
+`tests/skill_router_eval.py` is an opt-in maintenance evaluator using the existing
+managed Codex CLI. It prepares complete private guidance snapshots and synthetic
+repositories, captures native catalog rendering, runs fresh read-only native
+assessments and summarizes actual observations. Ordinary `pytest` never starts a
+model. `tests/test_skill_router_eval.py` exercises parsing, identity, scoring,
+missing evidence and bounded-execution behavior without provider access. Versioned
+synthetic cases and an output schema live under `tests/fixtures/skill_router/`.
+
+The native command preserves the configured model/provider/authentication and
+normal safety/lifecycle hooks. Invocation-local `skills.config` excludes only
+replaced global skill paths to prevent duplicate revisions; selected complete
+snapshot bundles are registered through native-supported fixture skill paths.
+`debug prompt-input` captures the actual model-visible catalog before a run.
+`exec --json --ephemeral --sandbox read-only --skip-git-repo-check` consumes the
+ordinary request on stdin with a bounded output schema. No expected skill names,
+quality decisions or oracle are put in the request or fixture repository.
+
+Parse only the native developer skill-instructions block and its declared alias
+roots, not arbitrary user text. Resolve portable paths/canonical symlinks against
+the declared snapshot. Observe completed successful command output containing the
+expected method body or resource excerpt; mere command/path mentions, catalog
+metadata and self-reported usage are insufficient. Classify excerpt versus full
+reads honestly and retain native event limitations for independent review.
+
+Keep provider-reported `input_tokens`, `cached_input_tokens`, `output_tokens` and
+available reasoning fields separately from measured wall duration and static
+character counts. Preserve absent fields as unavailable. These are end-to-end
+native-run observations, not attribution to a particular skill or billed cost.
+
+Use four development cases once per arm, then freeze candidate metadata before
+eight held-out cases run twice per arm in balanced AB/BA order. Run one explicit
+DBSCTR navigation control twice per arm, outside implicit-selection scoring, and
+one true unregistered-sibling case per arm. Maximum planned population: 46 native
+runs; no harness retry loop. A per-run deadline retains timeout/failure evidence.
+Native version, selected model/provider, fixture/guidance/catalog identity, case,
+arm, repetition, order and raw-event digest bind every observation. Raw captures
+and local paths stay under the existing private cycle evidence owner.
+
+| Native evaluation boundary | Guard and evidence |
+|---|---|
+| Synthetic case to model | Ordinary input only; scorer-owned oracle and held-out split |
+| Snapshot to native catalog | Complete resources; exact replaced-path exclusions; alias and source identity checks |
+| Native events to observation | Actual terminal status, successful returned method content and native usage fields |
+| Observation to comparison | Complete planned denominator, paired identities/order, quality distinct from token counts |
+| Source to installation | Existing exact-target preview/apply, retained preimages and repeated verification |
+
+**Text Equivalent (native qualification):** The current primary prepares complete
+private snapshots and synthetic tasks, verifies native discovery, then makes
+bounded read-only native calls. Expected decisions remain outside model input.
+Actual event/usage observations return to the existing private cycle, independent
+review and QA. No evaluator step replaces the primary or grants operational
+permission. Canonical source: this feature and evaluator; owner: dotfiles
+maintainer; update with native schemas, selection boundaries or measurement rules.
+
+The quantitative evidence is a paired source-data table of actual native fields
+and case outcomes, with coverage, units, repetition and uncertainty beside it.
+For this small finite sample a table answers the comparison directly; no decorative
+chart or general statistical accuracy/savings claim is required. Native results
+remain separate from the older offline compression rubric. Official references:
+[skill discovery](https://learn.chatgpt.com/docs/build-skills),
+[native JSON events](https://learn.chatgpt.com/docs/non-interactive-mode) and
+[skill evaluation](https://developers.openai.com/blog/eval-skills).
