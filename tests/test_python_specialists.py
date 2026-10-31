@@ -26,6 +26,7 @@ NAMES = {
 DBSCTR_FILES = (
     "dbsctr/modules/python.md",
     "dbsctr/references/python-specialists.md",
+    "dbsctr/references/specialist-selection.md",
 )
 
 
@@ -170,11 +171,23 @@ def markdown_destinations(body):
             continue
         if fence is None:
             lines.append(line)
-    prose = "\n".join(lines)
+    prose = re.sub(r"(?<!`)(`+)(?!`)(.*?)(?<!`)\1(?!`)", "", "\n".join(lines), flags=re.DOTALL)
     inline = r"\[[^\]\n]*\]\(\s*(?:<([^>]+)>|([^\s)]+))"
     definition = r"^ {0,3}\[[^\]\n]+\]:\s*(?:<([^>]+)>|([^\s]+))"
     for match in re.finditer(f"(?:{inline})|(?:{definition})", prose, re.MULTILINE):
         yield next(value for value in match.groups() if value is not None)
+
+
+def test_resource_link_scanner_distinguishes_inline_code_from_links():
+    body = '''[`actual label`](actual.md)
+`rebind[TargetType](value)`
+``code with `inner` and [not a link](example)``
+```python
+[also code](missing.py)
+```
+[reference]: reference.md
+'''
+    assert list(markdown_destinations(body)) == ["actual.md", "reference.md"]
 
 
 def test_local_resource_links_resolve_with_only_selected_bundles(tmp_path):

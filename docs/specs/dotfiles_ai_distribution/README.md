@@ -1832,8 +1832,11 @@ provider/scanner prerequisites and validated audit coverage. Updates use complet
 source review and exact-target isolated/host application; no scanner, provider
 permission or audit starts as an installation side effect.
 
-**Portable Python specialists:** the [lifecycle feature](../dbsctr_v3_lifecycle/features/python-specialists.md)
-owns conditional routing and evidence boundaries for four reviewed, licensed
-skill bundles. Distribution owns their complete shared-skill projection, source
-pins, documented adaptations and exact-target deployment. Project tools and CI
-remain project-owned; installing a bundle does not execute its examples.
+**Portable specialists:** the [original Python feature](../dbsctr_v3_lifecycle/features/python-specialists.md)
+and [platform/language expansion](../dbsctr_v3_lifecycle/features/platform-specialists.md)
+own conditional routing and evidence boundaries for the reviewed Python, shell,
+host, container, Kubernetes, Google Cloud and Mojo guidance. Distribution owns
+complete shared-skill projection, source pins, retained licenses, documented
+adaptations and exact-target deployment. Small entrypoints load supporting detail
+only when relevant. Project tools and CI remain project-owned; installation does
+not execute examples, install target tools or grant operational authority.

@@ -1,0 +1,110 @@
+--- a/references/idiomatic-mojo.md
++++ b/references/idiomatic-mojo.md
+@@ -1,9 +1,14 @@
+ # Idiomatic Mojo
+ 
+-The main `mojo-syntax` skill makes code compile; these rules make it pass
+-review. Before submitting or reviewing Mojo, scan the diff for every WRONG
+-pattern below. The first five sections are the ones reviewers flag most
+-often in agent-written code.
++Use this pinned upstream review guide only for the affected concerns and APIs
++supported by the project-selected SDK/channel. The examples describe a snapshot;
++WRONG/CORRECT labels and language-feature status are conditional on that version.
++Existing project conventions and acceptance criteria remain authoritative. Static
++review and these examples do not establish compilation or a passing review.
++
++Resolve helper/module names against the actual project and selected standard
++library. Paths such as `nn/` and `linalg/` describe upstream contexts and may not
++exist locally; they are not instructions to add MAX dependencies.
+ 
+ ## 1. Use existing helpers; never open-code them
+ 
+@@ -633,54 +638,43 @@
+ - An out-of-bounds write fix needs a guard band after the output, filled
+   with a value the kernel can't produce and checked afterwards; comparing
+   in-range elements can't see the overrun.
+-- Device graph capture replays the host's choices, so host code must not
+-  pick a kernel or size a grid from per-request values or from device
+-  data copied back to the host, and must handle `M == 0` warmup launches.
+-- Declare `MAX_THREADS_PER_BLOCK_METADATA` to match the real block size.
+-
+-## 14. Write portable kernels; gate only what's vendor-specific
+-
+-Specializing a kernel for one vendor is fine when it uses that vendor's
+-hardware (TMA, WGMMA, tcgen05 on NVIDIA; MFMA, `lgkmcnt` waits on AMD;
+-inline asm). A kernel built only from generic primitives (`thread_idx`,
+-`block_dim`, `barrier`, `warp.sum`, `WARP_SIZE`, shared memory, TileTensor)
+-isn't specific to the vendor it was written on, so don't gate it or its
+-test to that vendor by default. This applies in both directions: a kernel
+-written and tuned on AMD is no more AMD-only than one written on NVIDIA is
+-NVIDIA-only.
+-
+-```bzl
+-# WRONG: generic kernel, gated to whichever vendor it was written on
+-gpu_constraints = ["//:nvidia_gpu"],
+-gpu_constraints = ["//:amd_gpu"],
+-# CORRECT: any GPU (add an Apple `incompatible` select only if it fails there)
+-gpu_constraints = ["//:has_gpu"],
+-```
+-
+-- Before adding a vendor gate, run the kernel on the other vendor too (an
+-  AMD MI300X/MI355X or NVIDIA H100/B200 dev box, or let the other CI lane
+-  run it). If it also has a host path, try dropping the GPU constraint
+-  entirely so it runs on every accelerator.
+-- When reviewing, if a vendor-gated kernel uses no vendor intrinsics, ask
+-  the author to try enabling it for all GPUs, or all accelerators.
+-- Keep the vendor-specific part small: put the fast path behind
+-  `comptime if is_nvidia_gpu()` / `is_amd_gpu()` and keep a generic
+-  fallback, rather than gating the whole kernel.
+-- Don't gate generic optimizations on hardware. Vectorized loads and
+-  stores, `vectorize`, unrolling, and wider per-thread tiles usually help
+-  every vendor, so apply them unconditionally and size them with
+-  `simd_width_of` instead of putting them behind `is_nvidia_gpu()` or
+-  `is_amd_gpu()`. Gate one only if a benchmark shows it regresses a vendor.
+-- If it really fails on another vendor, gate it with a `TODO(<ticket>)`
+-  naming the failure (a missing intrinsic or a numerics gap), not just
+-  "NVIDIA only" or "AMD only".
+-- Don't hard-code one vendor's facts (warp size 32 vs 64, shared memory
+-  size) in generic code; see §13.
++- For device graph capture, check the selected runtime's capture/replay
++  contract: captured host choices may be reused. Validate changing request
++  shapes, device-to-host decisions and zero-size/warmup launches when applicable;
++  do not silently reuse an incompatible graph.
++- Where the selected API uses `MAX_THREADS_PER_BLOCK_METADATA`, make it match
++  the real block size.
++
++## 14. Validate portability within the supported target matrix
++
++Vendor-specific instructions (for example TMA/WGMMA on NVIDIA or MFMA on AMD)
++require compatible device and SDK capabilities. Generic primitives such as
++`thread_idx`, `barrier`, `warp.sum`, shared memory and TileTensor are a reason to
++investigate portability, not proof that a kernel works on every vendor or device.
++
++- Establish the project's supported devices, architectures, SDK and runtime first.
++  Keep justified capability guards until equivalent target evidence supports a
++  change. Do not expand the supported matrix merely because an example is generic.
++- Where portability is in scope, run correctness and boundary tests on the required
++  targets or their configured CI lanes. Missing hardware is a capability gap;
++  a run on one device does not establish acceptance on another.
++- Keep a vendor-specific fast path small and retain an appropriate generic fallback
++  when the project contract requires one. Match capability checks to the selected
++  SDK's host/device distinction.
++- Size vectorization, unrolling and tiles from real device limits. Apply an
++  optimization only after correctness and equivalent synchronized benchmarks on
++  the selected workloads; generic syntax does not imply universal speedups.
++- For a necessary target restriction, record the actual missing capability or
++  numerical failure, owner and review condition using project conventions.
++  Creating an external issue is a separate action, not a prerequisite imposed here.
++- Query hardware properties rather than hard-code one vendor's warp or shared
++  memory size; see section 13.
+ 
+ ## 15. Hygiene
+ 
+-- Every temporary hack or API abuse gets a `TODO(<ticket>)` linking a
+-  filed issue.
++- Record temporary workarounds with their reason, owner and review condition
++  using the project's existing tracking convention. Do not create external tickets
++  solely because this guide was loaded.
+ - Keep comments short: a line or two on *why*, never a paragraph. Don't
+   explain what the code plainly shows; delete comments that add nothing
+   (`# (TileTensor-based)`).

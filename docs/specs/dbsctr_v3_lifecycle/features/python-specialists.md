@@ -1,5 +1,10 @@
 # Conditional Python Specialists
 
+The later [platform/language expansion](platform-specialists.md) adds async Python
+and modernization review and centralizes the shared loading/return contract in
+`references/specialist-selection.md`. This feature retains the original four
+bundles and their provenance owner.
+
 ## Domain and Engineering Profile
 
 The existing lifecycle Engineering Profile applies. This feature adds four

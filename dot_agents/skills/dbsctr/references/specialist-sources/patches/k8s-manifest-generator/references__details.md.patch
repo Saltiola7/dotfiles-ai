@@ -1,0 +1,135 @@
+--- a/references/details.md
++++ b/references/details.md
+@@ -1,4 +1,16 @@
+ # k8s-manifest-generator — detailed patterns and worked examples
++
++## Scope of these examples
++
++Use only the pattern relevant to the selected workload and supported Kubernetes/
++Helm version. Values, namespaces, image versions, resource sizing and provider
++annotations are illustrative, not deployment defaults or universal gates. Read
++existing project facts before asking about a missing material decision. Local
++rendering, server admission and rollout health require distinct evidence. Live
++commands, dependency downloads, hooks, debug workloads and credential changes
++remain under the primary's current task scope and native permissions. Do not
++print secrets or infer authorization from a command example.
++
+ 
+ ## Step-by-Step Workflow
+ 
+@@ -86,8 +98,8 @@
+ 
+ **Best practices to apply:**
+ 
+-- Always set resource requests and limits
+-- Implement both liveness and readiness probes
++- Select resource requests and limits from workload evidence and policy
++- Use startup, readiness and liveness probes appropriate to the workload
+ - Use specific image tags (never `:latest`)
+ - Apply security context for non-root users
+ - Use labels for organization and selection
+@@ -178,14 +190,12 @@
+ 
+ ### 5. Create Secret
+ 
+-Create secrets from files supplied by your secret manager or deployment environment.
+-Keep those files outside the repository and restrict their local permissions. Replace
+-the paths below with the intended inputs, and set `APP_NAME` and `NAMESPACE` for the
+-application. Use the same namespace as the Deployment (`production` in the full
+-example in `references/deployment-spec.md`). The commands below match that full
+-example. For the Step 2 template or `assets/deployment-template.yaml`, first change
+-`envFrom[].secretRef.name` from `<app-name>-secret` to `app-secrets` to match the
+-application Secret created below.
++Use the project's selected secret authority and credential files kept outside
++the repository with restricted permissions. The commands below are illustrative
++resource-creation proposals, not automatic setup. Resolve KUBE_CONTEXT, APP_NAME,
++NAMESPACE and the approved inputs from task authority. Keep every Secret name
++consistent with the workload's secretRef; the Step 2 template uses
++`<app-name>-secret` while the example below uses `app-secrets`.
+ Do not copy placeholder credentials into a manifest. Plain Kubernetes YAML does not
+ expand shell environment variables.
+ 
+@@ -194,11 +204,11 @@
+ a value that must not end with a newline.
+ 
+ ```bash
+-kubectl create secret generic db-credentials \
++kubectl --context "$KUBE_CONTEXT" create secret generic db-credentials \
+   --namespace "$NAMESPACE" \
+   --from-file=url=/secure/path/database-url
+ 
+-kubectl create secret generic app-secrets \
++kubectl --context "$KUBE_CONTEXT" create secret generic app-secrets \
+   --namespace "$NAMESPACE" \
+   --from-file=API_KEY=/secure/path/api-key
+ ```
+@@ -206,7 +216,7 @@
+ Create TLS secrets separately when required:
+ 
+ ```bash
+-kubectl create secret tls "${APP_NAME}-tls" \
++kubectl --context "$KUBE_CONTEXT" create secret tls "${APP_NAME}-tls" \
+   --namespace "$NAMESPACE" \
+   --cert=/secure/path/tls.crt \
+   --key=/secure/path/tls.key
+@@ -259,8 +269,10 @@
+ **Storage considerations:**
+ 
+ - Choose appropriate StorageClass for performance needs
+-- Use ReadWriteOnce for single-pod access
+-- Use ReadWriteMany for multi-pod shared storage
++- `ReadWriteOnce` (RWO) permits writable mounting on one node; multiple Pods on that node may still read or write the volume. It does not guarantee a single writer.
++- For single-Pod access across the cluster, consider `ReadWriteOncePod` (RWOP) only when the selected Kubernetes version, CSI driver and required CSI sidecars support it.
++- `ReadWriteMany` permits writable mounting on multiple nodes when supported by the storage provider.
++- Define application/storage concurrency, locking, failover and recovery behavior independently of access-mode selection. See the [Kubernetes access-mode semantics and compatibility requirements](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes).
+ - Consider backup strategies
+ - Set appropriate retention policies
+ 
+@@ -378,14 +390,14 @@
+ 
+ ### 10. Validate and Test
+ 
+-**Validation steps:**
++**Validation examples: use only project-selected available tools; server dry-run contacts the selected cluster:**
+ 
+ ```bash
+ # Dry-run validation
+-kubectl apply -f manifest.yaml --dry-run=client
++kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" apply -f manifest.yaml --dry-run=client
+ 
+ # Server-side validation
+-kubectl apply -f manifest.yaml --dry-run=server
++kubectl --context "$KUBE_CONTEXT" --namespace "$NAMESPACE" apply -f manifest.yaml --dry-run=server
+ 
+ # Validate with kubeval
+ kubeval manifest.yaml
+@@ -405,7 +417,7 @@
+ - [ ] Health checks are configured
+ - [ ] Security context is set
+ - [ ] Labels follow conventions
+-- [ ] Namespace exists or is created
++- [ ] The intended namespace and authority for any required creation are resolved
+ 
+ ## Common Patterns
+ 
+@@ -415,7 +427,7 @@
+ 
+ **Components needed:**
+ 
+-- Deployment (3 replicas for HA)
++- Deployment with replicas/capacity selected from the availability contract
+ - ClusterIP Service
+ - ConfigMap for configuration
+ - Secret for API keys
+@@ -464,8 +476,9 @@
+ - `deployment-template.yaml` - Standard deployment with best practices
+ - `service-template.yaml` - Service configurations (ClusterIP, LoadBalancer, NodePort)
+ - `configmap-template.yaml` - ConfigMap examples with different data types
+-- `secret-template.yaml` - Secret examples (to be generated, not committed)
+-- `pvc-template.yaml` - PersistentVolumeClaim templates
++Secret and PVC resources must be generated from the selected requirements; no
++separate secret-template.yaml or pvc-template.yaml is bundled. Keep real secret
++material outside committed manifests.
+ 
+ ## Reference Documentation
+ 

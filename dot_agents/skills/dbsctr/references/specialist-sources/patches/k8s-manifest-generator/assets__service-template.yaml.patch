@@ -1,0 +1,11 @@
+--- a/assets/service-template.yaml
++++ b/assets/service-template.yaml
+@@ -1,3 +1,8 @@
++# Illustrative resource examples for the selected project and Kubernetes/Helm version.
++# Resolve all placeholders and review target namespace, provider, resource sizing,
++# image identity, secret references and exposure before use. These files are not
++# deployment authorization or evidence of cluster admission/health.
++
+ # Kubernetes Service Templates
+ 
+ ---

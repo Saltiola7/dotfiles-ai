@@ -1,0 +1,148 @@
+--- a/references/details.md
++++ b/references/details.md
+@@ -1,4 +1,16 @@
+ # helm-chart-scaffolding — detailed patterns and worked examples
++
++## Scope of these examples
++
++Use only the pattern relevant to the selected workload and supported Kubernetes/
++Helm version. Values, namespaces, image versions, resource sizing and provider
++annotations are illustrative, not deployment defaults or universal gates. Read
++existing project facts before asking about a missing material decision. Local
++rendering, server admission and rollout health require distinct evidence. Live
++commands, dependency downloads, hooks, debug workloads and credential changes
++remain under the primary's current task scope and native permissions. Do not
++print secrets or infer authorization from a command example.
++
+ 
+ ## Helm Overview
+ 
+@@ -246,6 +258,10 @@
+ 
+ ### 6. Manage Dependencies
+ 
++Update/build only within authorized dependency work; these commands may fetch
++artifacts or rewrite locks. Ordinary validation does not resolve missing packages.
++
++
+ **Add dependencies in Chart.yaml:**
+ 
+ ```yaml
+@@ -272,7 +288,7 @@
+   auth:
+     database: myapp
+     username: myapp
+-    password: changeme
++    existingSecret: "<approved-existing-secret>"
+   primary:
+     persistence:
+       enabled: true
+@@ -287,38 +303,23 @@
+ # Lint the chart
+ helm lint my-app/
+ 
+-# Dry-run installation
+-helm install my-app ./my-app --dry-run --debug
++# Local rendering; not server admission or rollout evidence
++helm template validation ./my-app > /dev/null
+ 
+ # Template rendering
+-helm template my-app ./my-app
++helm template validation ./my-app > /dev/null
+ 
+ # Template with values
+-helm template my-app ./my-app -f values-prod.yaml
+-
+-# Show computed values
+-helm show values ./my-app
+-```
+-
+-**Validation script:**
+-
+-```bash
+-#!/bin/bash
+-set -e
+-
+-echo "Linting chart..."
+-helm lint .
+-
+-echo "Testing template rendering..."
+-helm template test-release . --dry-run
+-
+-echo "Checking for required values..."
+-helm template test-release . --validate
+-
+-echo "All validations passed!"
+-```
+-
+-**Reference:** See `scripts/validate-chart.sh`
++helm template validation ./my-app -f "$VALUES_FILE" > /dev/null
++
++# Inspect only relevant non-secret chart defaults; default values are not
++# necessarily the computed values for a particular release/override set.
++```
++
++**Bounded local helper:** Use the reviewed [validation helper](../scripts/validate-chart.sh)
++for local lint/render checks. It preserves command failures and does not fetch
++dependencies, install a release or claim server admission. Do not add `--validate`
++or a live installation to make a local check appear more complete.
+ 
+ ### 8. Package and Distribute
+ 
+@@ -345,7 +346,7 @@
+ ```bash
+ helm repo add my-repo https://charts.example.com
+ helm repo update
+-helm install my-app my-repo/my-app
++helm install "$RELEASE" my-repo/my-app --kube-context "$KUBE_CONTEXT" --namespace "$NAMESPACE"
+ ```
+ 
+ ### 9. Multi-Environment Configuration
+@@ -399,12 +400,12 @@
+ **Install with environment:**
+ 
+ ```bash
+-helm install my-app ./my-app -f values-prod.yaml --namespace production
++helm install "$RELEASE" ./my-app -f "$VALUES_FILE" --kube-context "$KUBE_CONTEXT" --namespace "$NAMESPACE"
+ ```
+ 
+ ### 10. Implement Hooks and Tests
+ 
+-**Pre-install hook:**
++**Pre-install hook (only for an explicitly selected, bounded migration contract):**
+ 
+ ```yaml
+ # templates/pre-install-job.yaml
+@@ -421,8 +422,8 @@
+     spec:
+       containers:
+       - name: db-setup
+-        image: postgres:15
+-        command: ["psql", "-c", "CREATE DATABASE myapp"]
++        image: "<approved-migration-image>@sha256:<digest>"
++        command: ["/app/bin/approved-migration"]
+       restartPolicy: Never
+ ```
+ 
+@@ -439,16 +440,16 @@
+ spec:
+   containers:
+   - name: wget
+-    image: busybox
++    image: "<approved-test-image>@sha256:<digest>"
+     command: ['wget']
+     args: ['{{ include "my-app.fullname" . }}:{{ .Values.service.port }}']
+   restartPolicy: Never
+ ```
+ 
+-**Run tests:**
+-
+-```bash
+-helm test my-app
++**Run tests only for an authorized target release; this executes cluster workloads:**
++
++```bash
++helm test "$RELEASE" --kube-context "$KUBE_CONTEXT" --namespace "$NAMESPACE"
+ ```
+ 
+ ## Common Patterns

@@ -1,0 +1,281 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,229 +1,67 @@
+ ---
+ name: bats-testing-patterns
+-description: Master Bash Automated Testing System (Bats) for comprehensive shell script testing. Use when writing tests for shell scripts, CI/CD pipelines, or requiring test-driven development of shell utilities.
++description: Design and debug Bats fixtures, subprocess assertions, shell compatibility and integration tests when the project selects Bats or explicitly evaluates it.
+ ---
+ 
+ # Bats Testing Patterns
+ 
+-Comprehensive guidance for writing comprehensive unit tests for shell scripts using Bats (Bash Automated Testing System), including test patterns, fixtures, and best practices for production-grade shell testing.
++Use for Bats test design or a selected Bats evaluation. Existing pytest/subprocess,
++shunit2 or other project authorities remain valid. Loading guidance does not
++select a new test framework, install dependencies or rewrite CI.
+ 
+-## When to Use This Skill
++## Resolve the test contract
+ 
+-- Writing unit tests for shell scripts
+-- Implementing test-driven development (TDD) for scripts
+-- Setting up automated testing in CI/CD pipelines
+-- Testing edge cases and error conditions
+-- Validating behavior across different shell environments
+-- Building maintainable test suites for scripts
+-- Creating fixtures for complex test scenarios
+-- Testing multiple shell dialects (bash, sh, dash)
++Read the script's executable/sourced contract, selected Bats version and helpers,
++shell targets, operating systems and existing test command. Test behavior through
++that authority; use supported helpers instead of assuming an add-on is loaded.
+ 
+-## Detailed patterns and worked examples
++Distinguish success/failure status, stdout/stderr, filesystem effects, environment
++changes, signals, required child outcomes and authorized external dependencies.
++`run` captures a command's result and itself succeeds so assertions can follow.
++Inspect `$status`; output matching alone does not establish command success.
+ 
+-Detailed pattern documentation lives in `references/details.md`. Read that file when the navigation tier above is insufficient.
++## Choose the relevant pattern
+ 
+-## Testing Error Conditions
++| Concern | Method |
++|---|---|
++| CLI behavior | `run` the executable; assert the relevant status, streams and effects |
++| Sourceable function | Load a deliberate library with controlled setup; preserve caller state |
++| Fixtures | Prefer Bats-owned per-test directories and isolated data |
++| Mocks | Replace a narrow dependency seam; verify real integration separately |
++| Compatibility | Execute only claimed dialect/version/platform combinations |
++| Concurrent work | Wait for every required PID and preserve failure |
++| Shared resources | Explicit ownership and cleanup; parallel execution only when independent |
+ 
+-```bash
+-#!/usr/bin/env bats
++Use Bats-owned `BATS_TEST_TMPDIR` when supported by the selected version rather
++than rewriting caller-owned `TMPDIR`. If a custom directory is necessary, check
++`mktemp` before exporting its path; `local`/`export` can mask substitution failures.
+ 
+-@test "Function fails with missing file" {
+-    run my_function "/nonexistent/file.txt"
+-    [ "$status" -ne 0 ]
+-    [[ "$output" == *"not found"* ]]
+-}
++Keep assertions close to the behavior that matters. Check failure semantics and
++recovery as well as happy paths, without duplicating implementation details.
++Fixtures should distinguish missing input, invalid input and actual authorization
++failure where those outcomes have different contracts.
+ 
+-@test "Function fails with invalid input" {
+-    run my_function ""
+-    [ "$status" -ne 0 ]
+-}
++## Evidence limits
+ 
+-@test "Function fails with permission denied" {
+-    touch "$TMPDIR/readonly.txt"
+-    chmod 000 "$TMPDIR/readonly.txt"
+-    run my_function "$TMPDIR/readonly.txt"
+-    [ "$status" -ne 0 ]
+-    chmod 644 "$TMPDIR/readonly.txt"  # Cleanup
+-}
++- A missing required tool or unsupported target remains a capability gap. Use
++  `skip` only for explicitly optional coverage, with its reason visible.
++- Permission-denial tests need an appropriate unprivileged identity and filesystem;
++  `chmod 000` does not reliably deny an administrator or every mount type.
++- A Bash-only script is not required to run under sh/dash. Bats itself runs in
++  Bash; a subprocess target establishes the script's actual dialect coverage.
++- A mock proves the selected seam's behavior, not provider compatibility, host
++  privilege, cluster acceptance or deployment readiness.
++- Bare `wait` can hide failed children. Successful file creation does not prove
++  every background operation succeeded.
+ 
+-@test "Function provides helpful error message" {
+-    run my_function --invalid-option
+-    [ "$status" -ne 0 ]
+-    [[ "$output" == *"Usage:"* ]]
+-}
+-```
++## Supporting patterns
+ 
+-### Testing with Dependencies
++Read [detailed patterns](references/details.md) for `run` status/stream handling,
++fixtures and lifecycle, mocks, permissions, concurrent children, helper functions
++and project-selected CI. Consult the selected Bats `--help` before using versioned
++flags or optional parallel/reporting dependencies.
+ 
+-```bash
+-#!/usr/bin/env bats
+-
+-setup() {
+-    # Check for required tools
+-    if ! command -v jq &>/dev/null; then
+-        skip "jq is not installed"
+-    fi
+-
+-    export SCRIPT="${BATS_TEST_DIRNAME}/../bin/script.sh"
+-}
+-
+-@test "JSON parsing works" {
+-    skip_if ! command -v jq &>/dev/null
+-    run my_json_parser '{"key": "value"}'
+-    [ "$status" -eq 0 ]
+-}
+-```
+-
+-### Testing Shell Compatibility
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-@test "Script works in bash" {
+-    bash "${BATS_TEST_DIRNAME}/../bin/script.sh" arg1
+-}
+-
+-@test "Script works in sh (POSIX)" {
+-    sh "${BATS_TEST_DIRNAME}/../bin/script.sh" arg1
+-}
+-
+-@test "Script works in dash" {
+-    if command -v dash &>/dev/null; then
+-        dash "${BATS_TEST_DIRNAME}/../bin/script.sh" arg1
+-    else
+-        skip "dash not installed"
+-    fi
+-}
+-```
+-
+-### Parallel Execution
+-
+-```bash
+-#!/usr/bin/env bats
+-
+-@test "Multiple independent operations" {
+-    run bash -c 'for i in {1..10}; do
+-        my_operation "$i" &
+-    done
+-    wait'
+-    [ "$status" -eq 0 ]
+-}
+-
+-@test "Concurrent file operations" {
+-    for i in {1..5}; do
+-        my_function "$TMPDIR/file$i" &
+-    done
+-    wait
+-    [ -f "$TMPDIR/file1" ]
+-    [ -f "$TMPDIR/file5" ]
+-}
+-```
+-
+-## Test Helper Pattern
+-
+-### test_helper.sh
+-
+-```bash
+-#!/usr/bin/env bash
+-
+-# Source script under test
+-export SCRIPT_DIR="${BATS_TEST_DIRNAME%/*}/bin"
+-
+-# Common test utilities
+-assert_file_exists() {
+-    if [ ! -f "$1" ]; then
+-        echo "Expected file to exist: $1"
+-        return 1
+-    fi
+-}
+-
+-assert_file_equals() {
+-    local file="$1"
+-    local expected="$2"
+-
+-    if [ ! -f "$file" ]; then
+-        echo "File does not exist: $file"
+-        return 1
+-    fi
+-
+-    local actual=$(cat "$file")
+-    if [ "$actual" != "$expected" ]; then
+-        echo "File contents do not match"
+-        echo "Expected: $expected"
+-        echo "Actual: $actual"
+-        return 1
+-    fi
+-}
+-
+-# Create temporary test directory
+-setup_test_dir() {
+-    export TEST_DIR=$(mktemp -d)
+-}
+-
+-cleanup_test_dir() {
+-    rm -rf "$TEST_DIR"
+-}
+-```
+-
+-## Integration with CI/CD
+-
+-### GitHub Actions Workflow
+-
+-```yaml
+-name: Tests
+-
+-on: [push, pull_request]
+-
+-jobs:
+-  test:
+-    runs-on: ubuntu-latest
+-
+-    steps:
+-      - uses: actions/checkout@v3
+-
+-      - name: Install Bats
+-        run: |
+-          npm install --global bats
+-
+-      - name: Run Tests
+-        run: |
+-          bats tests/*.bats
+-
+-      - name: Run Tests with Tap Reporter
+-        run: |
+-          bats tests/*.bats --tap | tee test_output.tap
+-```
+-
+-### Makefile Integration
+-
+-```makefile
+-.PHONY: test test-verbose test-tap
+-
+-test:
+-	bats tests/*.bats
+-
+-test-verbose:
+-	bats tests/*.bats --verbose
+-
+-test-tap:
+-	bats tests/*.bats --tap
+-
+-test-parallel:
+-	bats tests/*.bats --parallel 4
+-
+-coverage: test
+-	# Optional: Generate coverage reports
+-```
+-
+-## Best Practices
+-
+-1. **Test one thing per test** - Single responsibility principle
+-2. **Use descriptive test names** - Clearly states what is being tested
+-3. **Clean up after tests** - Always remove temporary files in teardown
+-4. **Test both success and failure paths** - Don't just test happy path
+-5. **Mock external dependencies** - Isolate unit under test
+-6. **Use fixtures for complex data** - Makes tests more readable
+-7. **Run tests in CI/CD** - Catch regressions early
+-8. **Test across shell dialects** - Ensure portability
+-9. **Keep tests fast** - Run in parallel when possible
+-10. **Document complex test setup** - Explain unusual patterns
++Preserve existing CI pinning, schedules, framework and installation authority.
++Run the affected project command; report actual passed/failed/skipped scope and
++unavailable required evidence. Return findings to the existing primary and QA;
++this skill owns no new gate, commit or deployment workflow.

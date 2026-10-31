@@ -45,6 +45,8 @@
 | Parser, serializer, normalization, validation or state transition with a meaningful invariant | `property-based-testing` | Behavior/Contract; Test |
 | Reported slowdown, performance requirement or measured bottleneck | `python-performance-optimization` | Baseline before optimization; compare afterward |
 | New packaging/tooling setup or explicitly selected tooling migration | `modern-python` | Engineering Profile/Spec |
+| Changed async tasks, cancellation, concurrent I/O or sync/async boundaries | `async-python-patterns` | Domain/Contract; Test/Refactor |
+| Runtime/support-floor change or requested modernization/debt review | `python-modernization-review` | Profile/Spec; Maintain/Retire |
 
 - **PROJECT POLICY:** Runtimes, tools, dependencies, compatibility, test strategy
   and acceptance thresholds remain project-selected. Specialist recipes cannot

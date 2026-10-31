@@ -1,0 +1,139 @@
+--- a/references/chart-structure.md
++++ b/references/chart-structure.md
+@@ -1,4 +1,16 @@
+ # Helm Chart Structure Reference
++
++## Scope of these examples
++
++Use only the pattern relevant to the selected workload and supported Kubernetes/
++Helm version. Values, namespaces, image versions, resource sizing and provider
++annotations are illustrative, not deployment defaults or universal gates. Read
++existing project facts before asking about a missing material decision. Local
++rendering, server admission and rollout health require distinct evidence. Live
++commands, dependency downloads, hooks, debug workloads and credential changes
++remain under the primary's current task scope and native permissions. Do not
++print secrets or infer authorization from a command example.
++
+ 
+ Complete guide to Helm chart organization, file conventions, and best practices.
+ 
+@@ -8,7 +20,7 @@
+ my-app/
+ ├── Chart.yaml              # Chart metadata (required)
+ ├── Chart.lock              # Dependency lock file (generated)
+-├── values.yaml             # Default configuration values (required)
++├── values.yaml             # Default configuration values (when the chart defines defaults)
+ ├── values.schema.json      # JSON schema for values validation
+ ├── .helmignore             # Patterns to ignore when packaging
+ ├── README.md               # Chart documentation
+@@ -17,7 +29,7 @@
+ │   └── postgresql-12.0.0.tgz
+ ├── crds/                   # Custom Resource Definitions
+ │   └── my-crd.yaml
+-├── templates/              # Kubernetes manifest templates (required)
++├── templates/              # Kubernetes templates (application chart; library charts differ)
+ │   ├── NOTES.txt          # Post-install instructions
+ │   ├── _helpers.tpl       # Template helper functions
+ │   ├── deployment.yaml
+@@ -45,7 +57,7 @@
+ name: my-application # Required: Chart name
+ version: 1.2.3 # Required: Chart version (SemVer)
+ appVersion: "2.5.0" # Application version
+-description: A Helm chart for my application # Required
++description: A Helm chart for my application # Optional description
+ type: application # Chart type: application or library
+ keywords: # Search keywords
+   - web
+@@ -94,10 +106,10 @@
+ type: library
+ ```
+ 
+-- Shared template helpers
+-- Cannot be installed directly
+-- Used as dependency by other charts
+-- No templates/ directory
++- Shared named template helpers, commonly defined in `templates/_*.tpl` or `templates/_*.yaml`; preserve those files.
++- Cannot be installed directly and does not render standalone Kubernetes resources.
++- Used as a dependency by application charts, which include its helpers in their own rendering context.
++- Validate helper behavior by rendering an existing, selected application consumer; linting the library alone does not prove consumer rendering. See [Helm library charts](https://docs.helm.sh/docs/v3/topics/library_charts/).
+ 
+ ## Values Files Organization
+ 
+@@ -288,8 +300,8 @@
+ {{- else }}
+ 
+ Get the application URL by running:
+-  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "my-app.name" . }}" -o jsonpath="{.items[0].metadata.name}")
+-  kubectl port-forward $POD_NAME 8080:80
++  # Resolve KUBE_CONTEXT and select the intended ready POD_NAME from workload ownership first.
++  kubectl --context "$KUBE_CONTEXT" --namespace {{ .Release.Namespace | quote }} port-forward "$POD_NAME" 8080:80
+   echo "Visit http://127.0.0.1:8080"
+ {{- end }}
+ ```
+@@ -422,7 +434,7 @@
+ spec:
+   containers:
+   - name: wget
+-    image: busybox
++    image: "<approved-test-image>@sha256:<digest>"
+     command: ['wget']
+     args: ['{{ include "my-app.fullname" . }}:{{ .Values.service.port }}']
+   restartPolicy: Never
+@@ -431,8 +443,7 @@
+ ### Running Tests
+ 
+ ```bash
+-helm test my-release
+-helm test my-release --logs
++helm test "$RELEASE" --kube-context "$KUBE_CONTEXT" --namespace "$NAMESPACE"
+ ```
+ 
+ ## Hooks
+@@ -452,19 +463,28 @@
+ 
+ ### Hook Types
+ 
+-- `pre-install`: Before templates rendered
+-- `post-install`: After all resources loaded
+-- `pre-delete`: Before any resources deleted
+-- `post-delete`: After all resources deleted
+-- `pre-upgrade`: Before upgrade
+-- `post-upgrade`: After upgrade
+-- `pre-rollback`: Before rollback
+-- `post-rollback`: After rollback
+-- `test`: Run with `helm test`
++- `pre-install`: After template rendering and before ordinary release resources are created; CRDs from `crds/` are handled earlier.
++- `post-install`: After ordinary release resources are loaded; `--wait` delays this hook until they are ready.
++- `pre-delete`: Before release resources are deleted.
++- `post-delete`: After release resources are deleted.
++- `pre-upgrade`: After rendering and before release resources are updated.
++- `post-upgrade`: After release resources are updated.
++- `pre-rollback`: After rendering and before release resources are rolled back.
++- `post-rollback`: After release resources are rolled back.
++- `test`: Run with an explicitly authorized `helm test`.
++
++A pre-install or pre-upgrade hook cannot produce values needed by that same render.
++Use migration hooks only under an explicit project contract for bounded execution,
++idempotency, concurrency, schema compatibility, failure recovery and cleanup.
++See the [Helm hook lifecycle](https://docs.helm.sh/docs/topics/charts_hooks/).
+ 
+ ### Hook Weight
+ 
+-Controls hook execution order (-5 to 5, lower runs first)
++`helm.sh/hook-weight` is a signed integer represented as a quoted string, with
++`"0"` as the default. Helm sorts weights in ascending order (negative to positive),
++then resource kind and name for ties. There is no documented `-5` to `5` range;
++check ordering details against the selected Helm version and avoid relying on
++incidental ordering between equal-weight hooks.
+ 
+ ### Hook Deletion Policies
+ 
+@@ -482,7 +502,7 @@
+ 6. **Pin dependency versions** exactly
+ 7. **Include NOTES.txt** with usage instructions
+ 8. **Add tests** for critical functionality
+-9. **Use hooks** for database migrations
++9. **Use migration hooks conditionally**, under the explicit bounded project contract described above
+ 10. **Keep charts focused** - one application per chart
+ 
+ ## Chart Repository Structure

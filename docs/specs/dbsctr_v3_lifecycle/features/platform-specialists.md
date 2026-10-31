@@ -97,10 +97,14 @@ All selected skills remain independently discoverable sibling directories under
 shape in `dbsctr/references/specialist-sources/sources.lock.json`, with reversible
 patches beside it. Existing Python provenance stays in its current owner. No new
 package resolver or updater runs during ordinary skill selection.
+When native catalog metadata is cached, selection can inspect the exact named
+managed sibling relative to the known installed DBSCTR root, verify its name and
+read its guidance. This does not register discovery, scan unrelated runtime homes
+or install a replacement; actual discovery observations remain separate.
 
 The inventory records complete upstream and packaged file sets, Git blob and
 SHA-256 identities, immutable commit/source roots, license and adaptation notes,
-patch hashes and retained executable modes. Repository-root licenses are copied
+patch hashes, retained source modes and declared installed modes. Repository-root licenses are copied
 verbatim per bundle; complete supporting references/assets/helpers are preserved.
 Original sources are pinned to wshobson/agents `7e2fb559cf4b824b27f1fec49fe88f7511066d26`,
 google/skills `bb9b3f464aae37af360d079c1d863524955b0363` and modular/skills
@@ -144,7 +148,9 @@ context, model reliability or token savings.
   distinguishes IAM from Kubernetes RBAC, and proposes bounded fixes. Remove
   forced telemetry, universal quiet flags, fabricated RCA and competing PR flows.
 - The Helm helper performs bounded local lint/render checks only, preserves real
-  failures and has offline failure-path regression evidence. It cannot infer
+  failures and has offline failure-path regression evidence. Library charts use
+  explicit lint-only mode and require consumer-chart rendering for helper behavior;
+  lint-only success does not claim rendering. It cannot infer
   cluster acceptance or install tools/charts merely because guidance is loaded.
 - Mojo examples are conditional on the project SDK/channel and hardware. Preserve
   selected environment managers and pins; validate interop/ABI and GPU semantics
@@ -158,8 +164,12 @@ context, model reliability or token savings.
   separate evidence; static size measurements are not token-savings claims.
 - Deployment uses explicit selected source/machine configuration, scripts excluded,
   exact reviewed targets and verified prior state. New bundles/modules/references
-  must match complete source file sets, bytes and executable modes; repeated apply
+  must match complete source file sets, bytes and declared projected modes; repeated apply
   has an empty diff and preserves unrelated installed skills.
+- The source Helm helper retains its original executable mode. Chezmoi's normal
+  resource projection installs it as a readable 0644 file, invoked explicitly
+  through Bash as documented. Source/upstream modes and installed modes are
+  separate inventory fields and validation claims; installation executes no helper.
 - For an existing divergent installed entrypoint, preserve disjoint unrelated
   instructions through a reviewed three-way projection of prior source, current
   installed bytes and changed source. Keep that projection/preimages privately;
