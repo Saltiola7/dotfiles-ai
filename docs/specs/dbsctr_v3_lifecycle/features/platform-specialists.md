@@ -388,8 +388,9 @@ remain separate from the older offline compression rubric. Official references:
   no arbitrary savings threshold, statistical reliability or universal trigger
   guarantee follows from this maintenance experiment.
 - Keep the canonical Python trigger/checkpoint table in the module; replace its
-  duplicate reference table with navigation. Load common guidance once and Python
-  method/provenance detail only when relevant. Retain existing obligations and
+  duplicate reference table with navigation. Reuse loaded common guidance; consult
+  selection/discovery or Python method/provenance detail when it resolves the
+  current question. Retain existing obligations and
   complete vendor resources; metadata edits update matching reversible provenance.
 - Use existing exact-target deployment, prior-live comparison and complete bytes/
   file-set verification. Preserve unrelated installed changes and retain recovery
@@ -409,3 +410,36 @@ visibility. Each bounded call ends complete, failed or unavailable with retained
 raw evidence. Only matched complete observations support a comparison; missing
 attempts remain visible. Acceptance requires review and existing gates. Canonical
 owner: current primary and QA; update when transitions or evidence contracts change.
+
+
+### Observed fallback remediation
+
+The first 46 native assessments remain an immutable comparison of the original
+baseline and frozen metadata/deduplication candidate. Both omission controls failed:
+they checked a lexical registration sibling rather than the physical sibling of
+the loaded DBSCTR directory, then overstated absence. This is an observed shared
+failure, not a demonstrated recovery or cache-staleness result.
+
+Add the narrow read-only supporting resource
+`dbsctr/scripts/resolve_specialist.py`. It resolves its own physical DBSCTR root,
+validates one known managed skill name, inspects only that physical sibling's
+regular SKILL.md and verifies its declared name. It returns the available path or
+a scoped unavailable result; no search, download, execution, authentication or
+lifecycle mutation is performed. Existing Python is used, never installed. Project
+scope exclusions and explicit disablement take priority over lookup and loading.
+Core provides one conditional pointer; discovery details stay in the reference.
+
+The resolver API accepts a name and an internal script-path test seam. Invalid
+names refuse before filesystem lookup. Missing/non-regular/mismatched entrypoints
+never become an available result. Directory symlinks are followed before computing
+the managed sibling; native registration layout is not assumed to be physical.
+Validate direct/symlink layouts, invalid names, absence and metadata mismatch in
+offline tests before four separately declared targeted native checks.
+
+Those four checks are follow-up repair smoke, not unseen held-out evidence or
+unrecorded retries of the initial comparison. Predeclare two permitted GPU/sibling
+cases, an explicit policy exclusion and an incidental-language negative before
+execution. Retain the first 46 failures and source identities, bind final guidance
+separately, and report all 50 native calls without claiming general accuracy or
+end-to-end token savings. Source delivery uses this final repaired snapshot;
+initial comparison measurements keep their original frozen-source attribution.
