@@ -1,5 +1,29 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-30 — Conditional Python specialists
+
+- Added independently discoverable modern Python setup, design, property-testing
+  and performance bundles. The Python module selects guidance from task evidence;
+  the project retains tooling policy, QA retains validation, and DBSCTR retains
+  lifecycle ownership. Loading guidance adds no coordinator or approval gate.
+- Preserved complete licensed upstream resources at reviewed immutable pins, with
+  reversible adaptations and full-file inventories. Recipes respect existing
+  runtimes, tools, layouts, dependencies and scheduled CI. Updates remain reviewed
+  maintainer actions; automatic release/debt scanning is outside this change.
+- Validation: 100 affected tests and four original skill validators passed.
+  Independent review corrected an upstream claim about unsatisfiable property-test
+  assumptions. Six paired planning cases agreed on selection and preserved policy
+  and required evidence; both serializer probes detected the supplied defect.
+  Different probe corpora and the small sample establish no effectiveness gain.
+- Applied only the four bundles and three routing/provenance targets through the
+  existing distribution owner. All 62 installed files matched source; repeated
+  application and an empty diff verified idempotency. Live client discovery is
+  unverified and may require refresh. No provider settings or project tools changed.
+- Implementation Gate Commit: `f569e43`. Recovery uses retained prior source and
+  matching inventories through the same exact-target workflow. No gate exception.
+  Intended Final Push: feature branch and draft PR into `main`; actual delivery,
+  native CI/merge checks and private evaluation receipts remain in the Cycle Record.
+
 ## 2026-10-24 — Explicit checkout use from Codex clients
 
 - Reconciled managed instructions, DBSCTR, Discovery and skill-authoring guidance
