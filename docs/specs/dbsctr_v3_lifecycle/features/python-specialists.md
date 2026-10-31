@@ -124,3 +124,67 @@ loads the selected installed guidance at the affected checkpoint, receives a
 bounded result and decides how it changes the existing artifacts. QA remains the
 evidence authority. The table is canonical for trigger/checkpoint relationships;
 maintainers update it with corresponding routing changes.
+
+## Contracts and Validation
+
+- User scope and the project Engineering Profile control supported runtimes,
+  selected tools, dependencies, compatibility, test strategy and acceptance
+  thresholds. Recipes and numeric heuristics are examples, not universal gates.
+- Loading guidance neither installs tools nor expands scope. Existing task
+  authorization persists; ask only about an unresolved material decision or a
+  genuinely required permission. Missing preferred guidance does not invent a
+  gate; missing required evidence is not a pass.
+- Modern tooling recipes apply only when their tools/migration were selected.
+  Adapt repeated contrary instructions in supporting references as well as the
+  entrypoint. Preserve scheduled CI, dependency constraints and active files;
+  remove only confirmed superseded artifacts within the migration scope.
+- Property testing preserves project test policy and does not force a new
+  library. Profiling preserves correctness, uses authorized workloads and reports
+  uncertainty. Specialist instructions do not select a model or reasoning effort.
+- Source pins are `trailofbits/skills` at
+  `2be6433b39e009cd2b6fd3be1895f6b1faa5af9a` and `wshobson/agents` at
+  `7e2fb559cf4b824b27f1fec49fe88f7511066d26`. The two Trail of Bits adaptations
+  retain CC-BY-SA-4.0; the other two retain MIT and upstream attribution.
+- Preserve all selected upstream skill-root files. Exclude sibling plugin
+  manifests, hooks/shims and external evaluation runners. Replace references to
+  unselected sibling skills with optional pinned upstream links, not dangling
+  installed paths or implicit dependencies.
+- Inventory tests compare the entire file set, not only listed entries. Test
+  missing, changed, extra and linked files plus reversible patches. No fetched
+  content is executed during source acquisition or installation.
+- Deployment is exact-target, uses the selected task source and existing machine
+  chezmoi configuration, excludes scripts, and follows isolated delivery tests.
+  Compare live copies with their prior managed source before replacing them.
+  Verify bytes/file sets and an empty second-apply diff. Do not overwrite unrelated
+  state or claim live discovery when only filesystem installation was observed.
+- Recovery restores complete reviewed bundles plus their matching inventory and
+  routing through an exact-target preview. Keep prior Git pins and divergent live
+  files; do not delete unrelated skills or downgrade project tools.
+
+| Transfer | Boundary and evidence |
+|---|---|
+| Pinned vendor source to managed source | Original blob/hash verification, retained license, reviewed patch and packaged inventory |
+| Project context to selected specialist | Current provider and task scope; bounded recommendations returned to primary |
+| Specialist result to lifecycle artifacts | Primary reconciles findings; QA checks real capabilities; loading is not gate evidence |
+
+| Delivery dependency | Completion evidence |
+|---|---|
+| Source preparation | Complete inventory, reversible patches, valid entrypoints and resource links |
+| Isolated projection | Selected bundle/module/reference bytes match; second apply produces no diff |
+| Shared projection | Prior-state comparison, exact-target application and complete byte verification |
+| Client use | Native discovery observation when available; otherwise explicitly unverified |
+
+**Text Equivalent (trust and delivery):** Maintainers verify immutable upstream
+bytes and review adaptations before managed source is eligible for offline
+deployment. The current provider processes only task-authorized context. A
+specialist returns evidence to the primary without owning gates. Isolated
+projection precedes shared projection, and neither alone proves client discovery
+or skill effectiveness. Canonical evidence: inventory, patches, focused tests and
+private cycle deployment receipts. Update these tables when source, context,
+authority or deployment dependencies change.
+
+Focused authority: `uv run --group test pytest tests/test_python_specialists.py
+tests/test_dbsctr_lifecycle.py tests/test_portable_distribution.py`. Run the
+original skill creator validator on all four new skill entrypoints. The existing
+DBSCTR entrypoint is unchanged. Keep independent behavioral evaluation artifacts
+and actual deployment/merge evidence in the cycle; publish only sanitized outcomes.
