@@ -346,3 +346,62 @@ remain separate from the older offline compression rubric. Official references:
 [skill discovery](https://learn.chatgpt.com/docs/build-skills),
 [native JSON events](https://learn.chatgpt.com/docs/non-interactive-mode) and
 [skill evaluation](https://developers.openai.com/blog/eval-skills).
+
+### Native qualification contracts and acceptance
+
+- Keep normal native authentication, model/provider and safety/lifecycle hooks.
+  Native hook metadata journals may operate normally; model tools remain read-only
+  within the synthetic task. Do not weaken permissions to make a test pass.
+- Capture the actual model-visible catalog, including full versus shortened
+  descriptions, before attributing a miss to discovery. Exclude exact replaced
+  global paths only in this invocation and reject duplicate alternate tracked
+  revisions or changed snapshots. A deliberately unregistered sibling is not
+  evidence of cache staleness; explicit user disablement is not bypassed.
+- Model input contains only the case input and common output contract. Oracle,
+  expected skill sets, held-out labels and score files stay outside the fixture.
+  Freeze case identities and candidate source before held-out execution. An
+  accepted optional specialist must be declared before seeing outcomes.
+- Count a tracked method read only from successful completed native output with
+  expected method content; distinguish partial/full content and native event
+  limitations. Reject mere path mentions, failed commands, metadata-only listings
+  and answer claims. Independent transcript review confirms selected observations
+  and task-specific decision quality; a read alone does not prove compliance.
+- Validate event/usage shapes and integer fields without coercing booleans,
+  negatives, missing fields, malformed output or non-success terminal status to
+  zero or green. Preserve original failed/unavailable attempts and the complete
+  planned denominator. Retain raw private captures and digests for audit.
+- Use balanced paired order, fresh runs and fixed client/configuration identities.
+  Changes to source, catalog, selected model/provider or fixture invalidate the
+  affected comparison. Provider failures stop or retain bounded attempts, without
+  automatic account/provider fallback or unrecorded retries.
+- Report native input/cache/output fields separately. Do not subtract cached input
+  without established semantics, infer billing from tokens, or attribute whole-run
+  usage to one skill. Wall duration includes native startup/tools/hooks. Nested
+  calls without qualified usage coverage remain an explicit measurement gap.
+- Accept the guidance candidate only after complete source/provenance/distribution
+  checks and review of observed selection/decision outcomes with no unresolved
+  regression. Report finite case/repetition counts and actual observed usage;
+  no arbitrary savings threshold, statistical reliability or universal trigger
+  guarantee follows from this maintenance experiment.
+- Keep the canonical Python trigger/checkpoint table in the module; replace its
+  duplicate reference table with navigation. Load common guidance once and Python
+  method/provenance detail only when relevant. Retain existing obligations and
+  complete vendor resources; metadata edits update matching reversible provenance.
+- Use existing exact-target deployment, prior-live comparison and complete bytes/
+  file-set verification. Preserve unrelated installed changes and retain recovery
+  preimages. Native catalog observation is a separate deployment claim.
+
+| Evaluation state | Transition evidence |
+|---|---|
+| Prepared | Case/snapshot/config identities and native catalog preflight recorded |
+| Running | One bounded native call; raw private event capture retained |
+| Complete | Successful terminal event, valid output and actual usage/content observations |
+| Failed or unavailable | Original status retained; missing evidence never becomes zero |
+| Compared | Complete planned denominator and matched identities; quality and token fields separate |
+| Accepted | Independent review plus existing source/distribution and lifecycle gates |
+
+**Text Equivalent (evaluation states):** Preparation binds identities and native
+visibility. Each bounded call ends complete, failed or unavailable with retained
+raw evidence. Only matched complete observations support a comparison; missing
+attempts remain visible. Acceptance requires review and existing gates. Canonical
+owner: current primary and QA; update when transitions or evidence contracts change.
