@@ -1,0 +1,326 @@
+--- a/references/testing-django.md
++++ b/references/testing-django.md
+@@ -1,204 +1,148 @@
+ # Testing Django
+ 
+-## APITestCase
++Use the project's selected Django/DRF test runner, factories and database.
++The snippets below assume the Product fragment from [Models](models-orm.md),
++the illustrated owner-write policy, and app-local imports. They are examples to
++adapt, not a complete test project or evidence that its database was exercised.
++
++## API permissions and input regressions
++
++Use the existing fixture/user factory with `get_user_model()` where runtime user
++access is needed. Supply its real `USERNAME_FIELD` and required fields; do not
++assume the configured model has a username/email/role field.
++
++For the owner-write policy, prepare `self.owner`, `self.other_user` and
++`self.product` through those selected fixtures. These methods belong in the
++project's `APITestCase`:
+ 
+ ```python
++from rest_framework import status
+ from rest_framework.test import APITestCase
+-from rest_framework import status
+ from django.urls import reverse
+ 
+-class ProductAPITest(APITestCase):
+-    def setUp(self):
+-        self.user = User.objects.create_user(
+-            email='test@example.com',
+-            username='testuser',
+-            password='<test-password>'
+-        )
+-        self.category = Category.objects.create(name='Tech', slug='tech')
+-        self.product = Product.objects.create(
+-            name='Laptop',
+-            slug='laptop',
+-            price=999.99,
+-            stock=10,
+-            category=self.category,
+-            created_by=self.user
+-        )
+ 
+-    def test_list_products(self):
+-        url = reverse('product-list')
+-        response = self.client.get(url)
++class ProductPermissionTests(APITestCase):
++    # setUp uses the project's existing user/product fixtures.
+ 
+-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+-        self.assertEqual(len(response.data['results']), 1)
++    def test_other_user_cannot_update(self):
++        self.client.force_authenticate(user=self.other_user)
++        url = reverse("product-detail", kwargs={"slug": self.product.slug})
++        original_name = self.product.name
++        response = self.client.patch(url, {"name": "Changed"}, format="json")
+ 
+-    def test_create_product_authenticated(self):
+-        self.client.force_authenticate(user=self.user)
+-        url = reverse('product-list')
+-        data = {
+-            'name': 'Phone',
+-            'price': 499.99,
+-            'stock': 5,
+-            'category_id': self.category.id
+-        }
++        # This example uses an unscoped detail queryset plus object permission.
++        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
++        self.product.refresh_from_db()
++        self.assertEqual(self.product.name, original_name)
+ 
+-        response = self.client.post(url, data)
+-
+-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+-        self.assertEqual(Product.objects.count(), 2)
+-
+-    def test_create_product_unauthenticated(self):
+-        url = reverse('product-list')
+-        response = self.client.post(url, {'name': 'Test'})
+-
+-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
++    def test_invalid_quantity_preserves_stock(self):
++        self.client.force_authenticate(user=self.owner)
++        url = reverse("product-purchase", kwargs={"slug": self.product.slug})
++        original_stock = self.product.stock
++        for quantity in (0, -1, "invalid", None):
++            with self.subTest(quantity=quantity):
++                response = self.client.post(
++                    url, {"quantity": quantity}, format="json"
++                )
++                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
++                self.product.refresh_from_db()
++                self.assertEqual(self.product.stock, original_stock)
+ ```
+ 
+-## Model Tests
++Also test a denied authenticated `PUT`/`PATCH` on another owner's object and
++each selected custom action. Projects that hide inaccessible rows may return 404
++instead of this example's object-permission 403; assert their actual contract.
++
++For unauthenticated writes, assert the exact status selected by the configured
++authenticators: DRF can return 401 or 403 depending on its authentication-header
++behavior. Do not hardcode a universal status or change authenticators to make a
++test pass. Test session CSRF using the selected real authentication path when
++affected; `force_authenticate()` bypasses credential verification and cannot prove
++JWT/session/token behavior. Assert pagination/list shape from the real API
++configuration, not an assumed `results` key.
++
++## Constraints and transaction recovery
++
++An expected database error must be caught outside the inner atomic block so
++Django can roll back its savepoint before the next query. This example assumes
++the database-enforced unique Product slug from the model reference, the default
++test database, and a prepared valid `self.product`:
+ 
+ ```python
++from django.db import IntegrityError, transaction
+ from django.test import TestCase
+-from django.core.exceptions import ValidationError
+ 
+-class ProductModelTest(TestCase):
+-    def setUp(self):
+-        self.user = User.objects.create_user(
+-            email='test@example.com',
+-            username='test',
+-            password='<test-password>'
++from .models import Product
++
++
++class ProductConstraintTests(TestCase):
++    # setUp creates a valid self.product using the project's selected fixtures.
++
++    def test_slug_unique_and_transaction_recovers(self):
++        original_stock = self.product.stock
++        with self.assertRaises(IntegrityError):
++            with transaction.atomic():
++                Product.objects.create(
++                    name="Duplicate",
++                    slug=self.product.slug,
++                    price=self.product.price,
++                    stock=0,
++                    created_by=self.product.created_by,
++                )
++
++        # This query must still work; a broad Exception assertion would hide
++        # both a wrong failure class and a broken enclosing test transaction.
++        self.product.refresh_from_db()
++        self.assertEqual(self.product.stock, original_stock)
++        self.assertEqual(
++            Product.objects.filter(slug=self.product.slug).count(), 1
+         )
+-        self.category = Category.objects.create(name='Tech', slug='tech')
+-
+-    def test_product_creation(self):
+-        product = Product.objects.create(
+-            name='Test Product',
+-            slug='test-product',
+-            price=100,
+-            category=self.category,
+-            created_by=self.user
+-        )
+-
+-        self.assertEqual(str(product), 'Test Product')
+-        self.assertEqual(product.stock, 0)  # Default
+-
+-    def test_product_slug_unique(self):
+-        Product.objects.create(
+-            name='First', slug='test', price=10,
+-            category=self.category, created_by=self.user
+-        )
+-
+-        with self.assertRaises(Exception):
+-            Product.objects.create(
+-                name='Second', slug='test', price=20,
+-                category=self.category, created_by=self.user
+-            )
+ ```
+ 
+-## Fixtures
++Use the same explicit alias for `atomic` and model operations in a multi-database
++test. Do not expect `full_clean()` behavior from ordinary `save()`. Test named
++validation failures and database constraints at their actual boundaries.
+ 
+-```python
+-# fixtures/products.json
+-[
+-  {
+-    "model": "products.category",
+-    "pk": 1,
+-    "fields": {"name": "Electronics", "slug": "electronics"}
+-  },
+-  {
+-    "model": "products.product",
+-    "pk": 1,
+-    "fields": {
+-      "name": "Laptop",
+-      "slug": "laptop",
+-      "price": "999.99",
+-      "category": 1
+-    }
+-  }
+-]
++For stock contention or row-lock behavior, use the selected backend and a
++transaction-capable test arrangement with independent connections/workers as
++required. `TestCase` wraps tests in transactions and can mask missing production
++transaction boundaries for locking APIs. SQLite-only success does not establish
++PostgreSQL/MySQL locking or concurrent behavior. Preserve real backend failures;
++an AST or stubbed transaction probe is a separate claim.
+ 
+-# In test
+-class ProductTest(TestCase):
+-    fixtures = ['products.json']
++## Partial/nested writes and query behavior
+ 
+-    def test_with_fixture(self):
+-        product = Product.objects.get(slug='laptop')
+-        self.assertEqual(product.name, 'Laptop')
+-```
++Cover partial updates that omit each cross-field input, explicitly clear it or
++change multiple fields. For writable nested services, cover selected replacement
++versus merge behavior, omitted versus empty children, rollback after a later child
++fails, server-owned fields and cross-owner references. Verify the persisted state
++after failure, not only a response status.
+ 
+-## Factory Boy
++Measure query counts around the actual serialized/paginated result to exercise
++lazy loading and related access. Use representative nullable relations and
++collection sizes; fixed query-count assertions should reflect the selected
++scope. A constructed QuerySet is not a completed query.
+ 
+-```python
+-import factory
+-from factory.django import DjangoModelFactory
++## Fixtures, optional factories and authentication
+ 
+-class UserFactory(DjangoModelFactory):
+-    class Meta:
+-        model = User
++Keep JSON fixture model labels, required fields, owner relations and identifiers
++compatible with the selected schema. Do not load a Product fixture that omits a
++required owner or assume `auth.User` when the project substitutes its user model.
++Fixtures can become stale after migrations; run the owning checks.
+ 
+-    email = factory.Sequence(lambda n: f'user{n}@example.com')
+-    username = factory.Sequence(lambda n: f'user{n}')
+-    password = factory.PostGenerationMethodCall('set_password', '<test-password>')
++Use factory_boy only when already selected. Reference `get_user_model()`, supply
++its required identity fields, hash test passwords through `set_password` or the
++selected factory hook, and generate genuinely unique constrained fields.
++Faker words alone do not guarantee unique slugs. Do not switch an existing test
++framework or install factory_boy because a reference mentions it.
+ 
+-class ProductFactory(DjangoModelFactory):
+-    class Meta:
+-        model = Product
++For an existing JWT/token scheme, use its configured login field, installed
++version, routes, claims and lifetimes. Obtain test credentials through that
++scheme and verify protected access plus the affected invalid/expired/revoked
++paths. Do not print raw credentials or tokens. Forced authentication remains a
++useful permission test, with its authentication-coverage limitation recorded.
+ 
+-    name = factory.Faker('word')
+-    slug = factory.LazyAttribute(lambda o: slugify(o.name))
+-    price = factory.Faker('pydecimal', left_digits=3, right_digits=2, positive=True)
+-    created_by = factory.SubFactory(UserFactory)
+-
+-# Usage
+-class ProductTest(TestCase):
+-    def test_with_factory(self):
+-        product = ProductFactory(price=100)
+-        self.assertEqual(product.price, 100)
+-```
+-
+-## Testing JWT
+-
+-```python
+-class JWTAuthTest(APITestCase):
+-    def setUp(self):
+-        self.user = User.objects.create_user(
+-            email='test@example.com',
+-            username='test',
+-            password='<test-password>'
+-        )
+-
+-    def test_obtain_token(self):
+-        response = self.client.post('/api/token/', {
+-            'email': 'test@example.com',
+-            'password': '<test-password>'
+-        })
+-
+-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+-        self.assertIn('access', response.data)
+-        self.assertIn('refresh', response.data)
+-
+-    def test_access_protected_endpoint(self):
+-        response = self.client.post('/api/token/', {
+-            'email': 'test@example.com',
+-            'password': '<test-password>'
+-        })
+-        token = response.data['access']
+-
+-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+-        response = self.client.get('/api/protected/')
+-
+-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+-```
+-
+-## Quick Reference
+-
+-| Method | Purpose |
+-|--------|---------|
+-| `force_authenticate()` | Skip auth |
+-| `credentials()` | Set headers |
+-| `reverse()` | URL by name |
+-| `fixtures` | Load test data |
+-
+-| Assertion | Check |
+-|-----------|-------|
+-| `assertEqual()` | Exact match |
+-| `assertContains()` | Response contains |
+-| `assertRaises()` | Exception raised |
++[Django transactions](https://docs.djangoproject.com/en/5.2/topics/db/transactions/),
++[DRF testing](https://www.django-rest-framework.org/api-guide/testing/) and
++[authentication response status](https://www.django-rest-framework.org/api-guide/authentication/)
++are reference authorities; use versions matching the actual project.

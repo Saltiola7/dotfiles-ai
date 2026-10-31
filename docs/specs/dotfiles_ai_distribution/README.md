@@ -1835,7 +1835,7 @@ permission or audit starts as an installation side effect.
 **Portable specialists:** the [original Python feature](../dbsctr_v3_lifecycle/features/python-specialists.md)
 and [platform/language expansion](../dbsctr_v3_lifecycle/features/platform-specialists.md)
 own conditional routing and evidence boundaries for the reviewed Python, shell,
-host, container, Kubernetes, Google Cloud and Mojo guidance. Distribution owns
+host, container, Kubernetes, cloud/IaC, Django and Mojo guidance. Distribution owns
 complete shared-skill projection, source pins, retained licenses, documented
 adaptations and exact-target deployment. Small entrypoints load supporting detail
 only when relevant. Project tools and CI remain project-owned; installation does

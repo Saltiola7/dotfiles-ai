@@ -140,6 +140,80 @@
       "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
     },
     {
+      "name": "django-expert",
+      "state": "vendored",
+      "upstream_url": "https://github.com/Jeffallan/claude-skills",
+      "commit": "078a25cc5bfd8011459be7b91d004e900c1d02d3",
+      "upstream_path": "skills/django-expert",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "06dcddbb6908a0c6dd4a9e8ec822eea41d5a460a53089fecccc8a68049e99241",
+        "SKILL.md": "0107de33b8bfbf91ba64e09be529c9bf176883cfd89c534065eefba17cd631ae",
+        "references/authentication.md": "1c8cb67744898fadca804fb262e25bf0fc3ee4e094ff920b00ae0be9ee5925a8",
+        "references/drf-serializers.md": "0642b28b45e28c367f3b897c565abc1a9dd743a67bc0330a9acbd1a3bf6ee5ff",
+        "references/models-orm.md": "82169cfe80c42aaa0a90d5ec0fc3813ba4c6e2db181eaa84562a53e4e9de17f9",
+        "references/testing-django.md": "ef2d0d2cb45d868131a47b3e8ac217630d32d1ce9852ee9d0f49fc2147f67084",
+        "references/viewsets-views.md": "48ce90f17330f60b58a8f948cfcd7323f67dd446d0cc16cbce3c1313748574e7"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "b77bf2ab726c6e7cb5a81a9d3b7dc38266ebfd3d",
+        "SKILL.md": "2bc2e730fe663473f870509dcba23d07b6d6843e",
+        "references/authentication.md": "799678afe4e2454fabd9f7ea78d320ccaf40884a",
+        "references/drf-serializers.md": "defd6c0746a05f5f4ff0c0ae6afe0ee414915bd3",
+        "references/models-orm.md": "f52c6e7f401aeb314ab2fa3fc25ca516c21c7f08",
+        "references/testing-django.md": "cab19d59a4f8367923ccde58122ec154b112a0c0",
+        "references/viewsets-views.md": "7f23a1d7009f8a2aa5d4f4dd1ebf18913d3eca14"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/authentication.md": "100644",
+        "references/drf-serializers.md": "100644",
+        "references/models-orm.md": "100644",
+        "references/testing-django.md": "100644",
+        "references/viewsets-views.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "06dcddbb6908a0c6dd4a9e8ec822eea41d5a460a53089fecccc8a68049e99241",
+        "SKILL.md": "4d9d792622eb7b02f1843529d5937b620fbe67a2fc5028dbd76f02248680e26f",
+        "UPSTREAM.md": "417f40b7ac06a3611846803bb53e7c9ec7c2be61685e89d253cb9aa29fa64ef8",
+        "references/authentication.md": "a83f2486d0a082946bc1f6eca94996ca27b8c496c84dd760a2ba601bf4860e75",
+        "references/drf-serializers.md": "d512086fb84d991c48b085ec4ae13f8c0966f09d9627eccf38a42e5ed4954561",
+        "references/models-orm.md": "98596aa762e5aaadf709617b833ad62c32d21dc06f3f1417b61a5eb6686acac9",
+        "references/testing-django.md": "7aa2e468776b721bdb0357bee8a7fc2026ea132327f2f24b50e2226c9200db03",
+        "references/viewsets-views.md": "33caf0b934b5d9a57dcbebbd5a924d2c2433905b746b76a4f978cf2226de8925"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/authentication.md": "100644",
+        "references/drf-serializers.md": "100644",
+        "references/models-orm.md": "100644",
+        "references/testing-django.md": "100644",
+        "references/viewsets-views.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/authentication.md": "100644",
+        "references/drf-serializers.md": "100644",
+        "references/models-orm.md": "100644",
+        "references/testing-django.md": "100644",
+        "references/viewsets-views.md": "100644"
+      },
+      "patches": {
+        "patches/django-expert/SKILL.md.patch": "ddd9ad109007239b5f9b21d56e80e242d814003de541d2df3c6d0502b8f4e3a3",
+        "patches/django-expert/references__authentication.md.patch": "f942f4e0cbc66f28a7865d64ce6ed1ba24c326beb95b18011a2aec5f98e04fcb",
+        "patches/django-expert/references__drf-serializers.md.patch": "7111a695cdba9860ed6a00ef81f993195f96a5b9e2386f80de89c6eef20140e2",
+        "patches/django-expert/references__models-orm.md.patch": "5746427025165ca91dce8dead7e3dc9bf4904d6ae5766f26cef6ff5e980c583a",
+        "patches/django-expert/references__testing-django.md.patch": "fbc76a25025e1dda193a5170a9b75d4668f86035ab2b07fb79317657f0549d21",
+        "patches/django-expert/references__viewsets-views.md.patch": "cf39fbae8f3077404a1ea07e8838c1595fbef2c5a62341701e47b1145dcdaa0c"
+      },
+      "changes": "Reviewed complete local adaptation; preserve project versions, identities, authorization and real validation boundaries. See UPSTREAM.md for method/example corrections."
+    },
+    {
       "name": "gcloud",
       "state": "vendored",
       "upstream_url": "https://github.com/google/skills",
@@ -682,6 +756,168 @@
       },
       "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes.",
       "license_notes": "Exact repository notice retained, including LLVM exceptions and legacy University of Illinois/NCSA terms; see LICENSE.upstream."
+    },
+    {
+      "name": "pulumi-best-practices",
+      "state": "vendored",
+      "upstream_url": "https://github.com/pulumi/agent-skills",
+      "commit": "82f222a529a499e8005a820000148cc5e28c934c",
+      "upstream_path": "pulumi/skills/pulumi-best-practices",
+      "license": "Apache-2.0",
+      "upstream_files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "701bf94433f77f7851ed979ea74700a50dc69f958a20327f13da53d6a1468765",
+        "agents/openai.yaml": "2026466b871f83c3a00164eea9c20e3e913712faf56f76241be9d9fbd40bdf88",
+        "use_cases.yaml": "e3de56d96bd00a3c3a146e40a021ad03ca3d2e16319b00225deb4a8d708a0980"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+        "SKILL.md": "8ab41bc0509b2634c26121f650c441b59b323758",
+        "agents/openai.yaml": "7b45b36d733a2aa482f4aa71d3304c7fd80a469e",
+        "use_cases.yaml": "40cbe6485906164f275e8dede0397498cfc1b09e"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "agents/openai.yaml": "100644",
+        "use_cases.yaml": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "91c60354d0ae21435ab16e9574ea8a5b02a2b625ed915a0b90220c5397555239",
+        "UPSTREAM.md": "686ef87bede5033fbce9ab9b90b292771e902c3a105cd3256aca38125fc04de4",
+        "agents/openai.yaml": "2026466b871f83c3a00164eea9c20e3e913712faf56f76241be9d9fbd40bdf88",
+        "references/details.md": "c5f2c996218c4bbbab34a86a34e50f5749ccd8fb662cc8d60c75c7679b223ed6",
+        "use_cases.yaml": "e3de56d96bd00a3c3a146e40a021ad03ca3d2e16319b00225deb4a8d708a0980"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644",
+        "use_cases.yaml": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644",
+        "use_cases.yaml": "100644"
+      },
+      "patches": {
+        "patches/pulumi-best-practices/SKILL.md.patch": "5e0a57695e7222f3af7402d63412d70bf895d4faa0839b619af0c66fcfa0ad15"
+      },
+      "changes": "Reviewed complete local adaptation; preserve project versions, identities, authorization and real validation boundaries. See UPSTREAM.md for method/example corrections."
+    },
+    {
+      "name": "pulumi-component",
+      "state": "vendored",
+      "upstream_url": "https://github.com/pulumi/agent-skills",
+      "commit": "82f222a529a499e8005a820000148cc5e28c934c",
+      "upstream_path": "pulumi/skills/pulumi-component",
+      "license": "Apache-2.0",
+      "upstream_files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "eef36cb66dfcaf062ac2ef97b4ce050b04afa680f3c76c4e536659a686481cac",
+        "agents/openai.yaml": "daee5038b424cc3d912bc2645f512359e5623b470ffe78560228d3bef13ec536",
+        "use_cases.yaml": "6d4931a0901ae1c12f77330d0ad4e6f90c29880dcf7e9d486609c32656422508"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+        "SKILL.md": "e8e568ea8341d94d235e9d5bda68bc416fae86a0",
+        "agents/openai.yaml": "c722068b1ca4a019492fe67b6ad7732ac2a0bb52",
+        "use_cases.yaml": "d7ec60992d7620242c2d565ca53fe13b64684098"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "agents/openai.yaml": "100644",
+        "use_cases.yaml": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "7b49b46752f191d017d058f419c1f2039a3c1ec3b439686386e44063db8e540b",
+        "UPSTREAM.md": "339a5ec5ab98447c44c3ce598d9855fa5d0251eb57b122134c4a91fd570a8a1c",
+        "agents/openai.yaml": "daee5038b424cc3d912bc2645f512359e5623b470ffe78560228d3bef13ec536",
+        "references/details.md": "0aa576d4339021068805e6c0b9240f1865c9608698bd64f6fef3a704c756eb52",
+        "use_cases.yaml": "6d4931a0901ae1c12f77330d0ad4e6f90c29880dcf7e9d486609c32656422508"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644",
+        "use_cases.yaml": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644",
+        "use_cases.yaml": "100644"
+      },
+      "patches": {
+        "patches/pulumi-component/SKILL.md.patch": "25b646e71fc3e41c38ce676bc63edb5289b0a892f887042ed4038d8d9755a170"
+      },
+      "changes": "Reviewed complete local adaptation; preserve project versions, identities, authorization and real validation boundaries. See UPSTREAM.md for method/example corrections."
+    },
+    {
+      "name": "pulumi-debug-failed-operation",
+      "state": "vendored",
+      "upstream_url": "https://github.com/pulumi/agent-skills",
+      "commit": "82f222a529a499e8005a820000148cc5e28c934c",
+      "upstream_path": "pulumi/skills/pulumi-debug-failed-operation",
+      "license": "Apache-2.0",
+      "upstream_files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "7a83abe3d985041e07ec1220c375376ebe9c6a140917a9565c38f0d9db72f034",
+        "agents/openai.yaml": "e397fc46bdd1a74e8e5dcbb2a2354d27075f4a7800a95248cb657ee1b286f30a",
+        "use_cases.yaml": "a59f4c56dd71d95cd247da20b9bb6d0d93b75a562c6508c19e9ae1bff909dd38"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+        "SKILL.md": "9987f60b9ec6cc07d883c0d37469419cc2b4f89c",
+        "agents/openai.yaml": "7008dbd0cc0d423ebdf10c589edcc243a364de60",
+        "use_cases.yaml": "c234b5fff29e8c9f472bb3d50ebcb68370169fd9"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "agents/openai.yaml": "100644",
+        "use_cases.yaml": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "79ce75edc7e48aa90756894e925fe520db752dc5743a4a2fbe7437489af207cc",
+        "UPSTREAM.md": "fbeed8d76b2d728e604d555f8603d78a7d3af2f82f9cf6742aff7ff85af7a8a9",
+        "agents/openai.yaml": "e397fc46bdd1a74e8e5dcbb2a2354d27075f4a7800a95248cb657ee1b286f30a",
+        "references/details.md": "b8877e7e061282800efeccb8e38d1c8232d7e818f2bd8b16d6256c0c44705f34",
+        "use_cases.yaml": "a59f4c56dd71d95cd247da20b9bb6d0d93b75a562c6508c19e9ae1bff909dd38"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644",
+        "use_cases.yaml": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644",
+        "use_cases.yaml": "100644"
+      },
+      "patches": {
+        "patches/pulumi-debug-failed-operation/SKILL.md.patch": "680d6a3f193a7c15fd448be907db35a4f29e824ee11be188be118e1601887805"
+      },
+      "changes": "Reviewed complete local adaptation; preserve project versions, identities, authorization and real validation boundaries. See UPSTREAM.md for method/example corrections."
     }
   ]
 }
