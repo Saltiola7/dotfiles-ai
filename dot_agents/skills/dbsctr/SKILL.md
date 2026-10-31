@@ -100,6 +100,37 @@ Use bounded-context defaults and record only cycle overrides. Risk is:
 
 Risk may rise with new evidence and never falls silently.
 
+## Python typing through the lifecycle
+
+Use the project's checker commands, configuration and environment bindings. For an
+explicitly selected ty migration, ty is the intended primary checker. Preserve an
+existing checker such as mypy only under the project's temporary migration policy;
+comparison details and retirement criteria stay project-owned. After acceptance,
+remove temporary legacy-checker prompting in the separate retirement change.
+
+Check affected type-bearing artifacts and dependencies when they change, and rerun
+after fixes. Reuse evidence only while source, configuration, environment and
+policy still match. Documentation-only phases explain why execution is not
+applicable; phase labels alone do not require identical repeated scans.
+
+| Phase | Python typing obligation |
+|---|---|
+| Domain | Establish scope and environments; check changed executable domain types |
+| Behavior | Define typed boundaries and invalid-input scenarios; check changed executable examples |
+| Spec | Check changed signatures, protocols, aliases and stubs; expose intentional incompleteness |
+| Contract | Check boundary annotations and validators; preserve runtime validation scenarios |
+| Test | Check implementation and tests in their owning environments; keep behavioral results distinct |
+| Refactor | Recheck changed types and affected consumers while preserving contracts |
+| Review/Integrate | Reconcile scope, environments, suppressions and CI; check the full approved population when full coverage is required |
+| Maintain/Retire | Requalify checker/runtime/policy upgrades, admit new source and retire temporary migration guidance |
+
+Full Python scope includes tests and notebooks, with every required environment;
+QA reconciles independent inventory, completed analysis and diagnostic results.
+For staged migrations, establish coverage and a conflict census before broad
+refactoring. Setup success does not pass a required typing gate with failing
+findings. Keep LLM repairs within approved behavior and scope; do not manufacture
+green through exclusions, blanket ignores, unjustified Any/casts or disabled rules.
+
 ## Development Kernel
 
 ### Bounded validation remediation
