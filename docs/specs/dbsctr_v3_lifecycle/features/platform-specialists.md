@@ -313,8 +313,10 @@ available reasoning fields separately from measured wall duration and static
 character counts. Preserve absent fields as unavailable. These are end-to-end
 native-run observations, not attribution to a particular skill or billed cost.
 
-Use four development cases once per arm, then freeze candidate metadata before
-eight held-out cases run twice per arm in balanced AB/BA order. Run one explicit
+Use the four development baseline cases before tuning, freeze candidate metadata,
+then run their candidate cases as diagnostic observations. Development is not an
+unbiased balanced comparison. Eight held-out cases run twice per arm in balanced
+AB/BA order after the freeze. Run one explicit
 DBSCTR navigation control twice per arm, outside implicit-selection scoring, and
 one true unregistered-sibling case per arm. Maximum planned population: 46 native
 runs; no harness retry loop. A per-run deadline retains timeout/failure evidence.
@@ -370,7 +372,9 @@ remain separate from the older offline compression rubric. Official references:
   negatives, missing fields, malformed output or non-success terminal status to
   zero or green. Preserve original failed/unavailable attempts and the complete
   planned denominator. Retain raw private captures and digests for audit.
-- Use balanced paired order, fresh runs and fixed client/configuration identities.
+- Use balanced paired order for held-out/navigation controls, fresh runs and fixed
+  client/configuration identities. Development baseline precedes tuning and its
+  candidate observations are explicitly diagnostic.
   Changes to source, catalog, selected model/provider or fixture invalidate the
   affected comparison. Provider failures stop or retain bounded attempts, without
   automatic account/provider fallback or unrecorded retries.
