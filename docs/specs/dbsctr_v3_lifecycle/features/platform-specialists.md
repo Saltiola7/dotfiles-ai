@@ -50,6 +50,29 @@ examples and mode-specific detail belong in linked resources. Runtime prompt
 caching or compaction behavior remains client-owned and is not guaranteed here.
 Skill loading is guidance availability, not proof of execution or acceptance.
 
+## Behavior
+
+| Given / when | Required outcome |
+|---|---|
+| Shell behavior changes | Load shell obligations and relevant reliability guidance; preserve selected dialect/version, exit status, signals and test authority |
+| Bash 3.2 or POSIX sh is selected | Do not copy unsupported Bash features or install another shell to make an example work |
+| Project tests shell through pytest/subprocess | Preserve that authority; Bats guidance is conditional on Bats being selected |
+| A Linux host problem is investigated | Establish distro/release and user/system scope; diagnose with bounded facts before proposing changes |
+| A macOS agent works in Terminal but fails under launchd | Inspect launch domain, environment, identity, logs and TCC context; preserve security mechanisms and existing grants |
+| Rootless Podman/Quadlet changes | Resolve user namespace, unit ownership, storage labels/network and persistent data; distinguish generated units from authored source |
+| Kubernetes manifests or Helm charts change | Load the corresponding authoring specialist; rendering/linting is not cluster admission or rollout evidence |
+| GCP/GKE diagnosis is requested | Resolve explicit project/location/cluster/namespace and identity from existing authority; inspect bounded evidence and preserve uncertainty |
+| A GKE identity check is proposed | Use non-secret identity/permission evidence; never print bearer tokens as connectivity proof |
+| Required target evidence is unavailable | Preserve the missing capability; offline hypotheses are not an established root cause or a passing gate |
+| Concurrent Python code changes | Load async guidance for task ownership, cancellation, bounded concurrency, cleanup and sync/async boundaries |
+| A Python support-floor or modernization audit is requested | Compare target-version evidence with project constraints; classify findings before bounded remediation |
+| Mojo source or a Mojo/Python boundary changes | Load Mojo obligations and selected official guidance, bound to the project SDK/channel, ABI and target |
+| Mojo GPU code changes | Select GPU guidance only with an actual device concern; require supported target and equivalent synchronized correctness/performance evidence |
+| A new Modular project is explicitly requested | Preserve selected environment manager and SDK pins; setup authorization does not follow from loading a skill |
+| A task merely mentions a platform or makes a trivial text edit | Avoid loading unrelated specialists or entire upstream repositories |
+| Guidance is absent or new evidence changes the concern | Use equivalent guidance when sufficient or revise selection in the existing cycle; no new coordinator or invented gate |
+| A reviewed bundle is deployed | Exact-target projection preserves complete resources and unrelated live files; bytes/file sets and repeated application are verified |
+
 ## Visual Evidence
 
 | Concern | Decision and canonical evidence |
