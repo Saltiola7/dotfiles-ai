@@ -1,0 +1,36 @@
+--- a/references/generating.md
++++ b/references/generating.md
+@@ -6,8 +6,9 @@
+ ## Put constraints in the strategy, not in `assume()`
+ 
+ This is the single highest-value habit. `assume()` discards inputs after generation,
+-so a filter that rejects most candidates wastes the budget and eventually trips
+-Hypothesis's exhausted-filter guard — which surfaces as a warning nobody reads.
++so a filter that rejects most candidates wastes the budget and can fail Hypothesis's
++filtering health check or make the test unsatisfiable. Preserve these failures as
++validation evidence; do not describe an unexercised test as a pass.
+ 
+ ```python
+ # Slow, and mostly discards
+@@ -54,7 +55,8 @@
+ 
+ ## Settings
+ 
+-Defaults (100 examples, 200ms deadline) are wrong at both ends of the workflow:
++Use the project's test profiles and installed library version. Example settings
++to consider when the workload and validation budget justify them:
+ 
+ ```python
+ @settings(max_examples=10)                      # local iteration
+@@ -62,8 +64,9 @@
+ @settings(max_examples=1000, deadline=None)     # nightly
+ ```
+ 
+-Set `deadline=None` for anything doing real work — the default deadline turns a slow
+-machine into a failing test, and that flake gets the whole suite deleted.
++Review per-example deadlines against actual workload and environment variability.
++Disable them only when appropriate to project policy and retain a bounded overall
++test timeout; avoid both spurious timing failures and unbounded expensive tests.
+ 
+ ## Determinism as a property
+ 

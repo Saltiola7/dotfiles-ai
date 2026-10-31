@@ -1,0 +1,25 @@
+--- a/references/interpreting-failures.md
++++ b/references/interpreting-failures.md
+@@ -12,8 +12,10 @@
+ 
+ ## Ground the property before you trust the failure
+ 
+-Shrunk input in hand, check what the code actually promises. In descending order of
+-authority:
++Shrunk input in hand, check the current accepted project specification, contracts
++and compatibility policy first. The following sources help establish the promised
++behavior; reconcile conflicts rather than treating an annotation or name as permission
++to override the accepted contract:
+ 
+ | Source | What it settles |
+ |---|---|
+@@ -74,7 +76,8 @@
+ exactly the input no human writes by hand.
+ 
+ **Hash/equality divergence violates a language contract**, not just a docstring —
+-`a == b` must imply `hash(a) == hash(b)` in Python. No grounding required; report it.
++for hashable values, `a == b` must imply `hash(a) == hash(b)` in Python. Confirm the
++values are hashable and the equality/hash contract applies before reporting it.
+ 
+ **Off-by-one in custom iterators** shows up as `list(it(xs)) == xs` dropping the last
+ element. Almost always real.

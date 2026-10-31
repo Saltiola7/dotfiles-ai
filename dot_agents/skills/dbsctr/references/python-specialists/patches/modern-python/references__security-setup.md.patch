@@ -1,0 +1,99 @@
+--- a/references/security-setup.md
++++ b/references/security-setup.md
+@@ -1,10 +1,15 @@
+ # Security Setup
+ 
++Use only the portions selected by the current task and project policy. Examples
++below do not authorize tool installation, dependency changes, hook activation,
++CI changes or publication. Preserve supported runtimes, dependency constraints,
++existing tools and acceptance criteria unless their change is explicitly in scope.
++
+ Security tooling for Python projects: pre-commit hooks, CI auditing, and dependency scanning.
+ 
+ ## Tool Installation
+ 
+-Install these tools before running the quick setup commands below.
++Use existing selected security tools. Install only missing tools that are part of authorized setup, using the project's installation authority; this reference does not create an installation requirement.
+ 
+ ### prek (pre-commit runner)
+ 
+@@ -21,7 +26,7 @@
+ 
+ ### Security tools
+ 
+-Pre-commit hooks auto-install tools when run via prek. For manual CLI usage:
++Selected hooks may download tools when run via prek; include that dependency execution in the setup decision. Manual installation examples, only when authorized:
+ 
+ ```bash
+ # Homebrew (macOS/Linux)
+@@ -39,6 +44,9 @@
+ - **detect-secrets**: `pipx install detect-secrets`
+ 
+ ## Quick Setup
++
++Use only for selected security setup. Preserve existing hooks and baseline files;
++review a new baseline before adopting it, rather than replacing one blindly.
+ 
+ ```bash
+ # 1. Install security hooks
+@@ -120,7 +128,7 @@
+ ```
+ 
+ If false positive: update baseline with `detect-secrets scan --update .secrets.baseline`
+-If real secret: remove from code and rotate the credential.
++If real secret: report it without exposing its value and follow the project's incident/remediation authority. Credential rotation is not authorized by loading this skill.
+ 
+ ## CI Security
+ 
+@@ -169,7 +177,7 @@
+ 
+ **Fixing `excessive-permissions`:**
+ 
+-By default, workflows get `write` access to everything. Lock down with explicit permissions:
++Effective defaults depend on repository and organization policy. Inspect them and declare the least permissions required by each workflow:
+ 
+ ```yaml
+ # Read-only workflows (lint, test, audit)
+@@ -212,10 +220,11 @@
+ # Audit current environment
+ uv run pip-audit
+ 
+-# Audit without installing (faster for CI)
++# Audit project dependencies using the selected resolution policy
++# This form can resolve/install dependencies; inspect tool behavior before use
+ uv run pip-audit .
+ 
+-# Fix automatically (upgrades vulnerable packages)
++# Only for an authorized remediation; changes package versions
+ uv run pip-audit --fix
+ ```
+ 
+@@ -228,15 +237,15 @@
+ 
+ **When vulnerabilities found:**
+ 
+-1. Check if the CVE affects your usage (many are in unused code paths)
+-2. Update the package: `uv add <package>@latest`
+-3. If no fix available: evaluate risk, consider alternatives, or add to ignore list
++1. Assess the finding using the project's vulnerability-review authority
++2. For authorized remediation, select a compatible fixed version and validate it through the dependency authority
++3. If no fix is available, report residual risk and options; do not silently suppress the finding or accept risk on the project's behalf
+ 
+ ### Dependabot - Automated Updates
+ 
+ Automatically creates PRs for outdated dependencies.
+ 
+-Copy [templates/dependabot.yml](../templates/dependabot.yml) to `.github/dependabot.yml`.
++For an explicitly selected Dependabot setup, adapt [templates/dependabot.yml](../templates/dependabot.yml) to the existing configuration and project update policy.
+ 
+ **How pip-audit and Dependabot work together:**
+ 
+@@ -248,7 +257,7 @@
+ - **pip-audit** catches: "You have a vulnerable version right now"
+ - **Dependabot** prevents: "You'll fall behind and accumulate vulnerabilities"
+ 
+-The 7-day cooldown protects against attackers publishing malicious updates and hoping for quick adoption before detection.
++The illustrated cooldown can allow time for newly published problems to be discovered; it does not establish package safety. Choose cadence and exceptions through project policy.
+ 
+ See [dependabot.md](./dependabot.md) for advanced configuration.
+ 

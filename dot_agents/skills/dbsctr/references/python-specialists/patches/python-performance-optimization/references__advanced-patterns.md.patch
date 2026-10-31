@@ -1,0 +1,58 @@
+--- a/references/advanced-patterns.md
++++ b/references/advanced-patterns.md
+@@ -1,4 +1,10 @@
+ # Python Performance Optimization — Advanced Reference
++
++Use only authorized project-selected dependencies, processes and workloads. These
++examples are hypotheses to measure, not automatic optimization prescriptions.
++Control workload, runtime, cache state and repeat count, and verify output semantics.
++Numeric arrays, caches, concurrency and batching can change overflow, freshness,
++ordering, cancellation or transaction behavior; preserve the required contract.
+ 
+ Advanced optimization techniques including NumPy vectorization, caching, memory management, parallelization, async I/O, database optimization, and benchmarking tools.
+ 
+@@ -67,14 +73,20 @@
+         return n
+     return fibonacci_fast(n-1) + fibonacci_fast(n-2)
+ 
+-# Massive speedup for recursive algorithms
++# Compare per-call timings with explicitly controlled cold or warm cache state
+ n = 30
+ 
+-slow_time = timeit.timeit(lambda: fibonacci_slow(n), number=1)
+-fast_time = timeit.timeit(lambda: fibonacci_fast(n), number=1000)
+-
+-print(f"Without cache (1 run): {slow_time:.4f}s")
+-print(f"With cache (1000 runs): {fast_time:.4f}s")
++def cached_cold():
++    fibonacci_fast.cache_clear()
++    return fibonacci_fast(n)
++
++assert fibonacci_slow(n) == cached_cold()
++repeats = 5
++slow_time = timeit.timeit(lambda: fibonacci_slow(n), number=repeats) / repeats
++fast_time = timeit.timeit(cached_cold, number=repeats) / repeats
++
++print(f"Without cache (per call): {slow_time:.4f}s")
++print(f"With initially empty cache (per call): {fast_time:.4f}s")
+ 
+ # Cache info
+ print(f"Cache info: {fibonacci_fast.cache_info()}")
+@@ -187,7 +199,7 @@
+     elapsed = time.time() - start
+     return elapsed, results
+ 
+-# Async is much faster for I/O-bound work
++# Compare equivalent results and realistic workloads; concurrency is not always faster
+ sync_time, sync_results = synchronous_requests()
+ async_time, async_results = asyncio.run(asynchronous_requests())
+ 
+@@ -333,7 +345,7 @@
+     with open(filename) as f:
+         return sum(1 for line in f if line.strip())
+ 
+-# Iterator uses constant memory
++# Iterator avoids retaining the full file; memory still depends on line size and consumers
+ # List loads entire file into memory
+ ```
+ 

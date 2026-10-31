@@ -33,6 +33,29 @@
 
 ## Conditional Controls
 
+- **CONDITIONAL:** Select the smallest applicable installed specialist set using
+  the evidence below. Read [Python specialists](../references/python-specialists.md)
+  when selecting one, then load that skill and only its relevant resources.
+  Reassess when new evidence changes the task; ordinary Python work does not load
+  every specialist or create another phase, coordinator or approval checkpoint.
+
+| Evidence in the current task | Preferred specialist | Checkpoint |
+|---|---|---|
+| Changed responsibilities, component boundaries, dependency direction or abstractions | `python-design-patterns` | Domain/Spec; structural Refactor |
+| Parser, serializer, normalization, validation or state transition with a meaningful invariant | `property-based-testing` | Behavior/Contract; Test |
+| Reported slowdown, performance requirement or measured bottleneck | `python-performance-optimization` | Baseline before optimization; compare afterward |
+| New packaging/tooling setup or explicitly selected tooling migration | `modern-python` | Engineering Profile/Spec |
+
+- **PROJECT POLICY:** Runtimes, tools, dependencies, compatibility, test strategy
+  and acceptance thresholds remain project-selected. Specialist recipes cannot
+  authorize a tool migration, installation, wider scope or a new gate.
+- **CONDITIONAL:** If preferred guidance is unavailable, report the limitation
+  and use equivalent guidance when sufficient. Required evidence still follows
+  the existing Gate Ledger; skill loading alone never proves a capability passed.
+- **EXAMPLE:** A serializer change may use property testing, while a local error
+  message correction may need no specialist. An existing Poetry/mypy project
+  retains those choices when consulting modern tooling guidance.
+
 - **CONDITIONAL:** When runtime support changes, validate the oldest and newest supported stable Python versions where practical.
 - **CONDITIONAL:** When dependencies change, update the authoritative lock artifact if project policy requires one; do not create a lock merely because a tool supports it.
 - **CONDITIONAL:** When native extensions, generated code, or platform-specific behavior changes, validate affected build and runtime targets.

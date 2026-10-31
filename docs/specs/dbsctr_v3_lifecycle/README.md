@@ -1,5 +1,9 @@
 # DBSCTR V3 Lifecycle
 
+[Conditional Python specialists](features/python-specialists.md) defines bounded
+selection of design, property-testing, profiling and tooling guidance. The Python
+module routes; project policy and existing lifecycle/QA authorities retain control.
+
 Codex CLI and Desktop can use the shared lifecycle from the current conversation
 by targeting a validated Worktrunk task checkout explicitly. Repository commands
 use its working directory and file edits use absolute paths. Desktop attachment

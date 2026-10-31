@@ -1,0 +1,66 @@
+--- a/references/testing.md
++++ b/references/testing.md
+@@ -1,16 +1,24 @@
+ # Testing with pytest
+ 
+-Configuration and best practices for pytest with coverage enforcement.
++Use only the portions selected by the current task and project policy. Examples
++below do not authorize tool installation, dependency changes, hook activation,
++CI changes or publication. Preserve supported runtimes, dependency constraints,
++existing tools and acceptance criteria unless their change is explicitly in scope.
++
++Configuration and examples for projects that select pytest and optional coverage. Preserve the configured test strategy, scoped checks and coverage thresholds; this reference introduces no universal minimum.
+ 
+ ## Setup
+ 
+-Add test dependencies:
++If the project selected these dependencies and their addition is authorized:
+ 
+ ```bash
+ uv add --group test pytest pytest-cov hypothesis
+ ```
+ 
+ ## pyproject.toml Configuration
++
++Example only: use the project's pytest-version-compatible configuration table,
++layout, warning policy and selected plugins.
+ 
+ ```toml
+ [tool.pytest]
+@@ -22,7 +30,6 @@
+     "--strict-config",          # Error on config issues
+     "--cov=myproject",          # Coverage for package
+     "--cov-report=term-missing", # Show missing lines
+-    "--cov-fail-under=80",      # Minimum coverage
+ ]
+ markers = [
+     "slow: marks tests as slow",
+@@ -49,7 +56,7 @@
+     "raise NotImplementedError",
+     "@abstractmethod",
+ ]
+-fail_under = 80
++# Add fail_under only if project policy defines a coverage threshold
+ show_missing = true
+ ```
+ 
+@@ -188,6 +195,8 @@
+ 
+ ### Async Tests
+ 
++Use the existing async-test library, or add pytest-asyncio only when selected.
++
+ ```bash
+ uv add --group test pytest-asyncio
+ ```
+@@ -203,6 +212,10 @@
+ 
+ ## Property-Based Testing with Hypothesis
+ 
++Use Hypothesis when meaningful properties and the project's dependency policy
++justify it. Existing authorization covers settled choices; resolve an outstanding
++material dependency choice before adding a new test library.
++
+ ```bash
+ uv add --group test hypothesis
+ ```

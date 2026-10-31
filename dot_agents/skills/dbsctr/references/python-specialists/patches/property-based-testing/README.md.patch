@@ -1,0 +1,13 @@
+--- a/README.md
++++ b/README.md
+@@ -1,4 +1,10 @@
+ # Property-Based Testing Skill
++
++> Managed adaptation note: the upstream evaluation history below is retained for
++> provenance, not a claim about this adapted bundle. The `effort: low` setting is
++> removed here so model/reasoning choices stay with the harness. Referenced plugin
++> eval runners are outside the selected skill bundle and are not installed or run.
++> See [UPSTREAM.md](UPSTREAM.md) for all local adaptations.
+ 
+ Guidance for property-based testing across languages, including Echidna and Medusa for
+ EVM smart contracts.

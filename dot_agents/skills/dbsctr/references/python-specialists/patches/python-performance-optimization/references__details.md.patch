@@ -1,0 +1,53 @@
+--- a/references/details.md
++++ b/references/details.md
+@@ -1,4 +1,10 @@
+ # python-performance-optimization — detailed patterns and worked examples
++
++Use the project's selected interpreter, environments and profiling tools. The
++installation examples apply only when setup is already selected and authorized;
++missing optional tools are a limitation, not an instruction to install them.
++The sample timings are demonstrations, not expected outcomes on current runtimes.
++Compare equivalent workloads and validate outputs before claiming improvement.
+ 
+ ## Profiling Tools
+ 
+@@ -131,6 +137,9 @@
+ 
+ ### Pattern 4: py-spy - Production Profiling
+ 
++Attach only to a process within the current authorized scope. Prefer a local
++representative workload when production access or overhead is not approved.
++
+ ```bash
+ # Install: pip install py-spy
+ 
+@@ -177,9 +186,9 @@
+ print(f"Comprehension: {fast_time:.4f}s")
+ print(f"Speedup: {slow_time/fast_time:.2f}x")
+ 
+-# Even faster for simple operations: map
++ # Another candidate to benchmark; map with a Python lambda is not inherently faster
+ def faster_squares(n):
+-    """Use map for even better performance."""
++    """Use map as a measured alternative."""
+     return list(map(lambda x: x**2, range(n)))
+ ```
+ 
+@@ -205,7 +214,7 @@
+ print(f"List size: {sys.getsizeof(list_data)} bytes")
+ print(f"Generator size: {sys.getsizeof(gen_data)} bytes")
+ 
+-# Generators use constant memory regardless of size
++# This generator avoids materializing all items; measure retained inputs and consumer allocations too
+ ```
+ 
+ ### Pattern 7: String Concatenation
+@@ -299,7 +308,7 @@
+         total += local_value
+     return total
+ 
+-# Local is faster
++# Compare on the project's supported runtime; do not assume a speedup
+ global_time = timeit.timeit(use_global, number=1000)
+ local_time = timeit.timeit(use_local, number=1000)
+ 

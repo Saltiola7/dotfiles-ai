@@ -1,0 +1,37 @@
+--- a/references/dependabot.md
++++ b/references/dependabot.md
+@@ -1,25 +1,30 @@
+ # Dependabot: Automated Dependency Updates
++
++Use only the portions selected by the current task and project policy. Examples
++below do not authorize tool installation, dependency changes, hook activation,
++CI changes or publication. Preserve supported runtimes, dependency constraints,
++existing tools and acceptance criteria unless their change is explicitly in scope.
+ 
+ [Dependabot](https://docs.github.com/en/code-security/dependabot) automatically creates pull requests to keep your dependencies up to date. GitHub hosts it natively—no external service required.
+ 
+ ## Why Use Dependabot?
+ 
+-- **Security**: Automatically patches known vulnerabilities
++- **Security**: Can propose dependency updates for known vulnerabilities; validation and merge remain project-owned
+ - **Freshness**: Keeps dependencies current without manual tracking
+ - **Visibility**: PRs show changelogs and compatibility notes
+ 
+ ## Configuration
+ 
+-Copy [templates/dependabot.yml](../templates/dependabot.yml) to `.github/dependabot.yml`.
++For a selected Dependabot setup, adapt [templates/dependabot.yml](../templates/dependabot.yml) to the existing configuration. Preserve required schedules and version constraints.
+ 
+ The template includes:
+ - Weekly update schedule for pip and GitHub Actions
+-- 7-day cooldown for supply chain protection
++- Illustrative 7-day cooldown; project policy selects cadence and exceptions
+ - Grouping to reduce PR noise
+ 
+ ## Supply Chain Protection
+ 
+-The `cooldown.default-days: 7` setting delays updates for newly published versions. This provides time for the community to detect compromised packages before they reach your project.
++The illustrated `cooldown.default-days: 7` delays updates for newly published versions. This may allow time for problems to be discovered, but it does not prove package safety; verify ecosystem/version support and project policy.
+ 
+ **Why this matters:**
+ - Attackers sometimes publish malicious versions of legitimate packages

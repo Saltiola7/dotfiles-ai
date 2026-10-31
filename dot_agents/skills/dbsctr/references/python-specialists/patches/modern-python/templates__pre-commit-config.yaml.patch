@@ -1,0 +1,11 @@
+--- a/templates/pre-commit-config.yaml
++++ b/templates/pre-commit-config.yaml
+@@ -1,5 +1,7 @@
+ # Pre-commit configuration for Python projects
+-# Copy to your repo root as .pre-commit-config.yaml
++# Adapt into .pre-commit-config.yaml only for selected hook setup.
++# Preserve existing hooks, supported runtimes and project tool choices.
++# Loading this template does not authorize installation or hook activation.
+ #
+ # IMPORTANT: Replace all <latest> placeholders with actual versions.
+ # Check each linked releases page for current stable versions.

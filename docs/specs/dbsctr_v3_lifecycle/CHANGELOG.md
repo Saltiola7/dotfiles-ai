@@ -1,5 +1,24 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Python specialist typing reconciliation
+
+- Integrated the current core typing policy while preserving conditional specialist
+  selection and project-owned tools. Replaced an inherited blanket ty-rule ignore
+  recipe with independent inventory, a conflict census, retained diagnostics and
+  actual exit status, plus separate setup and remediation acceptance.
+- A focused regression failed before repair. The union affected suite passed with
+  148 tests and one optional native-runtime smoke skipped; all four original skill
+  validators passed. Independent review found no remaining substantive conflict.
+  Complete bundle and reversible-patch inventories were regenerated and verified.
+- Updated the four affected deployed recipe/provenance files through the same
+  seven-target workflow. All 62 files matched source after repeated application,
+  with an empty diff. The current client catalog lists all four specialist skills;
+  the earlier six-case evaluation remains a limited planning smoke test.
+- Preserved the original completed cycle and its successful CI. Follow-up cycle
+  `PYTHON-SPECIALISTS-002` owns reconciliation, profile adoption, fresh evidence and
+  delivery to the existing feature PR against `main`. No Gate Exception. Native CI
+  must cover the reconciled head and current base before the requested merge.
+
 ## 2026-10-31 — Core Python typing coverage
 
 - Added concise project-selected, ty-first typing obligations to existing DBSCTR,
@@ -26,6 +45,30 @@
   detailed comparison and remediation remain consumer-owned. No new skill.
 - Recorded source-only delivery and later exact managed installation/qualification.
   No shared instructions, checker implementation or installed behavior changed.
+
+## 2026-10-30 — Conditional Python specialists
+
+- Added independently discoverable modern Python setup, design, property-testing
+  and performance bundles. The Python module selects guidance from task evidence;
+  the project retains tooling policy, QA retains validation, and DBSCTR retains
+  lifecycle ownership. Loading guidance adds no coordinator or approval gate.
+- Preserved complete licensed upstream resources at reviewed immutable pins, with
+  reversible adaptations and full-file inventories. Recipes respect existing
+  runtimes, tools, layouts, dependencies and scheduled CI. Updates remain reviewed
+  maintainer actions; automatic release/debt scanning is outside this change.
+- Validation: 100 affected tests and four original skill validators passed.
+  Independent review corrected an upstream claim about unsatisfiable property-test
+  assumptions. Six paired planning cases agreed on selection and preserved policy
+  and required evidence; both serializer probes detected the supplied defect.
+  Different probe corpora and the small sample establish no effectiveness gain.
+- Applied only the four bundles and three routing/provenance targets through the
+  existing distribution owner. All 62 installed files matched source; repeated
+  application and an empty diff verified idempotency. Live client discovery is
+  unverified and may require refresh. No provider settings or project tools changed.
+- Implementation Gate Commit: `f569e43`. Recovery uses retained prior source and
+  matching inventories through the same exact-target workflow. No gate exception.
+  Intended Final Push: feature branch and draft PR into `main`; actual delivery,
+  native CI/merge checks and private evaluation receipts remain in the Cycle Record.
 
 ## 2026-10-24 — Explicit checkout use from Codex clients
 
