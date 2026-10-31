@@ -115,6 +115,85 @@ project policy, unavailable evidence and resource restraint. Static entrypoint a
 metadata sizes describe packaging footprint only; they do not measure runtime
 context, model reliability or token savings.
 
+## Contracts and validation
+
+- Existing user scope, native permissions, project tools/targets, DBSCTR and QA
+  remain authoritative. Skill loading does not authorize tool installation,
+  cluster/host mutation, role changes, publication or source/commit choreography.
+- Target identity includes the applicable OS/release, shell/dialect, user versus
+  system service scope, container ownership, cluster/namespace, cloud project and
+  location, or SDK/channel/device. Use existing project facts before asking;
+  unresolved material identity is not filled from an ambient default silently.
+- Preserve original diagnostic failures, child exit status, missing capabilities
+  and uncertainty. Rendering is not deployment; async command submission is not
+  readiness; a plausible offline cause is not a verified root cause.
+- Adapt upstream policy in supporting references/templates/helpers as well as
+  entrypoints. Retain complete resources and exact license notices with reversible
+  patches; no fetched content executes during acquisition or installation.
+- Shell examples preserve supported versions, caller variables, child statuses,
+  cleanup and signals. Strict mode is contextual; broad diagnostic suppression and
+  an unconditional new shell/test framework are not acceptable shortcuts.
+- Async guidance covers structured task ownership, cancellation propagation and
+  draining, bounded work and resources, event-loop ownership and thread/process
+  tradeoffs tied to the selected runtime. Retain safe SQL parameter binding and
+  response/session lifetimes in supporting examples.
+- Host/container guidance preserves SELinux, TCC, signing and service ownership;
+  security weakening is not an automatic fix. Podman storage labels, UID mappings,
+  user/system units and persistent data are explicit compatibility concerns.
+- GCP/GKE guidance keeps credentials out of output, uses explicit target/identity,
+  distinguishes IAM from Kubernetes RBAC, and proposes bounded fixes. Remove
+  forced telemetry, universal quiet flags, fabricated RCA and competing PR flows.
+- The Helm helper performs bounded local lint/render checks only, preserves real
+  failures and has offline failure-path regression evidence. It cannot infer
+  cluster acceptance or install tools/charts merely because guidance is loaded.
+- Mojo examples are conditional on the project SDK/channel and hardware. Preserve
+  selected environment managers and pins; validate interop/ABI and GPU semantics
+  with actual target evidence when required. No dynamic Python source assembly
+  from untrusted interop values; absent SDK/GPU evidence remains a capability gap.
+- Modernization review uses current primary version/migration sources and project
+  support constraints. Classify mechanical, semantic and architectural findings;
+  new features alone do not justify upgrades or broad refactoring.
+- Validate new entrypoints with the original creator validator. Source contracts,
+  provenance/resource/script checks and realistic independent routing cases are
+  separate evidence; static size measurements are not token-savings claims.
+- Deployment uses explicit selected source/machine configuration, scripts excluded,
+  exact reviewed targets and verified prior state. New bundles/modules/references
+  must match complete source file sets, bytes and executable modes; repeated apply
+  has an empty diff and preserves unrelated installed skills.
+- For an existing divergent installed entrypoint, preserve disjoint unrelated
+  instructions through a reviewed three-way projection of prior source, current
+  installed bytes and changed source. Keep that projection/preimages privately;
+  verify intended routing hunks and retained live content independently. Do not
+  adopt unrelated live policy into Git or claim canonical byte identity for the
+  reconciled overlay. An overlapping unresolved change blocks that target.
+- Recovery restores complete reviewed bundles and matching inventory/routing;
+  retain prior installed preimages and reconcile divergent ownership. Do not
+  remove unrelated skills, alter provider settings or execute target operations.
+
+| Transfer | Guard and evidence |
+|---|---|
+| Upstream to managed source | Immutable commit and original blobs, retained license, reviewed adaptations and complete inventory |
+| Task to specialist | Minimum decision-relevant context under current provider/scope; explicit target and relevant resources |
+| Specialist to primary/QA | Bounded findings, actual evidence, remaining hypotheses and missing capabilities; existing artifacts/gates |
+| Source to shared installation | Isolated exact-target validation; verified preimages and bytes/modes or explicit reconciled-overlay identity |
+
+| Delivery dependency | Evidence |
+|---|---|
+| Source bundles | Valid entrypoints, resource closure, complete inventory and reversible patches |
+| Bounded helper | Isolated Helm failure/status checks with a fake local tool; no live cluster operations |
+| Router behavior | Positive/negative/mixed-layer independent cases and explicit sample limits |
+| Isolated projection | Full selected file sets/modes, unrelated sentinel preserved, empty second diff |
+| Shared projection | Prior-state review, exact-target preview/apply, complete verification and retained recovery bytes |
+| Discovery | Current native catalog observation when available; filesystem state is a separate claim |
+
+**Text Equivalent (trust and delivery):** Reviewed immutable upstream content enters
+managed source with licenses and reversible provenance. The primary passes only
+relevant authorized task context into selected guidance, then reconciles its
+findings with QA. Isolated projection precedes shared deployment. Canonical source
+bytes and preserved unrelated live overlays have distinct verification claims.
+Owner: lifecycle/distribution maintainers; update with any represented boundary,
+execution, target, provenance or recovery change.
+
 ## Visual Evidence
 
 | Concern | Decision and canonical evidence |
