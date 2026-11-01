@@ -1,5 +1,29 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-01 — PY-09 hosted Git configuration qualification
+
+The first hosted CI run failed in both Worktrunk lanes because the macOS image
+installs system Git LFS definitions. Qualified the exact complete standard LFS
+definition set only when effective native attribute checks prove every cached
+and untracked nonignored path has no filter. Unknown or duplicate definitions,
+active filters and gitlinks remain unavailable. Qualification precedes the first
+fixture add and every source status, preserving the clean-source oracle without
+executing filters, wrapping Git, changing host configuration or skipping smokes.
+
+Added 25 regressions covering dormant/explicitly unset filters, active working-tree,
+repository-info and XDG attributes, changed/incomplete/duplicate definitions,
+local LFS definitions, pre-add refusal and submodules. All 62 focused tests pass;
+publication/instruction regression and configured hosted CI retain their own
+authorities. The original failed CI evidence and completed source cycle remain
+intact. No new runtime, dependency, workflow, production helper or installed
+configuration is changed; no performance improvement or new baseline is claimed.
+
+The follow-up uses Python/Security and the existing source-only gate plan.
+Specification commit: `0e3edb6`; later Gate Commits and actual push/CI outcomes
+belong to the private Cycle Record. Final Push updates the existing feature branch
+and PR #275. Release, Deploy and Operate remain not applicable; no exception,
+restart, private-evidence migration or branch/worktree removal is selected.
+
 ## 2026-11-01 — PY-09 opt-in CLI measurement foundation
 
 Added repository-owned stdlib CLI benchmarks, frozen synthetic workload oracles,

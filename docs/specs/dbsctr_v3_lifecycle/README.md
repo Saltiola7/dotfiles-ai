@@ -25,6 +25,9 @@ validate more records; reports keep input files separate and mark authenticity
 unverified. Raw output, paths and profiles remain private. The runner refuses
 changed source/tool identities, unsafe paths or unqualified Git configuration;
 it never installs tools, activates the harness or profiles private stores.
+Standard system Git LFS definitions are accepted only with fresh proof that no
+path selects a filter. Active filters, altered definitions and submodule sources
+remain unavailable; the runner never edits host Git configuration to qualify.
 
 The [behavior-preserving Python performance specification](features/python-performance.md)
 owns the current source-only optimization tranche: query scaling, bounded
