@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Source-only workflow PR creates no independently published package."},
+    "deploy": {"applicability": "not_applicable", "reason": "No installed runtime or repository protection/permission settings are changed."},
+    "operate": {"applicability": "not_applicable", "reason": "No new running service; candidate CI is integration evidence under unchanged jobs."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

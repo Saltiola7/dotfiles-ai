@@ -1,5 +1,17 @@
 # DBSCTR V3 Lifecycle
 
+The [PY-09 measurement foundation](features/python-performance.md#py-09-measurement-only-foundation)
+adds opt-in synthetic CLI benchmarks and shared evidence before optimization.
+Distribution supplies retained-CI analysis; continuous-validation supplies isolated
+snapshot-memory evidence. Discovery defines source-only slices, with no benchmark
+implementation, measured gain or runtime activation claimed.
+
+The [behavior-preserving Python performance specification](features/python-performance.md)
+owns the current source-only optimization tranche: query scaling, bounded
+optional telemetry, diagnostic correctness, profiling and compatible CI/startup
+evaluation. Its implementation and performance gains remain pending; existing
+harness behavior and activation authorities are unchanged.
+
 [Platform and language specialists](features/platform-specialists.md) extends
 conditional selection to shell, host/container/cloud operations, async Python,
 modernization review and Mojo while preserving existing lifecycle and QA ownership.

@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution
 
+The [PY-09 retained-CI precursor](features/validation-execution-performance.md#py-09-retained-ci-baseline-precursor)
+defines opt-in analysis of existing job metadata/logs through the shared evidence
+contract. It starts no CI jobs and changes no workflow, runtime or required-check
+authority. Its source tooling and evidence collection remain pending Build.
+
 The optional [self-hosted Prefect inspection capability](features/prefect-mcp.md)
 adds reviewed operational guidance and an independently installed frozen stdio
 adapter. Private selection owns the existing API and credentials; native clients

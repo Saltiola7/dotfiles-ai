@@ -1,0 +1,41 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {
+      "applicability": "required"
+    },
+    "behavior": {
+      "applicability": "required"
+    },
+    "spec": {
+      "applicability": "required"
+    },
+    "contract": {
+      "applicability": "required"
+    },
+    "test_driven_implementation": {
+      "applicability": "required"
+    },
+    "refactor": {
+      "applicability": "required"
+    },
+    "review_integrate": {
+      "applicability": "required"
+    },
+    "release": {
+      "applicability": "not_applicable",
+      "reason": "Source-only opt-in benchmark tooling; no independently published package or image."
+    },
+    "deploy": {
+      "applicability": "not_applicable",
+      "reason": "No installed helper, workflow, runtime, enrollment, worker or service configuration changes."
+    },
+    "operate": {
+      "applicability": "not_applicable",
+      "reason": "Disposable synthetic fixtures or retained CI files only; no live service profiling or activation."
+    },
+    "maintain_retire": {
+      "applicability": "required"
+    }
+  }
+}

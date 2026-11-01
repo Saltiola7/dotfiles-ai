@@ -9,13 +9,13 @@ one separately approved installed recovery. MANIFEST.json owns current states;
 the original Discovery checkpoint below is historical, not a current delivery count.
 New specification readiness does not qualify source, launch or live deletion.
 
-**Discovery complete; specification ready, not implemented.** The Initiative is
-`ready`, not delivered. All 52 intent statements and three contexts are ready for
-source implementation. All ten slices are specification-ready and Build-owned;
-only `safety-inventory` is dependency-satisfied (`ready`). Nine remain `captured`
-solely awaiting verified prerequisite delivery, not further Discovery interviews.
-No Build registration, approved preflight, runtime qualification or gate pass is
-established here.
+**Original source slices delivered; added recovery work remains separately scoped.**
+The original ten slices and operator-approved merge policy are integrated in
+source. Added retirement/recovery slices retain their manifest states and separate
+qualification. Source delivery does not certify installed activation, live gate
+results, strict automatic retirement, or missing CI producer/watch/repair
+capabilities. Preserve the qualified and unavailable boundaries in context
+changelogs and the Build handoff.
 
 ## Authority and approved context map
 
@@ -64,23 +64,24 @@ delivered and no unfinished active-relocation work is revived.
 
 The CLI requires **every slice dependency delivered** before a slice can be
 `ready` (`read_initiative_manifest`, lines 3603–3609 at the source baseline).
-Specification-ready therefore does not mean all ten can launch now. Record real
-predecessor delivery, revalidate current authority and promote one eligible slice;
+For future slices, specification readiness does not bypass dependencies. Record
+real predecessor delivery, revalidate current authority and promote one eligible slice;
 never fabricate delivered dependencies. Primary serializes shared CLI/skill/test
 writers. Row order is a useful serial route; manifest edges are authoritative.
 
 | Slice | Machine state | Depends on | Risk / source plan |
 |---|---|---|---|
-| `safety-inventory` | ready | None | elevated / CORE-SOURCE |
-| `storage-config` | captured; specification ready | safety-inventory | critical / DISTRIBUTION-SOURCE |
-| `dvc-preservation` | captured; specification ready | storage-config | critical / CORE-SOURCE |
-| `native-handoff` | captured; specification ready | storage-config | critical / CONTROL-PLANE-SOURCE |
-| `merge-cleanup` | captured; specification ready | dvc-preservation, native-handoff | critical / CORE-SOURCE |
-| `integration-review` | captured; specification ready | storage-config | critical / CORE-SOURCE |
-| `ci-contracts` | captured; specification ready | integration-review | critical / CORE-SOURCE |
-| `regression-telemetry` | captured; specification ready | storage-config | critical / CORE-SOURCE |
-| `prompt-authority` | captured; specification ready | safety-inventory | elevated / CONTROL-PLANE-SOURCE |
-| `compression-evaluation` | captured; specification ready | prompt-authority | elevated / CONTROL-PLANE-SOURCE |
+| `safety-inventory` | source delivered | None | elevated / CORE-SOURCE |
+| `storage-config` | source delivered | safety-inventory | critical / DISTRIBUTION-SOURCE |
+| `dvc-preservation` | source delivered | storage-config | critical / CORE-SOURCE |
+| `native-handoff` | source delivered | storage-config | critical / CONTROL-PLANE-SOURCE |
+| `merge-cleanup` | source delivered | dvc-preservation, native-handoff | critical / CORE-SOURCE |
+| `integration-review` | source delivered | storage-config | critical / CORE-SOURCE |
+| `ci-contracts` | source delivered | integration-review | critical / CORE-SOURCE |
+| `regression-telemetry` | source delivered | storage-config | critical / CORE-SOURCE |
+| `prompt-authority` | source delivered | safety-inventory | elevated / CONTROL-PLANE-SOURCE |
+| `compression-evaluation` | source delivered | prompt-authority | elevated / CONTROL-PLANE-SOURCE |
+| `operator-approved-merge-policy` | source delivered | integration-review, ci-contracts | critical / OPERATOR-MERGE |
 
 Guidance uses existing read-only availability types; it does not require the
 entire regression-feedback implementation or claim benefits from it. Initial P1
@@ -96,7 +97,8 @@ Review/Integrate and Maintain/Retire are required. Release, Deploy and Operate a
 reasoned `not_applicable` for these source-only draft PRs, not gate results or
 exceptions. Later host activation requires its own exact plan/approval and live
 gates; any legacy cleanup batch needs fresh bounded inventory/disposition approval.
-Neither is implicitly an eleventh implementation slice, guest rollout or restart.
+Neither implies guest rollout or restart; the separately recorded eleventh slice
+is source merge-policy guidance, not automatic runtime activation.
 
 The first metadata-only source slice must import the **entire 25-document changed
 Discovery closure** enumerated as its manifest artifacts, including all six
@@ -207,16 +209,15 @@ contracts; owner: Discovery primary; update on ordering/guard changes.
 
 | State | Legal outcome |
 |---|---|
-| Initiative ready; statements/contexts ready | Specification authority only, not delivered or approved launch |
-| safety-inventory ready | Only dependency-satisfied source slice; fresh receipt/preflight/approval still required |
-| Other nine captured, specification ready | Wait for verified predecessor delivery; no fake completion |
+| Source slices delivered; runtime qualification capability-specific | Source availability does not approve launch or activation |
+| New or materially changed slice | Fresh dependency checks, receipt, preflight and exact approval required |
 | Unknown, dirty, active, busy, unmerged or unsupported preservation | Retain and report |
 | Final-default/data/artifacts preserved and all guards satisfied | Authorized immediate native cleanup; no age-only eligibility |
 | Changed evidence or unknown result | Reobserve/reconcile; preserve history and failed evidence |
 
 **Text Equivalent:** Specification readiness and dependency promotion are separate
-from runtime eligibility. Only the first slice is dependency-satisfied now; nine
-wait for genuine delivery. Unsafe/unsupported states retain. Complete preservation
+from runtime eligibility. Delivered source does not create missing operational
+proof. New work requires fresh authority. Unsafe/unsupported states retain. Complete preservation
 and fresh authorized guards permit cleanup; changes/unknown results require
 reobservation. Source: manifest and preservation contract; owner: Discovery primary;
 update on state/guard changes.

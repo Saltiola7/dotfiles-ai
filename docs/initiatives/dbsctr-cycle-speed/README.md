@@ -18,6 +18,56 @@ routing and runtime to off, then a separately confirmed cycle irreversibly remov
 proven DKS state. DKS source and lifecycle history remain for a future controlled
 environment that requires new Discovery and approval.
 
+## PY-09 measurement foundation
+
+The operator approved the PY-09 context extension on 2026-10-31: lifecycle owns
+shared evidence/CLI tooling, distribution owns retained-CI analysis, and
+`continuous_validation` owns isolated snapshot-memory measurements. Deliver
+reusable opt-in tooling using disposable local synthetic fixtures plus retained
+CI evidence. No fresh CI measurement dispatch, live host/service profiling or DKS
+model-service work is selected. Source validation through normal configured CI
+remains a separate delivery obligation.
+
+The first source slice is `python-cli-baseline`; the dependent
+`python-ci-baseline` and `python-snapshot-memory-baseline` slices follow serially.
+All three use the [shared evidence contract](../../specs/dbsctr_v3_lifecycle/features/python-performance.md#py-09-measurement-only-foundation).
+Readiness applies to specifications, not source implementation, measurements,
+launch approval or deployment. A partial cohort may produce an honest report but
+cannot claim completion of unavailable metric/case coverage. Full PY-09 source
+scope finishes only when all three delivered tools and their declared evidence
+capabilities reconcile; measurements retain their independent availability.
+
+Each source slice uses its existing context profile and committed applicability
+plan. The Build handoff is [PYTHON-BASELINES.md](PYTHON-BASELINES.md).
+Existing optimization slices consume these baselines through explicit dependency
+edges; their production behavior, workload thresholds and authority are unchanged.
+New manifest digests supersede earlier receipts. DKS remains retired/deferred.
+
+## Behavior-preserving Python source tranche
+
+The 2026-10 performance audit is followed by the source-only
+`lifecycle-performance-core` slice. Its [contract](../../specs/dbsctr_v3_lifecycle/features/python-performance.md)
+covers all audited findings and their explicit dispositions, paired profiling,
+query scaling, bounded optional telemetry, diagnostic corrections, compatible
+startup evaluation and current source-status reconciliation. The dependent
+`validation-execution-performance` slice owns equivalent hosted CI execution
+under the distribution profile, retaining every required test and lane.
+
+The optimization tranche retains its existing implementation ownership. Lifecycle
+owns core Python implementation; distribution owns the separate dependent CI
+execution slice. The PY-09 extension adds only snapshot measurement ownership.
+Control-plane changes are documentation reconciliation only. The
+adjacent continuous-validation Initiative retains its runner and activation
+ownership. No native route, model, permissions, concurrency, DKS, privacy,
+retention or gate-admission policy changes are authorized by this source tranche.
+
+The slice depends on the delivered audit workflow and delivered PY-09 CLI
+baseline, independently of the unrelated destructive DKS retirement sequence. The primary serializes shared
+helper and test changes. The [applicability plan](PYTHON-PERFORMANCE.plan.json)
+requires all kernel gates, Review/Integrate and Maintain/Retire. Performance
+results remain pending until comparable baseline/candidate runs complete;
+synthetic or helper gains do not establish whole-cycle improvement.
+
 ## Success
 
 - Report autonomous-runtime mean, p50, and p90 with sample count and attribution
@@ -34,14 +84,20 @@ environment that requires new Discovery and approval.
 | `dbsctr_v3_lifecycle` | Timing semantics, source-local summaries, History/Incident query reduction, dedicated knowledge privacy isolation, quality-equivalence policy, and safe concurrency | None |
 | `opencode_control_plane` | Typed adapter timing boundaries, runtime correlation, optional DKS routing and value activation, and bounded DKS, History, and Incident availability | Lifecycle timing contract |
 | `dotfiles_ai_distribution` | Immutable host/VM capture, aggregation, retention, and trend operation | OpenCode adapter |
-| `dbsctr_knowledge_store` | DKS query lock contention and bounded fast fallback | None |
+| `dbsctr_knowledge_store` | DKS query lock contention and bounded fast fallback; PY-09 work deferred | None |
+| `continuous_validation` | Isolated synthetic snapshot latency and controller-memory evidence; no runner activation | PY-09 shared evidence contract |
 
-The user approved this complete context map on 2026-08-29.
+The user approved the original four-context map on 2026-08-29 and the bounded
+PY-09 continuous-validation extension on 2026-10-31. The original serial runtime
+sequence and its approval boundaries remain unchanged.
 
 ## Delivery Slices
 
 | Slice | Execution owner | Outcome | Depends on |
 |---|---|---|---|
+| `python-cli-baseline` | `build` | Opt-in common evidence/CLI benchmark tooling | `performance-audit-workflow` |
+| `python-ci-baseline` | `build` | Retained-CI duration and identity analysis; no workflow changes | `python-cli-baseline` |
+| `python-snapshot-memory-baseline` | `build` | Synthetic snapshot latency and controller memory | `python-cli-baseline` |
 | `lifecycle-runtime-summary` | `build` | Source-local autonomous-runtime summary with truthful availability | None |
 | `opencode-runtime-adapter` | `build` | Runtime boundaries emitted without manual prompt discipline | `lifecycle-runtime-summary` |
 | `federated-cycle-trends` | `build` | Host/VM mean, p50, and p90 from immutable sanitized captures | `opencode-runtime-adapter` |
@@ -51,7 +107,7 @@ The user approved this complete context map on 2026-08-29.
 | `runtime-query-recovery` | `build` | OpenCode attempts project- and revision-compatible DKS once within five seconds, then returns typed availability and continues | None |
 | `history-incident-query-core` | `build` | Page-first aggregate History and bounded Incident summaries from an immutable snapshot refresh | None |
 | `history-projection-refresh-schedule` | `build` | Daily low-priority hands-off snapshot refresh with safe failure and rollback | `history-incident-query-core` |
-| `history-incident-runtime-recovery` | `build` | OpenCode returns bounded typed History/Incident availability | `history-incident-query-core`, `history-projection-refresh-schedule`, `runtime-query-recovery` |
+| `history-incident-runtime-recovery` | `build` | OpenCode returns bounded typed History/Incident availability | `history-incident-query-core`, `history-projection-refresh-schedule` |
 | `knowledge-privacy-lock-isolation` | `build` | DKS privacy guarding no longer contends with unrelated review-ledger work | None |
 | `dks-routing-value-gate` | `build` | Automatic DKS routing remains enabled only when paired evidence beats direct source inspection | `runtime-query-recovery`, `dks-fast-fallback`, `knowledge-privacy-lock-isolation` |
 | `performance-audit-v2` | `build` | Deterministic audit reduction, aggregate evidence, and verified source-absence handling | `performance-audit-workflow`, `history-incident-runtime-recovery` |

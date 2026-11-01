@@ -171,11 +171,11 @@ reusing consumer-owned evolving standards without publishing private consumer fa
 
 ## Source delivery order and ownership
 
-All ten source specifications are ready. The CLI marks only dependency-satisfied
-slices `ready`; the rest remain `captured` **solely awaiting verified prerequisite
-delivery**, not an unfinished interview. All source execution owners are Build.
-Record real predecessor delivery before promoting dependents and obtaining fresh
-receipts. Do not label implementation complete merely to unlock a dependency.
+The original ten source slices below are delivered. This table preserves their
+implementation order and ownership; it is not a queue for duplicate execution.
+The later operator-approved merge-policy slice is also integrated in source.
+Runtime qualification remains capability-specific. New or materially changed
+work needs real dependency evidence, fresh receipts and exact launch approval.
 
 | Order / slice | Risk / plan | Source write ownership (plus its context completion evidence) |
 |---|---|---|
