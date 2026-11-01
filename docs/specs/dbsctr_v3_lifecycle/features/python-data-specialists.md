@@ -83,6 +83,55 @@ dbt and other new providers are outside this change.
   preservation of unrelated state and repeat-apply behavior. Existing instruction,
   Python/platform specialist and Python audit tests cover changed downstreams.
 
+## Contracts and validation
+
+Preserve selected runtimes, checker/test authorities, databases, drivers, ORM,
+connection/profile and dependency/install owners. No automatic migrations,
+profiler runs, database writes, remote jobs, new credentials or environment
+changes follow from skill selection. Existing task authorization remains usable;
+ask only for actually missing information or authority. Static source review
+works without a database executable, MCP server or authenticated workspace.
+
+Python typing technique cannot weaken diagnostics, replace a selected checker or
+substitute annotations for runtime validation. Retries distinguish transient
+failure from ambiguous committed effects; require idempotency/reconciliation when
+replaying could duplicate effects. Task cancellation and total budgets survive
+retry wrappers. Resource review distinguishes borrowed and owned handles and
+actual driver guarantees; do not invent transactional DDL or rollback where an
+engine lacks them. Logs/traces/metrics must preserve project privacy and bounded
+cardinality; never collect credentials or unbounded payloads as audit evidence.
+
+Engine examples remain version/workload dependent. No blanket SQL index,
+partition, rewrite or performance recipe becomes a project requirement. DuckDB
+state files and remote extensions remain project-owned. Databricks bundles retain
+service-scoped licensing and modification notices, work with selected targets and
+leave missing sibling capabilities visible. SQL text that begins with SELECT is
+not by itself proof that a query is safe or side-effect-free.
+
+Audits distinguish inventory, actual review and executed-check coverage; record
+commit/overlay, environments, unsupported providers and not-run checks. Findings
+separate source/contract defects, advisory designs, modernization options and
+unmeasured performance hypotheses. Cross-layer findings have one root cause and
+one remediation owner. Static review never proves workload latency or production
+readiness. Reports stay in conversation unless project/user artifact authority
+selects a durable path. No automatic issues, fixes or second lifecycle ledger.
+
+Validate cheap instruction/publication checks before affected runtime suites.
+Obtain intentional failing composition evidence before authoring new bundles.
+Run the original creator validator for every new/changed entrypoint; compile any
+included Python helper without running databases or downloading tools. Qualify
+independent positive, negative and mixed-stack audit cases in isolated fixtures,
+including missing guidance and retained project tools, and review actual reports.
+These samples do not prove universal routing or effectiveness gains.
+
+Deploy exact targets after passing source checks, using explicit task source and
+existing machine config with scripts excluded. Compare prior live bytes before
+application; preserve unrelated/divergent edits. Verify full projected file sets,
+bytes, modes and repeat-diff idempotency. Report filesystem installation separately
+from native catalog discovery. Recovery uses prior matching bytes and reviewed
+source through the same owner. Feature-branch draft delivery is separate from
+external database operations and from a later PR merge.
+
 ## Visual Evidence
 
 | Concern | Decision and canonical evidence |
