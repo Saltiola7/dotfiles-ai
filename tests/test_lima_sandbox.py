@@ -1,10 +1,12 @@
 import importlib.machinery
 import importlib.util
+import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -323,6 +325,367 @@ def test_command_failure_exposes_exit_and_script_not_private_output():
     assert "exit 7" in str(caught.value)
     assert "enable-pm-postgres.sh exited 1" in str(caught.value)
     assert "private credential sentinel" not in str(caught.value)
+
+
+COMMAND_PROBE = r'''
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
+import types
+
+source, request_path, pid_path = map(Path, sys.argv[1:])
+request = json.loads(request_path.read_text())
+loader = importlib.machinery.SourceFileLoader("command_probe", str(source))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+helper = importlib.util.module_from_spec(spec)
+loader.exec_module(helper)
+processes = []
+selectors = []
+capacity = 0
+short_writes = 0
+would_block = 0
+direct_kills = 0
+group_kills = []
+real_popen = subprocess.Popen
+real_selector = helper.selectors.DefaultSelector
+borrowed_blocking = os.get_blocking(0)
+fault = KeyboardInterrupt("probe interrupt") if request.get("fault") == "interrupt" else OSError("probe failure")
+close_fault = OSError("probe close failure")
+
+def spawn(*args, **kwargs):
+    global capacity
+    child = real_popen(*args, **kwargs)
+    processes.append(child)
+    temporary_pid = pid_path.with_suffix(".tmp")
+    temporary_pid.write_text(str(child.pid))
+    temporary_pid.replace(pid_path)
+    real_kill = child.kill
+    def kill():
+        global direct_kills
+        direct_kills += 1
+        return real_kill()
+    child.kill = kill
+    if request.get("prefill"):
+        descriptor = child.stdin.fileno()
+        os.set_blocking(descriptor, False)
+        try:
+            while True:
+                capacity += os.write(descriptor, b"p" * 4096)
+        except BlockingIOError:
+            pass
+        finally:
+            os.set_blocking(descriptor, True)
+    return child
+
+class ProbeSelector:
+    def __init__(self):
+        self.actual = real_selector()
+        self.closed = False
+        selectors.append(self)
+
+    def register(self, *args):
+        if request.get("fault") == "register" and self.actual.get_map():
+            raise fault
+        return self.actual.register(*args)
+
+    def select(self, timeout):
+        if request.get("fault") in {"select", "interrupt"}:
+            raise fault
+        return self.actual.select(timeout)
+
+    def unregister(self, *args):
+        return self.actual.unregister(*args)
+
+    def get_map(self):
+        return self.actual.get_map()
+
+    def close(self):
+        self.closed = True
+        self.actual.close()
+        if request.get("close_fault"):
+            raise close_fault
+
+def select_factory():
+    if request.get("fault") == "acquire":
+        raise fault
+    return ProbeSelector()
+
+class ProbeOS:
+    def __getattr__(self, name):
+        return getattr(os, name)
+
+    def write(self, descriptor, data):
+        global short_writes, would_block
+        if request.get("partial_write") and descriptor == processes[0].stdin.fileno():
+            short_writes += 1
+            if short_writes % 3 == 0:
+                would_block += 1
+                raise BlockingIOError()
+            data = data[:997]
+        return os.write(descriptor, data)
+
+    def killpg(self, *args):
+        group_kills.append(args)
+        if request.get("deny_group"):
+            raise PermissionError()
+        return os.killpg(*args)
+
+helper.subprocess = types.SimpleNamespace(Popen=spawn, PIPE=subprocess.PIPE,
+                                        TimeoutExpired=subprocess.TimeoutExpired)
+helper.selectors = types.SimpleNamespace(DefaultSelector=select_factory,
+    EVENT_READ=helper.selectors.EVENT_READ, EVENT_WRITE=helper.selectors.EVENT_WRITE)
+helper.os = ProbeOS()
+input_data = (None if request.get("input_kind") == "inherit" else
+              request["input_text"].encode() if "input_text" in request else
+              b"x" * request.get("input_bytes", 0))
+os.environ["COMMAND_PROBE_PARENT_ONLY"] = "parent"
+started = time.monotonic()
+try:
+    try:
+        output = helper.command([sys.executable, "-c", request["child"]],
+            timeout=request.get("timeout", 0.2), input_data=input_data,
+            environment=request.get("environment"))
+        report = {"outcome": "passed", "output": output}
+    except BaseException as error:
+        message = str(error)
+        report = {"outcome": "failed", "error_type": type(error).__name__,
+            "original_fault": error is fault, "original_close_fault": error is close_fault,
+            "output_bound": message == "command output exceeded bound",
+            "safe_nonzero": "failed (exit 7" in message,
+            "private_clean": all(value not in message for value in request.get("private_values", []))}
+    report.update(elapsed=time.monotonic() - started, capacity=capacity,
+        short_writes=short_writes, would_block=would_block, direct_kills=direct_kills,
+        group_kill_requested=any(pid == processes[0].pid and sent == signal.SIGKILL
+            for pid, sent in group_kills),
+        reaped=all(child.returncode is not None for child in processes),
+        streams_closed=all(stream.closed for child in processes
+            for stream in (child.stdin, child.stdout, child.stderr) if stream is not None),
+        selectors_closed=all(selected.get_map() is None for selected in selectors),
+        borrowed_stdin_unchanged=os.get_blocking(0) == borrowed_blocking)
+    print(json.dumps(report))
+finally:
+    # The outer watchdog is independent of the helper. This bridge also owns a
+    # fallback so a failing cleanup assertion never leaves a sleeping child.
+    for child in processes:
+        if child.returncode is None or request.get("descendants"):
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        if child.returncode is None:
+            child.wait(timeout=2)
+'''
+
+
+def command_probe(tmp_path, inherited_input=b"", **request):
+    bridge = tmp_path / "command-probe.py"
+    options = tmp_path / "request.json"
+    pid = tmp_path / "child.pid"
+    bridge.write_text(COMMAND_PROBE)
+    options.write_text(json.dumps(request))
+    outer = subprocess.Popen([sys.executable, str(bridge), str(SCRIPT), str(options), str(pid)],
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, start_new_session=True)
+    watchdog = False
+    reported = False
+
+    def stop_child(wait_for_start=False):
+        if wait_for_start:
+            deadline = time.monotonic() + 2
+            while not pid.exists() and outer.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.005)
+        if pid.exists():
+            try:
+                os.killpg(int(pid.read_text()), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+
+    try:
+        try:
+            stdout, _ = outer.communicate(input=inherited_input, timeout=5)
+        except subprocess.TimeoutExpired:
+            watchdog = True
+            # command() creates a separate child session. Kill that group first
+            # so the bridge can observe its exit and reap it before bridge exit.
+            stop_child()
+            try:
+                stdout, _ = outer.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                stop_child()
+                os.killpg(outer.pid, signal.SIGKILL)
+                stdout, _ = outer.communicate(timeout=2)
+        assert outer.returncode == 0, "isolated command probe failed before reporting"
+        result = json.loads(stdout)
+        reported = True
+        return {**result, "watchdog": watchdog}
+    finally:
+        if not reported or outer.poll() is None:
+            # Interrupts and unexpected bridge errors need the same inner-first
+            # cleanup as watchdog expiry; the sessions have different groups.
+            stop_child(wait_for_start=True)
+            try:
+                outer.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                stop_child()
+                os.killpg(outer.pid, signal.SIGKILL)
+                outer.communicate(timeout=2)
+        for stream in (outer.stdin, outer.stdout, outer.stderr):
+            stream.close()
+
+
+def test_command_deadline_covers_blocked_stdin(tmp_path):
+    result = command_probe(tmp_path, child="import time; time.sleep(60)",
+                           input_bytes=4 * 1024 * 1024, prefill=True)
+    assert 0 < result["capacity"] < 4 * 1024 * 1024
+    assert not result["watchdog"], "helper blocked outside its execution deadline"
+    assert result["error_type"] == "TimeoutExpired"
+    # Two seconds of scheduling tolerance is separate from the one-second
+    # cleanup allowance; the independent five-second watchdog catches a hang.
+    assert result["elapsed"] < 0.2 + 1 + 2
+    assert result["reaped"] and result["streams_closed"] and result["selectors_closed"]
+    assert result["borrowed_stdin_unchanged"]
+
+
+def assert_command_probe_closed(result):
+    assert not result["watchdog"]
+    assert result["reaped"] and result["streams_closed"] and result["selectors_closed"]
+    assert result["borrowed_stdin_unchanged"]
+
+
+@pytest.mark.parametrize("publication", ["before", "after"])
+def test_command_probe_cleans_inner_group_on_outer_interrupt(tmp_path, monkeypatch, publication):
+    real_popen = subprocess.Popen
+    processes = []
+    interruption = KeyboardInterrupt("outer probe interruption")
+
+    def spawn(*args, **kwargs):
+        outer = real_popen(*args, **kwargs)
+        processes.append(outer)
+        communicate = outer.communicate
+        interrupted = False
+
+        def interrupt_once(*arguments, **options):
+            nonlocal interrupted
+            if not interrupted:
+                if publication == "after":
+                    deadline = time.monotonic() + 2
+                    while not (tmp_path / "child.pid").exists() and time.monotonic() < deadline:
+                        time.sleep(0.005)
+                    assert (tmp_path / "child.pid").exists(), "probe did not create its child"
+                interrupted = True
+                raise interruption
+            return communicate(*arguments, **options)
+
+        outer.communicate = interrupt_once
+        return outer
+
+    monkeypatch.setattr(subprocess, "Popen", spawn)
+    with pytest.raises(KeyboardInterrupt) as caught:
+        command_probe(tmp_path, child="import time; time.sleep(60)", timeout=10)
+    assert caught.value is interruption
+    assert processes[0].returncode is not None
+    with pytest.raises(ProcessLookupError):
+        os.killpg(int((tmp_path / "child.pid").read_text()), 0)
+
+
+def test_command_duplex_io_preserves_partial_writes(tmp_path):
+    count = 4 * 1024 * 1024
+    child = ("import hashlib,sys; "
+             "sys.stdout.buffer.write(b'a'*98304); sys.stdout.flush(); "
+             "sys.stderr.buffer.write(b'b'*98304); sys.stderr.flush(); "
+             "data=sys.stdin.buffer.read(); "
+             "print(':'+str(len(data))+':'+hashlib.sha256(data).hexdigest())")
+    result = command_probe(tmp_path, child=child, input_bytes=count,
+                           partial_write=True, timeout=3)
+    assert_command_probe_closed(result)
+    assert result["outcome"] == "passed"
+    expected = "a" * 98304 + ":" + str(count) + ":" + hashlib.sha256(b"x" * count).hexdigest()
+    assert hashlib.sha256(result["output"].encode()).digest() == hashlib.sha256(expected.encode()).digest()
+    assert result["short_writes"] > 1 and result["would_block"] > 0
+
+
+@pytest.mark.parametrize("child,descendants", [
+    ("import os,time; os.close(1); os.close(2); time.sleep(60)", False),
+    ("import os,time\nwhile True:\n os.write(1,b'.'); time.sleep(.005)", False),
+    ("import os,time\nif os.fork()==0:\n time.sleep(60)", True),
+])
+def test_command_deadline_covers_wait_traffic_and_descendants(tmp_path, child, descendants):
+    result = command_probe(tmp_path, child=child, descendants=descendants)
+    assert_command_probe_closed(result)
+    assert result["error_type"] == "TimeoutExpired"
+    assert result["group_kill_requested"]
+    assert result["elapsed"] < 0.2 + 1 + 2
+
+
+@pytest.mark.parametrize("input_kind,expected", [("inherit", "8"), ("bytes", "0")])
+def test_command_preserves_inherited_stdin_and_empty_input(tmp_path, input_kind, expected):
+    result = command_probe(tmp_path, child="import sys; print(len(sys.stdin.buffer.read()))",
+                           input_kind=input_kind, inherited_input=b"borrowed", timeout=2)
+    assert_command_probe_closed(result)
+    assert result["output"] == expected
+
+
+@pytest.mark.parametrize("exit_code", [0, 7])
+def test_command_rejects_known_incomplete_input(tmp_path, exit_code):
+    result = command_probe(tmp_path, child=f"import os,sys; os.close(0); sys.exit({exit_code})",
+                           input_bytes=4 * 1024 * 1024, timeout=2)
+    assert_command_probe_closed(result)
+    assert result["error_type"] == "BrokenPipeError"
+
+
+@pytest.mark.parametrize("excess", [0, 1])
+def test_command_enforces_combined_capture_boundary(tmp_path, excess):
+    child = ("import sys; sys.stdout.buffer.write(b'a'*131072); sys.stdout.flush(); "
+             f"sys.stderr.buffer.write(b'b'*{131072 + excess}); sys.stderr.flush()")
+    result = command_probe(tmp_path, child=child, timeout=2)
+    assert_command_probe_closed(result)
+    if excess:
+        assert result["output_bound"]
+    else:
+        assert result["outcome"] == "passed" and len(result["output"]) == 131072
+
+
+@pytest.mark.parametrize("fault", ["acquire", "register", "select", "interrupt"])
+def test_command_cleans_partial_setup_and_interrupts(tmp_path, fault):
+    result = command_probe(tmp_path, child="import time; time.sleep(60)", fault=fault,
+                           close_fault=True)
+    assert_command_probe_closed(result)
+    assert result["original_fault"]
+
+
+def test_command_reports_first_cleanup_failure(tmp_path):
+    result = command_probe(tmp_path, child="pass", close_fault=True, timeout=2)
+    assert_command_probe_closed(result)
+    assert result["original_close_fault"]
+
+
+def test_command_falls_back_when_group_signaling_is_denied(tmp_path):
+    result = command_probe(tmp_path, child="import time; time.sleep(60)", deny_group=True)
+    assert_command_probe_closed(result)
+    assert result["error_type"] == "TimeoutExpired"
+    assert result["direct_kills"] == 1
+
+
+def test_command_preserves_environment_decoding_and_private_failures(tmp_path):
+    result = command_probe(tmp_path, child="import os,sys; "
+        "assert 'COMMAND_PROBE_PARENT_ONLY' not in os.environ; "
+        "sys.stderr.write(os.environ['PROBE_VALUE']+sys.stdin.read()); sys.exit(7)",
+        input_text="private-input-value", environment={"PROBE_VALUE": "private-env-value"},
+        private_values=["private-input-value", "private-env-value"], timeout=2)
+    assert_command_probe_closed(result)
+    assert result["safe_nonzero"] and result["private_clean"]
+
+
+def test_command_preserves_replacement_decoding_and_strip(tmp_path):
+    result = command_probe(tmp_path, child="import os; os.write(1,b' \\xff\\n')", timeout=2)
+    assert_command_probe_closed(result)
+    assert result["output"] == "\ufffd"
 
 
 def test_workspace_can_disable_rnd_without_disabling_tools(tmp_path):
