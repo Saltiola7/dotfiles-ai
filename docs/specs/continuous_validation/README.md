@@ -266,6 +266,15 @@ collect shared caches or silently discard failed evidence. Native priority and
 load-based admission are best effort, not hard CPU/RAM isolation. CPU, maximum
 RSS, and Dagger cache counters remain unavailable unless a backend measures them.
 
+The discovered [bounded-storage repair](STORAGE.md) specifies write/read byte
+symmetry, compact private request journals with validated observation references,
+and atomic reservation of the whole eligible selection before selected checks
+and generation publication. Capacity refusal preserves existing evidence and
+admitted work. Public results retain inline observations; readable legacy journals
+remain supported, and oversized existing journals require explicit recovery
+without automatic rewriting or execution. These are follow-up requirements,
+not a claim that the repair is implemented or deployed.
+
 ## Snapshot, Schema, and Cache Contracts
 
 | Record | Required identity and contents | Relationship |
