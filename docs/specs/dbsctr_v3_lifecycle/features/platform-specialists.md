@@ -613,3 +613,45 @@ execution. Retain the first 46 failures and source identities, bind final guidan
 separately, and report all 50 native calls without claiming general accuracy or
 end-to-end token savings. Source delivery uses this final repaired snapshot;
 initial comparison measurements keep their original frozen-source attribution.
+
+## Notebook, host configuration and Rust/Python expansion
+
+### Domain and ownership
+
+This extension adds three complete reviewed marimo bundles and three original
+local methods. Prefect is excluded from this wave by user choice; no Prefect
+connector or deployment is introduced. Existing Linux/RHEL/Fedora diagnosis,
+shell reliability, Podman/Quadlet and macOS methods retain their ownership.
+
+| Concern | Owner and boundary |
+|---|---|
+| Saved marimo notebook conventions and validation | `marimo-notebook`; preserve project runtime, dependencies and selected tools |
+| A live marimo kernel and durable notebook mutation | Existing `marimo-pair`; file-authoring guidance cannot override live-session mutation authority |
+| Requested Jupyter conversion | `jupyter-to-marimo`; preserve source and verify converted behavior |
+| An actual browser/WASM deployment target | `wasm-compatibility`; distinguish native execution from browser qualification |
+| Chezmoi state, templates and scoped application | Original `chezmoi-operations`; repository runbooks retain installation and deployment policy |
+| PyInfra inventory, facts and deployment operations | Original `pyinfra-deployments`; target identity, operation semantics and verification stay explicit |
+| Python/Rust bindings, native packaging and runtime boundaries | Original `python-rust-interop`; project-selected PyO3, Rust, Python and build backend remain authoritative |
+| Selection, validation and lifecycle delivery | Existing native selector, current primary, QA and distribution owner |
+
+The three marimo roots come from one immutable official repository revision with
+complete resources, exact Apache-2.0 notices and reversible adaptations. The
+original methods use official documentation without redistributing unselected or
+license-unclear community trees. Versioned references are consulted on demand;
+installation does not install toolchains, start kernels, contact target hosts,
+run target deployment code or grant operational authority.
+
+The existing Visual Evidence boundary, interaction and deployment tables apply:
+source review precedes bounded selection, validation and exact installation.
+The ownership table above is the canonical boundary extension for this wave.
+State and schema remain unchanged; no dispatcher, registry schema or service is
+added. Quantitative claims require actual measurements and are not acceptance
+requirements for this expansion. Owner: lifecycle/distribution maintainer;
+update with bundle, authority, routing or delivery changes.
+
+**Text Equivalent (notebook/host/interop boundary):** Official complete marimo
+bundles and original documentation-grounded methods supply optional techniques.
+The live kernel retains notebook mutation authority; project policy retains
+versions, targets and tools. The existing primary and QA validate work, and the
+distribution owner installs exact reviewed guidance without activating tools or
+infrastructure. The table above owns this extension and changes with its scope.
