@@ -102,6 +102,7 @@ source execution bits and declared installed modes are separate facts.
 | `run_onchange_after_install-jfrog-cli.sh.tmpl` | Independent default-off, missing-only native binary installer; supported Darwin/Linux ARM64/AMD64 assets for 2.129.0 with reviewed SHA-256 |
 | CLI destination | Existing local-bin convention; refuse collisions/symlinks and preserve any existing selected CLI owner/version |
 | CLI check | Existing CLI >=2.106.0 qualifies; older CLI is preserved and reported unmet; isolated private home and reporting/version checks disabled |
+| Project enumeration cache API | `jfrog-init/scripts/lib/project-cache.mjs` keeps `readCachedProjectList(serverId, creds)` and `writeCachedProjectList(serverId, creds, body)` signatures; read returns `null`, write is a no-op, and neither accesses arguments or persistent state |
 | Native MCP/client config | No new entries, hook/plugin installation or authentication changes |
 
 | Selection/deployment handoff | Required evidence before proceeding |
@@ -127,6 +128,11 @@ regressions; then disjoint complete bundle adaptations and optional CLI owner;
 then primary-owned inventory/patch reconstruction, routing and documentation;
 finally integrated validation, exact deployment, native discovery and delivery.
 The primary alone owns lifecycle, shared inventory, integration and native writes.
+
+Project discovery retains its current cache-miss/live-enumeration branch and
+selected identity. Compatibility exports preserve caller shape while removing
+persistent credential-derived fingerprints. Source attribution, reversible helper
+patches, installed hashes and the project-matching guidance change together.
 
 ## Contract
 
