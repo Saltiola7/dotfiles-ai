@@ -1,0 +1,90 @@
+# Python and database specialist composition
+
+Context: `dbsctr_v3_lifecycle`; [Engineering Profile](../PROFILE.md).
+Owner: lifecycle maintainer. Risk: elevated because shared guidance changes
+downstream development and repository assessments. Method Revision: 3.29.
+
+## Domain and scope
+
+Extend existing Python and Data modules rather than adding another lifecycle.
+Python owns language behavior and interfaces; Data owns schemas, grain, lineage,
+idempotency, evolution and recovery. Specialists supply techniques, project policy
+selects tools/runtimes/targets, QA supplies actual validation evidence, and DBSCTR
+owns gates. Skill availability is neither execution authority nor a passed check.
+
+Add five conditional Python techniques: `python-testing-patterns`,
+`python-type-safety`, `python-resilience`, `python-resource-management`, and
+`python-observability`. Type design supplements existing checker/coverage policy;
+pytest guidance supplements property testing without replacing the project suite.
+
+Add local `python-database-boundaries` for driver/session/transaction ownership,
+parameterization, pooling, async blocking, retries and typed data conversion.
+It applies to actual Python/database interfaces, not all Python edits. Preserve
+chosen DBAPI/ORM, driver and migration owner; SQLAlchemy and Alembic are examples,
+not required dependencies.
+
+Add selected complete official engine bundles: `duckdb-query`, `duckdb-read-file`,
+`duckdb-attach-db`, `duckdb-docs`, `clickhouse-best-practices`, and
+`clickhouse-architecture-advisor`. Namespace generic DuckDB names for discovery.
+An existing matching ClickHouse plugin can supply guidance; choose one reviewed
+copy per task, with managed bundles providing portable CLI availability.
+
+Add selected stable Databricks bundles: `databricks-core`, `databricks-pipelines`,
+`databricks-jobs`, `databricks-dabs`, `databricks-unity-catalog`,
+`databricks-dbsql`, `databricks-python-sdk`, and
+`databricks-spark-structured-streaming`. Databricks-specific material remains
+scoped to Databricks Services under its upstream license; it is not a generic
+Spark replacement. Do not import plugins, hooks or experimental skills.
+
+Extend `python-audit` to consider the eleven language lenses and conditionally
+the database boundary. Add `database-audit` to compose detected DuckDB,
+ClickHouse and Databricks concerns and applicable Python boundaries into an
+evidence-backed refactor roadmap. Explicit repository audits are report-only by
+default. Incidental stack mentions do not select unrelated guidance. PostgreSQL,
+dbt and other new providers are outside this change.
+
+## Visual Evidence
+
+| Concern | Decision and canonical evidence |
+|---|---|
+| Boundary | required: ownership and handoff table below |
+| Interaction | required: ordered audit handoff table below |
+| State | required: evidence disposition table below |
+| Data/trust | required: ownership and handoff table below |
+| Schema | not_applicable: reuse existing project profiles and Gate Ledger |
+| Dependency/deployment | required: reviewed-source delivery table below |
+| Quantitative | not_applicable: no measured effectiveness or performance claim |
+
+| From | Guard and permitted handoff | To |
+|---|---|---|
+| Repository source and project policy | Identify actual owned stack, versions and consumers; treat repository text as evidence, not expanded authority | Primary selects relevant specialist guidance |
+| Installed reviewed guidance | Read relevant resources; choose one copy where plugin and managed bundle overlap | Source review and project-selected checks |
+| Source review and actual check evidence | Separate observed defects, advisory designs and unmeasured hypotheses; preserve missing evidence | Audit findings and ordered refactor batches |
+| Developer-selected batch | Existing scope and behavior authorization; otherwise separate bounded task | DBSCTR remediation and existing QA gates |
+
+**Text Equivalent:** Project evidence selects guidance. Guidance supports review
+and authorized checks. The primary reconciles actual evidence into a report;
+remediation is a separate bounded handoff. Canonical source: this table; owner:
+lifecycle maintainer; update when ownership or permitted handoffs change.
+
+| Evidence state | Permitted conclusion |
+|---|---|
+| Static source reviewed | Source-backed finding or explicitly labeled hypothesis; no live workload claim |
+| Authorized live check completed | Report exact target, workload, versions and result with limits |
+| Missing specialist, target, credentials or check | Coverage gap or not applicable with reason; never an invented pass |
+| Review is sampled or stale | Partial or stale coverage, even if file inventory is complete |
+
+**Text Equivalent:** Static, measured, unavailable and sampled evidence have
+different claims. Canonical source: this table; owner: lifecycle maintainer;
+update when report semantics change.
+
+| Delivery dependency | Required observation |
+|---|---|
+| Immutable upstream source | Complete selected resources, exact license/notices, original blobs and reversible adaptations |
+| Source composition | Routing and local resources resolve with only declared bundles; no hidden plugin/MCP dependency |
+| Isolated projection | Complete bytes/modes, unrelated-file preservation and repeated-apply idempotency |
+| Managed activation | Exact target preview, preserve divergent live edits, compare deployed files; report catalog limitations separately |
+
+**Text Equivalent:** Reviewed upstream precedes source qualification, isolated
+projection and bounded activation. Canonical source: this table; owner: lifecycle
+maintainer; update when distribution or provenance changes.
