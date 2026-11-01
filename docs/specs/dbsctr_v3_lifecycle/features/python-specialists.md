@@ -470,3 +470,20 @@ bundles retain Apache-2.0 and their Experimental status. Review adaptations acro
 supporting resources, including substantive examples, rather than changing only
 the entrypoint. No plugin hooks, authentication setup or unrelated skills are
 installed. User data, credentials and raw evaluation evidence remain private.
+
+### Behavior
+
+| Given / when | Required outcome |
+|---|---|
+| An ordinary edit has no selected framework, dataframe, fuzz, release or free-threaded concern | No new specialist is loaded just because Python is present |
+| Pydantic validates or serializes an actual external boundary | Preserve coercion/strictness, aliases, invalid inputs and exposed fields; do not replace internal domain models automatically |
+| A Polars transformation changes | Check actual schema, lazy execution, joins/null/order and output bounds; schema discovery may perform I/O; preserve selected engine |
+| A Typer CLI changes | Preserve commands/options, exit status, stdout/stderr, automation and existing framework/version conventions |
+| A FastAPI boundary changes | Check dependency/resource scope, response filtering and streaming; keep blocking work out of asynchronous handlers and preserve selected dependencies |
+| A coverage-guided fuzz target is selected | Preserve expected versus unexpected failures, instrument actual target code, bound resources/corpus/output and record crash reproduction; no live or unbounded campaign is implied |
+| A package release path is selected | Check source-distribution contents, built artifacts and installation/smoke evidence; publication remains a separately authorized effect |
+| A free-threaded target is selected | Check shared state and native dependencies, failed imports, actual GIL state and stress evidence; imports alone do not prove thread safety |
+| An explicit full or architecture-focused audit encounters these concerns | Select relevant additional methods within that scope, deduplicate findings and retain fourteen generic lenses |
+| Guidance/tools or relevant runtime are unavailable | Continue useful static assessment and disclose missing coverage; never convert missing evidence into a pass |
+| Shared live routing contains known notebook/Rust selectors | Preserve those selectors and unrelated bundles during this exact-target deployment |
+| Experimental release/no-GIL guidance is consulted | Disclose maturity and verify applicable recipes against project-selected versions and primary authorities |
