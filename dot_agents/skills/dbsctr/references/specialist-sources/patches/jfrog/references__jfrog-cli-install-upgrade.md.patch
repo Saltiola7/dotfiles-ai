@@ -1,0 +1,67 @@
+--- a/references/jfrog-cli-install-upgrade.md
++++ b/references/jfrog-cli-install-upgrade.md
+@@ -1,43 +1,25 @@
+-# JFrog CLI Install & Upgrade
++# JFrog CLI prerequisite and installer ownership
+ 
+-## Minimum version for skills
++The base `jf api` capability needs CLI 2.100.0 or later; the complete collection's
++setup workflow needs 2.106.0. A lower or missing CLI is an unmet prerequisite,
++not consent to replace the user's selected owner or install another runtime.
+ 
+-Skills that call `jf api` need JFrog CLI **2.100.0** or later; on an older CLI
+-`jf api` is an unknown command and the login flow stops. Web login itself needs
+-**2.86.0** or later. Check with `jf --version`; upgrade below that floor.
++For this distribution, use its optional default-off missing-only CLI installer
++when explicitly selected. It pins official 2.129.0 platform assets and hashes,
++qualifies in a private isolated CLI home and preserves existing installations.
++For another environment, first identify its actual installer and supported update
++workflow. An existing Homebrew/Mise/package-managed CLI stays with that owner.
++Do not add a second npm installation, alter global PATH or run a floating
++`curl | sh` installer from copied upstream instructions.
+ 
+-## Installing the JFrog CLI
++Updates are separate reviewed work: inspect release notes, exact asset integrity,
++compatibility, native owner and recovery before replacing anything. Do not issue
++a mandatory upgrade offer at the end of unrelated tasks or run network/cache
++version helpers on every skill load. Compatible existing versions need not match
++the distribution's bootstrap version.
+ 
+-If `jf` is missing (environment check exit 2), guide the user:
+-
+-```bash
+-# macOS
+-brew install jfrog-cli
+-
+-# Linux / generic
+-curl -fL https://install-cli.jfrog.io | sh
+-```
+-
+-Then run `jf --version` and
+-`node <skill_path>/scripts/check-environment.mjs <model-slug> --force` (no Node:
+-`bash …/check-environment.sh <model-slug> --force`).
+-
+-## Upgrading the JFrog CLI
+-
+-On `NEWER_AVAILABLE`, run
+-`node <skill_path>/scripts/cli-newer-version-offer.mjs --clear` (no Node 18+:
+-`bash …/cli-newer-version-offer.sh --clear`) immediately.
+-Never interrupt: finish the user's task first, then offer the upgrade as the
+-last line of the reply. Upgrade only after the user says Yes:
+-
+-```bash
+-# macOS
+-brew upgrade jfrog-cli
+-
+-# Linux / generic
+-curl -fL https://install-cli.jfrog.io | sh
+-```
+-
+-Then run `jf --version` and
+-`node <skill_path>/scripts/check-environment.mjs <model-slug> --force` (no Node:
+-`bash …/check-environment.sh <model-slug> --force`).
++When version qualification is the task, use the selected installer's supported
++metadata or a bounded isolated probe so normal CLI configuration/plugins and
++telemetry cannot execute as an unnoticed diagnostic side effect. CLI availability,
++server identity, authentication and a successful platform operation remain
++separate observations. See [local ownership](local-ownership.md).

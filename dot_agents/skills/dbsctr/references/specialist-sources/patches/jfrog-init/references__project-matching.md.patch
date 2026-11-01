@@ -1,0 +1,10 @@
+--- a/references/project-matching.md
++++ b/references/project-matching.md
+@@ -1,3 +1,7 @@
++# Local qualification boundary
++
++Legacy helper mechanics below are explanatory, not readiness proof. Actual current helpers can accept typed input without matching/validation; [resolution branches](project-resolution-branches.md) govern selection and honest evidence. Enumeration needs actual authorization; no credential export may reach output.
++
+ # Step 6 — project name-or-key resolution algorithm
+ 
+ Background for Step 6 of `/jfrog-init` (`SKILL.md`). The model doesn't
