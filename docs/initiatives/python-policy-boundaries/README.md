@@ -1,7 +1,8 @@
 # Python Policy Boundaries
 
-Status: approved staged context map; first PM source slice in Discovery. This
-Initiative is not an implementation, runtime activation, or lifecycle registration.
+Status: approved staged context map and first PM source contract. Implementation
+outcomes belong to the PM feature/changelog and registered Cycle Record. This
+Initiative does not activate a runtime or register a lifecycle cycle.
 Coordinator and home repository for every context: `Saltiola7/dotfiles-ai`.
 The existing dotfiles maintainer owns the plan; each existing context retains its
 domain, contracts and validation authority. Do not create a new Python framework
