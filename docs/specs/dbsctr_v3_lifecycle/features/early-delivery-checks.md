@@ -91,6 +91,20 @@ checks the current import closure. Reverting source restores previous ordering;
 it must not erase failed evidence or change existing approval records. No live
 instruction activation is claimed by source delivery.
 
+## PY-08 compatibility qualification amendment
+
+Distribution's [Python runtime contract](../../dotfiles_ai_distribution/features/python-runtime-qualification.md)
+selects standard CPython 3.15 as an additional weekly/manual full macOS target
+with Worktrunk 0.81.0. Implementation and candidate qualification are pending;
+the table above remains the current workflow until that source change lands.
+Build updates the existing canonical cadence table in the same candidate as the
+workflow. Qualification requires a passing exact-source full manual matrix.
+Preserve all current matrix members,
+PR/main 3.14 check identities, native protections, early authorities, failure
+behavior and timeouts. No floor, isolated runtime or advisory-default migration
+is selected. The linked feature owns this candidate's acceptance and gate plan;
+lifecycle publication and approval semantics remain unchanged.
+
 ## Visual Evidence
 
 | Concern | Decision |

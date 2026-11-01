@@ -123,6 +123,33 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 | Reranker Python closure | [Requirements input](specs/dbsctr_knowledge_store/DKS-003.reranker-requirements.in), [macOS ARM64 hash lock](specs/dbsctr_knowledge_store/DKS-003.reranker-macos-arm64-py312.lock) and [runtime/model manifest](../private_dot_config/dotfiles-ai/knowledge/reranker-space.json.tmpl) jointly own Python 3.12.11, torch 2.9.1, transformers 5.5.0, tokenizers 0.22.2 and safetensors 0.7.0. Preserve artifact/model revisions and activation benchmark boundaries; a different global Python or package set is not equivalent. |
 | Jira and native platform utilities | Jira `acli`, Git/gh, lsof, xz, native mount tools and Apple Swift/SDK are prerequisites with their existing platform owners. [Jira adapter](../dot_local/bin/executable_pm-jira.tmpl) and [Host build hook](../run_onchange_before_build-herdr-host.sh.tmpl) define consumers. Updating the CLI/compiler does not grant authentication, publication, signing, app registration or process-control authority. |
 
+### Python runtime review and qualification policy
+
+Distribution maintainers review every declared Python runtime family in the owner
+table monthly. Relevant upstream security releases or advisories trigger urgent
+out-of-cycle assessment and prioritized fix qualification through the same owner.
+This is a review expectation, not a scheduler or automatic installation policy.
+Preserve disabled features and use bounded metadata; do not start an optional
+runtime merely to complete the review.
+
+Distinguish the root metadata floor, actual qualified targets, exact source pins,
+installed interpreter and running-service identity. Review upstream support and
+the owner's dependency/artifact constraints; an exact patch or upper bound stays
+authoritative until that owner qualifies a coherent candidate. A root test pass
+does not qualify Dagger SDK/workload, either Graphify owner, reranker, DVC, Hermes,
+PR-Agent or security-toolkit runtimes. Host prerequisites retain native ownership.
+
+Retain review date, evidence, affected family, disposition, owner and next review
+condition in existing private maintenance/lifecycle evidence. Missing qualification
+or an unresolved security fix remains visible; it is not an implicit exception.
+Use this runbook's existing candidate, recovery and activation procedures.
+
+[PY-08](specs/dotfiles_ai_distribution/features/python-runtime-qualification.md)
+defines the pending root 3.15 weekly/manual qualification addition. The current
+workflow still ends at 3.14; its PR/main jobs, 3.12 floor and isolated runtime pins
+remain unchanged until a scoped source change passes qualification. CI adoption
+does not grant installation, restart, minor-version migration or fleet authority.
+
 ### Platform and lock distinctions
 
 - The October 2026 Node security releases are 22.23.4, 24.22.1 and 26.12.1.

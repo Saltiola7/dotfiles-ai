@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "id": "python-runtime-qualification",
+  "title": "PY-08 Python runtime policy and root compatibility qualification",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "decision",
+      "text": "One distribution context owns source policy and root qualification in the existing repository; adjacent runtime owners retain their interfaces and pins.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "kind": "constraint",
+      "text": "Retain the root Python 3.12 metadata floor, current Python 3.14 PR/main authority, native protections and every existing compatibility member.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "kind": "requirement",
+      "text": "Add standard CPython 3.15 to weekly/manual full macOS qualification with Worktrunk 0.81.0; preserve independent results, current authorities and timeouts.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "kind": "decision",
+      "text": "Review all declared Python runtime owners monthly and assess relevant security releases or advisories urgently, with prioritized fix qualification through the existing owner.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-005",
+      "kind": "constraint",
+      "text": "Preserve all isolated and deployed runtime pins, locks, installers, disabled states and activation boundaries; root qualification establishes no isolated runtime qualification.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "kind": "requirement",
+      "text": "Keep the existing update runbook as the canonical installer inventory and use its candidate, recovery and separately approved activation procedures.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-007",
+      "kind": "requirement",
+      "text": "Repair only demonstrated root 3.15 compatibility issues while preserving 3.12 behavior, credential isolation and security assertions; the known credential fixture needs supported module loading.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-008",
+      "kind": "requirement",
+      "text": "Require explicit requested/observed interpreter identities, frozen root lock evidence, focused oldest/newest regressions, an exact-source full manual candidate matrix and all current required checks before qualification.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-009",
+      "kind": "non-goal",
+      "text": "No support-floor increase, PR promotion, experimental interpreter target, dependency upgrade, checker migration, new runtime manager, registry, updater, scheduler or live environment activation is selected.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-010",
+      "kind": "risk",
+      "text": "Additional dependency or fixture incompatibilities, wrong child interpreter, runtime cost and optional skips remain qualification risks; failures are preserved without broad skips or invented passes.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-011",
+      "kind": "constraint",
+      "text": "Preserve unmerged Discovery authority and import the complete changed-document closure through the existing receipt/preflight route from a clean approved-base Build checkout; exact launch approval precedes registration.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    },
+    {
+      "id": "INT-012",
+      "kind": "requirement",
+      "text": "On compatibility regression preserve failed evidence, prioritize bounded repair and rerun the full matrix; review completion and maintenance handoff use existing private lifecycle evidence.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "id": "dotfiles_ai_distribution",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    }
+  ],
+  "slices": [
+    {
+      "id": "root-source",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-001",
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-009",
+        "INT-010",
+        "INT-011",
+        "INT-012"
+      ],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/python-runtime-qualification/README.md",
+        "docs/initiatives/python-runtime-qualification/SOURCE.plan.json",
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md",
+        "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+        "docs/specs/dotfiles_ai_distribution/README.md",
+        "docs/UPDATES.md",
+        "docs/specs/dbsctr_v3_lifecycle/features/early-delivery-checks.md"
+      ],
+      "release_group": "root-source"
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "root-source",
+      "members": [
+        "root-source"
+      ],
+      "state": "ready"
+    }
+  ]
+}

@@ -24,3 +24,18 @@ cycle overrides. New cycles use this file as their Engineering Profile.
 `features/native-platform-updates.md` defines approved successor update ownership.
 Existing lock-gated deployments remain until qualified transition; this profile
 revision does not change recorded authority of an already registered cycle.
+
+## Python runtime review and qualification
+
+[Python runtime qualification](features/python-runtime-qualification.md) defines
+monthly owner review and urgent security intake through `docs/UPDATES.md`, which
+remains the canonical installer inventory. The root floor stays `>=3.12`.
+PY-08 proposes an additional standard CPython 3.15 weekly/manual compatibility
+target while retaining current 3.14 PR/main authority. Implementation and full
+candidate qualification are pending; no installed or isolated runtime pin changes.
+
+The PY-08 cycle is elevated risk, uses Python and Security, and delivers source
+and hosted CI changes only. Kernel, Review/Integrate and Maintain/Retire gates
+are required. Release, Deploy and Operate are not applicable because no separately
+versioned artifact or managed runtime activation is selected. Existing source,
+platform and owner-specific runtime obligations remain unchanged.
