@@ -32,6 +32,7 @@ canonical family/installer inventory; this feature adds policy, not a registry.
 | PY08-06 | Use the existing runbook and installer owners for candidate selection, qualification, recovery and separately approved activation |
 | PY08-07 | Allow only compatible source/test repairs demonstrated necessary for root 3.15 qualification; retain 3.12 behavior and security/isolation assertions |
 | PY08-08 | Record requested and observed interpreter, lock identity, platform, source revision, command, outcome and skips; unavailable evidence is not a pass |
+| PY08-09 | Close Test-driven implementation on local red/green and oldest/newest regressions; require the exact-source hosted matrix and PR checks at Review/Integrate, with one explicitly approved validation-only candidate push before that gate passes |
 
 The distribution owns this single delivery slice and the hosted workflow.
 Lifecycle owns early publication semantics; its existing cadence document must
@@ -113,6 +114,8 @@ Acceptance requires:
 4. At least one complete manual candidate matrix succeeds on the exact candidate
    source before declaring the added target qualified. The current exact-head
    PR jobs and other required checks also pass; no protection migration occurs.
+   This is mandatory Review/Integrate evidence, after the candidate is published
+   for validation. Local evidence alone cannot dispose that gate.
 5. Record deselected/skipped optional native workloads and their reasons. Root
    qualification does not claim real Dagger/SDK, model/MPS, Graphify, DVC, scanner,
    guest or remote-runtime qualification from mocks or skipped tests.
@@ -154,6 +157,37 @@ The implementation evidence must distinguish intentional red, local old/new
 regressions, hosted full-matrix results and optional native skips. Passing local
 source checks does not establish hosted 3.15 qualification.
 
+### Candidate publication and qualification sequence amendment
+
+The original gate ledger placed hosted qualification inside Test-driven
+implementation. A remote candidate is needed to run that workflow, while native
+Gate Commit and Final Push require their associated gates to be disposed first.
+This ordering cannot be satisfied by declaring local checks to be hosted evidence.
+
+The sequence amendment preserves every acceptance requirement and changes only
+when validation publication may occur:
+
+1. Record intentional red, passing local oldest/newest regressions and affected
+   source validation, then close Test-driven implementation and make its normal
+   Gate Commit. Complete the passing local Refactor work and its Gate Commit.
+2. With explicit operator approval for this amendment, push only the recorded
+   candidate feature branch normally and create its draft PR for CI. Request the
+   manual candidate matrix on that exact branch. This is validation publication,
+   not Final Push or cycle completion. Do not change the protected upstream,
+   force-push, mark 3.15 qualified or dispose Review/Integrate prematurely.
+3. Keep Review/Integrate pending or failed until its required exact-source hosted
+   matrix and current PR checks pass. Retain failed evidence and repair only
+   within approved scope; changed candidates need fresh applicable evidence.
+4. After Review/Integrate and Maintain/Retire pass, perform ordinary native Final
+   Push to verify/update the same feature branch and draft PR. All required gates
+   still precede lifecycle completion. No gate exception or evidence waiver is
+   introduced.
+
+Before using this sequence, amend the active Initiative through its native fresh
+receipt/preflight and exact approval route. Preserve the original import,
+registration approval, prior Gate Commits and failed evidence. Native amendment
+reopens required gates; execute fresh evidence under the amended authority.
+
 ## Current evidence and open risks
 
 | Qualification state | Guard and next action |
@@ -192,9 +226,9 @@ remains open for this bounded scope; implementation evidence remains pending.
 | Behavior | required | pending: retain the scenarios above and precise failure cases |
 | Spec | required | pending: define the minimal workflow/fixture change |
 | Contract | required | pending: enforce runtime selection and unchanged protections/pins |
-| Test-driven implementation | required | pending: focused regression, old/new runtimes and full candidate matrix |
+| Test-driven implementation | required | pending: intentional red, passing local focused regression and old/new runtimes |
 | Refactor | required | pending: remove only justified duplication without expanding scope |
-| Review/Integrate | required | pending: exact-head review, source publication and existing native checks |
+| Review/Integrate | required | pending: exact-head review, source publication, full hosted candidate matrix and existing native checks |
 | Release | not_applicable | No package, wheel, model or separately versioned release artifact is published |
 | Deploy | not_applicable | Source/CI delivery only; no managed host, guest, SDK, service or tool activation |
 | Operate | not_applicable | No live service/runtime operation or new availability commitment |

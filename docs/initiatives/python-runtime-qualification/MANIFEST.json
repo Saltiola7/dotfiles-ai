@@ -71,7 +71,7 @@
     {
       "id": "INT-008",
       "kind": "requirement",
-      "text": "Require explicit requested/observed interpreter identities, frozen root lock evidence, focused oldest/newest regressions, an exact-source full manual candidate matrix and all current required checks before qualification.",
+      "text": "Require explicit requested/observed interpreter identities and frozen root lock evidence. Local red/green and oldest/newest regressions dispose Test; exact-source full hosted manual matrix and current PR checks remain required Review/Integrate evidence before qualification or cycle completion.",
       "disposition": "ready",
       "artifacts": [
         "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
@@ -112,6 +112,16 @@
       "artifacts": [
         "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md"
       ]
+    },
+    {
+      "id": "INT-013",
+      "kind": "decision",
+      "text": "Permit one explicitly approved validation-only normal push of the recorded candidate feature branch and draft PR after local Test/Refactor Gate Commits, while Review/Integrate remains open for mandatory hosted matrix and PR checks. Final Push still requires all applicable gates; no exception, force push, protected-base write or qualification waiver is selected. Apply this ordering only after exact native Initiative amendment approval.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/python-runtime-qualification.md",
+        "docs/initiatives/python-runtime-qualification/README.md"
+      ]
     }
   ],
   "contexts": [
@@ -140,7 +150,8 @@
         "INT-009",
         "INT-010",
         "INT-011",
-        "INT-012"
+        "INT-012",
+        "INT-013"
       ],
       "depends_on": [],
       "artifacts": [

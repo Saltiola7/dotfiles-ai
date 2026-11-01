@@ -29,7 +29,7 @@ The existing update runbook remains the canonical installer/procedure inventory.
 | Statements | Scope and canonical coverage |
 |---|---|
 | INT-001, INT-002 | Single distribution ownership, retained floor and current PR authority; feature scope/ownership and Engineering Profile |
-| INT-003, INT-008 | Weekly/manual 3.15, full exact-source qualification and existing required checks; feature acceptance and existing cadence amendment |
+| INT-003, INT-008, INT-013 | Weekly/manual 3.15, full exact-source qualification, existing required checks and validation-publication order; feature acceptance/sequence amendment and existing cadence amendment |
 | INT-004, INT-006, INT-012 | Monthly/urgent review, existing owner procedures and regression recovery; update runbook and feature maintenance contracts |
 | INT-005, INT-009 | Preserved isolated pins, activation boundaries and non-goals; feature runtime boundary and scope |
 | INT-007, INT-010 | Demonstrated compatible repairs and qualification risks; feature porting evidence and acceptance |
@@ -71,6 +71,13 @@ selection and demonstrated compatible fixture/source repairs. Preserve 3.14
 PR/main, root 3.12, all isolated pins and every security assertion. Complete the
 focused oldest/newest regression, exact-source full manual matrix and existing
 required checks before qualification. No runtime owner upgrade is delegated.
+
+The feature's sequence amendment addresses hosted CI's need for a published
+candidate. After exact native amendment approval, local TDD/oldest-newest checks
+dispose Test, then recorded Gate Commits may receive one normal candidate branch
+push/draft PR solely for validation. Review/Integrate stays open until the full
+hosted matrix and current PR checks pass. Final Push and cycle completion still
+require every applicable gate; no evidence waiver or Gate Exception is selected.
 
 ## Visual Evidence
 
