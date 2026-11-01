@@ -24,6 +24,30 @@
   feature branch/draft PR to `main`, followed by requested ordinary merge after
   fresh native CI and protections; final closure records actual outcome.
 
+## 2026-10-31 — Repository-wide Python audit
+
+- Added `python-audit`, a report-only entrypoint composing all six current Python
+  specialists and existing QA. It records snapshot/environment and actual lens
+  coverage, separates defects from opinions/options/hypotheses, and returns ordered
+  refactor batches with compatibility, tradeoffs and validation. Remediation stays
+  separately scoped; vendored bundles and provenance are unchanged.
+- Packaging regression failed for the absent wrapper before implementation.
+  Affected QA and all seven skill-creator entrypoint validations passed. Isolated
+  delivery verified complete dependencies, resource closure, unrelated-state
+  preservation and repeated-apply idempotency.
+- Independent synthetic exercises covered a full six-lens review of eleven Python
+  artifacts and a sampled review with a missing performance skill. Both exposed
+  concrete contract defects, preserved policy and target bytes, and distinguished
+  review coverage from unrun checks and unmeasured performance. They establish no
+  broad effectiveness gain; reports and actual results remain private evidence.
+- Installed three wrapper files plus the existing specialist-guide update through
+  two exact targets. All 46 composition files matched source and repeated apply
+  produced an empty diff. Native client selector refresh remains unverified.
+- Implementation Gate Commit: `48ab56d`. Intended Final Push: feature branch and
+  draft PR into `main`; actual delivery is recorded in the Cycle Record. No Gate
+  Exception or target-repository remediation. Recovery restores the prior guide
+  and reviewed wrapper generation through the same distribution owner.
+
 
 ## 2026-10-31 — Conditional platform and language specialists
 

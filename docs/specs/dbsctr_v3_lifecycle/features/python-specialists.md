@@ -40,7 +40,7 @@ retain their existing evidence requirements even when a preferred skill is absen
 |---|---|
 | Boundary | required: ownership table above |
 | Interaction | required: selection and return table added with interfaces |
-| State | not_applicable: no new state machine; existing lifecycle retains ownership |
+| State | required: audit coverage/disposition table in Audit interfaces; existing lifecycle retains gate ownership |
 | Data/trust | required: source and evidence transfer table added with contracts |
 | Schema | not_applicable: source inventory is provenance, not a new domain entity |
 | Dependency/deployment | required: delivery dependency table added with contracts |
@@ -54,7 +54,64 @@ are this feature, the Python module and the reviewed source inventory. Owner:
 lifecycle and distribution maintainers. Update these tables whenever represented
 selection, authority, evidence or delivery boundaries change.
 
+## Repository-wide audit domain
+
+`python-audit` is a standalone assessment entrypoint for existing repositories.
+An explicit full audit considers all six specialist lenses, inventories owned
+Python across production code, tests, scripts, stubs and notebooks, and returns
+evidence-backed recommendations and an ordered refactoring roadmap. It retains
+one primary and reuses QA for configured validation. The target repository is
+report-only unless the user separately requests artifact writing or remediation.
+
+An audit finding can be a confirmed defect, design recommendation, modernization
+option or performance hypothesis. Specialist opinion is advisory evidence, not a
+project requirement. The audit can challenge an existing design or propose a tool
+or runtime migration while preserving the distinction between a proposal and an
+authorized implementation. Findings identify compatibility costs and reasons to
+retain a sound existing approach. Audit completion and a clean validation result
+are independent outcomes.
+
+The audit composes the original four skills with the existing
+`async-python-patterns` and `python-modernization-review` skills. Async review
+checks task, cancellation and resource contracts; modernization review owns
+runtime/support and architectural-debt assessment using current primary sources.
+
+The wrapper owns scope, lens coverage, deduplication and synthesis. Existing
+specialists own techniques, the project owns policy and environments, QA owns
+executed validation evidence, and DBSCTR owns subsequent behavior changes. The
+existing bundles and their source inventories remain unchanged.
+
 ## Behavior
+
+### Audit behavior
+
+- Given an explicit repository-wide Python audit, the primary assesses all six
+  specialist lenses and reports actual scope, evidence and a prioritized roadmap.
+  Ordinary scoped development does not automatically start this audit.
+- Given existing project policy, the audit distinguishes compatible improvements
+  from proposals that change tooling, runtime support or public contracts. It may
+  recommend a change with tradeoffs; the recommendation does not authorize it.
+- Given a static performance concern without representative measurements, the
+  report labels a hypothesis and proposes validation, without claiming a measured
+  bottleneck, speedup or performance acceptance.
+- Given useful input/state invariants, the audit proposes concrete properties and
+  generators; missing Hypothesis alone is not a defect. Suitable example tests
+  and sound existing architecture can be explicit retain decisions.
+- Given a newer Python feature, the report checks the supported runtime floor,
+  verifies version/support claims against official sources when available, and
+  separates compatible modernization from a proposed floor increase.
+- Given nested projects, notebooks, dirty or untracked source, the audit records
+  the reviewed snapshot and owning environments. Inventory is distinct from
+  inspected coverage; sampling and unreviewed units remain visible.
+- Given a missing specialist, unavailable configured check or unsupported input,
+  the audit continues useful available work and reports the gap. It cannot claim
+  complete all-lens coverage or a passing validation authority it did not observe.
+- Given report-only audit intent, the primary produces findings and refactor
+  batches without source edits, auto-fixes, dependency installation or tool
+  migration. File output follows user-selected artifact authority; remediation
+  follows a separate bounded task and applicable DBSCTR gates.
+
+### Development selection
 
 - Given an ordinary Python bug fix with no affected architecture, invariant,
   performance concern or tooling change, the primary proceeds without loading
@@ -130,8 +187,79 @@ bounded result and decides how it changes the existing artifacts. QA remains the
 evidence authority. The table is canonical for trigger/checkpoint relationships;
 maintainers update it with corresponding routing changes.
 
+## Audit interfaces
+
+The new bundle is `dot_agents/skills/python-audit/`, containing `SKILL.md`,
+`agents/openai.yaml` and `references/report.md`. The entrypoint resolves the six
+existing specialist skills through the native catalog or their managed sibling
+paths. It loads entrypoints for assessment and relevant resources progressively;
+it does not duplicate their bodies or change their pinned files. Existing QA is
+the validation owner. A short link in `references/python-specialists.md` exposes
+the explicit audit route without changing ordinary development selection.
+
+Example request: `Use $python-audit to audit this repository across all six Python
+lenses and propose prioritized refactor batches.` The repository defaults to the
+current target; an explicit package or concern narrows the reported scope.
+
+The report identifies the source commit and dirty-overlay treatment, supported
+runtimes and environments, inventory/dispositions, per-component lens coverage,
+configured check results, deduplicated findings and an ordered roadmap. Each
+finding includes location, category, evidence, impact, confidence, proposed change,
+tradeoffs, compatibility and validation. Effort estimates are labeled estimates.
+Output defaults to the conversation; saving a report uses the user's requested
+path or existing project artifact authority. Audit intent does not create tickets
+or a new repository-root documentation hierarchy.
+
+| Handoff | Owner and output |
+|---|---|
+| Project source and policy to inventory | Primary records reviewed snapshot, artifact population and owning environments |
+| Inventory to specialist assessment | Same primary considers six lenses; bounded read-only helpers may report independent evidence |
+| Configured authorities to findings | QA reports actual scope, child results and unavailable capabilities |
+| Findings to roadmap | Primary deduplicates root causes and separates defects, recommendations, migration options and hypotheses |
+| Roadmap to implementation | User selects bounded work; existing DBSCTR handles applicable behavior changes |
+
+| Audit disposition | Required report meaning |
+|---|---|
+| Complete for declared scope | All selected units/lenses assessed or explicitly justified as not applicable; debt and validation failures can remain |
+| Partial | Sampled/unreviewed units, missing lenses or unavailable evidence limit the stated assessment; do not claim full repository coverage |
+| Not applicable | No owned Python in the declared scope; zero units is not 100% coverage |
+
+**Text Equivalent (audit):** The primary inventories project-owned source, uses
+the six existing techniques and QA results, then returns a report and roadmap.
+The user selects implementation separately. Audit disposition describes assessment
+coverage, while validation retains its actual result. Canonical source: these
+tables and the report reference. Owner: lifecycle/skill maintainer. Update when
+audit scope, evidence fields or handoff responsibilities change.
+
 ## Contracts and Validation
 
+- The explicit audit considers all six installed entrypoints as assessment
+  lenses; loading a recipe does not select its migration or authorize execution.
+  Missing lenses stay visible and preclude a complete all-lens claim.
+- Inventory covers owned Python, stubs, tests, scripts and notebooks with nested
+  environments and generated/vendor/archive dispositions. Record actual inspected
+  coverage per component/lens; sampled units and unchecked cells remain gaps.
+  A clean configured check does not prove architectural review or full coverage.
+- Opinionated recommendations need concrete source evidence, tradeoffs and a
+  retain alternative where appropriate. Existing tools, older supported syntax,
+  example-only tests or a heuristic threshold violation are not defects alone.
+- Version-specific modernization records its minimum runtime and compatibility
+  cost. Current feature/support assertions use official Python/tool sources or
+  remain explicitly unverified. Do not fetch moving skill bodies during an audit.
+- Performance hypotheses remain distinct from representative measurements and
+  acceptance. Property-testing proposals identify meaningful invariants and input
+  strategies without treating library absence as a failure.
+- Audit output defaults to the conversation. Run only existing authorized checks
+  through QA, without auto-fix flags or source/dependency/environment mutation.
+  Notebook execution, new tools, production profiling and expensive workloads
+  require their own applicable authority. Missing evidence remains a limitation.
+- Roadmap batches name affected components, behavior/compatibility constraints,
+  dependencies, effort/risk assumptions and validation. The audit does not start
+  implementation, invent Gate Exceptions or create a second lifecycle ledger.
+- Validate complete isolated installation of the wrapper and its actual resource
+  dependencies, file/link closure and idempotency. Forward-test a realistic audit
+  plus missing-dependency/coverage limits independently; retain synthetic reports
+  privately and make no broad effectiveness claim from these cases.
 - User scope and the project Engineering Profile control supported runtimes,
   selected tools, dependencies, compatibility, test strategy and acceptance
   thresholds. Recipes and numeric heuristics are examples, not universal gates.
@@ -194,8 +322,9 @@ or skill effectiveness. Canonical evidence: inventory, patches, focused tests an
 private cycle deployment receipts. Update these tables when source, context,
 authority or deployment dependencies change.
 
-Focused authority: `uv run --group test pytest tests/test_python_specialists.py
+Focused authority: `uv run --group test pytest tests/test_python_audit.py tests/test_python_specialists.py
 tests/test_dbsctr_lifecycle.py tests/test_portable_distribution.py`. Run the
-original skill creator validator on all four new skill entrypoints. The existing
-DBSCTR entrypoint is unchanged. Keep independent behavioral evaluation artifacts
+original skill creator validator on the six Python specialist entrypoints and
+the audit wrapper. The existing DBSCTR entrypoint is unchanged. Keep independent
+behavioral evaluation artifacts
 and actual deployment/merge evidence in the cycle; publish only sanitized outcomes.

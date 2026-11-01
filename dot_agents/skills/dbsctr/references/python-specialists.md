@@ -6,6 +6,12 @@ runtimes, dependencies, compatibility and acceptance criteria.
 
 ## Apply the selected technique
 
+For an explicitly requested repository-wide Python assessment, use `python-audit`.
+It considers all six Python lenses, records actual review and QA coverage, and
+returns opinionated findings plus ordered refactor batches. Audit intent does not
+select a migration or authorize remediation. Ordinary development continues with
+the conditional selection below.
+
 The [Python module's conditional controls](../modules/python.md#conditional-controls)
 own the canonical trigger/checkpoint table. Read these notes only when their
 method tradeoff or maintenance detail is relevant to the current question.

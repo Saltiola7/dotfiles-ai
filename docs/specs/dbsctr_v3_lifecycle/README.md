@@ -16,6 +16,10 @@ comparison demonstrated no end-to-end token saving.
 [Conditional Python specialists](features/python-specialists.md) defines bounded
 selection of design, property-testing, profiling and tooling guidance. The Python
 module routes; project policy and existing lifecycle/QA authorities retain control.
+The standalone `python-audit` entrypoint composes all six current Python lenses
+for explicitly requested repository assessments and ordered refactor roadmaps.
+Its [audit contract](features/python-specialists.md#audit-interfaces) separates
+review coverage, validation results and later implementation.
 
 Codex CLI and Desktop can use the shared lifecycle from the current conversation
 by targeting a validated Worktrunk task checkout explicitly. Repository commands
