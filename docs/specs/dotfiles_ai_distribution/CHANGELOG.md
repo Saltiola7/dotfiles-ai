@@ -1,5 +1,32 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-01 — Python runtime policy and 3.15 CI candidate
+
+- Added standard CPython 3.15 to weekly/manual full macOS validation. PR/main
+  retain 3.14, the root floor remains 3.12, and every isolated runtime pin and
+  installer owner stays unchanged. Root commands use the frozen lock and an
+  explicit interpreter; root/child identity and lock evidence precede pytest.
+- Replaced the removed module-loader API in the synthetic credential-child
+  fixture while preserving isolation and secret-output assertions. Workflow
+  regressions cover event-specific job sets and wrong/missing interpreters.
+- Local source checks passed 94 tests with one optional native skip on both
+  Python 3.12 and 3.15; all 22 transport tests passed on 3.15. Full exact-source
+  hosted matrix and current PR checks remain required before Review/Integrate
+  and completion; their actual results belong to the private Cycle Record.
+- Real local runtime probes recorded Python 3.12.15 and 3.15.0 with matching
+  PATH-selected children and one unchanged frozen-lock digest. These observed
+  patch versions are evidence, not new deployment pins.
+- Reconciled current main while retaining both changes’ documentation. Affected
+  publication, lifecycle, transport, scheduler, JFrog and validation-storage tests
+  pass on Python 3.15; hosted results remain bound to the exact tested revision.
+- The canonical update runbook adds monthly owner review and urgent security
+  intake, without a scheduler, automatic upgrade or live activation. No Gate
+  Exception selected; the exact-approved sequence amendment preserves failures
+  and permits candidate CI publication while Review/Integrate stays open.
+- Gate Commits and actual push results remain in private cycle evidence. Intended
+  Final Push: `feat/python-runtime-qualification`, draft PR into
+  `Saltiola7/dotfiles-ai:main`. No installation, deployment or restart is selected.
+
 ## 2026-11-01 — Complete JFrog specialist setup
 
 - Added all seven official Apache-2.0 skill roots at immutable revision

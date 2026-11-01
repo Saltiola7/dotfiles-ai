@@ -613,8 +613,11 @@ raise SystemExit(module.main())
     @unittest.skipUnless(os.name == "posix", "native home binding requires POSIX account records")
     def test_isolated_credential_child_uses_os_home_without_restoring_git_environment(self):
         code = r'''
-import importlib.machinery, io, json, os, pwd, sys
-m = importlib.machinery.SourceFileLoader('isolated_credential', sys.argv[1]).load_module()
+import importlib.machinery, importlib.util, io, json, os, pwd, sys
+loader = importlib.machinery.SourceFileLoader('isolated_credential', sys.argv[1])
+spec = importlib.util.spec_from_loader(loader.name, loader)
+m = importlib.util.module_from_spec(spec)
+loader.exec_module(m)
 def lookup(query):
     assert os.environ['HOME'] == pwd.getpwuid(os.getuid()).pw_dir
     assert os.environ['XDG_CONFIG_HOME'] == sys.argv[2]
@@ -629,7 +632,7 @@ assert m.forgejo_internal_main(['_forgejo-credential','--identity-json',json.dum
         environment = self.core._forgejo_environment(self.directory.name)
         result = subprocess.run([sys.executable, "-I", "-B", "-c", code, str(SCRIPT), self.directory.name],
                                 env=environment, capture_output=True, text=True, timeout=10)
-        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
         self.assertEqual(result.stdout, self.basic_response())
         self.assertEqual(environment["HOME"], self.directory.name)

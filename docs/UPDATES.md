@@ -103,7 +103,7 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 | Herdr | Chezmoi owns the version/protocol/asset URL/SHA-256 tuple in [defaults](../.chezmoidata.toml), with selected local TOML overrides. Review/update the coherent tuple for each supported architecture, installers and matching skill; this is not a `herdr update` command. The [macOS installer](../run_onchange_before_install-herdr.sh.tmpl) checks the asset, version and server protocol, then uses supported live handoff without killing/restarting panes. It refuses incompatible clients, missing handoff support or more than 64 panes. The [Linux installer](../run_onchange_after_install-00-remote-herdr.sh.tmpl) refuses an executable upgrade while its server is active; defer to a separately approved maintenance plan, not an automatic stop. See the operational hold below. |
 | Worktrunk | Homebrew owns the Mac executable. The source validator supports exact **0.80.0 and 0.81.0 on macOS**, and only **0.80.0 on Linux**; activation binds the actual version. The macOS bundle hook requires and pins 0.81.0 before non-upgrading reapply. [Linux workstation](../run_onchange_after_install-workstation-tools.sh.tmpl) and [guest/remote](../run_onchange_after_install-guest-development-tools.sh.tmpl) remain on checksum-pinned 0.80.0. [CI](../.github/workflows/test.yml) exercises both Mac versions. Follow [Worktrunk on macOS](#worktrunk-on-macos); source support does not activate a host. |
 | Homebrew and host prerequisites | Brewfile contains only the Anomaly tap, `mise` and `worktrunk`; it is not a complete host inventory. Chezmoi, Git, Python, uv, Bun, Lima and other preinstalled host prerequisites retain their actual native installation owner unless a source installer explicitly owns them. Review each owner's supported update procedure separately; no blanket Brew/OS upgrade or second competing installer. |
-| Python / uv / Bun / CI | [pyproject.toml](../pyproject.toml) requires Python >=3.12 and a pytest test group; [uv.lock](../uv.lock) owns its resolved transitive test dependencies. Review constraints and regenerate/review the lock together when changing that family; updating uv itself is separate from updating this lock. [CI](../.github/workflows/test.yml) owns Python 3.12–3.14, Node 26.12.1, Node-24-based setup actions, Bun 1.4.4 and the separate `opencode-ai@1.19.4` test fixture. Those are not live OpenCode pins or permission for a global Bun upgrade. Review the [CentOS workflow](../.github/workflows/centos-remote-user.yml) independently. |
+| Python / uv / Bun / CI | [pyproject.toml](../pyproject.toml) requires Python >=3.12 and a pytest test group; [uv.lock](../uv.lock) owns its resolved transitive test dependencies. Review constraints and regenerate/review the lock together when changing that family; updating uv itself is separate from updating this lock. [CI](../.github/workflows/test.yml) selects Python 3.14 for PR/main and 3.12–3.15 for weekly/manual compatibility, with frozen explicit interpreter selection. It retains Node 26.12.1, Node-24-based setup actions, Bun 1.4.4 and the separate `opencode-ai@1.19.4` test fixture. Those are not live OpenCode pins or permission for a global Bun upgrade. Review the [CentOS workflow](../.github/workflows/centos-remote-user.yml) independently. |
 | Optional Hermes | Disabled by default. [Installer](../run_onchange_before_install-hermes.sh.tmpl) pins Hermes 0.19.0 wheel/SHA and Python 3.13.16 and rejects unsupported existing versions. README documents manual `hermes update --backup` followed by profile health verification, but a newer version can conflict with that installer guard. Reconcile/requalify the source pin before approved maintenance; do not promise any latest release works on reapply. Preserve the backup and authenticate only interactively in that environment. |
 | Lima, guest OS and remote user | [Lima template](../private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl) selects Fedora 44, minimum Lima 2.1.4, and separately pinned guest Herdr 0.9.1/chezmoi 2.69.4 assets; changing host TOML does not update those literals. [Guest/remote installer](../run_onchange_after_install-guest-development-tools.sh.tmpl) owns pinned Compose, Worktrunk, 1Password CLI and gcloud assets. Guest OS packages use the guest package owner; host Lima uses its installed owner. Guest recreation, OS updates and remote activation are separate reviewed work, not host dependency refresh. Never boot, recreate or update every guest/remote automatically. |
 | Optional local Dagger shadow | Distribution's [explicit local-engine bootstrap](../private_dot_config/dotfiles-ai/continuous_validation/local_engine.py) owns a private checksum-pinned Dagger 0.21.10 CLI, the isolated locked Python SDK environment, and one dedicated 2-CPU/4-GiB Lima worker. `continuous-validation engine plan` is read-only; only `engine setup --enable-shadow` installs or starts this optional worker. Its Fedora image, Dagger engine, and Python/uv image are digest-pinned; rootful Podman is confined to this worker, with no host mounts or SSH-agent forwarding and a private Unix socket. Existing agent guests keep their rootless policy. Ordinary checks never provision the host CLI/SDK or start a VM; repository-owned uv commands may sync their frozen workload environments. Reuse requires the owned stamp and unchanged configuration; version drift requires reviewed requalification. This source route is not evidence of a deployed or qualified engine. |
@@ -123,6 +123,35 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 | Optional Atuin server | [Quadlet](../private_dot_config/containers/systemd/atuin.container) pins Atuin 18.17.1 by image digest and stores SQLite state. This is distinct from the platform's Atuin client owner; changing a client does not update or qualify the server. Preserve server data and review compatibility before container replacement. |
 | Reranker Python closure | [Requirements input](specs/dbsctr_knowledge_store/DKS-003.reranker-requirements.in), [macOS ARM64 hash lock](specs/dbsctr_knowledge_store/DKS-003.reranker-macos-arm64-py312.lock) and [runtime/model manifest](../private_dot_config/dotfiles-ai/knowledge/reranker-space.json.tmpl) jointly own Python 3.12.11, torch 2.9.1, transformers 5.5.0, tokenizers 0.22.2 and safetensors 0.7.0. Preserve artifact/model revisions and activation benchmark boundaries; a different global Python or package set is not equivalent. |
 | Jira and native platform utilities | Jira `acli`, Git/gh, lsof, xz, native mount tools and Apple Swift/SDK are prerequisites with their existing platform owners. [Jira adapter](../dot_local/bin/executable_pm-jira.tmpl) and [Host build hook](../run_onchange_before_build-herdr-host.sh.tmpl) define consumers. Updating the CLI/compiler does not grant authentication, publication, signing, app registration or process-control authority. |
+
+### Python runtime review and qualification policy
+
+Distribution maintainers review every declared Python runtime family in the owner
+table monthly. Relevant upstream security releases or advisories trigger urgent
+out-of-cycle assessment and prioritized fix qualification through the same owner.
+This is a review expectation, not a scheduler or automatic installation policy.
+Preserve disabled features and use bounded metadata; do not start an optional
+runtime merely to complete the review.
+
+Distinguish the root metadata floor, actual qualified targets, exact source pins,
+installed interpreter and running-service identity. Review upstream support and
+the owner's dependency/artifact constraints; an exact patch or upper bound stays
+authoritative until that owner qualifies a coherent candidate. A root test pass
+does not qualify Dagger SDK/workload, either Graphify owner, reranker, DVC, Hermes,
+PR-Agent, Prefect MCP, security-toolkit or other isolated runtimes. Host
+prerequisites retain native ownership.
+
+Retain review date, evidence, affected family, disposition, owner and next review
+condition in existing private maintenance/lifecycle evidence. Missing qualification
+or an unresolved security fix remains visible; it is not an implicit exception.
+Use this runbook's existing candidate, recovery and activation procedures.
+
+[PY-08](specs/dotfiles_ai_distribution/features/python-runtime-qualification.md)
+defines root 3.15 weekly/manual compatibility validation and the required
+exact-source qualification evidence. PR/main jobs remain on 3.14; the 3.12 floor
+and isolated runtime pins remain unchanged. Source configuration is not evidence
+that a particular interpreter or installed runtime passed. CI adoption does not
+grant installation, restart, minor-version migration or fleet authority.
 
 ### Platform and lock distinctions
 
