@@ -444,6 +444,7 @@ reported to the caller and never becomes a pass.
 | `guard.json` | Host fixture preparation | Exact native Git-pointer inode, bytes and original/protected flags |
 | `generation.json` | Native readiness observations | Prepared IDs plus process, container and accepted policy generation |
 | `runtime-artifact.json` | Verified image inspection | Runtime executable bytes and independently built workload image |
+| `worker-config.json` | Initial native worker configuration review | Original private worker configuration checksum for controlled restart |
 | `network.json` | Native listener preparation | Exact address, listener process/start identity and reviewed source |
 | `boundaries.json` | Native Git fixture inventory | Six existing protected metadata roles in the common Git directory |
 | Private probe reports | Host observation runner | Canonical generation digest, independent observations and retained outcomes |
@@ -631,7 +632,12 @@ fixed recovery case and does not authorize changing any pointer flag or unrelate
 file. If the observed object identity changes, retain it without restoration.
 
 Finally stop and start only the selected private Lima worker, using its native
-owner and original configuration. Record changed boot/process identities as a
+owner and original configuration. A private `worker-config.json` contains only
+integer `schema_version: 1` and lowercase 64-character hexadecimal `sha256` for
+the reviewed `lima/q/lima.yaml`, recorded after initial preparation and before
+workload admission. Validate that binding before native recovery effects and
+before/after restart; do not adopt the current file as a new baseline.
+Record changed boot/process identities as a
 restart, never a successful resume. Observe the fsynced checkpoints and retained
 evidence before and after restart; record whether the unacknowledged marker is
 present without claiming a durability guarantee. Do not recreate or start a
