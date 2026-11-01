@@ -588,3 +588,16 @@ These are original local guidance bundles informed by primary documentation, not
 vendored upstream skills. Existing seven-package provenance remains unchanged.
 No tool installation, interpreter migration, campaign, data read, worker operation
 or publishing follows merely from guidance selection.
+
+### Advanced-method behavior
+
+| Given / when | Required outcome |
+|---|---|
+| Ordinary Python edit without a relevant boundary | No additional method is selected |
+| Process or subinterpreter pool changes | Check selected runtime, serialization, bounded work, ownership and actual shutdown; cancelling a Future does not imply stopping running work |
+| Dataframe schema or value boundary changes | Distinguish schema, value validation, coercion and aggregated errors; preserve actual backend |
+| Arrow batch or dataframe/database interchange changes | Preserve schema, null/time semantics, chunking, lifetime and measured copy/streaming behavior |
+| Mutation testing is requested | Establish green baseline and explicit scope/budget in an isolated source copy; classify raw outcomes without declaring every survivor equivalent |
+| Durable queue/worker behavior changes | Check atomic handoff, claims/leases/fencing, idempotent effects, acknowledgements, redelivery and crash recovery |
+| Report-only full or architecture audit encounters these boundaries | Assess relevant static evidence; retain scope, deduplicate root causes and disclose unexecuted checks |
+| Required tools/runtime/backend are missing | State coverage gap; keep useful static assessment separate from runtime proof |
