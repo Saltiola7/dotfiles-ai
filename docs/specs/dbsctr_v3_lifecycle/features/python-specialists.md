@@ -487,3 +487,50 @@ installed. User data, credentials and raw evaluation evidence remain private.
 | Guidance/tools or relevant runtime are unavailable | Continue useful static assessment and disclose missing coverage; never convert missing evidence into a pass |
 | Shared live routing contains known notebook/Rust selectors | Preserve those selectors and unrelated bundles during this exact-target deployment |
 | Experimental release/no-GIL guidance is consulted | Disclose maturity and verify applicable recipes against project-selected versions and primary authorities |
+
+### Interfaces and visual evidence
+
+| Evidence signal | Technique and checkpoint |
+|---|---|
+| Actual Pydantic input/output models | `pydantic` at Domain/Contract/Test |
+| Actual Polars expressions, lazy frames or sinks | `polars` at Spec/Contract/Test, through Python or Data |
+| Actual Typer command interface | `typer` at Spec/Contract/Test |
+| Actual FastAPI routing/dependencies/responses | `fastapi` at Domain/Contract/Test |
+| Explicit coverage-guided Python/native fuzzing | `atheris` at Contract/Test; scoped QA evidence |
+| Actual Python package release/artifact pipeline | `secure-python-release-pipeline` at Spec/Test/Release |
+| Selected free-threaded Python target or compatibility review | `port-to-free-threaded-python` at Profile/Contract/Test |
+
+Each discoverable bundle lives at `dot_agents/skills/<name>/`, with a concise
+`SKILL.md`, generated `agents/openai.yaml`, exact `LICENSE.upstream`,
+`UPSTREAM.md` and complete relevant resources. Three source inventories under
+`dbsctr/references/python-expansion-sources/{frameworks,data-testing,runtime}/`
+retain schema 1 `sources.lock.json` and reversible patches. Package records
+contain immutable repository/commit/path, original `upstream_files`, `git_blobs`,
+`upstream_modes` and `upstream_paths`, complete adapted `files`/`modes`/
+`installed_modes`, patch hashes, license and adaptation description. Explicit
+original path mappings cover root licenses and shared guardrails copied into a
+selected bundle; generated local resources have no invented upstream identity.
+
+The Python selector table remains canonical. On-demand method guidance lives in
+`dbsctr/references/python-stack-specialists.md`; `python-audit` selects its
+conditional stack methods through `references/stack-specialists.md`, without
+changing its default full/focused modes or adding a coordinator. Data's Polars
+route delegates to the same skill. No new installer, checker or lifecycle schema.
+
+| Visual concern | Disposition and question |
+|---|---|
+| Boundary | Required: the owner/selector tables distinguish method, audit, project, QA and release authority |
+| Interaction | Required: project evidence selects one method; primary reconciles advice; QA records applicable results; authorized delivery follows |
+| State | Required: original verified, adaptation reviewed, isolated projection verified, exact live projection verified; unavailable/failed evidence retains its actual state |
+| Data/trust | Required: immutable public originals enter reviewed source; bounded project context enters method advice; private evidence stays outside source |
+| Schema | Required: package-record field contract above distinguishes original, adapted and installed identities |
+| Dependency/deployment | Required: complete source and resources precede isolated projection, live drift guard, scoped apply and repeat verification |
+| Quantitative | Not applicable: no effectiveness comparison or universal quality threshold is claimed |
+
+**Text Equivalent (stack expansion):** Canonical selectors map actual project
+evidence to a technique and checkpoint. The same primary and existing QA/Release
+owners decide scope and actual evidence. Immutable originals and licenses become
+reviewed, reversible adaptations; isolated verification precedes drift-guarded
+shared installation. Missing guidance or failed checks never advance as passes.
+These tables and package inventories are canonical; lifecycle/distribution
+maintainers update them when selection, ownership, schema or deployment changes.
