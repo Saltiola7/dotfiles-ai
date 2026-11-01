@@ -524,6 +524,21 @@ The normative behavior, interfaces, state transitions, trust boundary, Gate
 Ledger, and validation are in
 [`features/remote-user-rollout-runtime.md`](features/remote-user-rollout-runtime.md).
 
+### PY-01 First-Clone Repair
+
+`PY-01` is an elevated-risk, source-only correction to remote-user bootstrap.
+An absent source must reach the exact requested clean detached commit before
+configuration, installation or foundation apply. Existing dirty sources, including
+legacy no-checkout leftovers, remain preserved and refused. Failed new preparation
+must permit same-revision retry without poisoning the final source directory.
+
+Scope, acceptance scenarios, recovery limits, validation and the
+DBSCTR applicability plan are captured in the existing
+[remote-user rollout runtime specification](features/remote-user-rollout-runtime.md#py-01-first-clone-repair).
+Delivery is a feature branch and draft pull request; live rollout is separate.
+Profile/Product Intent remain unchanged. A known adjacent cross-revision retry-pin
+gap is explicitly deferred; this correction does not claim broader rollout readiness.
+
 ### DAI-005 Cycle Overrides
 
 | Field | Value |
