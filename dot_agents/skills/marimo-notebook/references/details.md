@@ -1,0 +1,292 @@
+# Notes for marimo Notebooks
+
+marimo uses Python to create notebooks, unlike Jupyter which uses JSON. Here's an example notebook:
+
+```python
+# /// script
+# dependencies = [
+#     "marimo",
+#     "numpy",
+# ]
+# ///
+
+import marimo
+
+app = marimo.App(width="medium")
+
+
+@app.cell
+def _():
+    import marimo as mo
+    import numpy as np
+
+    return mo, np
+
+
+@app.cell
+def _():
+    print("hello world")
+    return
+
+
+@app.cell
+def _(np, slider):
+    np.array([1,2,3]) + slider.value
+    return
+
+
+@app.cell
+def _(mo):
+    slider = mo.ui.slider(1, 10, 1, label="number to add")
+    slider
+    return (slider,)
+
+
+@app.cell
+def _():
+    return
+
+
+if __name__ == "__main__":
+    app.run()
+
+```
+
+The notebook uses functions to represent cell contents. Each cell is defined with the `@app.cell` decorator and the inputs/outputs of the function are the inputs/outputs of the cell. marimo usually takes care of the dependencies between cells automatically.
+
+## Running Marimo Notebooks
+
+```bash
+# Command shapes: use the existing project runner/environment.
+# These operations execute notebook code; inspect its effects first.
+python notebook.py
+marimo run notebook.py
+marimo edit notebook.py
+```
+
+The metadata above is illustrative, not a request to change project pins.
+Generate or inspect the saved format with the selected marimo version. When PEP 723
+metadata owns the environment, use its supported sandbox invocation; otherwise
+retain the existing project environment. Live sessions remain under `marimo-pair`.
+
+## Script Mode Detection
+
+Use `mo.app_meta().mode == "script"` to detect CLI vs interactive:
+
+```python
+@app.cell
+def _(mo):
+    is_script_mode = mo.app_meta().mode == "script"
+    return (is_script_mode,)
+```
+
+## Key Principle: Keep It Simple
+
+Keep the intended UI usable and make script-mode inputs explicit.
+
+- Create and display the controls required by the notebook's intended interface.
+- In script mode, use the selected CLI/default inputs. Synthetic fixtures are for
+  explicitly selected test/demo behavior, not a substitute for real job results.
+- Use execution-mode branches only where behavior actually differs.
+- Handle specific expected failures; do not hide programming or data errors.
+
+### Good Pattern
+
+```python
+# Always show the widget
+@app.cell
+def _(ScatterWidget, mo):
+    scatter_widget = mo.ui.anywidget(ScatterWidget())
+    scatter_widget
+    return (scatter_widget,)
+
+# Only change data source based on mode
+@app.cell
+def _(is_script_mode, make_moons, scatter_widget, np, torch):
+    if is_script_mode:
+        # Use synthetic data for testing
+        X, y = make_moons(n_samples=200, noise=0.2)
+        X_data = torch.tensor(X, dtype=torch.float32)
+        y_data = torch.tensor(y)
+        data_error = None
+    else:
+        # Use widget data in interactive mode; define each downstream value.
+        X, y = scatter_widget.widget.data_as_X_y
+        X_data = torch.tensor(X, dtype=torch.float32)
+        y_data = torch.tensor(y)
+        data_error = None
+    return X_data, y_data, data_error
+
+# Always show sliders - use their .value in both modes
+@app.cell
+def _(mo):
+    lr_slider = mo.ui.slider(start=0.001, stop=0.1, value=0.01)
+    lr_slider
+    return (lr_slider,)
+
+# Auto-run in script mode, wait for button in interactive
+@app.cell
+def _(mo, is_script_mode, train_button, lr_slider, run_training, X_data, y_data):
+    # A stopped cell has no downstream result yet; do not return an unbound name.
+    mo.stop(not is_script_mode and not train_button.value)
+    results = run_training(X_data, y_data, lr=lr_slider.value)
+    return (results,)
+```
+
+## State and Reactivity
+
+Variables between cells normally define the notebook's reactive state. Don't mutate objects across cells (e.g., `my_list.append()`); create new objects instead. Avoid `mo.state()` unless you need bidirectional UI sync or accumulated callback state. See [STATE.md](STATE.md) for details.
+
+## Render outputs and gate unavailable inputs deliberately
+
+Dependencies determine when cells can run. A value can still be `None`, empty,
+invalid or not submitted; use an explicit gate for those states. Avoid a conditional
+expression whose output is never rendered:
+
+```python
+# BAD - the if statement prevents the chart from showing
+@app.cell
+def _(plt, training_results):
+    if training_results:  # WRONG - don't do this
+        fig, ax = plt.subplots()
+        ax.plot(training_results['losses'])
+        fig
+    return
+
+# GOOD - let marimo handle the dependency
+@app.cell
+def _(plt, training_results):
+    fig, ax = plt.subplots()
+    ax.plot(training_results['losses'])
+    fig
+    return
+```
+
+The good pattern assumes valid `training_results`. If that input is not ready,
+call `mo.stop()` before consuming it. Merely binding a name does not prove its data
+is usable. The snippets are focused examples; helpers and optional libraries must
+already be selected by the project.
+
+## Don't Use try/except for Control Flow
+
+Don't wrap code in try/except blocks unless you're handling a specific, expected exception. Let errors surface naturally.
+
+```python
+# BAD - hiding errors behind try/except
+@app.cell
+def _(scatter_widget, np, torch):
+    try:
+        X, y = scatter_widget.widget.data_as_X_y
+        X = np.array(X, dtype=np.float32)
+        # ...
+    except Exception as e:
+        return None, None, f"Error: {e}"
+
+# GOOD - let it fail if something is wrong
+@app.cell
+def _(scatter_widget, np, torch):
+    X, y = scatter_widget.widget.data_as_X_y
+    X = np.array(X, dtype=np.float32)
+    # ...
+```
+
+Only use try/except when:
+- You're handling a specific, known exception type
+- The exception is expected in normal operation (e.g., file not found)
+- You have a meaningful recovery action
+
+## Cell Output Rendering
+
+Marimo only renders the **final expression** of a cell. Indented or conditional expressions won't render:
+
+```python
+# BAD - indented expression won't render
+@app.cell
+def _(mo, condition):
+    if condition:
+        mo.md("This won't show!")  # WRONG - indented
+    return
+
+# GOOD - final expression renders
+@app.cell
+def _(mo, condition):
+    result = mo.md("Shown!") if condition else mo.md("Also shown!")
+    result  # This renders because it's the final expression
+    return
+```
+
+## PEP 723 Dependencies
+
+Sandbox notebooks use PEP 723 metadata to declare their chosen environment.
+Inspect the selected runtime's generated header and list only dependencies already
+chosen for this notebook. For a notebook that uses PyTorch, an illustrative header is:
+
+```python
+# /// script
+# dependencies = [
+#     "marimo",
+#     "torch",
+# ]
+# ///
+```
+
+## marimo check
+
+Use the selected `check` command as a structural linter for common notebook
+mistakes. Its success does not establish the notebook can execute with real data,
+services, optional packages or its intended browser.
+
+```bash
+marimo check notebook.py
+```
+
+Run the selected checker on affected artifacts when available. Report unavailable
+tools or unsupported rules instead of installing a newer runtime implicitly.
+Static checks do not execute or qualify the notebook.
+
+Use underscore-prefixed names for true cell-local intermediates; use intentional
+public names for downstream dataflow. Do not impose an arbitrary count or add
+alias imports merely to bypass the graph.
+
+## api docs
+
+If the user specifically wants you to use a marimo function, you can locally check the docs via:
+
+```
+python -c "import marimo as mo; help(mo.ui.form)"
+```
+
+## tests
+
+By default, marimo discovers and executes tests inside your notebook.
+When the optional `pytest` dependency is present, marimo runs `pytest` on cells that
+consist exclusively of test code - i.e. functions whose names start with `test_`.
+When tests are requested, preserve the project's existing runner and dependency
+owner. If notebook pytest support is chosen but its dependency is absent, identify
+the required dependency change before adding it within task scope. Keep test cells
+eligible for discovery; mixed helper/import cells are not automatically tests.
+
+For more information on testing with pytest see [PYTEST.md](PYTEST.md)
+
+With the selected pytest integration available, the command below runs notebook
+test code and may execute dependent cells. Inspect fixtures and effects first;
+ordinary structural lint does not establish these tests passed.
+
+```
+pytest <notebook.py>
+```
+
+## Additional resources
+
+- For notebooks that run in width=columns [COLUMNS.md](COLUMNS.md)
+- For SQL use in marimo see [SQL.md](SQL.md)
+- For UI elements in marimo [UI.md](UI.md)
+- For exposing functions/classes as top level imports [TOP-LEVEL-IMPORTS.md](TOP-LEVEL-IMPORTS.md)
+- For exporting notebooks (PDF, HTML, markdown, etc.) [EXPORTS.md](EXPORTS.md)
+- For state management and reactivity [STATE.md](STATE.md)
+- For deployment of marimo notebooks [DEPLOYMENT.md](DEPLOYMENT.md)
+- For custom interactive widgets with anywidget [ANYWIDGET.md](ANYWIDGET.md)
+- For external editing and `--watch` mode [WATCHING.md](WATCHING.md)
+- For expensive notebooks (caching, lazy eval, mo.stop) [EXPENSIVE.md](EXPENSIVE.md)
+- For configuration (pyproject.toml, marimo.toml) [CONFIGURATION.md](CONFIGURATION.md)
+- For reactivity model (DAG, variable scoping, mutations) [REACTIVITY.md](REACTIVITY.md)

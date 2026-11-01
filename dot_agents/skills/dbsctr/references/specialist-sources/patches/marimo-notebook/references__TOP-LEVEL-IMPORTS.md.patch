@@ -1,0 +1,25 @@
+--- a/references/TOP-LEVEL-IMPORTS.md
++++ b/references/TOP-LEVEL-IMPORTS.md
+@@ -9,14 +9,12 @@
+ # /// script
+ # dependencies = [
+ #     "marimo",
+-#     "numpy==2.4.2",
++#     "numpy",
+ # ]
+-# requires-python = ">=3.14"
+ # ///
+ 
+ import marimo
+ 
+-__generated_with = "0.19.11"
+ app = marimo.App(width="medium")
+ 
+ # Define setup cell
+@@ -54,4 +52,4 @@
+ data = [1, 2, 3, 4, 5]
+ stats = calculate_statistics(data)
+ print(stats)
+-```
+\ No newline at end of file
++```

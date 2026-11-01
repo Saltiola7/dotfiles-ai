@@ -1,0 +1,55 @@
+--- a/references/widgets.md
++++ b/references/widgets.md
+@@ -64,7 +64,7 @@
+ 
+ ## Replacing `interact` / `interactive`
+ 
+-ipywidgets `interact` auto-generates UI from a function signature. In marimo, just create the UI elements and use their values. 
++ipywidgets `interact` auto-generates UI from a function signature. In marimo, just create the UI elements and use their values.
+ 
+ Reactivity is automatic:
+ 
+@@ -168,7 +168,7 @@
+ ```python
+ # cell 1
+ slider = mo.ui.slider(0, 10)
+-counter = Counter(value=0)  # an anywidget
++counter = Counter(count=0)  # illustrative anywidget with a synced count trait
+ mo.vstack([slider, counter])
+ 
+ # cell 2 — runs when slider changes, updates counter
+@@ -179,7 +179,9 @@
+ 
+ For ipywidgets with **no marimo equivalent** (marked "—" above), check if the widget is an anywidget or has an anywidget-compatible version. If so, wrap it with `mo.ui.anywidget()`.
+ 
+-If it is not an anywidget, let the user know they should check whether it's a candidate for the [anywidget spec](https://anywidget.dev) — most ipywidgets can be ported. For building custom anywidgets from scratch, invoke the `anywidget-generator` skill.
++If it is not an anywidget, let the user know they should check whether it's a candidate for the [anywidget spec](https://anywidget.dev) — most ipywidgets can be ported. For building custom anywidgets, use appropriate guidance only if that capability
++is available and the task calls for it. This bundle does not install or require an
++unselected generator skill.
+ 
+ ### Wrapping an existing anywidget
+ 
+@@ -216,11 +218,21 @@
+ get_count()  # reactively updates when count trait changes
+ ```
+ 
++Register observers once for the intended widget lifetime and remove old handlers
++when replacing widgets or rerunning registration cells. Do not accumulate duplicate
++subscriptions during notebook reruns. Masked inputs still expose their values to
++notebook code; do not persist or display secrets.
++
++The tables describe snapshot APIs, not proof that each option exists in the
++project's selected runtime. Inspect actual signatures for affected components.
++
+ ## Migration checklist
+ 
+ 1. Replace each ipywidget with its marimo equivalent from the table above
+-2. Remove all `.observe()` callbacks — split logic across reactive cells instead
+-3. Remove all `link()` / `jslink()` calls — use `mo.state` for bidirectional sync or cell reactivity for directional binding
++2. Replace ordinary value callbacks with reactive cells when equivalent; retain
++   necessary anywidget/trait observers and their lifecycle cleanup.
++3. Replace `link()` / `jslink()` only after preserving directional/bidirectional
++   semantics; use selected `mo.state` or reactive-cell behavior where equivalent.
+ 4. Replace `interact`/`interactive` with explicit `mo.ui` elements
+ 5. Replace `Output` widget with cell output or `mo.output.replace()`
+ 6. Replace layout containers (`HBox`, `VBox`, etc.) with `mo.hstack`, `mo.vstack`, `mo.accordion`, `mo.ui.tabs`

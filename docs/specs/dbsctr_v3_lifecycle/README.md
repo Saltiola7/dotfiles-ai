@@ -10,6 +10,12 @@ conditional Python/Cloud routes. Framework and provider detail is selected for
 actual task evidence; the existing Python audit retains its generic assessment scope.
 Installation supplies guidance, with target execution validated by its project.
 
+The [notebook/host/interop expansion](features/platform-specialists.md#notebook-host-configuration-and-rustpython-expansion)
+adds marimo authoring, Jupyter conversion and WASM qualification plus original
+Chezmoi, PyInfra and Python/Rust methods. Active notebook mutations retain
+`marimo-pair` ownership. Platform and Python tables own their distinct triggers;
+only task-relevant resources load. Prefect is outside this expansion.
+
 [Native router qualification](../../../tests/fixtures/skill_router/README.md)
 tests implicit selection separately from explicit DBSCTR navigation. The native
 catalog supplies descriptions; matching modules own conditional trigger tables;

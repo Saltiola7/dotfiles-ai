@@ -1,0 +1,23 @@
+--- a/references/STATE.md
++++ b/references/STATE.md
+@@ -79,10 +79,20 @@
+     get_n, set_n = mo.state(50)
+     return get_n, set_n
+ 
++# Give each input its own reactive cell. A setter does not rerun its caller
++# by default; a sibling input in that same cell would keep its old value.
+ @app.cell
+ def _(mo, get_n, set_n):
+     slider = mo.ui.slider(0, 100, value=get_n(), on_change=set_n)
++    return (slider,)
++
++@app.cell
++def _(mo, get_n, set_n):
+     number = mo.ui.number(0, 100, value=get_n(), on_change=set_n)
++    return (number,)
++
++@app.cell
++def _(mo, slider, number):
+     mo.hstack([slider, number])
+     return
+ ```

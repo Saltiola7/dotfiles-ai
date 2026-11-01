@@ -20,6 +20,8 @@ project target policy and QA remain authoritative.
 | One identified failed Pulumi operation | `pulumi-debug-failed-operation`; bounded actual records and hypotheses, without implicit state change/retry |
 | Hetzner Cloud or hcloud resource/action work | `hetzner-operations`; effective identity/configuration, persistent data and recovery |
 | Actual Dagger module or CI execution graph | `dagger-pipelines`; selected SDK/engine, terminal evaluation, caches, secrets and capabilities |
+| Actual Chezmoi source, templates, destination drift or scoped apply | `chezmoi-operations`; identify hook/script/external effects and preserve repository deployment ownership |
+| Actual PyInfra inventory, deploy code or host operation | `pyinfra-deployments`; distinguish preparation facts, execution-time conditions and verified host results |
 
 Resolve target facts from existing project/configuration evidence before asking.
 Record material ambiguity rather than silently using an ambient cluster,
@@ -56,6 +58,11 @@ Maintain full resource trees; review helpers before execution. Updates deliberat
 review the selected revision and all local patches, including supporting examples.
 Preserve exact upstream license notices and original Git identities. Installing
 guidance does not install upstream plugins/hooks or target-project runtimes.
+
+The marimo notebook, Jupyter conversion and WASM bundles share this inventory and
+retain their official complete resource trees. Original Chezmoi, PyInfra and
+Python/Rust methods link official documentation; they do not redistribute the
+considered community candidates. The Python module owns notebook/interop routing.
 
 Use the existing distribution owner: isolated exact-target projection, prior-live
 comparison, reviewed preview, application with scripts excluded, then complete
