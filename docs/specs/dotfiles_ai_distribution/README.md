@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution
 
+The [complete official JFrog skill collection](features/jfrog-skills.md) adds seven
+portable, narrowly routed workflows and an independent optional missing-only CLI
+installer. Native discovery, CLI readiness, MCP connection and live platform
+operations remain separate observations. No plugin, Agent Guard, platform target,
+authentication or MCP activation is implied by skill deployment. Project
+enumeration stays live without persistent credential-derived cache fingerprints;
+a typed project selection alone does not prove existence or access.
+
 The optional [self-hosted Prefect inspection capability](features/prefect-mcp.md)
 adds reviewed operational guidance and an independently installed frozen stdio
 adapter. Private selection owns the existing API and credentials; native clients
