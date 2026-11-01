@@ -5503,6 +5503,27 @@ def invalidate_later(record, gate_name):
             record["metrics"]["gate_reopen_count"] += 1
 
 
+def apply_gate_result(record: dict, gate_name: str, result: str, evidence: str | None = None) -> None:
+    """Apply an admitted result without executing evidence or persisting state."""
+    gate = record["gates"][gate_name]
+    previous_result = gate["result"]
+    was_disposed = disposed(gate)
+    metrics = record.setdefault("metrics", {"gate_failure_count": 0, "gate_reopen_count": 0,
+                                              "remediation_round_count": 0})
+    gate.pop("exception", None)
+    gate["result"] = result
+    if evidence is not None:
+        gate["evidence"] = evidence
+    elif result == "pending":
+        gate.pop("evidence", None)
+    if is_v32(record) and was_disposed and not disposed(gate):
+        invalidate_later(record, gate_name)
+    if result in ("failed", "unavailable") and previous_result not in ("failed", "unavailable"):
+        metrics["gate_failure_count"] += 1
+    if previous_result in ("failed", "unavailable") and result == "passed":
+        metrics["remediation_round_count"] += 1
+
+
 def require_current_profile(root, record):
     if not is_v32(record):
         return
@@ -17288,15 +17309,7 @@ def command_record_evidence(args):
         envelope["content"] = content
         evidence_id = envelope["id"]
         record["evidence"]["items"][evidence_id] = envelope
-        previous_result = gate["result"]
-        gate.pop("exception", None)
-        gate.update({"result": result, "evidence": evidence_id})
-        metrics = record.setdefault("metrics", {"gate_failure_count": 0, "gate_reopen_count": 0,
-                                                  "remediation_round_count": 0})
-        if result in ("failed", "unavailable") and previous_result not in ("failed", "unavailable"):
-            metrics["gate_failure_count"] += 1
-        if previous_result in ("failed", "unavailable") and result == "passed":
-            metrics["remediation_round_count"] += 1
+        apply_gate_result(record, args.gate, result, evidence_id)
         save(path, record)
         print(evidence_id)
 
@@ -17323,22 +17336,7 @@ def command_set_gate(args):
         fail("not_applicable gates can only use not_run")
     if gate["applicability"] == "required" and args.result in ("passed", "failed", "unavailable") and not args.evidence:
         fail(f"{args.result} required gate needs evidence")
-    previous_result = gate["result"]
-    was_disposed = disposed(gate)
-    gate.pop("exception", None)
-    gate["result"] = args.result
-    if args.evidence is not None:
-        gate["evidence"] = args.evidence
-    elif args.result == "pending":
-        gate.pop("evidence", None)
-    if is_v32(record) and was_disposed and not disposed(gate):
-        invalidate_later(record, args.gate)
-    metrics = record.setdefault("metrics", {"gate_failure_count": 0, "gate_reopen_count": 0,
-                                              "remediation_round_count": 0})
-    if args.result in ("failed", "unavailable") and previous_result not in ("failed", "unavailable"):
-        metrics["gate_failure_count"] += 1
-    if previous_result in ("failed", "unavailable") and args.result == "passed":
-        metrics["remediation_round_count"] += 1
+    apply_gate_result(record, args.gate, args.result, args.evidence)
     save(path, record)
 
 
