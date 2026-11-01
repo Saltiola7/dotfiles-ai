@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# Optional missing-only owner. Authentication and MCP remain separate.
+set -euo pipefail
+{{ if not (eq .dotfiles_ai.jfrog_cli.enabled true) -}}
+exit 0
+{{ end -}}
+
+command -v python3 >/dev/null 2>&1 || {
+    echo 'jfrog-cli: python3 is required; use its existing installer owner.' >&2
+    exit 1
+}
+exec python3 - {{ .chezmoi.os | quote }} {{ .chezmoi.arch | quote }} <<'PY'
+import hashlib
+import os
+from pathlib import Path
+import re
+import selectors
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+
+VERSION = "2.129.0"
+MINIMUM = (2, 106, 0)
+# Official v2.129.0 assets; source cd054c449b92da78fd707da04f629ff4bb1515ad.
+ASSETS = {
+    ("darwin", "arm64"): ("mac-arm64", "0c576178e007a21f8b3df421e1c0bb735f4ed6461a78c3b97dd170c1e6ed911c"),
+    ("darwin", "amd64"): ("mac-386", "83dd20eb3a9be26b101ae9253ecafd59822c33b24d50e56339c1214600452daa"),
+    ("linux", "amd64"): ("linux-amd64", "8aaa3d46934e23a75c23a209780d95508199cddb5398b88e1c179cc86024a314"),
+    ("linux", "arm64"): ("linux-arm64", "affa031c592fa4f587794dbfd7d4ed5e47c9b91ef15a494015a6fecc0a5bc43a"),
+}
+
+
+class InstallError(Exception):
+    pass
+
+
+def interrupted(number, _frame):
+    raise SystemExit(128 + number)
+
+
+for number in (signal.SIGINT, signal.SIGTERM):
+    signal.signal(number, interrupted)
+
+
+def stop_child(child):
+    # The owned process group can outlive its leader while holding probe output.
+    try:
+        os.killpg(child.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    child.wait()
+
+
+def version_of(executable):
+    # Do not load the selected installation's credentials, plugins, project
+    # settings, or native configuration during a prerequisite probe.
+    with tempfile.TemporaryDirectory(prefix="jfrog-cli-probe.") as private:
+        environment = {
+            "HOME": private, "PATH": os.defpath, "TMPDIR": private,
+            "JFROG_CLI_HOME_DIR": str(Path(private) / ".jfrog"),
+            "JFROG_CLI_TEMP_DIR": str(Path(private) / "tmp"),
+            "JFROG_CLI_REPORT_USAGE": "false",
+            "JFROG_CLI_AVOID_NEW_VERSION_WARNING": "true",
+            "CI": "true", "LANG": "C", "LC_ALL": "C",
+        }
+        child = subprocess.Popen(
+            [str(executable), "--version"], cwd=private, env=environment,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True,
+        )
+        output = bytearray()
+        deadline = time.monotonic() + 10
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(child.stdout, selectors.EVENT_READ)
+                while selector.get_map():
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise InstallError("CLI version probe timed out")
+                    for key, _ in selector.select(min(remaining, 0.2)):
+                        chunk = os.read(key.fd, 4096)
+                        if not chunk:
+                            selector.unregister(key.fileobj)
+                            continue
+                        output.extend(chunk)
+                        if len(output) > 4096:
+                            raise InstallError("CLI version output exceeded its limit")
+            try:
+                status = child.wait(timeout=max(0.01, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                raise InstallError("CLI version probe timed out") from None
+            match = re.fullmatch(rb"jf version ([0-9]+)\.([0-9]+)\.([0-9]+)", bytes(output).strip())
+            if status or match is None:
+                raise InstallError("CLI version probe did not qualify")
+            return tuple(int(part) for part in match.groups())
+        finally:
+            stop_child(child)
+            child.stdout.close()
+
+
+def sha256(path):
+    result = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            result.update(chunk)
+    return result.hexdigest()
+
+
+def owned_directory(path, *, create=False):
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if not create:
+            raise InstallError("installation home is missing") from None
+        path.mkdir(mode=0o755)
+        info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
+        raise InstallError("installation directory is a link, unowned or writable by others")
+
+
+def download(curl, url, candidate):
+    child = subprocess.Popen(
+        [curl, "-q", "--fail", "--silent", "--show-error", "--location",
+         "--proto", "=https", "--proto-redir", "=https", "--connect-timeout", "15",
+         "--max-time", "180", "--max-filesize", "134217728", "--output", str(candidate), url],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+    )
+    try:
+        try:
+            return child.wait(timeout=195)
+        except subprocess.TimeoutExpired:
+            raise InstallError("CLI download timed out") from None
+    finally:
+        stop_child(child)
+
+
+def main():
+    asset = ASSETS.get(tuple(sys.argv[1:]))
+    if asset is None:
+        raise InstallError("optional installation is unsupported on this platform")
+    folder, expected = asset
+    selected = shutil.which("jf")
+    if selected:
+        if version_of(Path(selected).absolute()) < MINIMUM:
+            raise InstallError("existing CLI is below 2.106.0; preserve its owner and review an explicit upgrade")
+        print("jfrog-cli: existing compatible CLI preserved")
+        return 0
+
+    home = Path(os.environ.get("HOME", ""))
+    if not home.is_absolute():
+        raise InstallError("installation requires an absolute home directory")
+    owned_directory(home)
+    parent = home / ".local" / "bin"
+    owned_directory(home / ".local", create=True)
+    owned_directory(parent, create=True)
+    destination = parent / "jf"
+    if os.path.lexists(destination):
+        info = destination.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o755 or sha256(destination) != expected):
+            raise InstallError("unselected destination already exists; preserve and reconcile its owner")
+        if version_of(destination) != tuple(map(int, VERSION.split("."))):
+            raise InstallError("existing pinned destination did not qualify")
+        print("jfrog-cli: pinned installation unchanged")
+        return 0
+
+    curl = shutil.which("curl")
+    if not curl:
+        raise InstallError("curl is required; use its existing installer owner")
+    url = f"https://releases.jfrog.io/artifactory/jfrog-cli/v2-jf/{VERSION}/jfrog-cli-{folder}/jf"
+    with tempfile.TemporaryDirectory(prefix=".jfrog-cli.", dir=parent) as staging:
+        candidate = Path(staging) / "jf"
+        status = download(curl, url, candidate)
+        if status:
+            print("jfrog-cli: download failed", file=sys.stderr)
+            return status if 0 < status < 256 else 1
+        if candidate.is_symlink() or not candidate.is_file() or sha256(candidate) != expected:
+            raise InstallError("download integrity check failed before execution")
+        candidate.chmod(0o755)
+        if version_of(candidate) != tuple(map(int, VERSION.split("."))):
+            raise InstallError("downloaded CLI version did not match the selected release")
+        owned_directory(home / ".local")
+        owned_directory(parent)
+        # Same-filesystem hard-link publication is atomic and refuses every
+        # existing target, including a dangling symlink or a late parallel write.
+        try:
+            os.link(candidate, destination, follow_symlinks=False)
+        except FileExistsError:
+            raise InstallError("destination appeared during installation; preserved") from None
+    print("jfrog-cli: installed verified 2.129.0 without authentication or MCP changes")
+    return 0
+
+
+try:
+    raise SystemExit(main())
+except (InstallError, OSError) as error:
+    # External tool output and native configuration are never diagnostic payloads.
+    message = str(error) if isinstance(error, InstallError) else "filesystem or executable prerequisite failed"
+    print("jfrog-cli: " + message, file=sys.stderr)
+    raise SystemExit(1)
+PY

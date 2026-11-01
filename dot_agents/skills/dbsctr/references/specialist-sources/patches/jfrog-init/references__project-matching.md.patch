@@ -1,0 +1,77 @@
+--- a/references/project-matching.md
++++ b/references/project-matching.md
+@@ -1,40 +1,38 @@
+-# Step 6 — project name-or-key resolution algorithm
++# Project selection and matching evidence
+ 
+-Background for Step 6 of `/jfrog-init` (`SKILL.md`). The model doesn't
+-perform this matching itself — `jfrog-detect-project.mjs` does — but
+-this explains how a typed name-or-key resolves to a canonical project
+-key, for debugging an unexpected ambiguous-match or no-match result.
++Use [resolution branches](project-resolution-branches.md) and the skill's helper
++execution boundary. These legacy helpers are not automatic readiness probes;
++credential-bearing exports must not reach output or public evidence.
+ 
+-`jfrog-detect-project.mjs` resolves the input by:
++## Current detector behavior
+ 
+-1. Enumerating accessible projects via `GET /access/api/v1/projects`
+-   (GetProjectsList: <https://docs.jfrog.com/projects/reference/getprojectslist>
+-   — `fetch` with the token from `jf config export`; the endpoint lives
+-   on the Access service, off the Artifactory root, so `jf rt curl`
+-   cannot reach it; `jf api` is a possible future refactor). Cached per
+-   server for a few minutes (`scripts/lib/project-cache.mjs`) so
+-   re-invoking the detector for each user attempt in the picker doesn't
+-   re-hit the network every time — matching against the list is offline
+-   regardless.
+-2. Matching the input against `project_key` and `display_name`
+-   (`scripts/lib/projects.mjs`), strictest tier first — each tier only
+-   runs if the previous one had zero matches:
+-   - Exact key (case-insensitive) wins first.
+-   - Exact display-name (case-insensitive) wins next.
+-   - Exact match after stripping every non-alphanumeric character
+-     (`_`, `-`, spaces, ...) from both sides wins next — so `aicatalog`
+-     resolves against key `ai_catalog` / name `ai catalog` without the
+-     separator mattering. This is a fixed internal canonicalization,
+-     never a pattern compiled from user input.
+-   - Unique case-insensitive substring across keys+names wins next.
+-   - Unique substring after the same separator-stripping wins last —
+-     catches partial input that spans a separator, e.g. `aicat`
+-     against `ai_catalog`.
+-   - If more than one project matches at whichever tier first has any
+-     hits, the detector exits red with `candidates` listing the tied
+-     keys, and the model asks the user to be more specific.
+-3. Once resolved to a canonical key, existence is confirmed via
+-   `GET /access/api/v1/projects/<key>`.
++`jfrog-detect-project.mjs` has two different branches:
+ 
+-The detector emits the canonical key on green in the JSON `resolvedKey`
+-field so the state-file writer can use it.
++- With a typed project key, it accepts that selection and returns `resolvedKey`
++  without matching, existence or access checks. A green selection result is not
++  proof that the project exists or that the identity has permission.
++- Without input, it enumerates accessible projects using
++  `GET /access/api/v1/projects` ([GetProjectsList](https://docs.jfrog.com/projects/reference/getprojectslist))
++  through the selected identity. Enumeration may require privileges unavailable
++  to an otherwise valid project user; a 403 does not establish project absence.
++
++Enumeration stays live whenever requested. The compatibility cache always misses
++and retains neither credential-derived fingerprints nor project metadata. Legacy
++cache files are ignored. API failures retain their existing error behavior; no
++credential, server or project switch follows from a failed enumeration.
++
++The retained implementation resolves credentials internally and fetches Access
++rather than the Artifactory root. Review that version and its effects before use;
++prefer the existing qualified native owner where appropriate. Selection,
++configuration, authenticated access and a successful relevant operation remain
++separate observations. Verify authorization through the actual requested operation.
++
++## Supporting matching utilities
++
++[The project library](../scripts/lib/projects.mjs) retains local utilities for
++project normalization, display capping, matching and suggestions. Its resolver
++tries exact case-insensitive key, exact display name, separator-stripped exact
++match, unique literal substring and unique separator-stripped substring, in order.
++Ambiguous local matches need disambiguation; punctuation is not compiled into a
++user-supplied regular expression. These utility results do not prove live access.
++The current detector's typed-input branch does not call this matching resolver.

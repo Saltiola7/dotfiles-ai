@@ -1,0 +1,181 @@
+--- a/references/harness-cursor.md
++++ b/references/harness-cursor.md
+@@ -1,107 +1,86 @@
+-# Harness: Cursor
++# Cursor native ownership for selected JFrog governance
+ 
+-Cursor-specific config for the `jfrog-mcp-management` skill. Read this together
+-with [harness-common.md](harness-common.md) (shared entry shape and success
+-criterion). You reached this file because the harness is Cursor (`CURSOR_AGENT`
+-/ `CURSOR_CLI` / `CURSOR_TRACE_ID`).
++Use this reference only for an explicitly selected JFrog Agent Guard/governed
++catalog task in Cursor. Read [common preflight](agent-guard-common.md) and the
++[common harness contract](harness-common.md), then resolve the actual installed
++Cursor version, active workspace and native configuration owner. Environment
++markers such as `CURSOR_AGENT` identify a possible harness; they do not prove
++configuration scope, permissions, authentication or an active connection.
+ 
+-## Config files
++## Configuration scope and entry identity
+ 
+-- **Default scope: project.** `.cursor/mcp.json` in the project root — shareable
+-  via git. Create if missing: `{ "mcpServers": {} }`.
+-- **User (global):** `~/.cursor/mcp.json`. Use ONLY if the user says "personal
+-  only" / "do not commit".
+-- Do not ask which scope unless the user brings it up.
++Cursor versions using the `mcpServers` configuration schema can have project
++`.cursor/mcp.json` and user `~/.cursor/mcp.json` layers. Verify the current native
++schema and effective layers before planning a change. An existing managed
++project/user entry retains its owner and scope. Use explicit task/project policy
++for a new entry; resolve missing scope only when it materially affects sharing
++or trust. Do not create a project file, switch to user scope or replace another
++same-name entry merely to make verification succeed.
+ 
+-## Top-level key
++For an authorized change, preserve private preimages and alter only the selected
++entry through the existing native/source owner. Review whether a project file is
++shared or committed; authentication values remain private. Preserve unrelated
++servers, settings, approval state, hooks and native credentials. A retained
++upstream JSON example is not permission to overwrite global configuration.
+ 
+-`mcpServers`
++## Runtime and secret references
+ 
+-## Value reference (env / secrets)
++Agent Guard is a separate runtime. Use an already qualified executable or an
++explicitly selected reviewed package version and registry through its installer
++owner. Never run a floating `npx @jfrog/agent-guard` command to discover a version,
++list a catalog or repair a connection. Catalog commands can download and execute
++code; [runtime boundaries](runtime-permissions.md) apply before use.
+ 
+-`${env:VAR_NAME}`, resolved from the shell that launched Cursor. For `Bearer`
+-headers: `"Bearer ${env:TOKEN}"`. The user must export the variable in the
+-launching shell (see [persisting-env-vars.md](persisting-env-vars.md)); values
+-are picked up on next launch. If a required `${env:VAR}` is unset the Agent
+-Guard fails at startup — confirm the export before restart. Never write a raw
+-secret.
++For a Cursor version supporting `${env:VAR_NAME}`, configure the native secret
++reference rather than a literal value; a Bearer header can reference
++`Bearer ${env:TOKEN}` only when that syntax is supported by the selected native
++owner. Resolve the real launch environment: a GUI session need not inherit an
++interactive shell export. Verify required variable presence without printing its
++value. Do not automatically persist exports, migrate tokens or edit shell startup
++files; see [environment ownership](persisting-env-vars.md).
+ 
+-## Enable
++A selected governed stdio entry retains the qualified Agent Guard version,
++registry, platform identity and inspected package/project contract. A Gateway
++entry needs a returned supported Gateway route and the current native remote
++transport. Do not derive a URL from the CLI default, retarget an existing entry
++or bypass a required governance proxy because another connection works.
+ 
+-Cursor stores enable/approval state separately and does NOT auto-enable new
+-**workspace-level** servers (user-level installs often auto-enable). ASK the
+-user to enable the installed MCP via the UI toggle in **Settings → Tools & MCPs**.
++## Enablement, restart and verification
+ 
+-## Restart
++Native enablement and workspace trust may be separate from configuration. Use
++Cursor's actual MCP controls and current task authorization; do not self-grant
++trust, pre-approve servers, invoke `enable_*_tools` or start OAuth as a harmless
++check. When the supported native UI requires operator interaction, state the
++specific pending action and retain the current configuration state. An authorized
++native reload, such as `Developer: Reload Window` on versions supporting it,
++is distinct from rebooting the host or starting another MCP instance.
+ 
+-`Developer: Reload Window`.
++Use native status/catalog capabilities available in the selected version. If its
++CLI supports `cursor agent mcp list`, that can provide a status observation; it
++is not proof that the active IDE session has returned upstream tools. Cached
++`~/.cursor/projects/<workspace>/mcps/<server>/tools/*.json` descriptors, when that
++layout actually exists, are at most bounded diagnostic evidence. Do not scan
++unrelated workspaces, expose descriptor contents indiscriminately or count stale
++files as a live connected catalog.
+ 
+-## List installed
++Report these separately: effective entry, process/transport state,
++authentication, actual returned upstream tool metadata and successful requested
++target operation. A connected indicator, cached descriptor or only an
++`enable_*_tools` tool does not establish usable upstream capabilities. For an
++empty live catalog, use [bounded troubleshooting](key-rules-and-troubleshooting.md#connected-but-0-tools).
+ 
+-`cursor agent mcp list` for status (one row per server). For JFrog metadata,
+-read `mcpServers` from `.cursor/mcp.json` (project) and `~/.cursor/mcp.json`
+-(user). If a configured entry does not appear in `cursor agent mcp list`, it was
+-never enabled — re-run Enable.
++## Network or sandbox failure
+ 
+-## Verify
++A `403`, timeout or failed activation check does not identify Cursor's sandbox
++allowlist as the cause. Distinguish package-registry fetch, selected platform,
++proxy, credential/authorization and native policy failures from available
++bounded evidence. Never infer that governance is disabled from an unknown check.
+ 
+-If you can already see or call at least one upstream tool from this
+-server, skip this check. Otherwise: after `Developer: Reload Window`,
+-check that tool descriptor files exist at:
+-
+-```
+-~/.cursor/projects/<this-workspace>/mcps/<mcp-server-name>/tools/*.json
+-```
+-
+-(`<mcp-server-name>` is the JSON key of the MCP, optionally prefixed `user-`.)
+-**`cursor agent mcp list` / `cursor agent mcp enable` are not the check** for
+-the Cursor IDE. NEVER ask the user to inspect these files — **offer to check
+-the `tools/` directory for them**.
+-
+-Success: at least one upstream tool from this server you can see or call, or at
+-least one `*.json` in that `tools/` directory.
+-
+-Empty tool list: not success, not a diagnosis — follow
+-[Connected but 0 tools](key-rules-and-troubleshooting.md#connected-but-0-tools).
+-Do not invent another debug path until that section is finished.
+-
+-## Notes
+-
+-Cursor has no `enabledMcpjsonServers`-style precedence files — enable/disable is
+-the UI toggle above. OAuth `--login` in a sandbox must run with `all`
+-permissions (see [runtime-permissions.md](runtime-permissions.md)).
+-
+-## Sandbox network allowlist (Agents Window)
+-
+-**Trigger — do not apply this by default.** Only act on this once you actually
+-see it: in a Cursor sandbox agent (`CURSOR_SANDBOX=seatbelt`, e.g. the Agents
+-Window) an Agent Guard call can't reach a JFrog host — the Step 0 activation
+-check can't reach the platform, and/or an `npx` / catalog call returns a `403`
+-on a JFrog host. That's Cursor's sandbox network allowlist. A Step 0 network
+-failure here is inconclusive — don't report the platform as disabled or abort.
+-The gate uses `jf api` for a configured server and a direct request for
+-environment-only credentials. After the host is allowlisted, re-run Step 0
+-and follow its exit code. Do not bypass the gate.
+-
+-1. **Retry the same command once with `required_permissions: ["full_network"]`**
+-   (see [runtime-permissions.md](runtime-permissions.md)).
+-2. **If it 403s again, has no effect, or the param isn't on your Shell tool
+-   (e.g. the Agents Window), go straight to the allowlist fallback below.** Do
+-   NOT keep retrying `full_network`, and do NOT offer to run the command outside
+-   the sandbox or ask the user to run it in their own terminal. Create or edit
+-   `~/.cursor/sandbox.json` (user) or `.cursor/sandbox.json` (project)
+-   yourself, adding the blocked host to the existing `allow` array if the file
+-   already exists (don't overwrite it), then ask the user to reload the window.
+-
+-Allow whatever host the `403` names; JFrog usually also redirects the binary
+-download to Amazon S3, so `*.s3.amazonaws.com` is typically needed too. SaaS:
+-
+-```json
+-{ "networkPolicy": { "default": "deny", "allow": ["*.jfrog.io", "*.s3.amazonaws.com"] } }
+-```
+-
+-Self-hosted (platform on your own domain):
+-
+-```json
+-{ "networkPolicy": { "default": "deny", "allow": ["artifactory.example.com", "*.s3.amazonaws.com"] } }
+-```
++Respect the actual native permission policy and any denial. Do not automatically
++retry with `full_network`/`all`, create or edit `.cursor/sandbox.json` or
++`~/.cursor/sandbox.json`, add wildcard JFrog/S3 hosts, move execution outside the
++sandbox or ask another harness to evade the block. Network-policy changes are
++separately owned, reviewed work: resolve the exact required host/effect and
++existing policy owner before any explicitly authorized change. If access remains
++unavailable, retain the selected entry and report the capability gap without a
++fallback install, login or URL retarget.

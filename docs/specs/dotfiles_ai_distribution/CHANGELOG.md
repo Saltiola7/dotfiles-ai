@@ -1,5 +1,84 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-01 — Complete JFrog specialist setup
+
+- Added all seven official Apache-2.0 skill roots at immutable revision
+  `e555af53c3f5ead14fcafb009380e76d3ddf17d1`, with complete resources, exact
+  original identities, license notices and reversible local adaptations.
+- Compact native descriptions and the existing DBSCTR platform table select
+  actual JFrog work. Full workflows stay lazy; configured Xray remains QA
+  authority. Init retains manual invocation. Agent Guard guidance stays scoped
+  to explicitly selected JFrog governance and native configuration owners.
+- Corrected automatic login/install/config writes, generic MCP takeover,
+  cached-package safety and version substitution, forced Kubernetes, scan
+  bypass and hidden attestation failures in reachable guidance.
+- Removed the optional credential-derived project-list cache after native
+  CodeQL identified its fast password/token fingerprint. Compatibility cache
+  exports now always miss/no-op; selected enumeration stays live. Three
+  regressions fail against the original implementation and pass after repair;
+  no scanner suppression, alert dismissal or gate exception is introduced.
+  Recovery retains private preimages for comparison while keeping the cache off.
+- Added default-off, missing-only JFrog CLI 2.129.0 installation with four
+  reviewed asset hashes, isolated bounded version probes, atomic no-replace
+  publication, existing-owner retention and cancellation/failure cleanup.
+- 212 scoped tests pass with one opt-in native check skipped. Original creator,
+  scoped pytest, provenance reconstruction, resource/import
+  closure and script syntax are delivery authorities. Exact local skill/CLI
+  deployment and native discovery evidence belong to `JFROG-SKILLS-001`;
+  no live platform, plugin, hooks, authentication or MCP activation is implied.
+  No gate exceptions are introduced. Final delivery targets a feature-branch
+  draft PR and ordinary protected merge only after current-base CI passes.
+
+## 2026-10-31 — PY-06 refresh elapsed duration
+
+- Corrected newly completed scheduler durations to whole monotonic elapsed
+  seconds rounded down, including process launch, execution and timeout cleanup.
+  Unix-millisecond timestamps, version-1 fields, counters, failure classes,
+  single-flight behavior and lifecycle snapshot authority remain compatible.
+- Added deterministic regression coverage for fractional boundaries, wall-clock
+  changes, nonzero exit, spawn failure, timeout grace/escalation, interval
+  boundaries, legacy-summary preservation and an actually running overlap.
+  The original unit defect failed those regressions before the correction;
+  failed and replacement evidence remains in the private Cycle Record.
+- Validation: 109 scoped tests passed and one skipped on Python 3.13.16,
+  including the configured publication and instruction authority.
+- Scoped deployment applied only the managed wrapper, with scripts excluded;
+  the second apply and destination verification passed. Installed bytes and mode
+  match the tested source. The loaded job and saved summary bytes were unchanged;
+  no real refresh was launched. A private preimage and isolated recovery fixture
+  retain rollback evidence without restoring the old wrapper on the live host.
+- Existing summaries remain verbatim until the next ordinary acquired run; their
+  historical units cannot be established from version 1. A rollback accepts the
+  same summary shape but resumes the old duration defect on subsequent runs.
+- Method Revision 3.29; no Gate Exceptions. Gate Commits, scoped QA, deployment,
+  operation and recovery evidence belong to the private PY-06 Cycle Record.
+  Intended Final Push: feature branch and one draft PR into the configured
+  `main`; actual push and pull-request results are recorded privately and
+  reported separately.
+
+## 2026-10-31 — Self-hosted Prefect inspection
+
+- Added the complete official workflow skill as `prefect-operations`, with
+  immutable origin, exact MIT notice and reversible self-hosted adaptations.
+  DBSCTR's existing platform selection table owns its focused routing.
+- Added an optional stdio adapter with twelve inspection tools, a pinned upstream
+  factory, isolated frozen Python 3.13 runtime and hash-qualified build inputs.
+  Patched compatible FastMCP/Logfire/OpenTelemetry dependencies replace advisory
+  findings in the upstream lock; installed uv remains separately owned.
+- Target selection and credentials stay private. Serving cannot resolve packages,
+  inherit project dotenv settings, start an ephemeral API or expose experimental
+  execution plans. Generation identity, dependency metadata, bounded subprocess
+  lifetime, failure diagnostics and same-name client collisions are tested.
+- OpenCode uses its existing native template/merger. Codex registration uses each
+  independently bound native host; the managed CLI source remains hooks-only and
+  keeps its existing explicit reconciliation protocol.
+- Affected-scope validation: 245 tests and the original skill validator pass;
+  one opt-in native check is skipped. OSV reports
+  zero advisories for 149 resolved dependencies on the selected macOS ARM64 and
+  Linux AMD64/ARM64 targets. Native deployment/protocol and protected CI evidence
+  are recorded separately in the private `PREFECT-MCP-001` cycle. Installation,
+  tool discovery, backend connectivity and workflow readiness are distinct claims.
+
 ## 2026-10-31 — PY-01 first-clone bootstrap repair
 
 - Corrected absent-source admission with normal Git clone, exact detached commit

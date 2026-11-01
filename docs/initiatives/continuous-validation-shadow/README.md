@@ -113,3 +113,22 @@ metered-model-quality claim, remote-compute rollout or global activation.
 Configuration and interactive authentication must be established before a later
 explicit real-provider qualification. Existing CI and formal gate authority
 remain unchanged.
+
+## Bounded storage repair follow-up
+
+The `bounded-storage` slice repairs Python audit findings PY-03/PY-04 in the
+existing `continuous_validation` context. The [storage contract](../../specs/continuous_validation/STORAGE.md)
+defines bounded reference journals, query-only replay, whole-selection capacity
+reservation, generation ordering and preserved legacy evidence. INT-032 through
+INT-042 cover this repair without changing the approved context ownership map.
+The committed [applicability plan](STORAGE.plan.json) supplies the same required
+Python/Security development, deployment, operation and maintenance gates.
+
+The implementation prerequisite is the already merged local-shadow source; no
+unimplemented predecessor delivery is introduced. Private runtime activation is
+not a launch prerequisite or a claim made by a ready slice. Discovery authority
+stays on its local branch and is imported into one implementation PR through the
+existing receipt/preflight route. Targeted private deployment and merge require
+the selected checks and native protections; preflight never registers a cycle or
+implements the repair. Oversized-journal recovery tools, compact public responses
+and adjacent store-count admission remain outside this slice.
