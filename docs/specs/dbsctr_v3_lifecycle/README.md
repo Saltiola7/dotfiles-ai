@@ -4,8 +4,9 @@
 the PY-02 repair: replacing a disposed gate with failed or unavailable evidence
 reopens later required passed gates, even when the source HEAD is unchanged.
 Historical evidence, current exception rules, schema compatibility and command
-admission remain intact. This is Discovery authority; implementation and managed
-installation are separate validation claims.
+admission remain intact. Evidence and manual result replacement share the same
+internal transition policy. Source validation and managed installation remain
+separate claims.
 
 [Platform and language specialists](features/platform-specialists.md) extends
 conditional selection to shell, host/container/cloud operations, async Python,

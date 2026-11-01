@@ -1,5 +1,27 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Evidence rerun invalidation (PY-02)
+
+- Evidence recording and manual gate replacement share a pure transition policy.
+  Losing disposition reopens exactly later required passed gates, including an
+  exception-backed failure rerun without a result-string change. Same-HEAD
+  recovery cannot restore stale downstream success. History, sidecars, exception
+  policy, CLI admission, schemas and failure/remediation counter meanings remain.
+- Three new regression cases demonstrated the prior failure; all six new
+  CLI/completion cases passed after repair. The finite policy suite passes 2,688
+  cases across supported schema modes, exceptions, gate positions, evidence
+  references and counter defaults, with repeated transitions and owned I/O
+  boundaries checked. Full controller, completion, amendment and policy QA passes
+  3,031 tests and 101 subtests, with one filesystem-dependent non-UTF-8-name skip.
+  Publication/instruction contracts pass 93 tests with one optional skip; four
+  affected Python files compile. Local disposable-repository checks isolate Git
+  signing; original environment failures and replacement evidence remain private.
+- No Gate Exception, dependency or runtime migration, managed installation or
+  automatic live-record repair. Recovery retains reopened gate state and private
+  evidence; fresh downstream evidence remains required. Intended Final Push is
+  the isolated feature branch and a draft PR into `main`; actual delivery and
+  Gate Commits belong to the Cycle Record. Full PR CI remains required for merge.
+
 ## 2026-10-31 — Infrastructure and framework specialist follow-up
 
 - Added three official Pulumi bundles and the reviewed Django/DRF bundle, plus

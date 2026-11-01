@@ -1,6 +1,6 @@
 # Evidence Rerun Invalidation (PY-02)
 
-## Scope and readiness
+## Scope and Engineering Profile
 
 Owner and bounded context: lifecycle maintainer, `dbsctr_v3_lifecycle`.
 Engineering Profile: [existing profile](../PROFILE.md); its defaults remain
@@ -15,18 +15,18 @@ controller. The existing CLI, gate order, record schemas and authority owners
 remain the public interface. No new Product Intent artifact is needed: this
 slice corrects an existing internal-tool contract and adds no user journey.
 
-Specification readiness is complete for the bounded behavior below. The audited
-contradiction remains present in source revision `3a3cd85`. Build registration
-and launch feasibility have not been checked. Discovery neither registers a
-cycle nor implements the repair. The context README and CHANGELOG were reviewed;
-the CHANGELOG receives a completed-cycle entry only after implementation and
-actual validation, not a claim of completion from this Discovery.
+This repair addresses the contradiction observed in source revision `3a3cd85`.
+The context README and CHANGELOG remain the durable specification and outcome
+artifacts; actual gate results, launch authority, source evidence and delivery
+state belong to the private Cycle Record. Source implementation does not imply
+managed installation or recovery of existing live records.
 
 ## Problem and desired outcome
 
 `record-evidence` replaces the current result, evidence reference and exception
-of the selected required gate. Unlike `set-gate`, it currently omits downstream
-invalidation when that replacement changes the gate from disposed to undisposed.
+of the selected required gate. The earlier implementation, unlike `set-gate`,
+omitted downstream invalidation when that replacement changed the gate from
+disposed to undisposed. Both commands now use the shared transition policy.
 
 For example, domain and behavior can pass at one HEAD; a domain rerun can fail
 and then recover at that same HEAD while behavior retains its earlier passed
@@ -70,6 +70,10 @@ new failed/unavailable result replaces a result outside that pair; increment
 `remediation_round_count` when passed replaces failed/unavailable. In particular,
 removing an exception from a repeated failed result does not invent another
 failure count, but can reopen dependent successes.
+
+Initialize the existing metric defaults before reopening can increment a
+counter. Records without a metric map retain the established zero defaults;
+this does not relax record validation or migrate historical schemas.
 
 Preserve the existing invalidation population. Later not-applicable, pending,
 failed and unavailable gates remain unchanged; this includes later failed or
@@ -222,7 +226,7 @@ from `.github/workflows/test.yml`. Full-suite CI remains the integration
 authority. Discovery's documentation checks establish artifact integrity only;
 they do not prove the implementation defect fixed or installed behavior changed.
 
-## Applicability plan and Build handoff
+## Applicability plan and delivery
 
 [PY-02 applicability plan](../PY-02.plan.json) names the existing committed
 Engineering Profile and all eleven gates. Build verifies the profile/base
@@ -252,13 +256,12 @@ exception-policy expansion, changed counters and unknown already affected active
 records. The bounded contract and validation matrix address the first three;
 retrospective live-record recovery remains explicitly separate.
 
-Next task: a DBSCTR Build primary implements only PY-02 from this contract after
-fresh registration checks. Own the helper's result-transition paths and their
-focused tests together. Bounded read-only review is parallel-safe; simultaneous
+Own the helper's result-transition paths and their focused tests together.
+Bounded read-only review is parallel-safe; simultaneous
 writers to gate transitions, those tests or this feature must serialize. The
 adjacent gate-aware continuous-validation proposal does not own formal gate
-mutation; reconcile shared README edits before integration. No material behavior
-question remains unresolved; Build launch feasibility is unverified.
+mutation; reconcile shared README edits before integration. This contract grants
+no new launch, deployment or live-record recovery authority.
 
 ## Visual Evidence
 
