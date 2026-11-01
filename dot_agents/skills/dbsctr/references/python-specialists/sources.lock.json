@@ -110,8 +110,8 @@
       "files": {
         "LICENSE.upstream": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
         "README.md": "35f86d844cfbac35ff61707230186a6610b5e4a74eda6e44254f1ce3a3bdecb0",
-        "SKILL.md": "4a562c5346d67deb600ec19252246426fbc406a26d729c052d9cdaa4ed650bb0",
-        "UPSTREAM.md": "ec66a35e6cddd74fa9af1e6998e9f065ba2d879e23235d02b2dcf7770d7f4171",
+        "SKILL.md": "8f08a48c2731fad82a7b9c9f8996711e47124ef78c7b70cfba88d69a5c43dc73",
+        "UPSTREAM.md": "9557ebd015ebda63ff308aa131bb46ffe5bfe47cfde5eb601d1986aa043b3ce7",
         "agents/openai.yaml": "51d635deefa254d8cdf6dc56450851b6ec9545cd37f88a4eb4035cf3f2262fff",
         "assets/trail-of-bits-mark.svg": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
         "references/generating.md": "fdb7d6810367edfe0a3edda4a9dbddd94c7d7af054241d4828b5d23e53fc8442",
@@ -122,7 +122,7 @@
       },
       "patches": {
         "patches/property-based-testing/README.md.patch": "2649cab67e5a293500bb8a5a173921c3fe0f8a73948c523f77752479d8749892",
-        "patches/property-based-testing/SKILL.md.patch": "00afa045569fcb1447e80181ca236c575ac24b76b7d6f512d6bc96dee7d3fa9a",
+        "patches/property-based-testing/SKILL.md.patch": "8309b4d56044e2fcf8629b357a6875f444b1255a979883c04f5d83de033b6c6f",
         "patches/property-based-testing/references__generating.md.patch": "387c8993ebb23fb94096cc221109bd52ecedbfb2a845d45ff7cd16cf00a0e454",
         "patches/property-based-testing/references__interpreting-failures.md.patch": "fe852fdf3a12c588cb0bf39b490150ff71d222ae08543de11c84677bb934c747",
         "patches/property-based-testing/references__refactoring.md.patch": "8b4f784ad535f44b16b124112a1a75fa9fd8d0f87174f7b8a96534a44fbaf8aa",
@@ -149,12 +149,12 @@
       },
       "files": {
         "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
-        "SKILL.md": "b65cade72afbfefbdf2ace2a5fab74bcbedb8a9fd5aa75903c8447608db6a66d",
-        "UPSTREAM.md": "adf50bd815c7ce7623238b5ecade0e4f5b419923eb2aae141d14ca413290dedb",
+        "SKILL.md": "d330f7e9b0d9a35ffa5c9e62955aaf0b71999aabe73612bf74d8cd6b01960e19",
+        "UPSTREAM.md": "c7c639f395d44f6eed3d52514422e4ca398e5be54d8d77a356f91bee339c38f8",
         "references/details.md": "0b47721f28159addb40b380b42c03312819895778f7ad3535ec98f5615effa76"
       },
       "patches": {
-        "patches/python-design-patterns/SKILL.md.patch": "6218c80f81cdcd720369854a3f809d76e49aaf9e82687ce0a8ce19bb87d501da",
+        "patches/python-design-patterns/SKILL.md.patch": "333fec4da979c32bce51fa5a3a33289d5eead38d8a3d77d5e0f0e28b34562263",
         "patches/python-design-patterns/references__details.md.patch": "9063e3c92532842c86d3c4019af61489f8c9d1917d32239162b9dfe9f99b0598"
       },
       "changes": "Preserved the complete upstream skill resource tree. Added project/lifecycle boundaries and attribution. Made numerical heuristics review signals rather than universal gates, aligned testing with project authority, and replaced unbundled sibling links with optional immutable upstream URLs."

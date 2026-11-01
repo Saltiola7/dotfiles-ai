@@ -34,10 +34,11 @@
 ## Conditional Controls
 
 - **CONDITIONAL:** Select the smallest applicable installed specialist set using
-  the evidence below. Read [Python specialists](../references/python-specialists.md)
-  when selecting one, then load that skill and only its relevant resources.
-  Reassess when new evidence changes the task; ordinary Python work does not load
-  every specialist or create another phase, coordinator or approval checkpoint.
+  the table below, then load that skill and only its relevant resources. Consult
+  [selection details](../references/specialist-selection.md) for unresolved
+  catalog, discovery or handoff questions and [Python method notes](../references/python-specialists.md)
+  for relevant technique or maintenance detail. Reuse guidance already loaded;
+  ordinary Python work does not load every specialist or add a coordinator/gate.
 
 | Evidence in the current task | Preferred specialist | Checkpoint |
 |---|---|---|
@@ -47,6 +48,7 @@
 | New packaging/tooling setup or explicitly selected tooling migration | `modern-python` | Engineering Profile/Spec |
 | Changed async tasks, cancellation, concurrent I/O or sync/async boundaries | `async-python-patterns` | Domain/Contract; Test/Refactor |
 | Runtime/support-floor change or requested modernization/debt review | `python-modernization-review` | Profile/Spec; Maintain/Retire |
+| Actual Django/DRF ORM, serializers, views, permissions, migrations or framework tests | `django-expert` | Domain/Contract; Test/Refactor |
 
 - **PROJECT POLICY:** Runtimes, tools, dependencies, compatibility, test strategy
   and acceptance thresholds remain project-selected. Specialist recipes cannot

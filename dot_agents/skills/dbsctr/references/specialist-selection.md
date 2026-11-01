@@ -1,7 +1,7 @@
 # Specialist Selection and Progressive Disclosure
 
-Read once when selecting a specialist within a cycle. Reuse relevant loaded
-guidance while its source, task evidence and project policy remain applicable.
+Consult this reference for unresolved selection, discovery or handoff questions.
+Reuse relevant loaded guidance while source, task evidence and project policy apply.
 This is a loading contract, not another coordinator or a runtime dispatcher.
 
 ## Select from task evidence
@@ -23,11 +23,18 @@ relative to that bundle. Read only sections/resources needed for the current
 decision. Do not enumerate/read every installed skill body to choose one, fetch
 moving upstream instructions during execution or execute a helper before review.
 
-If a managed specialist is absent from a cached catalog but the installed DBSCTR
-root is known, inspect only its exact sibling `../<skill-name>/SKILL.md` and verify
-the entrypoint name. This read-only fallback can supply reviewed guidance without
-refreshing the client catalog. Do not scan unrelated runtime homes or fetch a
-replacement. Report actual catalog/discovery limitations separately.
+Explicit skill disablement and scope exclusions take priority. For permitted
+managed guidance missing from discovery, use the [read-only sibling resolver](../scripts/resolve_specialist.py)
+through an existing Python interpreter, passing only the known skill name. Its
+path is relative to the loaded DBSCTR bundle; do not install a runtime to run it.
+
+The resolver follows the physical DBSCTR directory before inspecting the exact
+sibling and verifies the entrypoint name. Registration directories can be symlinks:
+a failed lexical parent lookup does not establish absence. Read the returned
+entrypoint and needed resources. If resolution cannot be verified, report that
+limitation rather than claiming the bundle is globally uninstalled. Do not scan
+unrelated runtime homes, fetch a replacement or treat lookup as authorization.
+Discovery, available files and permitted use remain distinct observations.
 
 ## Preserve authority
 

@@ -1,10 +1,10 @@
 # Python Specialist Guidance
 
-Use the [common selection contract](specialist-selection.md) when selecting a
-specialist. Keep the Python module's outcomes and project-selected tools,
+For selection or discovery questions, see the [common contract](specialist-selection.md).
+Keep the Python module's outcomes and project-selected tools,
 runtimes, dependencies, compatibility and acceptance criteria.
 
-## Select the relevant technique
+## Apply the selected technique
 
 For an explicitly requested repository-wide Python assessment, use `python-audit`.
 It considers all six Python lenses, records actual review and QA coverage, and
@@ -12,14 +12,9 @@ returns opinionated findings plus ordered refactor batches. Audit intent does no
 select a migration or authorize remediation. Ordinary development continues with
 the conditional selection below.
 
-| Evidence | Preferred guidance |
-|---|---|
-| Changed responsibilities, boundaries or abstractions | `python-design-patterns` |
-| Meaningful parser/serializer/validation or state invariant | `property-based-testing` |
-| Performance problem, requirement or measured bottleneck | `python-performance-optimization` |
-| New packaging/tooling setup or selected tooling migration | `modern-python` |
-| Changed async ownership, cancellation, concurrent I/O or sync boundary | `async-python-patterns` |
-| Runtime/support-floor change or requested modernization/debt audit | `python-modernization-review` |
+The [Python module's conditional controls](../modules/python.md#conditional-controls)
+own the canonical trigger/checkpoint table. Read these notes only when their
+method tradeoff or maintenance detail is relevant to the current question.
 
 Ordinary edits can need none. Reassess when evidence changes the concern, using
 only relevant resources and the current primary. A skill need not run in a helper.
@@ -40,7 +35,7 @@ or new gate solely because a technique is unavailable.
 
 The [original Python source inventory](python-specialists/sources.lock.json)
 records the first four complete bundles, immutable pins, licenses, original Git
-blobs/SHA-256 hashes and reversible patches. The new async bundle uses the shared
+blobs/SHA-256 hashes and reversible patches. The async and Django bundles use the shared
 expansion inventory at `specialist-sources/sources.lock.json`; modernization review
 is locally maintained. Each vendored bundle's `UPSTREAM.md` explains adaptations
 and its `LICENSE.upstream` retains the exact notice. The Trail of Bits adaptations

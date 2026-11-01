@@ -77,6 +77,11 @@ Load only matching modules before Domain. Multiple modules may apply.
 | Self-service analytics, semantic routing, governed answers | `modules/analytics.md` and, when data changes, `modules/data.md` |
 | Browser UI, product-facing web flow, frontend component, rendered user document | `modules/web.md` |
 
+If a named managed specialist is missing from discovery, use the
+[bundled resolver](scripts/resolve_specialist.py) with existing Python, respecting
+explicit disablement. A lexical lookup under a symlink registration is not proof
+of absence.
+
 Modules use REQUIRED, CONDITIONAL, PROJECT POLICY, and EXAMPLE. Optional
 provider/tool patterns live in `references/` and never gate a cycle by
 themselves. A future language/framework module may extend phases and gates but

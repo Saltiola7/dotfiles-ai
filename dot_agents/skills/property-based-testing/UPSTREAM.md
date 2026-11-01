@@ -13,6 +13,10 @@ This adapted directory, including local changes to upstream material, remains li
 
 Preserved the complete upstream skill resource tree and upstream evaluation history with an explicit historical-context note. Removed effort selection. Added project/lifecycle boundaries and preservation of existing authorization for dependency/refactor choices. Made example budgets, deadlines and severity context-dependent; corrected filtering-result claims and hashability qualification. Explained pre-state testing and meaningful inverses without forcing production redesign.
 
+Shortened discovery metadata to front-load the actual task boundary; retained
+method scope and complete supporting guidance. Native selection and usage are
+qualified separately from static character counts.
+
 Every original skill-root file is retained. `LICENSE.upstream` is copied unchanged
 from the repository-root `LICENSE`; this attribution file is added locally.
 Sibling plugin manifests, hooks/shims and external evaluation runners are not part

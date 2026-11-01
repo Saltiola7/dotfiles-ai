@@ -1,5 +1,60 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Infrastructure and framework specialist follow-up
+
+- Added three official Pulumi bundles and the reviewed Django/DRF bundle, plus
+  original Hetzner Cloud and Dagger guidance from official sources. Existing
+  Python/Cloud routes select them conditionally. Preserved complete selected
+  resources, exact licenses, immutable original identities and reversible patches;
+  Terraform remains excluded. Corrected reviewed Pulumi identity/EKS and Django
+  query, permission, transaction and serializer examples.
+- Current-base union regression: 211 passed, one optional native smoke skipped;
+  six original-creator validations and independent source reviews passed. Six
+  declared native cases selected required guidance and respected read-only scope.
+  Independent decision quality was three passes and three partials: omitted URN
+  constituents, omitted Django object/create/list detail and unsupported
+  selected-version Dagger API compatibility. Core diagnoses were sound; no
+  application, SDK/provider, database or engine execution was claimed or observed.
+- Retained all six calls and twelve full method-read proofs. Native usage was
+  420,695 input, 345,472 cached input and 3,869 output tokens, separate from the
+  earlier 46-call comparison and four repair checks. This single-arm smoke
+  establishes no comparative effectiveness, universal trigger or savings claim.
+- Deployed 75 canonical files and one reference projection through exact targets,
+  verifying first-apply empty diff, repeated application, complete files/bytes/
+  modes and preserved audit guidance/core. Operational dependencies and accounts
+  were not installed or changed. Recovery preimages and reviews remain private.
+- Main acquired Python-audit during the router PR's CI. Reconciled both approved
+  scopes and amended delivery to one current-base PR requiring every gate and
+  Gate Commit from both cycles. Original router CI passed all eight checks on its
+  prior base and remains historical evidence. Fresh current-base CI is required
+  before the requested ordinary merge. No check was waived; no Gate Exception used.
+  Cycles `SKILL-ROUTER-001` and `INFRASTRUCTURE-SPECIALISTS-001` retain final
+  closure and actual delivery. All branches/worktrees remain preserved.
+
+## 2026-10-31 — Native specialist-router qualification
+
+- Added opt-in native automatic-selection evaluation with private raw evidence,
+  real usage fields, observed method reads and independent decision review.
+  Retained 46 initial calls plus four separately frozen repair checks. Held-out
+  routing tied at 16/16 per arm; five initial answers were partial. Held-out input
+  increased 6.1%, so no end-to-end saving or universal reliability is claimed.
+- Shortened two descriptions, removed duplicate Python routing and unconditional
+  reference hops, and retained complete resources/licenses/reversible provenance.
+  Both original omission controls failed; a bounded physical-sibling resolver
+  fixed symlink registration lookup. Two recovery and two negative repair checks
+  passed. Explicit disablement and project/lifecycle authority remain unchanged.
+- Scoped offline regression passed; original creator validated both changed
+  vendor entrypoints. Deployed 42 canonical files and two reconciled instruction
+  overlays with exact targets, repeated application, empty diff and complete
+  bytes/file sets/modes. Unrelated live core and Python-audit text was preserved.
+  Native CLI catalog observed all three changed discovery entries; Desktop
+  refresh and operational SDK/cloud/device execution are not claimed.
+- Cycle `SKILL-ROUTER-001` retains original failures, source identities, independent
+  reviews and recovery preimages. No Gate Exception. Kernel commits include
+  `10be04f`, `9e0aa0a`, `76b94fb`, `14f0c68` and `2f7d4b9`. Intended delivery:
+  feature branch/draft PR to `main`, followed by requested ordinary merge after
+  fresh native CI and protections; final closure records actual outcome.
+
 ## 2026-10-31 — Repository-wide Python audit
 
 - Added `python-audit`, a report-only entrypoint composing all six current Python
