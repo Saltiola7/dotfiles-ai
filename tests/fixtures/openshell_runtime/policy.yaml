@@ -9,7 +9,7 @@ filesystem_policy:
     - /proc
     - /dev/urandom
   read_write:
-    - /sandbox/work
+    - /work
     - /scratch
 landlock:
   compatibility: hard_requirement
@@ -19,5 +19,5 @@ process:
 network_policies: {}
 # This is the denied-network generation. An allowed synthetic-network probe
 # requires its own reviewed exact endpoint/binary rule and generation identity.
-# A separate read-only bind mount protects /sandbox/work/.git; Landlock's
+# A separate read-only bind mount protects /work/.git; Landlock's
 # writable-parent rule alone is not claimed to protect that child.

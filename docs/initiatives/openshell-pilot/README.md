@@ -155,21 +155,41 @@ authorities rather than a new privacy denylist. Validate MANIFEST.json after eve
 material change. Validate relative links, gate plans, complete import closure and
 visual Text Equivalents. No new implementation tests are authored during Discovery.
 
-## Discovery validation checkpoint
+## Initial Discovery validation checkpoint
 
 The configured publication/instruction command passed 89 tests with one existing
 native OpenCode V2 test skipped because no explicit native test binary was
 selected. That skip is not native runtime evidence or a pilot Gate Exception.
 Relative document links, eleven-gate plan inventories, artifact existence and the
 complete changed-document import closure passed structural checks. The manifest
-validator identifies only runtime-qualification as ready. Independent read-only
-contract review found no blocker for that bounded slice.
+validator initially identified only runtime-qualification as ready. Independent
+read-only contract review found no blocker before live qualification.
 
-These checks establish documentation readiness only. No runtime, credential,
-model, host mutation, deployment or launch-preflight result is claimed. The
+Those checks established documentation readiness only. They did not establish
+runtime, credential, model, deployment or launch-preflight results. The
 scope interview is resolved: Git approvals remain unchanged, first activation
 uses a dedicated dotfiles-ai Worktrunk checkout, and separate same-account logins
 are accepted. Dependent slices still require technical qualification evidence.
+
+## Reopened runtime protection decision
+
+Live synthetic qualification demonstrated direct source editing, but an alternate
+case spelling of the Git pointer allowed a writable open despite the exact-name
+read-only bind. The experiment stopped before changing pointer contents. Runtime
+qualification remains failed; the private Cycle Record owns the evidence and
+retention state. This reopens only the pointer-protection mechanism. The approved
+five-context map, direct-edit requirement and existing Git approval rules remain
+unchanged.
+
+The reopened decision now has a specified next experiment: a host-owned immutable
+pointer flag on a fresh synthetic fixture, including attempted guest flag removal
+and identity-preserving restoration. The runtime feature defines its exact
+receipt, operations and outcome rules. This restores implementation readiness for
+bounded requalification; the candidate remains unqualified and does not relax
+acceptance criteria or authorize real-checkout activation.
+Case-sensitive storage is a separate alternative requiring an explicit checkout
+location decision. Provider, agent, host-helper and activation slices remain
+dependent on successful runtime qualification.
 
 ## Promotion and Build handoff
 
@@ -184,11 +204,26 @@ README/Product Intent update and plan, even when successors remain discovering.
 This avoids incomplete same-repository import. Use the existing Initiative
 import route; no preliminary documentation PR or source reset is needed.
 
-Build must freshly validate publication, committed authority and receipt, then
-prepare an explicit Worktrunk checkout at the approved remote base. Run real
-begin preflight before presenting scope, risk, delivery target and launch digest
-for exact approval. No registration has occurred and launch feasibility is
-unverified. General pilot intent is not a substitute for that exact launch check.
+For initial registration, Build must freshly validate publication, committed
+authority and receipt, then prepare an explicit Worktrunk checkout at the approved
+remote base. Run real begin preflight before presenting scope, risk, delivery
+target and launch digest for exact approval. General pilot intent is not a
+substitute for that exact launch check.
+
+When a matching runtime cycle is already registered, resume that cycle and its
+existing checkout. A failed qualification probe does not require another cycle,
+another registration approval or removal of existing work. Preserve the original
+approval, imports, commits and failed evidence. Reconcile the affected design,
+behavior, contract and tests before a separately identified bounded experiment.
+Historical gate evidence does not establish that a revised candidate passed.
+The private Cycle Record is authoritative for actual registration and results.
+
+The next technical proof is the host-owned immutable pointer candidate described
+in the runtime feature and runbook. It keeps the approved direct-edit requirement,
+Git approval rules, provider scope and resource ceilings. Successful pointer
+qualification only permits the remaining runtime matrix to proceed; it does not
+qualify agent authentication or activate real checkouts. A changed approval scope
+or a genuinely new cycle retains the applicable preflight and approval boundary.
 
 Recommended Build primary: current native Codex session, preserving OpenAI
 provider affinity and explicit checkout targeting. No session relocation or

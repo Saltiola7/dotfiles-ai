@@ -232,6 +232,52 @@ resources. Retain earlier failures. Requalify changed binaries, images, policy,
 mounts, resource budgets or control interfaces; do not relabel stale evidence.
 No source update implies a live worker change or package upgrade.
 
+### Continuation after the pointer case-alias failure
+
+Continue the registered runtime cycle in its existing source checkout. Preserve
+the failed experiment, original approval and all evidence. Reconcile only the
+pointer-protection decision and its dependent contracts; the five-context scope,
+direct-edit requirement and existing Git approval rules remain unchanged.
+
+The next candidate uses a host-owned `UF_IMMUTABLE` flag on a fresh synthetic
+Git pointer. This is a hypothesis, not a qualified boundary. macOS permits the
+file owner to clear this flag; guest-to-host filesystem translation must therefore
+be tested rather than assumed safe. The workload must never receive an interface
+that asks the host controller to clear the flag.
+
+Before another live experiment, define and validate these observations:
+
+1. Record the fresh pointer's device, inode, owner, link count, original flags,
+   contents and native Worktrunk/Git membership in private host-owned state.
+   Reject pre-existing or ambiguous ownership. The previous failed fixture is
+   not modified, reset or reused.
+2. Apply only the user immutable flag to that exact synthetic file, without
+   privileged or recursive changes. Verify the resulting host flags and identity
+   before exposure. Keep the exact-name read-only mount as an additional control.
+3. Verify direct source edits still work. From the actual OpenShell workload,
+   attempt pointer writes, replacement, unlink, rename, hardlinks and case aliases,
+   plus relevant flag, ioctl, xattr and metadata operations. Host observations
+   must show that the immutable flag, inode, pointer contents and protected Git
+   metadata remain unchanged after each attempt, including command failures.
+   Unsupported guest interfaces must be recorded explicitly; they do not prove
+   that all flag-removal routes are denied.
+4. Stop on the first successful protected operation, cleared flag, changed
+   identity, timeout or uncertain observation. Retain the new fixture and guard.
+   A passing pointer experiment proceeds to the remaining required runtime
+   checks under the same verified generation and resource ceilings.
+5. Define restoration before execution: stop the exact workload and supervisor,
+   revalidate the original device/inode and ownership, and restore only the
+   recorded flags when that exact restoration is authorized. Never clear flags
+   automatically after failure or as a recursive cleanup shortcut. Later host
+   Git integration must separately qualify any move, repair or removal operation
+   that requires changing the pointer.
+
+The source runner requires explicit support for host flag observations and the
+new bounded guest attempts before this candidate can run. Existing passing unit
+checks and the failed live experiment remain separate evidence. If this candidate
+cannot satisfy the original boundary, keep direct editing unavailable and reopen
+the storage/design choice; do not weaken the requirement silently.
+
 Cleanup is a separate, exact operation. Before requesting or performing it:
 
 1. Inventory retained fixtures, native checkout membership, workload and worker

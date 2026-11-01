@@ -46,6 +46,7 @@ Git bridge, alternate worktree allocator or lifecycle engine.
 | Workload image and policy | Reviewed immutable generation selected before execution | Read-only policy/configuration and bounded scratch space |
 | Linked fixture checkout | Worktrunk creates native fixture membership; host controller verifies identity | Selected source files writable; Git pointer protected |
 | Shared fixture Git metadata | Native Git and host controller | Only explicitly necessary reads; no writes or lifecycle evidence access |
+| Immutable pointer and original-flags receipt | Trusted host controller; exact synthetic file identity | No receipt access or host flag-restoration interface |
 | Evidence and retained work | Existing private qualification/evidence facilities | No ability to mark its own result verified or remove retained evidence |
 
 **Text Equivalent:** The operator selects a disposable scope. Distribution owns
@@ -194,6 +195,13 @@ filesystem access isolation.
    attempted, then known source edits and evidence remain retained. Report actual
    durability and native state separately. No automatic reset, cleanup, credential
    substitution, unsandboxed retry or return to an unrelated checkout occurs.
+9. **Host pointer guard.** Given a fresh native linked fixture whose exact Git
+   pointer has a recorded host-owned immutable flag, when the guest requests flag
+   removal or metadata changes through an actual alias, then host observations
+   must show unchanged flags, identity, contents and protected Git metadata.
+   Writable source remains usable. Invalid guard receipts refuse execution;
+   missing host flag observation is unavailable. Earlier failed fixtures remain
+   unchanged and retained.
 
 These are security-boundary probes, not an assertion that an arbitrary guest
 kernel compromise is contained. Native Mac MicroVM replacement remains deferred;
@@ -224,12 +232,22 @@ The first implementation accepts only `schema_version` (integer 1), `run_root`
 (an absolute canonical owner-only directory whose basename is `openshell-q-`
 followed by twelve lowercase hexadecimal characters), and `lima_sha256` (the
 reviewed native Lima executable's SHA256). The input is at most 64 KiB. The worker
-name is the run-root basename; the Lima home, fixture main repository, linked
+name is the fixed `q` inside that run's private Lima home, avoiding macOS Unix
+socket path-length limits without sharing instance ownership. The workload name
+is `q-` followed by the same twelve hexadecimal characters, within OpenShell's
+nineteen-character limit. The Lima home, fixture main repository, linked
 task checkout and evidence directory are fixed children of that root. A private
 owner marker is created during exclusive preparation; no existing root is
 implicitly adopted. The runner's only initial executable operation is the fixed
 pointer-boundary probe. Later matrix operations require their own implemented
 and reviewed controls; they remain unperformed until then.
+
+The direct fixture mount uses `/work`, with its pointer mounted read-only at
+`/work/.git`. OpenShell reserves the image's configured working directory against
+replacement by a driver mount, so the image's empty `/sandbox/work` working
+directory remains separate and receives no writable filesystem-policy grant.
+`include_workdir: false` prevents an implicit grant to that directory. Fixed
+probe programs address `/work` explicitly.
 
 Its pure `parse_selection(bytes) -> Selection` rejects malformed input without
 effects. `validate_root(Selection)` checks preparation ownership and identity.
@@ -245,6 +263,13 @@ bound to recorded identities. Commands use fixed argument arrays and minimal
 environments; local process cancellation is never reported as proof of remote
 workload termination.
 
+Runtime identity includes accepted policy admission, policy hash and version,
+configuration and provider-environment revisions, and native process/container
+identity. A hot policy change invalidates the observation even if the process
+continues. Preparation errors do not count as denied target operations. Host
+protected-state observations still run when execution fails or returns malformed
+output; an observed protected mutation remains failed.
+
 The first live boundary probe attempts overwrite, append, unlink, rename and
 replacement of the Git pointer, including case variants on case-insensitive
 host filesystems. It uses only a disposable synthetic native Worktrunk checkout.
@@ -253,6 +278,76 @@ barrier to aliases. Host observations compare pointer bytes, inode, registered
 membership and protected metadata with their pre-probe identities. A successful
 protected mutation stops the experiment immediately and retains the corrupted
 synthetic fixture; it is not repaired and relabeled as passing.
+
+The exact-spelling read-only bind is not a qualified guard for case-insensitive
+host shares: a case alias can reach the same writable host inode through the
+parent mount. Runtime readiness is reopened for an alias-independent protection
+mechanism. The selected next candidate is a host-owned immutable flag on a fresh synthetic
+pointer, subject to proof that the guest cannot clear it. It is not an accepted
+control or permission to change a real checkout. That candidate must bind host
+file flags and inode identity, preserve original flags, exercise guest flag and
+metadata operations, and define stopped restoration before later Git integration.
+The failed fixture and its evidence remain retained independently.
+
+#### Immutable-pointer experiment contract
+
+`immutable_pointer_probe(Selection) -> dict` uses the same bounded controller and
+native identity observations as the original pointer probe. The internal CLI
+selects it with `--probe immutable-pointer`; `--probe pointer` remains the default
+for the original candidate. The new report identifier is `immutable_git_pointer`.
+Neither mode claims overall runtime qualification.
+
+Before any native command or workload effect, the new mode validates the private
+owner-only `guard.json` receipt. Its exact fields are integer `schema_version: 1`,
+`device`, `inode`, `uid`, `link_count`, `size`, `mode`, `mtime_ns`,
+`original_flags`, `protected_flags`, and lowercase hexadecimal `sha256`.
+Booleans are not integers. Device is nonnegative, inode and modification time
+are positive, UID is the current host owner, link count is one, size is between
+one and 4096 bytes, and mode describes the exact regular file. This fresh-fixture
+variant requires original flags zero and protected flags `UF_IMMUTABLE` only
+(value two). Unknown fields, missing flags, aliases and identity mismatches refuse
+admission. The receipt is written before changing the flag so original state
+survives an interrupted preparation. Flag application uses the verified open
+file descriptor before guest exposure; the observation runner never sets or
+clears host flags.
+
+The host snapshot binds device, inode, owner, link count, mode, size, modification
+time, flags and content hash across a bounded descriptor read. It is compared
+before and after every guest operation, including transport errors. The complete
+protected Git metadata snapshot and native runtime/policy identity checks remain.
+
+After the positive source edit, fixed guest operations attempt `setflags_clear`,
+`fssetxattr_clear`, `xattr_set` and `chmod` through each actual case alias. For the
+selected Linux aarch64 ABI, zero-filled SETFLAGS and FSSETXATTR requests use
+request numbers `0x40086602` and `0x401c5820`, with eight- and twenty-eight-byte
+buffers respectively. Zero-filled requests are limited to this zero-original-
+flags synthetic fixture; they do not infer a GET result. The sole xattr is
+`user.openshell_qualification` with bounded value `probe`; mode change requests
+`0600`. Preparation failures do not establish target denial.
+
+`EACCES`, `EPERM` and `EROFS` identify denial of the attempted operation.
+`ENOTTY`, `EOPNOTSUPP` and `ENOSYS` identify an unsupported exact ioctl/xattr
+interface, never a generic authorization denial. Invalid arguments or unknown
+errors remain unavailable. A successful request whose host guard remains intact
+is recorded as `succeeded_guard_intact`; observed protection changes always fail.
+These classifications permit further bounded observation without claiming that
+every possible flag-removal route was tested. The original pointer-mutation
+matrix still requires denial, including writable-open attempts. A passed result
+covers only this fixed candidate matrix; the remaining runtime controls retain
+their independent evidence requirements.
+
+| Guard state | Required observation | Permitted next action |
+|---|---|---|
+| Recorded | Exact fresh pointer, zero original flags, private receipt durable | Apply only the immutable flag through the verified descriptor |
+| Protected | Host flags and complete identity match the receipt | Admit the exact bounded workload and observe fixed probes |
+| Failed or uncertain | Changed protection, failed required observation or identity drift | Stop new attempts; retain fixture, flag and evidence |
+| Stopped and retained | Exact workload and supervisor stopped; original identity revalidated | Restore recorded flags only under exact restoration authorization |
+
+**Text Equivalent:** Record original identity before setting protection. Guest
+exposure requires the protected identity to match. Failure preserves the flag and
+fixture. Restoration requires confirmed stop, identity revalidation and explicit
+authorization. Canonical source: immutable-pointer experiment contract. Owner:
+distribution maintainers. Change trigger: guard admission or restoration changes.
 
 Each probe produces an allowlisted identifier and `passed`, `failed` or
 `unavailable`, plus bounded private observations. Unperformed rows remain
@@ -301,9 +396,9 @@ Initiative receipt; failed feasibility reopens the affected design decision.
 |---|---|---|
 | Boundary | required: ownership table and Text Equivalent | Which actor may control each resource? |
 | Interaction | required: ordered qualification table and Text Equivalent | What must be verified before execution and recovery? |
-| State | required: ordered qualification table and Text Equivalent | Which observations distinguish pause, resume and restart? |
+| State | required: ordered qualification and guard-state tables with Text Equivalents | Which observations distinguish admission, failure, restoration, pause, resume and restart? |
 | Data/trust | required: ownership table and Text Equivalent | Can workloads obtain host authority or alter evidence? |
-| Schema | not_applicable: no new persistent public schema is introduced | Private fixture inputs reuse existing evidence authority |
+| Schema | not_applicable: closed single-receipt fields and exact identity binding are fully defined inline | No additional entity relationship needs a diagram |
 | Dependency/deployment | required: ownership table and ordered qualification table | Where do Mac, guest, runtime and workload controls apply? |
 | Quantitative | not_applicable: no performance, capacity or savings claim is made | Probe bounds and pass/fail observations are not forecasts |
 
