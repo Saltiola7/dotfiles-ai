@@ -143,6 +143,25 @@ private record, output, credentials, source paths or runtime identities are
 copied into shared specifications. Source documents contain only the portable
 contract and synthetic test cases.
 
+### Internal policy interface
+
+The standalone helper owns one internal interface:
+
+```python
+def apply_gate_result(
+    record: dict, gate_name: str, result: str, evidence: str | None = None
+) -> None:
+    ...
+```
+
+The caller has already admitted the command, validated its result/evidence and
+checked any predecessor requirement. The policy mutates the existing record in
+place; it does not repeat admission, execute evidence or persist data. Supplying
+an evidence ID replaces the selected gate's current reference. Without an ID,
+pending clears that reference and other results preserve existing manual-command
+behavior. Both callers retain their existing validation and writer boundaries.
+No public import surface, package or serialized type is introduced.
+
 ## Compatibility, non-goals and recovery
 
 - `record-evidence` continues to support schemas 3/4/5/6. Preserve supported
@@ -167,9 +186,11 @@ contract and synthetic test cases.
 
 Build first adds a regression that fails on unchanged source, then repairs the
 transition and performs a bounded extraction after affected behavior passes.
-Use the schema-3-compatible harness in `tests/test_dbsctrctl.py` and the ready
-schema-6 fixture in `tests/test_dbsctr_forgejo_completion.py`; include current
-schema-5 behavior and preservation of historical/manual transitions.
+Use the current schema-5 harness in `tests/test_dbsctrctl.py` and the ready
+schema-6 fixture in `tests/test_dbsctr_forgejo_completion.py`. Exercise historical
+policy compatibility through the pure boundary and retain the existing schema-3
+read/admission-refusal tests. Do not bypass workspace-adoption requirements to
+make historical CLI mutation executable.
 
 | Case | Acceptance evidence |
 |---|---|
