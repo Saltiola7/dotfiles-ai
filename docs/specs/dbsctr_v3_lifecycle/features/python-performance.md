@@ -276,6 +276,26 @@ configuration variables. Reject non-inert configuration; do not use a timing
 wrapper as a substitute. Fixture-local hooks, signing, credential helpers,
 fsmonitor, maintenance and templates are disabled explicitly.
 
+Hosted macOS images may install the four standard Git LFS filter definitions at
+system scope. These definitions are admissible only with exact standard values
+and fresh proof that every cached or untracked path has no effective filter.
+Read paths with native `ls-files -z` and resolve attributes with native
+`check-attr -z --stdin filter`; neither operation executes a clean/smudge filter.
+Only `unspecified` or explicitly `unset` filters pass. Check before the first
+fixture `add`, before source `status`, and during subsequent identity proofs.
+Attribute resolution includes working-tree, repository-info and system attributes.
+Refuse gitlinks before source `status`; a parent inventory cannot qualify filters
+inside an initialized submodule. Ambiguous duplicate definitions also refuse.
+Unknown system keys, changed LFS commands, local filter definitions and active
+filters remain unavailable. This adds no Git wrapper, system configuration edit,
+environment override accepted by the production helper, or filter execution.
+
+Behavior: given standard dormant system LFS definitions, synthetic fixture and
+source qualification succeed. Given an active effective filter or a changed
+definition, qualification refuses before `add` or `status` can execute it. The
+original CI failure remains retained; an unavailable benchmark is not a passing
+smoke test and must not be silently skipped.
+
 Evidence module signatures:
 
 - `canonical(value: object) -> bytes` and `digest(value: object) -> str`.
