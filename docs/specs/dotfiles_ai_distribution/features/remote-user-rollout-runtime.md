@@ -62,6 +62,18 @@ floor increase, or new test dependency is required.
 - Automatic repair of legacy dirty sources, general bootstrap concurrency,
   updater changes and the other Python audit findings remain out of scope.
 
+### Implementation Interface And Ownership
+
+Keep `prepare_source(revision: str) -> None` and the public bootstrap CLI unchanged.
+For a source absent at admission, reserve the destination with exclusive directory
+creation and retain its device/inode identity. Use Git's normal checked-out clone
+before the existing origin, cleanliness, object and exact detached-checkout checks.
+If preparation fails, cleanup may remove only that invocation's newly reserved
+directory after safe-path, ownership and identity rechecks. Never claim cleanup
+ownership when reservation fails or the final path has been replaced. Existing
+sources bypass this acquisition/cleanup branch entirely. Hard termination and
+general concurrent bootstrap coordination remain outside this bounded guarantee.
+
 ### Acceptance Behaviors
 
 1. **Given** an owned safe home, absent source and valid full requested commit,
