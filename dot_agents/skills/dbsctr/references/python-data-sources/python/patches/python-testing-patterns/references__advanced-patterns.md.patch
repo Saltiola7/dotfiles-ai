@@ -1,0 +1,199 @@
+--- a/references/advanced-patterns.md
++++ b/references/advanced-patterns.md
+@@ -4,9 +4,17 @@
+ 
+ ## Pattern 6: Testing Async Code
+ 
++Use the project's selected async test plugin, mode and event-loop scope. The
++example uses pytest-asyncio's explicit fixture decorator, which works with strict
++mode; plain `pytest.fixture` async conversion depends on auto mode. Verify plugin
++version and fixture-loop compatibility before adapting it. Test cancellation and
++teardown without relying on arbitrary sleeps.
++See [pytest-asyncio fixtures](https://pytest-asyncio.readthedocs.io/en/stable/reference/decorators/index.html).
++
+ ```python
+ # test_async.py
+ import pytest
++import pytest_asyncio
+ import asyncio
+ 
+ async def fetch_data(url: str) -> dict:
+@@ -34,12 +42,14 @@
+     assert all("data" in r for r in results)
+ 
+ 
+-@pytest.fixture
++@pytest_asyncio.fixture
+ async def async_client():
+     """Async fixture."""
+     client = {"connected": True}
+-    yield client
+-    client["connected"] = False
++    try:
++        yield client
++    finally:
++        client["connected"] = False
+ 
+ 
+ @pytest.mark.asyncio
+@@ -60,11 +70,10 @@
+     return os.environ.get("DATABASE_URL", "sqlite:///:memory:")
+ 
+ 
+-def test_database_url_default():
+-    """Test default database URL."""
+-    # Will use actual environment variable if set
+-    url = get_database_url()
+-    assert url
++def test_database_url_default(monkeypatch):
++    """Test the default independently of the invoking environment."""
++    monkeypatch.delenv("DATABASE_URL", raising=False)
++    assert get_database_url() == "sqlite:///:memory:"
+ 
+ 
+ def test_database_url_custom(monkeypatch):
+@@ -83,7 +92,7 @@
+     """Configuration class."""
+ 
+     def __init__(self):
+-        self.api_key = "production-key"
++        self.api_key = "example-only-key"
+ 
+     def get_api_key(self):
+         return self.api_key
+@@ -165,9 +174,9 @@
+ 
+ @pytest.fixture(autouse=True)
+ def reset_database(database_url):
+-    """Auto-use fixture that runs before each test."""
+-    # Setup: Clear database
+-    print(f"Clearing database: {database_url}")
++    """Illustrate fixture scope; no database reset is performed here."""
++    # Real cleanup must own an isolated test database, never a live target.
++    print("Preparing isolated test state")
+     yield
+     # Teardown: Clean up
+     print("Test completed")
+@@ -245,7 +254,8 @@
+     assert len(sorted_lst) == len(lst)
+ 
+     # All elements present
+-    assert set(sorted_lst) == set(lst)
++    from collections import Counter
++    assert Counter(sorted_lst) == Counter(lst)
+ 
+     # Is ordered
+     for i in range(len(sorted_lst) - 1):
+@@ -254,11 +264,17 @@
+ 
+ ## Testing Database Code
+ 
++This isolated in-memory SQLite example proves only its own SQLAlchemy/SQLite
++behavior. It does not prove DuckDB, ClickHouse, Databricks or any other engine's
++semantics. Use the selected driver's native fixtures for engine contracts. Never
++clear an arbitrary environment-provided database. Test commit, rollback and
++cleanup failures with the actual ownership and isolation policy.
++
+ ```python
+ # test_database_models.py
+ import pytest
+ from sqlalchemy import create_engine, Column, Integer, String
+-from sqlalchemy.ext.declarative import declarative_base
++from sqlalchemy.orm import declarative_base
+ from sqlalchemy.orm import sessionmaker, Session
+ 
+ Base = declarative_base()
+@@ -282,9 +298,11 @@
+     SessionLocal = sessionmaker(bind=engine)
+     session = SessionLocal()
+ 
+-    yield session
+-
+-    session.close()
++    try:
++        yield session
++    finally:
++        session.close()
++        engine.dispose()
+ 
+ 
+ def test_create_user(db_session):
+@@ -327,44 +345,25 @@
+ 
+ ## CI/CD Integration
+ 
+-```yaml
+-# .github/workflows/test.yml
+-name: Tests
+-
+-on: [push, pull_request]
+-
+-jobs:
+-  test:
+-    runs-on: ubuntu-latest
+-
+-    strategy:
+-      matrix:
+-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+-
+-    steps:
+-      - uses: actions/checkout@v3
+-
+-      - name: Set up Python
+-        uses: actions/setup-python@v4
+-        with:
+-          python-version: ${{ matrix.python-version }}
+-
+-      - name: Install dependencies
+-        run: |
+-          pip install -e ".[dev]"
+-          pip install pytest pytest-cov
+-
+-      - name: Run tests
+-        run: |
+-          pytest --cov=myapp --cov-report=xml
+-
+-      - name: Upload coverage
+-        uses: codecov/codecov-action@v3
+-        with:
+-          file: ./coverage.xml
+-```
++Reuse the project's existing workflow, approved runtime matrix, dependency lock,
++action pins, permissions and artifact policy. Do not introduce a new workflow or
++upload coverage to an external service merely because this example exists.
++When pytest and pytest-cov are selected, a workflow may invoke its configured
++command in each approved environment, for example:
++
++```bash
++python -m pytest --cov=myapp --cov-report=xml
++```
++
++Record actual selection and results. A failed import, missing plugin or skipped
++integration suite is a validation limitation, not evidence that behavior passed.
+ 
+ ## Configuration Files
++
++Adapt only relevant settings to the existing configuration. The snippets below
++illustrate configuration syntax; do not replace project discovery or silently
++narrow test/coverage populations. Coverage exclusions need project rationale and
++must remain reported separately from executed inputs.
+ 
+ ```ini
+ # pytest.ini
+@@ -399,13 +398,8 @@
+ 
+ [tool.coverage.run]
+ source = ["myapp"]
+-omit = ["*/tests/*", "*/migrations/*"]
++omit = []  # Add only project-approved, disclosed exclusions.
+ 
+ [tool.coverage.report]
+-exclude_lines = [
+-    "pragma: no cover",
+-    "def __repr__",
+-    "raise AssertionError",
+-    "raise NotImplementedError",
+-]
+-```
++exclude_lines = ["pragma: no cover"]  # Review each intentional exemption.
++```

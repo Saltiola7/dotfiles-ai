@@ -1,0 +1,25 @@
+--- a/structured-input.md
++++ b/structured-input.md
+@@ -17,8 +17,9 @@
+     your_target_function(name, count, strict=strict)
+ ```
+ 
+-Draw in a fixed order. Each call consumes from where the last one left off, so inserting or
+-reordering a call reinterprets every byte after it and devalues the corpus already built.
++Draw in a fixed order. Consumers can read from different parts of the remaining
++buffer; inserting or reordering calls can change existing corpus interpretation.
++Treat a draw-order change as a harness/corpus compatibility change.
+ 
+ Ask for a size before the content it bounds, as above: an unbounded string lets the fuzzer
+ spend the whole buffer on one field and starve every draw after it.
+@@ -45,7 +46,9 @@
+ Prefer `ConsumeUnicodeNoSurrogates` unless you are specifically testing surrogate handling.
+ `ConsumeUnicode` may emit unpaired surrogates (U+D800–U+DFFF), which are legal in a Python
+ `str` but raise `UnicodeEncodeError` the moment the target encodes them — so a target that
+-encodes anywhere reports a crash on its own input handling rather than on your target's logic.
++encodes them can reject the input. Preserve surrogate cases when the target's
++contract promises to handle them; classify documented rejections separately from
++unexpected failures rather than automatically dismissing them as harness noise.
+ 
+ List variants take the element count first:
+ 

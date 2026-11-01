@@ -1,0 +1,19 @@
+--- a/rules/schema-json-when-to-use.md
++++ b/rules/schema-json-when-to-use.md
+@@ -4,6 +4,8 @@
+ impactDescription: "Field-level querying for semi-structured data; use typed columns for known schemas"
+ tags: [schema, JSON, semi-structured, flexibility]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Use JSON Type for Dynamic Schemas
+ 
+@@ -74,3 +76,7 @@
+ ```
+ 
+ Reference: [Use JSON Where Appropriate](https://clickhouse.com/docs/best-practices/use-json-where-appropriate)
++
++## Workload and compatibility qualification
++
++Check the selected server version and JSON implementation/settings; the bundle-wide minimum version is not proof that this feature is supported. Preserve known fields, nested types, null/missing distinctions and schema evolution expectations.

@@ -1,0 +1,63 @@
+--- a/references/pydantic.md
++++ b/references/pydantic.md
+@@ -1,8 +1,10 @@
+ # Pydantic
+ 
+-## Do not use Ellipsis
++## Required fields
+ 
+-Do not use `...` as a default value for required parameters or model fields. It's not needed and not recommended.
++For new compatible declarations, omit defaults to express required fields
++clearly. Existing ellipsis forms are valid; do not change required/null behavior
++or rewrite working code merely for style.
+ 
+ Do this, without Ellipsis (`...`):
+ 
+@@ -26,10 +28,10 @@
+     return item
+ ```
+ 
+-Instead of:
++Existing valid form:
+ 
+ ```python
+-# DO NOT DO THIS
++# Older explicit required-field form
+ from typing import Annotated
+ 
+ from fastapi import FastAPI, Query
+@@ -49,9 +51,12 @@
+     return item
+ ```
+ 
+-## Do not use Pydantic RootModels
++## Plain annotations and RootModel
+ 
+-Do not use Pydantic `RootModel`; instead use regular type annotations with `Annotated` and Pydantic validation utilities.
++A simple list body can use regular annotations plus `Annotated` without a wrapper.
++`RootModel` is also valid when a named schema or custom validation/serialization
++needs it. Preserve the selected public schema identity and installed-version
++compatibility; do not mandate a wrapper or its removal.
+ 
+ For example, for a list with validations:
+ 
+@@ -69,10 +74,10 @@
+     return items
+ ```
+ 
+-Instead of:
++Existing valid form:
+ 
+ ```python
+-# DO NOT DO THIS
++# Alternative named root schema
+ from typing import Annotated
+ 
+ from fastapi import FastAPI
+@@ -91,3 +96,6 @@
+ ```
+ 
+ FastAPI supports these type annotations and will create a Pydantic `TypeAdapter` for them, so types work normally without custom wrapper models.
++
++For full Pydantic contracts, use the available `pydantic` technique when needed.
++No internal domain-model replacement or dependency migration is implied.

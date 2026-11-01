@@ -1,0 +1,19 @@
+--- a/examples/README.md
++++ b/examples/README.md
+@@ -1,3 +1,5 @@
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
++
+ # Example workload pack
+ 
+ This folder demonstrates how the architecture advisor should respond for representative real-time and enterprise workloads.
+@@ -15,3 +17,10 @@
+ - separate key architectural decisions from low-level rules
+ - provide official documentation links
+ - label derived and field guidance explicitly
++
++## Interpretation boundary
++
++Apply [task boundaries](../SKILL.md#task-boundaries). This is an illustrative
++workload, not measured evidence for the target repository or authorization to
++apply its DDL. Verify version, deployment, freshness, multiplicity, late-arrival
++and migration semantics before proposing this pattern.

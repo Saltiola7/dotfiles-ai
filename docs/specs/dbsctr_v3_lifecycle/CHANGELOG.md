@@ -1,5 +1,95 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Conditional Python stack and runtime methods
+
+- Added seven discoverable skills through existing conditional Python routing:
+  Pydantic, Polars, Typer, FastAPI, Atheris, secure package-release pipelines and
+  free-threaded Python assessment. Data delegates actual Polars work to the same
+  method. Full Python audit keeps fourteen generic lenses; architecture focus
+  adds only relevant structural methods. Known live notebook/Rust selectors and
+  separately deployed guidance remain preserved; their source batch stays separate.
+- Preserved complete pinned roots and required shared resources, exact licenses,
+  original paths/hashes/Git blobs/modes and reversible adaptations. Corrected
+  concrete framework/CLI/dataframe/fuzz/artifact/GIL examples and kept runtime,
+  dependency, QA and external-action authority project-owned. The two
+  release/free-threading bundles retain Experimental maturity.
+- Affected implementation QA passed: 208 tests, one optional smoke skipped; eight
+  original creator validations passed. Isolated projection checks complete bytes,
+  modes, resource closure, unrelated state and repeat apply. Failed missing-source,
+  navigation, fixture-closure and reference-registry evidence remains retained.
+- Four independent static assessments cover API/CLI, data/fuzzing, release/runtime
+  and a plain library. Actual methods were selected, source/contracts were traced,
+  versions/tools retained and simple design preserved. These bounded synthetic
+  cases and offline example probes establish no universal native selection,
+  engine equivalence, fuzz effectiveness or free-threaded/runtime qualification.
+- Managed deployment selects thirteen exact targets, retains prior-live preimages,
+  checks drift and complete file sets/bytes/modes, and verifies repeat application.
+  Nine unrelated targets remain guarded. Native client selector refresh is
+  unverified; no framework/compiler installation, service/data operation, fuzz
+  campaign, package build or publication is part of skill deployment.
+- Implementation Gate Commit: `230b1f9`. Remaining final qualification, recovery
+  and actual delivery results stay in the private Cycle Record. Intended Final
+  Push: combined feature branch and draft PR into `main`, carrying pending
+  Python/data and architecture mapping. Prior source PRs/branches/worktrees remain
+  retained; no Gate Exception or consumer-repository remediation.
+
+## 2026-10-31 — Python architecture assessment
+
+- Added `architecture-patterns`, `python-project-structure` and local
+  `python-architecture-fitness` through existing conditional Python routing.
+  The same `python-audit` offers architecture focus, starting with those three
+  lenses and component design. Full assessment now considers fourteen lenses;
+  database delegation preserves the requested structural scope. Project rules,
+  supported imports, simple designs and selected tools retain authority.
+- Preserved two complete MIT bundles with immutable source identities, notices,
+  file modes and reversible adaptations. Corrected quantity/rounding and event
+  payload examples. Four creator validations, four offline example regressions
+  and affected QA passed: 205 tests, one optional smoke skipped. Complete isolated
+  projection verifies file sets, bytes, modes, resource closure and repeat apply.
+- Independent static audits identified a declared boundary violation in a modular
+  monolith and retained a small flat library. Dirty/untracked consumer evidence,
+  missing guidance and unrun checks remained explicit. These bounded samples do
+  not prove comparative gains, universal routing or live application behavior.
+- Managed deployment uses ten exact targets with prior-live snapshots, drift
+  guards, complete verification and a repeated empty diff. Existing routing is
+  reconciled with the reviewed current-base source; unrelated live skills remain
+  preserved. Native client selector refresh remains unverified. Recovery uses
+  retained preimages and matching reviewed source through the existing owner.
+- Implementation Gate Commit: `6f198da`. Remaining closure and actual deployment
+  evidence stay in the private Cycle Record. Intended Final Push: combined feature
+  branch and draft PR into `main`, including the pending Python/data mapping.
+  No Gate Exception, consumer remediation or new checker installation.
+
+## 2026-10-31 — Python and database specialist mapping
+
+- Added 21 discoverable skills: five Python techniques, six DuckDB/ClickHouse
+  bundles, eight stable Databricks bundles, Python database boundaries and
+  `database-audit`. Extended existing Python/Data routing; `python-audit` now
+  considers eleven language lenses plus applicable database concerns. No new
+  PostgreSQL or dbt skills. Ordinary work selects the smallest relevant set;
+  explicit audits produce findings and ordered refactor batches by default.
+- Retained 19 complete pinned upstream bundles, licenses/notices, original
+  hashes/blobs/modes and reversible adaptations. Databricks material remains
+  service-scoped. Corrected concrete example issues in retry/ownership/typing,
+  aggregate windows, checkpoint recovery, lineage and asynchronous results.
+  Per-file modification notices and existing exact-upstream whitespace policy
+  preserve redistribution and reconstruction requirements.
+- Affected QA passed: 165 tests, one optional skip; all 22 selected creator
+  validators passed. Complete isolated projection verified bytes, modes, local
+  resource closure, unrelated-state preservation and repeat-apply idempotency.
+  Two independent synthetic audits and six routing scenarios preserved target
+  source and selected tools; 16 offline snippet cases checked statement states.
+  These are bounded samples, not live engine qualification or effectiveness gains.
+- Managed installation uses 29 exact targets with a prior-live drift guard and
+  complete verification. Existing local Django routing and independent skill edits
+  are preserved. Native client catalog refresh remains unverified; no database,
+  warehouse, notebook, credential or remote job operation is part of deployment.
+  Prior-live snapshots and reviewed source support recovery through the same owner.
+- Implementation Gate Commit: `132a435`. Other Gate Commits and actual deployment
+  results remain in the private Cycle Record. Intended Final Push: feature branch
+  and draft PR into `main`; actual push/PR identity is recorded there. No Gate
+  Exception or consumer-repository remediation.
+
 ## 2026-10-31 — Notebook, host configuration and Rust/Python guidance
 
 Added official marimo notebook, Jupyter conversion and WASM guidance plus original

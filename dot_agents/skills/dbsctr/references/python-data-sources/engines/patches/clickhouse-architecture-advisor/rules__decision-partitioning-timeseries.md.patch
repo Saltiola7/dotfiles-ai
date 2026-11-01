@@ -1,0 +1,22 @@
+--- a/rules/decision-partitioning-timeseries.md
++++ b/rules/decision-partitioning-timeseries.md
+@@ -7,6 +7,8 @@
+   - retention
+   - ttl
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ # Choose time-series partitioning for retention, pruning, and operational hygiene
+ 
+@@ -56,3 +58,10 @@
+ - Count active partitions
+ - Verify common queries align to the partition key
+ - Confirm retention actions operate at partition granularity where possible
++
++## Compatibility and audit boundary
++
++Apply [task boundaries](../SKILL.md#task-boundaries). Validation items are
++proposed checks until actually executed. Verify deployment/version support and
++semantic tradeoffs; do not automatically provision queues, execute SQL or change
++retention, schema, ingestion or state during an audit.

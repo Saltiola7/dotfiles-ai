@@ -1,0 +1,4 @@
+interface:
+  display_name: "DuckDB Documentation"
+  short_description: "Find runtime-matched primary DuckDB guidance"
+  default_prompt: "Use $duckdb-docs to find primary documentation for this DuckDB question and verify runtime compatibility."

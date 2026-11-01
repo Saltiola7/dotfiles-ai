@@ -1,0 +1,32 @@
+--- a/references/trigger-and-cost-optimization.md
++++ b/references/trigger-and-cost-optimization.md
+@@ -3,7 +3,11 @@
+ description: Select and tune triggers for Spark Structured Streaming to balance latency and cost. Use when choosing between processingTime, availableNow, and Real-Time Mode (RTM), calculating optimal trigger intervals, optimizing costs through cluster right-sizing, scheduled streaming, multi-stream clusters, or managing latency vs cost trade-offs.
+ ---
+ 
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Trigger and Cost Optimization
++
++Interpret defaults below against the selected Databricks runtime, trigger mode and workload. Fixed-size compute can help predictable latency and may be required by Real-Time Mode; it is not a universal streaming constraint. Join type and watermarks follow correctness requirements. A repository review does not establish measured cost, throughput or end-to-end exactly-once delivery.
+ 
+ Select and tune triggers to balance latency requirements with cost. Optimize streaming job costs through trigger tuning, cluster right-sizing, multi-stream clusters, storage optimization, and scheduled execution patterns.
+ 
+@@ -166,7 +170,7 @@
+ # Don't oversize:
+ # - Monitor CPU utilization (target 60-80%)
+ # - Check for idle time
+-# - Use fixed-size clusters (no autoscaling for streaming)
++# - Evaluate supported scaling for the selected trigger; RTM may require fixed-size compute
+ 
+ # Scale test approach:
+ # 1. Start small
+@@ -442,7 +446,7 @@
+ ### Cluster Configuration
+ 
+ ```python
+-# Fixed-size cluster (no autoscaling for streaming)
++# Fixed-size example; evaluate other supported scaling against workload requirements
+ cluster_config = {
+     "num_workers": 4,
+     "node_type_id": "i3.xlarge",

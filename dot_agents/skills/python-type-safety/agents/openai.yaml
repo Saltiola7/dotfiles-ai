@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Type Safety"
+  short_description: "Design precise Python typed boundaries"
+  default_prompt: "Use $python-type-safety to improve these interfaces with appropriate protocols, generics and narrowing under the selected checker."

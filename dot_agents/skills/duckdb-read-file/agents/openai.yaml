@@ -1,0 +1,4 @@
+interface:
+  display_name: "DuckDB Data Files"
+  short_description: "Inspect selected data files with scoped readers"
+  default_prompt: "Use $duckdb-read-file to inspect the selected dataset using the supported reader and report schema and coverage."

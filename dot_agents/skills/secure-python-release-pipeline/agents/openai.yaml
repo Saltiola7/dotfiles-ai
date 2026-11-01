@@ -1,0 +1,4 @@
+interface:
+  display_name: "Secure Python Release Pipeline"
+  short_description: "Review Python artifacts and release trust boundaries"
+  default_prompt: "Use $secure-python-release-pipeline to review this package release path and its artifact evidence."

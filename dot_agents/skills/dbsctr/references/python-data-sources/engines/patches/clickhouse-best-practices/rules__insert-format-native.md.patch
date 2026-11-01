@@ -1,0 +1,26 @@
+--- a/rules/insert-format-native.md
++++ b/rules/insert-format-native.md
+@@ -4,6 +4,8 @@
+ impactDescription: "Native format is most efficient; JSONEachRow is expensive to parse"
+ tags: [insert, format, Native, performance]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Use Native Format for Best Insert Performance
+ 
+@@ -21,9 +23,10 @@
+ 
+ **Example:**
+ 
+-```python
+-# Use Native format for best performance
+-client.execute("INSERT INTO events VALUES", data, settings={'input_format': 'Native'})
+-```
++Use the selected driver's documented Native/block insertion path. A generic
++`input_format` setting on an arbitrary Python client's `execute` call is not a
++portable way to select the wire format. Preserve driver/session ownership,
++parameter binding, type conversion and retry/acknowledgement contracts. Changing
++the driver is a separate evaluated migration, not an optimization prerequisite.
+ 
+ Reference: [Selecting an Insert Strategy](https://clickhouse.com/docs/best-practices/selecting-an-insert-strategy)

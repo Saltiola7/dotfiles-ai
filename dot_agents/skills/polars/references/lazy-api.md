@@ -1,0 +1,140 @@
+# Lazy API: Scans, Plans, Streaming
+
+The lazy API builds a query plan that Polars optimizes before execution:
+predicate pushdown (filters applied during the scan), projection pushdown
+(only needed columns read), slice pushdown, common subexpression elimination,
+and automatic parallelism — which is why queries start with `scan_*` and end
+with a single `collect()`.
+
+## Contents
+
+Starting a lazy query; starting from an in-memory DataFrame; scan options
+that prevent downstream pain; schema discovery and I/O;
+inspecting the plan; executing; larger-than-memory data and sinks; on Polars
+1.x.
+
+## Starting a lazy query
+
+```python
+lf = pl.scan_csv("data.csv")
+lf = pl.scan_parquet("data.parquet")      # also: scan_ndjson, scan_ipc
+lf = pl.scan_parquet("events/*.parquet")  # globs scan many files as one
+lf = df.lazy()                            # from an eager DataFrame
+```
+
+## Starting from an in-memory DataFrame
+
+Prefer `.lazy()` when building a transformation pipeline on a `DataFrame`: eager
+methods execute one at a time, with no combined plan to optimize. A function with a
+`DataFrame -> DataFrame` signature keeps that signature — go lazy on entry,
+collect on the way out:
+
+```python
+def top_regions(df: pl.DataFrame, n: int) -> pl.DataFrame:
+    return (
+        df.lazy()                                  # wrap
+        .filter(pl.col("revenue") > 0)
+        .group_by("region")
+        .agg(pl.col("revenue").sum().alias("total"))
+        .sort("total", descending=True)
+        .head(n)
+        .collect()                                 # unwrap
+    )
+```
+
+If a step you need exists only on `DataFrame`, stay lazy up to that point,
+`.collect()` there, and re-enter with `.lazy()` for the rest — do not drop
+the whole chain to eager for one method.
+
+## Scan options that prevent downstream pain
+
+Handle dirty data at the scan so the rest of the query stays strict:
+
+```python
+lf = pl.scan_csv(
+    "data.csv",
+    null_values=["N/A", "NULL", ""],   # become real nulls, not strings
+    try_parse_dates=True,              # ISO-like strings -> temporal dtypes
+    infer_schema_length=10_000,        # sample more rows for dtype inference
+    schema_overrides={"zipcode": pl.String},  # pin dtypes inference gets wrong
+)
+```
+
+If a numeric column still arrives as String, something non-numeric is in it:
+inspect with `lf.head(20).collect()`, then extend `null_values` or use
+`.cast(pl.Float64, strict=False)` deliberately.
+
+## Schema discovery and I/O
+
+```python
+lf.collect_schema()          # {name: dtype}; resolves metadata/inferred schema
+lf.collect_schema().names()
+lf.head(5).collect()         # tiny peek at actual values
+```
+
+Resolve the schema before relying on unknown column names or dtypes. This can
+read file metadata, CSV inference samples or remote objects; it is not an I/O-free
+operation. Bound the selected files and inference settings. A small `head()`
+limits returned rows, but does not guarantee a small source scan or cheap plan.
+
+## Inspecting the plan
+
+```python
+lf = pl.scan_csv("large.csv").select("a", "b").filter(pl.col("a") > 100)
+
+print(lf.explain())                    # optimized plan as text
+print(lf.explain(optimized=False))     # naive plan, for comparison
+```
+
+In the optimized plan, look for the filter inside the scan node (predicate
+pushdown) and `PROJECT 2/47 COLUMNS` (projection pushdown). A predicate that
+did not push down usually depends on a computed column — filter on source
+columns where possible.
+
+## Executing
+
+```python
+result = lf.collect()                  # optimize + run, returns DataFrame
+```
+
+Collect exactly once per query. For debugging a long chain, prefer
+`lf.head(20).collect()` over collecting the full intermediate.
+
+LazyFrames are cheap immutable values, so when several queries share a scan,
+build them from one base and collect them together — common subplans are then
+computed once. This is also the right shape for conversational analysis: keep
+the base, extend it per follow-up question, collect once per answer.
+
+```python
+base = pl.scan_parquet("orders/*.parquet").filter(pl.col("year") == 2024)
+by_region = base.group_by("region").agg(pl.col("rev").sum())
+by_month = base.group_by(pl.col("date").dt.month()).agg(pl.col("rev").sum())
+region_df, month_df = pl.collect_all([by_region, by_month])
+```
+
+## Larger-than-memory data and sinks
+
+On Polars 2.0, `collect()` runs on the streaming engine by default, which processes queries
+in batches to reduce memory pressure. When the result is too large to hold in
+memory, write it to disk with a sink instead of collecting it:
+
+```python
+lf.sink_parquet("out.parquet")
+lf.sink_csv("out.csv")
+lf.sink_ndjson("out.ndjson")
+```
+
+## On Polars 1.x
+
+This skill targets Polars 2.0. On 1.x (check `pl.__version__`), adjust:
+
+- Pass `engine="streaming"` to `collect()` and `pl.collect_all()`; 1.x runs
+  on the in-memory engine by default.
+- Bin with `cut` / `qcut`: `bin_intervals(breaks, labels=..., right_closed=True)`
+  becomes `cut(breaks, labels=...)`, and
+  `bin_quantiles(n, labels=..., right_closed=True)` becomes
+  `qcut(n, labels=...)`.
+- Pass `empty_as_null=False` to `explode()`: same result (empty lists produce
+  no rows) without a deprecation warning.
+- In SQL, numeric literals are `Float64` (`price * 1.1` is `Float64`), and
+  errors raise when the query is built rather than at `collect()`.

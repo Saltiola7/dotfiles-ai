@@ -1,0 +1,26 @@
+--- a/rules/schema-types-native-types.md
++++ b/rules/schema-types-native-types.md
+@@ -5,11 +5,13 @@
+ tags: [schema, data-types, storage]
+ ---
+ 
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
++
+ ## Use Native Types Instead of String
+ 
+ **Impact: CRITICAL**
+ 
+-Using String for all data wastes storage, prevents compression optimization, and makes comparisons slower. ClickHouse's column-oriented architecture benefits directly from optimal type selection.
++Using String indiscriminately can waste storage and lose useful typed semantics. Preserve string identifiers with leading zeroes or nonnumeric meaning, required timestamp precision/timezone, valid range and exact decimal semantics; validate conversions before proposing migration. ClickHouse's column-oriented architecture benefits directly from optimal type selection.
+ 
+ **Incorrect (String for everything):**
+ 
+@@ -42,7 +44,7 @@
+ | Sequential IDs | UInt32/UInt64 | String |
+ | UUIDs | UUID | String |
+ | Status/Category | Enum8 or LowCardinality(String) | String |
+-| Timestamps | DateTime | DateTime64, String |
++| Timestamps | DateTime or DateTime64 with required timezone/precision | Lossy conversion or opaque String |
+ | Dates only | Date or Date32 | DateTime, String |
+ | Counts | UInt8/16/32 (smallest that fits) | Int64, String |
+ | Money | Decimal(P,S) or Int64 (cents) | Float64, String |

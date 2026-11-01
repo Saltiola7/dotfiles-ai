@@ -1,0 +1,3 @@
+interface:
+  display_name: "Typer"
+  short_description: "Preserve CLI behavior and automation contracts"

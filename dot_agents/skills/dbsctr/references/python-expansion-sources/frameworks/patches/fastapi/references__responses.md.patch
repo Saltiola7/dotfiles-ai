@@ -1,0 +1,43 @@
+--- a/references/responses.md
++++ b/references/responses.md
+@@ -21,7 +21,10 @@
+     return Item(name="Plumbus", description="All-purpose home device")
+ ```
+ 
+-Return types or response models filter data to avoid exposing sensitive information. They also let Pydantic serialize data on the Rust side for performance.
++For ordinary returned values, return types/response models can filter and
++serialize data. An explicitly returned `Response` bypasses model validation and
++filtering. Custom serializers, aliases, subclass output and include/exclude flags
++also affect public fields; assert actual emitted JSON and wire metadata.
+ 
+ The return type doesn't have to be a Pydantic model. It can be a different type, like a list of integers, a dict, etc.
+ 
+@@ -48,7 +51,10 @@
+     return {"name": "Foo", "description": "A very nice Item"}
+ ```
+ 
+-This is particularly useful when filtering data to expose only the public fields and avoid exposing sensitive information.
++This is particularly useful when filtering data to expose only public fields.
++The example explicitly converts the internal model to mapping input before the
++public response model validates and filters it; unrelated model types may not
++validate directly in the selected Pydantic/FastAPI combination.
+ 
+ ```python
+ from typing import Any
+@@ -75,5 +81,15 @@
+     item = InternalItem(
+         name="Foo", description="A very nice Item", secret_key="supersecret"
+     )
+-    return item
++    # Make the model-to-public-schema input explicit for compatible validation.
++    return item.model_dump()
+ ```
++
++## Verify the response boundary
++
++Keep status codes, headers, media type, field aliases and error shape compatible.
++Test representative internal objects with private fields against the public output
++model, and separately test any explicit `Response` or streaming path. Do not use
++`Any`, `response_model=None` or a hand-built response solely to silence validation.
++A model-filtering test does not prove authorization, redacted logs or data-source
++correctness. The fake secret above illustrates field exclusion, not secret handling.

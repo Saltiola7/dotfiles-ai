@@ -1,0 +1,24 @@
+--- a/references/7-data-profiling.md
++++ b/references/7-data-profiling.md
+@@ -1,4 +1,8 @@
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Data Profiling (formerly Lakehouse Monitoring)
++
++Use setup, validation and mutation commands below only for the corresponding authorized live task. A static repository audit preserves tool versions, profiles and target resources; it records unavailable live evidence instead of installing tools, deploying or creating monitors.
+ 
+ Comprehensive reference for Data Profiling: create quality monitors on Unity Catalog tables to track data profiles, detect drift, and monitor ML model performance.
+ 
+@@ -90,8 +94,10 @@
+ > **New vs legacy API.** `w.data_quality` is the **current** accessor and requires a recent
+ > `databricks-sdk` (≥ v0.40). Older code/snippets use the **legacy** `w.lakehouse_monitors`
+ > accessor with a different method surface (`create_monitor` signature differs). If
+-> `w.data_quality` is missing, upgrade the SDK (`pip install -U databricks-sdk`) rather than
+-> mixing the two — see the note at the end of this file for the mapping.
++> `w.data_quality` is missing, inspect the selected SDK version and current official
++> API documentation. Record unavailable validation; propose a compatible SDK update
++> through the project's dependency owner only when required by the requested task.
++> Do not combine mismatched API surfaces — see the mapping at the end of this file.
+ 
+ ### Create Snapshot Monitor
+ 
