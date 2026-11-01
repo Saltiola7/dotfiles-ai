@@ -944,6 +944,45 @@
       "license_notes": "Exact repository notice retained, including LLVM exceptions and legacy University of Illinois/NCSA terms; see LICENSE.upstream."
     },
     {
+      "name": "prefect-operations",
+      "state": "vendored",
+      "upstream_url": "https://github.com/PrefectHQ/prefect-mcp-server",
+      "commit": "48efd289bdb2b94a78e35b1331fbefc4fa3f6411",
+      "upstream_path": "plugins/prefect/skills/workflows",
+      "license": "MIT",
+      "upstream_files": {
+        "SKILL.md": "2baec42119d41cf295a7557ac328dbd53ce555d23199f618bfc9400f72c44951",
+        "LICENSE.upstream": "a94bb959c019300d59f97d948705d17b1cc0cd137e50364a2b93ed06e4453a4a"
+      },
+      "git_blobs": {
+        "SKILL.md": "6fcd6026751220eedc2c72565fcc992f7ddbdeaf",
+        "LICENSE.upstream": "42074d733ac127c19df5b6e0c4ea25a9a02ad3c2"
+      },
+      "upstream_modes": {
+        "SKILL.md": "100644",
+        "LICENSE.upstream": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "a94bb959c019300d59f97d948705d17b1cc0cd137e50364a2b93ed06e4453a4a",
+        "SKILL.md": "c8e6907fc6657f630f9b4be4ab8a4cef5ff848a5e68a500dfc13be38bf425c8e",
+        "UPSTREAM.md": "4392d74a7501c20385516bc8da59e24010be65e6f8abcf44fc7fea368a89acf5"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644"
+      },
+      "patches": {
+        "patches/prefect-operations/SKILL.md.patch": "3f899b02ca97f4ef56376994d9b6b6698a48d48c53c4eb95c473ecd78ecfaf9b"
+      },
+      "changes": "Complete official workflow root and exact MIT notice retained; renamed discovery entrypoint, selected target/capability ownership, self-hosted identity and bounded inspection, optional MCP and independently authorized CLI mutation guidance. See UPSTREAM.md."
+    },
+    {
       "name": "pulumi-best-practices",
       "state": "vendored",
       "upstream_url": "https://github.com/pulumi/agent-skills",

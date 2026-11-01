@@ -23,6 +23,7 @@ VENDORED = {
     "mojo-syntax", "mojo-gpu-fundamentals", "mojo-python-interop", "new-modular-project",
     "pulumi-best-practices", "pulumi-component", "pulumi-debug-failed-operation", "django-expert",
     "marimo-notebook", "jupyter-to-marimo", "wasm-compatibility",
+    "prefect-operations",
 }
 AUTHORED = {"linux-host-diagnostics", "macos-operations", "podman-quadlet", "python-modernization-review",
             "hetzner-operations", "dagger-pipelines", "chezmoi-operations",
