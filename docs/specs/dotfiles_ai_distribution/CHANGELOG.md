@@ -16,6 +16,9 @@
 - Real local runtime probes recorded Python 3.12.15 and 3.15.0 with matching
   PATH-selected children and one unchanged frozen-lock digest. These observed
   patch versions are evidence, not new deployment pins.
+- Reconciled current main while retaining both changes’ documentation. Affected
+  publication, lifecycle, transport, scheduler, JFrog and validation-storage tests
+  pass on Python 3.15; hosted results remain bound to the exact tested revision.
 - The canonical update runbook adds monthly owner review and urgent security
   intake, without a scheduler, automatic upgrade or live activation. No Gate
   Exception selected; the exact-approved sequence amendment preserves failures
