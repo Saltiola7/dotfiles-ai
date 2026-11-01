@@ -1,5 +1,32 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-01 — PY-09 opt-in CLI measurement foundation
+
+Added repository-owned stdlib CLI benchmarks, frozen synthetic workload oracles,
+strict version-1 evidence records and an offline report reader. Separate timing,
+Git-count and optional profile cohorts retain failures, unavailable metrics and
+attempt denominators. Private output, bounded process ownership, cancellation and
+source/tool/fixture identity checks preserve the measurement boundary. Production
+helpers, dependencies, workflows and installed configuration are unchanged.
+
+Validation: 37 focused tests pass, including finite generated statistics,
+unsafe-file/configuration refusal, cancellation and committed-source profile
+smokes. Existing publication/instruction checks passed (93 tests, one optional
+skip); the new modules also compile with existing Python 3.12, 3.13 and 3.14.
+No root static checker or linter is configured, so no static coverage is claimed.
+A full private baseline at `af3c7b3` completed 16 cells, 160 recorded attempts
+and 16 warmups on Python 3.14; its offline report validated all records without
+pooling or authenticating input provenance. This establishes measurement coverage,
+not an optimization, cross-host comparison or whole-cycle performance gain.
+
+Kernel Gate Commits: `356972d`, `d7bbc8a`, `085a48b`, `af3c7b3`; original Discovery
+import is retained as `7b28894`. No Gate Exception is selected. CI and snapshot
+measurement consumers remain separate, unlaunched slices; all DKS work is deferred.
+Release, Deploy and Operate are not applicable to this source-only change.
+Final Push targets the feature branch and draft PR into protected main; actual
+publication and CI outcomes belong to the Cycle Record. Retain private evidence,
+branch and worktree; rollback requires no installed-state or evidence migration.
+
 ## 2026-10-31 — Notebook, host configuration and Rust/Python guidance
 
 Added official marimo notebook, Jupyter conversion and WASM guidance plus original

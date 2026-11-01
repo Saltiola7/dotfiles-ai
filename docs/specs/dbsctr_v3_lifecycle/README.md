@@ -2,9 +2,29 @@
 
 The [PY-09 measurement foundation](features/python-performance.md#py-09-measurement-only-foundation)
 adds opt-in synthetic CLI benchmarks and shared evidence before optimization.
-Distribution supplies retained-CI analysis; continuous-validation supplies isolated
-snapshot-memory evidence. Discovery defines source-only slices, with no benchmark
-implementation, measured gain or runtime activation claimed.
+The CLI foundation is implemented as repository-owned stdlib tooling. Retained-CI
+analysis and isolated snapshot-memory evidence remain dependent source slices,
+owned by distribution and continuous-validation respectively. No measured gain
+or runtime activation is claimed.
+
+Run from a clean committed checkout with an existing supported Python interpreter
+and qualified native Git. Choose a fresh private output directory outside the
+checkout; resolving the temporary parent avoids symlinked system temporary paths:
+
+```sh
+output_parent="$(python -c 'import pathlib, tempfile; print(pathlib.Path(tempfile.mkdtemp()).resolve())')"
+python tests/benchmarks/python_performance.py cli --source-tree . --output "$output_parent/baseline"
+python tests/benchmarks/python_performance.py report --input "$output_parent/baseline/timing-1-help.json" --output "$output_parent/report"
+```
+
+The default run measures eight workload/history cells in separate timing and
+Git-count cohorts, with one warmup and ten recorded attempts per cell. `--smoke`
+uses one recorded attempt and does not satisfy a full baseline. `--profile` adds
+a separate attribution cohort and retains private profiles. Repeat `--input` to
+validate more records; reports keep input files separate and mark authenticity
+unverified. Raw output, paths and profiles remain private. The runner refuses
+changed source/tool identities, unsafe paths or unqualified Git configuration;
+it never installs tools, activates the harness or profiles private stores.
 
 The [behavior-preserving Python performance specification](features/python-performance.md)
 owns the current source-only optimization tranche: query scaling, bounded

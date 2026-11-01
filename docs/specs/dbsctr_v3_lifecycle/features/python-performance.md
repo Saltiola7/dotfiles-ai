@@ -167,14 +167,15 @@ changed by this foundation. The existing Engineering Profile applies with Python
 and Security modules, elevated risk and source-only draft delivery. This is
 internal developer infrastructure; no separate Product Intent is introduced.
 
-Proposed repository interface, available only after Build:
+Implemented repository interface for the CLI foundation:
 
 - `python tests/benchmarks/python_performance.py cli --source-tree PATH --output PATH`
   runs the declared CLI cohort in disposable synthetic repositories.
 - `python tests/benchmarks/python_performance.py report --input PATH --output PATH`
-  validates and summarizes evidence without executing workloads. Multiple input
-  records are combined only within identical comparison cells and a verified
-  execution cohort; otherwise display them separately without aggregation.
+  validates and summarizes evidence without executing workloads. Repeat `--input`
+  for explicit files. The offline reader keeps all input records separate and
+  labels their authenticity unverified; it does not authenticate a shared cohort
+  or pool observations across files.
 - `--profile` selects a separate attribution cohort. `--smoke` selects a small
   explicitly incomplete fixture cohort. Neither changes the meaning of a full
   timing cohort or a required project check.
@@ -279,10 +280,11 @@ Evidence module signatures:
 
 - `canonical(value: object) -> bytes` and `digest(value: object) -> str`.
 - `build_record(source, environment, cell, attempts, planned) -> dict` computes
-  coverage/statistics from attempts; `validate_record(record) -> dict` refuses
-  malformed or inconsistent serialized records.
-- `read_records(paths: Sequence[Path]) -> list[dict]` applies the declared file,
-  population, ownership and byte bounds before returning validated records.
+  coverage/statistics from attempts; `validate_record(record, *, deadline=None)
+  -> dict` refuses malformed or inconsistent serialized records.
+- `read_records(paths: Sequence[Path], *, deadline=None) -> list[dict]` applies
+  file, population, ownership, byte and cooperative monotonic deadline bounds
+  before returning validated records.
 - `create_private_output(path: Path, source: Path | None = None) -> Path` creates
   a fresh safe directory; `write_private_json(directory, name, value) -> Path`
   writes one bounded owner-private file without replacement.
