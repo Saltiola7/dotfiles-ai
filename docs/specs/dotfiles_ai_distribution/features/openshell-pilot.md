@@ -603,6 +603,41 @@ Record each boundary separately. Unavailable native inventories or unsupported
 operations leave that check unavailable. The function cannot promote other
 runtime matrix rows or infer physical-storage recovery from these observations.
 
+#### Compatibility finding: internal Unix control transport
+
+The pinned v0.1.6 Podman candidate does not satisfy the transport-exclusion
+contract above. A credential-free workload connected to the independently
+observed internal control socket after gateway and Podman connection-denial
+checks passed. The source-bound probe stopped at that operation. Direct source
+edits, the immutable Git pointer and protected Git metadata remained preserved
+after the owned workload and worker stopped. Private lifecycle evidence retains
+the exact generation and observations; this finding does not promote later
+network, pause or recovery checks.
+
+The distinction is material: a denied directory read does not prove that a Unix
+socket beneath that directory is unreachable. Upstream mounts the control volume
+into the workload/runtime container, creates its control directory with mode
+`1777`, and binds the socket with mode `0666`. Unix socket creation and connection
+remain kernel-driven in the pinned network broker. See the upstream
+[control-volume layout](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/crates/openshell-driver-podman/src/isolation.rs),
+[listener](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/crates/openshell-sandbox-backend/src/runtime_initiated.rs),
+and [network broker](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/crates/openshell-sandbox/src/network_broker.rs).
+
+A successful connection establishes reachability, not an authentication bypass
+or acquired administrative authority. The upstream listener authenticates its
+protocol after accepting a connection. That protection is separate from the
+approved socket-exclusion requirement associated with INT-008. No stock policy
+setting has been qualified to make this internal socket unreachable while the
+trusted runtime retains its required connection.
+
+The affected design decision is therefore open: preserve strict exclusion using
+an independently qualified additional boundary, or explicitly revise the internal
+transport contract and qualify authentication, credential isolation and authority
+denial instead. Gateway and Podman exclusion remain required in either case.
+Neither alternative is accepted by this finding. Do not weaken the existing
+assertion, accept risk, admit providers or real checkouts, or repeat the same
+unchanged topology as though another run would establish the missing boundary.
+
 #### Bounded recovery observations
 
 `recovery_probe(Selection) -> dict`, selected by `--probe recovery`, runs last,

@@ -300,6 +300,26 @@ checks and the failed live experiment remain separate evidence. If this candidat
 cannot satisfy the original boundary, keep direct editing unavailable and reopen
 the storage/design choice; do not weaken the requirement silently.
 
+### Continuation after internal control-socket reachability
+
+Read the runtime feature's versioned internal Unix control-transport finding.
+Keep the current exclusion requirement and failed evidence intact. A denied
+filesystem read is insufficient evidence for a denied Unix socket connection;
+exercise the exact existing socket with a trusted positive control.
+
+Stop the selected workload and worker after the first unexpected successful
+connection. Verify retained source bytes, executable modes, Git-pointer guard,
+shared metadata and private diagnostics. A raw connection does not establish
+administrative authority or an authentication bypass; do not claim either.
+
+Resume technical qualification only after the affected boundary design is
+resolved and its contracts, negative cases and validation plan are reviewable.
+An additional isolation mechanism needs its own compatibility and lifecycle
+proof. An authentication-based internal-channel contract requires an explicit
+scope decision and actual unauthorized-operation tests; it is not an exception
+that the observer can grant itself. Preserve gateway and Podman exclusion,
+existing Git approvals and the remaining pilot context map.
+
 Cleanup is a separate, exact operation. Before requesting or performing it:
 
 1. Inventory retained fixtures, native checkout membership, workload and worker
