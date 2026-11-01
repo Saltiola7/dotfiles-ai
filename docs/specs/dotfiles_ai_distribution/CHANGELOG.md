@@ -1,5 +1,27 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-01 — Complete JFrog specialist setup
+
+- Added all seven official Apache-2.0 skill roots at immutable revision
+  `e555af53c3f5ead14fcafb009380e76d3ddf17d1`, with complete resources, exact
+  original identities, license notices and reversible local adaptations.
+- Compact native descriptions and the existing DBSCTR platform table select
+  actual JFrog work. Full workflows stay lazy; configured Xray remains QA
+  authority. Init retains manual invocation. Agent Guard guidance stays scoped
+  to explicitly selected JFrog governance and native configuration owners.
+- Corrected automatic login/install/config writes, generic MCP takeover,
+  cached-package safety and version substitution, forced Kubernetes, scan
+  bypass and hidden attestation failures in reachable guidance.
+- Added default-off, missing-only JFrog CLI 2.129.0 installation with four
+  reviewed asset hashes, isolated bounded version probes, atomic no-replace
+  publication, existing-owner retention and cancellation/failure cleanup.
+- Original creator, scoped pytest, provenance reconstruction, resource/import
+  closure and script syntax are delivery authorities. Exact local skill/CLI
+  deployment and native discovery evidence belong to `JFROG-SKILLS-001`;
+  no live platform, plugin, hooks, authentication or MCP activation is implied.
+  No gate exceptions are introduced. Final delivery targets a feature-branch
+  draft PR and ordinary protected merge only after current-base CI passes.
+
 ## 2026-10-31 — Self-hosted Prefect inspection
 
 - Added the complete official workflow skill as `prefect-operations`, with
