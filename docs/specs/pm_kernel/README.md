@@ -8,6 +8,14 @@ last_updated: 2026-08-19
 
 # PM Kernel
 
+The approved [Python policy-boundary feature](features/python-policy-boundaries.md)
+defines a source-only refactor of existing parsing and sanitized-envelope checks.
+It preserves the standalone CLI, runtime validation, byte identities and reporting
+authority. Its [Engineering Profile](PROFILE.md#python-policy-boundary-slice)
+selects affected-scope ty and test-only Hypothesis; Discovery does not implement
+or install those changes. The existing Product Intent and PM behavior below
+remain authoritative.
+
 ## Engineering Profile
 
 | Field | Default |
@@ -21,10 +29,10 @@ last_updated: 2026-08-19
 | Delivery | Feature branch and draft pull request; local deployment only after affected gates pass |
 | Authorities | `pytest`, Git fixed-commit inspection, chezmoi dry-run/apply, and configured runtime smokes |
 
-Current cycle overrides: PMK-003 is elevated risk because it reconciles local
-OpenCode policy, restarts the personal workspace, exercises one separately
-confirmed Jira mutation, and closes projection/reporting gaps against private
-data. Delivery intent is a draft pull request with local deployment, recovery,
+Historical PMK-003 overrides: that cycle was elevated risk because it reconciled
+local OpenCode policy, restarted the personal workspace, exercised one separately
+confirmed Jira mutation, and closed projection/reporting gaps against private
+data. Its delivery intent was a draft pull request with local deployment, recovery,
 and operation evidence. PostgreSQL 19 Beta 3 remains pinned; no database version
 change is in scope until a newer official release is independently approved.
 
