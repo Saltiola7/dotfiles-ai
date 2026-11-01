@@ -1,5 +1,23 @@
 # Continuous Validation Changelog
 
+## 2026-11-01 — CVS-STORAGE-005-LOCK: concurrent observation writes
+
+Complete the same bounded-storage repair before merging its existing PR. Serialize
+the initial observation inventory and final feedback replacement with publication
+and admission, so live atomic-write temporaries cannot cause a false corrupt-store
+refusal. Feedback delivery and subprocess work remain outside the short lock.
+
+Two real-process paused-write regressions fail before the fix and pass afterward;
+489 affected tests pass on each of Python 3.12 and 3.14. Publication/instruction
+checks and fresh isolated private installation qualification pass. Synthetic
+enrollments are disabled, both qualification runs are retained, and the newer
+shared controller and policy remain unchanged. Python and Security apply; no Gate
+Exception. Existing owner, compatibility and explicit recovery obligations below
+remain. Gate commits include `9034c9c7` and `624018ef`; final identities stay in the
+private follow-up Cycle Record. Delivery intent remains
+`fix/python-validation-storage` as the existing draft PR into `main`, then the
+approved ordinary merge after fresh CI and native protections pass.
+
 ## 2026-11-01 — CVS-STORAGE-005: bounded replay and atomic capacity
 
 Bound private writes before replacement and store completed request journals as
