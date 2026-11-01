@@ -1,6 +1,6 @@
 # Python runtime ownership and root compatibility qualification
 
-Status: Discovery-ready; implementation and Python 3.15 qualification pending.
+Status: source prepared; exact hosted qualification belongs to the Cycle Record.
 Audit reference: PY-08. Owner: distribution maintainers. Profile:
 [../PROFILE.md](../PROFILE.md). Product Intent:
 [../PRODUCT.md](../PRODUCT.md), journey 12. Risk: elevated because hosted
@@ -54,7 +54,7 @@ changes returns for a bounded scope decision instead of being hidden or skipped.
 |---|---|---|
 | Root scripts, test dependencies and hosted tests | Root `pyproject.toml`, `uv.lock` and `.github/workflows/test.yml`; metadata alone does not qualify future interpreters | Qualify 3.15 against the unchanged root lock and existing full authorities |
 | Repository advisory adapter | `.github/continuous_validation.py` deliberately selects its existing frozen 3.14 commands | Preserve this default; hosted 3.15 compatibility does not promote advisory execution |
-| Isolated SDKs, workloads and optional tools | The runbook's Dagger, PR-Agent, Graphify, reranker, managed DVC, Hermes and security-toolkit owners; source ranges, exact pins and artifact identities take precedence | Include each in monthly review; preserve its runtime and require its own future candidate qualification |
+| Isolated SDKs, workloads and optional tools | The runbook's Dagger, PR-Agent, Graphify, reranker, managed DVC, Hermes, Prefect MCP, security-toolkit and other declared owners; source ranges, exact pins and artifact identities take precedence | Include each in monthly review; preserve its runtime and require its own future candidate qualification |
 
 Review facts separately: upstream support status, declared constraint, exact
 source pin, installed interpreter, running process identity and actual consumer
@@ -123,8 +123,8 @@ Acceptance requires:
    the existing cadence contract, runbook and profile consistently. Complete the
    context CHANGELOG entry only after actual cycle outcome is known.
 
-Configured root command: `uv run --group test pytest --maxfail=1`. Build uses its
-frozen-lock, explicit-interpreter equivalent for qualification. The repository's
+The full root authority is pytest with `--maxfail=1`, invoked through
+`uv run --frozen --python VERSION --group test` for the selected runtime. The repository's
 early authority remains the portable publication test plus
 `tests/test_opencode_control_plane.py` and `tests/test_dbsctr_lifecycle.py`.
 No new checker, linter, dependency or test-runner authority is selected.
@@ -193,46 +193,55 @@ reopens required gates; execute fresh evidence under the amended authority.
 | Qualification state | Guard and next action |
 |---|---|
 | Proposed target | Discovery fixes scope and acceptance; no runtime qualification claim |
-| Candidate prepared | Workflow, compatible fixture repair and cadence documentation identify one source revision; run the full candidate matrix |
+| Candidate prepared | Workflow, compatible fixture repair and cadence documentation identify one source revision; finish local Gate Commits |
+| Candidate published for validation | Approved feature-branch/draft publication allows the hosted matrix; Review/Integrate remains open and no runtime is yet claimed qualified |
 | Candidate failed or unavailable | Preserve the result, repair only within scope or return for a scope decision, then refresh affected evidence |
 | Candidate qualified | Full exact-source matrix and existing required checks pass; ordinary review/integration may proceed |
 | Compatibility regressed after merge | Record the failing member and prioritize repair plus a successful full-matrix rerun |
 
-Discovery inspected source at `12f5959701f8c075699b69ee5b4bac2cc5c2c535`.
-Current CI ends at 3.14; no 3.15 full-suite result is claimed. Previous audit
-tests are context only, not evidence for this candidate. The root lock currently
-selects pytest 9.1.1. The observed `load_module` removal establishes a repair
-requirement; other compatibility failures may emerge during qualification.
+Initial Discovery inspected source at `12f5959701f8c075699b69ee5b4bac2cc5c2c535`;
+that workflow ended at 3.14. The candidate now adds 3.15 to weekly/manual source
+configuration, uses frozen explicit selection and repairs the removed loader API.
+Local publication/instruction checks passed 94 tests with one optional native
+test skipped on both CPython 3.12.15 and 3.15.0. All 22 transport tests passed on
+3.15; the selected root and `python3` child also reported matching real runtime
+identities and the unchanged lock digest. These are observed local versions,
+not new deployment pins. The root lock retains pytest 9.1.1. Full hosted
+qualification is separate and must be evidenced at the exact candidate source.
 
-Official evidence checked on 2026-10-31:
+Official version/support and porting evidence rechecked on 2026-11-01:
 [Python version status](https://devguide.python.org/versions/),
 [Python 3.15 release schedule](https://peps.python.org/pep-0790/) and
 [stable 3.15 porting notes](https://docs.python.org/3.15/whatsnew/3.15.html#porting-to-python-3-15).
 Python 3.15 is stable; 3.12 remains in upstream security support. Recheck these
-sources before Build rather than treating this dated observation as a new pin.
+sources when selecting a future candidate; this dated observation is not a pin.
 
 Risks: dependency or native fixture incompatibility; tests accidentally using a
 different `python3`; CI duration beyond the current bound; optional skips hiding
 an unqualified consumer; or shared documentation changing concurrently. These
 are qualification risks, not approved exceptions. Existing owner-specific exact
 pins remain a deliberate compatibility constraint. No material product decision
-remains open for this bounded scope; implementation evidence remains pending.
+remains open for this bounded scope. Live gate outcomes and exact hosted evidence
+are maintained in the private Cycle Record rather than duplicated here.
 
 ## Gate applicability and Build handoff
 
-| Gate | Applicability | Current result / rationale |
+Live Gate Results belong to the Cycle Record. This table specifies required
+evidence and applicability; it is not a second execution ledger.
+
+| Gate | Applicability | Required evidence / rationale |
 |---|---|---|
-| Domain | required | pending: persist runtime roles, ownership and compatibility constraints in the Build cycle |
-| Behavior | required | pending: retain the scenarios above and precise failure cases |
-| Spec | required | pending: define the minimal workflow/fixture change |
-| Contract | required | pending: enforce runtime selection and unchanged protections/pins |
-| Test-driven implementation | required | pending: intentional red, passing local focused regression and old/new runtimes |
-| Refactor | required | pending: remove only justified duplication without expanding scope |
-| Review/Integrate | required | pending: exact-head review, source publication, full hosted candidate matrix and existing native checks |
+| Domain | required | Runtime roles, ownership and compatibility constraints |
+| Behavior | required | Scenarios above and precise failure cases |
+| Spec | required | Minimal workflow/fixture interfaces |
+| Contract | required | Runtime selection and unchanged protections/pins |
+| Test-driven implementation | required | Intentional red, passing local focused regression and old/new runtimes |
+| Refactor | required | Remove only justified duplication and align artifacts without expanding scope |
+| Review/Integrate | required | Exact-head review, source publication, full hosted candidate matrix and existing native checks |
 | Release | not_applicable | No package, wheel, model or separately versioned release artifact is published |
 | Deploy | not_applicable | Source/CI delivery only; no managed host, guest, SDK, service or tool activation |
 | Operate | not_applicable | No live service/runtime operation or new availability commitment |
-| Maintain/Retire | required | pending: monthly/urgent review policy, failed-qualification recovery and unchanged owner handoff |
+| Maintain/Retire | required | Monthly/urgent review policy, failed-qualification recovery and unchanged owner handoff |
 
 The canonical [machine plan](../../../initiatives/python-runtime-qualification/SOURCE.plan.json)
 is packaged by the [one-slice import handoff](../../../initiatives/python-runtime-qualification/README.md).
@@ -264,9 +273,10 @@ and obtains exact chat approval before the native registration call. Discovery
 does not supply terminal consent, bypass base checks, register a cycle or claim
 that a shell directory change retargets a conversation.
 
-Specification and one-slice import artifacts are ready for this scope. Fresh
-receipt/preflight, launch feasibility and candidate runtime qualification remain
-unverified until Build performs those native checks; this is not launch approval.
+The native registration and sequence amendment preserve the original authority,
+approval and failed evidence. Future material authority changes still require a
+fresh receipt/preflight and exact approval. Actual candidate qualification is a
+separate Review/Integrate outcome; this document is not launch or runtime proof.
 
 ## Visual Evidence
 

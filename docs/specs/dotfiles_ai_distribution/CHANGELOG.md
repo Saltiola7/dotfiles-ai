@@ -1,5 +1,53 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-01 — Python runtime policy and 3.15 CI candidate
+
+- Added standard CPython 3.15 to weekly/manual full macOS validation. PR/main
+  retain 3.14, the root floor remains 3.12, and every isolated runtime pin and
+  installer owner stays unchanged. Root commands use the frozen lock and an
+  explicit interpreter; root/child identity and lock evidence precede pytest.
+- Replaced the removed module-loader API in the synthetic credential-child
+  fixture while preserving isolation and secret-output assertions. Workflow
+  regressions cover event-specific job sets and wrong/missing interpreters.
+- Local source checks passed 94 tests with one optional native skip on both
+  Python 3.12 and 3.15; all 22 transport tests passed on 3.15. Full exact-source
+  hosted matrix and current PR checks remain required before Review/Integrate
+  and completion; their actual results belong to the private Cycle Record.
+- The canonical update runbook adds monthly owner review and urgent security
+  intake, without a scheduler, automatic upgrade or live activation. No Gate
+  Exception selected; the exact-approved sequence amendment preserves failures
+  and permits candidate CI publication while Review/Integrate stays open.
+- Gate Commits and actual push results remain in private cycle evidence. Intended
+  Final Push: `feat/python-runtime-qualification`, draft PR into
+  `Saltiola7/dotfiles-ai:main`. No installation, deployment or restart is selected.
+
+## 2026-10-31 — PY-06 refresh elapsed duration
+
+- Corrected newly completed scheduler durations to whole monotonic elapsed
+  seconds rounded down, including process launch, execution and timeout cleanup.
+  Unix-millisecond timestamps, version-1 fields, counters, failure classes,
+  single-flight behavior and lifecycle snapshot authority remain compatible.
+- Added deterministic regression coverage for fractional boundaries, wall-clock
+  changes, nonzero exit, spawn failure, timeout grace/escalation, interval
+  boundaries, legacy-summary preservation and an actually running overlap.
+  The original unit defect failed those regressions before the correction;
+  failed and replacement evidence remains in the private Cycle Record.
+- Validation: 109 scoped tests passed and one skipped on Python 3.13.16,
+  including the configured publication and instruction authority.
+- Scoped deployment applied only the managed wrapper, with scripts excluded;
+  the second apply and destination verification passed. Installed bytes and mode
+  match the tested source. The loaded job and saved summary bytes were unchanged;
+  no real refresh was launched. A private preimage and isolated recovery fixture
+  retain rollback evidence without restoring the old wrapper on the live host.
+- Existing summaries remain verbatim until the next ordinary acquired run; their
+  historical units cannot be established from version 1. A rollback accepts the
+  same summary shape but resumes the old duration defect on subsequent runs.
+- Method Revision 3.29; no Gate Exceptions. Gate Commits, scoped QA, deployment,
+  operation and recovery evidence belong to the private PY-06 Cycle Record.
+  Intended Final Push: feature branch and one draft PR into the configured
+  `main`; actual push and pull-request results are recorded privately and
+  reported separately.
+
 ## 2026-10-31 — Self-hosted Prefect inspection
 
 - Added the complete official workflow skill as `prefect-operations`, with

@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "id": "py06-refresh-duration",
+  "title": "Correct history refresh elapsed duration",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id": "INT-001", "kind": "requirement", "text": "New terminal summaries expose elapsed whole seconds rounded down.", "disposition": "ready", "artifacts": ["docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md"]},
+    {"id": "INT-002", "kind": "requirement", "text": "Measure the specified accepted execution interval with a monotonic clock, including termination cleanup and excluding final persistence.", "disposition": "ready", "artifacts": ["docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md"]},
+    {"id": "INT-003", "kind": "constraint", "text": "Retain Unix-millisecond timestamps, version-1 fields and emitted order, CLI behavior and supported Python runtimes.", "disposition": "ready", "artifacts": ["docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md"]},
+    {"id": "INT-004", "kind": "decision", "text": "Preserve readable historical summaries until an ordinary acquired run replaces them; do not infer historical units or add migration.", "disposition": "ready", "artifacts": ["docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md"]},
+    {"id": "INT-005", "kind": "constraint", "text": "Preserve failure classes, counters, single-flight behavior, owner-private state and lifecycle snapshot authority.", "disposition": "ready", "artifacts": ["docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md"]},
+    {"id": "INT-006", "kind": "requirement", "text": "Use deterministic existing test seams to validate rounding, wall-clock changes, terminal outcomes, timeout cleanup, running nulls, legacy preservation and overlap.", "disposition": "ready", "artifacts": ["docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md"]},
+    {"id": "INT-007", "kind": "risk", "text": "Risk remains elevated because wrapper checksums can reload an enabled host job; preview the loader, preserve enablement and defer activation during an active refresh.", "disposition": "ready", "artifacts": ["docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md"]},
+    {"id": "INT-008", "kind": "requirement", "text": "Deliver one draft PR with applicable gates and scoped managed deployment, operation and recovery evidence; preserve summaries and projections on rollback.", "disposition": "ready", "artifacts": ["docs/initiatives/py06-refresh-duration/README.md", "docs/specs/dotfiles_ai_distribution/PY-06.plan.json"]},
+    {"id": "INT-009", "kind": "non-goal", "text": "Do not implement other audit findings, tool or dependency migrations, unrelated validator changes or a forced real refresh.", "disposition": "ready", "artifacts": ["docs/initiatives/py06-refresh-duration/README.md"]}
+  ],
+  "contexts": [
+    {"id": "dotfiles_ai_distribution", "repository": "Saltiola7/dotfiles-ai", "status": "ready", "depends_on": []}
+  ],
+  "slices": [
+    {
+      "id": "py06-duration",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-005", "INT-006", "INT-007", "INT-008", "INT-009"],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/py06-refresh-duration/README.md",
+        "docs/initiatives/py06-refresh-duration/MANIFEST.json",
+        "docs/specs/dotfiles_ai_distribution/README.md",
+        "docs/specs/dotfiles_ai_distribution/features/history-projection-refresh-schedule.md",
+        "docs/specs/dotfiles_ai_distribution/PY-06.plan.json"
+      ],
+      "release_group": "py06-delivery"
+    }
+  ],
+  "release_groups": [
+    {"id": "py06-delivery", "members": ["py06-duration"], "state": "ready"}
+  ]
+}

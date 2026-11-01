@@ -35,7 +35,7 @@ duplicate denylist, dependency graph service, or new approval mechanism is added
 This repository's early authority, used locally before handoff and by CI, is:
 
 ```sh
-uv run --group test pytest \
+uv run --frozen --python 3.14 --group test pytest \
   tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers \
   tests/test_opencode_control_plane.py tests/test_dbsctr_lifecycle.py -q
 ```
@@ -61,11 +61,16 @@ without repeating every compatibility run on every edit. Python support remains
 |---|---|---|
 | Pull request | Python 3.14 | A newer run for the same PR cancels its predecessor; only the current head's successful `test (3.14)` can satisfy the native required check |
 | Push to `main` | Python 3.14 | Main validation is separate from PR runs and is not cancelled by a PR update |
-| Weekly schedule, Monday 09:17 UTC | Python 3.12, 3.13, 3.14 | Preserve full supported-runtime coverage; a failed matrix member must not cancel the other compatibility results |
-| Manual workflow dispatch | Python 3.12, 3.13, 3.14 | Maintainers can request the complete compatibility matrix without changing source |
+| Weekly schedule, Monday 09:17 UTC | Python 3.12, 3.13, 3.14, 3.15 | Preserve full supported-runtime coverage; a failed matrix member must not cancel the other compatibility results |
+| Manual workflow dispatch | Python 3.12, 3.13, 3.14, 3.15 | Maintainers can request the complete compatibility matrix without changing source |
 
 Every selected runtime retains the same pinned tooling, early publication checks,
 native Swift authority and full pytest command. Each job has a 90-minute timeout.
+All pytest invocations use the frozen root lock and explicit matrix interpreter.
+The preceding runtime check verifies root and PATH-selected `python3` minors and
+records actual patch identities plus lock SHA-256. Both event classes retain the
+additional Python 3.14/Worktrunk 0.80.0 compatibility member; the primary Worktrunk
+version remains 0.81.0.
 Workflow tokens have read-only repository contents permission. No path filter,
 test exclusion, failure waiver, dependency change or privileged PR event is added.
 
@@ -77,7 +82,7 @@ restrictions. Do not temporarily remove all required checks or use an admin merg
 bypass. Other applicable platform smoke failures still block integration.
 
 The weekly matrix detects compatibility regressions after ordinary merges; it is
-not per-PR evidence for Python 3.12/3.13. A compatibility failure requires repair
+not per-PR evidence for Python 3.12/3.13/3.15. A compatibility failure requires repair
 and a successful full-matrix rerun. Reverting this cadence requires restoring
 the three-version workflow and matching required checks together. Native CI
 results, queue times and protection snapshots remain the execution evidence;
@@ -95,11 +100,10 @@ instruction activation is claimed by source delivery.
 
 Distribution's [Python runtime contract](../../dotfiles_ai_distribution/features/python-runtime-qualification.md)
 selects standard CPython 3.15 as an additional weekly/manual full macOS target
-with Worktrunk 0.81.0. Implementation and candidate qualification are pending;
-the table above remains the current workflow until that source change lands.
-Build updates the existing canonical cadence table in the same candidate as the
-workflow. Qualification requires a passing exact-source full manual matrix.
-Preserve all current matrix members,
+with Worktrunk 0.81.0. The table above and workflow carry that source change
+together. Qualification requires a passing exact-source full manual matrix and
+current PR checks, recorded privately before Review/Integrate passes. Preserve
+all current matrix members,
 PR/main 3.14 check identities, native protections, early authorities, failure
 behavior and timeouts. No floor, isolated runtime or advisory-default migration
 is selected. The linked feature owns this candidate's acceptance and gate plan;

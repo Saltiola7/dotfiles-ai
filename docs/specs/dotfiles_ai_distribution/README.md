@@ -7,6 +7,15 @@ own registration and process lifetime. Backend availability remains separate fro
 installation and tool discovery. The adapter does not provision a Prefect service
 or make MCP a prerequisite for project SDK/CLI flow work.
 
+## History Projection Refresh Duration
+
+The distribution-owned scheduler reports completed refresh duration as whole
+elapsed seconds, measured independently of wall-clock changes. Run timestamps
+remain Unix milliseconds. The existing
+[refresh schedule contract](features/history-projection-refresh-schedule.md)
+defines rounding, retained-summary compatibility and the bounded PY-06 delivery
+slice; lifecycle snapshot authority remains in its owning context.
+
 ## Optional Cline Domain
 
 Cline Desktop and Cline CLI are independently enabled developer tools. Their
@@ -435,11 +444,12 @@ authorization. These pending tasks are not claimed as delivered by this host sli
 ## Python runtime qualification
 
 The [PY-08 contract](features/python-runtime-qualification.md) defines monthly
-Python owner review, urgent security intake and proposed root CPython 3.15
-weekly/manual qualification. `docs/UPDATES.md` retains the sole installer and
-procedure inventory. The root 3.12 floor, current 3.14 PR/main authority and all
-isolated runtime pins remain unchanged. Candidate implementation and qualification
-are pending; source documentation does not qualify an installed environment.
+Python owner review, urgent security intake and root CPython 3.15 weekly/manual
+compatibility validation. `docs/UPDATES.md` retains the sole installer and
+procedure inventory. The root 3.12 floor, 3.14 PR/main authority and all isolated
+runtime pins remain unchanged. Qualification requires the exact-source hosted
+matrix and current PR checks recorded by the cycle; source documentation does
+not qualify an installed environment.
 
 ## Engineering Profile
 

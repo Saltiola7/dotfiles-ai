@@ -1,10 +1,12 @@
 # PY-08 Python runtime qualification handoff
 
-Status: specification-ready; Build launch and runtime qualification unverified.
+Status: approved authority adopted; source prepared for hosted qualification.
 This is one same-repository import slice for the selected PY-08 scope. It adds
 no independent context or implementation lane. The operator selected policy and
 root qualification with preserved runtime pins, weekly/manual-first 3.15, and
-monthly review with urgent security intake. No cycle has been registered.
+monthly review with urgent security intake. Native registration and the approved
+publication-order amendment are preserved in the active Cycle Record. This
+manifest continues to express specification readiness, not a live runtime pass.
 
 ## Context map and source authority
 

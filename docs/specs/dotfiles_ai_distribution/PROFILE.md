@@ -30,9 +30,10 @@ revision does not change recorded authority of an already registered cycle.
 [Python runtime qualification](features/python-runtime-qualification.md) defines
 monthly owner review and urgent security intake through `docs/UPDATES.md`, which
 remains the canonical installer inventory. The root floor stays `>=3.12`.
-PY-08 proposes an additional standard CPython 3.15 weekly/manual compatibility
-target while retaining current 3.14 PR/main authority. Implementation and full
-candidate qualification are pending; no installed or isolated runtime pin changes.
+PY-08 adds a standard CPython 3.15 weekly/manual compatibility target while
+retaining 3.14 PR/main authority. Exact hosted qualification evidence belongs to
+the private Cycle Record; source preparation alone does not qualify a runtime.
+No installed or isolated runtime pin changes.
 
 The PY-08 cycle is elevated risk, uses Python and Security, and delivers source
 and hosted CI changes only. Kernel, Review/Integrate and Maintain/Retire gates

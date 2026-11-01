@@ -88,6 +88,7 @@ def run(timeout):
             return 0
         previous = read_status()
         started = time.time_ns() // 1_000_000
+        started_monotonic_ns = time.monotonic_ns()
         running = {**previous, "state": "running", "failure_class": None, "started_at": started,
                    "finished_at": None, "duration_seconds": None}
         write_status(running)
@@ -109,14 +110,15 @@ def run(timeout):
         except OSError:
             result = 1
         finished = time.time_ns() // 1_000_000
+        duration_seconds = (time.monotonic_ns() - started_monotonic_ns) // 1_000_000_000
         if result == 0:
             final = {**running, "state": "succeeded", "finished_at": finished,
-                     "duration_seconds": finished - started, "consecutive_failures": 0}
+                     "duration_seconds": duration_seconds, "consecutive_failures": 0}
             event = "succeeded"
         else:
             failure = "timeout" if timed_out else "refresh_failed"
             final = {**running, "state": "timed_out" if timed_out else "failed", "failure_class": failure,
-                     "finished_at": finished, "duration_seconds": finished - started,
+                     "finished_at": finished, "duration_seconds": duration_seconds,
                      "consecutive_failures": previous["consecutive_failures"] + 1}
             event = failure
         write_status(final)
