@@ -43,7 +43,8 @@ not provision a platform, enable governance or start a client/server connection.
 exact-target deployment. Native discovery and the DBSCTR platform table select
 relevant guidance. Existing installer, client, project and platform owners retain
 CLI versions, configuration, authentication and mutations. JFrog governance is
-selected explicitly. Resources remain inert until task-specific review and use.
+selected explicitly. Project enumeration uses current identity without persistent credential-derived
+fingerprints. Resources remain inert until task-specific review and use.
 Canonical source: this feature and ownership table; owner: distribution
 maintainer; update when any represented boundary or imported root changes.
 
@@ -63,6 +64,7 @@ maintainer; update when any represented boundary or imported root changes.
 | B10 | Explicit optional CLI install with no existing owner | Verify pinned supported-platform binary before execution, install atomically and verify version using an isolated private home |
 | B11 | Existing CLI, incompatible CLI, destination collision or failed download | Preserve existing bytes; retain supported owners, report incompatibility/collision/integrity failures without upgrading or fallback |
 | B12 | Repeated unchanged deployment | Preserve exact file sets/modes, unrelated live edits, native configuration and credentials; repeat apply/diff remains empty |
+| B13 | Project discovery invokes cache helpers or encounters a legacy cache | Cache always misses; helpers do not read credential properties or read/write cache files; selected discovery uses live enumeration |
 
 The optional CLI owner is default-off and missing-only, independently of skill
 installation. It selects official JFrog CLI 2.129.0 assets; an existing compatible
