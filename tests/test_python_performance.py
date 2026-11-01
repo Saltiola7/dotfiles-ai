@@ -29,6 +29,58 @@ def evidence():
     return load_module("performance_evidence")
 
 
+STANDARD_SYSTEM_LFS = (
+    ("filter.lfs.clean", "git-lfs clean -- %f"),
+    ("filter.lfs.smudge", "git-lfs smudge -- %f"),
+    ("filter.lfs.process", "git-lfs filter-process"),
+    ("filter.lfs.required", "true"),
+)
+
+
+@pytest.fixture
+def native_git_qualification(tmp_path):
+    """Prepare native Git without consulting or modifying host configuration."""
+    import shutil
+    import subprocess
+
+    runner = load_module("python_performance")
+    git = Path(shutil.which("git")).resolve()
+    env = runner.isolated_environment(tmp_path / "state", git)
+    system = tmp_path / "system.gitconfig"
+    system.write_text("")
+    env["GIT_CONFIG_SYSTEM"] = str(system)
+    root = tmp_path / "repository"
+    root.mkdir()
+    templates = tmp_path / "empty-templates"
+    templates.mkdir()
+
+    def call(*args, input_data=None):
+        return subprocess.run(
+            [str(git), "-c", "core.hooksPath=/dev/null", "-c",
+             "commit.gpgsign=false", *args],
+            cwd=root, env=env, input=input_data, capture_output=True, check=True,
+        )
+
+    call("init", "--initial-branch=main", "--template=" + str(templates))
+    for key, value in (
+        ("user.name", "Synthetic Benchmark"),
+        ("user.email", "benchmark@example.invalid"),
+        ("core.hooksPath", str(templates)),
+        ("credential.helper", ""),
+    ):
+        call("config", "--local", key, value)
+    (root / "tracked.txt").write_text("synthetic input\n")
+    call("add", "tracked.txt")
+    call("commit", "-m", "synthetic qualification input")
+
+    def system_config(entries):
+        system.write_text("")
+        for key, value in entries:
+            call("config", "--file", str(system), "--add", key, value)
+
+    return runner, git, root, env, call, system_config
+
+
 def sample_record(evidence, values=(10, 20, 30, 40, 50)):
     source = {
         "commit": "a" * 40, "tree": "b" * 40, "tool_commit": "c" * 40,
@@ -530,3 +582,126 @@ class TestRunner:
         with pytest.raises(runner.BenchmarkError, match="source_filters_unqualified"):
             runner.SourceSnapshot.observe(selected, git, env, time.monotonic() + 10)
         assert not marker.exists()
+
+    @pytest.mark.parametrize("attributes", [None, "* -filter\n"], ids=["unspecified", "unset"])
+    def test_dormant_standard_system_lfs_is_qualified(self, native_git_qualification, attributes):
+        import time
+        runner, git, root, env, _, system_config = native_git_qualification
+        system_config(STANDARD_SYSTEM_LFS)
+        if attributes is not None:
+            (root / ".gitattributes").write_text(attributes)
+        deadline = time.monotonic() + 10
+        qualification = runner.qualify_git(git, root, env, deadline)
+        assert isinstance(qualification, str)
+        assert len(qualification) == 64
+        runner.qualify_source_config(root, git, env, deadline)
+
+    @pytest.mark.parametrize("qualification", ["fixture", "source"])
+    @pytest.mark.parametrize("location", ["worktree", "info", "xdg"])
+    @pytest.mark.parametrize("tracked", [True, False], ids=["cached", "untracked"])
+    def test_active_attributes_are_refused_before_status(
+        self, native_git_qualification, monkeypatch, qualification, location, tracked,
+    ):
+        import time
+        runner, git, root, env, _, system_config = native_git_qualification
+        system_config(STANDARD_SYSTEM_LFS)
+        name = "tracked.txt" if tracked else "untracked.txt"
+        if not tracked:
+            (root / name).write_text("untracked synthetic input\n")
+        attributes = {
+            "worktree": root / ".gitattributes",
+            "info": root / ".git/info/attributes",
+            "xdg": Path(env["XDG_CONFIG_HOME"]) / "git/attributes",
+        }[location]
+        attributes.parent.mkdir(parents=True, exist_ok=True)
+        attributes.write_text(f"{name} filter=lfs\n")
+        original = runner.git_call
+        status_calls = []
+
+        def before_status(git, cwd, env, deadline, *args, **kwargs):
+            if args and args[0] == "status":
+                status_calls.append(args)
+                raise AssertionError("active attributes reached status")
+            return original(git, cwd, env, deadline, *args, **kwargs)
+
+        monkeypatch.setattr(runner, "git_call", before_status)
+        deadline = time.monotonic() + 10
+        expected = "git_filters_unqualified" if qualification == "fixture" else "source_filters_unqualified"
+        with pytest.raises(runner.BenchmarkError, match=f"^{expected}$"):
+            if qualification == "fixture":
+                runner.qualify_git(git, root, env, deadline)
+            else:
+                runner.SourceSnapshot.observe(root, git, env, deadline)
+        assert not status_calls
+
+    @pytest.mark.parametrize(
+        "entries",
+        [
+            (*STANDARD_SYSTEM_LFS, ("core.pager", "cat")),
+            *((tuple((key, "altered command" if key == changed else value)
+                      for key, value in STANDARD_SYSTEM_LFS))
+              for changed, _ in STANDARD_SYSTEM_LFS),
+            STANDARD_SYSTEM_LFS[:-1],
+            (*STANDARD_SYSTEM_LFS, STANDARD_SYSTEM_LFS[0]),
+        ],
+        ids=["unknown-key", "altered-clean", "altered-smudge", "altered-process",
+             "altered-required", "incomplete-lfs", "duplicate-lfs"],
+    )
+    def test_unsafe_system_configuration_is_refused_before_first_fixture_add(
+        self, native_git_qualification, tmp_path, monkeypatch, entries,
+    ):
+        import time
+        runner, git, _, env, _, system_config = native_git_qualification
+        system_config(entries)
+        original = runner.git_call
+        add_calls = []
+
+        def before_add(git, cwd, env, deadline, *args, **kwargs):
+            if args and args[0] == "add":
+                add_calls.append(args)
+                raise AssertionError("unsafe system configuration reached first add")
+            return original(git, cwd, env, deadline, *args, **kwargs)
+
+        monkeypatch.setattr(runner, "git_call", before_add)
+        with pytest.raises(runner.BenchmarkError, match="^git_system_configuration_unqualified$"):
+            runner.create_fixture(tmp_path / "new-fixture", 1, git, env, time.monotonic() + 10)
+        assert not add_calls
+
+    @pytest.mark.parametrize("qualification", ["fixture", "source"])
+    def test_local_lfs_configuration_remains_refused(self, native_git_qualification, qualification):
+        import time
+        runner, git, root, env, call, system_config = native_git_qualification
+        system_config(STANDARD_SYSTEM_LFS)
+        for key, value in STANDARD_SYSTEM_LFS:
+            call("config", "--local", key, value)
+        deadline = time.monotonic() + 10
+        expected = "git_filters_unqualified" if qualification == "fixture" else "source_filters_unqualified"
+        with pytest.raises(runner.BenchmarkError, match=f"^{expected}$"):
+            if qualification == "fixture":
+                runner.qualify_git(git, root, env, deadline)
+            else:
+                runner.qualify_source_config(root, git, env, deadline)
+
+    @pytest.mark.parametrize("qualification", ["fixture", "source"])
+    def test_gitlinks_are_refused_before_status(self, native_git_qualification, monkeypatch, qualification):
+        import time
+        runner, git, root, env, call, _ = native_git_qualification
+        commit = call("rev-parse", "HEAD").stdout.decode().strip()
+        call("update-index", "--add", "--cacheinfo", f"160000,{commit},nested")
+        original = runner.git_call
+        status_calls = []
+
+        def before_status(git, cwd, env, deadline, *args, **kwargs):
+            if args and args[0] == "status":
+                status_calls.append(args)
+                raise AssertionError("gitlink reached status")
+            return original(git, cwd, env, deadline, *args, **kwargs)
+
+        monkeypatch.setattr(runner, "git_call", before_status)
+        deadline = time.monotonic() + 10
+        with pytest.raises(runner.BenchmarkError, match="^submodules_unqualified$"):
+            if qualification == "fixture":
+                runner.qualify_git(git, root, env, deadline)
+            else:
+                runner.SourceSnapshot.observe(root, git, env, deadline)
+        assert not status_calls

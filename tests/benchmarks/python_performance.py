@@ -40,6 +40,12 @@ ALLOWED_GIT = frozenset({
     "rev-parse", "rev-list", "symbolic-ref", "worktree", "status", "show",
     "cat-file", "log", "diff", "config", "ls-files",
 })
+SYSTEM_LFS_FILTERS = {
+    b"filter.lfs.clean": b"git-lfs clean -- %f",
+    b"filter.lfs.smudge": b"git-lfs smudge -- %f",
+    b"filter.lfs.process": b"git-lfs filter-process",
+    b"filter.lfs.required": b"true",
+}
 
 """Bounded process-group ownership for the synthetic benchmark coordinator.
 
@@ -453,6 +459,8 @@ def create_fixture(
     (root / "README.md").write_bytes(b"Synthetic benchmark input.\n")
     for nodes in (10, 100):
         (root / f"manifest-{nodes}.json").write_bytes(evidence.canonical(fixture_manifest(nodes)) + b"\n")
+    # Attribute filters can execute during add, so qualify before staging input.
+    qualify_git(git, root, env, deadline, control)
     git_call(git, root, env, deadline, "add", "README.md", "manifest-10.json", "manifest-100.json", control=control)
     tree = git_call(git, root, env, deadline, "write-tree", control=control).decode().strip()
     previous = None
@@ -476,6 +484,58 @@ def create_fixture(
     })
 
 
+def _configuration_rows(raw: bytes) -> list[tuple[bytes, bytes, bytes]]:
+    fields = raw.split(b"\0")
+    if fields[-1] != b"" or len(fields) % 2 != 1:
+        raise BenchmarkError("git_configuration_unqualified")
+    return [(scope, row.partition(b"\n")[0], row.partition(b"\n")[2])
+            for scope, row in zip(fields[::2], fields[1::2])]
+
+
+def _qualify_filter_definitions(
+    rows: Sequence[tuple[bytes, bytes, bytes]], *, system_reason: str, other_reason: str,
+) -> None:
+    """Recognize only the complete standard system LFS definitions, once each."""
+    seen = set()
+    for scope, key, value in rows:
+        if not key.startswith(b"filter."):
+            continue
+        reason = system_reason if scope == b"system" else other_reason
+        if (scope != b"system" or key not in SYSTEM_LFS_FILTERS
+                or value != SYSTEM_LFS_FILTERS[key] or key in seen):
+            raise BenchmarkError(reason)
+        seen.add(key)
+    if seen and seen != SYSTEM_LFS_FILTERS.keys():
+        raise BenchmarkError(system_reason)
+
+
+def _qualify_path_filters(
+    root: Path, git: Path, env: Mapping[str, str], deadline: float,
+    control: RunControl | None, reason: str,
+) -> None:
+    """Resolve effective attributes without executing filters or recursing submodules."""
+    staged = git_call(git, root, env, deadline, "ls-files", "--stage", "-z", control=control)
+    if any(row.startswith(b"160000 ") for row in staged.split(b"\0")):
+        raise BenchmarkError("submodules_unqualified")
+    raw = git_call(git, root, env, deadline, "ls-files", "--cached", "--others",
+                   "--exclude-standard", "-z", control=control)
+    if not raw:
+        return
+    if not raw.endswith(b"\0"):
+        raise BenchmarkError(reason)
+    paths = raw.split(b"\0")[:-1]
+    attributes = git_call(git, root, env, deadline, "check-attr", "-z", "--stdin",
+                          "filter", input_data=raw, control=control)
+    fields = attributes.split(b"\0")
+    if fields[-1] != b"" or len(fields) != 3 * len(paths) + 1:
+        raise BenchmarkError(reason)
+    for index, path in enumerate(paths):
+        offset = index * 3
+        if (fields[offset:offset + 2] != [path, b"filter"]
+                or fields[offset + 2] not in (b"unspecified", b"unset")):
+            raise BenchmarkError(reason)
+
+
 def qualify_git(git: Path, fixture: Path, env: Mapping[str, str], deadline: float,
                 control: RunControl | None = None) -> str:
     """Qualify native configuration, including the helper's stripped-env behavior."""
@@ -492,15 +552,13 @@ def qualify_git(git: Path, fixture: Path, env: Mapping[str, str], deadline: floa
         control.admit()
     if result.status != "completed" or result.returncode:
         raise BenchmarkError("git_configuration_unqualified")
-    raw = result.stdout
-    rows = raw.split(b"\0")
-    if rows[-1] != b"" or len(rows) % 2 != 1:
-        raise BenchmarkError("git_configuration_unqualified")
+    rows = _configuration_rows(result.stdout)
+    _qualify_filter_definitions(rows, system_reason="git_system_configuration_unqualified",
+                                other_reason="git_filters_unqualified")
     local_helpers = []
     qualified_rows = []
-    for scope, row in zip(rows[::2], rows[1::2]):
-        key, _, value = row.partition(b"\n")
-        if scope == b"system" and key != b"credential.helper":
+    for scope, key, value in rows:
+        if scope == b"system" and key != b"credential.helper" and key not in SYSTEM_LFS_FILTERS:
             raise BenchmarkError("git_system_configuration_unqualified")
         if scope not in (b"local", b"system"):
             raise BenchmarkError("git_configuration_unqualified")
@@ -513,20 +571,25 @@ def qualify_git(git: Path, fixture: Path, env: Mapping[str, str], deadline: floa
             value = b"owned_empty_hooks"
         qualified_rows.append([scope.decode(), key.decode(), hashlib.sha256(value).hexdigest()])
     # An empty local credential helper resets preceding system helpers. No selected
-    # workload uses transport; all other system keys are conservatively refused.
+    # workload uses transport. Standard LFS definitions additionally require fresh
+    # proof that no path selects a filter; all other system keys are refused.
     if local_helpers != [b""]:
         raise BenchmarkError("git_credentials_unqualified")
+    _qualify_path_filters(fixture, git, env, deadline, control, "git_filters_unqualified")
     return evidence.digest(qualified_rows)
 
 
 def qualify_source_config(root: Path, git: Path, env: Mapping[str, str], deadline: float,
                           control: RunControl | None = None) -> None:
-    configuration = git_call(git, root, env, deadline, "config", "--includes",
+    configuration = git_call(git, root, env, deadline, "config", "--show-scope", "--includes",
                              "-z", "--list", control=control)
-    for row in configuration.split(b"\0"):
-        key = row.partition(b"\n")[0].lower()
-        if key.startswith((b"filter.", b"core.attributesfile")):
+    rows = _configuration_rows(configuration)
+    _qualify_filter_definitions(rows, system_reason="source_filters_unqualified",
+                                other_reason="source_filters_unqualified")
+    for _, key, _ in rows:
+        if key.lower().startswith(b"core.attributesfile"):
             raise BenchmarkError("source_filters_unqualified")
+    _qualify_path_filters(root, git, env, deadline, control, "source_filters_unqualified")
 
 
 @dataclass(frozen=True)
