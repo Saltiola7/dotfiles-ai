@@ -30,8 +30,13 @@ installation of the skill remain separate; see the runbook's owner boundaries.
 
 Shared specialist skills load conditionally through DBSCTR's language/data modules.
 For explicit repository roadmaps, use `$python-audit` or `$database-audit`.
-Python assessment includes testing, type design, resources, retries and telemetry;
-database guidance covers DuckDB, ClickHouse and Databricks with Python client
+Python assessment includes architecture, testing, type design, resources, retries
+and telemetry. For architecture focus, ask `Use $python-audit to audit this
+repository's architecture and prioritize bounded refactors.` The same audit
+coordinator selects system boundaries, package/public imports, component design
+and accepted dependency rules first; other techniques follow relevant evidence.
+Python scope and unreviewed cross-language components stay explicit.
+Database guidance covers DuckDB, ClickHouse and Databricks with Python client
 boundaries. Audits default to source review and proposed refactor batches, preserving
 project-selected tools and separating live evidence from static findings. Vendored
 skill licenses remain per bundle, including service-scoped Databricks material. See the

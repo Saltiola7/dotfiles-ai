@@ -1,5 +1,32 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Python architecture assessment
+
+- Added `architecture-patterns`, `python-project-structure` and local
+  `python-architecture-fitness` through existing conditional Python routing.
+  The same `python-audit` offers architecture focus, starting with those three
+  lenses and component design. Full assessment now considers fourteen lenses;
+  database delegation preserves the requested structural scope. Project rules,
+  supported imports, simple designs and selected tools retain authority.
+- Preserved two complete MIT bundles with immutable source identities, notices,
+  file modes and reversible adaptations. Corrected quantity/rounding and event
+  payload examples. Four creator validations, four offline example regressions
+  and affected QA passed: 205 tests, one optional smoke skipped. Complete isolated
+  projection verifies file sets, bytes, modes, resource closure and repeat apply.
+- Independent static audits identified a declared boundary violation in a modular
+  monolith and retained a small flat library. Dirty/untracked consumer evidence,
+  missing guidance and unrun checks remained explicit. These bounded samples do
+  not prove comparative gains, universal routing or live application behavior.
+- Managed deployment uses ten exact targets with prior-live snapshots, drift
+  guards, complete verification and a repeated empty diff. Existing routing is
+  reconciled with the reviewed current-base source; unrelated live skills remain
+  preserved. Native client selector refresh remains unverified. Recovery uses
+  retained preimages and matching reviewed source through the existing owner.
+- Implementation Gate Commit: `6f198da`. Remaining closure and actual deployment
+  evidence stay in the private Cycle Record. Intended Final Push: combined feature
+  branch and draft PR into `main`, including the pending Python/data mapping.
+  No Gate Exception, consumer remediation or new checker installation.
+
 ## 2026-10-31 — Python and database specialist mapping
 
 - Added 21 discoverable skills: five Python techniques, six DuckDB/ClickHouse
