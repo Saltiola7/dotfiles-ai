@@ -748,6 +748,24 @@ def _load_fixture() -> dict:
     return config
 
 
+def finish_attempt(row: dict, control: RunControl, proof: Callable[[], None]) -> str | None:
+    """Commit observation eligibility only after fresh proof and cancellation checks."""
+    try:
+        control.admit()
+        proof()
+        control.admit()
+        return None
+    except BenchmarkError as error:
+        if isinstance(error, CleanupUncertain):
+            control.cleanup_known = False
+        reason = str(error)
+        row.update(status="cancelled" if reason == "cancelled" else "failed",
+                   reason=reason, compatible=False)
+        row["metrics"] = {name: None for name in row["metrics"]}
+        row["unavailable"] = {name: reason for name in row["metrics"]}
+        return reason
+
+
 def benchmark_cli(source_root: Path, output: Path, *, smoke: bool = False, profile: bool = False) -> int:
     git_selected = shutil.which("git")
     if not git_selected:
@@ -900,23 +918,21 @@ def benchmark_cli(source_root: Path, output: Path, *, smoke: bool = False, profi
                             descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
                             with os.fdopen(descriptor, "wb") as target:
                                 target.write(raw)
-                        try:
-                            if control.cleanup_known and not control.cancelled:
-                                launch_proof.verify()
-                                fixture_proofs[commits].verify(git, env, deadline, control)
-                                source.verify(git, env, deadline, control)
-                        except BenchmarkError as error:
-                            cleanup_known &= not isinstance(error, CleanupUncertain)
-                            stopped = str(error)
-                            # A post-observation proof failure invalidates this attempt.
-                            row.update(status="failed", reason=stopped, compatible=False)
+                        def post_proof():
+                            launch_proof.verify()
+                            fixture_proofs[commits].verify(git, env, deadline, control)
+                            source.verify(git, env, deadline, control)
+                        rejected = finish_attempt(row, control, post_proof)
+                        if rejected:
+                            stopped = rejected
+                            cleanup_known &= control.cleanup_known
                             compatible = False
                         if not cleanup_known:
                             stopped = "cleanup_uncertain"
                         elif result.status in {"timed_out", "cancelled", "output_overflow"}:
                             stopped = result.status
                         if not compatible:
-                            exit_code = 1
+                            exit_code = (75 if exit_code == 0 else exit_code) if row["status"] == "cancelled" else 1
                     cell = {
                         "surface": "cli", "workload": case["id"],
                         "dimensions": {"history_commits": commits, "cohort": "smoke" if smoke else "full",
@@ -928,6 +944,8 @@ def benchmark_cli(source_root: Path, output: Path, *, smoke: bool = False, profi
                     name = f"{mode}-{commits}-{case['id']}.json"
                     evidence.write_private_json(output, name, record)
                     manifest.append(name)
+        if control.cancelled and exit_code == 0:
+            exit_code = 75
         evidence.write_private_json(output, "index.json", {
             "schema_version": 1, "records": manifest, "cohort": "smoke" if smoke else "full",
             "status": "complete" if exit_code == 0 else "partial",

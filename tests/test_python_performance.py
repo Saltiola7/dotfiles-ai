@@ -259,6 +259,23 @@ def test_analysis_deadline_covers_validation_and_ingestion(evidence, tmp_path, m
         evidence.read_records([path], deadline=10)
 
 class TestRunner:
+    def test_cancellation_after_child_return_invalidates_observation(self):
+        runner = load_module("python_performance")
+        row = {
+            "status": "measured", "compatible": True, "reason": None,
+            "metrics": {"wall_ns": 10}, "unavailable": {},
+        }
+        verified = []
+        reason = runner.finish_attempt(
+            row, runner.RunControl(cancelled=True), lambda: verified.append(True)
+        )
+        assert reason == "cancelled"
+        assert not verified
+        assert row["status"] == "cancelled"
+        assert row["compatible"] is False
+        assert row["metrics"]["wall_ns"] is None
+        assert row["unavailable"]["wall_ns"] == "cancelled"
+
     def test_owned_process_captures_both_streams_and_actual_status(self, tmp_path):
         runner = load_module("python_performance")
         result = runner.run_owned(
