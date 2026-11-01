@@ -8,9 +8,9 @@ compatibility validation and public runtime claims change.
 
 ## Problem and outcome
 
-The root project declares Python `>=3.12`, while hosted compatibility validation
-currently ends at 3.14. Several optional tools have separate interpreter ranges,
-exact patches, dependency locks or artifact identities. A root test result must
+Before this candidate, the root project declared Python `>=3.12`, while hosted
+compatibility validation ended at 3.14. Several optional tools have separate
+interpreter ranges, exact patches, dependency locks or artifact identities. A root test result must
 not be mistaken for qualification of those isolated runtimes, and an update
 review must not silently change their installer ownership.
 
@@ -249,9 +249,9 @@ Build copies it into its Git-ignored `.dbsctr/plans/` directory after verifying
 the committed profile. Discovery does not register a cycle or fabricate the
 profile's commit identity.
 
-Next task: one Build primary implements the hosted weekly/manual 3.15 addition,
-explicit frozen interpreter selection and the demonstrated compatible fixture
-repair, then owns all affected validation. No runtime owner upgrade is delegated.
+One Build primary owns Gate Commits, approved candidate publication, hosted
+qualification and final delivery for the weekly/manual 3.15 addition, frozen
+selection and compatible fixture repair. No runtime owner upgrade is delegated.
 Retain all Discovery artifacts in the implementation change; do not publish a
 preliminary documentation-only PR merely to make registration possible.
 
