@@ -655,3 +655,26 @@ The live kernel retains notebook mutation authority; project policy retains
 versions, targets and tools. The existing primary and QA validate work, and the
 distribution owner installs exact reviewed guidance without activating tools or
 infrastructure. The table above owns this extension and changes with its scope.
+
+### Expansion behavior
+
+| Given / when | Required observable outcome |
+|---|---|
+| A saved marimo notebook is authored or reviewed | Use notebook conventions and relevant validation; retain the project's versions and dependency owner |
+| The notebook is open in an active kernel | Use `marimo-pair` for durable mutations; never overwrite its live state by editing the backing file |
+| Jupyter conversion is explicitly requested | Preserve the original, account for magics/widgets/outputs/dependencies, and distinguish conversion from executed equivalence |
+| Browser/WASM execution is the target | Check actual package/runtime capabilities; native-only success cannot prove browser compatibility |
+| A Chezmoi preview is requested | Resolve source/config/destination and script/hook/external effects; do not run broad update or forced apply |
+| A selected Chezmoi change is authorized | Inspect conflict/drift and preview exact targets, preserve unrelated state and verify applied bytes and repeated diff |
+| A PyInfra deploy reads facts before changing state | Distinguish preparation-time facts from execution-time conditions; use target-version operation semantics |
+| A PyInfra dry run is clean | Report its host/fact/connection and local Python effects; do not claim the real change or recovery was executed |
+| A Python/Rust boundary changes | Preserve selected ABI/toolchain, ownership, interpreter/thread and error contracts; verify applicable Rust and installed-Python behavior |
+| Async or NumPy interop is involved | Load the relevant detail and verify lifetime, cancellation, borrowing and mutation constraints |
+| A tool, target or environment is unavailable | Report the evidence gap; no implicit installation, host operation, fallback identity or passing runtime claim |
+| Ordinary adjacent work does not use these frameworks | Avoid unrelated specialist loads; no new lifecycle gate or coordinator |
+| Existing installed guidance differs from source | Preserve and reconcile unrelated live changes before exact target deployment |
+
+Native discovery, actual method loading and decision quality remain separate
+claims. Bounded synthetic forward checks evaluate the six new entrypoints with
+ordinary requests and retain failures; static source checks alone do not prove
+automatic selection or successful target execution.
