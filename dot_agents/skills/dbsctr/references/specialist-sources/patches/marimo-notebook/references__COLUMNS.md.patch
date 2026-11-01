@@ -1,0 +1,24 @@
+--- a/references/COLUMNS.md
++++ b/references/COLUMNS.md
+@@ -3,12 +3,10 @@
+ ```python
+ # /// script
+ # dependencies = ["marimo"]
+-# requires-python = ">=3.14"
+ # ///
+ 
+ import marimo
+ 
+-__generated_with = "0.23.9"
+ app = marimo.App(width="columns")
+ 
+ 
+@@ -45,7 +43,7 @@
+ 
+ @app.cell
+ def _():
+-    # This cell is in column 2 
++    # This cell is in column 2
+     import marimo as mo
+ 
+     return (mo,)

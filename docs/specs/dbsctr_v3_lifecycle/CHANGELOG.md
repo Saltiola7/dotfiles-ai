@@ -1,5 +1,43 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Notebook, host configuration and Rust/Python guidance
+
+Added official marimo notebook, Jupyter conversion and WASM guidance plus original
+Chezmoi, PyInfra and Python/Rust methods. Prefect is excluded by user choice.
+Python and platform tables own the six conditional routes; existing live-kernel,
+project-version, validation and deployment authorities remain intact. Three
+complete official bundles retain 22 original files, exact Apache-2.0 notices and
+20 reversible adaptations. Review corrected reactive examples, configuration and
+version-dependent browser claims; no community tree was copied into local methods.
+
+Validation: 116 affected tests passed and one skipped; all six creator validators
+passed, 47 fenced Python examples parsed, and controlled example checks retained
+original failures and corrections. An unchanged subprocess helper produced an OS
+process-group permission failure during the initial broader run; unchanged
+requalification passed, without establishing its underlying cause or a fix.
+Formatting and missing-final-newline patch reconstruction failures were corrected
+before the passing source checks. No failed evidence or assertion was removed.
+
+Six predeclared positive native tasks selected the intended skills and passed
+independent decision review, with 21 full returned-content read proofs. Actual
+native totals: 688,900 input tokens, including 563,456 cached input tokens; 5,899
+output and 477 reasoning tokens. This single-arm smoke has no baseline or
+negative controls and establishes neither comparative savings nor universal
+trigger reliability. Target frameworks, hosts, browser runtimes and Rust builds
+were not executed.
+
+Managed deployment verified 59 files: 57 canonical files and two reviewed routing
+projections preserving unrelated live Python guidance. Complete file sets, bytes
+and modes matched after two applies, with empty diffs; scripts were excluded and
+configured hooks absent. Existing core and marimo-pair files were preserved.
+Native CLI catalog observation found all six entrypoints; Desktop refresh is not
+claimed. Recovery preimages and qualification evidence remain private.
+
+Kernel Gate Commits: `aad25d4`, `7757b20`, `c38a70f`, `c21e1a5`, `752849a`.
+Final Push targets the feature branch and draft PR into protected main; actual
+publication, CI and ordinary merge outcomes belong to the Cycle Record. Release
+and Operate are not applicable to guidance installation. Retain branch/worktree.
+
 ## 2026-10-31 — Infrastructure and framework specialist follow-up
 
 - Added three official Pulumi bundles and the reviewed Django/DRF bundle, plus

@@ -1,0 +1,52 @@
+--- a/references/PYTEST.md
++++ b/references/PYTEST.md
+@@ -1,4 +1,9 @@
+ # Testing with pytest
++
++Use the project's selected marimo/pytest versions and runner. These examples
++illustrate notebook collection, including an intentionally failing assertion;
++they are not a passing application suite. Tests and fixtures can execute cells,
++access services and change state. Bound validation to the intended effects.
+ 
+ ## Testing in notebook
+ 
+@@ -35,8 +40,12 @@
+     return
+ ```
+ 
+-Reactive tests can be disabled. You can disable this behavior with the `runtime.reactive_test` option in the
+-configuration file.
++Reactive tests can be disabled using the selected version's supported configuration.
++For example, marimo 0.25.2 uses `reactive_tests = false` under `[runtime]` in
++marimo TOML, or the corresponding `[tool.marimo.runtime]` project scope. Inspect the
++effective selected-version setting and confirm it is honored before relying on
++it to prevent automatic test execution; the singular `reactive_test` is not the
++0.25.2 option.
+ 
+ ## Testing at the command-line
+ 
+@@ -55,7 +64,6 @@
+ # content of test_notebook.py
+ import marimo
+ 
+-__generated_with = "0.10.6"
+ app = marimo.App()
+ 
+ 
+@@ -107,8 +115,7 @@
+     # content of test_notebook.py
+     import marimo
+ 
+-    __generated_with = "0.10.6"
+-    app = marimo.App()
++        app = marimo.App()
+ 
+ 
+     @app.cell
+@@ -209,4 +216,4 @@
+ **Why?** Running the entire notebook just for fixture discovery would be
+ expensive, and static analysis cannot determine which fixtures will be
+ available after cell execution since cell order is determined at runtime by
+-marimo's dependency graph.
+\ No newline at end of file
++marimo's dependency graph.
