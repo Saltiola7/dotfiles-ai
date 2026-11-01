@@ -1,0 +1,32 @@
+--- a/references/EXPENSIVE.md
++++ b/references/EXPENSIVE.md
+@@ -41,6 +41,11 @@
+ 
+ Works as a decorator or context manager.
+ 
++Cache only work whose key, freshness and side effects make reuse correct.
++A database read may change even with the same SQL string; provide the project's
++invalidation/freshness strategy. Do not cache credentials or private results into
++a distributable artifact inadvertently.
++
+ ## mo.persistent_cache
+ 
+ Disk-based cache that persists across notebook restarts:
+@@ -57,7 +62,7 @@
+ 
+ ```python
+ # Only render table when it scrolls into view
+-mo.lazy(mo.ui.table(large_df))
++mo.lazy(lambda: mo.ui.table(large_df))
+ 
+ # Only compute when tab is selected
+ mo.ui.tabs({
+@@ -82,7 +87,7 @@
+     def _compute():
+         large_data = load_everything()
+         result = summarize(large_data)
+-        return result  # large_data is freed here
++        return result  # large_data can be released if the result retains no reference.
+     output = _compute()
+     return (output,)
+ ```

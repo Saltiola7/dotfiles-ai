@@ -498,6 +498,59 @@
       "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
     },
     {
+      "name": "jupyter-to-marimo",
+      "state": "vendored",
+      "upstream_url": "https://github.com/marimo-team/skills",
+      "commit": "6454470960d3cd57151aaeffb1176dd55f598b18",
+      "upstream_path": "skills/jupyter-to-marimo",
+      "license": "Apache-2.0",
+      "upstream_files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "f67b13d32b04874888c6ddbb3d019c11b6d8cf9c76d7f238c1560a5bb6458bd3",
+        "references/latex.md": "984b9061f0786f826262d260f0f21f421f3efcf195d3ae76580ec5f2d6cd6c87",
+        "references/widgets.md": "cba98e653d54c96739d11c7cb6f487583c24f4186de5b5701e522b4d5ee820a2"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+        "SKILL.md": "76725ad318d11e39f2e0d292a1a36e06d4b80835",
+        "references/latex.md": "682b49957f7ab4756a03e0f3f709c12ba337966e",
+        "references/widgets.md": "ef99cd9241a2b48ab68de823e8b675371124c9d4"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/latex.md": "100644",
+        "references/widgets.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "85e781b131b455aaf3346c05101298bfe100fe660d1abb9042abf7e43fffc5e0",
+        "UPSTREAM.md": "2e9be7809aa12449cd4e6375bce9436b40543a7675ca529f09b022900c3f5285",
+        "references/latex.md": "c9df7014ad7f8b5e5cf342786c2ece9b1756a5274a1da008c2a1a818e77e0416",
+        "references/widgets.md": "5bf2dd29f29bef6622c9ab508037818dc43dea838d8b37722317f82f89888026"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/latex.md": "100644",
+        "references/widgets.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/latex.md": "100644",
+        "references/widgets.md": "100644"
+      },
+      "patches": {
+        "patches/jupyter-to-marimo/SKILL.md.patch": "631fa43ee6be07192898d425e9c407acdc8b45cfc8d7585a8928a1e190d8ab38",
+        "patches/jupyter-to-marimo/references__latex.md.patch": "401fcfb7821189efa78d25c990298b21199159aa94f039344bf90462525a5500",
+        "patches/jupyter-to-marimo/references__widgets.md.patch": "34f78c932c699417419f3353a3a52724f83667ff50d383ceae2f8a1b9849312a"
+      },
+      "changes": "Complete official bundle retained; compact automatic entrypoint and lazy resources, project/runtime and live-kernel ownership preserved, reviewed example/capability corrections. See UPSTREAM.md."
+    },
+    {
       "name": "k8s-manifest-generator",
       "state": "vendored",
       "upstream_url": "https://github.com/wshobson/agents",
@@ -577,6 +630,139 @@
         "patches/k8s-manifest-generator/references__service-spec.md.patch": "e39fa1a885d3a977f7c28c0e845368301a4b2250e724fb9e652d27647d98c98f"
       },
       "changes": "Reviewed local adaptation; preserve project/version/target authority and current task permissions; compact entrypoint with on-demand complete resources. See UPSTREAM.md for specific changes."
+    },
+    {
+      "name": "marimo-notebook",
+      "state": "vendored",
+      "upstream_url": "https://github.com/marimo-team/skills",
+      "commit": "6454470960d3cd57151aaeffb1176dd55f598b18",
+      "upstream_path": "skills/marimo-notebook",
+      "license": "Apache-2.0",
+      "upstream_files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "fbdd58fc85d61aea2e3619c10169b573dd44a56b00e9999546d7eef46abb66e8",
+        "references/ANYWIDGET.md": "762e1beb4ea6a7123474a1520614b67062ce0e82ce4ff4de1cb6c3a11993705f",
+        "references/COLUMNS.md": "8f2c56241e37c9a19c714289c4187bf1daa2d3ad38c74d2612d07e598d28ac18",
+        "references/CONFIGURATION.md": "5d88e304e2abf0d0a52a7a2d5a56e3fffe8ef4a8cc66d6d71dc491710b33ad32",
+        "references/DEPLOYMENT.md": "78e90bfc0c344ad5fcf3b4d1b6c94ea6b3b3715434eec4391530a4a4c5a1bfb2",
+        "references/EXPENSIVE.md": "d5fccac09a35a2974fe053bb0c99c6f19e964c63c0881c96fa8566592f57606b",
+        "references/EXPORTS.md": "c88c26eeea6696c8a7d4c28a1ecf9bd879fc8eeae5c15691b0edf74c1d0199fe",
+        "references/PYTEST.md": "a0f7f969311386523b915ebe03eb402f47d9d329085091d9430f204a8bb07bcb",
+        "references/REACTIVITY.md": "bb06944b5f03f2d84866db402fb3b82d6078fce1bb1823068b15b67bda9fc32e",
+        "references/SQL.md": "e6e6a7c0a44ead756e54fa156ecf4c3cb7b1f9f037fda0ec55e14c804b27a9b7",
+        "references/STATE.md": "692eee039fc04ccc1e905e632e987a8562d37999265b5f0ece0fdb506390449b",
+        "references/TOP-LEVEL-IMPORTS.md": "6555a683197074c2b18f36cf90c7855da180ebc3f717264305a160128ebe0185",
+        "references/UI.md": "fb3970d1f7eccbe1c48bb7e2473edd72ba62106d636a34cb2f2dd23fe6f31ba4",
+        "references/WATCHING.md": "4c91a083c663c7d49c03b32fe33ad19d353d407e907761d6d9ab1211e45f319b"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+        "SKILL.md": "20bc48f2f8235c7ab206fc5bb31a3ba58d7e8925",
+        "references/ANYWIDGET.md": "4dfcd4e8e51e3c9a0d41d7154f92d26620ddf97b",
+        "references/COLUMNS.md": "15d565292b29c67a66c061b95bea0e8bbb428dc9",
+        "references/CONFIGURATION.md": "5b9261325d8315417484ecc88c506a16d5cb5c7d",
+        "references/DEPLOYMENT.md": "ab0b786728e0cc59764a4f759d0e646bb1603c1f",
+        "references/EXPENSIVE.md": "6c560868014961ed82e273baf668d1ab4c4d2487",
+        "references/EXPORTS.md": "df29a4202616da0dff1014b1de3a14824d53dadb",
+        "references/PYTEST.md": "2c7099254e115867baf71f14bbf018d68b23dd02",
+        "references/REACTIVITY.md": "88ac57f97b2189728aa59cf69e2e578537249726",
+        "references/SQL.md": "7a64775d772879887eea87072ad18e021aace298",
+        "references/STATE.md": "82994f6b8cc9cf19cd3ae4941450a401b0ccc3af",
+        "references/TOP-LEVEL-IMPORTS.md": "0eaebae8c0ad811c0ee2764719c4f03e2ff228bc",
+        "references/UI.md": "b2e6ea10e4a3553eacfdf0c0b5b38940a9ab4406",
+        "references/WATCHING.md": "5da008b53c04dc7a8970112c2a2caedf5e34ef00"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/ANYWIDGET.md": "100644",
+        "references/COLUMNS.md": "100644",
+        "references/CONFIGURATION.md": "100644",
+        "references/DEPLOYMENT.md": "100644",
+        "references/EXPENSIVE.md": "100644",
+        "references/EXPORTS.md": "100644",
+        "references/PYTEST.md": "100644",
+        "references/REACTIVITY.md": "100644",
+        "references/SQL.md": "100644",
+        "references/STATE.md": "100644",
+        "references/TOP-LEVEL-IMPORTS.md": "100644",
+        "references/UI.md": "100644",
+        "references/WATCHING.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "60ce32119b59359015c10711cdf1189100c2cf990c55d21f49a5b7902d40ac7b",
+        "UPSTREAM.md": "c0b9d084e472ca4e32ed466c5bd7d1ca9e2489a55d5b7de19e26c66d908848ef",
+        "references/ANYWIDGET.md": "d72860611f3b9ac3af8d24538c4d428b8ebf41705e8dfaf0366c45f04d52c398",
+        "references/COLUMNS.md": "8a4cdcf17d65ddc403e2d8371794057ba21a5f7b63583ff6c89b1d11ec9acfcc",
+        "references/CONFIGURATION.md": "66ca3cba9e164c8bae3765f38e3e36c75c96fb4629b6da48416044e4e6bc6723",
+        "references/DEPLOYMENT.md": "0d5eaffe1b634161da7648360dc2312108de06cf2cab33d8ec5c2b4c5efd93d3",
+        "references/EXPENSIVE.md": "04a3c7c45ad212568d2eb249816614c3c1515ec24448ba4d59e1cea4645361fc",
+        "references/EXPORTS.md": "59ab7225847a1d10ddfc02754b8474a1d956f386da4f3cda9f682d3c7909b73b",
+        "references/PYTEST.md": "3d237ac533ab6a98f28c083c620d722403bad2a6ed40fd290a5b251b9b03732e",
+        "references/REACTIVITY.md": "bb06944b5f03f2d84866db402fb3b82d6078fce1bb1823068b15b67bda9fc32e",
+        "references/SQL.md": "efbf82876e079cb42c6c73c1015840d66bd6e5f4c1204eb1e11e0b20bb39ac5f",
+        "references/STATE.md": "e7a9e06b7337a1f038c313339ae421b72ee377dd95e515e36c288d22aa454fd5",
+        "references/TOP-LEVEL-IMPORTS.md": "0c01433d2e69bb2325e0feb409afaa3d28c4dcd8f1f5ecdabf7c6cb381cf9e1a",
+        "references/UI.md": "1828efe1886dbc038c074d1850af31382cd7c8828c84227d64f10f593e499ec7",
+        "references/WATCHING.md": "d083eeaa0d8f7653e0b2ac76ab8c742d93f90b3df9dee34c63451c6ef35d6c1a",
+        "references/details.md": "31b0e3af5dfec0d39f73fa11018623dbf828f1fd30d49570e2514fc92ed9326d"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/ANYWIDGET.md": "100644",
+        "references/COLUMNS.md": "100644",
+        "references/CONFIGURATION.md": "100644",
+        "references/DEPLOYMENT.md": "100644",
+        "references/EXPENSIVE.md": "100644",
+        "references/EXPORTS.md": "100644",
+        "references/PYTEST.md": "100644",
+        "references/REACTIVITY.md": "100644",
+        "references/SQL.md": "100644",
+        "references/STATE.md": "100644",
+        "references/TOP-LEVEL-IMPORTS.md": "100644",
+        "references/UI.md": "100644",
+        "references/WATCHING.md": "100644",
+        "references/details.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/ANYWIDGET.md": "100644",
+        "references/COLUMNS.md": "100644",
+        "references/CONFIGURATION.md": "100644",
+        "references/DEPLOYMENT.md": "100644",
+        "references/EXPENSIVE.md": "100644",
+        "references/EXPORTS.md": "100644",
+        "references/PYTEST.md": "100644",
+        "references/REACTIVITY.md": "100644",
+        "references/SQL.md": "100644",
+        "references/STATE.md": "100644",
+        "references/TOP-LEVEL-IMPORTS.md": "100644",
+        "references/UI.md": "100644",
+        "references/WATCHING.md": "100644",
+        "references/details.md": "100644"
+      },
+      "patches": {
+        "patches/marimo-notebook/SKILL.md.patch": "14cf2b4c7f20ef2878023f446db0125fced35492d812109b2265fe10660804a6",
+        "patches/marimo-notebook/references__ANYWIDGET.md.patch": "0d33e2291d0273699cfd2afbac5ec8597baf0f985c6241e1eb28062d93730c7a",
+        "patches/marimo-notebook/references__COLUMNS.md.patch": "576cc76b8bf60eaba5598c1746562d750004c0a64457f5253ef7f322e643d297",
+        "patches/marimo-notebook/references__CONFIGURATION.md.patch": "55ef8cb79de508030627e4ba8abe35baea001c0d8c08651c314a3853c95972af",
+        "patches/marimo-notebook/references__DEPLOYMENT.md.patch": "e7ed0196e56e0055d5c038e652b0e0058cf345f8db636f0d8ad2ef1d1ab40203",
+        "patches/marimo-notebook/references__EXPENSIVE.md.patch": "6f8313e6e606936ed70453b2eb1be051769b52801cacbae0d312f6e3f3437e17",
+        "patches/marimo-notebook/references__EXPORTS.md.patch": "6a6b1da7ed97a508f2e2b55edded2b6f373b690d496089f2dda7584574693608",
+        "patches/marimo-notebook/references__PYTEST.md.patch": "867c657a413b47a9e81346e349d312ff0317762482c22821c3d33c1047dedc30",
+        "patches/marimo-notebook/references__SQL.md.patch": "21e262aac0635540b651267a6a00d04f22c4545d31ab750efd157c46cc46eb37",
+        "patches/marimo-notebook/references__STATE.md.patch": "77a52e6e95d3ea384dc57c06982ca8a45f01520f7c1fcb4024b2b1a82f929b70",
+        "patches/marimo-notebook/references__TOP-LEVEL-IMPORTS.md.patch": "b5efdb259b60fc8616cb13efc661a69d93a71058e958447ef9f629a796e90e88",
+        "patches/marimo-notebook/references__UI.md.patch": "89beabce069c0a69851da183795c84cb12411b567c33b8c5e4fa0db29f52be04",
+        "patches/marimo-notebook/references__WATCHING.md.patch": "09639bbc6a83a8da77174694b2495973c83c97f84edf6856afa615d34b3e6c98",
+        "patches/marimo-notebook/references__details.md.patch": "50b95bea98286971896d9d15e3e3f7ea6832769e1f33e3b5fd0a7940a3a3e3ea"
+      },
+      "changes": "Complete official bundle retained; compact automatic entrypoint and lazy resources, project/runtime and live-kernel ownership preserved, reviewed example/capability corrections. See UPSTREAM.md."
     },
     {
       "name": "mojo-gpu-fundamentals",
@@ -918,6 +1104,56 @@
         "patches/pulumi-debug-failed-operation/SKILL.md.patch": "680d6a3f193a7c15fd448be907db35a4f29e824ee11be188be118e1601887805"
       },
       "changes": "Reviewed complete local adaptation; preserve project versions, identities, authorization and real validation boundaries. See UPSTREAM.md for method/example corrections."
+    },
+    {
+      "name": "wasm-compatibility",
+      "state": "vendored",
+      "upstream_url": "https://github.com/marimo-team/skills",
+      "commit": "6454470960d3cd57151aaeffb1176dd55f598b18",
+      "upstream_path": "skills/wasm-compatibility",
+      "license": "Apache-2.0",
+      "upstream_files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "7b5745d56a0d9c9f5ad38bcc9b8f7ed9d56fc60910aa97bcd892010ee332f8b1",
+        "references/pyodide-packages.md": "00b426729ec3985d1a891bc6b2e31d3f785187c94bae8d0aea83952face09839"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+        "SKILL.md": "9587ca5fd4641349b1fd96f385a31fe53629e1c6",
+        "references/pyodide-packages.md": "b6f0c7b73d6ce64460f05f4240a26e807658d617"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/pyodide-packages.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "SKILL.md": "39711e2ff26efef88ea5dc2dbac1e65d5dd32595ede7b01cab44c381dd32b5ec",
+        "UPSTREAM.md": "16f54e75db98f2803e700d76f5e44736a682af7580fdfc8d402ca307467e0369",
+        "references/details.md": "f0e841b03612853750350b2ddf4f5ecf30f148ff7de5702f08d083051d8222a3",
+        "references/pyodide-packages.md": "43ea503167aaaa9c6007821d832424e44f9426a3e38fe6303788a605988be2e2"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/details.md": "100644",
+        "references/pyodide-packages.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "references/details.md": "100644",
+        "references/pyodide-packages.md": "100644"
+      },
+      "patches": {
+        "patches/wasm-compatibility/SKILL.md.patch": "ee6631c569589377d42c33ba9bb1f41f65a768a755d10e73fd39b1501cb6775d",
+        "patches/wasm-compatibility/references__details.md.patch": "8c52649be34625f4d88573cd28b053aa531d5e0e96cbe71a2281f2730c1d3864",
+        "patches/wasm-compatibility/references__pyodide-packages.md.patch": "faa67f751de47f7ed448dbdada59d3eb1cfecdcd0c64fce7656f745fbe10345f"
+      },
+      "changes": "Complete official bundle retained; compact automatic entrypoint and lazy resources, project/runtime and live-kernel ownership preserved, reviewed example/capability corrections. See UPSTREAM.md."
     }
   ]
 }
