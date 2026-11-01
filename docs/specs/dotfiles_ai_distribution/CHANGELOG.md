@@ -1,5 +1,27 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-31 — Bounded sandbox command I/O (PY-05)
+
+- Repaired blocked stdin by servicing input, stdout and stderr together under one
+  monotonic execution deadline. Preserved the synchronous interface, caller
+  deadlines, combined output bound, replacement decoding and safe error detail.
+- Close owned pipes/selectors on success, partial acquisition, failure and
+  interruption. Failed invocations attempt local process-group termination,
+  direct-child fallback and reaping with one shared one-second cleanup allowance;
+  original failure/interrupt remains primary. Remote guest effects stay uncertain
+  for existing caller recovery, with no new retry or rollback authority.
+- Retained the original failing watchdog regression and added real-pipe,
+  partial-write, capacity, descendant, input-ownership, privacy and cleanup-fault
+  coverage. Independent review hardened test-owned process cleanup as well.
+- Existing native sandbox/caller and publication/instruction authorities provide
+  scoped evidence. Exact interpreter versions, red/replacement checks and broad
+  regression results remain in the private PY-05 Cycle Record; no typing/lint
+  authority or new dependency was introduced.
+- Source PR only; no managed apply, restart or live VM operation. No Gate
+  Exceptions approved. Intended Final Push: recorded feature branch and draft PR
+  into the protected base; actual outcome is recorded privately and reported
+  separately. Live deployment/guest qualification remains separate work.
+
 ## 2026-10-29 — Global Graphify source ownership
 
 - Added one missing-only macOS ARM64 native uv recipe for Graphify 0.9.97 and

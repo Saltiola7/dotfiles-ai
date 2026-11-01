@@ -1,25 +1,26 @@
 # Sandbox Command Deadlines (PY-05)
 
-Status: Discovery-ready target contract. Implementation, source integration and
-runtime qualification are pending. Context: `dotfiles_ai_distribution`. Owner:
+Status: implemented in source with local process/caller qualification; source
+integration and managed rollout remain separate. Context: `dotfiles_ai_distribution`. Owner:
 project maintainers. Engineering Profile: [PROFILE.md](../PROFILE.md). Existing
 [Product Intent](../PRODUCT.md) remains authoritative for managed workspace
 journeys and private-data boundaries.
 
 ## Problem And Evidence
 
-The existing `command` helper in `dot_local/bin/executable_sandbox-vm` creates
-stdin/stdout/stderr pipes, starts a monotonic deadline, then writes and closes
-all input synchronously before draining output or checking that deadline. A child
-that stops reading stdin can block the controller indefinitely. A child that
-writes output before reading input can also prevent both sides from progressing.
+Before PY-05, the `command` helper in `dot_local/bin/executable_sandbox-vm`
+created stdin/stdout/stderr pipes, started a monotonic deadline, then wrote and
+closed all input synchronously before draining output or checking that deadline.
+A child that stopped reading stdin could block the controller indefinitely.
+A child that wrote output before reading input could also prevent both sides
+from progressing.
 
 Source inspection at `12f5959701f8c075699b69ee5b4bac2cc5c2c535` confirms this order.
 The Python audit's isolated extracted-helper probe supplied 4 MiB to a local
 non-reading child with a 0.2-second timeout; an independent watchdog expired after
 approximately one second. This proves the helper-level failure, not its frequency
-in Lima or a full controller/guest integration result. Existing tests cover safe
-nonzero diagnostics and output overflow but do not exercise blocked stdin.
+in Lima or a full controller/guest integration result. The original tests covered
+safe nonzero diagnostics and output overflow without exercising blocked stdin.
 
 Relevant consumers upload guest configuration, Codex helper bytes and bounded
 transaction JSON, and transport private Tailscale/PostgreSQL input. Other commands
@@ -197,25 +198,36 @@ maintainers; update with interface, timing, ownership or failure-policy changes.
   installed macOS controller or live Lima operation. No checker is configured in
   root metadata; record that capability gap instead of inventing a typing pass.
 
-Discovery writes no implementation or new tests. Existing audit probe and source
-inspection remain defect evidence. Future test commands above are acceptance
-work, not executed results. Discovery validation results belong in its handoff;
-the context CHANGELOG receives a completed-cycle entry only after actual delivery.
+The actual-helper blocked-stdin regression failed before implementation because
+the independent five-second watchdog expired. The repair uses nonblocking pipe
+operations under the shared deadline and unconditional owned-resource cleanup.
+Real-pipe tests cover duplex/partial writes, blocked input, output boundaries,
+EOF/final wait, same-group descendants and early stdin closure; controlled faults
+cover acquisition, interruption, signaling and cleanup. The probe itself also
+tests interrupted startup cleanup. Synthetic private sentinels stay outside new
+failure diagnostics.
 
-## DBSCTR Handoff
+Native macOS tests use existing Python 3.13.16 and 3.14.9 environments with pytest
+9.1.1. Existing publication/instruction authorities remain in use. The private
+PY-05 Cycle Record owns exact commands, original red and replacement evidence,
+and broad regression results; these statements do not qualify live Lima or
+claim that the Python 3.12 suite ran. Root metadata selects no lint/type checker,
+so no such pass is claimed. Dependencies, runtime floor and installer ownership
+are unchanged.
 
-Ready for one bounded implementation cycle. Review README and CHANGELOG; update
-the existing context rather than creating another context or Initiative. Begin
-with the blocked-stdin regression, implement the smallest compatible bounded I/O
-and cleanup change, then verify callers and publication contracts. Helpers may
+## DBSCTR Delivery Contract
+
+One bounded implementation cycle reuses this existing context and its Discovery
+closure. Review README and CHANGELOG, preserve the red-first regression and verify
+callers and publication contracts. Helpers may
 independently review source/tests, but one primary owns helper changes and final
 evidence. No other Python-audit slice or shared-runner extraction is bundled.
 
-Build verifies fresh checkout/base and lifecycle authority, preserves this
-Discovery document closure, and persists the applicability plan below under its
-Git-ignored `.dbsctr/plans/` path. Registration/launch feasibility is not claimed by
-this document. No source push, PR publication, merge, local activation or live VM
-operation has occurred merely because Discovery is ready.
+Build verifies checkout/base and lifecycle authority, preserves the Discovery
+document closure, and persists the applicability plan below under its Git-ignored
+`.dbsctr/plans/` path. The private Cycle Record owns actual registration and delivery
+state. Passing local tests does not itself establish source integration, managed
+activation, remote cancellation or live guest qualification.
 
 ```json
 {
