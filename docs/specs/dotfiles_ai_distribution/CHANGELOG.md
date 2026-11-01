@@ -16,7 +16,8 @@
 - OpenCode uses its existing native template/merger. Codex registration uses each
   independently bound native host; the managed CLI source remains hooks-only and
   keeps its existing explicit reconciliation protocol.
-- Focused validation: 142 tests and the original skill validator pass; OSV reports
+- Affected-scope validation: 241 tests and the original skill validator pass;
+  one opt-in native check is skipped. OSV reports
   zero advisories for 149 resolved dependencies on the selected macOS ARM64 and
   Linux AMD64/ARM64 targets. Native deployment/protocol and protected CI evidence
   are recorded separately in the private `PREFECT-MCP-001` cycle. Installation,

@@ -193,3 +193,29 @@ Retain runtime generations, preimages, task branches and worktrees. Requalify on
 upstream, lock, Python, bootstrap, native client schema or target-policy changes.
 No automatic package upgrade, backend start, account switch or global Prefect
 profile change is permitted.
+
+## Qualification and maintenance
+
+The source gate covers 241 affected tests, including instruction/publication
+contracts and existing Codex preservation behavior; one unrelated native opt-in
+check is skipped. Synthetic Git fixtures disable inherited commit signing and
+use their expected ordinary umask without changing repository configuration.
+The original skill validator and exact offline provenance reconstruction pass.
+The selected macOS ARM64 and Linux AMD64/ARM64 dependency closures report zero
+OSV advisories for 149 packages; this is dependency evidence, not a runtime or
+full security audit of those platforms.
+
+Deployment separately records exact source/installed bytes and modes, retained
+preimages, unrelated native configuration preservation and empty second-apply
+diffs. `prefect-mcp check-runtime` must observe actual parsed SDK controls as well
+as offline catalog/direct-call behavior. Native stdio initialization and catalog
+checks use only the selected adapter, with no model call. Report backend identity
+failure separately when the existing service is unavailable. Native CI and the
+ordinary protected merge bind the final head and current base; source checks do
+not substitute for those delivery gates.
+
+Distribution metadata detects added, removed, changed-version or changed-origin
+packages before serving. It does not sandbox code installed by the same account
+or detect arbitrary package-byte changes preserving that metadata; the existing
+host execution and dependency trust boundary remains. Runtime dependency changes,
+bootstrap changes and native client schema changes require explicit qualification.
