@@ -77,6 +77,8 @@ release. A dedicated managed dependency project and frozen `uv.lock` select the
 runtime closure, compatible FastMCP 3 and MCP SDK 1, and constrained isolated build
 dependencies. Use an existing Python 3.13 interpreter; installation may fetch the
 reviewed packages, but never downloads Python or modifies a project environment.
+The installer requires an existing uv 0.13.6 or newer supporting hash-qualified
+isolated build constraints; it never upgrades that separately owned executable.
 
 | Interface | Shape and owner |
 |---|---|
@@ -88,7 +90,7 @@ reviewed packages, but never downloads Python or modifies a project environment.
 | `~/.local/bin/prefect-mcp` | Explicit `install`, offline `check-runtime`, non-secret `status`, and on-demand `serve`; no package resolution during serving |
 | `run_onchange_after_install-prefect-mcp.sh.tmpl` | Default-off package installer owner invoking the explicit install path when opted in |
 | Native client entry | `prefect_local`, using only the installed absolute launcher path and `serve`; no literal endpoint/authentication in client arguments |
-| Codex | Native `mcp add/get/list`, then existing explicit config reconciliation for the qualified managed host; hooks-only owned source remains unchanged |
+| Codex | Native `mcp add/get/list` for each process- and native-layer-bound host; explicit projector reconciliation applies to the managed CLI host, while a distinct Desktop home retains its own native owner; hooks-only owned source remains unchanged |
 | OpenCode | Native V2 `mcp.servers.prefect_local` through existing template/merger; keep native Code Mode and refuse an incompatible same-name local declaration |
 | Skill | `dot_agents/skills/prefect-operations/`: complete official workflow root, renamed entrypoint, exact MIT notice, attribution and reversible adaptations |
 | Routing | Existing platform table selects Prefect state/operation diagnosis; Data guidance continues to treat orchestration tools as project-selected |
@@ -153,7 +155,7 @@ maintainer; update when installation or observation transitions change.
 
 | Data crossing boundary | Validation and permitted sink |
 |---|---|
-| Private settings to launcher | Strict schema/types, explicit enabled flag, exactly one target mode and one authentication mode |
+| Private settings to launcher | Strict schema/types, explicit enabled flag, exactly one target mode; authentication is absent, selected-profile credentials, or one named caller variable, never multiple credentials |
 | Selected profiles file to launcher | Owner-controlled regular file; named profile only, no global active-profile mutation or inactive-profile fallback |
 | API URL to child environment | HTTP(S), hostname, no embedded credentials or query/fragment; private selection, never public client arguments |
 | Selected credentials to child | Process environment only; do not serialize settings, print raw errors, include credentials in status, or inherit unrelated Prefect/Logfire settings |

@@ -1,0 +1,430 @@
+#!/usr/bin/env -S python3 -I
+"""Launch only the separately installed, frozen self-hosted Prefect adapter."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import tomllib
+from urllib.parse import urlsplit
+
+
+INPUTS = ("pyproject.toml", "uv.lock", "server.py")
+CONFIG_KEYS = {"schema_version", "enabled", "profiles_path", "profile", "api_url",
+               "api_auth_string_env", "api_key_env"}
+
+
+class Unavailable(Exception):
+    """Only a fixed category and exit status may cross the diagnostic boundary."""
+
+    def __init__(self, category="unavailable", code=78, *, retain_lock=False):
+        self.category = category
+        self.code = code if 0 < code < 256 else 1
+        self.retain_lock = retain_lock
+        super().__init__(category)
+
+
+class Layout:
+    def __init__(self, home):
+        self.home = Path(home)
+        self.base = self.home / ".config/dotfiles-ai/runtime/prefect-mcp"
+        self.config = self.home / ".config/dotfiles-ai/prefect-mcp.toml"
+
+
+def safe(path, *, directory=False, private=False, trusted_system=False):
+    try:
+        item = path.lstat()
+    except OSError:
+        raise Unavailable("unsafe_path") from None
+    owners = {os.getuid(), 0} if trusted_system else {os.getuid()}
+    expected_type = stat.S_ISDIR if directory else stat.S_ISREG
+    if (item.st_uid not in owners or not expected_type(item.st_mode)
+            or item.st_mode & (0o077 if private else 0o022)):
+        raise Unavailable("unsafe_path")
+    if not directory and (item.st_nlink != 1 or item.st_size > 16 * 1024 * 1024):
+        raise Unavailable("unsafe_file")
+
+
+def checked_path(path, home, *, directory=False, private=False, trusted_system=False):
+    path = Path(path)
+    if not path.is_absolute() or os.path.normpath(str(path)) != str(path):
+        raise Unavailable("invalid_path")
+    boundary = home if path.is_relative_to(home) else Path(path.anchor)
+    for parent in path.parents:
+        safe(parent, directory=True, trusted_system=not parent.is_relative_to(home))
+        if parent == boundary:
+            break
+    safe(path, directory=directory, private=private, trusted_system=trusted_system)
+    return path
+
+
+def read_config(layout):
+    checked_path(layout.config, layout.home, private=True)
+    if layout.config.stat().st_size > 16384:
+        raise Unavailable("invalid_config")
+    config = tomllib.loads(layout.config.read_text())
+    if (set(config) != CONFIG_KEYS or type(config["schema_version"]) is not int
+            or config["schema_version"] != 1 or type(config["enabled"]) is not bool
+            or any(not isinstance(config[key], str) or len(config[key]) > 4096
+                   for key in CONFIG_KEYS - {"schema_version", "enabled"})):
+        raise Unavailable("invalid_config")
+    return config
+
+
+def valid_url(value):
+    if (not value or any(ord(c) < 33 or ord(c) == 127 for c in value)
+            or len(value) > 4096):
+        raise Unavailable("invalid_target")
+    parsed = urlsplit(value)
+    if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or parsed.query or parsed.fragment):
+        raise Unavailable("invalid_target")
+    # Accessing port validates malformed numeric/range syntax without a request.
+    parsed.port
+    return value
+
+
+def selection(config, environment, home):
+    if not config["enabled"]:
+        raise Unavailable("disabled")
+    url = config["api_url"]
+    profiles_path, profile = config["profiles_path"], config["profile"]
+    if bool(profiles_path) != bool(profile) or bool(url) == bool(profile):
+        raise Unavailable("target_selection_unavailable")
+    credentials = {}
+    if profile:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", profile):
+            raise Unavailable("invalid_profile")
+        path = Path(profiles_path)
+        if profiles_path.startswith("~/"):
+            path = home / profiles_path[2:]
+        checked_path(path, home)
+        profiles = tomllib.loads(path.read_text()).get("profiles")
+        if not isinstance(profiles, dict) or not isinstance(profiles.get(profile), dict):
+            raise Unavailable("selected_profile_unavailable")
+        selected = profiles[profile]
+        url = selected.get("PREFECT_API_URL", "")
+        for name in ("PREFECT_API_AUTH_STRING", "PREFECT_API_KEY"):
+            value = selected.get(name, "")
+            if not isinstance(value, str):
+                raise Unavailable("invalid_profile")
+            if value:
+                credentials[name] = value
+    for key, destination in (("api_auth_string_env", "PREFECT_API_AUTH_STRING"),
+                             ("api_key_env", "PREFECT_API_KEY")):
+        name = config[key]
+        if not name:
+            continue
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name):
+            raise Unavailable("invalid_credential_selector")
+        value = environment.get(name)
+        if not isinstance(value, str) or not value:
+            raise Unavailable("selected_credential_unavailable")
+        if credentials:
+            raise Unavailable("ambiguous_authentication")
+        credentials[destination] = value
+    if len(credentials) > 1 or any(len(value) > 16384 or any(ord(c) < 32 for c in value)
+                                   for value in credentials.values()):
+        raise Unavailable("invalid_authentication")
+    if not isinstance(url, str):
+        raise Unavailable("invalid_target")
+    return valid_url(url), credentials
+
+
+def child_environment(generation, url, credentials):
+    # Construct rather than filter: project settings, tracing and cloud credentials
+    # cannot redirect imports or target selection in the server process.
+    return {"HOME": str(generation / "home"),
+            "PATH": str(generation / ".venv/bin") + os.pathsep + os.defpath,
+            "LANG": "C.UTF-8", "PREFECT_HOME": str(generation / "home/prefect"),
+            "PREFECT_PROFILES_PATH": str(generation / "profiles.toml"),
+            "PREFECT_API_URL": url, "PREFECT_SERVER_ALLOW_EPHEMERAL_MODE": "false",
+            **credentials}
+
+
+def input_identity(base):
+    hashes = {}
+    for name in INPUTS:
+        path = base / name
+        safe(path)
+        hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+    encoded = json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest(), hashes
+
+
+class CommandInterrupted(Exception):
+    def __init__(self, signum):
+        self.signum = signum
+
+
+def stop_owned(process):
+    """Signal only this child's new session; uncertainty never proves cleanup."""
+    clean = True
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        clean = False
+        try:
+            process.kill()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        clean = False
+    return clean
+
+
+def run_command(argv, *, cwd, env, timeout=60, max_bytes=16384):
+    # Do not forward raw tool output: build errors can contain environment values.
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
+        try:
+            process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                       stdout=output, stderr=errors, start_new_session=True)
+        except FileNotFoundError:
+            raise Unavailable("command_unavailable", 127) from None
+        previous = {}
+        try:
+            def interrupted(signum, _frame):
+                raise CommandInterrupted(signum)
+            for signum in (signal.SIGTERM, signal.SIGHUP):
+                previous[signum] = signal.signal(signum, interrupted)
+            try:
+                process.wait(timeout=timeout)
+            except (subprocess.TimeoutExpired, CommandInterrupted, KeyboardInterrupt) as error:
+                clean = stop_owned(process)
+                code = (124 if isinstance(error, subprocess.TimeoutExpired) else
+                        128 + error.signum if isinstance(error, CommandInterrupted) else 130)
+                raise Unavailable("command_stopped" if clean else "command_cleanup_unverified",
+                                  code, retain_lock=not clean) from None
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
+        if process.returncode:
+            code = process.returncode if process.returncode > 0 else 128 - process.returncode
+            raise Unavailable("command_failed", code)
+        output.seek(0)
+        value = output.read(max_bytes + 1)
+        if len(value) > max_bytes:
+            raise Unavailable("invalid_command_output")
+        return value
+
+
+def python_identity(path):
+    path = Path(path).resolve(strict=True)
+    checked_path(path, Path.home(), trusted_system=True)
+    if not os.access(path, os.X_OK):
+        raise Unavailable("interpreter_unavailable")
+    output = run_command([str(path), "-I", "-c",
+                          "import json,sys; print(json.dumps(list(sys.version_info[:3])))"],
+                         cwd=path.parent, env={"PATH": os.defpath}, timeout=10)
+    version = json.loads(output)
+    if (not isinstance(version, list) or len(version) != 3
+            or any(type(x) is not int for x in version) or version[:2] != [3, 13]):
+        raise Unavailable("interpreter_unqualified")
+    return {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "version": version}
+
+
+def uv_executable():
+    found = shutil.which("uv")
+    if found is None:
+        raise Unavailable("uv_unavailable")
+    path = Path(found).resolve(strict=True)
+    checked_path(path, Path.home(), trusted_system=True)
+    if not os.access(path, os.X_OK):
+        raise Unavailable("uv_unavailable")
+    return str(path)
+
+
+def qualify(generation, python):
+    env = child_environment(generation, "http://127.0.0.1:1/api", {})
+    output = run_command([str(python), "-I", str(generation / "server.py"), "--check-runtime"],
+                         cwd=generation / "work", env=env, timeout=90)
+    value = json.loads(output)
+    if not isinstance(value, dict) or value.get("qualified") is not True:
+        raise Unavailable("runtime_unqualified")
+
+
+DISTRIBUTIONS = '''
+import hashlib, importlib.metadata, json, re
+result = {}
+for distribution in importlib.metadata.distributions():
+    name = re.sub(r"[-_.]+", "-", distribution.metadata["Name"]).lower()
+    if not name or name in result:
+        raise ValueError("invalid distribution metadata")
+    direct = distribution.read_text("direct_url.json")
+    result[name] = {"version": distribution.version,
+                    "direct_url_sha256": hashlib.sha256(direct.encode()).hexdigest() if direct else None}
+print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+'''
+
+
+def distribution_identity(generation, python):
+    output = run_command([str(python), "-I", "-c", DISTRIBUTIONS], cwd=generation / "work",
+                         env=child_environment(generation, "http://127.0.0.1:1/api", {}),
+                         timeout=30, max_bytes=65536)
+    values = json.loads(output)
+    if (not isinstance(values, dict) or not values or len(values) > 512
+            or any(not isinstance(name, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", name)
+                   or not isinstance(row, dict) or set(row) != {"version", "direct_url_sha256"}
+                   or not isinstance(row["version"], str) or not 1 <= len(row["version"]) <= 256
+                   or row["direct_url_sha256"] is not None and
+                   (not isinstance(row["direct_url_sha256"], str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", row["direct_url_sha256"]))
+                   for name, row in values.items())):
+        raise Unavailable("invalid_distribution_metadata")
+    return values
+
+
+def resolve_runtime(layout):
+    checked_path(layout.base, layout.home, directory=True)
+    digest, inputs = input_identity(layout.base)
+    generation = layout.base / "generations" / digest
+    checked_path(generation, layout.home, directory=True, private=True)
+    for path in (generation / "home", generation / "home/prefect", generation / "work"):
+        safe(path, directory=True, private=True)
+    marker = generation / ".complete.json"
+    safe(marker, private=True)
+    record = json.loads(marker.read_bytes())
+    if (not isinstance(record, dict) or set(record) != {"schema_version", "digest", "inputs", "python", "distributions"}
+            or record["schema_version"] != 1 or record["digest"] != digest or record["inputs"] != inputs
+            or input_identity(generation) != (digest, inputs)):
+        raise Unavailable("runtime_identity_mismatch")
+    profiles = generation / "profiles.toml"
+    safe(profiles, private=True)
+    if profiles.read_bytes() != b"[profiles]\n":
+        raise Unavailable("runtime_identity_mismatch")
+    for path in (generation / ".venv", generation / ".venv/bin"):
+        safe(path, directory=True)
+    python = generation / ".venv/bin/python"
+    identity = record["python"]
+    if (not isinstance(identity, dict) or set(identity) != {"path", "sha256", "version"}
+            or not isinstance(identity["path"], str) or str(python.resolve(strict=True)) != identity["path"]
+            or python_identity(identity["path"]) != identity):
+        raise Unavailable("interpreter_identity_mismatch")
+    if distribution_identity(generation, python) != record["distributions"]:
+        raise Unavailable("runtime_dependency_drift")
+    return generation, python
+
+
+def install(layout):
+    if not read_config(layout)["enabled"]:
+        raise Unavailable("disabled")
+    checked_path(layout.base, layout.home, directory=True)
+    digest, inputs = input_identity(layout.base)
+    lock = layout.base / "install.lock"
+    try:
+        lock.mkdir(mode=0o700)
+    except FileExistsError:
+        raise Unavailable("installation_busy", 75) from None
+    previous_umask = os.umask(0o077)
+    release_lock = True
+    try:
+        generations = layout.base / "generations"
+        if not generations.exists():
+            generations.mkdir(mode=0o700)
+        safe(generations, directory=True, private=True)
+        generation = generations / digest
+        if generation.exists() or generation.is_symlink():
+            resolved, python = resolve_runtime(layout)
+            qualify(resolved, python)
+            return digest
+        generation.mkdir(mode=0o700)
+        for name in INPUTS:
+            with (generation / name).open("xb") as stream:
+                stream.write((layout.base / name).read_bytes())
+        for path in (generation / "home", generation / "home/prefect", generation / "work"):
+            path.mkdir(mode=0o700)
+        with (generation / "profiles.toml").open("xb") as stream:
+            stream.write(b"[profiles]\n")
+        uv = uv_executable()
+        find_env = {"HOME": str(layout.home), "PATH": os.environ.get("PATH", os.defpath)}
+        if os.environ.get("XDG_DATA_HOME"):
+            find_env["XDG_DATA_HOME"] = os.environ["XDG_DATA_HOME"]
+        selected = run_command([uv, "python", "find", "--system", "--no-python-downloads", "3.13"],
+                               cwd=generation / "work", env=find_env).decode().strip()
+        interpreter = python_identity(selected)
+        env = {"HOME": str(generation / "home"), "PATH": os.pathsep.join(
+            [str(Path(uv).parent), str(Path(interpreter["path"]).parent), os.defpath]),
+            "UV_PROJECT_ENVIRONMENT": str(generation / ".venv")}
+        run_command([uv, "sync", "--frozen", "--no-python-downloads", "--python", interpreter["path"],
+                     "--project", str(generation)], cwd=generation, env=env, timeout=600)
+        python = generation / ".venv/bin/python"
+        if str(python.resolve(strict=True)) != interpreter["path"]:
+            raise Unavailable("interpreter_identity_mismatch")
+        qualify(generation, python)
+        if input_identity(layout.base) != (digest, inputs) or input_identity(generation) != (digest, inputs):
+            raise Unavailable("runtime_inputs_changed")
+        marker = {"schema_version": 1, "digest": digest, "inputs": inputs, "python": interpreter,
+                  "distributions": distribution_identity(generation, python)}
+        with (generation / ".complete.json").open("x") as stream:
+            json.dump(marker, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        resolve_runtime(layout)
+        return digest
+    except Unavailable as error:
+        release_lock = not error.retain_lock
+        raise
+    finally:
+        os.umask(previous_umask)
+        if release_lock:
+            lock.rmdir()
+
+
+def main(argv=None, *, layout=None):
+    arguments = sys.argv[1:] if argv is None else argv
+    if len(arguments) != 1 or arguments[0] not in {"install", "check-runtime", "status", "serve"}:
+        print("prefect-mcp: expected install, check-runtime, status or serve", file=sys.stderr)
+        return 64
+    layout = Layout(Path.home()) if layout is None else layout
+    action = arguments[0]
+    try:
+        if action == "install":
+            print(json.dumps({"installed": True, "digest": install(layout)}))
+        elif action == "status":
+            config = read_config(layout)
+            try:
+                selection(config, os.environ, layout.home)
+                target_available = True
+            except (Unavailable, OSError, ValueError):
+                target_available = False
+            try:
+                resolve_runtime(layout)
+                runtime_available = True
+            except (Unavailable, OSError, ValueError, TypeError, KeyError):
+                runtime_available = False
+            print(json.dumps({"enabled": config["enabled"], "target_available": target_available,
+                              "runtime_available": runtime_available, "backend_health": "not_checked"}))
+        elif action == "check-runtime":
+            generation, python = resolve_runtime(layout)
+            qualify(generation, python)
+            print(json.dumps({"qualified": True, "backend_health": "not_checked"}))
+        else:
+            url, credentials = selection(read_config(layout), os.environ, layout.home)
+            generation, python = resolve_runtime(layout)
+            os.chdir(generation / "work")
+            os.execve(str(python), [str(python), "-I", str(generation / "server.py")],
+                      child_environment(generation, url, credentials))
+        return 0
+    except Unavailable as error:
+        print("prefect-mcp: " + error.category, file=sys.stderr)
+        return error.code
+    except (OSError, ValueError, UnicodeError, TypeError, KeyError):
+        print("prefect-mcp: unavailable", file=sys.stderr)
+        return 78
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

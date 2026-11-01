@@ -39,6 +39,18 @@ refresh_timeout_seconds = 3600
 [data.dotfiles_ai.codex]
 channel = "stable"
 
+# Optional local inspection adapter for an existing self-hosted Prefect API.
+# Select exactly one target mode: an explicit profile file/name, or api_url.
+# Credentials stay in the private profile or a named caller environment variable.
+# Do not put credential values in this configuration. No backend is provisioned.
+# [data.dotfiles_ai.prefect_mcp]
+# enabled = true
+# profiles_path = "/Users/you/.prefect/profiles.toml"
+# profile = "local"
+# api_url = ""
+# api_auth_string_env = ""
+# api_key_env = ""
+
 [data.dotfiles_ai.cline_desktop]
 # Optional macOS app, installed through Homebrew's cline-app cask.
 enabled = false

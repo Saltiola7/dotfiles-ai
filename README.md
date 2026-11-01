@@ -348,6 +348,35 @@ configuration does not revoke.
 See [`docs/LIMA_SANDBOX.md`](docs/LIMA_SANDBOX.md) for creation, protected mounts,
 credentials, federation, updates, recovery, and explicit peer retirement.
 
+## Optional self-hosted Prefect inspection
+
+The shared `prefect-operations` skill supports operational diagnosis against the
+selected Prefect API. Flow authoring can keep the project's SDK/CLI and tests;
+MCP is optional. The local adapter provides twelve inspection tools over stdio,
+without a cloud workspace dependency or documentation proxy. It does not start
+or upgrade a Prefect API service.
+
+Configure `[data.dotfiles_ai.prefect_mcp]` privately as shown in
+[config.example.toml](config.example.toml), selecting an explicit profile file
+and name or an API URL. Credentials remain in the selected profile or a named
+caller environment variable. Apply the exact runtime/configuration targets, then
+run `prefect-mcp install` explicitly (the opt-in onchange hook uses this same
+owner). Installation uses an existing Python 3.13 and the dedicated frozen lock;
+serving never resolves packages. `prefect-mcp check-runtime` qualifies the local
+runtime offline. `prefect-mcp status` reports non-secret installation/selection
+state, not backend health.
+
+OpenCode registration follows its managed native MCP configuration. Codex uses
+its native writer: `codex mcp add prefect_local -- /absolute/path/to/prefect-mcp
+serve`, followed by the existing projector's explicit configuration
+reconciliation for that selected host. Preserve unrelated client settings and
+refuse an incompatible same-name entry. Existing sessions may need a refresh.
+If using a named credential environment variable rather than profile credentials,
+configure the native client's environment forwarding for that name without
+storing its value in client configuration; missing forwarding fails closed.
+See the [feature contract](docs/specs/dotfiles_ai_distribution/features/prefect-mcp.md)
+and [update owners](docs/UPDATES.md) for qualification and rollback boundaries.
+
 ## Existing Chezmoi Migration
 
 Do not apply two sources indefinitely. Compare ownership while the personal

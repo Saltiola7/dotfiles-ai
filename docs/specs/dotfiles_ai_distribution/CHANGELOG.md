@@ -1,5 +1,27 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-10-31 — Self-hosted Prefect inspection
+
+- Added the complete official workflow skill as `prefect-operations`, with
+  immutable origin, exact MIT notice and reversible self-hosted adaptations.
+  DBSCTR's existing platform selection table owns its focused routing.
+- Added an optional stdio adapter with twelve inspection tools, a pinned upstream
+  factory, isolated frozen Python 3.13 runtime and hash-qualified build inputs.
+  Patched compatible FastMCP/Logfire/OpenTelemetry dependencies replace advisory
+  findings in the upstream lock; installed uv remains separately owned.
+- Target selection and credentials stay private. Serving cannot resolve packages,
+  inherit project dotenv settings, start an ephemeral API or expose experimental
+  execution plans. Generation identity, dependency metadata, bounded subprocess
+  lifetime, failure diagnostics and same-name client collisions are tested.
+- OpenCode uses its existing native template/merger. Codex registration uses each
+  independently bound native host; the managed CLI source remains hooks-only and
+  keeps its existing explicit reconciliation protocol.
+- Focused validation: 142 tests and the original skill validator pass; OSV reports
+  zero advisories for 149 resolved dependencies on the selected macOS ARM64 and
+  Linux AMD64/ARM64 targets. Native deployment/protocol and protected CI evidence
+  are recorded separately in the private `PREFECT-MCP-001` cycle. Installation,
+  tool discovery, backend connectivity and workflow readiness are distinct claims.
+
 ## 2026-10-29 — Global Graphify source ownership
 
 - Added one missing-only macOS ARM64 native uv recipe for Graphify 0.9.97 and
