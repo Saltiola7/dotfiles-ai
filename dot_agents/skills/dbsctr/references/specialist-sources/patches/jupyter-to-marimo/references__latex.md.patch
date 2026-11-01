@@ -1,0 +1,12 @@
+--- a/references/latex.md
++++ b/references/latex.md
+@@ -1,6 +1,8 @@
+ # Porting LaTeX from Jupyter to marimo
+ 
+-Jupyter uses **MathJax**. marimo uses **KaTeX** (faster, slightly narrower coverage, silent errors).
++Jupyter commonly uses **MathJax** and marimo uses **KaTeX**. Renderer versions
++affect supported commands and error presentation; compare the selected output
++visually rather than assuming conversion or static checks preserve rendering.
+ 
+ ## Use raw strings
+ 

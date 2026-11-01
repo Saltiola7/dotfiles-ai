@@ -49,6 +49,10 @@
 | Changed async tasks, cancellation, concurrent I/O or sync/async boundaries | `async-python-patterns` | Domain/Contract; Test/Refactor |
 | Runtime/support-floor change or requested modernization/debt review | `python-modernization-review` | Profile/Spec; Maintain/Retire |
 | Actual Django/DRF ORM, serializers, views, permissions, migrations or framework tests | `django-expert` | Domain/Contract; Test/Refactor |
+| Saved marimo notebook authoring, reactivity or validation | `marimo-notebook`; active-session mutations remain with `marimo-pair` | Spec/Contract; Test |
+| Requested Jupyter notebook conversion to marimo | `jupyter-to-marimo` | Spec; conversion and behavior verification |
+| Actual marimo browser/WASM export or runtime compatibility | `wasm-compatibility` | Profile/Contract; target validation |
+| Actual Python/Rust binding or embedding boundary, Rust-backed Python wheels or interop ownership changes | `python-rust-interop` | Domain/Contract; build and runtime verification |
 
 - **PROJECT POLICY:** Runtimes, tools, dependencies, compatibility, test strategy
   and acceptance thresholds remain project-selected. Specialist recipes cannot

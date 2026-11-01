@@ -1,0 +1,36 @@
+--- a/references/pyodide-packages.md
++++ b/references/pyodide-packages.md
+@@ -1,7 +1,10 @@
+ # Pyodide Built-in Packages
+ 
+ These packages are pre-built for Pyodide and available in WASM environments.
+-Any package **not** on this list must have a pure Python wheel on PyPI to work.
++This is a dated inventory, not an allowlist or browser-compatibility proof.
++Packages outside it may use a compatible pure-Python or WASM wheel, local module
++or another explicitly selected packaging route. Check the target Pyodide/marimo
++versions, transitive dependencies and actual browser runtime behavior.
+ 
+ > **Note:** This list was snapshotted on 2026-02-26 from Pyodide's docs.
+ > For the latest list, check https://pyodide.org/en/stable/usage/packages-in-pyodide.html
+@@ -55,16 +58,18 @@
+ - polars
+ - micropip (for installing additional pure-Python packages at runtime)
+ 
+-## Common third-party packages that do NOT work in WASM
++## Snapshot concerns requiring target verification
+ 
+-These popular packages have C/native extensions not built for Pyodide:
++The snapshot flagged these packages or deployment models. Current support and
++alternatives must be verified in the selected target; an alternative API is not
++necessarily a semantic or connectivity replacement:
+ 
+ | Package | Why | Alternative |
+ |---|---|---|
+ | torch / pytorch | C++/CUDA extensions | None for WASM |
+ | tensorflow | C++ extensions | None for WASM |
+ | jax / jaxlib | C++ extensions | None for WASM |
+-| psycopg2 | Requires libpq | `psycopg[binary]` or use `duckdb` |
++| psycopg2 | Requires native libpq and server networking | Use an explicitly designed browser-compatible API; `psycopg[binary]` is not a generic WASM replacement |
+ | mysqlclient | Requires libmysqlclient | `pymysql` (pure Python) |
+ | uvloop | Requires libuv | `asyncio` (default loop) |
+ | grpcio | C extensions | `grpclib` (pure Python) |

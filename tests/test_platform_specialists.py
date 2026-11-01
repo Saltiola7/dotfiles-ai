@@ -22,9 +22,11 @@ VENDORED = {
     "google-cloud-recipe-auth", "gke-workload-troubleshooting", "gke-workload-identity",
     "mojo-syntax", "mojo-gpu-fundamentals", "mojo-python-interop", "new-modular-project",
     "pulumi-best-practices", "pulumi-component", "pulumi-debug-failed-operation", "django-expert",
+    "marimo-notebook", "jupyter-to-marimo", "wasm-compatibility",
 }
 AUTHORED = {"linux-host-diagnostics", "macos-operations", "podman-quadlet", "python-modernization-review",
-            "hetzner-operations", "dagger-pipelines"}
+            "hetzner-operations", "dagger-pipelines", "chezmoi-operations",
+            "pyinfra-deployments", "python-rust-interop"}
 SHARED = (
     "dbsctr/SKILL.md", "dbsctr/modules/python.md", "dbsctr/modules/cloud.md",
     "dbsctr/modules/shell.md", "dbsctr/modules/mojo.md",

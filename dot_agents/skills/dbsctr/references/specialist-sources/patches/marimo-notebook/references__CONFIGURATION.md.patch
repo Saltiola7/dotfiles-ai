@@ -1,0 +1,22 @@
+--- a/references/CONFIGURATION.md
++++ b/references/CONFIGURATION.md
+@@ -4,6 +4,11 @@
+ 
+ 1. **App config** — per-notebook, stored in the `.py` file header. Configure via the gear icon (top-right): notebook width, title, custom CSS, custom HTML head.
+ 2. **User config** — global, typically stored in `~/.config/marimo/marimo.toml`. Runtime, display, hotkeys, autosave, formatting, server settings.
++
++## Configuration precedence
++
++The ordering below describes the snapshot's model. Resolve the selected runtime's
++actual config and source before changing it; preserve project and user scope.
+ 
+ ## Priority (Highest → Lowest)
+ 
+@@ -32,6 +37,5 @@
+ ## Useful Commands
+ 
+ ```bash
+-marimo config show       # view current config and file location
+-marimo config describe   # list all available config options
++marimo config --help     # inspect supported selected-version subcommands
+ ```
