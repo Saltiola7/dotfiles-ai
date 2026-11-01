@@ -37,7 +37,9 @@ records a blocker and next-best evidence, never a pass. Overlapping tools may
 inform but only one authority gates each concern.
 
 Use configured JFrog Xray as vulnerability authority when declared; otherwise
-use configured `pip-audit` for resolved Python dependencies. Authenticated
+use configured `pip-audit` for resolved Python dependencies. For actual configured
+JFrog/Xray work, load `jfrog` and only the relevant security reference; installing
+that guidance does not configure Xray or create an additional audit gate. Authenticated
 Dependabot alerts are finding inputs, not a competing gate.
 
 ## Python typing evidence

@@ -1,0 +1,17 @@
+--- a/references/xray-sast-scan.md
++++ b/references/xray-sast-scan.md
+@@ -7,10 +7,11 @@
+ jf audit --sast --server-id <SID>
+ ```
+ 
+-Scans the working directory; if blocked, request approval, never another
+-scanner.
++Scans the selected working directory and may disclose source to the configured
++service. Use only when this scan/disclosure is authorized and selected by project
++QA; a blocked request does not authorize another scanner or permission bypass.
+ 
+-- `401` → re-login same server; `403` → permissions; never switch servers.
++- `401` → report; only authorized same-server credential recovery permits retry; `403` → permissions; never switch servers.
+ - Not entitled / JAS unavailable → check Advanced Security on `<SID>`.
+ - Error before results → quote it, stop; error after results → report them, quote it.
+ 

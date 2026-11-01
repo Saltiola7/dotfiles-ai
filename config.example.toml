@@ -39,6 +39,11 @@ refresh_timeout_seconds = 3600
 [data.dotfiles_ai.codex]
 channel = "stable"
 
+[data.dotfiles_ai.jfrog_cli]
+# Optional missing-only CLI 2.129.0; preserves compatible existing installer owners.
+# No login, platform setup, plugin, Agent Guard or MCP registration is performed.
+enabled = false
+
 # Optional local inspection adapter for an existing self-hosted Prefect API.
 # Select exactly one target mode: an explicit profile file/name, or api_url.
 # Credentials stay in the private profile or a named caller environment variable.

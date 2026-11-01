@@ -1,0 +1,328 @@
+--- a/references/key-rules-and-troubleshooting.md
++++ b/references/key-rules-and-troubleshooting.md
+@@ -1,224 +1,115 @@
+-# Key rules & troubleshooting
++# Key rules and bounded troubleshooting
+ 
+-Reference for the Install and List flows of the `jfrog-mcp-management` skill.
++This reference applies only to explicitly selected JFrog Agent Guard/catalog
++work or an established project governance requirement. Unrelated MCP setup keeps
++its existing native owner. The [active skill](../SKILL.md),
++[common preflight](agent-guard-common.md) and actual native client/runtime versions
++govern every retained example. Installing resources grants no execution,
++authentication, configuration or permission-policy changes.
+ 
+-## Key Rules
++## Identity and invocation contracts
+ 
+-- **Package scope is case-sensitive — ALWAYS write it lowercase as
+-  `@jfrog/agent-guard`, NEVER `@JFrog/agent-guard`.** npm scopes are
+-  case-sensitive; the published package is the lowercase `@jfrog/agent-guard`.
+-  Capitalizing the brand (`@JFrog`) points at a different/nonexistent scope and
+-  breaks the command. Use the exact lowercase string in every command and config
+-  entry.
+-- **`npx` arg order:** `--yes`, `--registry "<REGISTRY_URL>"`, `@jfrog/agent-guard`, then
+-  agent guard flags. Canonical invocation:
+-  `npx --yes --registry "<REGISTRY_URL>" @jfrog/agent-guard`. Both `--yes` and
+-  `--registry` MUST precede the package name or `npx` falls back to the default
+-  registry (404) and may block on a no-TTY prompt.
+-- **Always `"type": "stdio"`** pointing at
+-  `npx --yes --registry "<REGISTRY_URL>" @jfrog/agent-guard`, even for
+-  remote-only catalog MCPs (the agent guard proxies them). `"http"`, `"sse"`,
+-  or a top-level `"url"` bypass the agent guard. **One exception:** when
+-  `--inspect` returned `routing.target: "gateway"` with a non-empty
+-  `routing.url` and your harness file defines a Gateway entry shape, write that
+-  shape — it points at the tenant's own JFrog Platform, not at a third party,
+-  so nothing is bypassed. Never write a remote entry on any other basis.
+-- `_JF_ARGS` is **only** for the config entry the agent launches at session
+-  start (the `env` of the entry written when adding an MCP); MUST contain
+-  `project=<JFROG_PROJECT_KEY>&mcp=<PACKAGE_NAME>`. NEVER pass `_JF_ARGS` to
+-  `--list-available`, `--inspect`, or `--login` — those take `--server` /
+-  `--project` / `--mcp` as CLI flags only. Conversely, NEVER put `--project`
+-  or `--mcp` in the config entry's `args` — that is CLI-only; config uses
+-  `_JF_ARGS`.
+-- **Three invocation contracts — do not mix:** (1) Step 0 gate
+-  `jfrog-agent-guard-check.mjs` — optional positional jf `<SERVER_ID>` only,
+-  no flags; (2) catalog CLI — `--server` / `--project` / `--mcp` flags;
+-  (3) config stdio entry — `_JF_ARGS=project=…&mcp=…`, optional `--server`
+-  in `args` only when not on the env URL+token path.
+-- `<SERVER_ID>` is always a `jf config` server id. NEVER an MCP package
+-  name, NEVER a URL, and NEVER a hostname you derived from `JFROG_URL` /
+-  `JF_URL`. Hostname-shaped ids from `jf config show` itself are fine —
+-  the ban is on parsing an id out of the URL, not on the shape of the
+-  value.
+-- NEVER assume `default` as a JFrog project key. If the project key is unknown
+-  after the project chain (existing `mcpServers` entries → `JF_PROJECT` env
+-  var), STOP and ask the user. Same for server ID if used. NEVER invent or
+-  guess JFrog project keys or server IDs.
+-- Package name MUST come from the catalog (`--inspect` / `--list-available`).
+-  NEVER guess. NEVER install MCPs outside the agent guard. NEVER use
+-  Fetch/WebFetch for catalog calls.
+-- **Non-zero Agent Guard exit → classify, never invent a fallback install.**
+-  Retryable fingerprints retry; catalog miss → List; **any other stderr is a
+-  hard stop** (show it, do not retry, do not fall back to the usual MCP install
+-  routes that skip the approved catalog and Agent Guard as the MCP proxy). See
+-  [Classify npx @jfrog/agent-guard failures](#classify-npx-jfrogagent-guard-failures).
+-- NEVER pipe a catalog command through `python3`, and NEVER capture it with
+-  `2>&1` — `npx`/`npm` writes progress to stderr, which corrupts the output
+-  stream. For `--list-available` present the compact TSV it prints; for
+-  `--inspect` read the JSON it prints on stdout directly (or with a single `jq`
+-  filter), never via `python3`.
+-- NEVER write a raw secret into any MCP config file (see
+-  [harness-common.md](harness-common.md) for each harness's file) — always use
+-  `${VAR_NAME}`. NEVER show tokens / API keys.
+-- NEVER try multiple servers — ask the user to pick one.
++- The npm package scope is lowercase `@jfrog/agent-guard`. Use an already
++  qualified runtime or an actual reviewed exact version and selected registry
++  through its installer owner. No floating `npx` call is a harmless discovery or
++  version check. If a qualified task uses npm execution, `--yes` and
++  `--registry "<REGISTRY_URL>"` precede
++  `"@jfrog/agent-guard@<APPROVED_VERSION>"`; placeholders must first be resolved
++  to reviewed values and the operation remains capable of downloading code.
++- Keep three contracts distinct: the retained `jfrog-agent-guard-check.mjs`
++  helper takes an optional positional actual CLI server ID; catalog CLI calls
++  use supported `--server`/`--project`/`--mcp` flags; a governed stdio native
++  entry routes non-secret project/package identity through supported `_JF_ARGS`.
++  Review helper imports, credential access and platform effects before an
++  authorized use; do not run it automatically during skill installation.
++- `_JF_ARGS` is for the launched stdio entry, for example
++  `project=<JFROG_PROJECT_KEY>&mcp=<PACKAGE_NAME>`, with actual values validated
++  against the selected runtime's contract. Do not mix it into catalog listing,
++  inspection or login calls, or move catalog-only flags into the config entry.
++- `<SERVER_ID>` is an actual selected `jf config` server ID, never a package
++  name or a hostname derived from a URL. A workspace directory is not a JFrog
++  project key. Reuse existing authorized selection; resolve material ambiguity
++  before a request. Do not invent `default`, enumerate other tenants on failure
++  or retarget a native connection to the CLI default.
++- Package/version and route come from the selected project's actual inspected
++  catalog, not a guessed package name. A required governance policy retains its
++  approved catalog/proxy path. Native stdio/remote shapes and secret references
++  belong to the current client owner; do not impose a generic legacy JSON shape.
++  A Gateway route needs actual supported inspection evidence and native transport
++  support. Unsupported or denied routes are gaps, not permission to bypass policy.
++- Keep stdout structured output separate from stderr diagnostics. Capture only
++  bounded relevant output; redact tokens, headers and private values before
++  reporting. Do not print raw native config, credential exports or complete
++  environment/log dumps. Base64 is not redaction.
+ 
+-## Classify npx @jfrog/agent-guard failures
++## Classify qualified Agent Guard failures
+ 
+-Show the error verbatim. Ignore `npm warn` noise — except `npm warn invalid
+-config registry=…`, which names the cause of a self-inflicted E404. Match
+-**one** bucket from stderr. Fingerprints below are the live strings; if a
+-match fails, re-check
+-`npx --yes --registry "<REGISTRY_URL>" @jfrog/agent-guard --version` rather
+-than assuming a pinned release. A **hard stop** means: do not fall back to
+-the usual MCP install routes that skip the approved catalog and Agent Guard
+-as the MCP proxy.
++Do not fetch or upgrade Agent Guard merely because an error fingerprint differs
++from this reference. Record the actual selected runtime version and a sanitized,
++bounded diagnostic; use current selected-version help/docs when available.
++A nonzero result stays a failure until a justified correction succeeds. Never
++switch server, credentials, harness or transport to bypass a denial.
+ 
+-1. **Package unreachable (hard stop).** `npm error code E404`, `npm error 404`,
+-   npx package-fetch **403**, DNS/`ENOTFOUND`, timeout/`ETIMEDOUT`, connection
+-   refused/`ECONNREFUSED`. Agent Guard never started. Two self-inflicted causes
+-   look identical to a real outage, so rule both out first: (a) `--yes` and
+-   `--registry <REGISTRY_URL>` must precede `@jfrog/agent-guard`, and (b)
+-   `<REGISTRY_URL>` must be substituted with a real URL — npm discards an
+-   invalid `--registry` value, falls back to the default registry, and returns
+-   the same E404, so compare it against the URL npm reports contacting. Fix and
+-   retry if either is wrong. Otherwise tell the user the registry could not be
+-   reached, point them at [Troubleshooting](#troubleshooting) (proxy/VPN,
+-   blocked or wrong registry, curation policy), and **stop**.
+-2. **Catalog miss (retry via List).** `not found in curated list` — the catalog
+-   responded; that MCP name is not approved. Go to List → Available to install.
+-   Same fingerprint on `--login`. A wrong `--project` key can surface as this
+-   miss on the MCP name — re-resolve the project key if List is empty.
+-3. **Retryable CLI/config.** `--project flag is required`, `--mcp flag is required`,
+-   `Server ID '…' does not exist.`, `multiple/no JFrog server configured`. Fix
+-   per Troubleshooting / Pre-flight and retry the **same** Agent Guard command.
+-4. **Any other non-zero (hard stop).** Unrecognized stderr (including
+-   `Unauthorized`, `failed to fetch catalog`, `_JF_ARGS environment variable is not set`,
+-   5xx). Show it verbatim. Do not retry List. Do not guess another bucket.
+-   Carve-out: `--login` `expected 401, got 200` is anonymous MCP — ignore, not
+-   this bucket.
++| Observation | Interpretation and bounded next step |
++|---|---|
++| npm `E404`, fetch `403`, DNS, timeout or connection refusal before Agent Guard starts | Package/runtime fetch failed. Check the already selected registry and argument order from existing evidence. A `403` does not by itself prove proxy, policy, missing package or sandbox cause. Correct a demonstrated local input error at most once within current authority; otherwise stop and report the gap. |
++| `not found in curated list` | Selected catalog did not approve/find that package for this project. If authorized and available, one bounded list for the same selected project can distinguish a name mismatch. Do not choose another project/server or ungoverned install to obtain success. |
++| Missing `--project`/`--mcp`, unknown server ID or multiple unresolved servers | Input/identity prerequisite is unmet. Resolve the actual known task/entry selection without creating credentials or changing defaults. Retry only the corrected same-target operation when authorized. |
++| `Unauthorized`, other `401`/`403`, failed catalog request, missing `_JF_ARGS`, 5xx or an unknown error | Preserve the failed result. Missing input may be corrected from verified configuration; authentication, permission and service failures need their existing owners. No automatic OAuth, cache removal, fallback install or repeated request loop. |
++| Login reports `expected 401, got 200` | On a version where this indicates an anonymous endpoint, treat it only as that authentication observation after verifying the exact runtime behavior. It does not establish available tools or a successful target operation. |
++
++A demonstrated registry/argument typo may justify one corrected request. A denied
++or unknown operation does not justify repeated list/inspect/login calls, an
++outside-sandbox run or a different token scope. Use
++[runtime boundaries](runtime-permissions.md).
+ 
+ ## Connected but 0 tools
+ 
+-The harness shows the server connected/running but this agent still has no
+-tools from that server (none you can see or call). Agent Guard (the proxy)
+-is up; upstream tools are not visible. Do not report success. If this
+-session already has an upstream tool from that server, this section does not apply.
++A configured/connected process is different from actual returned upstream tools.
++Do not report success because Agent Guard is running, a descriptor cache exists
++or the native catalog exposes only `enable_*_tools`. That tool can start
++authentication and must not be invoked as a read-only diagnostic.
+ 
+-Run the steps in order. Do not skip a step, including because you think you
+-already know the answer. When a step says re-run **Verify**,
+-use this harness's **Verify** section. Do not invent another
+-check, script, or debug path until these steps are finished.
++1. Resolve the actual client version, current session, effective entry and
++   selected platform/project/package. Do not start another client/MCP instance
++   merely to obtain different evidence.
++2. Query the actual native status/catalog once where available. Preserve returned
++   tools, errors and missing capabilities. Use only the relevant harness's
++   supported verification route; cached files are not a live catalog.
++3. If a prior authorized config change requires an authorized native
++   reload/restart, use that owner's supported action. Do not reboot the host,
++   enable unrelated entries or silently start OAuth. If operator interaction is
++   required, state the precise pending native action.
++4. When relevant and already authorized, inspect the same selected catalog/runtime
++   identity. Allowlist membership can change; unknown, denied or missing results
++   do not prove governance is disabled or permit an ungoverned replacement.
++5. Stop after bounded observation. Initialization timing alone is not a diagnosis
++   or a reason to promise a fixed wait. If a further check is requested, retain
++   earlier failures and recheck the same selected session/target; do not silently
++   rerun until tools appear.
+ 
+-Expected flow: when the upstream is ready, Agent Guard sends MCP
+-`tools/list_changed` and the harness updates the tool list. Re-check this
+-harness's **Verify**. If the harness does not hot-refresh, the user must
+-apply that harness's **Restart**.
++If deeper diagnosis is requested, inspect bounded existing native/runtime logs
++through their owner and redact secret-bearing fields. Temporarily changing a
++selected entry's log level or restarting a process is a configuration/runtime
++change: preserve preimages, current authority and a restoration plan. Do not
++copy a floating `npx` command into a terminal, write a wrapper, clear a cache or
++run a second blocking stdio process as an automatic debug step. For an explicitly
++selected standalone diagnostic, qualify the exact executable/arguments/environment
++and bound process/output lifetime before launch.
+ 
+-**Restart** means the action in this harness's **Restart** section (new
+-agent session / reload). It does not mean rebooting the machine or a
+-separate MCP-only command.
++## Troubleshooting by boundary
+ 
+-Typical reasons:
+-- Upstream still starting (download, install, first launch).
+-- Not allowed in this JFrog project (allowlist is dynamic).
+-- Upstream failed to start (missing env, expired token, runtime/spawn error).
+-- The harness session was not running. Agent Guard and the upstream start
+-  when the harness starts — waiting with it closed does not count.
++| Boundary | Evidence and owner-preserving response |
++|---|---|
++| Gateway versus governed stdio | Preserve inspected package/version/route and current native transport support. If an existing entry disagrees, report the mismatch and prepare a reviewed same-owner change; do not automatically convert transport, replace URLs or fall back around governance. |
++| Entry missing from native status | Resolve effective configuration layers, trust/enablement and actual session state. Absence is not proof that one toggle is the cause. Do not self-approve or write another duplicate entry. |
++| Entry remains after a configuration edit | Inspect current native precedence/ownership. Remove only the exact selected entry/approval state when removal is authorized; preserve unrelated files and credentials. npm cache deletion is not a general MCP repair. |
++| Missing selected CLI server or project | Report the unresolved identity. An ordinary diagnosis does not authorize `jf config add`, default changes, token exports or copying authentication into MCP. |
++| OAuth or static-token failure | Existing native/runtime authentication owner governs recovery. A `401`/`403` does not establish token expiry or an unset variable without evidence. Check secret-reference presence without displaying values; login/rotation/restart only within actual authorized scope. |
++| Registry/proxy/DNS failure | Distinguish the failing endpoint and selected runtime before proposing change. Preserve current registry and policy owners; never substitute an unchecked registry, token or install route. |
++| Cursor sandbox/policy suspicion | Use [Cursor ownership](harness-cursor.md). A JFrog-host `403` does not prove a sandbox allowlist block. Do not add broad JFrog/S3 wildcard access, edit sandbox policy or request blanket escalation automatically. |
+ 
+-Steps:
+-1. If the config changed and this harness's **Restart** has not run since,
+-   do that first.
+-2. Re-run Verify (including now). ≥1 tool → success. Stop.
+-3. List → Available to install (`--list-available`). Confirm this MCP is
+-   still in the catalog for this project. A recent `--inspect` is not this
+-   check — allowlist membership is dynamic, and a wrong project key looks
+-   the same as one that is still starting.
+-4. Re-run Verify. ≥1 tool → success. Stop.
+-5. Still empty: **stop**. Do not gather logs in this turn. Tell the user
+-   once that after Restart the upstream may take up to a few minutes. 
+-   They can say **check again**. Do not guess how long, and
+-   do not send them away to wait. If they waited with the harness closed,
+-   the MCP was not running — the wait starts after Restart.
+-6. After **check again**, or if they ask to debug further: re-run Verify.
+-   ≥1 tool → success. Stop. How long it has already been is not a
+-   diagnosis.
+-7. Still empty with the harness running after Restart — gather logs:
+-   - Set `JF_AGENT_GUARD_LOG_LEVEL=debug` on the Agent Guard entry's env,
+-     then Restart, and read Agent Guard stderr.
+-   - If the harness has a debug mode (e.g. Claude Code `claude --debug`),
+-     relaunching in that mode can add more log output.
+-   From stderr:
+-   - **OAuth (remote)** — re-run `--login`.
+-   - **Static-token (remote)** — this harness's **Value reference** is set.
+-   - **Local (stdio)** — spawn/runtime error.
+-   Last resort: run the same command as the config entry in a terminal
+-   (`npx --yes --registry <REGISTRY_URL> @jfrog/agent-guard` plus that
+-   entry's `--server` / `_JF_ARGS`, with `JF_AGENT_GUARD_LOG_LEVEL=debug`).
+-   This is an MCP stdio process — it will block until you stop it. Read
+-   stderr. Do not start by writing a wrapper script.
+-
+-## Troubleshooting
+-
+-Items below are harness-agnostic unless they point into the current harness's
+-row in [harness-common.md](harness-common.md).
+-
+-- **An MCP was installed as a `stdio` Agent Guard entry although Gateway
+-  routing is expected** — this is the designed fallback, not a failure.
+-  `--inspect` returns anything other than
+-  `routing.target: "gateway"` for every non-Gateway outcome, and the skill then
+-  writes the standard stdio Agent Guard entry. Which outcomes those are is
+-  `--inspect`'s to decide, not this skill's. The same fallback is taken when
+-  `routing.url` is empty, or when the harness file defines no Gateway entry
+-  shape — an MCP whose `routing.target` is `"gateway"` still installs as stdio
+-  on those harnesses. The fallback entry is an ordinary Agent Guard entry, so
+-  it works **only** with its inputs: Install Steps 3 and 4a run in full on that
+-  path, and the required values must be collected and exported as for any other
+-  stdio install. If a developer explicitly asks
+-  why, the reason is on stderr: re-run the Step 2 `--inspect` command with
+-  `JF_AGENT_GUARD_LOG_LEVEL=debug` exported and read the single eligibility
+-  record it prints. Never paste an access token from that output.
+-- **Configured server missing from the harness's list or Verify** —
+-  rejected/pending. Re-run the enable/verify step (Install → Step 4a).
+-- **MCP still appears as approved (or won't go away) after editing the config**
+-  — on harnesses that pre-approve via files (e.g. Claude Code), approval state
+-  lives in plain JSON arrays read at session start (nothing cached, so `npm
+-  cache clean` is unrelated). Check that harness's approval-precedence list in
+-  [harness-common.md](harness-common.md) and remove the entry from every file
+-  that lists it, then restart. On UI-toggle harnesses (Cursor, VS Code) there is
+-  no such file — disable/stop the server in the harness's MCP view instead.
+-- **Agent Guard: `multiple/no JFrog server configured`** (the agent guard
+-  cannot pick a JFrog server) — pass `--server <ID>` (after `jf c add <ID>`) OR
+-  export both `JFROG_URL` and `JFROG_ACCESS_TOKEN` in the launching shell, then
+-  restart the agent.
+-- **`Server ID '<id>' does not exist.`** — `--server` is not a configured jf
+-  CLI server. Re-resolve the id (Pre-flight) or `jf c add`, then retry. Not a
+-  catalog miss and not package-unreachable.
+-- **`--project flag is required` / `--mcp flag is required`** — empty or
+-  omitted flag; fill from Pre-flight / the MCP name and retry.
+-- **OAuth MCP failing** — refresh token expired; re-run the OAuth login step.
+-- **401/403 with `${VAR}`** — env var unset/wrong; re-export in the launching
+-  shell and restart the agent.
+-- **Network / proxy / DNS error** — outside the agent guard's scope; tell the
+-  user and stop. This is package-unreachable per
+-  [Classify npx @jfrog/agent-guard failures](#classify-npx-jfrogagent-guard-failures)
+-  — never install the MCP by any other means as a workaround. Before stopping,
+-  though: in a Cursor sandbox agent a `403` on a JFrog host is the sandbox
+-  allowlist and has a concrete fix — see the "403 … in a Cursor sandbox agent"
+-  entry below.
+-- **npx package fetch returns 403 or 404** — usually a corporate proxy/VPN, a
+-  blocked or wrong registry, the JFrog registry being unreachable, or a
+-  curation policy — not a missing package. The default
+-  `<REGISTRY_URL>` (`https://releases.jfrog.io/artifactory/api/npm/coding-agents-npm/`)
+-  is JFrog's publicly accessible Releases Artifactory instance: anonymous
+-  access, hosts Agent Guard releases. Confirm `--registry <REGISTRY_URL>`
+-  resolves (and, if using a private override via `JFROG_AGENT_GUARD_REPO`, that
+-  the access token is valid for that repo). Same hard-stop rule applies: do
+-  not fall back to the usual MCP install routes that skip the approved catalog
+-  and Agent Guard as the MCP proxy.
+-- **403 (or a Step 0 network failure) in a Cursor sandbox agent (Agents
+-  Window)** — Cursor's network allowlist. Retry once with
+-  `required_permissions: ["full_network"]`; if it still 403s, has no effect, or
+-  the param isn't on the Shell tool, create `~/.cursor/sandbox.json` (or the
+-  project `.cursor/sandbox.json`) per the "Sandbox network allowlist" section in
+-  [harness-cursor.md](harness-cursor.md). Do NOT keep retrying `full_network`
+-  or punt to a manual/out-of-sandbox run.
++Report configuration, process connectivity, authentication, actual tool metadata
++and requested operation results separately. An unavailable component remains an
++honest capability gap; it is not a reason to install plugins, global governance,
++Agent Guard or credentials as an unrequested repair.

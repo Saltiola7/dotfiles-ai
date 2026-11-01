@@ -348,6 +348,32 @@ configuration does not revoke.
 See [`docs/LIMA_SANDBOX.md`](docs/LIMA_SANDBOX.md) for creation, protected mounts,
 credentials, federation, updates, recovery, and explicit peer retirement.
 
+## JFrog guidance and optional CLI
+
+All seven official JFrog workflows are supplied as portable shared skills: base
+Artifactory/build/Xray operations, package-manager setup, Curation, reference
+architecture, AI Catalog, explicit readiness diagnosis and scoped Agent Guard/MCP
+management. Native descriptions and the DBSCTR platform table select relevant
+workflows; supporting resources load only as needed.
+
+Skills do not require the official plugin, hooks, Agent Guard or a live MCP
+connection. CLI/API and MCP cover overlapping platform operations; historical
+Curation troubleshooting specifically needs its MCP tools. Authentication and
+native client registration retain their existing owners.
+
+Opt into the missing-only CLI installer in the private machine TOML:
+
+```toml
+[data.dotfiles_ai.jfrog_cli]
+enabled = true
+```
+
+It verifies official JFrog CLI 2.129.0
+assets, preserves any compatible existing CLI owner and never logs in or writes
+platform/client configuration. Existing CLI versions below 2.106.0 remain intact
+and are reported as an unmet prerequisite. See the
+[ownership and recovery contract](docs/specs/dotfiles_ai_distribution/features/jfrog-skills.md).
+
 ## Optional self-hosted Prefect inspection
 
 The shared `prefect-operations` skill supports operational diagnosis against the
