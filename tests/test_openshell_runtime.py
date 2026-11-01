@@ -31,6 +31,22 @@ _SPEC.loader.exec_module(probe)
 
 DIGEST = "ab" * 32
 RUN_NAME = "openshell-q-0123456789ab"
+GENERATION_IDENTITY = {
+    "sandbox_id": "ab123456-1234-4234-8234-123456789abc",
+    "main_process_instance_id": "same-process", "main_process_started_at_ms": 1700000000000,
+    "container_id": "cd" * 32, "pid": 1234, "container_started_at": "2026-11-01T00:00:00Z",
+    "policy_hash": "ab" * 32, "policy_version": 1, "config_revision": 1,
+    "provider_env_revision": 1, "current_policy_version": 1,
+}
+
+
+def generation_value() -> dict:
+    return {"schema_version": 1, "identity": dict(GENERATION_IDENTITY)}
+
+
+def generation_digest(value=None) -> str:
+    raw = json.dumps(value or generation_value(), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    return hashlib.sha256(raw).hexdigest()
 
 
 def selection_value(root: Path) -> dict:
@@ -49,6 +65,7 @@ def assert_safe_refusal(error: BaseException) -> None:
 
 @pytest.fixture
 def owned_root(tmp_path: Path) -> Path:
+    tmp_path.chmod(0o700)
     root = tmp_path.resolve() / RUN_NAME
     root.mkdir(mode=0o700)
     for relative in ("fixture", "fixture/main", "fixture/task", "evidence", "lima"):
@@ -318,6 +335,9 @@ def pointer_fixture(owned_root: Path) -> tuple[Path, dict[str, str]]:
                                    "sandbox_id": "ab123456-1234-4234-8234-123456789abc",
                                    "container_id": "cd" * 32}))
     prepared.chmod(0o600)
+    generation = owned_root / "generation.json"
+    generation.write_text(json.dumps(generation_value()))
+    generation.chmod(0o600)
     env = {"PATH": "/usr/bin:/bin", "HOME": str(controller),
            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
            "GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C"}
@@ -350,8 +370,8 @@ class PointerTransport:
         self.identity_calls += 1
         if (self.identity_change_after_execution is not None
                 and len(self.executions) >= self.identity_change_after_execution):
-            return ("replacement-generation",)
-        return ("same-qualified-generation",)
+            return ("replacement-generation", *tuple(GENERATION_IDENTITY.values())[1:])
+        return tuple(GENERATION_IDENTITY.values())
 
     def execute(self, program: str, deadline: float) -> dict:
         assert 0 < deadline - time.monotonic() <= 60
@@ -407,6 +427,38 @@ def test_pointer_write_permission_failure_stops_before_next_attempt(pointer_fixt
     assert result["retained"] is True and result["runtime_qualification"] == "not_run"
     assert transport.executions == [("positive", ""), ("write_open", ".git")]
     assert pointer.read_bytes() == before
+
+
+@pytest.mark.parametrize("mode", ["pointer_probe", "immutable_pointer_probe"])
+@pytest.mark.parametrize("failed_execution", [1, 2])
+@pytest.mark.parametrize("changed", [False, True])
+def test_pointer_modes_observe_runtime_identity_after_transport_failure(
+        guarded_pointer_fixture, monkeypatch, mode, failed_execution, changed):
+    root, env, _, _ = guarded_pointer_fixture
+    transport = install_transport(monkeypatch, (root, env))
+    original_execute, original_identity = transport.execute, transport.identity
+    failed = False
+    observations = []
+
+    def execute(program, deadline):
+        nonlocal failed
+        value = original_execute(program, deadline)
+        if len(transport.executions) == failed_execution:
+            failed = True
+            raise probe.Refusal("timeout")
+        return value
+
+    def identity(deadline):
+        value = original_identity(deadline)
+        observations.append(failed)
+        return ("changed-after-failure", *value[1:]) if failed and changed else value
+
+    transport.execute, transport.identity = execute, identity
+    result = getattr(probe, mode)(probe.Selection(root, DIGEST))
+    assert failed and observations[-1] is True
+    assert len(transport.executions) == failed_execution
+    assert result["status"] == "unavailable"
+    assert result["reason"] == ("sandbox_identity" if changed else "timeout")
 
 
 @pytest.mark.parametrize("mutation", ["truncate", "unlink", "hardlink", "metadata"])
@@ -1154,9 +1206,7 @@ class ContainmentTransport(PointerTransport):
         self.delete_files = True
 
     def identity(self, deadline):
-        generation = super().identity(deadline)[0]
-        return (generation, "same-process", 1700000000000, "cd" * 32, 1234,
-                "2026-11-01T00:00:00Z", "ab" * 32, 1, 1, 1, 1)
+        return super().identity(deadline)
 
     def guest(self, argv, deadline):
         assert 0 < deadline - time.monotonic() <= 60
@@ -1276,7 +1326,7 @@ def test_containment_verifies_source_and_keeps_unperformed_runtime_checks_not_ru
     monkeypatch.setattr(probe, "_regular_identity", witness)
     result = probe.containment_probe(probe.Selection(root, DIGEST))
     assert set(result) == {"schema_version", "probe", "status", "reason", "checks", "resources",
-                           "retained", "runtime_qualification"}
+                           "retained", "runtime_qualification", "generation_sha256", "truncation"}
     assert result["status"] == "passed" and result["probe"] == "containment"
     assert result["resources"] == CONTAINMENT_RESOURCES
     assert result["runtime_qualification"] == "not_run" and result["retained"] is True
@@ -1628,3 +1678,232 @@ def test_containment_observes_identity_after_failed_operation(
     assert any(identity_observations), "failed calls must still receive a native identity observation"
     assert result["retained"] is True and result["runtime_qualification"] == "not_run"
     assert transport.executions == ([("source_create", "")] if failed_call == "execute" else [])
+
+
+def test_generation_receipt_canonical_hash_ignores_json_layout(pointer_fixture):
+    root, _ = pointer_fixture
+    value = generation_value()
+    (root / "generation.json").write_text(json.dumps(value, indent=4, sort_keys=True) + "\n")
+    identity, digest = probe._validate_generation(root)
+    assert identity == tuple(GENERATION_IDENTITY.values())
+    assert digest == generation_digest(value)
+
+
+@pytest.mark.parametrize("changes", [
+    {"sandbox_id": "AB123456-1234-4234-8234-123456789ABC"},
+    {"sandbox_id": "ab123456-1234-4234-8234-123456789abd"},
+    {"container_id": "ef" * 32}, {"policy_hash": "AB" * 32},
+    {"main_process_instance_id": ""}, {"main_process_instance_id": "x" * 257},
+    {"main_process_instance_id": "control\ncharacter"},
+    {"container_started_at": ""}, {"container_started_at": "control\x7fcharacter"},
+    {"main_process_started_at_ms": 0}, {"main_process_started_at_ms": True},
+    {"pid": 0}, {"pid": True}, {"policy_version": True}, {"config_revision": True},
+    {"provider_env_revision": True}, {"current_policy_version": True},
+    {"current_policy_version": 2}, {"extra": "private identity marker"},
+])
+def test_generation_receipt_rejects_invalid_or_unbound_identity(pointer_fixture, changes):
+    root, _ = pointer_fixture
+    value = generation_value()
+    value["identity"].update(changes)
+    (root / "generation.json").write_text(json.dumps(value))
+    with pytest.raises(probe.Refusal):
+        probe._validate_generation(root)
+
+
+@pytest.mark.parametrize("violation", ["boolean_schema", "unknown_key", "missing_identity_field", "duplicate_field"])
+def test_generation_receipt_requires_closed_schema(pointer_fixture, violation):
+    root, _ = pointer_fixture
+    value = generation_value()
+    if violation == "boolean_schema":
+        value["schema_version"] = True
+    elif violation == "unknown_key":
+        value["extra"] = "private generation marker"
+    elif violation == "missing_identity_field":
+        del value["identity"]["pid"]
+    raw = json.dumps(value)
+    if violation == "duplicate_field":
+        raw = raw.replace('"pid": 1234', '"pid":1234,"pid":1234')
+    (root / "generation.json").write_text(raw)
+    with pytest.raises(probe.Refusal):
+        probe._validate_generation(root)
+
+
+@pytest.mark.parametrize("mode", ["pointer_probe", "immutable_pointer_probe", "containment_probe"])
+@pytest.mark.parametrize("violation", ["missing", "unsafe_mode", "alias"])
+def test_generation_admission_precedes_native_effects(containment_fixture, monkeypatch, mode, violation):
+    root, _, _, _ = containment_fixture
+    path = root / "generation.json"
+    if violation == "missing":
+        path.unlink()
+    elif violation == "unsafe_mode":
+        path.chmod(0o644)
+    else:
+        path.rename(root / "original-generation.json")
+        path.symlink_to(root / "original-generation.json")
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append("native")
+        raise AssertionError("generation receipt must be validated before native effects")
+
+    monkeypatch.setattr(probe, "_PointerController", forbidden)
+    result = getattr(probe, mode)(probe.Selection(root, DIGEST))
+    assert result["status"] == "unavailable" and result["runtime_qualification"] == "not_run"
+    assert result["generation_sha256"] is None
+    assert calls == []
+
+
+@pytest.mark.parametrize("mode", ["pointer_probe", "immutable_pointer_probe", "containment_probe"])
+@pytest.mark.parametrize("changed_index,replacement", [(4, 5678), (6, "ef" * 32), (8, 2)])
+def test_modes_cannot_adopt_new_process_or_policy_baseline(
+        containment_fixture, monkeypatch, mode, changed_index, replacement):
+    root, env, _, _ = containment_fixture
+    transport = ContainmentTransport(root, env) if mode == "containment_probe" else PointerTransport(root, env)
+    expected = list(GENERATION_IDENTITY.values())
+    expected[changed_index] = replacement
+    transport.identity = lambda deadline: tuple(expected)
+    monkeypatch.setattr(probe, "_PointerController", lambda selection, deadline: transport)
+    result = getattr(probe, mode)(probe.Selection(root, DIGEST))
+    assert result["status"] == "unavailable" and result["reason"] == "sandbox_identity"
+    assert result["generation_sha256"] == generation_digest()
+    assert transport.executions == []
+
+
+def test_pointer_and_containment_reports_bind_same_canonical_generation(containment_fixture, monkeypatch):
+    root, env, _, _ = containment_fixture
+    pointer_transport = install_transport(monkeypatch, (root, env))
+    first = probe.immutable_pointer_probe(probe.Selection(root, DIGEST))
+    assert first["status"] == "passed" and pointer_transport.executions
+    value = generation_value()
+    (root / "generation.json").write_text(json.dumps(value, sort_keys=True, indent=2))
+    install_containment_transport(monkeypatch, containment_fixture)
+    second = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert second["status"] == "passed"
+    assert first["generation_sha256"] == second["generation_sha256"] == generation_digest(value)
+    assert first["truncation"] == second["truncation"] == {"transport_output": False, "limit_bytes": None}
+
+
+def sparse_evidence(root, name, size):
+    path = root / "evidence" / name
+    with path.open("xb") as stream:
+        stream.truncate(size)
+    path.chmod(0o600)
+    return path
+
+
+def sibling_evidence_root(root, index):
+    sibling = root.parent / f"openshell-q-{index:012x}"
+    sibling.mkdir(mode=0o700)
+    (sibling / "evidence").mkdir(mode=0o700)
+    marker = sibling / "owner.json"
+    marker.write_text(json.dumps({"schema_version": 1, "run_id": sibling.name}))
+    marker.chmod(0o600)
+    return sibling
+
+
+def test_evidence_run_budget_counts_sum_not_individual_file_sizes(owned_root):
+    one = sparse_evidence(owned_root, "one.json", 5 * 1024 * 1024)
+    two = sparse_evidence(owned_root, "two.json", 5 * 1024 * 1024)
+    with pytest.raises(probe.Refusal, match="^evidence_limit$"):
+        probe._check_pointer_evidence(owned_root, 1, 1)
+    assert one.stat().st_size + two.stat().st_size == 10 * 1024 * 1024
+
+
+def test_evidence_aggregate_budget_counts_other_owned_runs(owned_root):
+    for index in range(1, 12):
+        sibling = sibling_evidence_root(owned_root, index)
+        sparse_evidence(sibling, "retained.json", 9 * 1024 * 1024)
+    current = sparse_evidence(owned_root, "current.json", 1024 * 1024)
+    with pytest.raises(probe.Refusal, match="^evidence_limit$"):
+        probe._check_pointer_evidence(owned_root, 1, 1)
+    assert current.stat().st_size == 1024 * 1024
+    assert len(list(owned_root.parent.glob("openshell-q-*/evidence/retained.json"))) == 11
+
+
+@pytest.mark.parametrize("violation", ["wrong_owner_marker", "evidence_alias", "unsafe_parent", "root_alias"])
+def test_aggregate_evidence_accounting_refuses_unsafe_owned_scope(owned_root, violation):
+    sibling = sibling_evidence_root(owned_root, 1)
+    if violation == "wrong_owner_marker":
+        (sibling / "owner.json").write_text('{"schema_version":1,"run_id":"wrong"}')
+    elif violation == "evidence_alias":
+        (sibling / "evidence/alias").symlink_to(owned_root / "owner.json")
+    elif violation == "unsafe_parent":
+        owned_root.parent.chmod(0o755)
+    else:
+        sibling.rename(owned_root.parent / "unselected-original")
+        sibling.symlink_to(owned_root.parent / "unselected-original", target_is_directory=True)
+    with pytest.raises(probe.Refusal):
+        probe._check_pointer_evidence(owned_root, 256 * 1024, 1)
+
+
+def test_aggregate_evidence_accounting_does_not_traverse_unselected_names(owned_root):
+    unrelated = owned_root.parent / "unselected"
+    unrelated.symlink_to(owned_root / "missing-and-unreadable", target_is_directory=True)
+    assert probe._check_pointer_evidence(owned_root, 256 * 1024, 1) == owned_root / "evidence"
+    assert unrelated.is_symlink()
+
+
+@pytest.mark.parametrize("mode", ["pointer_probe", "immutable_pointer_probe", "containment_probe"])
+def test_modes_reserve_total_evidence_capacity_before_native_effects(containment_fixture, monkeypatch, mode):
+    root, _, _, _ = containment_fixture
+    retained = sparse_evidence(root, "previous.json", 10 * 1024 * 1024 - 256 * 1024 + 1)
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append("native")
+        raise AssertionError("insufficient invocation reservation must stop native effects")
+
+    monkeypatch.setattr(probe, "_PointerController", forbidden)
+    result = getattr(probe, mode)(probe.Selection(root, DIGEST))
+    assert result["status"] == "unavailable" and result["reason"] == "evidence_limit"
+    assert calls == [] and retained.exists()
+
+
+def test_exact_invocation_reservation_is_usable(containment_fixture, monkeypatch):
+    root, env, _, _ = containment_fixture
+    sparse_evidence(root, "previous.json", 10 * 1024 * 1024 - 256 * 1024)
+    install_transport(monkeypatch, (root, env))
+    result = probe.immutable_pointer_probe(probe.Selection(root, DIGEST))
+    assert result["status"] == "passed"
+    assert sum(path.stat().st_size for path in (root / "evidence").iterdir()) <= 10 * 1024 * 1024
+
+
+def test_serialized_report_limit_is_64_kib_before_exclusive_write(owned_root):
+    with pytest.raises(probe.Refusal):
+        probe._write_pointer_evidence(owned_root, {"oversized": "x" * (64 * 1024)})
+    assert list((owned_root / "evidence").iterdir()) == []
+
+
+def test_each_evidence_write_rechecks_remaining_sum(owned_root):
+    sparse_evidence(owned_root, "previous.json", 10 * 1024 * 1024 - 32)
+    with pytest.raises(probe.Refusal, match="^evidence_limit$"):
+        probe._write_pointer_evidence(owned_root, {"bounded": "x" * 64})
+    assert [path.name for path in (owned_root / "evidence").iterdir()] == ["previous.json"]
+
+
+def test_run_command_output_limit_records_actual_cap(tmp_path):
+    with pytest.raises(probe.Refusal, match="^output_limit$") as error:
+        probe.run_command([sys.executable, "-I", "-c", "import os; os.write(1,b'x'*16384)"],
+                          cwd=tmp_path, env={}, timeout=5, limit=8192)
+    assert error.value.output_limit_bytes == 8192
+
+
+@pytest.mark.parametrize("mode", ["pointer_probe", "immutable_pointer_probe", "containment_probe"])
+@pytest.mark.parametrize("cap", [None, 8192])
+def test_transport_truncation_is_explicit_and_never_passes(containment_fixture, monkeypatch, mode, cap):
+    root, env, _, _ = containment_fixture
+    transport = ContainmentTransport(root, env) if mode == "containment_probe" else PointerTransport(root, env)
+
+    def flood(operation, spelling, result):
+        error = probe.Refusal("output_limit")
+        if cap is not None:
+            error.output_limit_bytes = cap
+        raise error
+
+    transport.action = flood
+    monkeypatch.setattr(probe, "_PointerController", lambda selection, deadline: transport)
+    result = getattr(probe, mode)(probe.Selection(root, DIGEST))
+    assert result["status"] == "unavailable" and result["reason"] == "output_limit"
+    assert result["truncation"] == {"transport_output": True, "limit_bytes": cap}
+    assert result["generation_sha256"] == generation_digest()
+    assert result["retained"] is True and result["runtime_qualification"] == "not_run"

@@ -24,6 +24,10 @@ import uuid
 class Refusal(Exception):
     """A stable, public-safe refusal reason without paths or command output."""
 
+    def __init__(self, reason: str, *, output_limit_bytes: int | None = None):
+        super().__init__(reason)
+        self.output_limit_bytes = output_limit_bytes
+
 
 @dataclass(frozen=True)
 class Selection:
@@ -143,7 +147,7 @@ def run_command(argv: list[str], *, cwd: Path, env: dict[str, str],
                         continue
                     key.data.extend(chunk)
                     if len(stdout) + len(stderr) > limit:
-                        raise Refusal("output_limit")
+                        raise Refusal("output_limit", output_limit_bytes=limit)
             process.wait(timeout=max(0, deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
         failure = Refusal("timeout")
@@ -302,6 +306,49 @@ def _prepared_deadline(root: Path) -> float:
     if not 0 <= age < 900:
         raise Refusal("experiment_deadline")
     return time.monotonic() + 900 - age
+
+
+_GENERATION_FIELDS = ("sandbox_id", "main_process_instance_id", "main_process_started_at_ms",
+                      "container_id", "pid", "container_started_at", "policy_hash", "policy_version",
+                      "config_revision", "provider_env_revision", "current_policy_version")
+
+
+def _validate_generation(root: Path) -> tuple[tuple, str]:
+    private_directory(root.parent)
+    prepared = decode_object(private_file(root / "prepared.json"))
+    value = decode_object(private_file(root / "generation.json"))
+    if (set(prepared) != {"schema_version", "sandbox_id", "container_id"}
+            or type(prepared["schema_version"]) is not int or prepared["schema_version"] != 1
+            or set(value) != {"schema_version", "identity"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or not isinstance(value["identity"], dict) or set(value["identity"]) != set(_GENERATION_FIELDS)):
+        raise Refusal("invalid_generation")
+    identity = value["identity"]
+    for key in ("main_process_started_at_ms", "pid", "policy_version", "config_revision",
+                "provider_env_revision", "current_policy_version"):
+        if type(identity[key]) is not int or identity[key] <= 0:
+            raise Refusal("invalid_generation")
+    for key in ("main_process_instance_id", "container_started_at"):
+        if not isinstance(identity[key], str) or not 1 <= len(identity[key]) <= 256 or not identity[key].isprintable():
+            raise Refusal("invalid_generation")
+    for key in ("container_id", "policy_hash"):
+        if not isinstance(identity[key], str) or re.fullmatch(r"[0-9a-f]{64}", identity[key]) is None:
+            raise Refusal("invalid_generation")
+    try:
+        if not isinstance(identity["sandbox_id"], str) or str(uuid.UUID(identity["sandbox_id"])) != identity["sandbox_id"]:
+            raise ValueError
+    except ValueError:
+        raise Refusal("invalid_generation") from None
+    if (identity["sandbox_id"] != prepared["sandbox_id"] or identity["container_id"] != prepared["container_id"]
+            or identity["current_policy_version"] != identity["policy_version"]):
+        raise Refusal("invalid_generation")
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    return tuple(identity[key] for key in _GENERATION_FIELDS), hashlib.sha256(canonical).hexdigest()
+
+
+def _record_truncation(report: dict, error: Refusal) -> None:
+    if str(error) == "output_limit":
+        report["truncation"] = {"transport_output": True, "limit_bytes": error.output_limit_bytes}
 
 
 def _host_git_fixture(root: Path, env: dict[str, str], deadline: float) -> tuple[Path, Path]:
@@ -535,25 +582,41 @@ print(json.dumps(out,sort_keys=True))
 
 
 def _check_pointer_evidence(root: Path, allowance: int, entries: int) -> Path:
-    directory = root / "evidence"
-    private_directory(directory)
-    retained = 0
-    for count, path in enumerate(directory.iterdir()):
-        if count + entries >= 4096:
+    private_directory(root.parent)
+    total, current, found = 0, 0, False
+    for root_count, candidate in enumerate(root.parent.iterdir()):
+        if root_count >= 4096:
             raise Refusal("evidence_limit")
-        info = path.lstat()
-        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) != 0o600):
-            raise Refusal("unsafe_evidence")
-        retained += info.st_size
-        if retained + allowance > 100 * 1024 * 1024:
-            raise Refusal("evidence_limit")
-    return directory
+        if re.fullmatch(r"openshell-q-[a-f0-9]{12}", candidate.name) is None:
+            continue
+        private_directory(candidate)
+        owner = decode_object(private_file(candidate / "owner.json"))
+        if (set(owner) != {"schema_version", "run_id"}
+                or type(owner["schema_version"]) is not int or owner["schema_version"] != 1
+                or owner["run_id"] != candidate.name):
+            raise Refusal("owner_mismatch")
+        directory = candidate / "evidence"
+        private_directory(directory)
+        retained = 0
+        for count, path in enumerate(directory.iterdir()):
+            if count + (entries if candidate == root else 0) >= 4096:
+                raise Refusal("evidence_limit")
+            info = path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid()
+                    or stat.S_IMODE(info.st_mode) != 0o600):
+                raise Refusal("unsafe_evidence")
+            retained += info.st_size
+        total += retained
+        if candidate == root:
+            current, found = retained, True
+    if not found or current + allowance > 10 * 1024 * 1024 or total + allowance > 100 * 1024 * 1024:
+        raise Refusal("evidence_limit")
+    return root / "evidence"
 
 
 def _write_pointer_evidence(root: Path, report: dict) -> None:
     raw = (json.dumps(report, sort_keys=True) + "\n").encode()
-    if len(raw) > 10 * 1024 * 1024:
+    if len(raw) > 64 * 1024:
         raise Refusal("evidence_limit")
     directory = _check_pointer_evidence(root, len(raw), 1)
     fd = os.open(directory / ("pointer-" + uuid.uuid4().hex + ".json"),
@@ -568,19 +631,22 @@ def _run_pointer_probe(selection: Selection, immutable: bool) -> dict:
     """Run fixed observations; immutable admission never changes native flags."""
     report = {"schema_version": 1, "probe": "immutable_git_pointer" if immutable else "git_pointer",
               "status": "unavailable", "reason": None,
-              "runtime_qualification": "not_run", "checks": [], "retained": False}
+              "runtime_qualification": "not_run", "checks": [], "retained": False,
+              "generation_sha256": None, "truncation": {"transport_output": False, "limit_bytes": None}}
     admitted, active = False, None
     try:
         validate_root(selection)
         deadline = _prepared_deadline(selection.root)
+        generation, report["generation_sha256"] = _validate_generation(selection.root)
         admitted = True
         guard = _validate_guard(selection.root) if immutable else None
         # Reserve the complete bounded probe budget before any workload effect.
-        _check_pointer_evidence(selection.root, 10 * 1024 * 1024, 48 if immutable else 32)
+        _check_pointer_evidence(selection.root, 256 * 1024, 48 if immutable else 32)
         controller = _PointerController(selection, deadline)
         common, pointer = _host_git_fixture(selection.root, controller.env, deadline)
         baseline = (_regular_identity(pointer, 4096), _metadata_snapshot(common))
-        generation = controller.identity(min(deadline, time.monotonic() + 60))
+        if controller.identity(min(deadline, time.monotonic() + 60)) != generation:
+            raise Refusal("sandbox_identity")
         task = selection.root / "fixture/task"
         # Reject pre-existing probe outputs and source aliases before effects.
         _metadata_snapshot(task)
@@ -622,11 +688,12 @@ def _run_pointer_probe(selection: Selection, immutable: bool) -> dict:
         finally:
             # Remote failures cannot suppress an authoritative host observation.
             unchanged()
+            if controller.identity(step_deadline) != generation:
+                raise Refusal("sandbox_identity")
         if (type(positive.get("schema_version")) is not int
                 or positive != {"schema_version": 1, "positive": "written"}
                 or _regular_identity(task / _POSITIVE_NAME, 4096)[3] != len(_POSITIVE_BYTES)
-                or (task / _POSITIVE_NAME).read_bytes() != _POSITIVE_BYTES
-                or controller.identity(step_deadline) != generation):
+                or (task / _POSITIVE_NAME).read_bytes() != _POSITIVE_BYTES):
             raise Refusal("positive_control_failed")
         report["checks"].append({"operation": "source_write", "status": "passed"})
         active = None
@@ -645,8 +712,8 @@ def _run_pointer_probe(selection: Selection, immutable: bool) -> dict:
                     result = controller.execute(program, step_deadline)
                 finally:
                     unchanged()
-                if controller.identity(step_deadline) != generation:
-                    raise Refusal("sandbox_identity")
+                    if controller.identity(step_deadline) != generation:
+                        raise Refusal("sandbox_identity")
                 if (set(result) != {"schema_version", "operation", "spelling", "outcome", "errno"}
                         or type(result["schema_version"]) is not int or result["schema_version"] != 1
                         or result["operation"] != operation or result["spelling"] != spelling
@@ -671,6 +738,7 @@ def _run_pointer_probe(selection: Selection, immutable: bool) -> dict:
                     raise Refusal("pointer_operation_unobserved")
         report["status"] = "passed"
     except Refusal as error:
+        _record_truncation(report, error)
         report["reason"] = str(error)
         if str(error) in {"pointer_operation_allowed", "protected_state_changed", "positive_control_failed"}:
             report["status"] = "failed"
@@ -857,22 +925,25 @@ def _validate_containment_exclusions(value: dict) -> list:
 
 def containment_probe(selection: Selection) -> dict:
     report = {"schema_version": 1, "probe": "containment", "status": "unavailable", "reason": None,
-              "runtime_qualification": "not_run", "checks": [], "resources": {}, "retained": False}
+              "runtime_qualification": "not_run", "checks": [], "resources": {}, "retained": False,
+              "generation_sha256": None, "truncation": {"transport_output": False, "limit_bytes": None}}
     admitted = False
     try:
         validate_root(selection)
         deadline = _prepared_deadline(selection.root)
+        generation, report["generation_sha256"] = _validate_generation(selection.root)
         admitted = True
         guard = _validate_guard(selection.root)
         _validate_containment(selection.root)
-        _check_pointer_evidence(selection.root, 10 * 1024 * 1024, 16)
+        _check_pointer_evidence(selection.root, 256 * 1024, 16)
         output = selection.root / "fixture/task/.openshell-containment"
         if os.path.lexists(output):
             raise Refusal("probe_collision")
         controller = _PointerController(selection, deadline)
         common, pointer = _host_git_fixture(selection.root, controller.env, deadline)
         baseline = _metadata_snapshot(common)
-        generation = controller.identity(min(deadline, time.monotonic() + 60))
+        if controller.identity(min(deadline, time.monotonic() + 60)) != generation:
+            raise Refusal("sandbox_identity")
 
         def unchanged():
             try:
@@ -926,6 +997,7 @@ def containment_probe(selection: Selection) -> dict:
         report["resources"] = final_resources
         report["status"] = "passed"
     except Refusal as error:
+        _record_truncation(report, error)
         report["reason"] = str(error)
         if str(error) in {"protected_state_changed", "source_observation_failed", "containment_access", "resource_limits"}:
             report["status"] = "failed"
@@ -956,7 +1028,8 @@ def main() -> int:
                   "probe": {"pointer": "git_pointer", "immutable-pointer": "immutable_git_pointer",
                             "containment": "containment"}[args.probe],
                   "status": "unavailable",
-                  "reason": "invalid_selection", "runtime_qualification": "not_run", "checks": [], "retained": False}
+                  "reason": "invalid_selection", "runtime_qualification": "not_run", "checks": [], "retained": False,
+                  "generation_sha256": None, "truncation": {"transport_output": False, "limit_bytes": None}}
     print(json.dumps(report, sort_keys=True))
     return 0 if report["status"] == "passed" else 1
 
