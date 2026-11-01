@@ -126,6 +126,34 @@ early authority remains the portable publication test plus
 `tests/test_opencode_control_plane.py` and `tests/test_dbsctr_lifecycle.py`.
 No new checker, linter, dependency or test-runner authority is selected.
 
+### Concrete implementation interfaces
+
+The hosted workflow retains its current setup actions and Worktrunk matrix.
+Its compatibility array adds `3.15`; the ordinary PR/main array remains `3.14`.
+Each root invocation uses `uv run --frozen --python` with the quoted matrix
+version and the existing `--group test` dependency group. Publication/instruction,
+native Swift and full pytest remain distinct authorities in that order.
+
+A preceding runtime check compares both the selected process's Python minor and
+the `python3` found through its inherited PATH with the requested matrix minor.
+It reports the actual patch version for evidence and fails on mismatch before
+the authorities run. The check uses only the standard library and changes no
+global interpreter, optional runtime or dependency lock. Its shell argument
+boundaries and actual child status remain part of the Python/Security contract.
+
+The focused credential fixture keeps its isolated child and synthetic secret
+sentinel, replacing only its removed loader API. Existing lifecycle workflow
+tests are updated to cover the distinct event arrays, unchanged Worktrunk member,
+frozen explicit selection and early-before-full ordering. No type-bearing API is
+introduced; the project has no selected static checker or formatter, and this
+cycle does not claim either analysis capability.
+
+Domain, Behavior, Spec and Contract reuse the approved Discovery scenarios,
+native Initiative/plan validation, artifact reviews and affected source checks.
+The implementation evidence must distinguish intentional red, local old/new
+regressions, hosted full-matrix results and optional native skips. Passing local
+source checks does not establish hosted 3.15 qualification.
+
 ## Current evidence and open risks
 
 | Qualification state | Guard and next action |
