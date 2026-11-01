@@ -43,6 +43,9 @@
 | Evidence in the current task | Preferred specialist | Checkpoint |
 |---|---|---|
 | Changed responsibilities, component boundaries, dependency direction or abstractions | `python-design-patterns` | Domain/Spec; structural Refactor |
+| System/context boundaries, dependency direction or architecture alternatives | `architecture-patterns` | Domain/Spec |
+| Package organization, public imports or module ownership | `python-project-structure` | Spec/Refactor |
+| Accepted dependency rules, architecture drift or fitness checks | `python-architecture-fitness` | Contract/Test; QA |
 | Parser, serializer, normalization, validation or state transition with a meaningful invariant | `property-based-testing` | Behavior/Contract; Test |
 | Reported slowdown, performance requirement or measured bottleneck | `python-performance-optimization` | Baseline before optimization; compare afterward |
 | New packaging/tooling setup or explicitly selected tooling migration | `modern-python` | Engineering Profile/Spec |

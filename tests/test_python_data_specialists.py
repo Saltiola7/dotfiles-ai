@@ -119,7 +119,8 @@ def test_complete_skill_tree_has_closed_resources_and_exact_projection(tmp_path)
                "--cache", str(tmp_path / "cache"), "--persistent-state", str(tmp_path / "state"),
                "--exclude", "scripts"]
     names = PYTHON | ENGINES | DATABRICKS | AUTHORED | NAMES | {
-        "python-audit", "dbsctr", "qa", "async-python-patterns", "python-modernization-review"}
+        "python-audit", "dbsctr", "qa", "async-python-patterns", "python-modernization-review",
+        "architecture-patterns", "python-project-structure", "python-architecture-fitness"}
     targets = [live / name for name in sorted(names)]
     for _ in range(2):
         subprocess.run([*command, "apply", "--parent-dirs", *map(str, targets)], check=True, capture_output=True)

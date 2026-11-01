@@ -31,3 +31,8 @@ dot_agents/skills/python-resilience/LICENSE.upstream -whitespace
 dot_agents/skills/python-resource-management/LICENSE.upstream -whitespace
 dot_agents/skills/python-testing-patterns/LICENSE.upstream -whitespace
 dot_agents/skills/python-type-safety/LICENSE.upstream -whitespace
+
+# Exact architecture skill preimages and verbatim MIT license notices.
+dot_agents/skills/dbsctr/references/architecture-sources/patches/** -whitespace
+dot_agents/skills/architecture-patterns/LICENSE.upstream -whitespace
+dot_agents/skills/python-project-structure/LICENSE.upstream -whitespace

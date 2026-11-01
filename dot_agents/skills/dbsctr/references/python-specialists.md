@@ -7,7 +7,7 @@ runtimes, dependencies, compatibility and acceptance criteria.
 ## Apply the selected technique
 
 For an explicitly requested repository-wide Python assessment, use `python-audit`.
-It considers eleven language lenses and applicable database boundaries, records actual review and QA coverage, and
+It considers fourteen assessment lenses and applicable database boundaries, records actual review and QA coverage, and
 returns opinionated findings plus ordered refactor batches. Audit intent does not
 select a migration or authorize remediation. Ordinary development continues with
 the conditional selection below.
@@ -54,6 +54,13 @@ For database semantics use the Data module and `database-audit` as appropriate.
 `python-database-boundaries` owns Python adapters; engine/platform specialists own
 SQL/storage/workspace behavior. Keep one primary and deduplicate shared findings.
 
+For architecture requests, use the focused mode of the same `python-audit`.
+`architecture-patterns` owns system/context choices; `python-project-structure`
+owns package/public-import organization; `python-architecture-fitness` owns accepted
+dependency contracts and checking limits. Existing `python-design-patterns` keeps
+component design. Architecture focus selects these first, then only relevant
+additional techniques; full audit considers all fourteen assessment lenses.
+
 ## Sources and maintenance
 
 The [original Python source inventory](python-specialists/sources.lock.json)
@@ -75,3 +82,9 @@ preview/application, prior-live comparison and complete verification. Preserve
 unrelated installed state and report filesystem, discovery and behavioral
 observations separately. Recovery restores matching reviewed bundles, routing
 and inventories through the same distribution owner.
+
+
+The two architecture bundles use `architecture-sources/sources.lock.json` with
+complete resources, MIT notices and reversible adaptations. Fitness guidance and
+architecture-focused audit synthesis are locally maintained. No separate checker,
+audit coordinator or universal architecture policy is installed by those skills.
