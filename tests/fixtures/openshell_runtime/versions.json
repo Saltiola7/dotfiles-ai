@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "openshell_version": "0.1.6",
+  "source_tag": "v0.1.6",
+  "target": {"os": "linux", "architecture": "arm64", "distribution": "fedora", "release": "44"},
+  "rpm": {
+    "cli": {
+      "filename": "openshell-0.1.6-1.fc44.aarch64.rpm",
+      "url": "https://github.com/NVIDIA/OpenShell/releases/download/v0.1.6/openshell-0.1.6-1.fc44.aarch64.rpm",
+      "sha256": "a95e5255f722cd7aeab048c579a4e4c94834c756b0b8e548adea54628eea2e87"
+    },
+    "gateway": {
+      "filename": "openshell-gateway-0.1.6-1.fc44.aarch64.rpm",
+      "url": "https://github.com/NVIDIA/OpenShell/releases/download/v0.1.6/openshell-gateway-0.1.6-1.fc44.aarch64.rpm",
+      "sha256": "719b0bc54d2899e819d4bc7a9fdb376e0190082226f961da9aaa2184c679b185"
+    }
+  },
+  "images": {
+    "sandbox_runtime": {
+      "repository": "ghcr.io/nvidia/openshell/sandbox",
+      "observed_tag": "0.1.6",
+      "index_digest": "sha256:1038eb5c1f191fa3c34684fd7041b891c78ec570979d487f36e06e08f91bfb63",
+      "manifest_digest": "sha256:1779a9cc83994b280663ee17415bbc24dd4bfae3ade881d0cf0cfbdf09878c4a",
+      "config_digest": "sha256:013b0e28d552880892f69c685b86cf5bb69979d411d2f3e80bbdf07b1d0bf38f"
+    },
+    "supervisor": {
+      "repository": "ghcr.io/nvidia/openshell/supervisor",
+      "observed_tag": "0.1.6",
+      "index_digest": "sha256:ce859a7d77ee515d3fe0b3c7dc61286516f402eb1d25c761d806d9ae5ed96c0b",
+      "manifest_digest": "sha256:818465ae6590e3d22ff2e90a1ff07160493a47ea5be93ef09aeac341d02132cd",
+      "config_digest": "sha256:6aa69f9ecc8c1d9be8e0f72f8336710fe9437d9fa1e321c8bec3601f7ca99373"
+    },
+    "workload_base": {
+      "repository": "docker.io/library/python",
+      "observed_tag": "3.13-slim-bookworm",
+      "index_digest": "sha256:281d39ff02e3b389401586134ff9e6572954687822a58055ec07a60ded4e0b7f",
+      "manifest_digest": "sha256:15c240ab61e2582e3513e1d8f6f5ae638b5c1625e5746d4b148152c977180275",
+      "config_digest": "sha256:de95a1d4a30e87bf15f69bd2b88771defb87414a665d3f3e40d14d66d91a24b5"
+    }
+  },
+  "verification": {
+    "rpm_metadata": "Official versioned GitHub release asset SHA256 metadata",
+    "image_metadata": "Anonymous registry index and Linux ARM64 manifest bytes matched their Docker-Content-Digest SHA256 values",
+    "runtime": "not_run",
+    "built_workload_identity": "unavailable_until_build"
+  }
+}

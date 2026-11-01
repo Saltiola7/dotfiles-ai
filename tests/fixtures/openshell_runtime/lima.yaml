@@ -1,0 +1,34 @@
+# Declaration only. A private exact-target copy may add the admitted synthetic
+# Worktrunk source share; never add the host home or a parent repository tree.
+minimumLimaVersion: "2.2.1"
+vmType: vz
+arch: aarch64
+cpus: 4
+memory: "8GiB"
+disk: "40GiB"
+images:
+  - location: "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/aarch64/images/Fedora-Cloud-Base-Generic-44-1.7.aarch64.qcow2"
+    arch: aarch64
+    digest: sha256:55c60a3b80d3616a08705afd0459e75fe9f03c54aba7a46e4002a41a72fa0d5b
+mountType: virtiofs
+mounts: []
+containerd:
+  system: false
+  user: false
+ssh:
+  loadDotSSHPubKeys: false
+  forwardAgent: false
+  forwardX11: false
+propagateProxyEnv: false
+portForwards:
+  - guestIP: "0.0.0.0"
+    proto: any
+    ignore: true
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      dnf -y install podman fuse-overlayfs passt shadow-utils shadow-utils-subid python3
+      # OpenShell installation, private configuration and service activation are
+      # separate reviewed preparation steps. No runtime starts from this recipe.

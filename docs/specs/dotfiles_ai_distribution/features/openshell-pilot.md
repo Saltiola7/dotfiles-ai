@@ -24,7 +24,8 @@ production installation and real-repository enrollment are separate slices.
 
 Current-cycle overrides are elevated risk for disposable runtime qualification;
 later host authorization work retains its separately classified risk. Applicable
-modules remain Python, Security and Cloud. Delivery includes reviewed source and
+modules are Python, Security and Cloud; embedded Bash preparation also applies
+the Shell module. Delivery includes reviewed source and
 deployment only into the explicitly selected disposable qualification worker.
 It does not modify existing managed guests, host container ownership, native
 agent launch paths, credentials, ongoing cycles or source checkout locations.
@@ -199,6 +200,74 @@ kernel compromise is contained. Native Mac MicroVM replacement remains deferred;
 its direct-sharing limitations require a separate decision and qualification.
 
 ## Validation and Gate Ledger
+
+### Qualification implementation surfaces
+
+The internal qualification assets live under `tests/fixtures/openshell_runtime/`;
+they are excluded from chezmoi installation. `versions.json` records reviewed
+release checksums and immutable ARM64 image identities. `lima.yaml`,
+`gateway.toml`, `policy.yaml` and `Containerfile` declare the isolated topology.
+Private preparation substitutes only exact owned fixture paths and the native
+guest user/socket identity. It never imports an existing gateway, home, provider
+store or VM. Missing substitutions or unverified image identities refuse use.
+
+`tests/probe_openshell_runtime.py` is an internal observation runner, not an
+installed launcher or alternate lifecycle owner. Its input is a bounded private
+selection with schema version 1, an exact owned synthetic linked checkout and
+an exact prepared worker. It resolves native Git/Worktrunk identity independently.
+The closed operation set contains inspection, fixed boundary probes and selected
+native pause/resume observations; no caller-supplied shell, program, environment,
+policy body or arbitrary operation is accepted. Preparation remains separate
+from workload execution and requires the reviewed native recipe.
+
+The first implementation accepts only `schema_version` (integer 1), `run_root`
+(an absolute canonical owner-only directory whose basename is `openshell-q-`
+followed by twelve lowercase hexadecimal characters), and `lima_sha256` (the
+reviewed native Lima executable's SHA256). The input is at most 64 KiB. The worker
+name is the run-root basename; the Lima home, fixture main repository, linked
+task checkout and evidence directory are fixed children of that root. A private
+owner marker is created during exclusive preparation; no existing root is
+implicitly adopted. The runner's only initial executable operation is the fixed
+pointer-boundary probe. Later matrix operations require their own implemented
+and reviewed controls; they remain unperformed until then.
+
+Its pure `parse_selection(bytes) -> Selection` rejects malformed input without
+effects. `validate_root(Selection)` checks preparation ownership and identity.
+The internal `run_command` owns bounded child streams and process groups;
+`pointer_probe(Selection)` executes fixed trusted fixture code and independently
+checks host pointer and metadata observations after each attempt. Neither
+selection nor workload output can supply a host command or a trusted verdict.
+
+Inputs reject unknown/duplicate fields, noncanonical paths, aliases to another
+root, unsupported versions, invalid component hashes and budgets above this
+feature's ceilings before effects. Host binaries and prepared resources are
+bound to recorded identities. Commands use fixed argument arrays and minimal
+environments; local process cancellation is never reported as proof of remote
+workload termination.
+
+The first live boundary probe attempts overwrite, append, unlink, rename and
+replacement of the Git pointer, including case variants on case-insensitive
+host filesystems. It uses only a disposable synthetic native Worktrunk checkout.
+A read-only bind at the exact `.git` spelling is a candidate control, not a proven
+barrier to aliases. Host observations compare pointer bytes, inode, registered
+membership and protected metadata with their pre-probe identities. A successful
+protected mutation stops the experiment immediately and retains the corrupted
+synthetic fixture; it is not repaired and relabeled as passing.
+
+Each probe produces an allowlisted identifier and `passed`, `failed` or
+`unavailable`, plus bounded private observations. Unperformed rows remain
+`not_run` in the aggregate report. A successful early probe cannot mark the
+whole runtime qualified. Overall qualification requires every required row in
+the [runbook matrix](openshell-runtime-runbook.md) to pass against the same
+reviewed component and policy generation. Failure at early admission blocks
+later probes and reopens only the affected technical decision.
+
+OpenShell v0.1.6's Podman driver does not implement its suspend RPC. The selected
+candidate suspension mechanism is native Podman pause/unpause of the exact full
+workload container ID. The controller must independently observe the paused
+container, stable descendant counters and writes, responsive gateway, and
+same-generation progress after unpause. The gateway's phase label alone is not
+freeze evidence. No privileged container or relaxed seccomp fallback is allowed.
 
 Use the existing rendered-configuration, shell, checksum, affected pytest and
 publication/instruction authorities from the Engineering Profile. Runtime claims

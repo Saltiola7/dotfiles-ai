@@ -1,0 +1,34 @@
+# Install only in the dedicated guest's private OpenShell configuration.
+# The RPM user unit supplies local mTLS; do not disable TLS or authentication.
+# Its environment must contain OPENSHELL_TELEMETRY_ENABLED=false and no inherited
+# provider credentials or export endpoints. Runtime identity is checked separately.
+[openshell]
+version = 2
+
+[openshell.gateway]
+compute_driver = "podman"
+bind_address = "127.0.0.1:17670"
+policy_validation_failure_mode = "fail_closed"
+image_preparation_timeout_seconds = 1800
+
+[openshell.drivers.podman]
+sandbox_runtime_image = "ghcr.io/nvidia/openshell/sandbox@sha256:1779a9cc83994b280663ee17415bbc24dd4bfae3ade881d0cf0cfbdf09878c4a"
+supervisor_image = "ghcr.io/nvidia/openshell/supervisor@sha256:818465ae6590e3d22ff2e90a1ff07160493a47ea5be93ef09aeac341d02132cd"
+image_pull_policy = "never"
+sandbox_pids_limit = 256
+allow_driver_config = true
+enable_bind_mounts = true
+userns = "keep-id:uid=1000,gid=1000"
+stop_timeout_secs = 10
+health_check_interval_secs = 10
+
+# Only the trusted fixture controller may submit the reviewed mount declaration.
+# This exception is local to the isolated qualification gateway. The workload
+# must not receive gateway configuration, operator keys or Podman sockets.
+[openshell.drivers.podman.resource_admission]
+enabled = false
+
+# Every fixture create must supply --from with the independently observed
+# immutable workload identity. No default workload image is selected here.
+# Trusted runtime images use their own upstream pull policy: preload and inspect
+# both digest references before running, rather than relying on "never" alone.

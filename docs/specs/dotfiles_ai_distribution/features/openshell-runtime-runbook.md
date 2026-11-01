@@ -1,0 +1,273 @@
+# OpenShell runtime qualification runbook
+
+Status: operator procedure for the first credential-free runtime slice. It is
+subordinate to the [runtime qualification contract](openshell-pilot.md) and the
+[OpenShell pilot Initiative](../../../initiatives/openshell-pilot/README.md).
+Owner: distribution maintainers. This document defines observations and recovery
+boundaries; it does not report completed probes or passed gates.
+
+The target is one explicitly selected disposable Fedora 44 aarch64 Lima worker
+on Apple Silicon macOS, rootless Podman and the reviewed OpenShell v0.1.6 component
+generation. Only synthetic fixtures are admitted. No provider sign-in, model
+request, native agent session, host Git bridge or real-repository enrollment
+belongs to this procedure. Existing guests and host package ownership remain
+unchanged.
+
+Concrete command sequences must come from the selected source-verified native
+interfaces and the reviewed runner/recipes. This runbook does not invent a new
+public CLI or substitute guessed flags for missing native capability.
+
+## Prerequisites and artifact admission
+
+Initial read-only host inventory reported Lima 2.2.1 and Podman 6.1.4, with
+OpenShell absent. Those observations establish only inventory. Host Podman's
+version does not prove the guest's rootless runtime, and an installed OpenShell
+binary would not prove kernel enforcement, compatible components or direct mounts.
+Recheck exact selected identities during trusted preparation; retain observations
+privately and do not infer readiness from the inventory above.
+
+Before any worker or workload operation:
+
+1. Confirm the registered runtime slice, approved disposable scope and exact
+   source revision. Use the committed feature and complete imported specification
+   closure; a later edited document cannot silently broaden the current launch.
+2. Select the worker, private evidence location and synthetic repository in the
+   trusted host controller. Verify ownership, absence of aliases and separation
+   from existing workers, agent state and real repositories. An existing resource
+   with an unknown owner or conflicting configuration is not adopted or repaired.
+3. Resolve every executable and image required by the reviewed recipe. Record
+   the selected OpenShell gateway, supervisor, workload runtime and image
+   manifests, architecture, release identity and integrity-verification method.
+   Verify downloaded or imported artifacts before executing them. Verify exact
+   image content identities rather than relying on moving tags or display names.
+4. Bind the selected Lima/Podman generation, Fedora image identity, reviewed
+   policy and runner/fixture source to the private qualification record. Reject
+   missing checksums or other required integrity evidence, incompatible component
+   generations, unexpected architecture and artifacts whose identity changes
+   between admission and execution.
+5. Inspect the effective configuration before boot or workload admission. Disable
+   vendor telemetry, automatic access approval, host SSH-agent forwarding, broad
+   home sharing, implicit credential discovery and workload access to control
+   sockets. Native container provisioning and preparation network access belong
+   to the trusted preparation step, not the workload's runtime policy.
+6. If native bind mounting requires a permissive gateway setting, constrain it
+   to this isolated gateway and controller-selected fixture resources. Record the
+   exact setting and prove that workloads cannot submit or expand resource
+   selections. Missing proof blocks admission; do not change another gateway.
+
+Trusted preparation is bounded to 30 minutes. Missing capability produces an
+unavailable result. A contradictory identity or ownership observation produces a
+failed result. Neither permits a privileged container, unconfined seccomp,
+additional host capability, another backend or automatic package-owner change.
+
+## Exact disposable scope
+
+| Selected resource | Required boundary | Refusal condition |
+|---|---|---|
+| Worker | One owned disposable Lima worker with four virtual CPUs, eight GiB memory and 40 GiB virtual disk; exact configuration recorded | Unknown owner, conflicting generation, larger unreviewed budget or an existing agent worker |
+| Workload | At most one qualification workload; two CPUs, two GiB memory and 256 processes enforced by actual runtime controls | Missing or ineffective resource enforcement |
+| Synthetic repository | Newly prepared synthetic content and native Worktrunk-created linked fixture membership | A real working repository, copied checkout used as direct-edit evidence, custom allocator or unverified membership |
+| Workload-visible source | Only selected fixture source is writable; Git pointer and protected metadata remain protected | Broad parent/home mount, writable shared Git metadata or an alias that expands access |
+| Scratch | Size-limited temporary filesystem capped at 256 MiB | Unbounded scratch or substitution of a host directory |
+| Network | Only the exact synthetic destination required by the current probe is allowed | Broad internet access, automatic endpoint approval or inherited preparation permissions |
+| Evidence | Private controller-owned output outside workload write authority | Workload can rewrite results, remove logs or assert its own trusted verdict |
+
+**Text Equivalent:** The trusted controller selects one disposable worker and one
+bounded workload. Worktrunk creates the synthetic linked checkout. The workload
+may edit selected source and bounded scratch, but not shared Git metadata, host
+state or evidence. Network allowance is limited to the current synthetic probe.
+Canonical source: the runtime feature's ownership and ceiling contracts. Owner:
+distribution maintainers. Change trigger: resource, mount, network or evidence
+ownership changes.
+
+Create fixture membership through the selected native Worktrunk interface and
+verify it independently with native Git inventory. Record the primary repository,
+linked checkout, common Git directory, per-worktree metadata and Git-pointer
+identities privately. Do not replace Worktrunk with direct worktree allocation or
+rewrite pointers to make an unsupported mount layout appear functional.
+
+Admit no more than 64 MiB and 4096 fixture entries. Include synthetic protected
+sentinels, sibling-checkout metadata and bounded text, binary and executable-mode
+cases. Alias probes target only those synthetic sentinels, never actual secrets
+or unrelated host files. Classify existing hardlinks, symlinks, case aliases and
+parent replacements before allowing access; unsupported layouts remain unavailable.
+
+## Credential-free environment
+
+Construct explicit minimal environments for trusted preparation and the workload;
+do not inherit the parent shell wholesale. Workload state is private to this
+experiment and contains no normal host home, native agent state, provider grant,
+ADC file, 1Password bearer token, SSH agent or gateway/Podman administration socket.
+Do not use a managed guest shell route that automatically loads or forwards a
+1Password service-account token.
+
+Use nonfunctional synthetic markers to test environment and file exclusion. The
+controller may compare whether a marker crossed the boundary, but ordinary output
+contains only the result class. Do not print complete process environments or
+mounted-file contents. A successful absence check must cover the actual workload
+environment and mounts, not merely the intended input configuration.
+
+Preparation may retrieve verified public artifacts through its reviewed route.
+Running probes inherit only their selected synthetic network allowance. If a tool
+tries credential discovery or interactive login, stop and record unavailable;
+do not satisfy the prompt with an existing host account.
+
+## Ordered operation and evidence
+
+The probe phase has a 15-minute overall deadline and 60 seconds per probe.
+Recovery observation has a separate maximum of 60 seconds. Preserve earlier
+results when a later deadline expires. No unbounded retry, automatic recreation
+or repeatedly restarted experiment is permitted.
+
+| Step | Required observation before advancing | On failure or uncertainty |
+|---|---|---|
+| Prepare | Exact private scope, native fixture membership, reviewed artifacts and policy are admitted | Do not boot or execute an unverified candidate; retain the disposition |
+| Admit | Rootless Podman, Landlock, seccomp, user namespaces, resource controls and exact mount protection work in the selected topology | Do not admit the fixture workload under relaxed controls |
+| Exercise | Direct edits are observed from the host; protected writes, aliases, egress bypass and administrative access are denied | Stop new probes and retain modified synthetic fixtures and bounded diagnostics |
+| Pause | Every workload descendant stops progressing while the gateway remains responsive | Report failed or unavailable; terminal silence is insufficient |
+| Resume | The same workload generation and process/session markers continue with prior edits intact | A replacement process is restart, never successful resume |
+| Recover | Gateway interruption, worker restart and storage-loss cases have bounded, separately classified durability and state observations | Preserve ambiguous state; do not reset, delete or adopt a substitute resource |
+| Finish | Every required probe has a truthful outcome and the controller has recorded preservation inventory | Leave incomplete checks unavailable; cleanup remains separately authorized |
+
+**Text Equivalent:** Preparation and enforcement admission precede workload
+execution. Boundary probes precede pause/resume. Resume must continue the same
+generation; restart and failure recovery have separate evidence. Any failure stops
+new probes and preserves work. Completion records results without implying cleanup.
+Canonical source: the runtime feature's ordered qualification contract. Owner:
+distribution maintainers. Change trigger: ordering, admission, recovery or
+completion semantics change.
+
+The controller must verify observations itself. Workload messages are untrusted
+probe data, not evidence that a boundary held. Record a stable probe identifier,
+`passed`, `failed` or `unavailable`, an allowlisted reason, the observed component
+generation and a private evidence reference. Do not upgrade missing observations
+to passed because a command exited successfully.
+
+### Full probe outcome matrix
+
+| Probe | Evidence required for passed | Failed or unavailable disposition |
+|---|---|---|
+| Artifact integrity | All selected component, image, source and policy identities match the reviewed generation before execution | Mismatch fails; absent verification evidence is unavailable |
+| Kernel and rootless admission | Actual nested probes demonstrate Landlock, seccomp, user namespaces and rootless Podman without relaxed isolation | Ineffective enforcement fails; missing mechanisms are unavailable |
+| Resource admission | Runtime observations confirm CPU, memory, process and scratch limits, plus one-workload admission | Limit bypass fails; unenforceable controls are unavailable |
+| Direct file editing | Host observations see the intended text/binary changes, create/delete operations and executable modes in the native linked fixture | Wrong target or unintended changes fail; unsupported filesystem behavior is unavailable |
+| Git pointer protection | Overwrite, unlink, rename and replacement attempts fail; native membership and pointer identity remain unchanged | Any successful protected mutation fails; missing host verification is unavailable |
+| Shared metadata protection | Config, objects, refs, hooks, sibling indexes and lifecycle sentinels remain unchanged after attempted writes | Protected changes fail; inability to observe the selected protected set is unavailable |
+| Alias resistance | Symlink, hardlink, alternate spelling, case-collision and parent-replacement cases are denied or refused at admission without changing protected sentinels | Reachable protected data fails; layouts that cannot be safely represented or excluded are unavailable |
+| Allowed network case | The exact synthetic destination works only under its reviewed rule | Excess scope fails; an unreachable fixture that prevents a positive control is unavailable |
+| Denied network case | Denied destination stays inaccessible through proxy-aware and direct attempts after proxy variables are removed or ignored | Successful direct or alternate-route access fails; a proxy error without direct-route evidence is unavailable |
+| Control-plane exclusion | Workload cannot change policy, attach resources, grant credentials, approve access or reach gateway/Podman administration | Any acquired administration authority fails; an unexercised interface is unavailable |
+| Environment and state exclusion | Synthetic markers and selected observations show no inherited reusable secrets, host state or control channels | Marker or protected-state exposure fails; inspection gaps are unavailable |
+| Whole-workload pause | All child and background progress, writes and outbound attempts stop; gateway remains responsive | Any continued workload activity fails; incomplete descendant observation is unavailable |
+| Same-generation resume | Original workload/process/session markers resume and prior source edits remain present | Replacement identity or lost acknowledged source changes fail; ambiguous identity is unavailable |
+| Failure preservation | Each selected failed-probe, gateway-interruption, worker-restart, storage-unavailability and uncertain-flush case retains evidence and reports actual source durability separately from volatile state | Lost required retained work, fallback or automatic destructive recovery fails; unobserved durability remains unavailable |
+| Evidence bounds | Controller-owned logs preserve earlier results, record truncation and stop new probes at their cap without workload modification | Overwrite, secret output, exceeded cap or continued probing after exhaustion fails; uncertain log ownership is unavailable |
+
+**Text Equivalent:** Each row has an independent observed pass condition. An
+observed boundary violation is failed; a missing capability or observation is
+unavailable. Positive controls do not replace negative tests. Kernel enforcement,
+direct edits, Git and alias protection, network and control-plane exclusion,
+resources, pause/resume, recovery and private evidence all require actual
+observations. Canonical source: required behaviors and observation contract in the
+runtime feature, expanded into operator checks here. Owner: distribution
+maintainers. Change trigger: probe coverage, interpretation or acceptance changes.
+
+### Proving whole-workload pause
+
+Before pausing, establish live progress from a foreground fixture and separate
+child/background descendants. Retain their native workload and process/session
+identities, synthetic progress counters, bounded source-write observations and
+requests observed by the allowed synthetic network destination. The trusted
+controller observes the gateway independently.
+
+Use the selected source-verified whole-workload suspension mechanism. After
+native pause acknowledgement, compare at least two bounded observations while
+paused. Every descendant's counter and write observation must remain stable,
+and no new outbound attempt may progress. The gateway must remain responsive
+during that same interval. Stopping only the terminal, an SSH client or the
+foreground process does not establish this result.
+
+Resume the exact native workload. Confirm original generation and process/session
+markers, retained source edits and renewed progress from all fixture roles.
+Keep gateway responsiveness evidence separate. Timeout, partial freeze or a new
+process is not resume. A worker or gateway restart belongs to the independent
+recovery probe and must describe any loss of volatile state honestly.
+
+## Failure handling and retained work
+
+At the first boundary violation, identity drift, unexpected credential prompt,
+deadline expiry or log exhaustion, stop admitting new probes. Use only the
+qualified native control for the exact owned workload to stop further activity.
+If containment or termination is uncertain, report that uncertainty, preserve
+ownership records and do not admit another workload to the same experiment.
+Do not signal unrelated processes or infer guest termination from a terminated
+host controller process.
+
+Retain source edits, fixture membership, the selected configuration and artifact
+identities, bounded failed diagnostics and the last known native workload state.
+Observe whether acknowledged source writes survived, and distinguish them from
+unflushed writes or volatile process state. A recovery attempt is bounded and
+never resets the repository, removes the fixture, rewrites membership or switches
+to an unrelated worker. Preserve the original failed observation even if a later
+controlled experiment succeeds.
+
+Diagnostic retention is capped at 10 MiB per run and 100 MiB in aggregate, with
+explicit truncation metadata. Reaching a cap stops new probes; do not erase failed
+evidence to make space. Work preservation is separate from diagnostic retention
+and is not subject to automatic log pruning. Keep evidence owner-only and outside
+workload write authority. Public summaries contain sanitized outcomes and versions,
+not paths, endpoints, accounts, tokens, raw output or native session bodies.
+
+## Review, rerun and explicit cleanup
+
+Review the complete matrix and preservation inventory before deciding the next
+action. Source checks and policy inspection do not establish live runtime
+success. Every required runtime observation must pass before downstream slices
+can rely on this generation; failed feasibility reopens only its affected design
+decision. The existing lifecycle owner records gates and the Initiative owns
+promotion. This runbook creates neither a gate result nor a readiness receipt.
+
+A rerun uses a new privately identified experiment and explicitly selected owned
+resources. Retain earlier failures. Requalify changed binaries, images, policy,
+mounts, resource budgets or control interfaces; do not relabel stale evidence.
+No source update implies a live worker change or package upgrade.
+
+Cleanup is a separate, exact operation. Before requesting or performing it:
+
+1. Inventory retained fixtures, native checkout membership, workload and worker
+   ownership, source edits, diagnostics and recovery uncertainty.
+2. Confirm the exact owned workload is stopped and no controller or descendant
+   still uses the selected resources. Unknown consumers block removal.
+3. Obtain the operator's disposition for retained work and private evidence, and
+   exact authorization for the resources to remove. Experiment completion is not
+   permission to delete them.
+4. Use native Worktrunk removal with existing preservation checks for the fixture
+   checkout. Use qualified native owners for the selected workload and disposable
+   worker. Do not bypass hooks, force dirty removal, delete unrelated images or
+   caches, or remove a worker whose identity no longer matches the receipt.
+5. Verify only the selected resources were retired and record the retained
+   evidence's disposition privately. If any step fails, preserve the remainder
+   and report partial cleanup rather than retrying broadly.
+
+Filesystem isolation does not impose a byte quota on writable host shares.
+Declared fixture sizes and bounded writes limit this experiment; they are not
+general protection against host-volume exhaustion or a guest-kernel compromise.
+Later real-checkout activation requires its own storage and threat-boundary review.
+
+## Visual Evidence
+
+| Concern | Decision and review question |
+|---|---|
+| Boundary | required: exact-disposable-scope table; which resources may the workload touch and who selects them? |
+| Interaction | required: ordered-operation table and pause procedure; which observations must precede execution, suspension and recovery? |
+| State | required: ordered-operation table and outcome matrix; what distinguishes admission, failure, pause, resume and completion? |
+| Data/trust | required: scope and outcome tables; can workload data grant authority or modify trusted evidence? |
+| Schema | not_applicable: this runbook defines no persistent public schema and reuses the feature's private evidence authority. |
+| Dependency/deployment | required: scope and ordered-operation tables; where do host, Lima, rootless Podman, gateway and workload ownership apply? |
+| Quantitative | not_applicable: resource and time ceilings are contractual limits, not measured performance or comparison evidence; a chart adds no evidence. |
+
+All required tables have adjacent Text Equivalents and remain editable source.
+The runtime feature is canonical for limits and behavior; maintain both documents
+in the same change when those contracts change. The initial host inventory is
+informative provenance only and never a substitute for current private runtime
+evidence.

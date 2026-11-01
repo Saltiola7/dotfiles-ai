@@ -1,0 +1,12 @@
+# The base manifest is Linux ARM64. A successful local build is a candidate;
+# record its actual manifest/config identities before any qualification launch.
+FROM docker.io/library/python@sha256:15c240ab61e2582e3513e1d8f6f5ae638b5c1625e5746d4b148152c977180275
+RUN groupadd --gid 1000 sandbox \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/sh sandbox \
+    && install -d -o sandbox -g sandbox /sandbox/work /scratch
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 TMPDIR=/scratch HOME=/scratch
+USER sandbox:sandbox
+WORKDIR /sandbox/work
+# Trusted controller supplies the exact reviewed probe command. The default
+# idle process is bounded and cannot establish any qualification result.
+CMD ["python3", "-I", "-B", "-c", "import time; time.sleep(900)"]
