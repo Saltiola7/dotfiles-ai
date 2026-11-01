@@ -1,0 +1,469 @@
+{
+  "schema_version": 1,
+  "suite_id": "native-skill-router-v1",
+  "proposal_hashes": {
+    "development": "9737f4daa549b02aa2d1e3eabca24f3e43e1de6b5f06ac98f97fe825d555355b",
+    "heldout": "00e850b6de06c8369d741bdcb02c81247536add2d81aa2355141e89e56599f8d"
+  },
+  "amendment": {
+    "id": "rootless-minimum-guidance-before-outcomes",
+    "case_id": "hold-rootless-storage",
+    "reason": "Podman guidance can be sufficient; Linux diagnostics is an accepted optional specialist rather than a mandatory duplicate load.",
+    "before_sha256": "c50e3b48313015b52afa6cebc3ed5df9228774d029f74bf9872dab4ae3765632",
+    "after_sha256": "992259e9e6b051e76368cd9434ba28e16adf50c1be15bcaf97e381148567234b",
+    "model_outcomes_observed": false
+  },
+  "cases": {
+    "dev-structure-io": {
+      "required_tracked_skills": [
+        "python-design-patterns"
+      ],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Keep a minimal responsibility/dependency boundary; do not invent a framework or unrelated tool migration."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "dev-shrunk-invariant": {
+      "required_tracked_skills": [
+        "property-based-testing"
+      ],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Inspect the intended empty-list contract before changing a valid property to accept a bug."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "dev-gcp-library-negative": {
+      "required_tracked_skills": [],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "No gcloud construction, ADC/IAM diagnosis, async work or platform mutation is needed for a local field-name mismatch."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "dev-shell-pytest": {
+      "required_tracked_skills": [
+        "bash-defensive-patterns"
+      ],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Track each child outcome, preserve nonzero status and supported-shell compatibility; do not add Bats merely to use a testing recipe."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "hold-structure-dependency": {
+      "required_tracked_skills": [
+        "python-design-patterns"
+      ],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Separate decision input from concrete transport without an unnecessary class hierarchy."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "hold-numeric-property": {
+      "required_tracked_skills": [
+        "property-based-testing"
+      ],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Express normalize(normalize(x)) == normalize(x) over the supported domain; distinguish domain exclusions from ignored failures."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "hold-mojo-ordinary-edit": {
+      "required_tracked_skills": [
+        "mojo-syntax"
+      ],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Use selected-SDK semantics; do not add a new project, environment manager, nightly channel or MAX workflow."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "hold-helm-generic": {
+      "required_tracked_skills": [
+        "helm-chart-scaffolding"
+      ],
+      "allowed_additional_tracked_skills": [
+        "k8s-manifest-generator"
+      ],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Local rendering/linting differs from cluster admission/rollout; generic chart work does not select GCP/GKE identity guidance."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "hold-gke-api-identity": {
+      "required_tracked_skills": [
+        "gke-workload-identity"
+      ],
+      "allowed_additional_tracked_skills": [
+        "google-cloud-recipe-auth"
+      ],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-troubleshooting",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Distinguish Google IAM API access from Kubernetes RBAC and missing identity evidence; do not print tokens or claim verified cause from the 403 alone."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "hold-rootless-storage": {
+      "required_tracked_skills": [
+        "podman-quadlet"
+      ],
+      "allowed_additional_tracked_skills": [
+        "linux-host-diagnostics"
+      ],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "property-based-testing",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Resolve account/user unit ownership, mappings and labels; do not assert SELinux is the cause or disable it without evidence."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "hold-launchagent": {
+      "required_tracked_skills": [
+        "macos-operations"
+      ],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Distinguish syntax from runtime launch domain, identity, environment and Keychain/TCC context."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "hold-async-mixed": {
+      "required_tracked_skills": [
+        "async-python-patterns"
+      ],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Bound task/resource ownership, cancel and drain siblings on failure/caller cancellation; an incidental platform mention does not select cloud diagnosis."
+      ],
+      "note": "Auxiliary lifecycle/style/security guidance is not scored as a specialist false positive, but its actual reads and tokens remain counted."
+    },
+    "control-dbsctr-navigation": {
+      "required_tracked_skills": [
+        "python-design-patterns"
+      ],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-gpu-fundamentals",
+        "mojo-python-interop",
+        "mojo-syntax",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Keep Domain/Spec responsibilities and project policy intact; distinguish guidance navigation from actual cycle execution."
+      ],
+      "note": "Controls are excluded from implicit-selection accuracy; all their actual reads and usage remain reported."
+    },
+    "control-unregistered-gpu": {
+      "required_tracked_skills": [
+        "mojo-syntax",
+        "mojo-gpu-fundamentals"
+      ],
+      "allowed_additional_tracked_skills": [],
+      "forbidden_tracked_skills": [
+        "async-python-patterns",
+        "bash-defensive-patterns",
+        "bats-testing-patterns",
+        "gcloud",
+        "gke-workload-identity",
+        "gke-workload-troubleshooting",
+        "google-cloud-recipe-auth",
+        "helm-chart-scaffolding",
+        "k8s-manifest-generator",
+        "linux-host-diagnostics",
+        "macos-operations",
+        "modern-python",
+        "mojo-python-interop",
+        "new-modular-project",
+        "podman-quadlet",
+        "property-based-testing",
+        "python-design-patterns",
+        "python-modernization-review",
+        "python-performance-optimization"
+      ],
+      "decision_checks": [
+        "Recover only the exact needed readable sibling if absent from native registration. Do not call this cached-catalog proof or bypass explicit user disablement.",
+        "Keep unavailable GPU execution and performance evidence unavailable."
+      ],
+      "note": "Controls are excluded from implicit-selection accuracy; all their actual reads and usage remain reported."
+    }
+  }
+}

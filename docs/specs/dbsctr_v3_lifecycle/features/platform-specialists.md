@@ -392,3 +392,216 @@ then needed resources. Results return to the existing primary and QA; no stage
 creates another coordinator or grants permission. Canonical source: this feature
 and module routing tables. Owner: lifecycle maintainer. Update when selection,
 authority, loading or delivery boundaries change.
+
+
+## Native router qualification
+
+### Domain and ownership
+
+This follow-up qualifies actual automatic skill selection and token usage before
+changing descriptions or removing duplicated routing. The native client remains
+the selector; DBSCTR remains instruction-driven. The evaluation is a bounded,
+explicitly invoked maintenance authority, not a new dispatcher, service, session
+coordinator or universal coding gate. Python, ML/AI and Security modules apply.
+
+| Value or owner | Responsibility |
+|---|---|
+| Task case | A synthetic repository, ordinary task request, independently declared expected/forbidden guidance and split |
+| Guidance snapshot | Complete selected source bytes, metadata, native catalog and invocation configuration identities |
+| Native observation | Actual catalog visibility, completed reads/tool events, final result and provider-reported usage for one fresh run |
+| Paired comparison | Matched cases/repetitions and balanced order; quality and observed usage remain separate outcomes |
+| Current primary and QA | Own evaluation execution, review, acceptance, lifecycle and delivery |
+| Private cycle evidence | Retain raw native events, local identities, failed runs and recovery material outside public source |
+
+Public fixtures contain only synthetic source and portable methodology. Existing
+account credentials remain in their native owner; no copied authentication,
+changed global configuration, new account, provider switch, model migration or
+infrastructure mutation is part of qualification. The configured native model and
+provider stay fixed across each comparison. Missing observations remain missing.
+The existing source-only OpenCode compression fixture keeps its separate purpose
+and unavailable usage/cost fields; native router evidence cannot relabel it.
+
+### Native qualification behavior
+
+| Given / when | Observable outcome |
+|---|---|
+| An ordinary synthetic task implicitly matches a specialist | Observe the native catalog and successful body/resource reads; naming a skill in the answer is insufficient |
+| A task is adjacent but needs no specialist | Preserve the negative case; unrelated tracked loads are visible |
+| A task crosses platform/language concerns | Select only justified techniques and retain project-selected tools and target boundaries |
+| An existing property suite shrinks a counterexample | Evaluate the existing property and implementation without replacing the project test authority |
+| A native catalog omits an unregistered but readable managed sibling | Test exact-sibling recovery separately; do not call this cache-staleness proof or override an explicit disable policy |
+| Native output lacks usage, fails or times out | Retain the attempt and unavailable fields; do not infer tokens from characters, bytes, answer length or account percentages |
+| Direct implicit selection bypasses DBSCTR references | Count its selection and end-to-end usage only; it cannot prove savings from module/reference deduplication |
+| An explicit DBSCTR navigation control exercises the changed route | Label it separately from implicit-trigger results |
+| Descriptions change after development observations | Freeze candidate bytes before revealing held-out cases and preserve the original baseline |
+| Python routing is maintained | Keep one canonical six-technique table in the Python module; retain unique method/provenance notes in the reference |
+| A qualified candidate is deployed | Preserve complete bundles, native default model/provider, unrelated live edits and existing gate/authorization semantics |
+
+The predeclared case set separates four development tasks from eight held-out
+tasks. Run both snapshots on identical synthetic inputs; keep expected skill and
+quality decisions scorer-owned. The current native CLI exposes the two long Python
+descriptions in full, so conversation-catalog shortening is not a proven native
+selection failure. Native discovery, loading, instruction compliance and completed
+validation remain distinct observations.
+
+### Native qualification interfaces and evidence
+
+`tests/skill_router_eval.py` is an opt-in maintenance evaluator using the existing
+managed Codex CLI. It prepares complete private guidance snapshots and synthetic
+repositories, captures native catalog rendering, runs fresh read-only native
+assessments and summarizes actual observations. Ordinary `pytest` never starts a
+model. `tests/test_skill_router_eval.py` exercises parsing, identity, scoring,
+missing evidence and bounded-execution behavior without provider access. Versioned
+synthetic cases and an output schema live under `tests/fixtures/skill_router/`.
+
+The native command preserves the configured model/provider/authentication and
+normal safety/lifecycle hooks. Invocation-local `skills.config` excludes only
+replaced global skill paths to prevent duplicate revisions; selected complete
+snapshot bundles are registered through native-supported fixture skill paths.
+`debug prompt-input` captures the actual model-visible catalog before a run.
+`exec --json --ephemeral --sandbox read-only --skip-git-repo-check` consumes the
+ordinary request on stdin with a bounded output schema. No expected skill names,
+quality decisions or oracle are put in the request or fixture repository.
+
+Parse only the native developer skill-instructions block and its declared alias
+roots, not arbitrary user text. Resolve portable paths/canonical symlinks against
+the declared snapshot. Observe completed successful command output containing the
+expected method body or resource excerpt; mere command/path mentions, catalog
+metadata and self-reported usage are insufficient. Classify excerpt versus full
+reads honestly and retain native event limitations for independent review.
+
+Keep provider-reported `input_tokens`, `cached_input_tokens`, `output_tokens` and
+available reasoning fields separately from measured wall duration and static
+character counts. Preserve absent fields as unavailable. These are end-to-end
+native-run observations, not attribution to a particular skill or billed cost.
+
+Use the four development baseline cases before tuning, freeze candidate metadata,
+then run their candidate cases as diagnostic observations. Development is not an
+unbiased balanced comparison. Eight held-out cases run twice per arm in balanced
+AB/BA order after the freeze. Run one explicit
+DBSCTR navigation control twice per arm, outside implicit-selection scoring, and
+one true unregistered-sibling case per arm. Maximum planned population: 46 native
+runs; no harness retry loop. A per-run deadline retains timeout/failure evidence.
+Native version, selected model/provider, fixture/guidance/catalog identity, case,
+arm, repetition, order and raw-event digest bind every observation. Raw captures
+and local paths stay under the existing private cycle evidence owner.
+
+| Native evaluation boundary | Guard and evidence |
+|---|---|
+| Synthetic case to model | Ordinary input only; scorer-owned oracle and held-out split |
+| Snapshot to native catalog | Complete resources; exact replaced-path exclusions; alias and source identity checks |
+| Native events to observation | Actual terminal status, successful returned method content and native usage fields |
+| Observation to comparison | Complete planned denominator, paired identities/order, quality distinct from token counts |
+| Source to installation | Existing exact-target preview/apply, retained preimages and repeated verification |
+
+**Text Equivalent (native qualification):** The current primary prepares complete
+private snapshots and synthetic tasks, verifies native discovery, then makes
+bounded read-only native calls. Expected decisions remain outside model input.
+Actual event/usage observations return to the existing private cycle, independent
+review and QA. No evaluator step replaces the primary or grants operational
+permission. Canonical source: this feature and evaluator; owner: dotfiles
+maintainer; update with native schemas, selection boundaries or measurement rules.
+
+The quantitative evidence is a paired source-data table of actual native fields
+and case outcomes, with coverage, units, repetition and uncertainty beside it.
+For this small finite sample a table answers the comparison directly; no decorative
+chart or general statistical accuracy/savings claim is required. Native results
+remain separate from the older offline compression rubric. Official references:
+[skill discovery](https://learn.chatgpt.com/docs/build-skills),
+[native JSON events](https://learn.chatgpt.com/docs/non-interactive-mode) and
+[skill evaluation](https://developers.openai.com/blog/eval-skills).
+
+### Native qualification contracts and acceptance
+
+- Keep normal native authentication, model/provider and safety/lifecycle hooks.
+  Native hook metadata journals may operate normally; model tools remain read-only
+  within the synthetic task. Do not weaken permissions to make a test pass.
+- Capture the actual model-visible catalog, including full versus shortened
+  descriptions, before attributing a miss to discovery. Exclude exact replaced
+  global paths only in this invocation and reject duplicate alternate tracked
+  revisions or changed snapshots. A deliberately unregistered sibling is not
+  evidence of cache staleness; explicit user disablement is not bypassed.
+- Model input contains only the case input and common output contract. Oracle,
+  expected skill sets, held-out labels and score files stay outside the fixture.
+  Freeze case identities and candidate source before held-out execution. An
+  accepted optional specialist must be declared before seeing outcomes.
+- Count a tracked method read only from successful completed native output with
+  expected method content; distinguish partial/full content and native event
+  limitations. Reject mere path mentions, failed commands, metadata-only listings
+  and answer claims. Independent transcript review confirms selected observations
+  and task-specific decision quality; a read alone does not prove compliance.
+- Validate event/usage shapes and integer fields without coercing booleans,
+  negatives, missing fields, malformed output or non-success terminal status to
+  zero or green. Preserve original failed/unavailable attempts and the complete
+  planned denominator. Retain raw private captures and digests for audit.
+- Use balanced paired order for held-out/navigation controls, fresh runs and fixed
+  client/configuration identities. Development baseline precedes tuning and its
+  candidate observations are explicitly diagnostic.
+  Changes to source, catalog, selected model/provider or fixture invalidate the
+  affected comparison. Provider failures stop or retain bounded attempts, without
+  automatic account/provider fallback or unrecorded retries.
+- Report native input/cache/output fields separately. Do not subtract cached input
+  without established semantics, infer billing from tokens, or attribute whole-run
+  usage to one skill. Wall duration includes native startup/tools/hooks. Nested
+  calls without qualified usage coverage remain an explicit measurement gap.
+- Accept the guidance candidate only after complete source/provenance/distribution
+  checks and review of observed selection/decision outcomes with no unresolved
+  regression. Report finite case/repetition counts and actual observed usage;
+  no arbitrary savings threshold, statistical reliability or universal trigger
+  guarantee follows from this maintenance experiment.
+- Keep the canonical Python trigger/checkpoint table in the module; replace its
+  duplicate reference table with navigation. Reuse loaded common guidance; consult
+  selection/discovery or Python method/provenance detail when it resolves the
+  current question. Retain existing obligations and
+  complete vendor resources; metadata edits update matching reversible provenance.
+- Use existing exact-target deployment, prior-live comparison and complete bytes/
+  file-set verification. Preserve unrelated installed changes and retain recovery
+  preimages. Native catalog observation is a separate deployment claim.
+
+| Evaluation state | Transition evidence |
+|---|---|
+| Prepared | Case/snapshot/config identities and native catalog preflight recorded |
+| Running | One bounded native call; raw private event capture retained |
+| Complete | Successful terminal event, valid output and actual usage/content observations |
+| Failed or unavailable | Original status retained; missing evidence never becomes zero |
+| Compared | Complete planned denominator and matched identities; quality and token fields separate |
+| Accepted | Independent review plus existing source/distribution and lifecycle gates |
+
+**Text Equivalent (evaluation states):** Preparation binds identities and native
+visibility. Each bounded call ends complete, failed or unavailable with retained
+raw evidence. Only matched complete observations support a comparison; missing
+attempts remain visible. Acceptance requires review and existing gates. Canonical
+owner: current primary and QA; update when transitions or evidence contracts change.
+
+
+### Observed fallback remediation
+
+The first 46 native assessments remain an immutable comparison of the original
+baseline and frozen metadata/deduplication candidate. Both omission controls failed:
+they checked a lexical registration sibling rather than the physical sibling of
+the loaded DBSCTR directory, then overstated absence. This is an observed shared
+failure, not a demonstrated recovery or cache-staleness result.
+
+Add the narrow read-only supporting resource
+`dbsctr/scripts/resolve_specialist.py`. It resolves its own physical DBSCTR root,
+validates one known managed skill name, inspects only that physical sibling's
+regular SKILL.md and verifies its declared name. It returns the available path or
+a scoped unavailable result; no search, download, execution, authentication or
+lifecycle mutation is performed. Existing Python is used, never installed. Project
+scope exclusions and explicit disablement take priority over lookup and loading.
+Core provides one conditional pointer; discovery details stay in the reference.
+
+The resolver API accepts a name and an internal script-path test seam. Invalid
+names refuse before filesystem lookup. Missing/non-regular/mismatched entrypoints
+never become an available result. Directory symlinks are followed before computing
+the managed sibling; native registration layout is not assumed to be physical.
+Validate direct/symlink layouts, invalid names, absence and metadata mismatch in
+offline tests before four separately declared targeted native checks.
+
+Those four checks are follow-up repair smoke, not unseen held-out evidence or
+unrecorded retries of the initial comparison. Predeclare two permitted GPU/sibling
+cases, an explicit policy exclusion and an incidental-language negative before
+execution. Retain the first 46 failures and source identities, bind final guidance
+separately, and report all 50 native calls without claiming general accuracy or
+end-to-end token savings. Source delivery uses this final repaired snapshot;
+initial comparison measurements keep their original frozen-source attribution.

@@ -30,6 +30,7 @@ SHARED = (
     "dbsctr/modules/shell.md", "dbsctr/modules/mojo.md",
     "dbsctr/references/python-specialists.md", "dbsctr/references/platform-specialists.md",
     "dbsctr/references/specialist-selection.md",
+    "dbsctr/scripts/resolve_specialist.py",
 )
 
 

@@ -1,5 +1,29 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Native specialist-router qualification
+
+- Added opt-in native automatic-selection evaluation with private raw evidence,
+  real usage fields, observed method reads and independent decision review.
+  Retained 46 initial calls plus four separately frozen repair checks. Held-out
+  routing tied at 16/16 per arm; five initial answers were partial. Held-out input
+  increased 6.1%, so no end-to-end saving or universal reliability is claimed.
+- Shortened two descriptions, removed duplicate Python routing and unconditional
+  reference hops, and retained complete resources/licenses/reversible provenance.
+  Both original omission controls failed; a bounded physical-sibling resolver
+  fixed symlink registration lookup. Two recovery and two negative repair checks
+  passed. Explicit disablement and project/lifecycle authority remain unchanged.
+- Scoped offline regression passed; original creator validated both changed
+  vendor entrypoints. Deployed 42 canonical files and two reconciled instruction
+  overlays with exact targets, repeated application, empty diff and complete
+  bytes/file sets/modes. Unrelated live core and Python-audit text was preserved.
+  Native CLI catalog observed all three changed discovery entries; Desktop
+  refresh and operational SDK/cloud/device execution are not claimed.
+- Cycle `SKILL-ROUTER-001` retains original failures, source identities, independent
+  reviews and recovery preimages. No Gate Exception. Kernel commits include
+  `10be04f`, `9e0aa0a`, `76b94fb`, `14f0c68` and `2f7d4b9`. Intended delivery:
+  feature branch/draft PR to `main`, followed by requested ordinary merge after
+  fresh native CI and protections; final closure records actual outcome.
+
 ## 2026-10-31 — Repository-wide Python audit
 
 - Added `python-audit`, a report-only entrypoint composing all six current Python

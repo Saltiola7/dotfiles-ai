@@ -1,0 +1,197 @@
+{
+  "schema_version": 1,
+  "suite_id": "native-skill-router-v1",
+  "tracked_skills": [
+    "modern-python",
+    "property-based-testing",
+    "python-design-patterns",
+    "python-performance-optimization",
+    "async-python-patterns",
+    "bash-defensive-patterns",
+    "bats-testing-patterns",
+    "gcloud",
+    "gke-workload-identity",
+    "gke-workload-troubleshooting",
+    "google-cloud-recipe-auth",
+    "helm-chart-scaffolding",
+    "k8s-manifest-generator",
+    "linux-host-diagnostics",
+    "macos-operations",
+    "mojo-gpu-fundamentals",
+    "mojo-python-interop",
+    "mojo-syntax",
+    "new-modular-project",
+    "podman-quadlet",
+    "python-modernization-review"
+  ],
+  "cases": [
+    {
+      "id": "dev-structure-io",
+      "split": "development",
+      "input": {
+        "request": "Assess the smallest way to separate the business decision from filesystem/HTTP access in this Python component so tests can exercise decisions without network fixtures. Preserve current public call signature and tools.",
+        "files": {
+          "service.py": "def settle(order, store, client):\n    account = client.lookup(order.account)\n    if order.total <= account.credit:\n        store.write(order)\n        return \"accepted\"\n    return \"rejected\"\n",
+          "pyproject.toml": "[project]\nrequires-python = \">=3.12\"\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "dev-shrunk-invariant",
+      "split": "development",
+      "input": {
+        "request": "A generated test shrank to a failure on empty input. Determine whether the round-trip rule or implementation is wrong and propose the narrow next test/fix.",
+        "files": {
+          "test_codec.py": "from hypothesis import given, strategies as st\n@given(st.lists(st.integers()))\ndef test_roundtrip(values):\n    assert decode(encode(values)) == values\n",
+          "codec.py": "def encode(values):\n    return \",\".join(map(str, values))\ndef decode(text):\n    return [int(part) for part in text.split(\",\")]\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "dev-gcp-library-negative",
+      "split": "development",
+      "input": {
+        "request": "Assess this local Python adapter bug using the supplied test. Cloud authentication and selected project are already working; request concerns the synchronous client-library object field only.",
+        "files": {
+          "adapter.py": "def names(response):\n    return [row.name for row in response.items]\n",
+          "test_adapter.py": "from types import SimpleNamespace\ndef test_names():\n    result = SimpleNamespace(entries=[SimpleNamespace(name=\"one\")])\n    assert names(result) == [\"one\"]\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "dev-shell-pytest",
+      "split": "development",
+      "input": {
+        "request": "Assess why this Bash launcher reports success when one background command fails. Existing pytest subprocess tests are the project authority; Bats is not selected. Supported shells are macOS Bash 3.2 and Linux Bash 5.",
+        "files": {
+          "run.sh": "run_first &\nrun_second &\nwait\nprintf \"complete\\n\"\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "hold-structure-dependency",
+      "split": "heldout",
+      "input": {
+        "request": "A Python rules module now imports the concrete HTTP client, making every unit test require transport setup. Propose a minimal dependency direction and interface adjustment while keeping existing public behavior.",
+        "files": {
+          "rules.py": "from transport import client\ndef eligible(customer_id):\n    return client.fetch_customer(customer_id).active\n",
+          "transport.py": "client = ExistingConfiguredClient()\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "hold-numeric-property",
+      "split": "heldout",
+      "input": {
+        "request": "The money normalizer must be idempotent for all supported decimal inputs. Extend the existing generated suite with a meaningful rule and explain how to handle a shrunk counterexample without weakening the contract.",
+        "files": {
+          "test_money.py": "from decimal import Decimal\nfrom hypothesis import given, strategies as st\n@given(st.decimals(allow_nan=False, allow_infinity=False))\ndef test_existing(value):\n    assert isinstance(normalize(value), Decimal)\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "hold-mojo-ordinary-edit",
+      "split": "heldout",
+      "input": {
+        "request": "Assess an ownership/lifetime issue in this existing Mojo function. The project already has a selected stable SDK, lock and Pixi environment; no project setup or Python/GPU boundary is changing.",
+        "files": {
+          "reader.mojo": "# Existing selected stable SDK; snippet requires version-aware ownership review.\ndef read_label(value):\n    return value.label\n",
+          "pixi.toml": "[workspace]\nname = \"existing-mojo-app\"\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "hold-helm-generic",
+      "split": "heldout",
+      "input": {
+        "request": "Assess a values/template change to this application chart for a generic Kubernetes cluster outside Google Cloud. Keep the existing release namespace, dependencies and GitOps delivery.",
+        "files": {
+          "charts/app/Chart.yaml": "apiVersion: v2\nname: app\nversion: 1.0.0\ntype: application\n",
+          "charts/app/templates/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {{ .Release.Name }}\nspec:\n  replicas: {{ .Values.replicas }}\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "hold-gke-api-identity",
+      "split": "heldout",
+      "input": {
+        "request": "A GKE pod receives 403 from a Google API. Diagnose the identity/permission boundary using the stated direct workload-federation profile. No command construction is requested and target credentials must stay out of output.",
+        "files": {
+          "PROFILE.md": "Target: project example-project, region example-region, cluster example-cluster, namespace example-namespace. Direct workload federation selected; Kubernetes service account app-reader. IAM effective-policy evidence not yet supplied.\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "hold-rootless-storage",
+      "split": "heldout",
+      "input": {
+        "request": "A rootless Podman Quadlet user service on Fedora cannot read its bind-mounted directory after migration. Propose bounded diagnosis from unit/status evidence; AVC and UID-mapping evidence are missing.",
+        "files": {
+          "app.container": "[Container]\nImage=example.invalid/app:pinned\nVolume=/srv/example-data:/data\n[Install]\nWantedBy=default.target\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "hold-launchagent",
+      "split": "heldout",
+      "input": {
+        "request": "An existing macOS job can access its Keychain reference in Terminal but fails from its LaunchAgent. Plist syntax already passes. Identify relevant launch-context checks without exposing a credential or changing grants.",
+        "files": {
+          "job.plist": "<!-- Existing LaunchAgent plist; ProgramArguments point to the selected Python environment. -->\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "hold-async-mixed",
+      "split": "heldout",
+      "input": {
+        "request": "Assess task cancellation and HTTP-session cleanup in this Python batch job. Deployment README mentions GKE, but this request changes only concurrent client behavior. Keep Python 3.12, Poetry and existing pytest-asyncio.",
+        "files": {
+          "batch.py": "async def batch(client, values):\n    tasks = [asyncio.create_task(client.fetch(v)) for v in values]\n    return await asyncio.gather(*tasks)\n",
+          "README.md": "The existing deployment platform is GKE. No cluster, identity or rollout changes in this task.\n"
+        },
+        "execution_scope": "Read-only assessment and bounded proposal only. Preserve stated project choices. Do not install tools, register cycles, commit, fetch credentials or contact operational targets."
+      }
+    },
+    {
+      "id": "control-dbsctr-navigation",
+      "split": "navigation",
+      "input": {
+        "request": "/dbsctr Produce a read-only Domain/Spec plan for separating this Python decision from concrete transport. Use applicable Python specialist selection and method-specific guidance. Preserve public behavior and project tools; do not register or mutate a lifecycle cycle during this assessment.",
+        "files": {
+          "PROFILE.md": "Python 3.12, Poetry, mypy and pytest are selected. This assessment proposes a responsibility boundary; no runtime/tool migration or deployment.\n",
+          "rules.py": "from transport import client\ndef eligible(customer_id):\n    return client.fetch_customer(customer_id).active\n"
+        },
+        "execution_scope": "Read-only plan and guidance navigation only. No code, lifecycle, Git, environment or external-service mutation."
+      }
+    },
+    {
+      "id": "control-unregistered-gpu",
+      "split": "omission",
+      "registration": {
+        "omit": [
+          "mojo-gpu-fundamentals"
+        ]
+      },
+      "input": {
+        "request": "/dbsctr Perform a read-only assessment of the selected Mojo GPU launch and device-buffer lifetime. SDK/environment and NVIDIA target are already project-selected; local GPU execution is unavailable. Use relevant available managed guidance, return checks and limitations, and preserve the selected environment.",
+        "files": {
+          "kernel.mojo": "# Existing selected SDK/channel and NVIDIA target.\n# Device-buffer ownership, launch ordering and synchronization need assessment.\n",
+          "PROFILE.md": "The GPU runner is unavailable locally. Keep the existing SDK/channel and runtime; no SDK/driver installation or runner provisioning.\n"
+        },
+        "execution_scope": "Read only synthetic source and necessary managed guidance. Do not install tools, provision compute, mutate a lifecycle cycle or claim device/performance results."
+      }
+    }
+  ]
+}

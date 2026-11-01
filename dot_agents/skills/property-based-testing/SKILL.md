@@ -1,7 +1,7 @@
 ---
 name: property-based-testing
 license: CC-BY-SA-4.0
-description: "Writes, reviews, and debugs property-based tests — Hypothesis, fast-check, proptest, jqwik, rapid, and Echidna or Medusa for Solidity invariants. Use whenever tests should cover a whole input domain instead of a hand-picked list of examples: encode/decode and serialize/deserialize pairs, parsers, canonicalizers and normalizers, validators, numeric and Decimal types, comparators and sort order, data structures, and smart-contract state invariants. Also use when adding cases to an existing @given, fast-check, or proptest suite, when judging whether existing property tests assert anything real, and when a generator has shrunk a counterexample and you need to tell a wrong property from a genuine bug. Not for coverage-guided binary fuzzing (libFuzzer, AFL), mutation-testing campaigns, static analysis, benchmarking, or end-to-end UI tests."
+description: "Write, review and debug property-based tests, whole-domain invariants and shrunk counterexamples. Use for generated suites and meaningful parser, serializer, validation or state rules."
 ---
 
 # Property-Based Testing
@@ -16,6 +16,9 @@ material decisions or required permissions. When used by DBSCTR, the primary own
 phase order and gate decisions; QA supplies configured validation evidence.
 Return scoped findings, affected artifacts, supporting evidence and limitations.
 See [UPSTREAM.md](UPSTREAM.md) for upstream attribution and local adaptations.
+
+Coverage-guided binary fuzzing, mutation-testing campaigns, static analysis,
+performance benchmarking and end-to-end UI testing use their own selected methods.
 
 An example test asserts one point. A property asserts a rule over the whole input
 domain and lets the generator hunt for the counterexample. That trade is worth making

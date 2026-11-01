@@ -1,11 +1,12 @@
 --- a/SKILL.md
 +++ b/SKILL.md
-@@ -1,10 +1,21 @@
+@@ -1,10 +1,24 @@
  ---
  name: property-based-testing
 -effort: low
+-description: "Writes, reviews, and debugs property-based tests — Hypothesis, fast-check, proptest, jqwik, rapid, and Echidna or Medusa for Solidity invariants. Use whenever tests should cover a whole input domain instead of a hand-picked list of examples: encode/decode and serialize/deserialize pairs, parsers, canonicalizers and normalizers, validators, numeric and Decimal types, comparators and sort order, data structures, and smart-contract state invariants. Also use when adding cases to an existing @given, fast-check, or proptest suite, when judging whether existing property tests assert anything real, and when a generator has shrunk a counterexample and you need to tell a wrong property from a genuine bug. Not for coverage-guided binary fuzzing (libFuzzer, AFL), mutation-testing campaigns, static analysis, benchmarking, or end-to-end UI tests."
 +license: CC-BY-SA-4.0
- description: "Writes, reviews, and debugs property-based tests — Hypothesis, fast-check, proptest, jqwik, rapid, and Echidna or Medusa for Solidity invariants. Use whenever tests should cover a whole input domain instead of a hand-picked list of examples: encode/decode and serialize/deserialize pairs, parsers, canonicalizers and normalizers, validators, numeric and Decimal types, comparators and sort order, data structures, and smart-contract state invariants. Also use when adding cases to an existing @given, fast-check, or proptest suite, when judging whether existing property tests assert anything real, and when a generator has shrunk a counterexample and you need to tell a wrong property from a genuine bug. Not for coverage-guided binary fuzzing (libFuzzer, AFL), mutation-testing campaigns, static analysis, benchmarking, or end-to-end UI tests."
++description: "Write, review and debug property-based tests, whole-domain invariants and shrunk counterexamples. Use for generated suites and meaningful parser, serializer, validation or state rules."
  ---
  
  # Property-Based Testing
@@ -20,10 +21,13 @@
 +phase order and gate decisions; QA supplies configured validation evidence.
 +Return scoped findings, affected artifacts, supporting evidence and limitations.
 +See [UPSTREAM.md](UPSTREAM.md) for upstream attribution and local adaptations.
++
++Coverage-guided binary fuzzing, mutation-testing campaigns, static analysis,
++performance benchmarking and end-to-end UI testing use their own selected methods.
  
  An example test asserts one point. A property asserts a rule over the whole input
  domain and lets the generator hunt for the counterexample. That trade is worth making
-@@ -45,9 +56,11 @@
+@@ -45,9 +59,11 @@
    it. Note the exception: `f(x) == f(x)` is a genuine determinism property when `f`
    is not obviously pure — serializers over dicts or sets, hashing, anything reading
    the clock.
@@ -38,7 +42,7 @@
  
  ## Where to look next
  
-@@ -64,5 +77,7 @@
+@@ -64,5 +80,7 @@
  ## Introducing PBT to a project that lacks it
  
  If the project already uses a PBT library, just write the tests in it. If it does not,

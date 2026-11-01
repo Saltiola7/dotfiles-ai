@@ -27,6 +27,7 @@ DBSCTR_FILES = (
     "dbsctr/modules/python.md",
     "dbsctr/references/python-specialists.md",
     "dbsctr/references/specialist-selection.md",
+    "dbsctr/scripts/resolve_specialist.py",
 )
 
 
@@ -210,8 +211,10 @@ def test_python_module_exposes_specialist_routes_and_separate_reference():
     assert "references/python-specialists.md" in module
     assert "references/python.md" in module
     for name in NAMES:
-        assert name in module
-        assert name in guide
+        assert f"`{name}`" in module
+        assert not any(f"`{name}`" in line for line in guide.splitlines() if line.startswith("|"))
+    assert "../modules/python.md#conditional-controls" in guide
+    assert "references/specialist-selection.md" in module
     assert "python-specialists/sources.lock.json" in guide
 
 
