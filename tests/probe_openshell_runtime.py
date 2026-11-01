@@ -7,6 +7,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import argparse
+import errno
+import hashlib
+import json
+import os
+import re
+import selectors
+import signal
+import stat
+import subprocess
+import time
+import uuid
 
 
 class Refusal(Exception):
@@ -28,20 +40,673 @@ class CommandResult:
 
 def parse_selection(raw: bytes) -> Selection:
     """Validate the closed private selection without executing commands."""
-    raise NotImplementedError
+    if not isinstance(raw, bytes) or len(raw) > 65536:
+        raise Refusal("invalid_selection")
+    value = decode_object(raw)
+    if set(value) != {"schema_version", "run_root", "lima_sha256"}:
+        raise Refusal("invalid_selection")
+    root, digest = value["run_root"], value["lima_sha256"]
+    if (type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or not isinstance(root, str) or "\x00" in root or len(root) > 4096
+            or not root.startswith("/") or str(Path(root)) != root
+            or any(part in {".", "..", ""} for part in root.split("/")[1:])
+            or re.fullmatch(r"openshell-q-[a-f0-9]{12}", Path(root).name) is None
+            or not isinstance(digest, str) or re.fullmatch(r"[a-f0-9]{64}", digest) is None):
+        raise Refusal("invalid_selection")
+    return Selection(Path(root), digest)
+
+
+def decode_object(raw: bytes) -> dict:
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise Refusal("duplicate_field")
+            result[key] = value
+        return result
+
+    try:
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique)
+    except (ValueError, UnicodeError, RecursionError):
+        raise Refusal("invalid_selection") from None
+    if not isinstance(value, dict):
+        raise Refusal("invalid_selection")
+    return value
+
+
+def private_directory(path: Path) -> os.stat_result:
+    info = path.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o700 or path.resolve(strict=True) != path):
+        raise Refusal("unsafe_directory")
+    return info
+
+
+def private_file(path: Path, limit: int = 65536) -> bytes:
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1
+                or info.st_size > limit):
+            raise Refusal("unsafe_file")
+        data = stream.read(limit + 1)
+        if len(data) > limit:
+            raise Refusal("unsafe_file")
+        return data
 
 
 def validate_root(selection: Selection) -> None:
     """Check private owner-controlled, alias-free prepared fixture ownership."""
-    raise NotImplementedError
+    try:
+        # Revalidate even when an internal caller constructs the dataclass.
+        parse_selection(json.dumps({"schema_version": 1, "run_root": str(selection.root),
+                                    "lima_sha256": selection.lima_sha256}).encode())
+        for relative in ("", "fixture", "fixture/main", "fixture/task", "evidence", "lima"):
+            private_directory(selection.root / relative)
+        value = decode_object(private_file(selection.root / "owner.json"))
+        if (set(value) != {"schema_version", "run_id"}
+                or type(value["schema_version"]) is not int or value["schema_version"] != 1
+                or value["run_id"] != selection.root.name):
+            raise Refusal("owner_mismatch")
+    except (OSError, ValueError, RuntimeError):
+        raise Refusal("invalid_root") from None
 
 
 def run_command(argv: list[str], *, cwd: Path, env: dict[str, str],
                 timeout: float = 60, limit: int = 1024 * 1024) -> CommandResult:
     """Bound owned child groups and both streams; retain nonzero exit status."""
-    raise NotImplementedError
+    if (not isinstance(argv, list) or not argv or not all(isinstance(x, str) and "\x00" not in x for x in argv)
+            or isinstance(timeout, bool) or not 0 < timeout <= 1800
+            or type(limit) is not int or not 0 < limit <= 10 * 1024 * 1024):
+        raise Refusal("invalid_command")
+    try:
+        process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   start_new_session=True)
+    except OSError:
+        raise Refusal("spawn_failed") from None
+    deadline = time.monotonic() + timeout
+    stdout, stderr = bytearray(), bytearray()
+    failure = None
+    try:
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ, stdout)
+            selector.register(process.stderr, selectors.EVENT_READ, stderr)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise Refusal("timeout")
+                for key, _ in selector.select(remaining):
+                    chunk = os.read(key.fd, min(65536, limit + 1 - len(stdout) - len(stderr)))
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    key.data.extend(chunk)
+                    if len(stdout) + len(stderr) > limit:
+                        raise Refusal("output_limit")
+            process.wait(timeout=max(0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        failure = Refusal("timeout")
+    except OSError:
+        failure = Refusal("command_io_failed")
+    except BaseException as error:
+        failure = error
+    finally:
+        # Do not reap before draining: a dead parent may leave descendant pipes
+        # open. Its unreaped PID keeps this owned process-group identity stable.
+        if process.returncode is None:
+            try:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                failure = failure or Refusal("termination_uncertain")
+        process.stdout.close()
+        process.stderr.close()
+    if failure:
+        raise failure
+    return CommandResult(process.returncode, bytes(stdout), bytes(stderr))
+
+
+_POINTER_OPERATIONS = ("write_open", "append", "truncate", "unlink", "rename", "replace", "hardlink")
+_POINTER_SPELLINGS = (".git", ".GIT", ".GiT")
+_POSITIVE_NAME = ".openshell-positive-control"
+_POSITIVE_BYTES = b"openshell-pointer-positive-control\n"
+_DENIAL_ERRNOS = {errno.EACCES, errno.EPERM, errno.EROFS, errno.EBUSY, errno.EXDEV}
+_GUARD_OPERATIONS = ("setflags_clear", "fssetxattr_clear", "xattr_set", "chmod")
+_GUARD_DENIAL_ERRNOS = {errno.EACCES, errno.EPERM, errno.EROFS}
+# Probe results contain Linux guest errno values, not macOS controller values.
+_GUARD_UNSUPPORTED_ERRNOS = {25, 95, 38}  # ENOTTY, EOPNOTSUPP, ENOSYS on Linux aarch64.
+
+
+def _guard_stat(info: os.stat_result) -> dict:
+    flags = getattr(info, "st_flags", None)
+    if type(flags) is not int or flags < 0:
+        raise Refusal("guard_flags_unavailable")
+    return {"device": info.st_dev, "inode": info.st_ino, "uid": info.st_uid,
+            "link_count": info.st_nlink, "size": info.st_size, "mode": info.st_mode,
+            "mtime_ns": info.st_mtime_ns, "flags": flags}
+
+
+def _guard_snapshot(pointer: Path) -> dict:
+    """Observe native file flags and bytes without following or changing links."""
+    with os.fdopen(os.open(pointer, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+        before = _guard_stat(os.fstat(stream.fileno()))
+        if (not stat.S_ISREG(before["mode"]) or before["uid"] != os.getuid()
+                or before["link_count"] != 1 or not 1 <= before["size"] <= 4096):
+            raise Refusal("unsafe_guard_pointer")
+        raw = stream.read(4097)
+        after = _guard_stat(os.fstat(stream.fileno()))
+        if before != after or len(raw) != before["size"]:
+            raise Refusal("guard_observation_changed")
+    return before | {"sha256": hashlib.sha256(raw).hexdigest()}
+
+
+def _validate_guard(root: Path) -> dict:
+    value = decode_object(private_file(root / "guard.json"))
+    integer_fields = {"schema_version", "device", "inode", "uid", "link_count", "size",
+                      "mode", "mtime_ns", "original_flags", "protected_flags"}
+    if (set(value) != integer_fields | {"sha256"}
+            or any(type(value[key]) is not int for key in integer_fields)
+            or value["schema_version"] != 1 or value["device"] < 0 or value["inode"] <= 0
+            or value["uid"] != os.getuid() or value["link_count"] != 1
+            or not 1 <= value["size"] <= 4096 or not 0 <= value["mode"] <= 0o177777
+            or not stat.S_ISREG(value["mode"]) or value["mtime_ns"] <= 0
+            or value["original_flags"] != 0 or value["protected_flags"] != 2
+            or not isinstance(value["sha256"], str)
+            or re.fullmatch(r"[a-f0-9]{64}", value["sha256"]) is None):
+        raise Refusal("invalid_guard")
+    expected = {key: item for key, item in value.items()
+                if key not in {"schema_version", "original_flags", "protected_flags"}}
+    expected["flags"] = value["protected_flags"]
+    if _guard_snapshot(root / "fixture/task/.git") != expected:
+        raise Refusal("guard_mismatch")
+    return expected
+
+
+def _regular_identity(path: Path, limit: int) -> tuple:
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_nlink != 1 or info.st_size > limit):
+            raise Refusal("unsafe_fixture_file")
+        digest, consumed = hashlib.sha256(), 0
+        while chunk := stream.read(min(65536, limit + 1 - consumed)):
+            consumed += len(chunk)
+            if consumed > limit:
+                raise Refusal("fixture_limit")
+            digest.update(chunk)
+        after = os.fstat(stream.fileno())
+        if ((info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_nlink)
+                != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_nlink)
+                or consumed != info.st_size):
+            raise Refusal("fixture_changed")
+    return info.st_dev, info.st_ino, info.st_mode, info.st_size, info.st_mtime_ns, digest.hexdigest()
+
+
+def _metadata_snapshot(root: Path) -> dict:
+    """Observe bounded native metadata without following links or opening hooks."""
+    found = {}
+    count, total = 0, 0
+    pending = [root]
+    while pending:
+        path = pending.pop()
+        info = path.lstat()
+        count += 1
+        if count > 4096 or info.st_uid != os.getuid():
+            raise Refusal("fixture_limit")
+        relative = path.relative_to(root).as_posix()
+        if stat.S_ISDIR(info.st_mode):
+            found[relative] = (info.st_dev, info.st_ino, info.st_mode, info.st_mtime_ns)
+            with os.scandir(path) as entries:
+                for entry in entries:
+                    if count + len(pending) >= 4096:
+                        raise Refusal("fixture_limit")
+                    pending.append(path / entry.name)
+        elif stat.S_ISREG(info.st_mode):
+            total += info.st_size
+            if total > 64 * 1024 * 1024:
+                raise Refusal("fixture_limit")
+            found[relative] = _regular_identity(path, 64 * 1024 * 1024)
+        else:
+            raise Refusal("fixture_alias")
+    return found
+
+
+def _controller_environment(root: Path) -> dict[str, str]:
+    private_directory(root / "controller")
+    env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(root / "controller"),
+           "LIMA_HOME": str(root / "lima"), "LC_ALL": "C", "TERM": "dumb", "NO_COLOR": "1",
+           "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_OPTIONAL_LOCKS": "0"}
+    for name, relative in (("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"),
+                           ("XDG_STATE_HOME", "state"), ("XDG_CACHE_HOME", "cache"),
+                           ("TMPDIR", "tmp")):
+        path = root / "controller" / relative
+        private_directory(path)
+        env[name] = str(path)
+    return env
+
+
+def _remaining(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise Refusal("timeout")
+    return min(60, remaining)
+
+
+def _host_git_fixture(root: Path, env: dict[str, str], deadline: float) -> tuple[Path, Path]:
+    main, task = root / "fixture/main", root / "fixture/task"
+    common = main / ".git"
+    if not common.is_dir() or common.resolve(strict=True) != common:
+        raise Refusal("fixture_membership")
+    pointer = task / ".git"
+    _regular_identity(pointer, 4096)
+    with pointer.open("rb") as stream:
+        pointer_bytes = stream.read(4097)
+    if len(pointer_bytes) > 4096:
+        raise Refusal("fixture_limit")
+    if not pointer_bytes.startswith(b"gitdir: ") or not pointer_bytes.endswith(b"\n"):
+        raise Refusal("fixture_membership")
+    try:
+        admin = Path(pointer_bytes[8:-1].decode("utf-8"))
+    except UnicodeError:
+        raise Refusal("fixture_membership") from None
+    if (not admin.is_absolute() or admin.resolve(strict=True) != admin
+            or admin.parent != common / "worktrees" or not admin.is_dir()):
+        raise Refusal("fixture_membership")
+    for option, expected in (("--git-common-dir", common), ("--git-dir", admin)):
+        result = run_command(["/usr/bin/git", "-C", str(task), "rev-parse", "--path-format=absolute", option],
+                             cwd=root, env=env, timeout=_remaining(deadline), limit=16384)
+        if result.returncode or result.stdout.rstrip(b"\n") != os.fsencode(expected):
+            raise Refusal("fixture_membership")
+    result = run_command(["/usr/bin/git", "-C", str(main), "worktree", "list", "--porcelain", "-z"],
+                         cwd=root, env=env, timeout=_remaining(deadline), limit=65536)
+    records = result.stdout.split(b"\0\0")
+    registered = [x.split(b"\0", 1)[0][9:] for x in records if x.startswith(b"worktree ")]
+    if result.returncode or registered.count(os.fsencode(task)) != 1 or registered.count(os.fsencode(main)) != 1:
+        raise Refusal("fixture_membership")
+    return common, pointer
+
+
+class _PointerController:
+    """Only fixed native commands for an already prepared, exact enrollment."""
+
+    def __init__(self, selection: Selection, deadline: float):
+        self.root, self.deadline = selection.root, deadline
+        self.sandbox_name = self.root.name.removeprefix("openshell-")
+        self.env = _controller_environment(self.root)
+        self.binary = Path("/opt/homebrew/bin/limactl").resolve(strict=True)
+        self.binary_identity = _regular_identity(self.binary, 256 * 1024 * 1024)
+        if self.binary_identity[-1] != selection.lima_sha256:
+            raise Refusal("lima_identity")
+        if not self.binary_identity[2] & 0o111:
+            raise Refusal("lima_identity")
+        private_directory(self.root / "lima/q")
+        self.prepared = decode_object(private_file(self.root / "prepared.json"))
+        p = self.prepared
+        if (set(p) != {"schema_version", "sandbox_id", "container_id"}
+                or type(p["schema_version"]) is not int or p["schema_version"] != 1
+                or not isinstance(p["sandbox_id"], str)
+                or not isinstance(p["container_id"], str)
+                or re.fullmatch(r"[0-9a-f]{64}", p["container_id"]) is None):
+            raise Refusal("invalid_preparation")
+        try:
+            if str(uuid.UUID(p["sandbox_id"])) != p["sandbox_id"]:
+                raise ValueError
+        except ValueError:
+            raise Refusal("invalid_preparation") from None
+        home = self._lima(["/usr/bin/printenv", "HOME"], deadline).stdout.strip()
+        uid = self._lima(["/usr/bin/id", "-u"], deadline).stdout.strip()
+        if not re.fullmatch(rb"/home/[A-Za-z0-9_.-]+", home) or not re.fullmatch(rb"[1-9][0-9]{0,9}", uid):
+            raise Refusal("guest_identity")
+        self.guest_env = ["/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin",
+                          "HOME=" + home.decode(), "XDG_CONFIG_HOME=" + home.decode() + "/.config",
+                          "XDG_DATA_HOME=" + home.decode() + "/.local/share",
+                          "XDG_STATE_HOME=" + home.decode() + "/.local/state",
+                          "XDG_CACHE_HOME=" + home.decode() + "/.cache",
+                          "XDG_RUNTIME_DIR=/run/user/" + uid.decode(), "LC_ALL=C", "TERM=dumb",
+                          "NO_COLOR=1", "OPENSHELL_TELEMETRY_ENABLED=false"]
+
+    def _lima(self, args: list[str], deadline: float) -> CommandResult:
+        if _regular_identity(self.binary, 256 * 1024 * 1024) != self.binary_identity:
+            raise Refusal("lima_identity")
+        result = run_command([str(self.binary), "shell", "--workdir", "/", "q", "--", *args],
+                             cwd=self.root, env=self.env,
+                             timeout=_remaining(min(deadline, self.deadline)), limit=1024 * 1024)
+        if result.returncode:
+            raise Refusal("native_command_failed")
+        return result
+
+    def guest(self, args: list[str], deadline: float) -> CommandResult:
+        return self._lima([*self.guest_env, *args], deadline)
+
+    def identity(self, deadline: float) -> tuple:
+        # Pinned CLI source run.rs:sandbox_detail_to_json emits a flat object.
+        sandbox = decode_object(self.guest(["/usr/bin/openshell", "sandbox", "get",
+                                           self.sandbox_name, "-o", "json"], deadline).stdout)
+        if (sandbox.get("id") != self.prepared["sandbox_id"] or sandbox.get("name") != self.sandbox_name
+                or sandbox.get("phase") != "Ready" or sandbox.get("restart_policy") != "never"
+                or not isinstance(sandbox.get("main_process_instance_id"), str)
+                or not sandbox["main_process_instance_id"]
+                or type(sandbox.get("main_process_started_at_ms")) is not int
+                or sandbox["main_process_started_at_ms"] <= 0
+                or type(sandbox.get("restart_count")) is not int or sandbox["restart_count"] != 0):
+            raise Refusal("sandbox_identity")
+        admission = sandbox.get("configuration_admission")
+        if (not isinstance(admission, dict) or admission.get("state") != "accepted"
+                or not isinstance(admission.get("policy_hash"), str)
+                or re.fullmatch(r"[0-9a-f]{64}", admission["policy_hash"]) is None
+                or any(type(admission.get(key)) is not int or admission[key] <= 0
+                       for key in ("policy_version", "config_revision", "provider_env_revision"))
+                or type(sandbox.get("current_policy_version")) is not int
+                or sandbox["current_policy_version"] != admission["policy_version"]):
+            raise Refusal("sandbox_identity")
+        result = self.guest(["/usr/bin/podman", "inspect", "--type", "container",
+                             self.prepared["container_id"]], deadline)
+        try:
+            items = json.loads(result.stdout)
+            if not isinstance(items, list) or len(items) != 1 or not isinstance(items[0], dict):
+                raise ValueError
+            item = items[0]
+            state, labels = item["State"], item["Config"]["Labels"]
+            if (item.get("Id") != self.prepared["container_id"] or state.get("Running") is not True
+                    or state.get("Paused") is not False or type(state.get("Pid")) is not int
+                    or state["Pid"] <= 0 or not isinstance(state.get("StartedAt"), str)
+                    or not state["StartedAt"] or labels.get("openshell.managed") != "true"
+                    or labels.get("openshell.ai/isolation-role") != "sandbox"
+                    or labels.get("openshell.ai/sandbox-id") != self.prepared["sandbox_id"]):
+                raise ValueError
+        except (ValueError, TypeError, KeyError, UnicodeError, AttributeError):
+            raise Refusal("container_identity") from None
+        return (sandbox["id"], sandbox["main_process_instance_id"], sandbox["main_process_started_at_ms"],
+                item["Id"], state["Pid"], state["StartedAt"], admission["policy_hash"],
+                admission["policy_version"], admission["config_revision"],
+                admission["provider_env_revision"], sandbox["current_policy_version"])
+
+    def execute(self, program: str, deadline: float) -> dict:
+        result = self.guest(["/usr/bin/openshell", "sandbox", "exec", "--name", self.sandbox_name,
+                             "--workdir", "/work", "--no-tty", "--no-login-shell", "--timeout", "50", "--",
+                             "python3", "-I", "-B", "-c", program], deadline)
+        if len(result.stdout) > 4096:
+            raise Refusal("invalid_probe_output")
+        try:
+            return decode_object(result.stdout)
+        except Refusal:
+            raise Refusal("invalid_probe_output") from None
+
+
+def _pointer_program(operation: str, spelling: str) -> str:
+    if operation not in _POINTER_OPERATIONS or spelling not in _POINTER_SPELLINGS:
+        raise Refusal("invalid_probe")
+    # Numeric ordinals keep retained destinations distinct on case-insensitive hosts.
+    extra = f"/work/.openshell-{operation}-{_POINTER_SPELLINGS.index(spelling)}"
+    # Only these compile-time operation/spelling enums enter the program.
+    return """import errno,json,os,stat
+operation,spelling = %r,%r
+target='/work/'+spelling
+extra=%r
+out={'schema_version':1,'operation':operation,'spelling':spelling,'outcome':'unavailable','errno':0}
+attempted=False
+try:
+    if not stat.S_ISREG(os.lstat(target).st_mode):
+        raise RuntimeError('not_pointer')
+    if operation=='write_open':
+        attempted=True
+        fd=os.open(target,os.O_WRONLY);os.close(fd)
+    elif operation=='append':
+        attempted=True
+        fd=os.open(target,os.O_WRONLY|os.O_APPEND);os.write(fd,b'probe');os.close(fd)
+    elif operation=='truncate':
+        attempted=True
+        fd=os.open(target,os.O_WRONLY|os.O_TRUNC);os.close(fd)
+    elif operation=='unlink':
+        attempted=True
+        os.unlink(target)
+    elif operation=='rename':
+        if os.path.lexists(extra):raise RuntimeError('collision')
+        attempted=True
+        os.rename(target,extra)
+    elif operation=='replace':
+        fd=os.open(extra,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600);os.write(fd,b'probe');os.close(fd)
+        attempted=True
+        os.replace(extra,target)
+    elif operation=='hardlink':
+        attempted=True
+        os.link(target,extra)
+    out['outcome']='succeeded'
+except OSError as error:
+    out['errno']=error.errno
+    if attempted and error.errno in (errno.EACCES,errno.EPERM,errno.EROFS,errno.EBUSY,errno.EXDEV):out['outcome']='denied'
+except RuntimeError:
+    pass
+print(json.dumps(out,sort_keys=True))
+""" % (operation, spelling, extra)
+
+
+def _guard_program(operation: str, spelling: str) -> str:
+    if operation not in _GUARD_OPERATIONS or spelling not in _POINTER_SPELLINGS:
+        raise Refusal("invalid_probe")
+    # These Linux aarch64 ioctl requests are fixed; no caller controls a payload.
+    return """import errno,fcntl,json,os,stat
+operation,spelling = %r,%r
+target='/work/'+spelling
+out={'schema_version':1,'operation':operation,'spelling':spelling,'outcome':'unavailable','errno':0}
+attempted=False
+fd=None
+try:
+    if not stat.S_ISREG(os.lstat(target).st_mode):
+        raise RuntimeError('not_pointer')
+    if operation in ('setflags_clear','fssetxattr_clear'):
+        fd=os.open(target,os.O_RDONLY|os.O_NOFOLLOW)
+        request,payload=(0x40086602,bytes(8)) if operation=='setflags_clear' else (0x401c5820,bytes(28))
+        attempted=True
+        fcntl.ioctl(fd,request,payload)
+    elif operation=='xattr_set':
+        attempted=True
+        os.setxattr(target,'user.openshell_qualification',b'probe',follow_symlinks=False)
+    elif operation=='chmod':
+        attempted=True
+        os.chmod(target,0o600,follow_symlinks=False)
+    out['outcome']='succeeded'
+except OSError as error:
+    out['errno']=error.errno
+    if attempted and error.errno in (errno.EACCES,errno.EPERM,errno.EROFS):
+        out['outcome']='denied'
+    elif attempted and operation!='chmod' and error.errno in (errno.ENOTTY,errno.EOPNOTSUPP,errno.ENOSYS):
+        out['outcome']='unsupported'
+except RuntimeError:
+    pass
+finally:
+    if fd is not None:
+        os.close(fd)
+print(json.dumps(out,sort_keys=True))
+""" % (operation, spelling)
+
+
+def _check_pointer_evidence(root: Path, allowance: int, entries: int) -> Path:
+    directory = root / "evidence"
+    private_directory(directory)
+    retained = 0
+    for count, path in enumerate(directory.iterdir()):
+        if count + entries >= 4096:
+            raise Refusal("evidence_limit")
+        info = path.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o600):
+            raise Refusal("unsafe_evidence")
+        retained += info.st_size
+        if retained + allowance > 100 * 1024 * 1024:
+            raise Refusal("evidence_limit")
+    return directory
+
+
+def _write_pointer_evidence(root: Path, report: dict) -> None:
+    raw = (json.dumps(report, sort_keys=True) + "\n").encode()
+    if len(raw) > 10 * 1024 * 1024:
+        raise Refusal("evidence_limit")
+    directory = _check_pointer_evidence(root, len(raw), 1)
+    fd = os.open(directory / ("pointer-" + uuid.uuid4().hex + ".json"),
+                 os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(raw)
+        stream.flush()
+        os.fsync(stream.fileno())
+
+
+def _run_pointer_probe(selection: Selection, immutable: bool) -> dict:
+    """Run fixed observations; immutable admission never changes native flags."""
+    report = {"schema_version": 1, "probe": "immutable_git_pointer" if immutable else "git_pointer",
+              "status": "unavailable", "reason": None,
+              "runtime_qualification": "not_run", "checks": [], "retained": False}
+    admitted, active = False, None
+    try:
+        validate_root(selection)
+        admitted = True
+        guard = _validate_guard(selection.root) if immutable else None
+        # Reserve the complete bounded probe budget before any workload effect.
+        _check_pointer_evidence(selection.root, 10 * 1024 * 1024, 48 if immutable else 32)
+        deadline = time.monotonic() + 900
+        controller = _PointerController(selection, deadline)
+        common, pointer = _host_git_fixture(selection.root, controller.env, deadline)
+        baseline = (_regular_identity(pointer, 4096), _metadata_snapshot(common))
+        generation = controller.identity(min(deadline, time.monotonic() + 60))
+        task = selection.root / "fixture/task"
+        # Reject pre-existing probe outputs and source aliases before effects.
+        _metadata_snapshot(task)
+        for entry in task.iterdir():
+            if entry.name.startswith(".openshell-"):
+                raise Refusal("probe_collision")
+        aliases = []
+        for spelling in _POINTER_SPELLINGS:
+            path = task / spelling
+            try:
+                info = path.lstat()
+            except FileNotFoundError:
+                report["checks"].append({"spelling": spelling, "status": "not_alias"})
+                continue
+            if (info.st_dev, info.st_ino) != baseline[0][:2]:
+                raise Refusal("fixture_alias")
+            aliases.append(spelling)
+
+        def unchanged() -> None:
+            try:
+                validate_root(selection)
+                current = (_regular_identity(pointer, 4096), _metadata_snapshot(common))
+                if current != baseline or (guard is not None and _guard_snapshot(pointer) != guard):
+                    raise Refusal("protected_state_changed")
+            except (OSError, Refusal):
+                raise Refusal("protected_state_changed") from None
+
+        step_deadline = min(deadline, time.monotonic() + 60)
+        active = {"operation": "source_write"}
+        unchanged()
+        if controller.identity(step_deadline) != generation:
+            raise Refusal("sandbox_identity")
+        try:
+            positive = controller.execute("import json,os\n"
+                                          "p='/work/.openshell-positive-control'\n"
+                                          "fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)\n"
+                                          "os.write(fd,b'openshell-pointer-positive-control\\n');os.fsync(fd);os.close(fd)\n"
+                                          "print(json.dumps({'schema_version':1,'positive':'written'}))", step_deadline)
+        finally:
+            # Remote failures cannot suppress an authoritative host observation.
+            unchanged()
+        if (type(positive.get("schema_version")) is not int
+                or positive != {"schema_version": 1, "positive": "written"}
+                or _regular_identity(task / _POSITIVE_NAME, 4096)[3] != len(_POSITIVE_BYTES)
+                or (task / _POSITIVE_NAME).read_bytes() != _POSITIVE_BYTES
+                or controller.identity(step_deadline) != generation):
+            raise Refusal("positive_control_failed")
+        report["checks"].append({"operation": "source_write", "status": "passed"})
+        active = None
+        _write_pointer_evidence(selection.root, report)
+        groups = [(_GUARD_OPERATIONS, True)] if immutable else []
+        groups.append((_POINTER_OPERATIONS, False))
+        for operations, is_guard in groups:
+            for spelling, operation in ((spelling, operation) for spelling in aliases for operation in operations):
+                step_deadline = min(deadline, time.monotonic() + 60)
+                unchanged()
+                if controller.identity(step_deadline) != generation:
+                    raise Refusal("sandbox_identity")
+                active = {"operation": operation, "spelling": spelling}
+                try:
+                    program = _guard_program(operation, spelling) if is_guard else _pointer_program(operation, spelling)
+                    result = controller.execute(program, step_deadline)
+                finally:
+                    unchanged()
+                if controller.identity(step_deadline) != generation:
+                    raise Refusal("sandbox_identity")
+                if (set(result) != {"schema_version", "operation", "spelling", "outcome", "errno"}
+                        or type(result["schema_version"]) is not int or result["schema_version"] != 1
+                        or result["operation"] != operation or result["spelling"] != spelling
+                        or type(result["errno"]) is not int or result["errno"] < 0
+                        or result["outcome"] not in ({"denied", "succeeded", "unavailable", "unsupported"}
+                                                     if is_guard else {"denied", "succeeded", "unavailable"})
+                        or (result["outcome"] == "denied" and result["errno"] not in
+                            (_GUARD_DENIAL_ERRNOS if is_guard else _DENIAL_ERRNOS))
+                        or (result["outcome"] == "unsupported" and
+                            (operation == "chmod" or result["errno"] not in _GUARD_UNSUPPORTED_ERRNOS))
+                        or (result["outcome"] == "succeeded" and result["errno"] != 0)):
+                    raise Refusal("invalid_probe_output")
+                outcome = ("succeeded_guard_intact" if is_guard and result["outcome"] == "succeeded"
+                           else result["outcome"])
+                report["checks"].append({"operation": operation, "spelling": spelling,
+                                          "status": outcome, "errno": result["errno"]})
+                active = None
+                _write_pointer_evidence(selection.root, report)
+                if not is_guard and result["outcome"] == "succeeded":
+                    raise Refusal("pointer_operation_allowed")
+                if result["outcome"] == "unavailable":
+                    raise Refusal("pointer_operation_unobserved")
+        report["status"] = "passed"
+    except Refusal as error:
+        report["reason"] = str(error)
+        if str(error) in {"pointer_operation_allowed", "protected_state_changed", "positive_control_failed"}:
+            report["status"] = "failed"
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+        report["reason"] = "native_observation_unavailable"
+    if active is not None:
+        report["checks"].append({**active, "status": report["status"], "reason": report["reason"]})
+    if admitted:
+        try:
+            report["retained"] = True
+            _write_pointer_evidence(selection.root, report)
+        except (OSError, Refusal):
+            report["retained"] = False
+            if report["status"] != "failed":
+                report["status"] = "unavailable"
+                report["reason"] = "evidence_retention_failed"
+    return report
 
 
 def pointer_probe(selection: Selection) -> dict:
-    """Observe one fixed pointer-boundary experiment without claiming rollout."""
-    raise NotImplementedError
+    """Observe the original bind-mounted pointer candidate without rollout claims."""
+    return _run_pointer_probe(selection, immutable=False)
+
+
+def immutable_pointer_probe(selection: Selection) -> dict:
+    """Observe a separately prepared immutable guard without applying or repairing it."""
+    return _run_pointer_probe(selection, immutable=True)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--selection", type=Path, required=True)
+    parser.add_argument("--probe", choices=("pointer", "immutable-pointer"), default="pointer")
+    args = parser.parse_args()
+    try:
+        run_probe = immutable_pointer_probe if args.probe == "immutable-pointer" else pointer_probe
+        report = run_probe(parse_selection(private_file(args.selection)))
+    except (Refusal, OSError):
+        report = {"schema_version": 1,
+                  "probe": "immutable_git_pointer" if args.probe == "immutable-pointer" else "git_pointer",
+                  "status": "unavailable",
+                  "reason": "invalid_selection", "runtime_qualification": "not_run", "checks": [], "retained": False}
+    print(json.dumps(report, sort_keys=True))
+    return 0 if report["status"] == "passed" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
