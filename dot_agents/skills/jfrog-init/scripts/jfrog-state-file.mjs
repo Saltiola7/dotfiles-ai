@@ -145,8 +145,7 @@ function saveState(state) {
   const tmp = `${STATE_PATH}.tmp.${process.pid}`;
   try {
     // "wx" refuses to follow/overwrite anything already at tmp (e.g. a
-    // pre-planted symlink) — same symlink-safe pattern as
-    // lib/project-cache.mjs's writeCachedProjectList().
+    // pre-planted symlink); rename then replaces the directory entry itself.
     writeFileSync(tmp, JSON.stringify(state, null, 2) + "\n", { mode: 0o644, flag: "wx" });
     // Not redundant with the `mode` above, despite looking it: writeFileSync's
     // mode is masked by the process umask at creation, so under a restrictive

@@ -194,9 +194,11 @@ The compatibility cache functions do not inspect credential properties, derive a
 verifier, touch a filesystem path, start a process or contact a network. Reads
 always return `null`; writes return normally without retaining inputs. Legacy
 cache files are ignored and remain untouched; no wildcard cleanup or credential
-migration is introduced. The existing discovery caller therefore enumerates for
-the selected current identity and keeps its existing live per-project access
-check and error behavior. Installation still executes no helper.
+migration is introduced. When enumeration is requested, the existing discovery
+caller uses the selected current identity and retains its error behavior. Typed
+project selection remains unverified until a relevant authorized operation
+proves access; it is not an existence or permission probe. Installation still
+executes no helper.
 
 Regression evidence uses only synthetic credentials and an isolated temporary
 directory: a prior cache remains ignored and byte-identical, a write creates no

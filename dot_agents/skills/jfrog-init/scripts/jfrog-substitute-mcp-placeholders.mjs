@@ -82,8 +82,7 @@ export function substituteMcpPlaceholders(target, serverIdOverride) {
   const tmp = `${real}.tmp.${process.pid}`;
   try {
     // "wx" refuses to follow/overwrite anything already at tmp (e.g. a
-    // pre-planted symlink) — same symlink-safe pattern as
-    // lib/project-cache.mjs's writeCachedProjectList(). mode: 0o600 closes
+    // pre-planted symlink). Creating the temporary sibling with mode: 0o600 closes
     // the window between writeFileSync and chmodSync where sibling MCP tokens
     // in the same file would be world-readable.
     writeFileSync(tmp, rewritten, { flag: "wx", mode: 0o600 });
