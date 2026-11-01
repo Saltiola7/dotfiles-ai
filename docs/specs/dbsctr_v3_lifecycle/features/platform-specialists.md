@@ -709,3 +709,40 @@ Delivery uses the existing exact-target Chezmoi workflow, selected machine confi
 and scripts exclusion, complete file/mode verification, retained preimages and
 empty second diff. Native catalog observation is separate from filesystem
 installation. Existing project CI and ordinary protected-base merge gates apply.
+
+### Expansion contracts
+
+- Keep normal automatic discovery, compact discriminating descriptions and lazy
+  mode-specific references. A framework mention alone does not justify all six
+  specialists; no Prefect route or dependency is added.
+- A live marimo session remains the source of truth. File-authoring and conversion
+  advice must hand durable live mutations to the existing pair capability.
+  Correct unsafe/invalid upstream examples, preserve project tool/runtime choices,
+  and distinguish static lint, execution, export and actual browser evidence.
+- Chezmoi previews identify config/source/destination plus hooks, managed scripts,
+  external fetches and template evaluation. Dry-run is not an effects sandbox;
+  scripts exclusion does not disable hooks, and cached-external refresh policy
+  does not guarantee zero network. Avoid unconditional force, update or refresh.
+- PyInfra preparation can execute local Python and connect/read facts. Cached
+  preparation facts do not represent future mutations; execution-time conditions
+  must use selected-version semantics. Shell/imperative operations need explicit
+  repeatability. Dry-run output is not an executed deployment or recovery proof.
+- Rust/Python ownership, thread/interpreter attachment, errors, async cancellation,
+  array borrows and binary compatibility follow selected versions. Do not copy
+  obsolete GIL or ABI assumptions, claim `Bound` is a borrowed handle, or equate
+  attachment with mutual exclusion on free-threaded Python. Wheel qualification
+  exercises the built artifact on affected declared targets.
+- Preserve complete official marimo bundles, exact notices, original hashes/blob
+  identities and reversible patches. Review every changed supporting resource.
+  Original local methods do not copy unselected community material.
+- Source/resource/provenance and isolated delivery checks pass before managed
+  installation. Independent method/forward review reports true outcomes and gaps;
+  no static check becomes model compliance, tool execution or token-savings proof.
+- Before any shared write, compare exact live preimages against known reviewed
+  generations. Preserve unrelated live edits in explicitly reviewed projections;
+  unresolved overlap blocks only its affected target. Retain preimages and verify
+  complete target bytes/file sets/modes after each apply, with an empty second diff.
+- Publication and merge include all Gate Commits and current-base CI under native
+  protections. Guidance installation does not authorize target infrastructure,
+  package/tool installation, kernel execution, account configuration or publishing
+  user project artifacts. Retain branches and worktrees.
