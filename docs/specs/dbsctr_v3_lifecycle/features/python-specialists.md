@@ -376,3 +376,36 @@ It does not remediate unrelated pending pull requests or their validated finding
 | Python interacts with other languages | Inspect relevant interface consumers and disclose unreviewed scope; no full cross-language architecture claim |
 | No Python is present | Explain Python-audit scope and use reusable architecture guidance if sufficient, without mislabeling a full Python audit |
 | Audit identifies refactoring or proposed contracts | Return one ordered roadmap; no automatic source/ADR/config changes or second lifecycle ledger |
+
+### Architecture interfaces and visual evidence
+
+The existing Python module owns three new conditional trigger rows. Existing
+Python method notes own technique distinctions and immutable source inventory
+links. Two complete upstream bundles use existing schema 1 provenance at
+`dbsctr/references/architecture-sources/sources.lock.json`, retaining MIT notices,
+original SHA-256/Git blobs/modes and reversible per-file patches. The local fitness
+skill has one on-demand contracts reference; no helper, installer or dispatcher.
+
+`python-audit/SKILL.md` chooses full or architecture focus before lens loading.
+Natural-language invocation: `Use $python-audit to audit architecture only and
+prioritize refactors.` This is a prompt, not a CLI flag or new command. The
+on-demand `references/architecture.md` defines architecture evidence; the existing
+report contract adds actual/declared boundary, witness, tradeoff and contract-plan
+fields without creating another report owner. UI metadata exposes both uses.
+
+| Architecture concern | Evidence owner and permitted handoff |
+|---|---|
+| System/context and dependency design | `architecture-patterns`; options, costs and compatibility at Domain/Spec |
+| Package/module/public surface organization | `python-project-structure`; project layout and consumers at Spec/Refactor |
+| Component responsibilities/composition | Existing `python-design-patterns`; focused structural technique |
+| Accepted dependency contracts and static-check limits | `python-architecture-fitness`; QA executes selected authority at Contract/Test |
+| Snapshot, review coverage, findings and ordered work | Same `python-audit` primary; later selected remediation enters DBSCTR |
+
+**Text Equivalent:** System design, packaging, components and fitness are separate
+techniques feeding one audit primary and existing QA/DBSCTR. Canonical source:
+this table and architecture interfaces; owner: lifecycle maintainer; update when
+mode, ownership, resources or handoffs change. This extends the existing Visual
+Evidence Plan: Boundary/Interaction/Data-trust/Dependency evidence is required in
+this table and the mode/contract text; State uses the behavior/disposition table.
+Schema is not applicable because profiles and Gate Ledger remain unchanged;
+Quantitative is not applicable because no effectiveness or performance claim is made.
