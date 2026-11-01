@@ -44,6 +44,17 @@ lakes, warehouses, or changes to governed datasets and their consumers.
 
 ## Conditional Controls
 
+- **CONDITIONAL:** For actual DuckDB, ClickHouse or Databricks concerns, select
+  relevant guidance through [database specialists](../references/database-specialists.md).
+  Select the Python database boundary only when Python client code is involved.
+  Databricks platform, SQL engine and Python technique concerns have separate
+  owners; a stack mention alone does not load every lens.
+- **CONDITIONAL:** For an explicitly requested repository database assessment,
+  use `database-audit`. Static review works without authentication or database
+  execution. Existing project authorization governs any live evidence extension;
+  guidance loading alone grants no installs, queries or deployments.
+
+
 - **CONDITIONAL:** For scheduled, incremental, or multi-stage flows, define a
   watermark, manifest, content identity, or equivalent resumable control state.
 - **CONDITIONAL:** For partitioned or distributed outputs, declare partitioning,

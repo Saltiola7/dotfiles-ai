@@ -7,7 +7,7 @@ modernization review and Mojo while preserving existing lifecycle and QA ownersh
 The [infrastructure/framework follow-up](features/platform-specialists.md#follow-up-infrastructure-and-framework-specialists)
 adds three Pulumi methods, Django/DRF, Hetzner Cloud and Dagger through the existing
 conditional Python/Cloud routes. Framework and provider detail is selected for
-actual task evidence; the existing Python audit keeps its six general lenses.
+actual task evidence; the existing Python audit retains its generic assessment scope.
 Installation supplies guidance, with target execution validated by its project.
 
 [Native router qualification](../../../tests/fixtures/skill_router/README.md)
@@ -22,10 +22,24 @@ comparison demonstrated no end-to-end token saving.
 [Conditional Python specialists](features/python-specialists.md) defines bounded
 selection of design, property-testing, profiling and tooling guidance. The Python
 module routes; project policy and existing lifecycle/QA authorities retain control.
-The standalone `python-audit` entrypoint composes all six current Python lenses
-for explicitly requested repository assessments and ordered refactor roadmaps.
+The standalone `python-audit` entrypoint considers fourteen assessment lenses and
+applicable database boundaries for explicit repository assessments and refactor roadmaps.
+For architecture-only requests, the same coordinator starts with system/context
+boundaries, package/public-import structure, component design and accepted
+dependency contracts; other lenses follow relevant evidence. Ask: `Use
+$python-audit to audit architecture only and prioritize bounded refactors.`
+The [architecture extension](features/python-specialists.md#architecture-assessment-extension)
+keeps project policy authoritative and architecture checkers optional unless the
+project selects them. It does not claim full cross-language audit coverage.
 Its [audit contract](features/python-specialists.md#audit-interfaces) separates
 review coverage, validation results and later implementation.
+
+[Python and database composition](features/python-data-specialists.md) adds
+conditional test/type/retry/resource/telemetry techniques and Python database
+boundaries. The existing Data module routes selected DuckDB, ClickHouse and
+Databricks guidance. `database-audit` assesses detected stacks and returns a
+source-backed roadmap; both audits separate static review, live/check evidence
+and later remediation. Existing targets, tools and installer owners retain authority.
 
 Codex CLI and Desktop can use the shared lifecycle from the current conversation
 by targeting a validated Worktrunk task checkout explicitly. Repository commands

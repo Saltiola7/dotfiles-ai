@@ -1,0 +1,11 @@
+--- a/references/deploy-and-run.md
++++ b/references/deploy-and-run.md
+@@ -1,4 +1,8 @@
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Deploy and Run Declarative Automation Bundles
++
++Use setup, validation and mutation commands below only for the corresponding authorized live task. A static repository audit preserves tool versions, profiles and target resources; it records unavailable live evidence instead of installing tools, deploying or creating monitors.
+ 
+ ## Initialization
+ 

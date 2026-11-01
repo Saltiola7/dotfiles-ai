@@ -1,0 +1,290 @@
+--- a/references/advanced-patterns.md
++++ b/references/advanced-patterns.md
+@@ -1,12 +1,19 @@
+ # Advanced Architecture Patterns — Reference
+ 
+-Deep-dive implementation examples for DDD bounded contexts, Onion Architecture, Anti-Corruption Layers, and full project structures. Referenced from SKILL.md.
++Read only the selected context-mapping, composition, consistency or cycle example.
++These are alternatives whose costs and runtime requirements need actual project
++evidence, not a requirement to add services, frameworks or an event platform.
++For an audit, report observed coupling and compatibility before proposing code.
+ 
+ ---
+ 
+ ## Full Multi-Service Project Structure
+ 
+-A realistic e-commerce system organised by bounded context, each context is a deployable service:
++An example for a system that already selected separate deployment per context.
++Bounded contexts can instead remain cohesive packages in a modular monolith.
++Compare operational, consistency, latency and change costs before selecting
++service extraction. A folder tree is not proof of independent ownership or a
++reason to create new repository-root directories.
+ 
+ ```
+ ecommerce/
+@@ -91,6 +98,12 @@
+ 
+ Onion Architecture makes the Domain Services layer explicit — it hosts pure domain logic that spans multiple entities but has no I/O:
+ 
++Here `Money.amount` is a nonnegative integer number of cents, quantities are
++positive integers, and the shown discounts use whole percentages. This example
++rounds each discounted unit price to the nearest cent, with ties rounded upward,
++before multiplying by quantity. Preserve the actual project's currency units,
++discount rules and rounding policy when adapting it.
++
+ ```python
+ # onion/domain/services/pricing_service.py
+ from domain.entities.product import Product
+@@ -104,24 +117,39 @@
+     """
+ 
+     def apply_bulk_discount(self, product: Product, quantity: int) -> Money:
++        """Return a discounted unit price, rounded half-up to integer cents."""
+         if quantity >= 100:
+             discount = Discount(percentage=20)
+         elif quantity >= 50:
+             discount = Discount(percentage=10)
+         else:
+             discount = Discount(percentage=0)
+-        return product.price.apply_discount(discount)
++        discounted_cents = (
++            product.price.amount * (100 - discount.percentage) + 50
++        ) // 100
++        return Money(discounted_cents, product.price.currency)
+ 
+     def calculate_order_total(self, items: list[tuple[Product, int]]) -> Money:
+-        subtotals = [self.apply_bulk_discount(p, q) for p, q in items]
+-        return sum(subtotals[1:], subtotals[0]) if subtotals else Money(0, "USD")
++        subtotals = []
++        for product, quantity in items:
++            unit_price = self.apply_bulk_discount(product, quantity)
++            subtotals.append(Money(unit_price.amount * quantity, unit_price.currency))
++        if not subtotals:
++            return Money(0, "USD")  # Use the actual model's empty-total currency
++        total = subtotals[0]
++        for subtotal in subtotals[1:]:
++            total = total.add(subtotal)
++        return total
+ ```
+ 
+ ---
+ 
+ ## Anti-Corruption Layer (ACL)
+ 
+-When the `Ordering` context must fetch product data from the `Catalog` context, it should never use `Catalog`'s domain model directly. An ACL translates between the two models:
++When the contexts have genuinely different models or compatibility needs, an
++anti-corruption adapter can translate between them. Shared stable identifiers,
++a documented upstream interface or a governed shared model can be sufficient
++when semantics align; do not duplicate models purely to satisfy a diagram.
+ 
+ ```python
+ # ordering/domain/interfaces/catalog_client.py
+@@ -223,39 +251,37 @@
+   Open Host Service  — upstream provides a stable API for many downstream contexts
+   ACL (Anti-Corruption Layer) — downstream translates upstream model to its own
+   Shared Kernel     — two contexts share a small, explicitly governed sub-model
+-  Conformist        — downstream adopts upstream model as-is (last resort)
++  Conformist        — downstream adopts a suitable upstream model under its contract
+ ```
+ 
+ ---
+ 
+ ## Dependency Injection Wiring — Infrastructure Layer
+ 
+-All the abstract interfaces are wired to concrete implementations in the infrastructure layer (or a DI container). Nothing else in the codebase knows which concrete class is used:
++For this selected inward-dependency design, the composition root wires concrete
++adapters. A framework container is optional; constructor arguments or a simple
++factory can suffice. The application's existing startup/shutdown owner creates
++and closes shared pools; request/use-case factories borrow them.
+ 
+ ```python
+ # infrastructure/container.py
+-from functools import lru_cache
+ import asyncpg
+ from adapters.repositories.postgres_user_repository import PostgresUserRepository
+-from adapters.gateways.stripe_payment_gateway import StripePaymentAdapter
+ from use_cases.create_user import CreateUserUseCase
+-from infrastructure.config import Settings
+ 
+-@lru_cache
+-def get_settings() -> Settings:
+-    return Settings()
+ 
+-async def get_db_pool() -> asyncpg.Pool:
+-    settings = get_settings()
+-    return await asyncpg.create_pool(settings.database_url)
++def make_create_user_use_case_factory(pool: asyncpg.Pool):
++    # pool is borrowed from the existing application lifetime owner.
++    # Do not create an unclosed pool for every use-case/request.
++    def get_create_user_use_case() -> CreateUserUseCase:
++        repository = PostgresUserRepository(pool=pool)
++        return CreateUserUseCase(user_repository=repository)
+ 
+-async def get_create_user_use_case() -> CreateUserUseCase:
+-    pool = await get_db_pool()
+-    repo = PostgresUserRepository(pool=pool)
+-    return CreateUserUseCase(user_repository=repo)
++    return get_create_user_use_case
+ 
+-# In tests, replace get_create_user_use_case with a version
+-# that injects InMemoryUserRepository — no other code changes needed.
++# The selected framework wires the returned provider at startup. Its pool
++# acquisition, capacity, shutdown and cancellation remain application-owned.
++# Tests can provide a fake repository without opening a database.
+ ```
+ 
+ ---
+@@ -266,11 +292,11 @@
+ 
+ | Question | Guidance |
+ |---|---|
+-| Should these two objects always be consistent together? | Put them in the same aggregate. |
+-| Can they be eventually consistent? | Put them in separate aggregates; use domain events to sync. |
++| Does a real invariant require atomic consistency across these objects? | Consider a common aggregate or the actual selected atomic unit; document ownership and costs. |
++| Can the requirement tolerate eventual consistency? | Consider independent aggregates; define ordering, replay and recovery if events are selected. |
+ | Is one object the "owner" that controls access? | That object is the aggregate root. |
+ | Does removing the root make the child meaningless? | Child belongs inside the aggregate. |
+-| Are you loading thousands of objects to change one? | Aggregate is too large — split it. |
++| Are you loading many objects to change one? | Measure the access pattern and invariant needs; consider query shape, batching or a justified boundary change. |
+ 
+ **Practical example — Order vs. Customer:**
+ 
+@@ -293,6 +319,10 @@
+ 
+ ---
+ 
++An ID list can still be unbounded and duplicate relationship ownership. The
++example does not prove a performance improvement. Review actual queries and
++consumers before choosing eager IDs, pagination or a different model.
++
+ ## Domain Events — Publishing and Handling
+ 
+ Domain events decouple aggregates that need to react to each other's state changes:
+@@ -300,18 +330,20 @@
+ ```python
+ # domain/events/order_events.py
+ from dataclasses import dataclass, field
+-from datetime import datetime
++from datetime import datetime, timezone
+ 
+ @dataclass
+ class DomainEvent:
+-    occurred_at: datetime = field(default_factory=datetime.utcnow)
++    occurred_at: datetime = field(
++        default_factory=lambda: datetime.now(timezone.utc), init=False
++    )
+ 
+ @dataclass
+ class OrderSubmittedEvent(DomainEvent):
+-    order_id: str = ""
+-    customer_id: str = ""
+-    total_cents: int = 0
+-    currency: str = "USD"
++    order_id: str
++    customer_id: str
++    total_cents: int
++    currency: str
+ 
+ 
+ # adapters/event_publisher/postgres_outbox.py
+@@ -320,12 +352,16 @@
+ 
+ class PostgresOutboxPublisher:
+     """
+-    Writes domain events to an outbox table in the same transaction
+-    as the aggregate state. A separate relay process reads and publishes
+-    to the message broker. Guarantees at-least-once delivery.
++    Appends events through a caller-owned transaction. Atomicity requires
++    the same actual transactional unit as aggregate persistence. A selected
++    relay, acknowledgements and consumers determine delivery/replay guarantees.
+     """
+ 
+-    async def publish(self, conn, events: list[DomainEvent]):
++    def __init__(self, encode_event):
++        # Explicit schema/versioned field encoder, not whole-object serialization.
++        self._encode_event = encode_event
++
++    async def publish(self, conn, events: tuple[DomainEvent, ...]):
+         for event in events:
+             await conn.execute(
+                 """
+@@ -333,20 +369,22 @@
+                 VALUES ($1, $2, NULL)
+                 """,
+                 type(event).__name__,
+-                json.dumps(event.__dict__, default=str),
++                json.dumps(self._encode_event(event)),
+             )
+ 
+ 
+-# use_cases/place_order.py — aggregate saves, events are extracted and stored
+-# For the outbox, the repository port takes the open connection:
+-#   async def save(self, order: Order, conn) -> None
+-# so the order row and the outbox rows commit in the same transaction.
++# use_cases/place_order.py — selected atomic persistence variant.
++# TransactionPort, OrderRepository and EventPublisherPort are project contracts;
++# the composition root supplies concrete adapters. In this variant, the selected
++# save/publish contracts accept the same opaque transaction context. This is not
++# a drop-in implementation of a port that independently acquires a connection.
++# Successful context exit must mean actual commit for the chosen driver.
+ class PlaceOrderUseCase:
+     def __init__(
+         self,
+-        db: Database,
++        db: TransactionPort,
+         order_repo: OrderRepository,
+-        event_publisher: PostgresOutboxPublisher,
++        event_publisher: EventPublisherPort,
+     ):
+         self.db = db
+         self.orders = order_repo
+@@ -360,16 +398,26 @@
+ 
+         async with self.db.transaction() as conn:
+             await self.orders.save(order, conn)
+-            await self.publisher.publish(conn, order.pop_events())
++            await self.publisher.publish(conn, order.pending_events())
+ 
++        # Clear only after actual commit. Rollback/failed commit retains events.
++        order.clear_events()
+         return PlaceOrderResponse(order_id=order.id, success=True)
+ ```
+ 
+ ---
+ 
++The event encoder must enumerate permitted fields and their units/version;
++validate its schema and privacy contract. Do not serialize an entire domain
++object with `__dict__`/`default=str`. Retrying publication requires stable event
++identity and an explicit relay/deduplication/recovery design. This fragment does
++not implement that relay or claim exactly-once behavior.
++
+ ## Detecting and Breaking Dependency Cycles
+ 
+-Common symptoms and their structural fixes:
++For a selected layering contract, investigate actual import paths and owners.
++These are candidate repairs, not mandatory patterns. Consolidation or a simpler
++function interface may be better than a new abstract class, event or module.
+ 
+ ```
+ Symptom: use_cases/create_order.py imports from adapters/email_sender.py
+@@ -391,10 +439,17 @@
+          Repositories persist state only; they do not orchestrate behaviour.
+ ```
+ 
+-Visual dependency check — run this and look for any arrow pointing outward:
++A dependency diagram can help explain observed edges. Use an existing selected
++authority or `python-architecture-fitness` guidance when available. Do not install
++or execute a graph tool merely to complete an audit. Inspect its import/execution
++behavior, scope and supported runtime before running it on target source.
+ 
++For a project already selecting pydeps, an illustrative command is:
++
+ ```bash
+-# Install: pip install pydeps
+ pydeps app --max-bacon=4 --cluster --rankdir=BT
+-# Expected: domain has no outgoing edges to adapters or infrastructure
+ ```
++
++Check the actual selected version/help. A graph can omit dynamic dependencies;
++visual inspection does not establish contract coverage or good design. Keep the
++existing allowed-edge authority and actual command/result evidence separate.

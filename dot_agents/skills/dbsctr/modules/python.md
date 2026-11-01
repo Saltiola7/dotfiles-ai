@@ -43,12 +43,21 @@
 | Evidence in the current task | Preferred specialist | Checkpoint |
 |---|---|---|
 | Changed responsibilities, component boundaries, dependency direction or abstractions | `python-design-patterns` | Domain/Spec; structural Refactor |
+| System/context boundaries, dependency direction or architecture alternatives | `architecture-patterns` | Domain/Spec |
+| Package organization, public imports or module ownership | `python-project-structure` | Spec/Refactor |
+| Accepted dependency rules, architecture drift or fitness checks | `python-architecture-fitness` | Contract/Test; QA |
 | Parser, serializer, normalization, validation or state transition with a meaningful invariant | `property-based-testing` | Behavior/Contract; Test |
 | Reported slowdown, performance requirement or measured bottleneck | `python-performance-optimization` | Baseline before optimization; compare afterward |
 | New packaging/tooling setup or explicitly selected tooling migration | `modern-python` | Engineering Profile/Spec |
 | Changed async tasks, cancellation, concurrent I/O or sync/async boundaries | `async-python-patterns` | Domain/Contract; Test/Refactor |
 | Runtime/support-floor change or requested modernization/debt review | `python-modernization-review` | Profile/Spec; Maintain/Retire |
 | Actual Django/DRF ORM, serializers, views, permissions, migrations or framework tests | `django-expert` | Domain/Contract; Test/Refactor |
+| Changed pytest fixtures, isolation, mocking or integration-test design | `python-testing-patterns` | Behavior/Test |
+| Changed protocols, generics, narrowing or public typed interfaces | `python-type-safety` | Domain/Spec/Contract; existing checker policy remains authoritative |
+| Remote failure/retry behavior, deadlines or circuit breaking | `python-resilience` | Behavior/Contract; Test |
+| Owned/borrowed handles, streaming lifetime or cleanup | `python-resource-management` | Contract/Test; avoid duplicate async guidance |
+| Changed logging, metrics, tracing or correlation context | `python-observability` | Contract/Test; Operate when applicable |
+| Actual Python database or platform-client boundary | `python-database-boundaries` | Domain/Contract/Test; combine relevant Data guidance |
 
 - **PROJECT POLICY:** Runtimes, tools, dependencies, compatibility, test strategy
   and acceptance thresholds remain project-selected. Specialist recipes cannot

@@ -1,5 +1,62 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Python architecture assessment
+
+- Added `architecture-patterns`, `python-project-structure` and local
+  `python-architecture-fitness` through existing conditional Python routing.
+  The same `python-audit` offers architecture focus, starting with those three
+  lenses and component design. Full assessment now considers fourteen lenses;
+  database delegation preserves the requested structural scope. Project rules,
+  supported imports, simple designs and selected tools retain authority.
+- Preserved two complete MIT bundles with immutable source identities, notices,
+  file modes and reversible adaptations. Corrected quantity/rounding and event
+  payload examples. Four creator validations, four offline example regressions
+  and affected QA passed: 205 tests, one optional smoke skipped. Complete isolated
+  projection verifies file sets, bytes, modes, resource closure and repeat apply.
+- Independent static audits identified a declared boundary violation in a modular
+  monolith and retained a small flat library. Dirty/untracked consumer evidence,
+  missing guidance and unrun checks remained explicit. These bounded samples do
+  not prove comparative gains, universal routing or live application behavior.
+- Managed deployment uses ten exact targets with prior-live snapshots, drift
+  guards, complete verification and a repeated empty diff. Existing routing is
+  reconciled with the reviewed current-base source; unrelated live skills remain
+  preserved. Native client selector refresh remains unverified. Recovery uses
+  retained preimages and matching reviewed source through the existing owner.
+- Implementation Gate Commit: `6f198da`. Remaining closure and actual deployment
+  evidence stay in the private Cycle Record. Intended Final Push: combined feature
+  branch and draft PR into `main`, including the pending Python/data mapping.
+  No Gate Exception, consumer remediation or new checker installation.
+
+## 2026-10-31 — Python and database specialist mapping
+
+- Added 21 discoverable skills: five Python techniques, six DuckDB/ClickHouse
+  bundles, eight stable Databricks bundles, Python database boundaries and
+  `database-audit`. Extended existing Python/Data routing; `python-audit` now
+  considers eleven language lenses plus applicable database concerns. No new
+  PostgreSQL or dbt skills. Ordinary work selects the smallest relevant set;
+  explicit audits produce findings and ordered refactor batches by default.
+- Retained 19 complete pinned upstream bundles, licenses/notices, original
+  hashes/blobs/modes and reversible adaptations. Databricks material remains
+  service-scoped. Corrected concrete example issues in retry/ownership/typing,
+  aggregate windows, checkpoint recovery, lineage and asynchronous results.
+  Per-file modification notices and existing exact-upstream whitespace policy
+  preserve redistribution and reconstruction requirements.
+- Affected QA passed: 165 tests, one optional skip; all 22 selected creator
+  validators passed. Complete isolated projection verified bytes, modes, local
+  resource closure, unrelated-state preservation and repeat-apply idempotency.
+  Two independent synthetic audits and six routing scenarios preserved target
+  source and selected tools; 16 offline snippet cases checked statement states.
+  These are bounded samples, not live engine qualification or effectiveness gains.
+- Managed installation uses 29 exact targets with a prior-live drift guard and
+  complete verification. Existing local Django routing and independent skill edits
+  are preserved. Native client catalog refresh remains unverified; no database,
+  warehouse, notebook, credential or remote job operation is part of deployment.
+  Prior-live snapshots and reviewed source support recovery through the same owner.
+- Implementation Gate Commit: `132a435`. Other Gate Commits and actual deployment
+  results remain in the private Cycle Record. Intended Final Push: feature branch
+  and draft PR into `main`; actual push/PR identity is recorded there. No Gate
+  Exception or consumer-repository remediation.
+
 ## 2026-10-31 — Infrastructure and framework specialist follow-up
 
 - Added three official Pulumi bundles and the reviewed Django/DRF bundle, plus

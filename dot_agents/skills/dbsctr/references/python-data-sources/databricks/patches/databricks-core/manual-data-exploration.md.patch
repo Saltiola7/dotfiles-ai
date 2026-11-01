@@ -1,0 +1,11 @@
+--- a/manual-data-exploration.md
++++ b/manual-data-exploration.md
+@@ -1,4 +1,8 @@
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Manual Data Exploration
++
++The workflow below is for requested live data exploration. Static repository audits inspect existing SQL/schema evidence and record unavailable workspace observations; they do not authenticate or run discovery queries.
+ 
+ Discover table schemas and run SQL **directly via the CLI**. These commands are
+ first-class — running an ad-hoc query or profiling a known table with them needs

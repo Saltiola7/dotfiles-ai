@@ -1,0 +1,21 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -1,9 +1,18 @@
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](UPSTREAM.md) for attribution and adaptation details.
++
+ # ClickHouse Architecture Advisor
+ 
+ **Version 0.1.0**  
+ ClickHouse Inc  
+ April 2026  
+ ClickHouse 24.1+
++
++## Managed scope
++
++Apply [task boundaries](SKILL.md#task-boundaries). Static review does not open
++connections, execute SQL, install tools or change schemas/state. Examples and
++validation items are proposals. Preserve actual version, result semantics and
++existing operational owners; label missing evidence and heuristic claims.
+ 
+ ## Abstract
+ 

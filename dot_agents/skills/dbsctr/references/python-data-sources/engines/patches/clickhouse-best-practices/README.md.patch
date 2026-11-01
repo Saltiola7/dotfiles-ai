@@ -1,0 +1,22 @@
+--- a/README.md
++++ b/README.md
+@@ -1,12 +1,15 @@
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](UPSTREAM.md) for attribution and adaptation details.
++
+ # ClickHouse Best Practices
+ 
+ Agent skill providing comprehensive ClickHouse guidance for schema design, query optimization, and data ingestion.
+ 
+-## Installation
++## Managed delivery
+ 
+-```bash
+-npx skills add ClickHouse/clickhouse-agent-skills
+-```
++This complete selected bundle is distributed through the existing dotfiles-ai
++skill owner. Loading it does not run an installer, configure a connection or
++install a plugin. See [task boundaries](SKILL.md#task-boundaries).
++The upstream authoring template is retained as provenance material.
+ 
+ ## What's Included
+ 
