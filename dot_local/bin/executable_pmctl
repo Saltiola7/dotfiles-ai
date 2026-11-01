@@ -196,7 +196,8 @@ def ticket_paths(root):
 def validate_ticket(root, path):
     relative = path.relative_to(root).as_posix()
     try:
-        values, body = frontmatter(path.read_text())
+        parsed = parse_frontmatter(path.read_text())
+        values, body = parsed.values, parsed.body
     except (OSError, UnicodeError, RuntimeError) as error:
         return None, [{"code": "invalid_ticket_yaml", "path": relative, "detail": str(error)}]
     findings = []
@@ -605,11 +606,9 @@ def project_envelope(args):
     raw = args.input.read_bytes()
     if len(raw) > 1024 * 1024:
         fail("envelope exceeds 1 MiB")
-    value = json.loads(raw)
-    if args.source not in ENVELOPE_SOURCES:
-        fail("unsupported sanitized envelope source")
-    safe_envelope(value)
-    validate_envelope_contract(args.source, value)
+    decoded: object = json.loads(raw)
+    approved = approve_envelope(args.source, decoded)
+    value = approved.value
     digest = hashlib.sha256(raw).hexdigest()
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"))
     sql = (
