@@ -13,6 +13,9 @@
   Python 3.12 and 3.15; all 22 transport tests passed on 3.15. Full exact-source
   hosted matrix and current PR checks remain required before Review/Integrate
   and completion; their actual results belong to the private Cycle Record.
+- Real local runtime probes recorded Python 3.12.15 and 3.15.0 with matching
+  PATH-selected children and one unchanged frozen-lock digest. These observed
+  patch versions are evidence, not new deployment pins.
 - The canonical update runbook adds monthly owner review and urgent security
   intake, without a scheduler, automatic upgrade or live activation. No Gate
   Exception selected; the exact-approved sequence amendment preserves failures
