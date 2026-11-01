@@ -441,3 +441,32 @@ library, focused/full scope and missing guidance/check evidence. Preserve actual
 coverage and target bytes; samples do not prove universal routing or effectiveness.
 Source reconciliation preserves both published Python/data and current-main
 router/infrastructure scopes and revalidates their union before delivery.
+
+
+## Conditional Python stack and runtime expansion
+
+### Domain and ownership
+
+Add seven reviewed technique bundles: `pydantic`, `polars`, `typer`, `fastapi`,
+`atheris`, `secure-python-release-pipeline` and `port-to-free-threaded-python`.
+They supplement the existing fourteen generic audit lenses. Framework, dataframe,
+fuzzing, release and no-GIL methods apply only to relevant project evidence or an
+explicitly selected migration. Installing guidance does not select dependencies,
+a framework, a toolchain, a runtime floor, a fuzz campaign or publication.
+
+The Python module owns the canonical conditional selector table. The Data module
+routes actual Polars work to the same technique; it does not select a dataframe
+engine merely because data is present. `python-audit` keeps one primary, the full
+versus architecture-focused scope, and one deduplicated roadmap. Project policy
+owns tools, runtime compatibility and contracts; QA owns executed evidence; DBSCTR
+owns remediation and applicable Release/Deploy gates. Existing notebook/Rust
+selectors already installed from separately owned work remain preserved; this
+cycle does not adopt or deliver that separate batch.
+
+Preserve complete selected upstream roots, relevant shared resources, exact
+licenses and immutable original identities. The four official framework/data
+bundles are MIT; Atheris guidance retains CC-BY-SA-4.0; the two runtime/release
+bundles retain Apache-2.0 and their Experimental status. Review adaptations across
+supporting resources, including substantive examples, rather than changing only
+the entrypoint. No plugin hooks, authentication setup or unrelated skills are
+installed. User data, credentials and raw evaluation evidence remain private.
