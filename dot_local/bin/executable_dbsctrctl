@@ -17289,8 +17289,11 @@ def command_record_evidence(args):
         evidence_id = envelope["id"]
         record["evidence"]["items"][evidence_id] = envelope
         previous_result = gate["result"]
+        was_disposed = disposed(gate)
         gate.pop("exception", None)
         gate.update({"result": result, "evidence": evidence_id})
+        if is_v32(record) and was_disposed and not disposed(gate):
+            invalidate_later(record, args.gate)
         metrics = record.setdefault("metrics", {"gate_failure_count": 0, "gate_reopen_count": 0,
                                                   "remediation_round_count": 0})
         if result in ("failed", "unavailable") and previous_result not in ("failed", "unavailable"):

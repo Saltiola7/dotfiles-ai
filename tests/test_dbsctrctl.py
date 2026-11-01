@@ -2097,6 +2097,87 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(envelope["urls"], [])
         self.assertNotIn("environment", json.dumps(record))
 
+    def _assert_evidence_rerun_reopens_success(self, outcome, *, exception=False):
+        self.start()
+
+        def approve(gate):
+            run(self.repo, "approve-exception", gate, "--kind", "deferred",
+                "--rationale", "fixture approval", "--owner", "owner",
+                "--review-condition", "next cycle")
+
+        def passing(gate):
+            run(self.repo, "record-evidence", gate, "--authority", "test", "--",
+                sys.executable, "-c", "print('ok')")
+
+        if exception:
+            self.record_gate("domain", 1)
+            approve("domain")
+        else:
+            passing("domain")
+        passing("behavior")
+        passing("spec")
+        self.record_gate("contract", 1)
+        approve("contract")
+        passing("test_driven_implementation")
+        before = json.loads(self.record_path().read_text())
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo)
+        sidecars = {
+            content["path"]: (self.git_common / "dbsctr" / content["path"]).read_bytes()
+            for item in before["evidence"]["items"].values()
+            if (content := item["content"])["status"] == "sidecar"
+        }
+        self.assertTrue(sidecars)
+        command = ([sys.executable, "-c", "raise SystemExit(1)"] if outcome == "failed"
+                   else [str(Path(self.temp.name) / "missing-authority")])
+        run(self.repo, "record-evidence", "domain", "--authority", "test", "--", *command)
+        failed = json.loads(self.record_path().read_text())
+        expected = ("behavior", "spec", "test_driven_implementation")
+        for gate in expected:
+            self.assertEqual(failed["gates"][gate], {"applicability": "required", "result": "pending"})
+        for gate in set(GATES) - {"domain", *expected}:
+            self.assertEqual(failed["gates"][gate], before["gates"][gate])
+        self.assertNotIn("exception", failed["gates"]["domain"])
+        self.assertEqual(failed["gates"]["domain"]["result"], outcome)
+        current = failed["gates"]["domain"]["evidence"]
+        self.assertNotIn(current, before["evidence"]["items"])
+        self.assertEqual(failed["evidence"]["items"][current]["result"], outcome)
+        for evidence_id, envelope in before["evidence"]["items"].items():
+            self.assertEqual(failed["evidence"]["items"][evidence_id], envelope)
+        for path, content in sidecars.items():
+            self.assertEqual((self.git_common / "dbsctr" / path).read_bytes(), content)
+        self.assertEqual(failed["artifact_reviews"], before["artifact_reviews"])
+        self.assertEqual(failed["commits"], before["commits"])
+        self.assertEqual(failed["metrics"], {
+            **before["metrics"],
+            "gate_reopen_count": before["metrics"]["gate_reopen_count"] + len(expected),
+            "gate_failure_count": before["metrics"]["gate_failure_count"] + (0 if exception else 1),
+        })
+
+        run(self.repo, "record-evidence", "domain", "--authority", "test", "--", *command)
+        repeated = json.loads(self.record_path().read_text())
+        self.assertEqual(repeated["metrics"], failed["metrics"])
+        passing("domain")
+        recovered = json.loads(self.record_path().read_text())
+        for gate in expected:
+            self.assertEqual(recovered["gates"][gate], failed["gates"][gate])
+        self.assertEqual(recovered["metrics"], {
+            **failed["metrics"],
+            "remediation_round_count": failed["metrics"]["remediation_round_count"] + 1,
+        })
+        self.assertEqual(subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=self.repo), head)
+
+    def test_evidence_failure_reopens_later_success(self):
+        self._assert_evidence_rerun_reopens_success("failed")
+
+    def test_evidence_unavailable_reopens_later_success(self):
+        self._assert_evidence_rerun_reopens_success("unavailable")
+
+    def test_evidence_failed_exception_rerun_reopens_later_success(self):
+        self._assert_evidence_rerun_reopens_success("failed", exception=True)
+
+    def test_evidence_unavailable_exception_rerun_reopens_later_success(self):
+        self._assert_evidence_rerun_reopens_success("unavailable", exception=True)
+
     def test_record_evidence_redacts_or_withholds_secrets(self):
         self.start()
         secret = "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
