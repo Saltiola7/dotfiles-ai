@@ -534,3 +534,38 @@ reviewed, reversible adaptations; isolated verification precedes drift-guarded
 shared installation. Missing guidance or failed checks never advance as passes.
 These tables and package inventories are canonical; lifecycle/distribution
 maintainers update them when selection, ownership, schema or deployment changes.
+
+### Contracts and validation
+
+- The seven names remain normally discoverable, with narrow task-based triggers.
+  Loading them does not choose a framework, dependency, runtime build, operation
+  or new QA gate. Full audit retains fourteen generic lenses; architecture focus
+  passes its structural scope into conditional specialists. Existing notebook/Rust
+  routing and separately deployed method notes remain preserved.
+- Keep complete selected roots and all genuinely required shared resources.
+  Optional unselected siblings use immutable external references. Original file
+  paths, Git blobs, SHA-256 and modes must reconstruct exactly by reversing local
+  patches with zero fuzz; forward application must restore the full adapted set.
+  Keep original license/attribution and Apache modification notices. Experimental
+  status is material guidance, not an instruction to accept missing evidence.
+- Reconcile version-sensitive and opinionated upstream recipes throughout the
+  resource tree. Preserve sync/async ownership; invalid-input/serialization and
+  dataframe null/join/order semantics; CLI output/exit contracts; meaningful fuzz
+  failures and actual instrumentation; build-from-sdist/artifact smoke evidence;
+  failed-import/GIL checks and genuine synchronization requirements. Demonstrated
+  example repairs need focused offline evidence; static syntax alone is weaker.
+- Tests cover immutable provenance, full resource closure, file bytes/modes,
+  reversible patches, bounded isolated projection, unrelated-state preservation
+  and repeat application. Instruction checks read changed Python/Data routing
+  and audit resources. Run original creator validators on all seven entrypoints.
+  Independent forward cases exercise conditional routing and difficult decisions
+  without installs, live data, services, fuzz campaigns or publication.
+- Shared deployment records exact selected source/configuration/targets, prior
+  file sets/hashes/modes and recovery preimages. Compare prior-live state before
+  application; preserve unexpected drift, apply without scripts, verify complete
+  selected bytes/modes and empty repeat diff. Installed files, resolver results,
+  native catalog selection and consumer behavior are distinct claims.
+- Kernel and completion evidence remain in this cycle. Source-only documentation
+  phases have no new executable type artifacts; implementation checks use the
+  existing compatible test environment. Publishing a package, running a campaign,
+  changing credentials or operating a remote service is outside this installation.
