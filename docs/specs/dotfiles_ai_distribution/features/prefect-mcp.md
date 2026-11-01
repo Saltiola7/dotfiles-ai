@@ -196,7 +196,7 @@ profile change is permitted.
 
 ## Qualification and maintenance
 
-The source gate covers 242 affected tests, including instruction/publication
+The source gate covers 245 affected tests, including instruction/publication
 contracts and existing Codex preservation behavior; one unrelated native opt-in
 check is skipped. Synthetic Git fixtures disable inherited commit signing and
 use their expected ordinary umask without changing repository configuration.
@@ -213,6 +213,13 @@ checks use only the selected adapter, with no model call. Report backend identit
 failure separately when the existing service is unavailable. Native CI and the
 ordinary protected merge bind the final head and current base; source checks do
 not substitute for those delivery gates.
+
+Offline qualification denies socket and child-process creation before importing
+upstream code. It reports bounded counts of denied import probes, including SDK
+IPv6, machine identity and Git metadata probes, rather than pretending no probe
+was attempted. Catalog and direct-call checks then require zero effect attempts.
+This audit guard is qualification-only; production uses the independently
+observed target, telemetry, ephemeral-server and capability controls.
 
 Distribution metadata detects added, removed, changed-version or changed-origin
 packages before serving. It does not sandbox code installed by the same account

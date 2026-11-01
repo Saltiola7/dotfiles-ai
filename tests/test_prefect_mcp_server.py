@@ -42,7 +42,9 @@ def upstream(bootstrap, monkeypatch):
 
         def enable(self, *, keys, only):
             assert only is True
-            self.allowed = {key.removeprefix("tool:") for key in keys}
+            # FastMCP 3.4.11 includes the version separator for unversioned tools.
+            available = set(bootstrap.READ_ONLY_TOOLS) | {"unexpected_write"} | set(bootstrap.EXPERIMENTAL_TOOLS)
+            self.allowed = {name for name in available if "tool:" + name + "@" in keys}
 
         async def list_tools(self):
             names = (set(bootstrap.READ_ONLY_TOOLS) | {"unexpected_write"}) - self.missing
@@ -116,6 +118,15 @@ def test_factory_has_no_docs_or_cloud_and_uses_server_allowlist(bootstrap, upstr
     assert len(server.allowed) == 12
 
 
+def test_unversioned_component_key_requires_version_separator(bootstrap, upstream):
+    server, _, _, _ = upstream
+    bootstrap.build_server()
+    server.enable(keys={"tool:orientation"}, only=True)
+    assert asyncio.run(server.get_tool("orientation")) is None
+    server.enable(keys={"tool:orientation@"}, only=True)
+    assert asyncio.run(server.get_tool("orientation")) is not None
+
+
 def test_qualification_checks_catalog_and_direct_denial_even_if_feature_changes(bootstrap, upstream):
     server, experimental, _, calls = upstream
     bootstrap.build_server()
@@ -125,6 +136,38 @@ def test_qualification_checks_catalog_and_direct_denial_even_if_feature_changes(
     assert result["experimental_denied"] == sorted(bootstrap.EXPERIMENTAL_TOOLS)
     assert set(calls) == {(name, enabled) for name in bootstrap.EXPERIMENTAL_TOOLS for enabled in (False, True)}
     assert experimental.execution_plans_enabled is False
+
+
+def test_offline_check_records_denied_import_probes_without_arguments(bootstrap, upstream, monkeypatch):
+    attempts = []
+    monkeypatch.setattr(bootstrap, "install_offline_guard", lambda: attempts)
+    original = bootstrap.build_server
+
+    def build_with_caught_probes():
+        # These events represent probes the guard denied and the SDK caught.
+        attempts.extend(["socket.__new__", "subprocess.Popen", "subprocess.Popen"])
+        return original()
+
+    monkeypatch.setattr(bootstrap, "build_server", build_with_caught_probes)
+    result = bootstrap.check_runtime()
+    assert result["network"] == "blocked"
+    assert result["blocked_import_probes"] == {"socket.__new__": 1, "subprocess.Popen": 2}
+    assert attempts == []
+
+
+def test_offline_check_rejects_caught_effect_during_qualification(bootstrap, upstream, monkeypatch):
+    attempts = []
+    monkeypatch.setattr(bootstrap, "install_offline_guard", lambda: attempts)
+    original = bootstrap.qualify_server
+
+    async def qualification_with_caught_effect(server):
+        result = await original(server)
+        attempts.append("socket.connect")
+        return result
+
+    monkeypatch.setattr(bootstrap, "qualify_server", qualification_with_caught_effect)
+    with pytest.raises(bootstrap.BootstrapError, match="offline_effect_attempted"):
+        bootstrap.check_runtime()
 
 
 @pytest.mark.parametrize("defect", ["missing", "writable", "unsafe"])

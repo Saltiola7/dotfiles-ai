@@ -83,7 +83,7 @@ def build_server():
         include_cloud_tools=False,
         include_cloud_oauth_tools=False,
     )
-    server.enable(keys={"tool:" + name for name in READ_ONLY_TOOLS}, only=True)
+    server.enable(keys={"tool:" + name + "@" for name in READ_ONLY_TOOLS}, only=True)
     return server
 
 
@@ -204,10 +204,15 @@ def check_runtime():
     try:
         attempts = install_offline_guard()
         server = build_server()
+        # SDK imports can catch denied IPv6 or host-metadata capability probes.
+        # Record only bounded audit event names; the guard still denied effects.
+        import_probes = {event: attempts.count(event) for event in sorted(set(attempts))}
+        attempts.clear()
         result = loop.run_until_complete(qualify_server(server))
         if attempts:
             raise BootstrapError("offline_effect_attempted")
         result["network"] = "blocked"
+        result["blocked_import_probes"] = import_probes
         return result
     finally:
         loop.close()
