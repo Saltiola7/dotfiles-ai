@@ -1,0 +1,7 @@
+schema_version = 1
+enabled = {{ .dotfiles_ai.prefect_mcp.enabled }}
+profiles_path = {{ .dotfiles_ai.prefect_mcp.profiles_path | toJson }}
+profile = {{ .dotfiles_ai.prefect_mcp.profile | toJson }}
+api_url = {{ .dotfiles_ai.prefect_mcp.api_url | toJson }}
+api_auth_string_env = {{ .dotfiles_ai.prefect_mcp.api_auth_string_env | toJson }}
+api_key_env = {{ .dotfiles_ai.prefect_mcp.api_key_env | toJson }}
