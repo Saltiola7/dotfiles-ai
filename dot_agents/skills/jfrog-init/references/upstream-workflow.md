@@ -1,0 +1,31 @@
+# JFrog readiness workflow
+
+This is the adapted complete setup workflow. Run only the checks needed by the
+explicit request; installation of this skill does not invoke any step.
+
+| Capability | Qualification and reference |
+|---|---|
+| Execution environment | Identify the actual native client/version, selected configuration owner and skill directory. Do not authenticate a client from ambient environment labels. [Invocation rules](invoking-and-output-rules.md) and [helper boundaries](script-invocation.md). |
+| Node/runtime | Node 18+ is needed only for the retained Node helpers; preserve the installed owner and report absence rather than bootstrap another runtime. [Node handling](node-install-prompt.md). |
+| CLI | Determine the selected executable and compatible version. 2.106.0 is the collection-wide minimum for Agent Plugins Repositories; preserve a newer compatible installation. [Missing/broken](jf-cli-install-prompt.md), [old version](jf-cli-update-prompt.md), [legacy installer mechanics](jf-cli-install-internals.md). |
+| Platform identity/authentication | Reuse the explicitly selected configured server. List only redacted identifiers when resolving ambiguity. Never print config export, ask for tokens in chat or silently switch defaults. [Auth selection](jf-config-auth-picker.md), [server selection](server-picker.md). |
+| API reachability | Use a bounded operation against the selected target only when requested. Distinguish transport, credentials, authorization, entitlement and unsupported endpoint failures. Never start an alternate platform to obtain a pass. |
+| Native MCP | Inspect the native owner's actual entry and returned capabilities. Skill files are not a plugin install or MCP connection. Legacy OpenCode V1 detector/writer paths are unqualified for V2. [Native configuration](mcp-plugin-config.md). |
+| Project | Reuse known task selection; ask only for unresolved material identity. Typed project text is not evidence of existence or permissions. [Project picker](project-picker.md), [resolution branches](project-resolution-branches.md), [matching](project-matching.md), [state reuse](project-state-reuse.md). |
+| AI Catalog | Probe only the selected authorized endpoint when catalog readiness is relevant. Core CLI/artifact work need not have this entitlement. [Catalog observations](catalog-runtime-branches.md). |
+| Marketplace/plugin | Separately requested native plugin/catalog installation retains its owner and credential boundaries. No automatic marketplace registration. [Marketplace](marketplace-setup.md). |
+| Summary/state | Report each observed capability and its limitation, then required next action. No automatic setup-state write. [Result format](final-summary-rendering.md), [batched checks](batch-walk.md). |
+
+The retained scripts describe upstream implementation mechanics; do not infer
+read-only behavior from `detect`, `resolve` or `reinstall` in a filename. In
+particular, broad resolution can merge Kiro/Junie configuration, the MCP detector
+can substitute URLs/write OpenCode state, and batch detection can save setup
+state. Review the complete transitive helper before execution. Prefer the actual
+native configuration/tool owner over these legacy writers.
+
+Carry out concrete authorized setup through its owner without repetitive consent
+questions. Missing prerequisites and denied access remain honest gaps; do not
+hide exit codes, bypass permission policy, update tools, enable hooks/governance,
+launch OAuth or inspect credential-bearing output to complete a checklist.
+[Question handling](how-to-ask-user.md), [flow](flow-diagram.md) and
+[out-of-scope boundaries](out-of-scope.md) apply throughout.

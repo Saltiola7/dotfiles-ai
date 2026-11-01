@@ -1,0 +1,33 @@
+--- a/references/harness-junie.md
++++ b/references/harness-junie.md
+@@ -1,3 +1,12 @@
++# Portable ownership qualification
++
++Use these retained mechanics only for an explicitly selected JFrog-governed task
++and a current version-qualified native configuration owner. Examples do not grant
++mutation, plugin/runtime installation, OAuth, cache deletion or trust changes.
++Use a reviewed Agent Guard pin and actual native secret controls; legacy schema
++examples require current-client verification. Do not auto-run `enable_*_tools` or
++login. Preserve unrelated entries, settings and credential state.
++
+ # Harness: Junie
+ 
+ Junie-specific config for the `jfrog-mcp-management` skill (JetBrains IDE panel
+@@ -8,7 +17,7 @@
+ 
+ > **Junie doesn't interpolate `${VAR}` / `${input:…}`** and has no first-start
+ > prompt, so secrets come from the inherited process environment, not references
+-> — keep the command canonical (`npx … @jfrog/agent-guard`), never a `/bin/sh`
++> — keep the command canonical (`npx … @jfrog/agent-guard@<APPROVED_VERSION>`), never a `/bin/sh`
+ > wrapper. `node`, `npx`, and `jf` must be on Junie's `PATH`; if any is "command
+ > not found" (mainly macOS), the user adds them and restarts — see the JFrog
+ > JetBrains plugin README → **Troubleshooting**.
+@@ -35,7 +44,7 @@
+ in `mcp.json`.
+ 
+ - **Non-secret** inputs → literals in the `env` map (e.g. `_JF_ARGS`).
+-- **OAuth** remote MCPs → no static secret; run `--login` (SKILL.md Step 5).
++- **OAuth** remote MCPs use their native authentication owner; do not run `--login` without concrete authorized authentication scope.
+ - **Static secret** (`isSecret=true`) → NEVER a literal or wrapper. The user
+   exports it under the input's exact name into Junie's environment (e.g.
+   `export Authorization="Bearer <token>"` before `idea .`, or `launchctl setenv`

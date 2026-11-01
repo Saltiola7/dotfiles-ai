@@ -306,6 +306,105 @@
       "artifacts": [
         "docs/specs/continuous_validation/PR-AGENT.md"
       ]
+    },
+    {
+      "id": "INT-032",
+      "kind": "requirement",
+      "text": "Every accepted private record fits its owner read and validation bounds; refused replacement preserves existing bytes.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
+    },
+    {
+      "id": "INT-033",
+      "kind": "decision",
+      "text": "Use bounded private request journals with ordered observation references and source-inventory digest while preserving version-1 public inline results.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
+    },
+    {
+      "id": "INT-034",
+      "kind": "constraint",
+      "text": "Repeated request IDs remain identity-checked queries, never automatic executions or feedback retries, including missing or malformed retained evidence.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
+    },
+    {
+      "id": "INT-035",
+      "kind": "decision",
+      "text": "Preserve oversized existing request journals and return explicit recovery-required results; recovery tooling is deferred.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
+    },
+    {
+      "id": "INT-036",
+      "kind": "requirement",
+      "text": "Atomically reserve the complete eligible observation selection under the existing 200-record bound, including cache hits and opted-in review.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
+    },
+    {
+      "id": "INT-037",
+      "kind": "decision",
+      "text": "Refuse the whole request before selected checks when capacity is insufficient; preserve retained evidence and existing admitted work.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
+    },
+    {
+      "id": "INT-038",
+      "kind": "requirement",
+      "text": "Validate complete fallback representability and serialize generation-token verification, reservation and publication so stale or refused preparation cannot supersede admitted work.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
+    },
+    {
+      "id": "INT-039",
+      "kind": "constraint",
+      "text": "Unknown completion retains reservation charge; release requires proven materialization or unused capacity, never PID disappearance, timeout or restart alone.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
+    },
+    {
+      "id": "INT-040",
+      "kind": "requirement",
+      "text": "Preserve structured CLI, watcher and checkpoint outcomes, readable legacy replay and unchanged formal-gate authority.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
+    },
+    {
+      "id": "INT-041",
+      "kind": "decision",
+      "text": "Deliver a tested draft pull request and targeted private local deployment, then merge after required CI, lifecycle gates and native protections; stop old writers and preserve new-format state on disabled rollback.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
+    },
+    {
+      "id": "INT-042",
+      "kind": "constraint",
+      "text": "Keep recovery tooling, global compact public results, independent store-count admission repairs and runtime or tooling migrations outside this bounded repair.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/STORAGE.md"
+      ]
     }
   ],
   "contexts": [
@@ -440,6 +539,47 @@
         "docs/UPDATES.md"
       ],
       "release_group": "vertex-review"
+    },
+    {
+      "id": "bounded-storage",
+      "context": "continuous_validation",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-002",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-010",
+        "INT-011",
+        "INT-012",
+        "INT-016",
+        "INT-017",
+        "INT-020",
+        "INT-021",
+        "INT-022",
+        "INT-032",
+        "INT-033",
+        "INT-034",
+        "INT-035",
+        "INT-036",
+        "INT-037",
+        "INT-038",
+        "INT-039",
+        "INT-040",
+        "INT-041",
+        "INT-042"
+      ],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/initiatives/continuous-validation-shadow/STORAGE.plan.json",
+        "docs/specs/continuous_validation/PROFILE.md",
+        "docs/specs/continuous_validation/README.md",
+        "docs/specs/continuous_validation/STORAGE.md",
+        "docs/specs/continuous_validation/CHANGELOG.md"
+      ],
+      "release_group": "bounded-storage"
     }
   ],
   "release_groups": [
@@ -461,6 +601,13 @@
       "id": "vertex-review",
       "members": [
         "vertex-pr-agent-review"
+      ],
+      "state": "ready"
+    },
+    {
+      "id": "bounded-storage",
+      "members": [
+        "bounded-storage"
       ],
       "state": "ready"
     }
