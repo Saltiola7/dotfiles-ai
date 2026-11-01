@@ -22,6 +22,18 @@ corrected bounded pandas bins, interpolation-limit and monetary-rounding guidanc
 anti-join versus SQL NOT IN null semantics, accepted iterable argument forms,
 top-rank ties, missing calendar periods and zero denominators. Corrected the
 filter-pushdown example and made documentation lookups tool/version independent.
+Qualified elementwise versus batch/vectorized UDF cost, lazy clustering of
+independent `with_columns` calls and legitimate project-scoped warning filters or
+capture/tests. Native expressions remain preferred when equivalent; optimization
+and performance conclusions depend on the selected version and actual plan.
+Replaced the blanket no-coercion claim with inspection of actual dtypes and
+contract-required explicit casts; Polars documents type coercion optimization.
+
+Primary checks for those qualifications: the official [Python UDF guide](https://docs.pola.rs/user-guide/expressions/user-defined-python-functions/),
+[Polars 2 optimization flags](https://docs.pola.rs/api/python/version/2/reference/lazyframe/api/polars.QueryOptFlags.html),
+[lazy optimization guide](https://docs.pola.rs/user-guide/lazy/optimizations/),
+[inefficient-map warning API](https://docs.pola.rs/api/python/stable/reference/api/polars.exceptions.PolarsInefficientMapWarning.html)
+and [Python warning capture/filtering](https://docs.python.org/3/library/warnings.html#temporarily-suppressing-warnings).
 
 Complete original paths, SHA-256 hashes, Git blobs and modes, packaged hashes and
 zero-fuzz reversible adaptations are recorded in

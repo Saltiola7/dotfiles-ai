@@ -12,7 +12,7 @@ Before writing any code:
 
 1. **Understand the data**: inspect the selected input schemas with `.collect_schema()` and clarify output shape, dtype, null, ordering and boundary semantics. Schema resolution can read metadata or inference samples.
 2. **Plan the context chain**: decide which contexts are needed and in what order — `filter`, `select`, `with_columns`, `join`, `group_by`, `agg`, `sort`, `concat`, `explode`, `pivot`, `unpivot`, `transpose`, etc.
-3. **Find the right expressions**: verify them against the API reference (see the fetch-map in `expressions.md`). `map_elements`, `map_batches`, and `map_groups` are last-resort escape hatches with a 10–100× penalty — only when no native expression exists.
+3. **Find the right expressions**: verify them against the API reference (see the fetch-map in `expressions.md`). Prefer equivalent native operations over per-value Python callbacks. Batch UDFs can call vectorized/native libraries and may be a justified boundary; verify actual semantics and performance rather than assuming a fixed slowdown for all UDFs.
 4. **Use informative names**: column names and variables should clearly reflect their contents.
 5. **Match the output column order**: pandas reorders columns implicitly (`reset_index()` moves the index column to the front; `df["new"] = ...` appends at the end). If the pipeline creates any new column, finish with an explicit `.select(...)` in the pandas result's order.
 
@@ -163,6 +163,6 @@ Key details:
 | Scalar threshold from a subquery | `.select(...).item()` → Python scalar | cross-join the subquery and compare column-to-column — stay lazy |
 | Filter rows against an aggregate of the same frame | extract scalar with `.item()`, then filter | aggregations broadcast inside `filter`: `.filter(pl.col("x") > pl.col("x").quantile(0.9))` |
 | Annotate rows with group-level aggregates (pandas: aggregate + merge back, or `transform`) | `group_by().agg()` + join back | window expression: `expr.over(keys)` inside `with_columns`; for time buckets `expr.over(pl.col(ts).dt.truncate("5m"))` |
-| Dict lookup per value | `map_elements(lambda v: mapping[v])` | `.replace_strict(mapping)` — stays in the engine, 10–100× faster; raises on unmapped values like the lambda (pass `default=` to map misses instead) |
+| Dict lookup per value | `map_elements(lambda v: mapping[v])` | `.replace_strict(mapping)` — native lookup; verify dtype/null/unmapped-key equivalence (pass `default=` only when misses should map instead of raising). Benchmark any performance claim. |
 | `SUM(CASE WHEN cond THEN val ELSE 0 END)` | separate `_tmp` column + drop | inline: `pl.when(cond).then(val).otherwise(0).sum()` inside `.agg()` |
 | Same table joined twice (e.g. nation as supplier_nation and customer_nation) | filter into two frames + `pl.concat` | filter to `.is_in([v1, v2])`, join the frame twice with column aliases, then filter valid direction combos |

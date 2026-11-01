@@ -1,13 +1,40 @@
 --- a/references/contexts.md
 +++ b/references/contexts.md
-@@ -243,8 +243,8 @@
+@@ -56,12 +56,14 @@
+ )
+ ```
+ 
+-One context, one expression per distinct operation. When the operation is
+-the same for every column, expand instead of generating one expression per
+-column:
+-
+-```python
+-# avoid: one expression per column (a loop of contexts is worse still)
++Group independent operations when that makes the transformation clearer. The
++lazy optimizer can cluster independent sequential `with_columns()` calls; use
++separate contexts when one expression depends on another's output. For the same
++operation across columns, expression expansion is a concise alternative to a
++Python-generated expression list:
++
++```python
++# explicit expression per column; expansion below is more concise
+ lf.with_columns((pl.col(c) * 2).alias(f"{c}_scaled") for c in ["a", "b", "c"])
+ 
+ # prefer: one expanded expression
+@@ -243,11 +245,11 @@
  
  ```python
  # filtering after expensive work
 -lf.group_by("id").agg(...).filter(pl.col("year") == 2024)   # avoid
 -lf.filter(pl.col("year") == 2024).group_by("id").agg(...)   # prefer
+-
+-# loop of contexts
+-for c in cols: lf = lf.with_columns(pl.col(c) * 2)     # avoid
 +lf.group_by("id", "year").agg(...).filter(pl.col("year") == 2024)   # avoid
 +lf.filter(pl.col("year") == 2024).group_by("id", "year").agg(...)   # prefer
- 
- # loop of contexts
- for c in cols: lf = lf.with_columns(pl.col(c) * 2)     # avoid
++
++# equivalent independent calls can be clustered by the lazy optimizer
++for c in cols: lf = lf.with_columns(pl.col(c) * 2)
+ lf.with_columns(pl.col(cols) * 2)                      # prefer, replaces cols
+ lf.with_columns((pl.col(cols) * 2).name.suffix("_x"))  # prefer, adds new cols
+ ```

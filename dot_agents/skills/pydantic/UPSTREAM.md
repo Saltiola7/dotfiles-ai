@@ -18,7 +18,7 @@ are included. UI metadata was generated with the original `skill-creator`
 
 ## Local changes
 
-Retained the complete selected skill and exact MIT notice, moving adapted modeling examples on demand behind a concise boundary-specific entrypoint. Preserved internal domain-model and project tool/runtime choices; made coercion, strictness, unknown fields, aliases, defaults and public serialization explicit contracts. Scoped unions and forward annotations to actual compatibility instead of blanket bans, version-gated newer syntax and serialization, and added focused optional settings guidance with synthetic source-precedence checks. Added generated UI metadata and reversible immutable provenance.
+Retained the complete selected skill and exact MIT notice, moving adapted modeling examples on demand behind a concise boundary-specific entrypoint. Preserved internal domain-model and project tool/runtime choices; made coercion, strictness, unknown fields, aliases, defaults and public serialization explicit contracts. Scoped unions and forward annotations to actual compatibility instead of blanket bans, version-gated newer syntax and serialization, and added focused optional settings guidance with synthetic source-precedence checks. Added generated UI metadata and reversible immutable provenance. Corrected the sequential generic specialization example to provide the discriminator required by the preceding Sub1 definition; exact source-block execution reproduces the original missing-field failure and verifies retained subclass output after correction.
 
 The exact original repository paths, Git blob identities, SHA-256, modes, complete
 packaged inventory and reversible per-file adaptations are recorded in

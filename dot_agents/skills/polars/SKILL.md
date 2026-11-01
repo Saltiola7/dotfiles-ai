@@ -75,31 +75,33 @@ print(lf.head(5).collect())          # eyeball values, formats, dirt
 
 ## Core rules
 
-- **Expressions over Python functions.** Use `map_elements`, `map_batches`,
-  or `map_groups` only when no expression exists — almost always one does.
-  Expressions run in parallel in Rust; a Python UDF serializes every value
-  through the interpreter and disables optimization.
+- **Prefer equivalent native expressions.** Elementwise Python callbacks can
+  add substantial interpreter overhead and limit optimization. A batch UDF can
+  instead pass a whole Series to vectorized/native library code; it does not
+  necessarily process every value in Python. Preserve a justified batch boundary,
+  verify output dtype/null semantics and inspect the actual plan/performance.
 - **Filter early when semantics permit.** Push source-column predicates before
   expensive operations; keep aggregate, computed-column and outer-join predicates
   at the boundary their meaning requires. Moving them can change results.
-- **One context, one expression per operation.** Pass all expressions to a
-  single `with_columns()`; expressions in one context run in parallel, and
-  repeated calls in a loop serialize them. When the same operation applies
+- **Group independent expressions when useful.** A lazy optimizer can cluster
+  sequential independent `with_columns()` calls; repeated calls do not inherently
+  serialize execution. Dependent expressions may need separate contexts. When the same operation applies
   to several columns, write one expression that expands over the schema
   instead of one per column. Rename the expanded set with `.name.suffix()` /
   `.name.prefix()`; `.alias()` names one output only. Selector forms and
   caveats: `references/expressions.md`.
-- **Polars is strictly typed.** No implicit coercion, no mixed-type
-  columns. Cast explicitly with `.cast()`; use
+- **Check actual dtypes and coercion.** Columns have defined dtypes, but Polars
+  can coerce compatible types during operations. Inspect the schema and result
+  dtype; cast explicitly where the contract requires it. Use
   `.cast(pl.Float64, strict=False)` to turn unparseable values into nulls
   instead of errors. Parse strings to dates and datetimes with
   `str.to_date()` / `str.to_datetime()`, not `.cast()`.
-- **Respect warnings — never silence them.** A Polars warning names the
-  exact fix in its message: `PerformanceWarning` and subclasses like
-  `PolarsInefficientMapWarning` tell you to use `collect_schema()`, or to
-  rewrite a `map_elements` call as a native expression. Apply the change;
-  never `warnings.filterwarnings("ignore")` or `warnings.catch_warnings()`
-  to hide it.
+- **Investigate actionable warnings.** A performance warning signals a possible
+  cost, not proof that a chosen operation is wrong. Apply an equivalent fix when
+  warranted, preserving project warning policy and justified, narrowly scoped
+  filters. `warnings.catch_warnings()` also supports testing/capture; it is not
+  inherently suppression. Avoid blanket ignores that hide unresolved or new
+  warnings, and document the reason for a deliberate exception.
 
 ```python
 import polars.selectors as cs

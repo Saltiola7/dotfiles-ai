@@ -1,5 +1,38 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Conditional Python stack and runtime methods
+
+- Added seven discoverable skills through existing conditional Python routing:
+  Pydantic, Polars, Typer, FastAPI, Atheris, secure package-release pipelines and
+  free-threaded Python assessment. Data delegates actual Polars work to the same
+  method. Full Python audit keeps fourteen generic lenses; architecture focus
+  adds only relevant structural methods. Known live notebook/Rust selectors and
+  separately deployed guidance remain preserved; their source batch stays separate.
+- Preserved complete pinned roots and required shared resources, exact licenses,
+  original paths/hashes/Git blobs/modes and reversible adaptations. Corrected
+  concrete framework/CLI/dataframe/fuzz/artifact/GIL examples and kept runtime,
+  dependency, QA and external-action authority project-owned. The two
+  release/free-threading bundles retain Experimental maturity.
+- Affected implementation QA passed: 208 tests, one optional smoke skipped; eight
+  original creator validations passed. Isolated projection checks complete bytes,
+  modes, resource closure, unrelated state and repeat apply. Failed missing-source,
+  navigation, fixture-closure and reference-registry evidence remains retained.
+- Four independent static assessments cover API/CLI, data/fuzzing, release/runtime
+  and a plain library. Actual methods were selected, source/contracts were traced,
+  versions/tools retained and simple design preserved. These bounded synthetic
+  cases and offline example probes establish no universal native selection,
+  engine equivalence, fuzz effectiveness or free-threaded/runtime qualification.
+- Managed deployment selects thirteen exact targets, retains prior-live preimages,
+  checks drift and complete file sets/bytes/modes, and verifies repeat application.
+  Nine unrelated targets remain guarded. Native client selector refresh is
+  unverified; no framework/compiler installation, service/data operation, fuzz
+  campaign, package build or publication is part of skill deployment.
+- Implementation Gate Commit: `230b1f9`. Remaining final qualification, recovery
+  and actual delivery results stay in the private Cycle Record. Intended Final
+  Push: combined feature branch and draft PR into `main`, carrying pending
+  Python/data and architecture mapping. Prior source PRs/branches/worktrees remain
+  retained; no Gate Exception or consumer-repository remediation.
+
 ## 2026-10-31 — Python architecture assessment
 
 - Added `architecture-patterns`, `python-project-structure` and local

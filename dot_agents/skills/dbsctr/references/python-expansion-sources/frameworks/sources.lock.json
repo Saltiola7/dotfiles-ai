@@ -27,9 +27,9 @@
       "files": {
         "LICENSE.upstream": "82d71c4536e0d956a1b32481d8a184f291987f62f0126571890706dee6286840",
         "SKILL.md": "2af8cdd35db9a9ee98c9f6b2654623792a5ad338ba901ea7286c8b14d9bc85b7",
-        "UPSTREAM.md": "4725bd9022ca2e850972607aa7c29797ebe3f5ecbf60c72478a3393085592a9d",
+        "UPSTREAM.md": "3680cfeaaac387e119c837ea71914856ca0e7a2fd6f72103662af1d292f2921e",
         "agents/openai.yaml": "e5f949de3dd017c97e49bff869e3103e7a446c4a453709683f2700ea07dbc417",
-        "references/modeling.md": "76adbed6a078780f4dd89fa1b510b225ffa144adaefd4be7166989debfad2ca7",
+        "references/modeling.md": "758b57ababc6b50f214209a450f8155305d454eca0e42419130fb33d81f287a0",
         "references/settings.md": "33e060bc6d44d4d6be1383148d956aa284aac501437349badf277f30e64d202d"
       },
       "modes": {
@@ -51,7 +51,7 @@
       "patches": {
         "patches/pydantic/SKILL.md.patch": "4cd67fbb9e09bd04bd2e0eb8c70fb7ac8d4f50cfec428a9796e3a0f26d2d1c68"
       },
-      "changes": "Retained the complete selected skill and exact MIT notice, moving adapted modeling examples on demand behind a concise boundary-specific entrypoint. Preserved internal domain-model and project tool/runtime choices; made coercion, strictness, unknown fields, aliases, defaults and public serialization explicit contracts. Scoped unions and forward annotations to actual compatibility instead of blanket bans, version-gated newer syntax and serialization, and added focused optional settings guidance with synthetic source-precedence checks. Added generated UI metadata and reversible immutable provenance."
+      "changes": "Retained the complete selected skill and exact MIT notice, moving adapted modeling examples on demand behind a concise boundary-specific entrypoint. Preserved internal domain-model and project tool/runtime choices; made coercion, strictness, unknown fields, aliases, defaults and public serialization explicit contracts. Scoped unions and forward annotations to actual compatibility instead of blanket bans, version-gated newer syntax and serialization, and added focused optional settings guidance with synthetic source-precedence checks. Added generated UI metadata and reversible immutable provenance. Corrected the sequential generic specialization example to provide the discriminator required by the preceding Sub1 definition; exact source-block execution reproduces the original missing-field failure and verifies retained subclass output after correction."
     },
     {
       "name": "fastapi",

@@ -32,6 +32,13 @@ made the HTTP example parse actual header bytes, retained unexpected exceptions,
 and clarified corpus draw-order/surrogate compatibility. Optional sibling guidance
 uses immutable external links rather than assumed installed dependencies.
 
+The concise entrypoint retains scope, selected-runtime compatibility, actual
+target instrumentation, expected/unexpected failure, finite-budget and
+reproduction contracts. The full existing detailed recipes moved into
+`references/details.md`, with only their two local resource destinations adjusted
+for the new directory. Original `examples.md`, `structured-input.md`, UI and icon
+paths remain intact; no detailed recipes were removed or duplicated as manuals.
+
 Complete original paths, SHA-256 hashes, Git blobs and modes, packaged hashes and
 zero-fuzz reversible adaptations are recorded in
 `dbsctr/references/python-expansion-sources/data-testing/sources.lock.json`.

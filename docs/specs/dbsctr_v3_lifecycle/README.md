@@ -41,6 +41,14 @@ Databricks guidance. `database-audit` assesses detected stacks and returns a
 source-backed roadmap; both audits separate static review, live/check evidence
 and later remediation. Existing targets, tools and installer owners retain authority.
 
+[Conditional Python stack and runtime methods](features/python-specialists.md#conditional-python-stack-and-runtime-expansion)
+add Pydantic, FastAPI, Typer, Polars, Atheris, package-release and free-threading
+techniques. Python owns the canonical selectors; Data delegates actual Polars
+work to the same method. The Python audit retains fourteen generic lenses and
+adds relevant methods within its chosen scope. Existing QA, publication authority
+and project-selected tools remain unchanged; installing guidance does not run
+its framework, fuzzing, build, runtime migration or publication recipes.
+
 Codex CLI and Desktop can use the shared lifecycle from the current conversation
 by targeting a validated Worktrunk task checkout explicitly. Repository commands
 use its working directory and file edits use absolute paths. Desktop attachment

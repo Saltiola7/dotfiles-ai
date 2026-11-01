@@ -309,7 +309,7 @@ class Main[BaseT: Base](BaseModel):
     model: BaseT
 
 
-m: Main[Sub1] = Main[Sub1](model={'base_field': 1, 'sub1_field': 'test'})  # Will work
+m: Main[Sub1] = Main[Sub1](model={'base_field': 1, 'type': 'sub1', 'sub1_field': 'test'})  # Will work
 ```
 
 If neither discriminated unions nor generics fit, [polymorphic serialization](https://pydantic.dev/docs/validation/latest/concepts/serialization/#polymorphic-serialization) (in Pydantic >=2.13)

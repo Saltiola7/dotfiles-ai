@@ -36,6 +36,10 @@ repository's architecture and prioritize bounded refactors.` The same audit
 coordinator selects system boundaries, package/public imports, component design
 and accepted dependency rules first; other techniques follow relevant evidence.
 Python scope and unreviewed cross-language components stay explicit.
+Additional stack methods cover Pydantic, FastAPI, Typer, Polars and selected
+Atheris fuzzing, plus package-release and free-threaded Python assessment. They
+load for actual project evidence; existing tools and the audit scope stay owned
+by the project. Release/free-threading source guidance remains Experimental.
 Database guidance covers DuckDB, ClickHouse and Databricks with Python client
 boundaries. Audits default to source review and proposed refactor batches, preserving
 project-selected tools and separating live evidence from static findings. Vendored

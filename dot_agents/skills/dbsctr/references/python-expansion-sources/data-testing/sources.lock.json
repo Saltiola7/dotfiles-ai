@@ -50,14 +50,14 @@
       },
       "files": {
         "LICENSE.upstream": "f3704cbff1dbdd5a30cec6e812e1b9be2e52c31ffe965f20361b2db911d116ae",
-        "SKILL.md": "43ad45da411e8fe371617c953d8b2c4b4066a83bd23a91e2be5689eb96e51bbb",
-        "UPSTREAM.md": "a9e4c5b07ce1759427ea9226ebb6f513b718c550fd3e0f68abed6feaeb5bb5ba",
+        "SKILL.md": "856dce16b8639ea3ffeded8754143bcd82b6d13c67f97dbe7d545d475a0bfe65",
+        "UPSTREAM.md": "64b901d8e29adf2cdc0f165464791644496e120b01ae2359b54a94eba4cacaa5",
         "agents/openai.yaml": "bd5ff7bdc37f01b6d7e2cc02217000069011e2d3b33216220402c1402c416b98",
-        "references/contexts.md": "69bc3d9573d183bb05977892428b20e0dee7f0d8ec72723d92b44161957ca5ce",
-        "references/expressions.md": "570e0dbf23c0bd05578c9428d4b074ace4ed9648a17b9a6492f1f02121f12ad2",
+        "references/contexts.md": "730430c2c424a438df7b30282c812db8eeae09c0d9096991eda609f8eb4ad67a",
+        "references/expressions.md": "208b25c019dc4f91d0c5d631c8bc10fe30eb36bd7b672be1e3a6f37dd2e97c48",
         "references/insight-recipes.md": "9694e63ad1194351ea5bcb74206a9d6c66aeec9f90d54031d60d91e6bbeb2697",
         "references/lazy-api.md": "e294b752fa4005beac5f3b6367b1f8c6319a101c2f17c838282232846a3e3bed",
-        "references/pandas-to-polars.md": "6c37f881b91499606daaa1ba959234042326a0782cbb5fbae10281ff375cae5a",
+        "references/pandas-to-polars.md": "4603153e976f3ba97019055661292e04fdfaa3643ceb7b89c4fd655c9f5caf73",
         "references/sql.md": "b54bfa0ef65325d085c9033e1a2f5f4010b946f15111c3146ac34b9890aae09c"
       },
       "modes": {
@@ -85,14 +85,14 @@
         "references/sql.md": "100644"
       },
       "patches": {
-        "patches/polars/SKILL.md.patch": "8002a634cfbb3d6e9cb05fc0cbfbe157c31c11f6d91205726c6f01c8aa0c4acb",
-        "patches/polars/references__contexts.md.patch": "a7dc462daec29bee75cbebf94fc5ee142bcdb08ebef786361dee74eff508940a",
-        "patches/polars/references__expressions.md.patch": "478a2ba61233ae49f91e336f655948b65f0f16671471033bb657071051780f2e",
+        "patches/polars/SKILL.md.patch": "fe71ff7e601d3c5f95b50d522f4cab02b94c5ace30f9911a3c1e37a8acbd09d9",
+        "patches/polars/references__contexts.md.patch": "4174a3cb76bcefc4d9331dcd7701e2adb5459a8d6505d4702cd34df23782eecf",
+        "patches/polars/references__expressions.md.patch": "674f13126c29cab5f5db88b37369f81677fcbe5b439a1be59c97ff6e78846fc1",
         "patches/polars/references__insight-recipes.md.patch": "92e383f0a041ab17d3aff20bb3686dd034cf895463bf3e2aa565b8fe44c185c0",
         "patches/polars/references__lazy-api.md.patch": "e61f91f88138f229326ef9618d2ff806260f7f0f621481dcb103d0d314720b6e",
-        "patches/polars/references__pandas-to-polars.md.patch": "ab22555e0a9be868ea7cf5a37d0534c51a686a1fc378ae7216eed3834bb60131"
+        "patches/polars/references__pandas-to-polars.md.patch": "c50fec3dbc31fd16ccc85d602d4424866bb8b417b0504c46b9b245be8b4b44d1"
       },
-      "changes": "Preserved the complete official Polars root and MIT notice; scoped selection to actual Polars or explicit migration; retained engine/runtime choices; qualified lazy boundaries and schema I/O; corrected pandas outer-bin, interpolation, monetary rounding and NOT IN null semantics, rank ties, period gaps, zero denominators, iterable-argument guidance and filter example; generated UI through the original helper."
+      "changes": "Preserved the complete official Polars root and MIT notice; scoped selection to actual Polars or explicit migration; retained engine/runtime choices; qualified lazy boundaries and schema I/O; corrected pandas outer-bin, interpolation, monetary rounding and NOT IN null semantics, rank ties, period gaps, zero denominators, iterable-argument guidance and filter example; generated UI through the original helper. Qualified elementwise versus vectorized/batch UDF costs, independent lazy with_columns clustering, actual dtype coercion and legitimate narrow warning filters/capture; preserved native-first semantics and version/plan checks."
     },
     {
       "name": "atheris",
@@ -135,11 +135,12 @@
       },
       "files": {
         "LICENSE.upstream": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
-        "SKILL.md": "642eb150e72d8736f59e25f6212c0c47907ec0898d14914f950073e900caafdf",
-        "UPSTREAM.md": "ad268ebc5139d0f823b0dbeffb8f162055ff116e2070f60033fd38c7b04e960b",
+        "SKILL.md": "94996c0e201f294355ff6af657ace56d5f6d68dd74f8d51dd6f92c85e77accb3",
+        "UPSTREAM.md": "8033e2cfe4ec2b6f9c01cbb77c77d578dee3e4d24589ce3daf92434024fe6747",
         "agents/openai.yaml": "c5a742ac122b0840ce85d7278ce15541ee8c2cb40ef8546b30bd3511bd447136",
         "assets/trail-of-bits-mark.svg": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
         "examples.md": "9b4688a7aadcda980a9265dfc2da41f7d1f8631689dcc1612e04167e35ea5da5",
+        "references/details.md": "1cec2c75f0416959700160d6224e145b220b581619f296426af60c8b82e8a80f",
         "structured-input.md": "f0c133c8e949dbca65efe7cf2fbea1ecef84c68f9d3bd632f8d319feff8b13bf"
       },
       "modes": {
@@ -149,6 +150,7 @@
         "agents/openai.yaml": "100644",
         "assets/trail-of-bits-mark.svg": "100644",
         "examples.md": "100644",
+        "references/details.md": "100644",
         "structured-input.md": "100644"
       },
       "installed_modes": {
@@ -158,15 +160,16 @@
         "agents/openai.yaml": "100644",
         "assets/trail-of-bits-mark.svg": "100644",
         "examples.md": "100644",
+        "references/details.md": "100644",
         "structured-input.md": "100644"
       },
       "patches": {
-        "patches/atheris/SKILL.md.patch": "167529d9a991e859420f8231acb1ce886696711228572faa6797f450dcae0ebb",
+        "patches/atheris/SKILL.md.patch": "82db633deea7e0d93295fb894f8d1ed4f0b02d9edff5de3211aee63003f90fb6",
         "patches/atheris/agents__openai.yaml.patch": "103a2414ad10c3f765175a3aeaaffb1c19199132263c5656ec73e814d458eac5",
         "patches/atheris/examples.md.patch": "b83738dddc376f821442d4b9685c022df1f66bb1c606561875fd8df17161a1e9",
         "patches/atheris/structured-input.md.patch": "e0094c9d6a87b71661da946b10235504b31fe37f5dbd7f87d1b127e8c1f674bf"
       },
-      "changes": "Preserved the complete Trail of Bits Atheris root, CC-BY-SA-4.0 terms, icon and original UI icon/brand fields; scoped fuzz targets, environment effects and budgets; resolved runtime compatibility against pinned official version guidance; narrowed expected failures and corrected HTTP/header and JSON examples; qualified native build/loading, Linux preload and historical CPython recipes; removed automatic OOM/leak suppression; pinned optional sibling references; generated compatible UI through the original helper."
+      "changes": "Preserved the complete Trail of Bits Atheris root, CC-BY-SA-4.0 terms, icon and original UI icon/brand fields; scoped fuzz targets, environment effects and budgets; resolved runtime compatibility against pinned official version guidance; narrowed expected failures and corrected HTTP/header and JSON examples; qualified native build/loading, Linux preload and historical CPython recipes; removed automatic OOM/leak suppression; pinned optional sibling references; generated compatible UI through the original helper. Refactored the entrypoint to essential scope/runtime/instrumentation/failure/budget/reproduction contracts; preserved the complete former recipe suffix in references/details.md with only moved local resource links adjusted. Original resource paths, licenses, UI and icon remain intact."
     }
   ]
 }
