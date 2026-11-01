@@ -517,6 +517,71 @@ metadata observations still run on errors. The report records separate pause,
 gateway and resume outcomes, shared generation digest and retained evidence,
 with overall runtime qualification still `not_run`.
 
+#### Protected metadata and native control observations
+
+`protected_boundaries_probe(Selection) -> dict`, selected by `--probe boundaries`,
+uses the same generation, guard, deadline and evidence rules. Trusted preparation
+adds one native Worktrunk sibling checkout and nonfunctional hook/lifecycle
+sentinels to the synthetic repository. A private `boundaries.json` has exact keys
+`schema_version: 1` and `metadata_targets`. That object maps the six fixed names
+`config`, `object`, `ref`, `hook`, `sibling_index`, and `lifecycle` to canonical
+relative paths inside the native common Git directory. Validate every selected
+regular, single-link, owner-controlled file and its native role before effects.
+Missing host targets do not count as protected. Workload write-open attempts
+against their exact host paths must be denied or inaccessible, and the complete
+host Git metadata snapshot must remain unchanged after each attempt. Any
+successful writable open fails even if no bytes were written.
+
+The selected source layout excludes symlinks and multiply linked files at
+admission. Prepare separate, unmounted synthetic symlink and hardlink specimens
+and exercise the same admission checker against them; preserve the specimens
+after refusal. Case spellings that resolve to the Git pointer remain covered by
+the immutable-pointer matrix; a distinct conflicting pointer entry is refused.
+Attempt a valid rename of `/work` to an absent root-level sibling and replacement
+of `/work` with a new empty scratch directory. Require a boundary-related denial
+and unchanged host directory, pointer and native membership. Invalid-operation
+errors do not establish protection. No specimen receives host credentials or
+unrelated filesystem contents.
+
+The trusted controller records native rootless Podman state, separate user
+namespace mappings without host root, exactly one owned workload container,
+nonprivileged capability-free execution and the selected immutable runtime
+image. A private `runtime-artifact.json` has exact keys integer `schema_version: 1`,
+lowercase 64-character hexadecimal `runtime_binary_sha256`, and
+`workload_image_id` containing `sha256:` followed by 64 lowercase hexadecimal
+characters. Trusted preparation obtains the binary checksum from the verified
+runtime image filesystem and verifies the independently built workload image ID.
+Native observations compare the running runtime executable and workload image
+with this receipt, and compare the runtime image manifest/config with the pinned
+version manifest. Manifest and binary hashes are different identities.
+
+Kernel qualification uses an explicitly identified startup attestation: the
+pinned runtime calls active kernel qualification before opening its boundary;
+the backend validates its native Linux audit before allowing workload launch.
+An exact verified runtime, accepted native generation and successful bounded
+workload execution therefore provide source-backed evidence of that mandatory
+startup path. This is an inference from verified runtime and execution evidence,
+not an exported measurement of every audit field. Record that distinction and
+leave unexported per-field values unobserved. Do not repeat `capability-probe`
+inside a running boundary: its DNS-port probe can conflict with the active
+service. Ordinary workload filesystem, network, capability and namespace
+observations retain their separate requirements.
+
+Discover the actual gateway listener and the selected channel socket from native
+container/volume inventory. Confirm their existence and controller access before
+workload connection attempts; guessed paths cannot qualify a missing surface.
+Workload transport to gateway administration, the Podman socket and the actual
+internal control socket must remain inaccessible. The exact `policy.local`
+routes `/v1/policy/current` and `/v1/proposals` must return the source-verified
+disabled-feature response, with policy, provider and resource identities unchanged.
+Read attempts against available bootstrap or supervisor authentication state must
+fail; absent state is recorded separately. No credential or state contents enter
+diagnostics, and no real administrative mutation is submitted with credentials.
+
+Record each boundary separately. Unavailable native inventories or unsupported
+operations leave that check unavailable. The function cannot promote other
+runtime matrix rows or infer physical-storage recovery from these observations.
+
 Each probe produces an allowlisted identifier and `passed`, `failed` or
 `unavailable`, plus bounded private observations. Unperformed rows remain
 `not_run` in the aggregate report. A successful early probe cannot mark the
