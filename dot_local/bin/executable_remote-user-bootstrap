@@ -72,27 +72,39 @@ def validate_home() -> None:
 
 def prepare_source(revision: str) -> None:
     safe_path(SOURCE)
+    created = None
     if not SOURCE.exists():
         SOURCE.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         safe_path(SOURCE.parent, "directory")
-        run("git", "clone", "--no-checkout", PUBLIC_SOURCE, str(SOURCE))
-    safe_path(SOURCE, "directory")
-    remote = run("git", "-C", str(SOURCE), "remote", "get-url", "origin").stdout.strip()
-    if remote.removesuffix(".git") != PUBLIC_SOURCE.removesuffix(".git"):
-        raise BootstrapError("bootstrap source is invalid")
-    if run("git", "-C", str(SOURCE), "status", "--porcelain").stdout:
-        raise BootstrapError("bootstrap source is not clean")
-    found = subprocess.run(
-        ["git", "-C", str(SOURCE), "cat-file", "-e", f"{revision}^{{commit}}"],
-        text=True, capture_output=True,
-    )
-    if found.returncode:
-        run("git", "-C", str(SOURCE), "fetch", "--no-tags", "origin", "main")
-    run("git", "-C", str(SOURCE), "cat-file", "-e", f"{revision}^{{commit}}")
-    resolved = run("git", "-C", str(SOURCE), "rev-parse", revision).stdout.strip()
-    if resolved != revision:
-        raise BootstrapError("bootstrap revision is invalid")
-    run("git", "-C", str(SOURCE), "checkout", "--detach", revision)
+        SOURCE.mkdir(mode=0o700)
+        created = SOURCE.lstat()
+    try:
+        if created is not None:
+            run("git", "clone", PUBLIC_SOURCE, str(SOURCE))
+        safe_path(SOURCE, "directory")
+        remote = run("git", "-C", str(SOURCE), "remote", "get-url", "origin").stdout.strip()
+        if remote.removesuffix(".git") != PUBLIC_SOURCE.removesuffix(".git"):
+            raise BootstrapError("bootstrap source is invalid")
+        if run("git", "-C", str(SOURCE), "status", "--porcelain").stdout:
+            raise BootstrapError("bootstrap source is not clean")
+        found = subprocess.run(
+            ["git", "-C", str(SOURCE), "cat-file", "-e", f"{revision}^{{commit}}"],
+            text=True, capture_output=True,
+        )
+        if found.returncode:
+            run("git", "-C", str(SOURCE), "fetch", "--no-tags", "origin", "main")
+        run("git", "-C", str(SOURCE), "cat-file", "-e", f"{revision}^{{commit}}")
+        resolved = run("git", "-C", str(SOURCE), "rev-parse", f"{revision}^{{commit}}").stdout.strip()
+        if resolved != revision:
+            raise BootstrapError("bootstrap revision is invalid")
+        run("git", "-C", str(SOURCE), "checkout", "--detach", revision)
+    except (BootstrapError, OSError, subprocess.CalledProcessError):
+        if created is not None:
+            safe_path(SOURCE, "directory")
+            current = SOURCE.lstat()
+            if (current.st_dev, current.st_ino) == (created.st_dev, created.st_ino):
+                shutil.rmtree(SOURCE)
+        raise
 
 
 def prepare_config() -> None:
