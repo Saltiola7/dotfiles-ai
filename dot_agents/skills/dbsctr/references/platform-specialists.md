@@ -15,6 +15,11 @@ project target policy and QA remain authoritative.
 | GCP authentication/identity choice | `google-cloud-recipe-auth`; reuse known decisions and existing identity authority |
 | GKE workload failure | `gke-workload-troubleshooting`; bounded diagnostics and evidence-backed hypotheses |
 | GKE workload authentication to GCP | `gke-workload-identity`; distinguish IAM/RBAC and use non-secret verification |
+| Actual Pulumi program, Output/Input, configuration or resource refactor | `pulumi-best-practices`; preserve language, provider, backend and stack authority |
+| Pulumi ComponentResource interface/ownership | `pulumi-component`; type tokens, parenting/providers and registered outputs |
+| One identified failed Pulumi operation | `pulumi-debug-failed-operation`; bounded actual records and hypotheses, without implicit state change/retry |
+| Hetzner Cloud or hcloud resource/action work | `hetzner-operations`; effective identity/configuration, persistent data and recovery |
+| Actual Dagger module or CI execution graph | `dagger-pipelines`; selected SDK/engine, terminal evaluation, caches, secrets and capabilities |
 
 Resolve target facts from existing project/configuration evidence before asking.
 Record material ambiguity rather than silently using an ambient cluster,
@@ -35,11 +40,14 @@ required execution/validation evidence keeps its existing gate semantics.
 
 ## Sources and delivery
 
-The [source inventory](specialist-sources/sources.lock.json) records immutable
+The shared [source inventory](specialist-sources/sources.lock.json), including
+reviewed Pulumi and Django bundles, records immutable
 upstream roots/commits, original blobs/hashes, complete packaged bytes/modes,
 licenses and reversible patches for this expansion, including shell/async and
 Modular bundles. Each bundle's `UPSTREAM.md` records its adaptations. Existing
-Python bundles retain their current separate source inventory.
+Python bundles retain their current separate source inventory. Original local
+Hetzner/Dagger guidance links official selected-version sources; it does not
+redistribute the considered community trees or imply an installed Dang dependency.
 Source modes and declared chezmoi installed modes are distinct. The retained Helm
 helper projects as a readable resource and is invoked through Bash; installation
 does not execute it or promise a preserved executable bit.

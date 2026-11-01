@@ -58,7 +58,7 @@ SQL/storage/workspace behavior. Keep one primary and deduplicate shared findings
 
 The [original Python source inventory](python-specialists/sources.lock.json)
 records the first four complete bundles, immutable pins, licenses, original Git
-blobs/SHA-256 hashes and reversible patches. The new async bundle uses the shared
+blobs/SHA-256 hashes and reversible patches. The async and Django bundles use the shared
 expansion inventory at `specialist-sources/sources.lock.json`; modernization review
 is locally maintained. Each vendored bundle's `UPSTREAM.md` explains adaptations
 and its `LICENSE.upstream` retains the exact notice. The Trail of Bits adaptations

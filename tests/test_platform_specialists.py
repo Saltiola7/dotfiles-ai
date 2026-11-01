@@ -21,13 +21,16 @@ VENDORED = {
     "k8s-manifest-generator", "helm-chart-scaffolding", "gcloud",
     "google-cloud-recipe-auth", "gke-workload-troubleshooting", "gke-workload-identity",
     "mojo-syntax", "mojo-gpu-fundamentals", "mojo-python-interop", "new-modular-project",
+    "pulumi-best-practices", "pulumi-component", "pulumi-debug-failed-operation", "django-expert",
 }
-AUTHORED = {"linux-host-diagnostics", "macos-operations", "podman-quadlet", "python-modernization-review"}
+AUTHORED = {"linux-host-diagnostics", "macos-operations", "podman-quadlet", "python-modernization-review",
+            "hetzner-operations", "dagger-pipelines"}
 SHARED = (
     "dbsctr/SKILL.md", "dbsctr/modules/python.md", "dbsctr/modules/cloud.md",
     "dbsctr/modules/shell.md", "dbsctr/modules/mojo.md",
     "dbsctr/references/python-specialists.md", "dbsctr/references/platform-specialists.md",
     "dbsctr/references/specialist-selection.md",
+    "dbsctr/scripts/resolve_specialist.py",
 )
 
 

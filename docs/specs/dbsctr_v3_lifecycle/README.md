@@ -4,6 +4,21 @@
 conditional selection to shell, host/container/cloud operations, async Python,
 modernization review and Mojo while preserving existing lifecycle and QA ownership.
 
+The [infrastructure/framework follow-up](features/platform-specialists.md#follow-up-infrastructure-and-framework-specialists)
+adds three Pulumi methods, Django/DRF, Hetzner Cloud and Dagger through the existing
+conditional Python/Cloud routes. Framework and provider detail is selected for
+actual task evidence; the existing Python audit keeps its six general lenses.
+Installation supplies guidance, with target execution validated by its project.
+
+[Native router qualification](../../../tests/fixtures/skill_router/README.md)
+tests implicit selection separately from explicit DBSCTR navigation. The native
+catalog supplies descriptions; matching modules own conditional trigger tables;
+selected bundles supply methods and resources. Common discovery detail is loaded
+only when needed. A bounded physical-sibling resolver handles permitted guidance
+missing from registration without searching other homes or bypassing disablement.
+The maintenance experiment records actual usage and quality separately; the first
+comparison demonstrated no end-to-end token saving.
+
 [Conditional Python specialists](features/python-specialists.md) defines bounded
 selection of design, property-testing, profiling and tooling guidance. The Python
 module routes; project policy and existing lifecycle/QA authorities retain control.

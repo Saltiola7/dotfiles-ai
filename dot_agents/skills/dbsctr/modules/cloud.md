@@ -33,7 +33,7 @@
 
 ## Conditional Controls
 
-- **CONDITIONAL:** Select task-relevant host, container, Kubernetes or GCP guidance
+- **CONDITIONAL:** Select task-relevant host, container, Kubernetes, cloud, IaC or pipeline guidance
   using [platform specialists](../references/platform-specialists.md) and the
   [common selection contract](../references/specialist-selection.md). A platform
   mention alone does not select every associated skill. Keep project target and

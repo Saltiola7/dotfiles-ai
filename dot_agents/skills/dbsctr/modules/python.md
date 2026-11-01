@@ -48,7 +48,7 @@
 | New packaging/tooling setup or explicitly selected tooling migration | `modern-python` | Engineering Profile/Spec |
 | Changed async tasks, cancellation, concurrent I/O or sync/async boundaries | `async-python-patterns` | Domain/Contract; Test/Refactor |
 | Runtime/support-floor change or requested modernization/debt review | `python-modernization-review` | Profile/Spec; Maintain/Retire |
-| Actual Django/DRF behavior, when framework guidance is installed | `django-expert` | Domain/Contract; Test/Refactor |
+| Actual Django/DRF ORM, serializers, views, permissions, migrations or framework tests | `django-expert` | Domain/Contract; Test/Refactor |
 | Changed pytest fixtures, isolation, mocking or integration-test design | `python-testing-patterns` | Behavior/Test |
 | Changed protocols, generics, narrowing or public typed interfaces | `python-type-safety` | Domain/Spec/Contract; existing checker policy remains authoritative |
 | Remote failure/retry behavior, deadlines or circuit breaking | `python-resilience` | Behavior/Contract; Test |

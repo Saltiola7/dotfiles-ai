@@ -331,3 +331,33 @@ original skill creator validator on the six Python specialist entrypoints and
 the audit wrapper. The existing DBSCTR entrypoint is unchanged. Keep independent
 behavioral evaluation artifacts
 and actual deployment/merge evidence in the cycle; publish only sanitized outcomes.
+
+
+## Architecture assessment extension
+
+### Domain and ownership
+
+Architecture assessment for Python projects remains a mode of `python-audit`.
+The default full assessment considers all current language/architecture lenses;
+a focused architecture request considers system boundaries, package organization,
+component design and architectural fitness first. Other techniques enter only
+when the actual boundary or contract needs them. Reusable `architecture-patterns`
+may help non-Python work, but Python audit does not claim full cross-language coverage.
+
+Add `architecture-patterns` for Clean/Hexagonal/DDD and context/dependency decisions,
+`python-project-structure` for packages/public import surfaces, and locally authored
+`python-architecture-fitness` for accepted dependency-rule checks and their limits.
+Existing `python-design-patterns` retains component responsibilities and composition.
+Project policy defines accepted architecture; inferred intent and generic patterns
+remain advisory. No pattern mandates layers, services, repositories, duplicate
+ORM/domain models, a runtime increase or a new checker.
+
+The audit primary owns snapshot, coverage, findings and one refactor roadmap.
+Specialists own techniques, QA owns configured evidence, and DBSCTR owns later
+remediation. Default report-only assessment does not write ADRs, import contracts,
+configuration, tickets or fixes, execute target imports/notebooks, install tools
+or authenticate external systems. Existing execution authorization remains usable.
+
+This cycle builds on the reviewed Python/data source and reconciles merged router/
+infrastructure guidance, preserving both source histories and all gate ancestry.
+It does not remediate unrelated pending pull requests or their validated findings.
