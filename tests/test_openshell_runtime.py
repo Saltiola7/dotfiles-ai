@@ -974,7 +974,8 @@ def test_supported_classification_of_unavailable_guest_interfaces_is_explicit(
     assert result["runtime_qualification"] == "not_run"
 
 
-@pytest.mark.parametrize("mode", ["pointer", "immutable-pointer", "containment"])
+@pytest.mark.parametrize("mode", ["pointer", "immutable-pointer", "containment", "network",
+                                  "pause-resume", "boundaries", "recovery"])
 def test_cli_routes_selected_probe_without_changing_default(owned_root, monkeypatch, capsys, mode):
     selected = owned_root / "selection.json"
     selected.write_bytes(selection_bytes(owned_root))
@@ -991,6 +992,12 @@ def test_cli_routes_selected_probe_without_changing_default(owned_root, monkeypa
     monkeypatch.setattr(probe, "pointer_probe", report("pointer"))
     monkeypatch.setattr(probe, "immutable_pointer_probe", report("immutable-pointer"), raising=False)
     monkeypatch.setattr(probe, "containment_probe", report("containment"), raising=False)
+    for selected_mode, module_name, function_name in (
+            ("network", "probe_openshell_network", "network_probe"),
+            ("pause-resume", "probe_openshell_pause", "pause_resume_probe"),
+            ("boundaries", "probe_openshell_boundaries", "protected_boundaries_probe"),
+            ("recovery", "probe_openshell_recovery", "recovery_probe")):
+        monkeypatch.setitem(sys.modules, module_name, SimpleNamespace(**{function_name: report(selected_mode)}))
     args = ["probe_openshell_runtime.py", "--selection", str(selected)]
     if mode != "pointer":
         args.extend(["--probe", mode])

@@ -10,6 +10,7 @@ from pathlib import Path
 import argparse
 import errno
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -17,6 +18,7 @@ import selectors
 import signal
 import stat
 import subprocess
+import sys
 import time
 import uuid
 
@@ -1017,16 +1019,28 @@ def containment_probe(selection: Selection) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selection", type=Path, required=True)
-    parser.add_argument("--probe", choices=("pointer", "immutable-pointer", "containment"), default="pointer")
+    extensions = {
+        "network": ("probe_openshell_network", "network_probe"),
+        "pause-resume": ("probe_openshell_pause", "pause_resume_probe"),
+        "boundaries": ("probe_openshell_boundaries", "protected_boundaries_probe"),
+        "recovery": ("probe_openshell_recovery", "recovery_probe"),
+    }
+    parser.add_argument("--probe", choices=("pointer", "immutable-pointer", "containment", *extensions), default="pointer")
     args = parser.parse_args()
     try:
-        run_probe = {"pointer": pointer_probe, "immutable-pointer": immutable_pointer_probe,
-                     "containment": containment_probe}[args.probe]
-        report = run_probe(parse_selection(private_file(args.selection)))
+        selection = parse_selection(private_file(args.selection))
+        if args.probe in extensions:
+            module, function = extensions[args.probe]
+            run_probe = getattr(importlib.import_module(module), function)
+        else:
+            run_probe = {"pointer": pointer_probe, "immutable-pointer": immutable_pointer_probe,
+                         "containment": containment_probe}[args.probe]
+        report = run_probe(selection)
     except (Refusal, OSError):
         report = {"schema_version": 1,
                   "probe": {"pointer": "git_pointer", "immutable-pointer": "immutable_git_pointer",
-                            "containment": "containment"}[args.probe],
+                            "containment": "containment", "network": "network", "pause-resume": "pause_resume",
+                            "boundaries": "boundaries", "recovery": "recovery"}[args.probe],
                   "status": "unavailable",
                   "reason": "invalid_selection", "runtime_qualification": "not_run", "checks": [], "retained": False,
                   "generation_sha256": None, "truncation": {"transport_output": False, "limit_bytes": None}}
@@ -1035,4 +1049,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # Extensions share the executed module's classes and controller state.
+    sys.modules["probe_openshell_runtime"] = sys.modules[__name__]
     raise SystemExit(main())
