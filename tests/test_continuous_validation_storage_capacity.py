@@ -645,3 +645,169 @@ def test_materialized_reservation_with_swapped_identity_remains_refused(configur
     assert retained_records(state) == before
     assert ledger.read_bytes() == original_ledger
     assert generation_records(state) == current
+
+
+def overlap_temporary_observation_write(configured, *, feedback_update):
+    """Schedule a genuine temporary writer against public request admission."""
+    from contextlib import contextmanager
+    import fcntl
+    import multiprocessing
+    import os
+
+    path, value = configured
+    state = Path(value["state_dir"])
+    seed_observations(state, 198)
+    context = multiprocessing.get_context("fork")
+    temporary_created = context.Event()
+    release_writer = context.Event()
+    feedback_ready = context.Event()
+    allow_feedback_update = context.Event()
+    newcomer_selected = context.Event()
+    release_selection = context.Event()
+    schedule = context.Queue()
+    results = context.Queue()
+    original_adapter = runner.adapter_call
+    original_temporary = runner.tempfile.mkstemp
+    original_inventory = runner.retained_observations
+    original_locked = runner.locked
+
+    def publisher():
+        from continuous_validation import feedback
+
+        writes = 0
+        feedback_calls = []
+
+        def mkstemp(*args, **kwargs):
+            nonlocal writes
+            descriptor, name = original_temporary(*args, **kwargs)
+            if Path(kwargs.get("dir", "")) == state / "observations":
+                writes += 1
+                if writes == (2 if feedback_update else 1):
+                    temporary_created.set()
+                    assert release_writer.wait(timeout=15), "temporary writer was not released"
+            return descriptor, name
+
+        def adapter_call(enrollment, action, payload, *args, **kwargs):
+            result = original_adapter(enrollment, action, payload, *args, **kwargs)
+            if feedback_update and action == "execute":
+                result.update(status="failed", exit_code=1, diagnostic_codes=["fixture_failure"])
+            return result
+
+        def deliver(*args, **kwargs):
+            feedback_calls.append(True)
+            feedback_ready.set()
+            assert allow_feedback_update.wait(timeout=15), "feedback update was not released"
+            return {"status": "unavailable", "reason": "fixture_feedback"}
+
+        runner.tempfile.mkstemp = mkstemp
+        runner.adapter_call = adapter_call
+        feedback.deliver = deliver
+        try:
+            result = runner.run_request({**request(path), "request_id": "temporary-writer-owner"})
+            results.put(("publisher", result, len(feedback_calls)))
+        except BaseException as error:
+            results.put(("publisher", {"fixture_error": repr(error)}, len(feedback_calls)))
+            raise
+
+    def newcomer():
+        observe_inventory = not feedback_update
+
+        def inventory(*args, **kwargs):
+            try:
+                return original_inventory(*args, **kwargs)
+            finally:
+                if observe_inventory:
+                    schedule.put("inventory_finished")
+
+        @contextmanager
+        def locked(target, *args, **kwargs):
+            if observe_inventory and Path(target) == state / "retention.lock":
+                descriptor = os.open(target, os.O_RDWR | os.O_NOFOLLOW)
+                try:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        schedule.put("waiting_for_writer")
+                    else:
+                        fcntl.flock(descriptor, fcntl.LOCK_UN)
+                finally:
+                    os.close(descriptor)
+            with original_locked(target, *args, **kwargs):
+                yield
+
+        def adapter_call(enrollment, action, payload, *args, **kwargs):
+            nonlocal observe_inventory
+            result = original_adapter(enrollment, action, payload, *args, **kwargs)
+            if feedback_update and action == "select":
+                newcomer_selected.set()
+                assert release_selection.wait(timeout=15), "new selection was not released"
+                observe_inventory = True
+            return result
+
+        runner.retained_observations = inventory
+        runner.locked = locked
+        runner.adapter_call = adapter_call
+        try:
+            result = runner.run_request({**request(path), "request_id": "temporary-write-contender"})
+            results.put(("newcomer", result, 0))
+        except BaseException as error:
+            results.put(("newcomer", {"fixture_error": repr(error)}, 0))
+            raise
+
+    writer = context.Process(target=publisher)
+    contender = context.Process(target=newcomer)
+    try:
+        writer.start()
+        if feedback_update:
+            assert feedback_ready.wait(timeout=10), "publisher did not reach feedback"
+            contender.start()
+            assert newcomer_selected.wait(timeout=10), "newcomer did not finish clean preparation"
+            allow_feedback_update.set()
+            assert temporary_created.wait(timeout=10), "feedback temporary file was not created"
+            release_selection.set()
+        else:
+            assert temporary_created.wait(timeout=10), "observation temporary file was not created"
+            contender.start()
+        assert len(list((state / "observations").glob(".write-*"))) == 1
+        # A safe reader waits for the actual writer's lock. The buggy reader
+        # instead finishes its inventory against the still-paused temporary file.
+        assert schedule.get(timeout=10) in {"waiting_for_writer", "inventory_finished"}
+        release_writer.set()
+        outcomes = {label: (result, calls) for label, result, calls
+                    in (results.get(timeout=20), results.get(timeout=20))}
+        for process in (writer, contender):
+            process.join(timeout=5)
+            assert process.exitcode == 0, outcomes
+        published, feedback_calls = outcomes["publisher"]
+        admitted, _ = outcomes["newcomer"]
+        assert admitted.get("status") == "pending", admitted
+        assert [item["status"] for item in admitted["observations"]] == ["passed"]
+        assert published.get("status") == ("failed" if feedback_update else "pending"), published
+        assert feedback_calls == int(feedback_update)
+        if feedback_update:
+            assert published["observations"][0]["feedback"] == {
+                "status": "unavailable", "reason": "fixture_feedback"}
+        assert len(retained_records(state)) == 200
+        assert list((state / "observations").glob(".write-*")) == []
+        assert json.loads((state / "retention.json").read_bytes())["entries"] == []
+    finally:
+        release_writer.set()
+        allow_feedback_update.set()
+        release_selection.set()
+        for process in (writer, contender):
+            if process.pid is not None:
+                process.join(timeout=5)
+                if process.is_alive():
+                    process.terminate()
+                    process.join(timeout=5)
+        for queue in (schedule, results):
+            queue.close()
+            queue.join_thread()
+
+
+def test_observation_temporary_publication_cannot_poison_new_request_inventory(configured):
+    overlap_temporary_observation_write(configured, feedback_update=False)
+
+
+def test_feedback_temporary_rewrite_cannot_poison_concurrent_reservation(configured):
+    overlap_temporary_observation_write(configured, feedback_update=True)

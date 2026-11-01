@@ -1210,8 +1210,9 @@ def _run_request(request):
         raise ValidationError("enrolled_task_closed")
     state = private_dir(Path(enrollment["state_dir"]))
     records = private_dir(state / "observations")
-    if len(retained_observations(state)) >= MAX_RECORDS:
-        raise ValidationError("observation_retention_limit")
+    with locked(state / "retention.lock"):
+        if len(retained_observations(state)) >= MAX_RECORDS:
+            raise ValidationError("observation_retention_limit")
     started = time.monotonic()
     root = Path(enrollment["worktree"])
     current = state / ("current-" + digest({"repository": enrollment["repository_id"], "worktree": str(root)}) + ".json")
@@ -1413,7 +1414,8 @@ def _run_request(request):
                 candidate = {**result, "feedback": {"status": "unavailable", "reason": "feedback_unavailable"}}
             try:
                 validate_observation(candidate)
-                write_private(records / (observation_id + ".json"), candidate)
+                with locked(state / "retention.lock"):
+                    write_private(records / (observation_id + ".json"), candidate, directory_checked=True)
                 result = candidate
             except (ValidationError, OSError, ValueError, TypeError):
                 best_effort_event(state, {"type": "feedback_storage_unavailable", "request_id": request_id,
