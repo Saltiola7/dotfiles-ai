@@ -1,0 +1,25 @@
+{
+  "profile": "docs/specs/pm_kernel/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {
+      "applicability": "not_applicable",
+      "reason": "Source-only PM workflow delivery publishes no independent versioned package or image."
+    },
+    "deploy": {
+      "applicability": "not_applicable",
+      "reason": "Source-only delivery does not apply managed configuration or change installed PM runtimes or databases."
+    },
+    "operate": {
+      "applicability": "not_applicable",
+      "reason": "Disposable source fixtures activate no live PM service or external reporting workflow."
+    },
+    "maintain_retire": {"applicability": "required"}
+  }
+}

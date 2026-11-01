@@ -5,7 +5,11 @@ requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]
-test = ["pytest>=7.0"]
+test = [
+    "hypothesis==6.170.14",
+    "pytest>=7.0",
+    "ty==0.0.95",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
