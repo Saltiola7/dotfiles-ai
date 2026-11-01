@@ -972,6 +972,17 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given a relative or non-string Lima home, when sandbox configuration is
   validated, then the controller fails before invoking Lima.
 
+### Sandbox Command Deadline Repair (PY-05)
+
+The [command deadline contract](features/sandbox-command-deadlines.md) defines
+the Discovery-ready repair for blocked stdin in the existing synchronous
+`sandbox-vm.command` helper. All owned pipe I/O and final child wait share one
+monotonic execution deadline after successful process creation, followed by a
+separate bounded cleanup allowance. Existing output limits, private-data handling,
+caller deadlines and recovery authority remain binding. Source delivery is one
+reviewed pull request; local activation and live operations are separate work.
+Implementation and runtime qualification are pending.
+
 ### Optional Personal Atuin Service
 
 - Given shared defaults select no Atuin workspace, when configuration renders,
