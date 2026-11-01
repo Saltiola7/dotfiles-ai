@@ -7,10 +7,17 @@ modernization review and Mojo while preserving existing lifecycle and QA ownersh
 [Conditional Python specialists](features/python-specialists.md) defines bounded
 selection of design, property-testing, profiling and tooling guidance. The Python
 module routes; project policy and existing lifecycle/QA authorities retain control.
-The standalone `python-audit` entrypoint composes all six current Python lenses
-for explicitly requested repository assessments and ordered refactor roadmaps.
+The standalone `python-audit` entrypoint considers eleven language lenses and
+applicable database boundaries for explicit repository assessments and refactor roadmaps.
 Its [audit contract](features/python-specialists.md#audit-interfaces) separates
 review coverage, validation results and later implementation.
+
+[Python and database composition](features/python-data-specialists.md) adds
+conditional test/type/retry/resource/telemetry techniques and Python database
+boundaries. The existing Data module routes selected DuckDB, ClickHouse and
+Databricks guidance. `database-audit` assesses detected stacks and returns a
+source-backed roadmap; both audits separate static review, live/check evidence
+and later remediation. Existing targets, tools and installer owners retain authority.
 
 Codex CLI and Desktop can use the shared lifecycle from the current conversation
 by targeting a validated Worktrunk task checkout explicitly. Repository commands

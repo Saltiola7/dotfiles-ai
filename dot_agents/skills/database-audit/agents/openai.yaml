@@ -1,0 +1,4 @@
+interface:
+  display_name: "Database Audit"
+  short_description: "Audit database code and plan focused refactors"
+  default_prompt: "Use $database-audit to assess this repository across its DuckDB, ClickHouse and Databricks concerns and propose refactor batches."

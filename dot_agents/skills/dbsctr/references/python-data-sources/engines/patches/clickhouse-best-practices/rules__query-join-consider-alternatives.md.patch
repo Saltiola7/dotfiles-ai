@@ -1,0 +1,19 @@
+--- a/rules/query-join-consider-alternatives.md
++++ b/rules/query-join-consider-alternatives.md
+@@ -4,6 +4,8 @@
+ impactDescription: "Dictionaries and denormalization shift work from query time to insert time"
+ tags: [query, JOIN, dictionary, denormalization]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Consider Alternatives to JOINs
+ 
+@@ -70,3 +72,7 @@
+ **Critical dictionary caveat:** Dictionaries silently deduplicate duplicate keys, retaining only the final value. Only use when source has unique keys.
+ 
+ Reference: [Minimize and Optimize JOINs](https://clickhouse.com/docs/best-practices/minimize-optimize-joins)
++
++## Workload and compatibility qualification
++
++Dictionary refresh and duplicate-key behavior change freshness/multiplicity. An incremental MV with JOIN is triggered by inserted blocks from its source; later dimension changes do not automatically refresh historical enrichment. Establish required semantics and backfill/reconciliation strategy before substitution.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "ClickHouse Architecture"
+  short_description: "Evaluate workload-specific ClickHouse designs"
+  default_prompt: "Use $clickhouse-architecture-advisor to evaluate this ClickHouse architecture and label each recommendation by evidence and provenance."

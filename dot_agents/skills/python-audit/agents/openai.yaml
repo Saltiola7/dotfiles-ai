@@ -1,4 +1,4 @@
 interface:
   display_name: "Python Audit"
   short_description: "Audit Python repos and plan focused refactors"
-  default_prompt: "Use $python-audit to audit this repository across all six Python lenses and propose prioritized refactor batches."
+  default_prompt: "Use $python-audit to assess Python language and applicable database concerns and propose prioritized refactor batches."

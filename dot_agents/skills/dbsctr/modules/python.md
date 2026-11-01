@@ -34,10 +34,11 @@
 ## Conditional Controls
 
 - **CONDITIONAL:** Select the smallest applicable installed specialist set using
-  the evidence below. Read [Python specialists](../references/python-specialists.md)
-  when selecting one, then load that skill and only its relevant resources.
-  Reassess when new evidence changes the task; ordinary Python work does not load
-  every specialist or create another phase, coordinator or approval checkpoint.
+  the table below, then load that skill and only its relevant resources. Consult
+  [selection details](../references/specialist-selection.md) for unresolved
+  catalog, discovery or handoff questions and [Python method notes](../references/python-specialists.md)
+  for relevant technique or maintenance detail. Reuse guidance already loaded;
+  ordinary Python work does not load every specialist or add a coordinator/gate.
 
 | Evidence in the current task | Preferred specialist | Checkpoint |
 |---|---|---|
@@ -47,6 +48,13 @@
 | New packaging/tooling setup or explicitly selected tooling migration | `modern-python` | Engineering Profile/Spec |
 | Changed async tasks, cancellation, concurrent I/O or sync/async boundaries | `async-python-patterns` | Domain/Contract; Test/Refactor |
 | Runtime/support-floor change or requested modernization/debt review | `python-modernization-review` | Profile/Spec; Maintain/Retire |
+| Actual Django/DRF behavior, when framework guidance is installed | `django-expert` | Domain/Contract; Test/Refactor |
+| Changed pytest fixtures, isolation, mocking or integration-test design | `python-testing-patterns` | Behavior/Test |
+| Changed protocols, generics, narrowing or public typed interfaces | `python-type-safety` | Domain/Spec/Contract; existing checker policy remains authoritative |
+| Remote failure/retry behavior, deadlines or circuit breaking | `python-resilience` | Behavior/Contract; Test |
+| Owned/borrowed handles, streaming lifetime or cleanup | `python-resource-management` | Contract/Test; avoid duplicate async guidance |
+| Changed logging, metrics, tracing or correlation context | `python-observability` | Contract/Test; Operate when applicable |
+| Actual Python database or platform-client boundary | `python-database-boundaries` | Domain/Contract/Test; combine relevant Data guidance |
 
 - **PROJECT POLICY:** Runtimes, tools, dependencies, compatibility, test strategy
   and acceptance thresholds remain project-selected. Specialist recipes cannot

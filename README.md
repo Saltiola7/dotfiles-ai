@@ -28,6 +28,15 @@ explicit updates, including when invoked from another project. A check inventori
 declared dependencies without installing or restarting them. Source delivery and
 installation of the skill remain separate; see the runbook's owner boundaries.
 
+Shared specialist skills load conditionally through DBSCTR's language/data modules.
+For explicit repository roadmaps, use `$python-audit` or `$database-audit`.
+Python assessment includes testing, type design, resources, retries and telemetry;
+database guidance covers DuckDB, ClickHouse and Databricks with Python client
+boundaries. Audits default to source review and proposed refactor batches, preserving
+project-selected tools and separating live evidence from static findings. Vendored
+skill licenses remain per bundle, including service-scoped Databricks material. See the
+[composition contract](docs/specs/dbsctr_v3_lifecycle/features/python-data-specialists.md).
+
 ## Requirements
 
 - macOS
