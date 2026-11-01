@@ -1,5 +1,34 @@
 # Continuous Validation Changelog
 
+## 2026-11-01 — CVS-STORAGE-005: bounded replay and atomic capacity
+
+Bound private writes before replacement and store completed request journals as
+validated, ordered observation references. Preserve public version-1 results and
+readable legacy journals. Oversized legacy journals require explicit recovery;
+missing, changed or unsafe evidence never authorizes automatic re-execution.
+
+Reserve the whole selected observation demand before generation publication or
+check execution. Count retained observations and unmaterialized reservations
+together; preserve uncertain crash charges and existing evidence. Capacity refusal
+leaves admitted work current. Feedback and optional diagnostics cannot replace a
+valid retained result with an unpersisted result or erase a structured refusal.
+
+Validation includes red/green regressions, 487 affected tests on each of Python
+3.12 and 3.14, and publication/instruction checks. A scoped isolated private
+installation passed aggregate replay above 8 MiB, capacity refusal through CLI,
+watcher and checkpoint paths, real last-slot contention, reserved/started crash
+retention and disabled rollback. The newer shared controller and policy remained
+unchanged. Synthetic enrollments were disabled and private evidence retained.
+
+Modules are Python and Security; no Gate Exception is approved. The existing
+maintainer owns runtime requalification, retained evidence and explicit recovery.
+Recovery tooling, automatic disposal, old-binary downgrade conversion and a full
+typing migration remain outside this slice; no performance improvement is claimed.
+Implementation Gate Commit is `24edc4db`; final gate, installation and CI identities
+remain in the private Cycle Record. Delivery intent is branch
+`fix/python-validation-storage` as a draft PR into `main`, followed by the
+operator-approved ordinary merge after verified CI and native protections.
+
 ## 2026-10-30 — CVS-PRAGENT-003: private Vertex review capability
 
 Add original PR-Agent as an independently default-off, controller-owned expensive
