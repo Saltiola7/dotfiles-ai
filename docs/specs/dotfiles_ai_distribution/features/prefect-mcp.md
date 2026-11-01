@@ -120,3 +120,74 @@ only twelve inspection tools can reach the explicitly selected existing API.
 Backend observations do not replace source, protocol or deployment evidence.
 Canonical source: the tables and interfaces in this section; owner: distribution
 maintainer; update with configuration, runtime, tool or delivery changes.
+
+## Contract
+
+Installation and serving are separate commands. Serving never resolves packages,
+downloads an interpreter, creates a generation or starts a Prefect backend. All
+subprocess arguments are structured data. Installation uses an existing Python
+3.13, frozen dependency/build inputs and private, owner-controlled directories.
+The runtime digest covers the project, lock and bootstrap. A completion marker is
+written only after offline qualification and an unchanged input digest. Partial
+or mismatched generations are retained and refused; concurrent installation must
+not reuse partial state. Paths, files and markers reject unsafe ownership, links
+and write permissions where they control executable code or credentials.
+
+| State / event | Transition and observation |
+|---|---|
+| Disabled / ordinary apply | Remain disabled; no installer or native registration effects |
+| Missing generation / explicit install | Create a new private generation, frozen-sync and qualify |
+| Incomplete generation / retry | Refuse and retain for explicit operator recovery |
+| Qualified generation / unchanged install or serve | Reuse only after marker, input and interpreter qualification |
+| Changed source/lock/bootstrap | Select a new digest; retain previous generation for rollback |
+| Qualified generation / missing or invalid selection | Fail before Prefect import or MCP startup |
+| Selected target / stdio initialization | Publish only the twelve inspection tools; no backend-health claim |
+| Selected target / API failure | Return failure; preserve selection and backend state |
+| Selected target / successful identity and bounded query | Report that observation, without claiming general workflow readiness |
+
+**Text Equivalent (state):** Only explicit installation creates a generation.
+Incomplete work remains unavailable. Qualification permits on-demand stdio after
+target validation. API success or failure is a separate observation and never
+changes target selection. Canonical source: this table; owner: distribution
+maintainer; update when installation or observation transitions change.
+
+| Data crossing boundary | Validation and permitted sink |
+|---|---|
+| Private settings to launcher | Strict schema/types, explicit enabled flag, exactly one target mode and one authentication mode |
+| Selected profiles file to launcher | Owner-controlled regular file; named profile only, no global active-profile mutation or inactive-profile fallback |
+| API URL to child environment | HTTP(S), hostname, no embedded credentials or query/fragment; private selection, never public client arguments |
+| Selected credentials to child | Process environment only; do not serialize settings, print raw errors, include credentials in status, or inherit unrelated Prefect/Logfire settings |
+| Project environment to child | Neutral private CWD, explicit Prefect target and ephemeral-server disablement before any Prefect import; prevent project dotenv redirection |
+| Bootstrap to upstream factory | Disable cloud/docs/OAuth proxy, experimental execution plans and telemetry; enforce fixed server-side allowlist, including direct invocation |
+| MCP server to client | Read-only catalog and bounded tool errors; preserve process exit status and stderr/stdout protocol separation |
+| Native configuration writer to existing config | Preimage, exact owner/entry checks and explicit reconciliation; refuse incompatible same-name server |
+
+**Text Equivalent (data and trust):** The launcher resolves private selection,
+passes only the selected target and credentials into an isolated child, and
+never writes those credentials into source or registration. The bootstrap
+restricts upstream capabilities before stdio. Native configuration owners retain
+all unrelated client state. Canonical source: this table; owner: distribution
+maintainer; update with trust boundaries or permitted sinks.
+
+Process-only controls disable Prefect ephemeral mode, inherited external tracing
+and the experimental write surface. The selected pinned versions must validate
+these controls in the real runtime; static strings alone are insufficient. The
+catalog must initialize offline without the docs proxy or telemetry network.
+Direct calls to experimental publication must fail before backend access.
+
+Validation covers disabled rendering, missing/ambiguous target rejection, secret
+canaries in errors/status, process environment/CWD isolation, immutable-generation
+failure/idempotence, exact read-only catalog/direct-call denial and native config
+preservation. Use existing pytest/typing/shell authorities, the original skill
+validator, source provenance verification, targeted chezmoi preview/apply and
+second-apply empty diff. Real installation and stdio protocol evidence are
+distinct from mocked control-flow tests. Backend unavailability is recorded,
+without a fabricated live identity/query pass. Existing full CI and protected
+ordinary merge gates remain mandatory.
+
+Rollback disables private opt-in and removes only the exact verified native
+entry through its native owner, then reconciles the existing Codex projector.
+Retain runtime generations, preimages, task branches and worktrees. Requalify on
+upstream, lock, Python, bootstrap, native client schema or target-policy changes.
+No automatic package upgrade, backend start, account switch or global Prefect
+profile change is permitted.
