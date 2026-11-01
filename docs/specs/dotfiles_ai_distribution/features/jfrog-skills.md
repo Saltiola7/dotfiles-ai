@@ -16,6 +16,7 @@ successful platform operations are separate capabilities.
 | CLI prerequisite | Existing native installer owner; preserve compatible selected installations and report missing/incompatible versions |
 | MCP registration and authentication | Existing native client/configuration owner and explicitly selected platform; no automatic activation |
 | JFrog Agent Guard/catalog | Only explicitly requested JFrog-governed tasks; no takeover of unrelated MCP or skill management |
+| Project enumeration | Selected current identity and live enumeration; no persistent credential-derived cache fingerprint |
 | Upstream helper execution | Reviewed task-specific capability; installing resources does not execute scripts or grant mutations |
 | Deployment and delivery | Current primary, shared portable skill location, exact-target chezmoi apply and protected PR workflow |
 
