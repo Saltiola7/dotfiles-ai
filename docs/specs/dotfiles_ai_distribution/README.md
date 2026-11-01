@@ -12,6 +12,15 @@ own registration and process lifetime. Backend availability remains separate fro
 installation and tool discovery. The adapter does not provision a Prefect service
 or make MCP a prerequisite for project SDK/CLI flow work.
 
+## History Projection Refresh Duration
+
+The distribution-owned scheduler reports completed refresh duration as whole
+elapsed seconds, measured independently of wall-clock changes. Run timestamps
+remain Unix milliseconds. The existing
+[refresh schedule contract](features/history-projection-refresh-schedule.md)
+defines rounding, retained-summary compatibility and the bounded PY-06 delivery
+slice; lifecycle snapshot authority remains in its owning context.
+
 ## Optional Cline Domain
 
 Cline Desktop and Cline CLI are independently enabled developer tools. Their
