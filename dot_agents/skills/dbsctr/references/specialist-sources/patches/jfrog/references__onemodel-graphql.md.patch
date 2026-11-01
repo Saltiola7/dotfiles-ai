@@ -1,0 +1,53 @@
+--- a/references/onemodel-graphql.md
++++ b/references/onemodel-graphql.md
+@@ -47,19 +47,19 @@
+ 
+ ### 1. Resolve the target server
+ 
+-`jf api` authenticates against the active (or `--server-id`) server. You only
+-need the server-id locally — for per-server schema cache. From `jf config`:
+-
+-```bash
+-# User-specified server:
+-JFROG_SERVER_ID="<server-id>"
+-
+-# Or the current default:
+-JFROG_SERVER_ID=$(jf config show --server-id 2>/dev/null \
+-  || jf config export | base64 -d | jq -r '.servers[] | select(.isDefault==true).serverId')
+-```
+-
+-If the user named a server, pass `--server-id "$JFROG_SERVER_ID"` on every
++`jf api` must use the target already resolved by the compact base entrypoint.
++Reuse that concrete server ID; do not decode credential exports, change defaults
++or silently resolve another account in this reference:
++
++```bash
++JFROG_SERVER_ID="<selected-server-id>"
++# Reject path-bearing/empty IDs before using this value in a cache filename.
++case "$JFROG_SERVER_ID" in
++  ''|.|..|*[!A-Za-z0-9._-]*) printf '%s\n' 'Unsupported schema-cache key' >&2; exit 1 ;;
++esac
++```
++
++Pass `--server-id "$JFROG_SERVER_ID"` on every
+ `jf api` in steps 2 and 6 (SKILL.md § *Server selection rules*).
+ 
+ ### 2. Fetch the schema
+@@ -99,7 +99,7 @@
+ fi
+ ```
+ 
+-(Omit `--server-id "$JFROG_SERVER_ID"` for the active default server.)
++Keep the explicit `--server-id` even when that server currently is the default.
+ 
+ After the block: **read `$SCHEMA_FILE` from disk** for all schema lookups —
+ never re-fetch to a different path.
+@@ -326,7 +326,7 @@
+ 
+ | Symptom | Likely cause | Action |
+ |--------|---------------|--------|
+-| 401 | Invalid or expired token | Re-run the login flow (`references/jfrog-login-flow.md`) for the same server |
++| 401 | Invalid or expired token | Report the gap; separately authorized credential recovery must preserve the same server and native owner |
+ | 403 | Insufficient permissions | User/token lacks access to the resource |
+ | `GRAPHQL_VALIDATION_FAILED` | Bad field or argument | Re-check schema |
+ | `PARSING_ERROR` / syntax at **line 1, column N** | Invalid document (often extra/missing `}`); common with long `QUERY='...'` one-liners | Reformat in a `.graphql` file or heredoc; verify brace balance; use `jq --rawfile` |

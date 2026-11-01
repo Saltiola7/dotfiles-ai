@@ -1,0 +1,126 @@
+# JFrog-governed MCP workflow
+
+## Scope and readiness
+
+Use this complete workflow only for explicitly selected JFrog Agent Guard/catalog
+work or an already established project governance requirement. Unrelated MCP
+management remains with its native owner; importing this skill does not activate
+organization-wide governance. Cover the base [JFrog guards](../../jfrog/SKILL.md)
+once before target operations, then [common preflight](agent-guard-common.md).
+
+Resolve the existing selected runtime/version/registry, native client and target
+identity before a dependent call. The retained `jfrog-agent-guard-check.mjs` can
+contact a platform and access CLI credentials internally; inspect its imports and
+side effects before an authorized use. It takes an optional actual CLI server ID,
+not `--server`, a package name or a hostname derived from a URL. Never dump an
+exported CLI config or raw auth output. The environment-probe helper also remains
+a reviewed optional resource, not a compulsory step.
+
+| Observation | Outcome |
+|---|---|
+| Governance known enabled for selected platform/project | Preserve its required catalog/proxy path for governed operations. |
+| Governance verified disabled | Do not enable it implicitly; retain the separately selected native owner. |
+| Multiple unresolved platform identities | Resolve the intended target before any platform request. |
+| Unknown, missing credentials, timeout or failed check | Report the capability gap; never label it disabled or bypass required governance. |
+
+Permission denials do not authorize another harness, broad network-policy change
+or unchecked retry. Use [runtime boundaries](runtime-permissions.md). Read
+[common harness selection](harness-common.md) and only the actual client's guide.
+
+## Install: inspect, plan and native-owner change
+
+1. Resolve the actual JFrog project key, platform server ID, requested package and
+   exact native configuration owner. A workspace path is not a JFrog project key.
+   Preserve an existing task/entry selection and never invent `default`.
+2. Inspect one named package using the already qualified Agent Guard runtime.
+   Examples use `@<APPROVED_VERSION>` as an unresolved reviewed-version placeholder;
+   do not execute it literally or silently substitute a floating latest package.
+   With an actual reviewed pin and authorized registry/target:
+
+   ```bash
+   npx --yes --registry "<REGISTRY_URL>" \
+     "@jfrog/agent-guard@<APPROVED_VERSION>" \
+     --inspect --project "<JFROG_PROJECT_KEY>" \
+     --server "<SERVER_ID>" --mcp "<PACKAGE_NAME>"
+   ```
+
+   This can fetch/execute npm code and is not a harmless local read. Preserve
+   actual failure; [classification](key-rules-and-troubleshooting.md) distinguishes
+   registry fetch, catalog miss, identity/configuration and hard-stop failures.
+   Do not fall back to an ungoverned MCP when project policy requires governance.
+3. Inspect returned package identity, exact version, transport, inputs and route.
+   Resolve required non-secret inputs and secret references through the selected
+   native owner; never copy secret values into source, command arguments or logs.
+   A catalog-provided Gateway route must have the exact supported route/URL and
+   current native transport support. Do not build a Gateway URL from a hostname
+   or convert an existing entry's transport without reviewed identity/recovery.
+4. Plan exactly one matching native entry. Preserve unrelated settings, existing
+   owner/version, trust, hooks and credential storage. A name collision is not
+   permission to overwrite another package or silently register duplicates. Use
+   the client's current native writer/projector instead of copying upstream
+   generic global JSON/TOML edits. [Codex](harness-codex.md) and
+   [OpenCode](harness-opencode.md) have distinct ownership/schema requirements.
+5. For an authorized change, retain private preimages and implement only the
+   selected entry. A stdio Agent Guard process carries the selected platform ID
+   as its supported argument and routes project/package through non-secret
+   `_JF_ARGS=project=<KEY>&mcp=<PACKAGE>` using actual validated allowed characters.
+   `--project`/`--mcp` belong to catalog CLI calls, not that process's config args.
+   Native harnesses differ in command/env fields; do not impose a legacy shape.
+6. Enable/restart only through the native owner and the actual authorized scope.
+   Never self-grant workspace trust, pre-approve all servers or suppress a failed
+   native write. Discovery/configuration, process connectivity, OAuth and actual
+   upstream tools are separate evidence. A connected indicator or only an
+   `enable_*_tools` tool is insufficient for successful upstream availability.
+
+## Authentication
+
+OAuth is separate from merely writing an entry. Gateway authentication belongs
+to the native Gateway client; stdio Agent Guard may need an upstream login and
+store tokens under its own JFrog cache. Do not start OAuth, open a browser, invoke
+`enable_*_tools`, export credentials or migrate caches as an automatic post-install
+step. Use concrete existing task authorization and the native authentication
+owner; unresolved material authority stays pending. Never capture secret output.
+Report the actual authentication result separately from registered configuration
+or returned tool metadata. A successful login does not prove a target operation.
+
+## List
+
+Distinguish configured, connected and available-to-install state. For existing
+native entries, inspect only matching JFrog-governed metadata through the native
+owner; do not dump all configuration or assert that every remote URL was written
+by this skill. For selected catalog inventory, use the same reviewed runtime,
+platform/project identity and bounded query:
+
+```bash
+npx --yes --registry "<REGISTRY_URL>" \
+  "@jfrog/agent-guard@<APPROVED_VERSION>" \
+  --list-available --project "<JFROG_PROJECT_KEY>" --server "<SERVER_ID>"
+```
+
+Report actual query time/scope and empty/error results without inventing catalog
+entries. Reuse already adequate evidence within the same task when its freshness
+is sufficient; do not physically repeat a network/package execution merely
+because the user asks a follow-up. If current inventory is explicitly required,
+perform one bounded fresh authorized query. Local native configuration is not a
+complete governed catalog, and a governed catalog is not live connection proof.
+Avoid exposing private Gateway URLs or identifiers unless needed by the user.
+
+## Remove or disable
+
+Only remove/disable the exact selected JFrog-governed native entry through its
+owner, after resolving its effective scope and other matching declarations.
+Preserve unrelated servers, hooks, settings, files and authentication. A surviving
+entry can share an OAuth cache; entry removal never automatically authorizes
+cache deletion, token revocation or whole-directory removal. If credential
+retirement is explicitly requested, select the verified exact key/owner and
+review dependent entries first; never print cache values. Native restart/reload
+and an actual catalog/status observation qualify removal separately.
+
+## Verify and recover
+
+Use actual native catalog and selected upstream behavior as required by the task.
+No tools, denied input, failed OAuth and unavailable platform remain distinct
+gaps. [Troubleshooting](key-rules-and-troubleshooting.md) uses bounded relevant
+status and sanitized logs; debug settings and restarts are material native changes.
+Do not start a parallel provider/backend or install an alternate package to obtain
+a passing result. Retain reviewed preimages and exact owner/version for rollback.
