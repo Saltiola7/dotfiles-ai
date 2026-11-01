@@ -447,13 +447,18 @@ integer `listener_pid` and `listener_start_ticks`, and lowercase SHA256
 another destination or executable. Preparation verifies the exact image's
 `/usr/local/bin/python3.13` executable and starts one trusted, bounded listener
 process from the reviewed fixture source. Its private records remain outside
-workload mounts. Both ports bind only the observed guest address, serve fixed
+workload mounts, under the native guest controller's
+`openshell-qualification/network-records` home directory. Both ports bind only
+the observed guest address, serve fixed
 bytes, reject queries and upgrades, and expose no files or forwarding.
 
 The initial policy permits only that exact address and `/32`, port 18080,
 the observed Python executable, and enforced REST `GET /probe`. It remains fixed
 through pointer, containment, network and pause observations. Port 18081 remains
-denied. Before effects, compare complete native full policy with the reviewed
+denied. The static policy explicitly adds `/app`, `/var/log`, `/tmp` and
+`/dev/null` as read-only, preventing the network baseline from adding implicit
+writable paths. Only `/work` and `/scratch` remain writable. No caller supplies
+an alternative policy body. Before effects, compare complete native full policy with the reviewed
 policy, including provider and global contributions; a base-only policy view
 cannot establish absence of additional access. Native policy hash, version and
 configuration revision must match the shared generation receipt. An authored
