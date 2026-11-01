@@ -43,6 +43,21 @@ evidence-backed refactor roadmap. Explicit repository audits are report-only by
 default. Incidental stack mentions do not select unrelated guidance. PostgreSQL,
 dbt and other new providers are outside this change.
 
+## Behavior
+
+| Given / when | Required outcome |
+|---|---|
+| Ordinary Python edit without changed testing, typing, resources or I/O | Existing minimal routing remains sufficient; do not load every new lens |
+| Changed fixture lifecycle, structural interface, remote retry or owned resource | Select the corresponding Python technique; preserve current test/checker/library authority |
+| Python uses a database or Databricks client | Consider boundary guidance plus only the relevant engine/platform lens; do not assume every API is transactional |
+| Explicit full Python audit | Consider eleven language lenses, disclose unavailable or inapplicable coverage, and delegate relevant database concerns without duplicate findings |
+| Explicit database audit of a mixed Python/SQL/notebook repository | Inventory all relevant artifacts/environments, review detected supported stacks and Python boundaries, disclose unsupported providers and samples |
+| No relevant database exists | Return not applicable with evidence; do not install a database or introduce one |
+| Static review lacks a live plan, warehouse access or representative workload | Produce useful bounded findings; retain live and performance evidence gaps |
+| Already selected profile/connection or native plugin provides equivalent guidance | Preserve the target/authority and choose one copy; no automatic profile change or duplicate loading |
+| Audit discovers possible remediation or a migration | Recommend ordered batches with costs/compatibility; do not execute the proposal |
+| Existing live skill differs from source | Preserve edits and reconcile only authorized source changes before bounded deployment |
+
 ## Visual Evidence
 
 | Concern | Decision and canonical evidence |
