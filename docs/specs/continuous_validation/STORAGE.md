@@ -1,7 +1,7 @@
 # Bounded Request Storage and Observation Admission
 
-Status: Discovery specification for `CVS-STORAGE-005`; source implementation,
-deployment and operational qualification remain separate. This is a repair within
+Status: source implementation for `CVS-STORAGE-005`; deployment and operational
+qualification remain separately evidenced. This is a repair within
 `continuous_validation`, not another Initiative or a new storage service.
 
 ## Problem and Outcomes
@@ -32,9 +32,10 @@ no separate product artifact is introduced.
 | Modules | Python and Security; existing Cloud and ML/AI runtime boundaries are preserved but not changed or newly qualified |
 | Runtime | Existing Python `>=3.12` controller; independently locked SDK environments remain unchanged |
 | Delivery intent | Tested draft PR, targeted private local deployment, then merge when CI and all applicable lifecycle/protection checks pass |
+| Local deployment target | An isolated private installation and synthetic qualification; preserve the newer shared managed controller and its coherent generation unchanged |
 | Activation | Preserve default-off enrollment; no new watcher, engine, provider, credential or session activation |
 | Compatibility | Public request/result schema and inline observation output stay at version 1; private journal format changes explicitly |
-| Discovery boundary | Persist specifications and handoff only; no implementation, registration, installation or publication |
+| Discovery authority | Approved specifications were imported through exact launch approval; implementation, installation and delivery retain their own gate evidence |
 
 Non-goals are automatic garbage collection, evidence deletion, increased retention
 limits, partial execution to fit capacity, oversized legacy-journal recovery tools,
@@ -135,6 +136,24 @@ Use an explicit private storage format version distinct from public schema versi
 - the original bounded result summary without inline observation bodies; and
 - ordered observation references, each binding ID, canonical content digest and
   request/snapshot/generation/check identity.
+
+The implementation uses `schema_version: 1`, `storage_version: 2` and a closed
+`kind` discriminator. `intent` contains only request/enrollment digests and those
+version fields. `terminal` adds a source-free unavailable/interrupted/pending
+result. `completed` adds `patterns`, `head`, `files_digest`, result summary,
+`observation_refs` and `observation_order_digest`. Each reference contains exactly
+`id`, `sha256`, `request_id`, `snapshot_id`, `generation` and `check_id`.
+`sha256` hashes the canonical final persisted observation value; the order digest
+hashes its ordered ID list independently of the reference list. Hydration removes
+no public result fields and restores only the original `observations` list.
+
+The separate `retention.json` ledger stores closed reservation identities and
+`reserved`/`started` state under a bounded `retention.lock`. Identity also binds
+manifest, selection, cache key and lane digest. `started` is persisted before
+check/cache processing; exact validated observation publication consumes that
+identity. Normal failure releases only remaining `reserved` entries. A matching
+materialized entry can be reconciled once; an unmatched `started` entry stays
+charged. No reservation metadata is copied into public results.
 
 Reference IDs and check identities are unique and ordered consistently with the
 original result. New admitted work can produce at most 200 observations. Derive
@@ -255,8 +274,8 @@ remain; their count races and broader aggregate-output policy are separate work.
 
 | Stage | Required behavior |
 |---|---|
-| Pre-deployment | Identify scoped installed runner and active owned controllers; preserve private state and stop old writers before format-changing installation |
-| Installation | Use existing distribution owner and targeted apply; retain default-off settings and existing explicit enrollments/capabilities without starting watchers or engines |
+| Pre-deployment | Use a fresh isolated private destination with no old writers. Preserve the shared managed controller, its policy and generation; shared rollout is outside this cycle |
+| Installation | Use existing distribution owner and targeted apply into the isolated destination; retain default-off settings without importing shared enrollments or starting watchers or engines |
 | Qualification | Use synthetic private fixtures to verify aggregate replay, capacity races, failure recovery and direct CLI/watcher/checkpoint consumption; no live provider, credentials or native-session messages required |
 | Merge | Green required CI plus applicable gates, reviews and native protections; failures never authorize force/admin bypass |
 | Rollback | Disable affected enrollment and stop owned controllers; restore previous source/runtime only with feature disabled; preserve new-format state and prevent old binaries from consuming it |
@@ -337,11 +356,11 @@ when required to preserve a traced existing contract; no adjacent authority is
 redesigned. Review README and CHANGELOG on delivery; record a completed-cycle
 CHANGELOG entry only after implementation evidence exists.
 
-Specification readiness follows resolution of the decisions above and document
-validation. Launch feasibility, lifecycle registration, implementation tests,
-installation and runtime qualification are unverified at Discovery. Build must
-verify fresh source and current launch requirements before requesting any exact
-registration approval; Discovery does not register a cycle or publish docs alone.
+The approved Discovery remains the source of scope and launch authority. Current
+registration, test results and delivery outcomes are private Cycle Record facts;
+this public document does not assert live gate passes. A future new registration
+must verify fresh source and launch requirements; specification readiness alone
+never authorizes registration or deployment.
 
 ## Risks and Deferred Decisions
 

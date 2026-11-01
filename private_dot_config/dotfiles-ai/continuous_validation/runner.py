@@ -68,7 +68,7 @@ class UncertainTermination(ValidationError):
 def canonical(value):
     try:
         return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode()
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
         raise ValidationError("non_json_value") from None
 
 
@@ -171,31 +171,66 @@ def private_dir(path):
     return path
 
 
-def read_private(path):
+def read_private(path, *, oversize_code="unsafe_private_record"):
+    path = no_alias(path)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        item = os.fstat(descriptor)
+        if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
+                or item.st_nlink != 1 or item.st_mode & 0o077):
+            raise ValidationError("unsafe_private_record")
+        if item.st_size > MAX_PRIVATE_RECORD:
+            raise ValidationError(oversize_code)
+        raw = bytearray()
+        while len(raw) <= MAX_PRIVATE_RECORD:
+            block = os.read(descriptor, min(65536, MAX_PRIVATE_RECORD + 1 - len(raw)))
+            if not block:
+                break
+            raw.extend(block)
+        if len(raw) > MAX_PRIVATE_RECORD:
+            raise ValidationError(oversize_code)
+        try:
+            return json.loads(raw)
+        except (ValueError, UnicodeError, RecursionError):
+            raise ValidationError("invalid_json") from None
+    finally:
+        os.close(descriptor)
+
+
+def private_record_bytes(value, *, max_bytes=None):
+    payload = canonical(value) + b"\n"
+    if len(payload) > (MAX_PRIVATE_RECORD if max_bytes is None else max_bytes):
+        raise ValidationError("private_record_limit")
+    return payload
+
+
+def checked_private_dir(path):
+    """Recheck an already established private directory without launching Git."""
     path = no_alias(path)
     item = path.lstat()
-    if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
-            or item.st_nlink != 1 or item.st_mode & 0o077 or item.st_size > MAX_PRIVATE_RECORD):
-        raise ValidationError("unsafe_private_record")
-    try:
-        value = json.loads(path.read_text())
-    except (ValueError, UnicodeError):
-        raise ValidationError("invalid_json") from None
-    return value
+    if not stat.S_ISDIR(item.st_mode) or item.st_uid != os.getuid() or item.st_mode & 0o077:
+        raise ValidationError("unsafe_private_directory")
+    return path
 
 
-def write_private(path, value):
+def write_private(path, value, *, directory_checked=False):
+    payload = private_record_bytes(value)
     path = no_alias(path)
-    private_dir(path.parent)
+    (checked_private_dir if directory_checked else private_dir)(path.parent)
     if path.exists():
         read_private(path)
     descriptor, name = tempfile.mkstemp(prefix=".write-", dir=path.parent)
     try:
         with os.fdopen(descriptor, "wb") as stream:
-            stream.write(canonical(value) + b"\n")
+            stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(name, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         if os.path.exists(name):
             os.unlink(name)
@@ -569,13 +604,13 @@ def capture_snapshot(worktree, patterns, state_dir, base):
 
 
 @contextmanager
-def locked(path):
+def locked(path, *, directory_checked=False):
     path = no_alias(path)
-    private_dir(path.parent)
+    (checked_private_dir if directory_checked else private_dir)(path.parent)
     descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         item = os.fstat(descriptor)
-        if item.st_uid != os.getuid() or item.st_nlink != 1 or item.st_mode & 0o077:
+        if not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid() or item.st_nlink != 1 or item.st_mode & 0o077:
             raise ValidationError("unsafe_lock")
         deadline = time.monotonic() + 3
         while True:
@@ -589,6 +624,117 @@ def locked(path):
         yield
     finally:
         os.close(descriptor)
+
+
+def generation_token(current):
+    if not os.path.lexists(current):
+        return None
+    value = read_private(current)
+    if (not isinstance(value, dict) or set(value) != {"request_id", "snapshot_id", "generation"}
+            or type(value["generation"]) is not int or value["generation"] < 1):
+        raise ValidationError("invalid_generation")
+    identifier(value["request_id"])
+    if not isinstance(value["snapshot_id"], str) or not DIGEST.fullmatch(value["snapshot_id"]):
+        raise ValidationError("invalid_generation")
+    return value
+
+
+def retained_observations(state):
+    result = {}
+    for path in (state / "observations").iterdir():
+        if len(result) > MAX_RECORDS:
+            raise ValidationError("observation_retention_limit")
+        if path.suffix != ".json" or not ID.fullmatch(path.stem):
+            raise ValidationError("observation_inventory_invalid")
+        item = path.lstat()
+        if (not stat.S_ISREG(item.st_mode) or item.st_uid != os.getuid()
+                or item.st_nlink != 1 or item.st_mode & 0o077):
+            raise ValidationError("unsafe_private_record")
+        result[path.stem] = path
+    return result
+
+
+def reservation_entries(state, retained):
+    path = state / "retention.json"
+    value = read_private(path) if os.path.lexists(path) else {"schema_version": 1, "entries": []}
+    closed(value, {"schema_version", "entries"}, {"schema_version", "entries"})
+    if not isinstance(value["entries"], list) or len(value["entries"]) > MAX_RECORDS:
+        raise ValidationError("observation_reservation_invalid")
+    fields = {"id", "request_id", "snapshot_id", "generation", "check_id", "manifest_digest",
+              "selection_digest", "lane_digest", "cache_key", "state"}
+    seen, remaining = set(), []
+    for entry in value["entries"]:
+        closed(entry, fields, fields)
+        for name in ("id", "request_id", "check_id"):
+            identifier(entry[name])
+        if entry["id"] in seen or not isinstance(entry["state"], str) or entry["state"] not in {"reserved", "started"}:
+            raise ValidationError("observation_reservation_invalid")
+        seen.add(entry["id"])
+        if type(entry["generation"]) is not int or entry["generation"] < 1:
+            raise ValidationError("observation_reservation_invalid")
+        for name in ("snapshot_id", "manifest_digest", "selection_digest", "lane_digest", "cache_key"):
+            if not isinstance(entry[name], str) or not DIGEST.fullmatch(entry[name]):
+                raise ValidationError("observation_reservation_invalid")
+        if entry["id"] in retained:
+            observation = validate_observation(read_private(retained[entry["id"]]))
+            if (any(observation[name] != entry[name] for name in fields - {"state", "lane_digest"})
+                    or digest(observation["lane"]) != entry["lane_digest"]):
+                raise ValidationError("observation_reservation_identity_changed")
+        else:
+            remaining.append(dict(entry))
+    return remaining
+
+
+def save_reservations(state, entries):
+    write_private(state / "retention.json", {"schema_version": 1, "entries": entries}, directory_checked=True)
+
+
+def reserve_observations(state, current, expected, identities, request_id, snapshot_id):
+    with locked(state / "retention.lock"):
+        with locked(current.with_suffix(".lock"), directory_checked=True):
+            retained = retained_observations(state)
+            entries = reservation_entries(state, retained)
+            if len(retained) + len(entries) >= MAX_RECORDS or len(retained) + len(entries) + len(identities) > MAX_RECORDS:
+                raise ValidationError("observation_retention_limit")
+            if generation_token(current) != expected:
+                raise Interrupted("superseded")
+            save_reservations(state, entries + identities)
+            generation = 1 if expected is None else expected["generation"] + 1
+            write_private(current, {"request_id": request_id, "snapshot_id": snapshot_id,
+                                    "generation": generation}, directory_checked=True)
+
+
+def start_observation(state, identity):
+    with locked(state / "retention.lock"):
+        entries = reservation_entries(state, retained_observations(state))
+        matches = [entry for entry in entries if entry["id"] == identity["id"]]
+        if len(matches) != 1 or matches[0] != identity:
+            raise ValidationError("observation_reservation_changed")
+        matches[0]["state"] = "started"
+        save_reservations(state, entries)
+
+
+def publish_observation(state, observation):
+    validate_observation(observation)
+    with locked(state / "retention.lock"):
+        entries = reservation_entries(state, retained_observations(state))
+        matches = [entry for entry in entries if entry["id"] == observation["id"]]
+        if (len(matches) != 1 or matches[0]["state"] != "started"
+                or any(matches[0][name] != observation[name] for name in matches[0] if name not in {"state", "lane_digest"})
+                or matches[0]["lane_digest"] != digest(observation["lane"])):
+            raise ValidationError("observation_reservation_changed")
+        write_private(state / "observations" / (observation["id"] + ".json"), observation, directory_checked=True)
+        save_reservations(state, [entry for entry in entries if entry["id"] != observation["id"]])
+
+
+def release_unused_observations(state, request_id):
+    if not os.path.lexists(state / "retention.json"):
+        return
+    with locked(state / "retention.lock"):
+        entries = reservation_entries(state, retained_observations(state))
+        remaining = [entry for entry in entries if entry["request_id"] != request_id or entry["state"] != "reserved"]
+        if remaining != entries:
+            save_reservations(state, remaining)
 
 
 class Budget:
@@ -854,6 +1000,14 @@ def event(state, value):
     write_private(folder / (uuid.uuid4().hex + ".json"), {"schema_version": 1, "at": now(), **value})
 
 
+def best_effort_event(state, value):
+    """Optional telemetry cannot replace already durable diagnostic evidence."""
+    try:
+        event(state, value)
+    except (ValidationError, OSError):
+        pass
+
+
 def summarize(observations, pending):
     statuses = {item["status"] for item in observations}
     if "failed" in statuses:
@@ -876,11 +1030,172 @@ def _validate_request(request):
         raise ValidationError("invalid_checkpoint_head")
 
 
+def request_record_base(request, enrollment_digest, kind):
+    return {"schema_version": 1, "storage_version": 2, "kind": kind,
+            "request_digest": digest(request), "enrollment_digest": enrollment_digest}
+
+
+def unavailable_request(request, code, *, status="unavailable"):
+    return {"schema_version": 1, "request_id": request["request_id"], "status": status,
+            "error_code": code, "observations": [], "pending_checks": [code],
+            "selection_complete": False, "advisory": True, "new_execution": False}
+
+
+def validate_request_result(value, request_id, observations, *, completed):
+    required = {"schema_version", "request_id", "status", "pending_checks", "advisory", "new_execution"}
+    timing = {"preparation_seconds", "preparation_queue_seconds", "elapsed_seconds"}
+    source = {"snapshot_id", "generation", "selection_complete", *timing}
+    allowed = required | (source if completed else {"selection_complete"}) | {"error_code"}
+    if (not isinstance(value, dict) or not required <= value.keys() or value.keys() - allowed
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or value["request_id"] != request_id or value["advisory"] is not True
+            or type(value["new_execution"]) is not bool
+            or not isinstance(value["status"], str)
+            or value["status"] not in {"passed", "failed", "pending", "unavailable", "interrupted", "not_selected"}
+            or not isinstance(value["pending_checks"], list) or len(value["pending_checks"]) > 258
+            or any(not isinstance(item, str) or not ID.fullmatch(item) for item in value["pending_checks"])):
+        raise ValidationError("request_journal_invalid")
+    if "error_code" in value and (not isinstance(value["error_code"], str) or not ID.fullmatch(value["error_code"])):
+        raise ValidationError("request_journal_invalid")
+    if completed:
+        if (not source <= value.keys() or not isinstance(value["snapshot_id"], str)
+                or not DIGEST.fullmatch(value["snapshot_id"])
+                or type(value["generation"]) is not int or value["generation"] < 1
+                or type(value["selection_complete"]) is not bool
+                or value["status"] != summarize(observations, value["pending_checks"])):
+            raise ValidationError("request_journal_invalid")
+        for name in timing:
+            if (type(value[name]) not in {int, float} or value[name] < 0
+                    or value[name] > sys.float_info.max
+                    or type(value[name]) is float and not math.isfinite(value[name])):
+                raise ValidationError("request_journal_invalid")
+    elif (observations or value["status"] not in {"unavailable", "interrupted", "pending"}
+          or value.get("selection_complete", False) is not False or "error_code" not in value):
+        raise ValidationError("request_journal_invalid")
+    return {**value, "observations": observations}
+
+
+def completed_request_record(state, request, enrollment_digest, patterns, snapshot, result):
+    references = []
+    for observation in result["observations"]:
+        actual = validate_observation(read_private(state / "observations" / (observation["id"] + ".json")))
+        if actual != observation:
+            raise ValidationError("observation_identity_changed")
+        references.append({**{name: actual[name] for name in
+                              ("id", "request_id", "snapshot_id", "generation", "check_id")},
+                           "sha256": digest(actual)})
+    return {**request_record_base(request, enrollment_digest, "completed"),
+            "patterns": patterns, "head": snapshot["head"], "files_digest": digest(snapshot["files"]),
+            "result": {key: value for key, value in result.items() if key != "observations"},
+            "observation_refs": references,
+            "observation_order_digest": digest([item["id"] for item in references])}
+
+
+def replay_request_record(state, request, enrollment, record):
+    base = {"schema_version", "request_digest", "enrollment_digest"}
+    if (not isinstance(record, dict) or not base <= record.keys()
+            or type(record["schema_version"]) is not int or record["schema_version"] != 1):
+        raise ValidationError("request_journal_invalid")
+    if record["request_digest"] != digest(request) or record["enrollment_digest"] != digest(read_private(Path(request["enrollment"]))):
+        raise ValidationError("request_identity_reused")
+    if "storage_version" not in record:
+        if set(record) == base:
+            return unavailable_request(request, "previous_execution_interrupted")
+        allowed = base | {"patterns", "files", "head", "result"}
+        if record.keys() - allowed or not (base | {"patterns", "files", "result"}) <= record.keys():
+            raise ValidationError("request_journal_invalid")
+        if not isinstance(record["patterns"], list) or not isinstance(record["files"], dict):
+            raise ValidationError("request_journal_invalid")
+        if (inventory(Path(enrollment["worktree"]), record["patterns"]) != record["files"]
+                or record.get("head") is not None and git(Path(enrollment["worktree"]), "rev-parse", "HEAD").decode().strip() != record["head"]):
+            raise ValidationError("request_source_changed")
+        result = record["result"]
+        if not isinstance(result, dict) or not isinstance(result.get("observations"), list) or len(result["observations"]) > 257:
+            raise ValidationError("request_journal_invalid")
+        observations = [validate_observation(item, legacy=True) for item in result["observations"]]
+        if (len({item["id"] for item in observations}) != len(observations)
+                or len({item["check_id"] for item in observations}) != len(observations)
+                or any(item["request_id"] != request["request_id"]
+                       or item["snapshot_id"] != result.get("snapshot_id")
+                       or item["generation"] != result.get("generation") for item in observations)):
+            raise ValidationError("request_journal_invalid")
+        summary = {key: value for key, value in result.items() if key != "observations"}
+        result = validate_request_result(summary, request["request_id"], observations, completed="snapshot_id" in summary)
+        return {**result, "coalesced_with": request["request_id"], "new_execution": False}
+    base |= {"storage_version", "kind"}
+    if type(record["storage_version"]) is not int or record["storage_version"] != 2:
+        raise ValidationError("request_journal_unsupported")
+    kind = record.get("kind")
+    if kind == "intent" and set(record) == base:
+        return unavailable_request(request, "previous_execution_interrupted")
+    if kind == "terminal" and set(record) == base | {"result"}:
+        result = record["result"]
+        if not isinstance(result, dict) or result.get("observations") != []:
+            raise ValidationError("request_journal_invalid")
+        summary = {key: value for key, value in result.items() if key != "observations"}
+        result = validate_request_result(summary, request["request_id"], [], completed=False)
+        return {**result, "coalesced_with": request["request_id"], "new_execution": False}
+    fields = base | {"patterns", "head", "files_digest", "result", "observation_refs", "observation_order_digest"}
+    if kind != "completed" or set(record) != fields or not isinstance(record["result"], dict):
+        raise ValidationError("request_journal_invalid")
+    validate_input_patterns(record["patterns"])
+    if (not isinstance(record["files_digest"], str) or not DIGEST.fullmatch(record["files_digest"])
+            or not isinstance(record["head"], str) or re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", record["head"]) is None):
+        raise ValidationError("request_journal_invalid")
+    root = Path(enrollment["worktree"])
+    if digest(inventory(root, record["patterns"])) != record["files_digest"] or git(root, "rev-parse", "HEAD").decode().strip() != record["head"]:
+        raise ValidationError("request_source_changed")
+    refs = record["observation_refs"]
+    if not isinstance(refs, list) or len(refs) > MAX_RECORDS:
+        raise ValidationError("request_journal_invalid")
+    observations, ids, checks = [], set(), set()
+    for ref in refs:
+        if not isinstance(ref, dict) or set(ref) != {"id", "sha256", "request_id", "snapshot_id", "generation", "check_id"}:
+            raise ValidationError("request_journal_invalid")
+        identifier(ref["id"])
+        identifier(ref["check_id"])
+        if ref["id"] in ids or ref["check_id"] in checks:
+            raise ValidationError("request_journal_invalid")
+        ids.add(ref["id"])
+        checks.add(ref["check_id"])
+        observation = validate_observation(read_private(state / "observations" / (ref["id"] + ".json")))
+        if (digest(observation) != ref["sha256"]
+                or any(observation[name] != ref[name] for name in ref if name != "sha256")
+                or ref["request_id"] != request["request_id"]
+                or ref["snapshot_id"] != record["result"].get("snapshot_id")
+                or type(ref["generation"]) is not int or ref["generation"] != record["result"].get("generation")):
+            raise ValidationError("request_journal_invalid")
+        observations.append(observation)
+    if digest([item["id"] for item in refs]) != record["observation_order_digest"]:
+        raise ValidationError("request_journal_invalid")
+    result = validate_request_result(record["result"], request["request_id"], observations, completed=True)
+    return {**result, "coalesced_with": request["request_id"], "new_execution": False}
+
+
 def _require_checkpoint_head(request, root, captured_head):
     expected = request.get("checkpoint_head")
     if expected is not None and (captured_head != expected
             or git(root, "rev-parse", "HEAD").decode().strip() != expected):
         raise Interrupted("checkpoint_head_changed")
+
+
+def observation_cache_key(enrollment, snapshot, manifest, selection, check):
+    return digest({"runner": VERSION, "snapshot": snapshot["id"], "selection": selection,
+                   "manifest": manifest, "adapter": enrollment["adapter_digest"], "config": enrollment["adapter_config"],
+                   "check": check, "runner_bytes": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                   "python": enrollment["adapter_python"],
+                   "python_resolved": str(Path(enrollment["adapter_python"]).resolve()),
+                   "python_bytes": hashlib.sha256(Path(enrollment["adapter_python"]).read_bytes()).hexdigest()})
+
+
+def minimal_observation(identity, check, state, *, executed=False):
+    return {**{name: value for name, value in identity.items() if name not in {"lane_digest", "state"}},
+            "schema_version": 1, "lane": check["lane"], "status": "unavailable", "exit_code": None,
+            "runtime": {}, "test_ids": [], "diagnostic_codes": ["observation_record_invalid"],
+            "executed": executed, "cache_reused": False, "queue_seconds": 0.0,
+            "elapsed_seconds": 0.0, "execution_seconds": 0.0, "at": now(),
+            "log_path": str(state / "logs" / (identity["id"] + ".log")), "advisory": True,
+            "resource_metrics": "unavailable", "dagger_cache_metrics": "unavailable"}
 
 
 def _run_request(request):
@@ -895,14 +1210,19 @@ def _run_request(request):
         raise ValidationError("enrolled_task_closed")
     state = private_dir(Path(enrollment["state_dir"]))
     records = private_dir(state / "observations")
-    if len(list(records.iterdir())) >= MAX_RECORDS:
+    if len(retained_observations(state)) >= MAX_RECORDS:
         raise ValidationError("observation_retention_limit")
     started = time.monotonic()
     root = Path(enrollment["worktree"])
+    current = state / ("current-" + digest({"repository": enrollment["repository_id"], "worktree": str(root)}) + ".json")
+    expected_generation = generation_token(current)
+    generation = 1 if expected_generation is None else expected_generation["generation"] + 1
+    admitted = False
     budget = Budget(budget_root(), enrollment["max_running"], enrollment["max_expensive"])
     event(state, {"type": "requested", "request_id": request_id, "trigger": request["trigger"]})
     def preparation_canceled():
-        return digest(read_private(enrollment_path)) != enrollment_source_digest
+        return (digest(read_private(enrollment_path)) != enrollment_source_digest
+                or generation_token(current) != expected_generation)
     with budget.slot("cheap", preparation_canceled, enrollment["admission_timeout_seconds"]) as preparation_queue_seconds:
         preparation_started = time.monotonic()
         manifest = validate_manifest(adapter_call(enrollment, "describe", {"schema_version": 1}, root, state))
@@ -913,13 +1233,6 @@ def _run_request(request):
             raise Interrupted("superseded")
         source_signature = inventory(root, patterns, content=False)
     preparation_seconds = time.monotonic() - preparation_started
-    current = state / ("current-" + digest({"repository": enrollment["repository_id"], "worktree": str(root)}) + ".json")
-    with locked(current.with_suffix(".lock")):
-        previous_generation = read_private(current).get("generation", 0) if current.exists() else 0
-        if type(previous_generation) is not int or previous_generation < 0:
-            raise ValidationError("invalid_generation")
-        generation = previous_generation + 1
-        write_private(current, {"request_id": request_id, "snapshot_id": snapshot["id"], "generation": generation})
     cancel_state = {"checked": 0.0, "cycle_checked": time.monotonic(), "canceled": False}
     def cancel():
         if cancel_state["canceled"]:
@@ -929,8 +1242,10 @@ def _run_request(request):
         cancel_state["checked"] = time.monotonic()
         try:
             latest = read_private(enrollment_path)
+            expected_current = ({"request_id": request_id, "snapshot_id": snapshot["id"], "generation": generation}
+                                if admitted else expected_generation)
             canceled = (digest(latest) != enrollment_source_digest
-                        or read_private(current)["request_id"] != request_id
+                        or generation_token(current) != expected_current
                         or inventory(root, patterns, content=False) != source_signature
                         or git(root, "rev-parse", "HEAD").decode().strip() != snapshot["head"])
             if time.monotonic() - cancel_state["cycle_checked"] >= 5:
@@ -961,6 +1276,26 @@ def _run_request(request):
                       "snapshot_id": snapshot["id"], "check_id": check["id"],
                       "reason": "explicit_checkpoint_or_manual_review_opt_in"})
     event(state, {"type": "selected", "request_id": request_id, "snapshot_id": snapshot["id"], "checks": selection["checks"], "complete": selection["complete"]})
+    identities = {}
+    for check_id in selection["checks"]:
+        check = checks[check_id]
+        if check["class"] == "expensive" and request["trigger"] == "edit":
+            continue
+        identity = {"id": uuid.uuid4().hex, "request_id": request_id, "snapshot_id": snapshot["id"],
+                    "generation": generation, "check_id": check_id, "manifest_digest": digest(manifest),
+                    "selection_digest": digest(selection), "cache_key": observation_cache_key(enrollment, snapshot, manifest, selection, check),
+                    "lane_digest": digest(check["lane"]), "state": "reserved"}
+        fallback = minimal_observation(identity, check, state)
+        fallback.update(at="9999-12-31T23:59:59.999999+00:00", diagnostic_codes=["x" * 128],
+                        queue_seconds=sys.float_info.max, elapsed_seconds=sys.float_info.max,
+                        execution_seconds=sys.float_info.max)
+        validate_observation(fallback)
+        identities[check_id] = identity
+    if (preparation_canceled() or not cycle_open(enrollment) or inventory(root, patterns) != snapshot["files"]
+            or git(root, "rev-parse", "HEAD").decode().strip() != snapshot["head"]):
+        raise Interrupted("superseded")
+    reserve_observations(state, current, expected_generation, list(identities.values()), request_id, snapshot["id"])
+    admitted = True
     observations = []
     pending = [] if selection["complete"] else ["selection_incomplete"]
     for check_id in selection["checks"]:
@@ -968,16 +1303,12 @@ def _run_request(request):
         if check["class"] == "expensive" and request["trigger"] == "edit":
             pending.append(check_id)
             continue
-        observation_id = uuid.uuid4().hex
+        identity = identities[check_id]
+        observation_id = identity["id"]
         log_path = state / "logs" / (observation_id + ".log")
         private_dir(log_path.parent)
         os.close(os.open(log_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600))
-        key = digest({"runner": VERSION, "snapshot": snapshot["id"], "selection": selection,
-                      "manifest": manifest, "adapter": enrollment["adapter_digest"], "config": enrollment["adapter_config"],
-                      "check": check, "runner_bytes": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                      "python": enrollment["adapter_python"],
-                      "python_resolved": str(Path(enrollment["adapter_python"]).resolve()),
-                      "python_bytes": hashlib.sha256(Path(enrollment["adapter_python"]).read_bytes()).hexdigest()})
+        key = identity["cache_key"]
         cache = state / "cache" / (key + ".json")
         reuse = check["cacheable"] and check["backend"] == "native" and check["configuration"].get("hermetic") is True
         result = None
@@ -985,6 +1316,7 @@ def _run_request(request):
         executed = False
         execution_seconds = 0.0
         check_started = time.monotonic()
+        start_observation(state, identity)
         try:
             if cancel():
                 raise Interrupted("superseded")
@@ -1053,7 +1385,11 @@ def _run_request(request):
                   "elapsed_seconds": time.monotonic() - check_started, "execution_seconds": execution_seconds,
                   "at": now(), "log_path": str(log_path),
                   "advisory": True, "resource_metrics": "unavailable", "dagger_cache_metrics": "unavailable"}
-        write_private(records / (observation_id + ".json"), result)
+        try:
+            validate_observation(result)
+        except (ValidationError, ValueError, TypeError):
+            result = minimal_observation(identity, check, state, executed=executed)
+        publish_observation(state, result)
         if reuse and result["status"] == "passed" and not result["cache_reused"]:
             write_private(cache, result)
         notify = (result["status"] in {"failed", "unavailable"}
@@ -1066,25 +1402,31 @@ def _run_request(request):
                 and git(root, "rev-parse", "HEAD").decode().strip() == snapshot["head"]):
             try:
                 from . import feedback
-                result["feedback"] = feedback.deliver(enrollment, result, current_snapshot_id=snapshot["id"], state_dir=state,
+                candidate = json.loads(canonical(result))
+                candidate["feedback"] = feedback.deliver(enrollment, candidate, current_snapshot_id=snapshot["id"], state_dir=state,
                     eligible=lambda: (not cancel() and cycle_open(enrollment)
                         and digest(read_private(enrollment_path)) == enrollment_source_digest
                         and read_private(current)["request_id"] == request_id
                         and inventory(root, patterns) == snapshot["files"]
                         and git(root, "rev-parse", "HEAD").decode().strip() == snapshot["head"]))
             except (ImportError, OSError, ValueError):
-                result["feedback"] = {"status": "unavailable", "reason": "feedback_unavailable"}
-            write_private(records / (observation_id + ".json"), result)
+                candidate = {**result, "feedback": {"status": "unavailable", "reason": "feedback_unavailable"}}
+            try:
+                validate_observation(candidate)
+                write_private(records / (observation_id + ".json"), candidate)
+                result = candidate
+            except (ValidationError, OSError, ValueError, TypeError):
+                best_effort_event(state, {"type": "feedback_storage_unavailable", "request_id": request_id,
+                                          "observation_id": observation_id})
         observations.append(result)
     result = {"schema_version": 1, "request_id": request_id, "snapshot_id": snapshot["id"], "generation": generation,
               "status": summarize(observations, pending), "observations": observations, "pending_checks": pending,
               "selection_complete": selection["complete"], "preparation_seconds": preparation_seconds,
               "preparation_queue_seconds": preparation_queue_seconds,
               "elapsed_seconds": time.monotonic() - started, "advisory": True, "new_execution": True}
-    write_private(state / "requests" / (request_id + ".json"), {
-        "schema_version": 1, "request_digest": digest(request), "enrollment_digest": enrollment_source_digest,
-        "patterns": patterns, "files": snapshot["files"], "head": snapshot["head"], "result": result})
-    event(state, {"type": "finished", "request_id": request_id, "snapshot_id": snapshot["id"], "status": result["status"]})
+    write_private(state / "requests" / (request_id + ".json"),
+                  completed_request_record(state, request, enrollment_source_digest, patterns, snapshot, result))
+    best_effort_event(state, {"type": "finished", "request_id": request_id, "snapshot_id": snapshot["id"], "status": result["status"]})
     return result
 
 
@@ -1099,9 +1441,9 @@ def run_request(request):
         raise ValidationError("enrolled_task_closed")
     state = private_dir(Path(enrollment["state_dir"]))
     requests = private_dir(state / "requests")
-    if len(list(requests.glob("*.json"))) >= MAX_RECORDS and not (requests / (request["request_id"] + ".json")).exists():
-        raise ValidationError("request_retention_limit")
     record = requests / (request["request_id"] + ".json")
+    if len(list(requests.glob("*.json"))) >= MAX_RECORDS and not os.path.lexists(record):
+        return unavailable_request(request, "request_retention_limit")
     lease = requests / (request["request_id"] + ".lock")
     descriptor = os.open(lease, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
@@ -1111,37 +1453,40 @@ def run_request(request):
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            prior = read_private(record) if record.exists() else None
-            if prior is not None and prior.get("request_digest") != digest(request):
-                raise ValidationError("request_identity_reused") from None
+            try:
+                prior = read_private(record, oversize_code="request_journal_recovery_required") if os.path.lexists(record) else None
+                if prior is not None and (not isinstance(prior, dict) or prior.get("request_digest") != digest(request)):
+                    raise ValidationError("request_identity_reused")
+            except (ValidationError, OSError) as error:
+                if str(error) == "request_identity_reused":
+                    raise
+                return unavailable_request(request, str(error) if isinstance(error, ValidationError) else "request_journal_unavailable")
             return {"schema_version": 1, "request_id": request["request_id"], "status": "pending",
                     "coalesced_with": request["request_id"], "new_execution": False, "advisory": True}
-        if record.exists():
-            prior = read_private(record)
-            if prior.get("request_digest") != digest(request) or prior.get("enrollment_digest") != digest(read_private(Path(request["enrollment"]))):
-                raise ValidationError("request_identity_reused")
-            if "result" in prior:
-                if (inventory(Path(enrollment["worktree"]), prior["patterns"]) != prior["files"]
-                        or prior.get("head") is not None and git(Path(enrollment["worktree"]), "rev-parse", "HEAD").decode().strip() != prior["head"]):
-                    raise ValidationError("request_source_changed")
-                return {**prior["result"], "coalesced_with": request["request_id"], "new_execution": False}
-            return {"schema_version": 1, "request_id": request["request_id"], "status": "unavailable",
-                    "error_code": "previous_execution_interrupted", "observations": [],
-                    "pending_checks": ["previous_execution_interrupted"], "new_execution": False, "advisory": True}
-        write_private(record, {"schema_version": 1, "request_digest": digest(request),
-                               "enrollment_digest": digest(read_private(Path(request["enrollment"])))})
+        if os.path.lexists(record):
+            try:
+                prior = read_private(record, oversize_code="request_journal_recovery_required")
+                return replay_request_record(state, request, enrollment, prior)
+            except (ValidationError, OSError, KeyError, TypeError, AttributeError) as error:
+                if isinstance(error, ValidationError) and str(error) in {"request_identity_reused", "request_source_changed"}:
+                    raise
+                return unavailable_request(request, str(error) if isinstance(error, ValidationError) else "request_journal_invalid")
+        enrollment_digest = digest(read_private(Path(request["enrollment"])))
+        write_private(record, request_record_base(request, enrollment_digest, "intent"))
         try:
             return _run_request(request)
         except (ValidationError, OSError) as error:
             code = str(error) if isinstance(error, ValidationError) else "execution_io_unavailable"
-            result = {"schema_version": 1, "request_id": request["request_id"],
-                      "status": "interrupted" if isinstance(error, Interrupted) else "pending" if isinstance(error, Deferred) else "unavailable",
-                      "error_code": code, "observations": [], "pending_checks": ["selection_or_execution_incomplete"],
-                      "selection_complete": False, "advisory": True, "new_execution": False}
-            write_private(record, {"schema_version": 1, "request_digest": digest(request),
-                                   "enrollment_digest": digest(read_private(Path(request["enrollment"]))),
-                                   "patterns": [], "files": {}, "result": result})
-            event(state, {"type": "interrupted_or_unavailable", "request_id": request["request_id"], "status": result["status"], "code": code})
+            result = unavailable_request(request, code,
+                status="interrupted" if isinstance(error, Interrupted) else "pending" if isinstance(error, Deferred) else "unavailable")
+            try:
+                release_unused_observations(state, request["request_id"])
+            except (ValidationError, OSError):
+                # Unknown or malformed accounting remains charged. Never reclaim
+                # it merely because execution returned another storage failure.
+                pass
+            write_private(record, {**request_record_base(request, enrollment_digest, "terminal"), "result": result})
+            best_effort_event(state, {"type": "interrupted_or_unavailable", "request_id": request["request_id"], "status": result["status"], "code": code})
             return result
     finally:
         os.close(descriptor)
@@ -1273,8 +1618,10 @@ def validate_test_identity(receipt, identities, declared=None, status=None):
         raise ValidationError("test_identity_receipt_invalid") from error
 
 
-def validate_observation(value):
+def validate_observation(value, *, legacy=False):
     """Accept complete controller records, never sparse backend receipts."""
+    if not legacy:
+        private_record_bytes(value, max_bytes=MAX_JSON)
     required = {"schema_version", "id", "request_id", "snapshot_id", "generation", "check_id", "lane",
                 "manifest_digest", "selection_digest", "cache_key", "status", "exit_code", "runtime", "test_ids",
                 "diagnostic_codes", "executed", "cache_reused", "queue_seconds", "elapsed_seconds",
