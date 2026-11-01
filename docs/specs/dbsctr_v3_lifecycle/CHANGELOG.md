@@ -1,5 +1,29 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Advanced Python boundary methods
+
+- Added five locally authored discoverable methods: `python-process-parallelism`,
+  `python-data-contracts`, `python-arrow-interchange`, `python-mutation-testing`
+  and `python-durable-jobs`. Python owns conditional selection; Data shares actual
+  dataframe/Arrow boundaries. Audit navigation includes these methods while full
+  audit retains fourteen core lenses and architecture focus remains structural.
+- Guidance distinguishes cancellation from termination, schema from value checks,
+  Arrow representation/lifetime from zero-copy claims, raw mutant outcomes from
+  assertion evidence, and durable handoff from replay-safe effects. Existing
+  runtimes, libraries, queues, gates and Databricks platform ownership remain.
+- Affected QA: 211 passed, one optional smoke skipped; five creator validators
+  passed. Complete isolated projection verifies bytes/modes/resource closure,
+  unrelated-state preservation and repeat diff. Three independent static cases
+  cover workers, columnar/mutation boundaries and a plain library; they establish
+  useful bounded advice, not native selection or engine/runtime qualification.
+- Deployment uses ten exact targets, retained prior-live preimages/drift guards,
+  twelve unrelated guards and repeat verification. No package installation,
+  worker/database operation, mutation campaign or package publication is included.
+- Implementation Gate Commit: `f6d3bdd`. Failed early/intentional checks and final
+  deployment/delivery receipts remain in the private Cycle Record. No Gate
+  Exception. Intended Final Push: feature branch and draft PR into `main`, retaining
+  pending predecessor PRs/branches/worktrees until verified final delivery.
+
 ## 2026-10-31 — Conditional Python stack and runtime methods
 
 - Added seven discoverable skills through existing conditional Python routing:

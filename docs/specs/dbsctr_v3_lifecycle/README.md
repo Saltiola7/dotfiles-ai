@@ -55,6 +55,15 @@ adds relevant methods within its chosen scope. Existing QA, publication authorit
 and project-selected tools remain unchanged; installing guidance does not run
 its framework, fuzzing, build, runtime migration or publication recipes.
 
+[Advanced Python methods](features/python-specialists.md#conditional-advanced-python-methods)
+add process/subinterpreter boundaries, dataframe contracts, Arrow interchange,
+selected mutation testing and durable jobs. Python owns conditional selection;
+Data shares the dataframe and Arrow methods. Both audit scopes assess relevant
+boundaries without starting campaigns or workers. These five bundles are locally
+authored from primary documentation; the existing vendored inventories remain
+unchanged. Project runtimes, backends, queues, QA and delivery authority remain
+project-owned.
+
 Codex CLI and Desktop can use the shared lifecycle from the current conversation
 by targeting a validated Worktrunk task checkout explicitly. Repository commands
 use its working directory and file edits use absolute paths. Desktop attachment
