@@ -1,0 +1,19 @@
+--- a/rules/query-join-choose-algorithm.md
++++ b/rules/query-join-choose-algorithm.md
+@@ -4,6 +4,8 @@
+ impactDescription: "Wrong algorithm causes OOM; right algorithm handles large tables efficiently"
+ tags: [query, JOIN, algorithm, memory]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Choose the Right JOIN Algorithm
+ 
+@@ -41,3 +43,7 @@
+ **Note:** ClickHouse 24.12+ automatically positions smaller tables on the right side. For earlier versions, manually ensure the smaller table is on the RIGHT.
+ 
+ Reference: [Minimize and Optimize JOINs](https://clickhouse.com/docs/best-practices/minimize-optimize-joins)
++
++## Workload and compatibility qualification
++
++Defaults and optimizer rewrites are version/settings-dependent. Preserve JOIN type and multiplicity; inspect plans and data sizes before forcing an algorithm. A sort-merge join can skip sorting only when actual physical ordering matches the join keys, not merely because a key is called primary.

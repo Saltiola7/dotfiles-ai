@@ -1,0 +1,19 @@
+--- a/rules/schema-partition-low-cardinality.md
++++ b/rules/schema-partition-low-cardinality.md
+@@ -4,6 +4,8 @@
+ impactDescription: "Too many partitions cause part explosion and 'too many parts' errors"
+ tags: [schema, partitioning, parts]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Keep Partition Cardinality Low (100-1,000 Values)
+ 
+@@ -59,3 +61,7 @@
+ ```
+ 
+ Reference: [Choosing a Partitioning Key](https://clickhouse.com/docs/best-practices/choosing-a-partitioning-key)
++
++## Workload and compatibility qualification
++
++Partition ranges are heuristics, not a universal violation threshold. Evaluate partition count, per-partition part pressure, actual configured limits, retention and throughput together; finer partitions can be justified by the workload.

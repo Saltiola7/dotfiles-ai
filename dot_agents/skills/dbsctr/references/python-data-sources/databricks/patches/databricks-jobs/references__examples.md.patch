@@ -1,0 +1,11 @@
+--- a/references/examples.md
++++ b/references/examples.md
+@@ -1,4 +1,8 @@
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Complete Examples
++
++These examples are starting points for requested job work. Preserve the repository's dependency pins, compute policy and workspace target. Static audit does not create resources, deploy bundles or start runs to demonstrate an example.
+ 
+ ## Contents
+ - [ETL Pipeline with Multiple Tasks](#etl-pipeline-with-multiple-tasks)

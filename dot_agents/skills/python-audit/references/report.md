@@ -15,7 +15,7 @@ Show component/lens coverage with concrete reviewed paths and dispositions:
 
 | Component / environment | Lens | Review status | Evidence and limits |
 |---|---|---|---|
-| Actual component | One of the six selected lenses | reviewed / sampled / unavailable / not applicable | Paths, samples, exclusions, unreviewed units and rationale |
+| Actual component | One of the eleven language or applicable boundary/database lenses | reviewed / sampled / unavailable / not applicable | Paths, samples, exclusions, unreviewed units and rationale |
 
 Inventory totals, actual inspected coverage, typing-analysis coverage and test
 coverage have different denominators. State each denominator used; zero units is
@@ -66,3 +66,9 @@ and the audit disposition: complete for the declared reviewed scope, partial, or
 not applicable. Scope-complete with failures/debt is valid; unsupported claims of
 full review or clean validation are not. Present the next bounded decision for
 the developer; implementing it is a separate authorized task.
+
+
+When data-access code exists, include boundary and selected engine/platform
+coverage in the same report. Reconcile database subreports by root cause and
+owner; separate static/live evidence and retain unsupported engine gaps. Service
+retry/resource/telemetry lenses may be not applicable with concrete reasons.

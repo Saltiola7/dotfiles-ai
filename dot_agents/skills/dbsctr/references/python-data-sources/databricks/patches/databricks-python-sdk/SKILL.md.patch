@@ -1,0 +1,167 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,13 +1,43 @@
+ ---
+ name: databricks-python-sdk
+-description: "Databricks development guidance including Python SDK, Databricks Connect, CLI, and REST API. Use when working with databricks-sdk, databricks-connect, or Databricks APIs."
+-compatibility: Requires databricks CLI (>= v1.0.0)
+ metadata:
+   version: "0.1.0"
+-parent: databricks-core
+----
++description: "Develop and review Python integrations with Databricks SDK, Databricks Connect and REST APIs, including existing authentication, blocking calls and client boundaries."
++license: LicenseRef-Databricks
++---
++
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
+ 
+ # Databricks Development Guide
++
++## Scope and execution boundaries
++
++Use this bundle only within or connecting to Databricks Services, under the
++included `LICENSE.upstream` and `NOTICE.upstream`. It is not generic Spark guidance.
++
++For a repository audit, review source, SQL, bundle configuration and declared
++runtime/dependency evidence first. Do not install or upgrade tools, authenticate,
++select or change profiles, query a workspace, execute notebooks/examples, or
++deploy resources merely to complete a static review. Record unavailable runtime,
++workspace and performance evidence as coverage gaps. Examples below illustrate
++APIs; they do not authorize their side effects.
++
++For requested live work, retain the already selected workspace, profile,
++authentication provider, runtime and dependency constraints. Resolve a target only
++when missing or conflicting; do not repeatedly ask for an already selected
++profile. Check the selected tool's actual version/help and current official
++documentation for the specific operation. Propose a necessary migration or tool
++upgrade separately instead of requiring the newest CLI for every task.
++
++Read only relevant references. If a named sibling skill is unavailable, state the
++guidance gap and use current official documentation within scope; do not install
++an entire skill bundle. Treat design defaults as workload-dependent recommendations,
++not automatic defects. Keep review findings distinct from measured execution
++results. DBSCTR owns authorized remediation and delivery.
++
++For live CLI, authentication or workspace targeting, read
++[databricks-core](../databricks-core/SKILL.md) and reuse the selected context.
++
+ 
+ This skill provides guidance for Databricks SDK, Databricks Connect, CLI, and REST API.
+ 
+@@ -18,14 +48,16 @@
+ 
+ ## Environment Setup
+ 
+-- Use existing virtual environment at `.venv` or use `uv` to create one
+-- For Spark operations: `uv pip install databricks-connect`
+-- For SDK operations: `uv pip install databricks-sdk`
+-- Databricks CLI version should be 0.278.0 or higher
++- Use the project's existing environment, dependency manager and declared pins.
++- Static review does not install `databricks-connect` or `databricks-sdk`.
++- For requested setup, choose SDK/Connect versions compatible with the selected
++  Databricks runtime and Python version using current official compatibility docs.
++- The SDK does not require the CLI for every API call. Check the actual CLI/SDK
++  capability needed; do not impose a single CLI minimum across unrelated tasks.
+ 
+ ## Configuration
+ 
+-- Default profile name: `DEFAULT`
++- Profile: retain the workspace/profile already selected for the task; resolve only missing or conflicting context
+ - Config file: `~/.databrickscfg`
+ - Environment variables: `DATABRICKS_HOST`, `DATABRICKS_TOKEN`
+ 
+@@ -38,11 +70,11 @@
+ ```python
+ from databricks.connect import DatabricksSession
+ 
+-# Auto-detects 'DEFAULT' profile from ~/.databrickscfg
+-spark = DatabricksSession.builder.getOrCreate()
+-
+-# With explicit profile
+-spark = DatabricksSession.builder.profile("MY_PROFILE").getOrCreate()
++# Use the workspace/profile already selected for the task.
++spark = DatabricksSession.builder.profile("SELECTED_PROFILE").getOrCreate()
++
++# Within an established notebook/runtime context, retain that context rather
++# than configuring a different local workspace or creating a new profile.
+ 
+ # Use spark as normal
+ df = spark.sql("SELECT * FROM catalog.schema.table")
+@@ -86,7 +118,7 @@
+ ## Databricks CLI
+ 
+ ```bash
+-# Check version (should be >= 0.278.0)
++# Inspect the project-selected version; check the exact subcommand support
+ databricks --version
+ 
+ # Use specific profile
+@@ -484,7 +516,13 @@
+ 
+ ### CRITICAL: Async Applications (FastAPI, etc.)
+ 
+-**The Databricks SDK is fully synchronous.** All calls block the thread. In async applications (FastAPI, asyncio), you MUST wrap SDK calls with `asyncio.to_thread()` to avoid blocking the event loop.
++Treat synchronous SDK network calls and iterator consumption as blocking unless
++the selected API explicitly provides async behavior. Keep blocking work off an async
++event loop using the application's chosen worker boundary; `asyncio.to_thread()`
++below is one option. Bound concurrency and client lifetimes, consume lazy iterators
++inside the worker, and account for cancellation: cancelling the await does not
++necessarily stop an SDK request already running in a thread. Preserve the selected
++timeout/retry policy instead of layering unbounded application retries.
+ 
+ ```python
+ import asyncio
+@@ -505,7 +543,8 @@
+     return await asyncio.to_thread(w.clusters.get, cluster_id)
+ 
+ # CORRECT - FastAPI endpoint
+-from fastapi import FastAPI
++from fastapi import FastAPI, HTTPException
++from databricks.sdk.service.sql import StatementState
+ app = FastAPI()
+ 
+ @app.get("/clusters")
+@@ -522,8 +561,34 @@
+         warehouse_id=warehouse_id,
+         wait_timeout="30s"
+     )
+-    return response.result.data_array
+-```
++    state = response.status.state if response.status else None
++    handle = {
++        "statement_id": response.statement_id,
++        "state": state.value if state else None,
++    }
++    if state in {StatementState.PENDING, StatementState.RUNNING}:
++        # Return the ID after this bounded wait. A follow-up uses get_statement
++        # with that ID and an overall deadline; do not resubmit on timeout.
++        return handle
++    if state != StatementState.SUCCEEDED:
++        error = response.status.error if response.status else None
++        # Preserve failure state/code without returning raw SQL diagnostics.
++        raise HTTPException(status_code=502, detail={
++            **handle, "error_code": error.error_code if error else None,
++        })
++    result = response.result
++    return {
++        **handle,
++        "data": result.data_array if result else None,
++        "next_chunk_index": result.next_chunk_index if result else None,
++    }
++```
++
++`wait_timeout` limits server-side waiting for immediate results, not transport/SDK
++retry time or the remote statement's lifetime. Use the project's request deadline.
++Pending statements need bounded status retrieval by ID; failed/canceled statements
++remain failures. Consume additional chunks if the caller requires complete data.
++See the [Statement Execution lifecycle](https://docs.databricks.com/aws/en/dev-tools/sql-execution-tutorial).
+ 
+ **Note:** `WorkspaceClient().config.host` is NOT a network call - it just reads config. No need to wrap property access.
+ 
+@@ -629,5 +694,5 @@
+ - **databricks-jobs** - job orchestration patterns
+ - **[databricks-unity-catalog](../databricks-unity-catalog/SKILL.md)** - catalog governance
+ - **databricks-model-serving** - serving endpoint management
+-- **[databricks-vector-search](../databricks-vector-search/SKILL.md)** - vector index operations
++- **[databricks-vector-search](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-vector-search/SKILL.md)** - vector index operations
+ - **databricks-lakebase** - managed PostgreSQL with autoscaling + branching

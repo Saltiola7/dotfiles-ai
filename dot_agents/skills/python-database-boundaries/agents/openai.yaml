@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Database Boundaries"
+  short_description: "Review Python client and database boundaries"
+  default_prompt: "Use $python-database-boundaries to review this Python database boundary and propose bounded improvements."
