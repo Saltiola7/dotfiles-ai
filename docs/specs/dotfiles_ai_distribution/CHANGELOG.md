@@ -22,6 +22,33 @@
   No gate exceptions are introduced. Final delivery targets a feature-branch
   draft PR and ordinary protected merge only after current-base CI passes.
 
+## 2026-10-31 — PY-06 refresh elapsed duration
+
+- Corrected newly completed scheduler durations to whole monotonic elapsed
+  seconds rounded down, including process launch, execution and timeout cleanup.
+  Unix-millisecond timestamps, version-1 fields, counters, failure classes,
+  single-flight behavior and lifecycle snapshot authority remain compatible.
+- Added deterministic regression coverage for fractional boundaries, wall-clock
+  changes, nonzero exit, spawn failure, timeout grace/escalation, interval
+  boundaries, legacy-summary preservation and an actually running overlap.
+  The original unit defect failed those regressions before the correction;
+  failed and replacement evidence remains in the private Cycle Record.
+- Validation: 109 scoped tests passed and one skipped on Python 3.13.16,
+  including the configured publication and instruction authority.
+- Scoped deployment applied only the managed wrapper, with scripts excluded;
+  the second apply and destination verification passed. Installed bytes and mode
+  match the tested source. The loaded job and saved summary bytes were unchanged;
+  no real refresh was launched. A private preimage and isolated recovery fixture
+  retain rollback evidence without restoring the old wrapper on the live host.
+- Existing summaries remain verbatim until the next ordinary acquired run; their
+  historical units cannot be established from version 1. A rollback accepts the
+  same summary shape but resumes the old duration defect on subsequent runs.
+- Method Revision 3.29; no Gate Exceptions. Gate Commits, scoped QA, deployment,
+  operation and recovery evidence belong to the private PY-06 Cycle Record.
+  Intended Final Push: feature branch and one draft PR into the configured
+  `main`; actual push and pull-request results are recorded privately and
+  reported separately.
+
 ## 2026-10-31 — Self-hosted Prefect inspection
 
 - Added the complete official workflow skill as `prefect-operations`, with
