@@ -85,14 +85,46 @@ target files.
     renewed by `vertex-reauth` without changing default Cline state or global
     credentials. Disabled installation switches do not uninstall native tools.
 
+## OpenShell pilot product intent
+
+An operator can opt into contained autonomous coding with Codex CLI and OpenCode
+while preserving subscription and Vertex Claude access, direct editing of an
+existing Worktrunk checkout, and the complete supported managed Git workflow.
+The desired outcome is useful coding autonomy with other checkouts, host
+credentials and lifecycle authority protected. Existing native workflows remain
+available through explicit selection; a failed pilot never selects them silently.
+
+Success requires both agents to complete the selected edit, test, signed-commit
+and delivery journey under existing approval rules, recover from interruption,
+and stop without deleting work. Installation or one working client is insufficient.
+The pilot's first real activation uses a dedicated dotfiles-ai Worktrunk checkout
+after fixture evidence. Separate sign-ins use the same accounts without changing
+normal host sessions.
+Lima replacement, native Mac application automation and broader platform rollout
+are outside this product outcome. Runtime design and operation contracts belong
+to the [pilot feature](features/openshell-pilot.md), not this intent artifact.
+
+| Journey boundary | Required user outcome |
+|---|---|
+| Explicit opt-in | Select an existing task checkout without changing ordinary launches |
+| Agent work | Both clients preserve intended provider access and direct source edits |
+| Host effects | Existing Git and lifecycle authority protects other work and approvals |
+| Failure or opt-out | Clear unavailable state, retained changes and explicit recovery |
+
+**Text Equivalent:** Opt-in adds contained execution for the two existing clients.
+It preserves direct task work and managed Git outcomes, with existing host
+approval authority. Failure retains changes and requires explicit recovery.
+Canonical source: this Product Intent and approved Initiative. Owner: product
+owner. Change trigger: user outcome, compatibility or trust-boundary change.
+
 ## Visual Evidence
 
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
-| Boundary | required: product journey boundary flowchart | Where does the operator cross from portable setup into isolated automation and governed delivery? | Core Journeys and context README architecture | Product owner; journey or trust-boundary changes |
+| Boundary | required: product journey boundary flowchart and OpenShell journey table | Where does the operator cross from portable setup into isolated automation and governed delivery? | Core Journeys and context README architecture | Product owner; journey or trust-boundary changes |
 | Interaction | not_applicable: detailed approval ordering is canonical in the context README sequence | - | Context README Visual Evidence | Distribution owner |
 | State | not_applicable: product outcomes do not define a separate state machine | - | Core Journeys | Product owner |
-| Data/trust | required: product journey boundary flowchart | Which outcomes must preserve local identity and secrets? | Constraints And Trust | Product owner; privacy outcome changes |
+| Data/trust | required: product journey boundary flowchart and OpenShell journey table | Which outcomes must preserve local identity and secrets? | Constraints And Trust | Product owner; privacy outcome changes |
 | Schema | not_applicable: Product Intent owns outcomes rather than configuration schema | - | Context README contracts | Distribution owner |
 | Dependency/deployment | not_applicable: deployment topology is canonical in the context README | - | Context README Visual Evidence | Distribution owner |
 | Quantitative | not_applicable: success is verified by invariants and runtime checks, not a comparative dataset | - | Success Evidence | Product owner |

@@ -7,6 +7,15 @@ own registration and process lifetime. Backend availability remains separate fro
 installation and tool discovery. The adapter does not provision a Prefect service
 or make MCP a prerequisite for project SDK/CLI flow work.
 
+## OpenShell pilot Discovery
+
+The approved [OpenShell Initiative](../../initiatives/openshell-pilot/README.md)
+extends this existing context through its [pilot contract](features/openshell-pilot.md).
+This is prospective specification authority, not runtime qualification or
+activation. Existing profile defaults, native behavior and lifecycle authority
+remain unchanged until the dependent gates pass. The linked feature owns its
+Visual Evidence Plan, Text Equivalents and current-cycle overrides.
+
 ## Optional Cline Domain
 
 Cline Desktop and Cline CLI are independently enabled developer tools. Their

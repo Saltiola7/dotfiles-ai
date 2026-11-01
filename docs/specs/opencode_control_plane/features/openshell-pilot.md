@@ -1,0 +1,112 @@
+# OpenCode OpenShell pilot adapter
+
+Status: normative adapter target, not live qualification. Owner: OpenCode
+control-plane maintainers. Profile: [PROFILE.md](../PROFILE.md). Initiative:
+[OpenShell pilot](../../../initiatives/openshell-pilot/README.md).
+Risk: elevated for authentication and runtime compatibility; dependent host
+mutation boundary is critical. Existing profile remains current.
+
+## Vertex Claude compatibility
+
+OpenCode keeps Vertex Claude, the selected region/model and provider-affine
+roles. Use the
+[provider contract](../../shell_auth_startup/features/openshell-provider-handoff.md)
+for isolated ADC bootstrap and gateway-owned refresh. No provider or API-key
+substitute can satisfy this adapter.
+
+Use a sandbox-local standalone client or its private sandbox-local service,
+selected and qualified explicitly. Do not connect to the ordinary host OpenCode
+shared service: that would move execution outside the declared boundary. Do not
+copy host service credentials, process registrations, history or ADC into the
+workload. Existing host version/service guards remain unchanged.
+
+Qualify actual SDK credential discovery, native Vertex request formats,
+non-streaming/streaming responses, tool calls and refresh. Preserve the existing
+Vertex route and model selection; OpenShell endpoint support alone is not proof
+that the managed OpenCode configuration works. Shared skills and role permissions
+are projected as reviewed read-only inputs.
+
+## Common boundary
+
+The explicit host launcher selects the agent and existing Worktrunk checkout,
+reserves it through the current host owner, and passes only a generation-bound
+enrollment. The client runs interactively inside its own OpenShell workload.
+Host app-server exposure, Desktop management and a general host service bridge
+are not required by this pilot.
+
+Project code, tests and dependency scripts execute inside the sandbox. All host
+Git, Worktrunk and lifecycle effects use the
+[restricted host contract](../../dbsctr_v3_lifecycle/features/openshell-host-boundary.md).
+The client may request supported operations, but cannot invent caller approval,
+override parent permissions, change the target, or replace existing lifecycle
+authority. No arbitrary host command or generic lifecycle CLI forwarding.
+
+Mount only reviewed instructions/configuration/skills needed by this route.
+Preserve native session semantics with separate workload-owned state; do not copy
+host sessions, inspect undocumented stores, infer identity from environment, or
+claim Desktop compatibility. Native instructions must clearly distinguish local
+sandbox execution from typed host-owned operations.
+
+## Behavior
+
+- Given explicit enrollment and qualified runtime/authentication, when this client
+  starts, then it uses its intended provider and selected checkout only.
+- Given missing identity, expired grant, incompatible configuration or blocked
+  network access, when launch or inference fails, then retain work and report the
+  capability gap without changing provider, billing route or execution boundary.
+- Given a project check, when the client runs it, then execution remains inside
+  OpenShell and host lifecycle receives only qualified observed evidence.
+- Given a Git/lifecycle request, when the host adapter handles it, then existing
+  supported workflow and approval ceilings remain intact.
+- Given restart or interrupted host operation, then resume only the same known
+  valid native session/workload binding or report recovery unavailable; never
+  fabricate successful continuation.
+- Given ordinary native launches outside the pilot, then their configuration,
+  authentication, services and behavior remain unchanged.
+
+## Acceptance and delivery
+
+Require intended-provider requests including streaming, short-lived-token refresh,
+restart, revocation, independent host login, tool use and a representative
+edit/test/signed-Gate-Commit/draft-delivery flow. Qualify every supported Git
+capability from the host matrix, including denial and recovery cases. One client
+passing does not complete the two-client pilot. Model prompts for qualification
+are synthetic; private project contents and transcripts are not test evidence.
+
+Use existing rendered configuration, client capability checks, affected pytest
+and real selected-runtime smokes. Kernel, Review/Integrate and Maintain/Retire
+gates are required; there is no separate package Release. Source-only
+Deploy/Operate non-applicability requires the joint activation slice to own actual
+qualification. No approved gate exception or live compatibility is claimed here.
+
+This adapter slice remains dependency-gated on runtime, dedicated provider
+handoff and the qualified host interface. Resolve native nested-sandbox behavior
+and client/version-specific configuration before promotion; do not relax client
+protections automatically to make the outer sandbox work.
+
+## Visual Evidence
+
+| Concern | Decision / review question |
+|---|---|
+| Boundary | required: ownership table below; which side owns each action? |
+| Interaction | required: ordered acceptance journey above; what proves daily workflow? |
+| State | not_applicable: native session and shared enrollment states remain authoritative |
+| Data/trust | required: ownership table and provider contract; where may secrets and code execute? |
+| Schema | not_applicable: no alternate client session or lifecycle schema |
+| Dependency/deployment | required: dependency statement and ownership table |
+| Quantitative | not_applicable: no measured performance claim |
+
+| Resource | Owner |
+|---|---|
+| Interactive client, project commands, native session | Selected OpenShell workload |
+| Reusable provider material and refresh | Qualified trusted gateway |
+| Checkout identity and Git/lifecycle mutations | Existing host owners through restricted interface |
+| Runtime/policy/images and enrollment | Distribution plus operator |
+| Default host client and sessions | Existing native owner; preserved |
+
+**Text Equivalent:** The agent and project code run in the workload; reusable
+provider material remains at the gateway. Host owners retain identity and Git/
+lifecycle mutations through the restricted interface. Runtime, provider and host
+interface qualification precede adapter promotion. Canonical source: this feature
+and its linked contracts. Owner: this control-plane maintainer. Change trigger:
+native behavior, authentication, permissions, interface or qualification changes.

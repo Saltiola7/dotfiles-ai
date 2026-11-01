@@ -33,6 +33,15 @@ for explicitly requested repository assessments and ordered refactor roadmaps.
 Its [audit contract](features/python-specialists.md#audit-interfaces) separates
 review coverage, validation results and later implementation.
 
+## OpenShell pilot Discovery
+
+The approved [OpenShell Initiative](../../initiatives/openshell-pilot/README.md)
+extends this existing context through its [pilot contract](features/openshell-host-boundary.md).
+This is prospective specification authority, not runtime qualification or
+activation. Existing profile defaults, native behavior and lifecycle authority
+remain unchanged until the dependent gates pass. The linked feature owns its
+Visual Evidence Plan, Text Equivalents and current-cycle overrides.
+
 Codex CLI and Desktop can use the shared lifecycle from the current conversation
 by targeting a validated Worktrunk task checkout explicitly. Repository commands
 use its working directory and file edits use absolute paths. Desktop attachment

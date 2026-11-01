@@ -1,5 +1,14 @@
 # Codex Control Plane
 
+## OpenShell pilot Discovery
+
+The approved [OpenShell Initiative](../../initiatives/openshell-pilot/README.md)
+extends this existing context through its [pilot contract](features/openshell-pilot.md).
+This is prospective specification authority, not runtime qualification or
+activation. Existing profile defaults, native behavior and lifecycle authority
+remain unchanged until the dependent gates pass. The linked feature owns its
+Visual Evidence Plan, Text Equivalents and current-cycle overrides.
+
 Codex CLI and Desktop may consume the existing shared DBSCTR CLI through native
 tools targeting an explicit validated task checkout. A Desktop attachment failure
 does not block otherwise authorized checkout operations or require a new chat.

@@ -1,0 +1,686 @@
+{
+  "schema_version": 1,
+  "id": "openshell-pilot",
+  "title": "OpenShell autonomous coding pilot",
+  "state": "discovering",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "Contain autonomous coding on the current Apple Silicon Mac.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "kind": "requirement",
+      "text": "Include both Codex CLI and OpenCode in the first completed pilot.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/codex_control_plane/features/openshell-pilot.md",
+        "docs/specs/opencode_control_plane/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "kind": "constraint",
+      "text": "Preserve Codex subscription and Vertex Claude routes without API-key substitution.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/shell_auth_startup/features/openshell-provider-handoff.md"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "kind": "requirement",
+      "text": "Edit existing Worktrunk checkouts directly rather than repository copies or patch-return workflows.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md",
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-005",
+      "kind": "decision",
+      "text": "Protect other checkouts and route Git mutations through a restricted host interface.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "kind": "constraint",
+      "text": "Limit the pilot to code, Linux-compatible tests and Git; exclude native Mac application, browser and general host MCP automation.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-007",
+      "kind": "decision",
+      "text": "Use an explicitly selected minimal Fedora Lima worker with rootless Podman for the initial OpenShell experiment; backend changes require requalification.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-008",
+      "kind": "constraint",
+      "text": "Keep reusable provider material, broad home access, native session stores, service-account tokens and control sockets outside agent workloads.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/shell_auth_startup/features/openshell-provider-handoff.md",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-009",
+      "kind": "constraint",
+      "text": "Keep gateway administration and policy expansion operator-owned without automatic workload approval.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-010",
+      "kind": "constraint",
+      "text": "Never fall back to unsandboxed execution or alternate credentials after failure; preserve retained work.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md",
+        "docs/specs/shell_auth_startup/features/openshell-provider-handoff.md"
+      ]
+    },
+    {
+      "id": "INT-011",
+      "kind": "constraint",
+      "text": "Reuse existing DBSCTR, Worktrunk and native Git authority without a duplicate lifecycle engine or allocator.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-012",
+      "kind": "non-goal",
+      "text": "Defer Lima retirement, broader platform rollout, Desktop integration, DVC materialization and unrestricted Git authority.",
+      "disposition": "deferred",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-013",
+      "kind": "decision",
+      "text": "Preserve the full supported managed Git workflow and its existing approval and preservation rules; sandbox integration grants no broader autonomous authority.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-014",
+      "kind": "decision",
+      "text": "Deny host-executing Git features by default and qualify specific trusted hooks and existing signers, including transitive execution.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-015",
+      "kind": "requirement",
+      "text": "Complete validated source plus opt-in activation on the selected Mac; source delivery alone does not complete the pilot.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/openshell-pilot/README.md",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot-activation.md"
+      ]
+    },
+    {
+      "id": "INT-016",
+      "kind": "decision",
+      "text": "The operator approved all five existing context homes and dependencies before Context Discovery.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/openshell-pilot/README.md"
+      ]
+    },
+    {
+      "id": "INT-017",
+      "kind": "risk",
+      "text": "Runtime isolation, direct mount protections, provider refresh and host mutation boundaries need actual qualification; source fixtures cannot establish live operation.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md",
+        "docs/specs/shell_auth_startup/features/openshell-provider-handoff.md",
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-018",
+      "kind": "constraint",
+      "text": "Keep public specifications free of private endpoints, machine paths, credentials, transcripts, account and native runtime identities.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md",
+        "docs/specs/shell_auth_startup/features/openshell-provider-handoff.md",
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-019",
+      "kind": "decision",
+      "text": "Use fresh separate attended sign-ins to the same existing provider accounts while preserving normal host grants and sessions.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/shell_auth_startup/features/openshell-provider-handoff.md"
+      ]
+    },
+    {
+      "id": "INT-020",
+      "kind": "decision",
+      "text": "Use a dedicated dotfiles-ai Worktrunk checkout for first real activation after disposable qualification.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/openshell-pilot/README.md",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot-activation.md"
+      ]
+    },
+    {
+      "id": "INT-021",
+      "kind": "requirement",
+      "text": "Qualify exact OpenShell v0.1.6 components, immutable images and the selected Fedora Lima Podman generation before execution.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-022",
+      "kind": "requirement",
+      "text": "Prove direct edits and deny Git-pointer replacement, shared metadata writes, aliases, hardlinks, sibling and host access on synthetic linked worktrees.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md",
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-023",
+      "kind": "constraint",
+      "text": "Keep project checks inside OpenShell through a fixed qualified host adapter to existing record-evidence; never forward arbitrary host programs.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-024",
+      "kind": "requirement",
+      "text": "Preserve existing Gate Commit and final delivery checks and qualify every supported managed Git capability for both clients.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md",
+        "docs/specs/codex_control_plane/features/openshell-pilot.md",
+        "docs/specs/opencode_control_plane/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-025",
+      "kind": "risk",
+      "text": "Qualify exclusive controller ownership, selected host-initiated native exec transport, closed operation mappings, trusted native approval ceiling, whole-workload quiescence and uncertain-effect recovery before host adapter promotion.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-026",
+      "kind": "requirement",
+      "text": "Preserve existing native sessions and work during explicit opt-in, updates, failure, disablement, rollback and separately authorized retirement.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md",
+        "docs/specs/shell_auth_startup/features/openshell-provider-handoff.md",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot-activation.md"
+      ]
+    },
+    {
+      "id": "INT-027",
+      "kind": "decision",
+      "text": "Use fixed enforce-mode policies, disabled vendor telemetry and disabled automatic access expansion as pilot defaults.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-028",
+      "kind": "requirement",
+      "text": "Runtime qualification is a credential-free synthetic evidence slice with bounded runner, reviewed recipes, runbook and actual denial/pause/recovery tests.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-029",
+      "kind": "constraint",
+      "text": "Client adapters preserve native permission ceilings, provider affinity and separate runtime-local state without host service or Desktop takeover.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/codex_control_plane/features/openshell-pilot.md",
+        "docs/specs/opencode_control_plane/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-030",
+      "kind": "requirement",
+      "text": "Qualify single refresh ownership, request binding, rotation, revocation and independence of normal host sign-ins for both provider routes.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/shell_auth_startup/features/openshell-provider-handoff.md"
+      ]
+    },
+    {
+      "id": "INT-031",
+      "kind": "constraint",
+      "text": "Complete publication checks, committed import closure and real Build preflight before separate digest-bound launch approval; no early documentation publication is required.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/openshell-pilot/README.md"
+      ]
+    },
+    {
+      "id": "INT-032",
+      "kind": "risk",
+      "text": "Native MicroVM experimental maturity and shared-directory behavior under guest-kernel compromise prevent treating it as a qualified Lima replacement.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-033",
+      "kind": "decision",
+      "text": "Use host-initiated non-PTY native OpenShell exec to a fixed relay with one bounded request per stream and no inbound Mac command listener.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-034",
+      "kind": "constraint",
+      "text": "Native exec does not atomically attest sandbox generation; require exclusive trusted lifecycle ownership, never-reused names, state observation and closed mutation admission after any disconnect or uncertainty.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-035",
+      "kind": "requirement",
+      "text": "Enforce closed versioned operation fields, host-approved target handles, exact bounds, one-use host approvals and explicit uncertain-result recovery.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-036",
+      "kind": "constraint",
+      "text": "Derive native allow, ask and deny ceilings from trusted launch policy; unknown mapping denies affected operations and workload assertions cannot supply approval.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-037",
+      "kind": "decision",
+      "text": "First real dotfiles-ai tasks are useful documentation-only runbook improvements with portable checks; both agents qualify independently without executing modified repository scripts on Mac.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot-activation.md"
+      ]
+    },
+    {
+      "id": "INT-038",
+      "kind": "requirement",
+      "text": "Real activation validates exact installed generation, separate grants, signer and checkout enrollment, retains work on failure and separates stop, revocation and destructive retirement.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot-activation.md"
+      ]
+    },
+    {
+      "id": "INT-039",
+      "kind": "risk",
+      "text": "Direct writable host mounts do not establish a hard byte quota; report storage scope honestly and do not claim general host availability protection.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-040",
+      "kind": "requirement",
+      "text": "Apply explicit worker and workload CPU, memory, process, scratch, fixture, output and time ceilings to bounded runtime qualification.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-041",
+      "kind": "constraint",
+      "text": "Shared refs, stash objects and recovery operations use approved exact identities; prohibit global stash clearing, implicit rebase updates to other refs and unqualified executable recovery behavior.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "id": "dotfiles_ai_distribution",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "shell_auth_startup",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "discovering",
+      "depends_on": [
+        "dotfiles_ai_distribution"
+      ]
+    },
+    {
+      "id": "codex_control_plane",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "discovering",
+      "depends_on": [
+        "dotfiles_ai_distribution",
+        "shell_auth_startup"
+      ]
+    },
+    {
+      "id": "opencode_control_plane",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "discovering",
+      "depends_on": [
+        "dotfiles_ai_distribution",
+        "shell_auth_startup"
+      ]
+    },
+    {
+      "id": "dbsctr_v3_lifecycle",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "discovering",
+      "depends_on": [
+        "dotfiles_ai_distribution"
+      ]
+    }
+  ],
+  "slices": [
+    {
+      "id": "runtime-qualification",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-001",
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-009",
+        "INT-010",
+        "INT-011",
+        "INT-012",
+        "INT-014",
+        "INT-015",
+        "INT-016",
+        "INT-017",
+        "INT-018",
+        "INT-021",
+        "INT-022",
+        "INT-026",
+        "INT-027",
+        "INT-028",
+        "INT-031",
+        "INT-032",
+        "INT-039",
+        "INT-040"
+      ],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/openshell-pilot/README.md",
+        "docs/initiatives/openshell-pilot/RUNTIME.plan.json",
+        "docs/initiatives/openshell-pilot/PROVIDER.plan.json",
+        "docs/initiatives/openshell-pilot/HOST-GIT.plan.json",
+        "docs/initiatives/openshell-pilot/CODEX.plan.json",
+        "docs/initiatives/openshell-pilot/OPENCODE.plan.json",
+        "docs/initiatives/openshell-pilot/ACTIVATION.plan.json",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md",
+        "docs/specs/shell_auth_startup/features/openshell-provider-handoff.md",
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md",
+        "docs/specs/codex_control_plane/features/openshell-pilot.md",
+        "docs/specs/opencode_control_plane/features/openshell-pilot.md",
+        "docs/specs/dotfiles_ai_distribution/README.md",
+        "docs/specs/shell_auth_startup/README.md",
+        "docs/specs/codex_control_plane/README.md",
+        "docs/specs/opencode_control_plane/README.md",
+        "docs/specs/dbsctr_v3_lifecycle/README.md",
+        "docs/specs/dotfiles_ai_distribution/PRODUCT.md",
+        "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+        "docs/specs/shell_auth_startup/PROFILE.md",
+        "docs/specs/codex_control_plane/PROFILE.md",
+        "docs/specs/opencode_control_plane/PROFILE.md",
+        "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot-activation.md"
+      ],
+      "release_group": "pilot"
+    },
+    {
+      "id": "provider-handoff",
+      "context": "shell_auth_startup",
+      "state": "discovering",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-002",
+        "INT-003",
+        "INT-008",
+        "INT-010",
+        "INT-017",
+        "INT-018",
+        "INT-019",
+        "INT-026",
+        "INT-030"
+      ],
+      "depends_on": [
+        "runtime-qualification"
+      ],
+      "artifacts": [
+        "docs/specs/shell_auth_startup/features/openshell-provider-handoff.md",
+        "docs/initiatives/openshell-pilot/PROVIDER.plan.json"
+      ],
+      "release_group": "pilot"
+    },
+    {
+      "id": "host-git-boundary",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "discovering",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-004",
+        "INT-005",
+        "INT-011",
+        "INT-013",
+        "INT-014",
+        "INT-017",
+        "INT-018",
+        "INT-022",
+        "INT-023",
+        "INT-024",
+        "INT-025",
+        "INT-026",
+        "INT-033",
+        "INT-034",
+        "INT-035",
+        "INT-036",
+        "INT-041"
+      ],
+      "depends_on": [
+        "runtime-qualification"
+      ],
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md",
+        "docs/initiatives/openshell-pilot/HOST-GIT.plan.json"
+      ],
+      "release_group": "pilot"
+    },
+    {
+      "id": "codex-adapter",
+      "context": "codex_control_plane",
+      "state": "discovering",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-010",
+        "INT-013",
+        "INT-017",
+        "INT-018",
+        "INT-023",
+        "INT-024",
+        "INT-029",
+        "INT-030"
+      ],
+      "depends_on": [
+        "provider-handoff",
+        "host-git-boundary"
+      ],
+      "artifacts": [
+        "docs/specs/codex_control_plane/features/openshell-pilot.md",
+        "docs/initiatives/openshell-pilot/CODEX.plan.json"
+      ],
+      "release_group": "pilot"
+    },
+    {
+      "id": "opencode-adapter",
+      "context": "opencode_control_plane",
+      "state": "discovering",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-010",
+        "INT-013",
+        "INT-017",
+        "INT-018",
+        "INT-023",
+        "INT-024",
+        "INT-029",
+        "INT-030"
+      ],
+      "depends_on": [
+        "provider-handoff",
+        "host-git-boundary"
+      ],
+      "artifacts": [
+        "docs/specs/opencode_control_plane/features/openshell-pilot.md",
+        "docs/initiatives/openshell-pilot/OPENCODE.plan.json"
+      ],
+      "release_group": "pilot"
+    },
+    {
+      "id": "mac-pilot",
+      "context": "dotfiles_ai_distribution",
+      "state": "discovering",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-001",
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-009",
+        "INT-010",
+        "INT-011",
+        "INT-012",
+        "INT-013",
+        "INT-014",
+        "INT-015",
+        "INT-016",
+        "INT-017",
+        "INT-018",
+        "INT-019",
+        "INT-020",
+        "INT-021",
+        "INT-022",
+        "INT-023",
+        "INT-024",
+        "INT-025",
+        "INT-026",
+        "INT-027",
+        "INT-028",
+        "INT-029",
+        "INT-030",
+        "INT-031",
+        "INT-032",
+        "INT-033",
+        "INT-034",
+        "INT-035",
+        "INT-036",
+        "INT-037",
+        "INT-038",
+        "INT-039",
+        "INT-040",
+        "INT-041"
+      ],
+      "depends_on": [
+        "codex-adapter",
+        "opencode-adapter"
+      ],
+      "artifacts": [
+        "docs/initiatives/openshell-pilot/README.md",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md",
+        "docs/initiatives/openshell-pilot/ACTIVATION.plan.json",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot-activation.md"
+      ],
+      "release_group": "pilot"
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "pilot",
+      "members": [
+        "runtime-qualification",
+        "provider-handoff",
+        "host-git-boundary",
+        "codex-adapter",
+        "opencode-adapter",
+        "mac-pilot"
+      ],
+      "state": "planning"
+    }
+  ]
+}
