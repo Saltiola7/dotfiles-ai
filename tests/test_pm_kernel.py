@@ -32,6 +32,7 @@ def test_pm_kernel_is_explicit_and_separate_from_dbsctr():
 def test_jira_adf_text_preserves_structure():
     loader = importlib.machinery.SourceFileLoader("pmctl_module", str(PMCTL))
     spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     adf = {"type": "doc", "content": [
@@ -429,6 +430,7 @@ def test_ticket_projection_uses_local_content_identity_and_records_revisions(tmp
 def test_ticket_tree_identity_has_unambiguous_member_framing(tmp_path):
     loader = importlib.machinery.SourceFileLoader("pmctl_tree_identity", str(PMCTL))
     spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     first, second = tmp_path / "first", tmp_path / "second"

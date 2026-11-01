@@ -94,6 +94,16 @@ Conceptual interfaces are `text -> parsed frontmatter and body`,
 envelope`. These describe proof obligations, not required function names or
 source stubs. Existing helper names may remain compatibility adapters.
 
+The concrete domain uses `ParsedFrontmatter(values, body)`. Parsed scalars include
+the existing empty-list value, and block-list values can therefore include an
+empty list; no stronger ticket validity is implied. `SafetyApprovedEnvelope`
+retains the original mapping and the checked integer schema version, string
+source ID and dictionary payload. It makes no new string/type promise for values
+that existing equality checks alone accepted. `SourceApprovedEnvelope` binds that
+safety proof to the selected source while exposing the same original mapping.
+Proof objects are internal policy results and never replace payload containers
+or appear in serialized output.
+
 Raw and approved representations must be distinguishable to ty. Raw boundaries
 use an honest broad input type and explicit narrowing; they must not be declared
 approved through `Any`, unchecked casts, assertions, `TypedDict` construction, or

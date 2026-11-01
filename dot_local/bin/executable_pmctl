@@ -12,6 +12,45 @@ import sys
 import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import NamedTuple, Never, NoReturn
+
+
+type ParsedScalar = None | bool | int | float | str | list[Never]
+type ParsedValue = ParsedScalar | list[ParsedScalar]
+
+
+class ParsedFrontmatter(NamedTuple):
+    """Accepted restricted syntax; ticket-domain validity is checked separately."""
+
+    values: dict[str, ParsedValue]
+    body: str
+
+
+class SafetyApprovedEnvelope:
+    """Internal proof of the existing safety checks over the original objects."""
+
+    __slots__ = ("value", "schema_version", "source_id", "payload")
+
+    def __init__(self, value: dict[object, object], schema_version: int,
+                 source_id: str, payload: dict[object, object]) -> None:
+        self.value = value
+        self.schema_version = schema_version
+        self.source_id = source_id
+        self.payload = payload
+
+
+class SourceApprovedEnvelope:
+    """Internal proof that one selected source contract accepted a safety proof."""
+
+    __slots__ = ("source", "envelope")
+
+    def __init__(self, source: str, envelope: SafetyApprovedEnvelope) -> None:
+        self.source = source
+        self.envelope = envelope
+
+    @property
+    def value(self) -> dict[object, object]:
+        return self.envelope.value
 
 STATES = {"intake", "refining", "ready", "committed", "in_progress", "blocked", "review", "done", "cancelled"}
 POINTS = {None, 0.5, 1, 2, 3, 5, 8}
@@ -66,7 +105,7 @@ COMPLETED_COLUMNS = ("id", "outcome", "completed", "commit")
 TICKET_ROOT = Path("data/backlog/tickets")
 
 
-def fail(message):
+def fail(message: str) -> NoReturn:
     raise RuntimeError(message)
 
 
@@ -991,7 +1030,7 @@ def sprint_review_snapshot(args):
         parent = fields.get("parent") if isinstance(fields, dict) else None
         if (not isinstance(row.get("key") if isinstance(row, dict) else None, str)
                 or not re.fullmatch(rf"{re.escape(args.project)}-[1-9][0-9]*", row["key"])
-                or not isinstance(fields.get("summary") if isinstance(fields, dict) else None, str)
+                or not isinstance(fields, dict) or not isinstance(fields.get("summary"), str)
                 or not isinstance(status, dict) or not isinstance(status.get("name"), str)
                 or parent is not None and (not isinstance(parent, dict) or not isinstance(parent.get("key"), str))):
             fail("ACLI Sprint Review issue is invalid")
