@@ -403,6 +403,77 @@ separate fixed check results and observed resources, with overall
 `runtime_qualification: not_run`. The implementation cannot promote unperformed
 network, pause/resume or recovery checks.
 
+#### Shared generation and retention admission
+
+Every mode requires a private `generation.json` written by trusted preparation
+after native workload readiness. Its exact keys are integer `schema_version: 1`
+and `identity`. The identity object contains `sandbox_id`,
+`main_process_instance_id`, `main_process_started_at_ms`, `container_id`, `pid`,
+`container_started_at`, `policy_hash`, `policy_version`, `config_revision`,
+`provider_env_revision`, and `current_policy_version`. The sandbox and container
+identifiers must match `prepared.json`; the sandbox identifier is a canonical
+UUID and the container and policy hashes are lowercase 64-character hexadecimal
+strings. Process timestamps, PID and revisions are positive integers, excluding
+booleans. Process-instance and container-start strings are nonempty, bounded to
+256 characters and contain no control characters. Current policy version must
+equal admitted policy version. Unknown or duplicate fields refuse admission.
+
+Validate the receipt before native calls. Every ordinary runtime observation
+must equal this recorded identity; a mode cannot establish a replacement
+baseline. Reports retain the SHA256 of the canonical generation receipt, allowing
+independent modes to prove that they observed the same prepared generation.
+Missing receipts invalidate new observations; retained earlier experiments are
+not rewritten. Pause and recovery require their own explicit observers and do
+not weaken ordinary Ready/running identity requirements.
+
+Diagnostic limits apply to the sum of retained evidence, not each report:
+ten MiB in the selected run and one hundred MiB across owned `openshell-q-`
+experiment directories in the private qualification parent. Inspect only
+matching owned run directories, verify their owner markers and evidence
+ownership, and reject unsafe entries or unavailable accounting. Check capacity
+before effects and before each exclusive evidence write. Reserve 256 KiB for a
+fixed pointer or containment invocation; each serialized report is at most
+64 KiB. Earlier evidence is never removed to reclaim capacity. A transport output
+limit records truncation explicitly; an inability to retain a final report is
+reported to the caller and never becomes a pass.
+
+#### Fixed network observation contract
+
+`network_probe(Selection) -> dict`, selected by `--probe network`, operates only
+on a fully prepared generation. Its private `network.json` binds integer schema
+version one, the selected guest's canonical RFC1918 IPv4 `address`, positive
+integer `listener_pid` and `listener_start_ticks`, and lowercase SHA256
+`listener_source_sha256`. Ports are fixed at 18080 and 18081; no caller selects
+another destination or executable. Preparation verifies the exact image's
+`/usr/local/bin/python3.13` executable and starts one trusted, bounded listener
+process from the reviewed fixture source. Its private records remain outside
+workload mounts. Both ports bind only the observed guest address, serve fixed
+bytes, reject queries and upgrades, and expose no files or forwarding.
+
+The initial policy permits only that exact address and `/32`, port 18080,
+the observed Python executable, and enforced REST `GET /probe`. It remains fixed
+through pointer, containment, network and pause observations. Port 18081 remains
+denied. Before effects, compare complete native full policy with the reviewed
+policy, including provider and global contributions; a base-only policy view
+cannot establish absence of additional access. Native policy hash, version and
+configuration revision must match the shared generation receipt. An authored
+file checksum is not a substitute for the native policy identity.
+
+Native guest observations verify the address, listener owner, PID/start time,
+source checksum, listening socket inodes, and bounded private record identity.
+The trusted controller independently reaches both listeners before and after
+workload attempts. The allowed request must return exact fixed bytes and produce
+the corresponding trusted listener record. Denied method, denied path and denied
+port attempts must produce no corresponding listener arrival. Test the denied
+port through a proxy-aware client, with proxy variables removed and a proxy-free
+client, and through a direct socket. A fixture's own rejection cannot count as
+OpenShell enforcement. Ambiguous timeout or EOF remains unavailable.
+
+Every attempt preserves host guard, protected Git metadata and the shared native
+generation, including errors. A failed control stops later attempts and retains
+all observations. A successful network report qualifies only its named checks;
+it cannot pass unperformed administration, pause or recovery rows.
+
 Each probe produces an allowlisted identifier and `passed`, `failed` or
 `unavailable`, plus bounded private observations. Unperformed rows remain
 `not_run` in the aggregate report. A successful early probe cannot mark the
