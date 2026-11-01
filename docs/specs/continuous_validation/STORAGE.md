@@ -237,6 +237,10 @@ refusal must not cancel an older admitted request.
 
 Never hold the shared retention lock over subprocesses, provider operations,
 feedback, compute-admission waits or whole-request execution. Observation
+directory enumeration and every observation replacement, including the final
+feedback-enriched form, use that same short lock. A concurrent reader therefore
+cannot classify a live atomic-write temporary as corrupt retained evidence.
+Feedback delivery itself remains outside the lock. Observation
 publication and consumption of its reservation are coordinated under that lock.
 If a crash occurs between file publication and accounting, reconcile the exact
 reserved ID and bound identity without double-counting or freeing unknown work.
