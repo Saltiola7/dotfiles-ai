@@ -474,6 +474,44 @@ generation, including errors. A failed control stops later attempts and retains
 all observations. A successful network report qualifies only its named checks;
 it cannot pass unperformed administration, pause or recovery rows.
 
+#### Whole-workload pause observation contract
+
+`pause_resume_probe(Selection) -> dict`, selected by `--probe pause-resume`,
+requires successful pointer, containment and network evidence with the same
+canonical generation digest. It admits no new workload and changes no policy.
+Its fixed fixture starts three bounded roles inside the existing workload: a
+parent, its child, and a separate background descendant. Each records its role,
+PID/start identity, a shared random session nonce and monotonically increasing
+counter in `.openshell-pause`; each performs only fixed bounded source writes and
+acknowledged requests to the already qualified allowed listener. The fixture
+expires after at most 55 seconds and cannot accept arbitrary code or endpoints.
+
+The host verifies all three roles progressing, then writes a fixed hold marker
+and waits for every role to acknowledge that no request remains in flight.
+Native guest observations independently bind the exact container, its cgroup,
+member PID/start identities and current CPU usage. Pause uses native Podman
+`pause` with the recorded full workload container ID only. After acknowledgement,
+require native paused state and the cgroup freezer's `frozen 1` observation.
+Release the fixture's hold marker only after that observation. Two observations
+at least one second apart must show unchanged role counters, source bytes,
+cgroup membership/PID identities and CPU usage, with no new listener arrivals.
+The authenticated gateway must respond during the frozen interval.
+
+Unpause only the same full container ID. Require the original ordinary runtime
+generation, unchanged role PID/start/session identities, retained acknowledged
+source bytes, and renewed counters and listener arrivals from every role.
+A restarted or substituted process cannot pass resume. Use a dedicated frozen
+observer; ordinary identity validation continues to reject paused or non-Ready
+workloads. The whole observation is bounded to sixty seconds and the original
+experiment deadline, including waits and native calls.
+
+Any failed observation stops further qualification. If an error occurs while
+paused, retain that state for the trusted exact-owner stop procedure; the probe
+does not silently unpause or recreate the workload. Host guard and protected Git
+metadata observations still run on errors. The report records separate pause,
+gateway and resume outcomes, shared generation digest and retained evidence,
+with overall runtime qualification still `not_run`.
+
 Each probe produces an allowlisted identifier and `passed`, `failed` or
 `unavailable`, plus bounded private observations. Unperformed rows remain
 `not_run` in the aggregate report. A successful early probe cannot mark the
