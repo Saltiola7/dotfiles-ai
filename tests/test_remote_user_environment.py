@@ -1,4 +1,6 @@
 import base64
+import importlib.machinery
+import importlib.util
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -626,6 +628,60 @@ def test_remote_user_bootstrap_rejects_annotated_tag_identity(tmp_path, bootstra
     assert head == subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"])
     assert not (tmp_path / "chezmoi-called").exists()
     assert not (tmp_path / "apply-args").exists()
+
+
+@pytest.mark.parametrize("link", ["source", "ancestor"])
+def test_remote_user_bootstrap_refuses_symlinked_source_admission(tmp_path, bootstrap_case, link):
+    source, _seed, _revision, run = bootstrap_case
+    target = tmp_path / "retained-target"
+    target.mkdir()
+    (target / "user-marker").write_text("preserve")
+    if link == "source":
+        source.parent.mkdir(parents=True)
+        source.symlink_to(target, target_is_directory=True)
+    else:
+        source.parent.parent.mkdir(parents=True, exist_ok=True)
+        source.parent.symlink_to(target, target_is_directory=True)
+    failed = run()
+    assert failed.returncode != 0
+    assert failed.stderr == "bootstrap path is unsafe\n"
+    assert (target / "user-marker").read_text() == "preserve"
+    assert not (tmp_path / "chezmoi-called").exists()
+    assert not (tmp_path / "apply-args").exists()
+
+
+def test_remote_user_bootstrap_refuses_foreign_source_owner(tmp_path, monkeypatch):
+    loader = importlib.machinery.SourceFileLoader("bootstrap_owner_under_test", str(BOOTSTRAP))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    home = tmp_path / "home"
+    source = home / "source"
+    source.mkdir(parents=True)
+    (source / "user-marker").write_text("preserve")
+    for name, path in (("HOME", home), ("SOURCE", source),
+                       ("CONFIG", home / "config"), ("STATE", home / "state")):
+        monkeypatch.setattr(module, name, path)
+    original_lstat = Path.lstat
+
+    def foreign_owner(path, *args, **kwargs):
+        value = original_lstat(path, *args, **kwargs)
+        if path == source:
+            fields = list(value)
+            fields[4] = os.getuid() + 1
+            return os.stat_result(fields)
+        return value
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("unsafe source reached downstream work")
+
+    monkeypatch.setattr(Path, "lstat", foreign_owner)
+    for name in ("run", "prepare_config", "install_chezmoi"):
+        monkeypatch.setattr(module, name, forbidden)
+    with pytest.raises(module.BootstrapError, match="bootstrap path is unsafe"):
+        module.bootstrap("a" * 40)
+    assert (source / "user-marker").read_text() == "preserve"
+    assert not (home / "config").exists()
 
 
 def test_remote_user_bootstrap_validates_revision_and_creates_private_config(tmp_path: Path) -> None:
