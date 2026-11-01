@@ -81,6 +81,11 @@ preserves upstream manual invocation through native invocation metadata.
 `dbsctr/references/specialist-sources/sources.lock.json` appends seven records with
 immutable source roots/commit, original SHA-256/Git blobs/modes, packaged hashes,
 installed modes and reversible patches. Prior records retain identical values.
+An optional `source_only_files` inventory list records reviewed VCS-only empty
+placeholders that native chezmoi intentionally omits. The JFrog base bundle
+retains original `assets/.gitkeep` in source/provenance; it is not a runtime
+resource. Installed file hashes/modes exclude exactly that declared empty
+placeholder. No workflow, helper, license or referenced resource is excluded.
 Relocating entrypoint material must preserve relative links. Helpers are stored
 as readable resources and invoked with their selected interpreter after review;
 source execution bits and declared installed modes are separate facts.
@@ -154,7 +159,10 @@ The affected authorities are creator validation for all roots, pytest specialist
 provenance/reconstruction/resource/delivery regressions, focused CLI failure and
 idempotency tests, Bash syntax, static Node helper syntax, reviewed trust-boundary
 content, native skill catalogs and exact deployment/repeated-diff evidence.
-Offline tests do not establish platform connectivity or security scan coverage.
+Source and installed inventories are verified separately when native projection
+omits a declared empty VCS placeholder; tests require its original empty hash
+and reject other exclusions. Offline tests do not establish platform connectivity
+or security scan coverage.
 Native automatic selection may be sampled separately; a catalog or lexical test
 must not be called a successful automatic-trigger experiment.
 
