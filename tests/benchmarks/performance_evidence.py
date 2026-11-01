@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import time
 from typing import TypedDict, cast
 
 
@@ -40,6 +41,15 @@ Number = int | float
 
 class EvidenceError(ValueError):
     """A path-free failure of the benchmark evidence contract."""
+
+
+def _check_deadline(deadline: float | None) -> None:
+    if deadline is None:
+        return
+    if type(deadline) not in {int, float} or type(deadline) is float and not math.isfinite(deadline):
+        raise EvidenceError("invalid_analysis_deadline")
+    if time.monotonic() >= deadline:
+        raise EvidenceError("analysis_budget_exhausted")
 
 
 class SourceIdentity(TypedDict):
@@ -220,12 +230,14 @@ def _cell(value: object) -> Cell:
     return cast(Cell, item)
 
 
-def _attempts(value: object, cell: Cell) -> list[Attempt]:
+def _attempts(value: object, cell: Cell, *, deadline: float | None = None) -> list[Attempt]:
+    _check_deadline(deadline)
     if type(value) is not list or not 1 <= len(value) <= MAX_ATTEMPTS:
         raise EvidenceError("invalid_attempt_population")
     warmup_finished = False
     warmups = 0
     for sequence, child in enumerate(value):
+        _check_deadline(deadline)
         item = _closed(child, {
             "sequence", "warmup", "status", "reason", "compatible", "returncode",
             "metrics", "unavailable", "output_sha256",
@@ -268,37 +280,55 @@ def _attempts(value: object, cell: Cell) -> list[Attempt]:
             raise EvidenceError("invalid_not_attempted")
     if cell["surface"] in {"cli", "snapshot"} and warmups != 1:
         raise EvidenceError("missing_warmup")
+    _check_deadline(deadline)
     return cast(list[Attempt], value)
 
 
-def summarize(values: Sequence[Number]) -> MetricSummary:
+def summarize(values: Sequence[Number], *, deadline: float | None = None) -> MetricSummary:
     """Nearest-rank percentiles with exact floor mean, excluding no values."""
-    if any(not _number(value) for value in values):
-        raise EvidenceError("invalid_metric_values")
+    _check_deadline(deadline)
+    for value in values:
+        _check_deadline(deadline)
+        if not _number(value):
+            raise EvidenceError("invalid_metric_values")
     ordered = sorted(values)
+    _check_deadline(deadline)
     count = len(ordered)
     if not count:
         return {"n": 0, "mean": None, "p50": None, "p90": None}
-    mean = sum((Fraction(value) for value in ordered), Fraction()) / count
+    total = Fraction()
+    for value in ordered:
+        _check_deadline(deadline)
+        total += Fraction(value)
+    mean = total / count
+    _check_deadline(deadline)
     return {
         "n": count, "mean": mean.numerator // mean.denominator,
         "p50": ordered[(count - 1) // 2], "p90": ordered[(9 * count + 9) // 10 - 1],
     }
 
 
-def _derived(cell: Cell, attempts: list[Attempt], planned: object) -> tuple[Coverage, dict[str, MetricSummary]]:
+def _derived(
+    cell: Cell, attempts: list[Attempt], planned: object, *, deadline: float | None = None,
+) -> tuple[Coverage, dict[str, MetricSummary]]:
+    _check_deadline(deadline)
     if not _integer(planned, 1, MAX_ATTEMPTS):
         raise EvidenceError("invalid_planned_population")
-    recorded = [item for item in attempts if not item["warmup"]]
+    recorded: list[Attempt] = []
+    counts = {status: 0 for status in STATUSES}
+    required = {name for name, item in cell["metrics"].items() if item["required"]}
+    complete = True
+    for item in attempts:
+        _check_deadline(deadline)
+        if not item["warmup"]:
+            recorded.append(item)
+            counts[item["status"]] += 1
+        complete &= (
+            item["status"] in QUALIFIED and item["compatible"]
+            and all(item["metrics"][name] is not None for name in required)
+        )
     if len(recorded) != planned:
         raise EvidenceError("planned_population_mismatch")
-    counts = {status: sum(item["status"] == status for item in recorded) for status in STATUSES}
-    required = {name for name, item in cell["metrics"].items() if item["required"]}
-    complete = all(
-        item["status"] in QUALIFIED and item["compatible"]
-        and all(item["metrics"][name] is not None for name in required)
-        for item in attempts
-    )
     coverage = cast(Coverage, {
         "planned": planned, "warmups": len(attempts) - len(recorded),
         "attempted": len(recorded) - counts["not_attempted"],
@@ -306,21 +336,28 @@ def _derived(cell: Cell, attempts: list[Attempt], planned: object) -> tuple[Cove
     })
     summary = {}
     for name in cell["metrics"]:
-        values = [
-            item["metrics"][name] for item in recorded
-            if item["status"] in QUALIFIED and item["compatible"] and item["metrics"][name] is not None
-        ]
-        summary[name] = summarize(cast(list[Number], values))
+        _check_deadline(deadline)
+        values: list[Number] = []
+        for item in recorded:
+            _check_deadline(deadline)
+            value = item["metrics"][name]
+            if item["status"] in QUALIFIED and item["compatible"] and value is not None:
+                values.append(value)
+        summary[name] = summarize(values, deadline=deadline)
+    _check_deadline(deadline)
     return coverage, summary
 
 
-def _parts(record: dict[str, object]) -> tuple[Cell, list[Attempt]]:
+def _parts(
+    record: dict[str, object], *, deadline: float | None = None,
+) -> tuple[Cell, list[Attempt]]:
+    _check_deadline(deadline)
     if type(record["schema_version"]) is not int or record["schema_version"] != 1:
         raise EvidenceError("unsupported_schema")
     _source(record["source"])
     _environment(record["environment"])
     cell = _cell(record["cell"])
-    return cell, _attempts(record["attempts"], cell)
+    return cell, _attempts(record["attempts"], cell, deadline=deadline)
 
 
 def build_record(
@@ -339,22 +376,34 @@ def build_record(
     return validate_record(candidate)
 
 
-def validate_record(record: object) -> Record:
+def validate_record(record: object, *, deadline: float | None = None) -> Record:
     """Validate closed shape and exact reductions without authenticating input."""
+    _check_deadline(deadline)
     candidate = _closed(record, {
         "schema_version", "source", "environment", "cell", "attempts", "coverage", "summary",
     })
-    cell, attempts = _parts(candidate)
+    cell, attempts = _parts(candidate, deadline=deadline)
     coverage = candidate["coverage"]
     if type(coverage) is not dict or "planned" not in coverage:
         raise EvidenceError("invalid_coverage")
-    expected_coverage, expected_summary = _derived(cell, attempts, coverage["planned"])
-    if (canonical(coverage) != canonical(expected_coverage)
-            or canonical(candidate["summary"]) != canonical(expected_summary)):
+    expected_coverage, expected_summary = _derived(
+        cell, attempts, coverage["planned"], deadline=deadline,
+    )
+    reductions_match = (
+        canonical(coverage) == canonical(expected_coverage)
+        and canonical(candidate["summary"]) == canonical(expected_summary)
+    )
+    _check_deadline(deadline)
+    if not reductions_match:
         raise EvidenceError("inconsistent_reductions")
-    if len(canonical(candidate)) + 1 > MAX_FILE_BYTES:
+    serialized = canonical(candidate)
+    _check_deadline(deadline)
+    if len(serialized) + 1 > MAX_FILE_BYTES:
         raise EvidenceError("record_byte_limit")
-    return copy.deepcopy(cast(Record, candidate))
+    _check_deadline(deadline)
+    detached = copy.deepcopy(cast(Record, candidate))
+    _check_deadline(deadline)
+    return detached
 
 
 def _absolute(path: Path) -> Path:
@@ -371,12 +420,17 @@ def _safe_directory(item: os.stat_result, *, private: bool = False) -> None:
         raise EvidenceError("unsafe_directory")
 
 
-def _directory_fd(path: Path, *, create: bool = False, private: bool = False) -> int:
+def _directory_fd(
+    path: Path, *, create: bool = False, private: bool = False,
+    deadline: float | None = None,
+) -> int:
     """Return an owned descriptor after checking every ancestor without links."""
+    _check_deadline(deadline)
     descriptor = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
     try:
         _safe_directory(os.fstat(descriptor))
         for part in _absolute(path).parts[1:]:
+            _check_deadline(deadline)
             try:
                 child = os.open(
                     part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -398,6 +452,7 @@ def _directory_fd(path: Path, *, create: bool = False, private: bool = False) ->
             os.close(descriptor)
             descriptor = child
         _safe_directory(os.fstat(descriptor), private=private)
+        _check_deadline(deadline)
         return descriptor
     except BaseException:
         os.close(descriptor)
@@ -483,24 +538,28 @@ def _stamp(item: os.stat_result) -> tuple[int, ...]:
     )
 
 
-def _read_private(path: Path, remaining: int) -> bytes:
+def _read_private(path: Path, remaining: int, *, deadline: float | None = None) -> bytes:
     parent = None
     descriptor = None
     try:
-        parent = _directory_fd(path.parent)
+        _check_deadline(deadline)
+        parent = _directory_fd(path.parent, deadline=deadline)
         descriptor = os.open(
             path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
             dir_fd=parent,
         )
         before = os.fstat(descriptor)
         _private_file(before)
+        _check_deadline(deadline)
         if before.st_size > remaining:
             raise EvidenceError("aggregate_byte_limit")
         limit = min(MAX_FILE_BYTES, remaining)
         chunks: list[bytes] = []
         size = 0
         while True:
+            _check_deadline(deadline)
             block = os.read(descriptor, min(1024 * 1024, limit + 1 - size))
+            _check_deadline(deadline)
             if not block:
                 break
             chunks.append(block)
@@ -509,6 +568,7 @@ def _read_private(path: Path, remaining: int) -> bytes:
                 raise EvidenceError("record_byte_limit" if limit == MAX_FILE_BYTES else "aggregate_byte_limit")
         if size != before.st_size or _stamp(before) != _stamp(os.fstat(descriptor)):
             raise EvidenceError("record_changed_during_read")
+        _check_deadline(deadline)
         return b"".join(chunks)
     except OSError:
         raise EvidenceError("private_read_failed") from None
@@ -519,9 +579,12 @@ def _read_private(path: Path, remaining: int) -> bytes:
             os.close(parent)
 
 
-def _unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+def _unique_keys(
+    pairs: list[tuple[str, object]], *, deadline: float | None = None,
+) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
+        _check_deadline(deadline)
         if key in result:
             raise EvidenceError("duplicate_json_key")
         result[key] = value
@@ -532,30 +595,39 @@ def _invalid_constant(_value: str) -> object:
     raise EvidenceError("nonfinite_json_number")
 
 
-def read_records(paths: Sequence[Path]) -> list[Record]:
+def read_records(paths: Sequence[Path], *, deadline: float | None = None) -> list[Record]:
     """Read bounded explicit files, keeping each unauthenticated record separate."""
+    _check_deadline(deadline)
     if not 1 <= len(paths) <= min(MAX_FILES, MAX_CELLS):
         raise EvidenceError("record_population_limit")
     records: list[Record] = []
     seen: set[str] = set()
     total = 0
     for supplied in paths:
+        _check_deadline(deadline)
         path = _absolute(Path(supplied))
-        raw = _read_private(path, MAX_TOTAL_BYTES - total)
+        raw = _read_private(path, MAX_TOTAL_BYTES - total, deadline=deadline)
         total += len(raw)
         if total > MAX_TOTAL_BYTES:
             raise EvidenceError("aggregate_byte_limit")
         try:
+            _check_deadline(deadline)
             value = json.loads(
-                raw.decode("utf-8"), object_pairs_hook=_unique_keys,
+                raw.decode("utf-8"),
+                object_pairs_hook=lambda pairs: _unique_keys(pairs, deadline=deadline),
                 parse_constant=_invalid_constant,
             )
+            _check_deadline(deadline)
+        except EvidenceError:
+            raise
         except (ValueError, UnicodeError, RecursionError):
             raise EvidenceError("invalid_record_json") from None
-        record = validate_record(value)
+        record = validate_record(value, deadline=deadline)
         identity = digest(record)
+        _check_deadline(deadline)
         if identity in seen:
             raise EvidenceError("duplicate_record")
         seen.add(identity)
         records.append(record)
+    _check_deadline(deadline)
     return records
