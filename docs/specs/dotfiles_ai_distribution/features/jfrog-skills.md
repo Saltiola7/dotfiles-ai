@@ -207,3 +207,11 @@ are never accessed. The original implementation must fail these cases before the
 repair. Reversible provenance and static helper/resource qualification remain
 required. Native CodeQL must succeed on the repaired head; no suppression,
 security-rule weakening, alert dismissal or gate exception is permitted.
+
+
+Recovery keeps the cache disabled. Prior helper bytes are retained privately for
+forensic comparison, not automatic restoration of the known credential-derived
+verifier. Prefer forward recovery; restoring other resources must retain the
+cache-free compatibility exports. Legacy cache cleanup requires a separately
+identified owner and scope; no wildcard deletion or credential rotation is
+implied when the helper has never processed actual credentials.

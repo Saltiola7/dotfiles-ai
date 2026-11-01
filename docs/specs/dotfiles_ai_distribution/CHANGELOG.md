@@ -17,6 +17,7 @@
   exports now always miss/no-op; selected enumeration stays live. Three
   regressions fail against the original implementation and pass after repair;
   no scanner suppression, alert dismissal or gate exception is introduced.
+  Recovery retains private preimages for comparison while keeping the cache off.
 - Added default-off, missing-only JFrog CLI 2.129.0 installation with four
   reviewed asset hashes, isolated bounded version probes, atomic no-replace
   publication, existing-owner retention and cancellation/failure cleanup.
