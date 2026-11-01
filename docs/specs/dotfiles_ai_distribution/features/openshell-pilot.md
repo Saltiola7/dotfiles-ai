@@ -437,6 +437,26 @@ fixed pointer or containment invocation; each serialized report is at most
 limit records truncation explicitly; an inability to retain a final report is
 reported to the caller and never becomes a pass.
 
+| Private artifact | Trusted producer | Binding checked by observations |
+|---|---|---|
+| `owner.json` and selection | Host preparation | Exact private experiment root and selected host executable |
+| `prepared.json` | Native workload admission | Exact sandbox and container IDs; original experiment deadline |
+| `guard.json` | Host fixture preparation | Exact native Git-pointer inode, bytes and original/protected flags |
+| `generation.json` | Native readiness observations | Prepared IDs plus process, container and accepted policy generation |
+| `runtime-artifact.json` | Verified image inspection | Runtime executable bytes and independently built workload image |
+| `network.json` | Native listener preparation | Exact address, listener process/start identity and reviewed source |
+| `boundaries.json` | Native Git fixture inventory | Six existing protected metadata roles in the common Git directory |
+| Private probe reports | Host observation runner | Canonical generation digest, independent observations and retained outcomes |
+
+**Text Equivalent:** Host preparation selects resources and records native
+identities. The generation receipt links prepared workload IDs with its actual
+process and policy. Independent guard, artifact, listener and metadata receipts
+bind their respective resources. Probe reports refer to the same canonical
+generation digest; workload output cannot create or replace these identities.
+Canonical source: the qualification interface and admission contracts. Owner:
+distribution maintainers. Change trigger: receipt fields, producers or binding
+relationships change.
+
 #### Fixed network observation contract
 
 `network_probe(Selection) -> dict`, selected by `--probe network`, operates only
@@ -676,7 +696,7 @@ Initiative receipt; failed feasibility reopens the affected design decision.
 | Interaction | required: ordered qualification table and Text Equivalent | What must be verified before execution and recovery? |
 | State | required: ordered qualification and guard-state tables with Text Equivalents | Which observations distinguish admission, failure, restoration, pause, resume and restart? |
 | Data/trust | required: ownership table and Text Equivalent | Can workloads obtain host authority or alter evidence? |
-| Schema | not_applicable: closed single-receipt fields and exact identity binding are fully defined inline | No additional entity relationship needs a diagram |
+| Schema | required: private-artifact binding table and Text Equivalent | Which independently produced identities must match before results can be combined? |
 | Dependency/deployment | required: ownership table and ordered qualification table | Where do Mac, guest, runtime and workload controls apply? |
 | Quantitative | not_applicable: no performance, capacity or savings claim is made | Probe bounds and pass/fail observations are not forecasts |
 
