@@ -196,7 +196,7 @@ profile change is permitted.
 
 ## Qualification and maintenance
 
-The source gate covers 241 affected tests, including instruction/publication
+The source gate covers 242 affected tests, including instruction/publication
 contracts and existing Codex preservation behavior; one unrelated native opt-in
 check is skipped. Synthetic Git fixtures disable inherited commit signing and
 use their expected ordinary umask without changing repository configuration.
