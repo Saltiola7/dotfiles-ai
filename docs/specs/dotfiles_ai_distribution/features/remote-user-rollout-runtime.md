@@ -11,6 +11,166 @@ The stable Engineering Profile is
 [`../PROFILE.md`](../PROFILE.md). Product Intent remains
 [`../PRODUCT.md`](../PRODUCT.md).
 
+## PY-01 First-Clone Repair Discovery
+
+### Problem And Scope
+
+Audit finding `PY-01` identifies a first-install failure in
+`remote-user-bootstrap`: a new `git clone --no-checkout` reports tracked files as
+deleted, and the existing dirty-source guard rejects it before the requested
+checkout. The current bootstrap unit fixture and CentOS smoke workflow both
+prepare an already checked-out source, so neither establishes first-clone success.
+
+This is a single-context repair owned by `dotfiles_ai_distribution`. Reuse the
+Engineering Profile and Product Intent linked above, especially the remote-user
+journey. No Initiative, PM ticket, new state schema, installer migration, Python
+floor increase, or new test dependency is required.
+
+| Current-cycle field | PY-01 decision |
+|---|---|
+| Deliverable | Corrected portable bootstrap source, regression tests, and updated existing specifications |
+| Risk | Elevated: source admission and recovery precede user-owned executable installation/apply |
+| Delivery intent | Feature branch and draft pull request; source/CI qualification only |
+| Applicable modules | Python and Security; no cloud resource or remote-access change |
+| Supported targets | Existing Python `>=3.12`; CentOS Stream 10 x86_64 bootstrap; unchanged macOS/Fedora renders |
+| Writable implementation scope | `dot_local/bin/executable_remote-user-bootstrap`, `tests/test_remote_user_environment.py`; extend existing smoke/workflow only when needed to prove the absent-source path |
+| Adjacent ownership | Foundation apply/state, readiness, native installers, private first-login triggers and live rollout retain their existing owners |
+
+### Decisions And Non-Goals
+
+- Distinguish a source absent at admission from every pre-existing source. A new
+  clone must become a clean checkout of the exact requested commit before config,
+  installer or foundation apply can run. Do not treat its deliberate initial
+  checkout state as evidence of user changes.
+- Preserve the fixed approved origin, full lowercase commit identity, commit
+  object verification, ownership and non-symlink checks. A fresh-clone exception
+  must never exempt a later invocation or an arbitrary existing directory.
+- Preserve rejection of tracked, staged and untracked changes in existing source.
+  Never reset, force-checkout, clean, delete or overwrite it to make bootstrap pass.
+- A pre-existing no-checkout directory left by the old failure follows that same
+  refusal. Its appearance cannot distinguish an incomplete clone from intentional
+  user deletions. Preserve it for explicit operator inspection/repair.
+- Failed new preparation must permit a later same-revision attempt: leave either
+  no final source or a clean reusable checkout. A normal checked-out clone or
+  disposable preparation can satisfy this; Discovery does not mandate staging.
+  If staging is selected, cleanup is limited to that attempt's proven-owned
+  temporary artifacts, and a concurrently appearing final source must be retained.
+- Preserve the CLI, config location/mode, pinned chezmoi identity, foundation
+  invocation, content-free failure output and existing state schema/counters.
+  No provider login/request, service start, cloud/SSH access or live apply belongs
+  to this source-only repair.
+- Automatic repair of legacy dirty sources, general bootstrap concurrency,
+  updater changes and the other Python audit findings remain out of scope.
+
+### Acceptance Behaviors
+
+1. **Given** an owned safe home, absent source and valid full requested commit,
+   **when** bootstrap prepares the source, **then** it reaches that exact detached
+   commit with a clean worktree before any downstream action, creates the existing
+   private non-secret config, and invokes foundation as `apply REVISION`.
+2. **Given** an existing safe clean source with the approved origin, **when** the
+   same revision is requested again, **then** no new clone is needed and existing
+   bootstrap behavior remains compatible.
+3. **Given** an existing dirty source, including a legacy no-checkout directory,
+   **when** bootstrap runs, **then** it refuses without checkout or downstream
+   apply and preserves tracked/staged/untracked bytes and Git index/HEAD state.
+4. **Given** wrong origin, noncommit/missing revision, unsafe ownership or a
+   symlinked source/ancestor, **when** source preparation runs, **then** it fails
+   closed before config, installer or foundation apply; diagnostics remain safe.
+5. **Given** clone, required fetch or checkout fails during new preparation,
+   **when** the caller retries the same requested revision, **then** the failure
+   has not stranded a dirty final source and the retry can finish after the cause
+   is removed. Failure exits nonzero and records only the existing safe failure
+   state; repeated same-revision failure preserves existing counter semantics.
+6. **Given** source preparation succeeds but later preparation/apply fails,
+   **when** the same revision is retried, **then** the clean source is reused and
+   foundation's existing retry, managed-target and rollback contracts still apply.
+
+### Source Admission Transitions
+
+This table is canonical for PY-01 interaction ordering and source state. It does
+not add persistent foundation states.
+
+| Source at admission | Guard or event | Result before config/install/apply |
+|---|---|---|
+| Absent | Approved clone and exact commit verification/checkout succeed | Clean detached requested commit; continue existing bootstrap |
+| Absent | Clone/fetch/verification/checkout fails | Nonzero safe failure; no poisoned final source; same-revision retry remains possible |
+| Existing clean | Ownership, origin and commit checks succeed | Preserve existing clean-source checks; select exact requested commit and continue |
+| Existing dirty or legacy no-checkout | Dirty-source guard fails | Preserve source/index/HEAD; stop before downstream work |
+| Any | Unsafe source/ancestor, wrong origin or invalid requested object | Fail closed; no downstream work |
+
+**Text Equivalent:** Only a source absent at admission receives first-clone
+handling. Its exact commit and clean checkout must be established before config,
+installation or apply. New preparation failure must remain retryable. Every
+pre-existing source retains its original safety and cleanliness guards, including
+legacy no-checkout directories. Source admission never creates a new foundation
+state or authorizes destructive recovery. Canonical sources are the decisions
+and behaviors above and the existing bootstrap/foundation contracts. Owner:
+distribution maintainer. Update trigger: source admission, failure ordering or
+recovery behavior changes.
+
+### Validation And Evidence Contract
+
+- Add a red-first absent-source regression using a real local Git seed and real
+  status/revision/checkout operations. Shim only public clone/fetch transport to
+  that seed; retain the approved origin value. Do not mock the dirty-status result
+  that exposes the defect, add a runtime source-URL override or change global Git
+  configuration. Isolate fixture signing/hooks locally as necessary.
+- Preinstall a fake correctly versioned chezmoi and stub foundation apply. Assert
+  exact requested HEAD, detached/clean state, private config mode and exact apply
+  arguments. Unexpected download, provider or downstream calls fail the fixture.
+- Exercise the six acceptance behaviors, including actual legacy no-checkout
+  state, dirty tracked/staged/untracked inputs, unavailable/noncommit revisions,
+  clone/fetch/checkout failures and successful same-revision retry. Preserve source
+  bytes, index and HEAD on existing-source refusal; retain old negative tests.
+- Run `uv run --group test pytest tests/test_remote_user_environment.py -q`, then
+  configured publication/instruction checks and the configured full pytest suite.
+  Existing CI selects Python 3.14 on PRs and Python 3.12/3.13/3.14 on weekly/manual
+  compatibility runs; obtain matching compatibility evidence before claiming those
+  targets qualified. No checker is selected in root metadata; typing analysis is
+  a recorded capability gap, not a fabricated pass or a tooling migration.
+- The current CentOS smoke starts with a prepared checkout. Run the new offline
+  absent-source regression in disposable CentOS as well; extend its existing
+  workflow/smoke only as needed while retaining install/reapply/rollback coverage.
+  Reuse supported-platform render and publication checks. Fixture success does
+  not establish a real remote first-login rollout or online authentication.
+
+### Deferred Adjacent Risk
+
+Bootstrap failure recording can replace `desired_revision` after a
+*different*-revision attempt, while foundation's retry-revision guard runs later.
+That is an adjacent pre-existing gap in the broader retry promise. PY-01 tests
+and acceptance cover unchanged-revision recovery; they do not establish
+cross-revision pin enforcement. A separate scoped follow-up must decide and test
+rejection before source mutation and failure-state replacement. This Discovery
+neither fixes that behavior nor claims the whole rollout is qualified.
+
+### Candidate DBSCTR Applicability Plan
+
+Build must persist this plan under the selected checkout's ignored
+`.dbsctr/plans/` directory and bind it to the committed Engineering Profile when
+starting the future cycle. This is an artifact-ready plan, not a registered cycle
+or evidence that any gate has passed.
+
+```json
+{
+  "profile": "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "No published package or versioned release artifact; delivery is a source repair and draft pull request."},
+    "deploy": {"applicability": "not_applicable", "reason": "No managed host, guest or remote installation/apply; disposable CI validation only."},
+    "operate": {"applicability": "not_applicable", "reason": "No live service, enrollment, scheduler or production rollout is operated in this source-only slice."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}
+```
+
 ## Scope And Boundaries
 
 ### Native-update CI compatibility follow-up
@@ -140,13 +300,13 @@ RWUE-003 in the separately owned personal source.
 - Rollback preserves authentication, sessions, history, personal overlays, and
   unrelated files.
 
-## Visual Evidence Plan
+## Visual Evidence
 
 | Concern | Decision | Review question | Canonical source |
 |---|---|---|---|
 | Boundary | `required: ownership flow` | Which side owns portable versus private rollout behavior? | Diagram below |
-| Interaction | `required: bootstrap and refresh sequence` | What can run automatically, and what remains interactive? | Diagram below |
-| State | `required: explicit state transitions` | Which failures retry and which wait for the user? | Behavior and diagram |
+| Interaction | `required: source-admission transition table and rollout flow` | Which source checks precede downstream work, and what remains interactive? | PY-01 Source Admission Transitions and diagram below |
+| State | `required: source-admission transition table and rollout flow` | Which sources retry, refuse, or wait for the user? | PY-01 Source Admission Transitions, Behavior and diagram |
 | Data/trust | `required: ownership flow` | Where can credentials and private identity exist? | Trust And Compatibility |
 | Schema | `not_applicable` | Existing versioned foundation state is extended without a new shared schema | Foundation state contract |
 | Dependency/deployment | `required: ownership flow` | Why must this slice precede private rollout? | Diagram below |
@@ -198,7 +358,30 @@ Validation must include:
 
 ## Readiness
 
+### Historical RWUE-005A
+
 The scope, repository ownership, interfaces, state transitions, safety boundary,
 and validation are ready. Implementation requires the reconciled cross-repository
 Begin behavior in protected source plus a fresh Initiative receipt and exact
 digest-bound approval.
+
+### PY-01 Build Handoff
+
+Specification scope is ready for the bounded source correction above; no material
+behavior or ownership question requires another interview. Public-content and
+instruction checks must pass on the exact Discovery artifact set before handoff.
+The broader RWUE-005A Initiative receipt/launch requirements do not become an
+implicit launch of this separate single-context repair.
+
+Build should use the current conversation's selected primary with Python and
+Security guidance, refresh source/doc freshness, and register the future cycle
+through the existing native DBSCTR route before implementation. Begin with the
+absent-source regression, then the smallest compatible source fix and failure
+matrix. One writer owns bootstrap and its test fixture; a bounded reviewer may
+inspect safety/refusal paths in parallel without owning another cycle.
+
+Discovery changes only this existing feature specification and its context README
+pointer/override. Engineering Profile and Product Intent are reused. CHANGELOG
+was reviewed; add a completed-cycle outcome only after implementation and actual
+delivery evidence exist. No implementation, live bootstrap, deployment, remote
+publication or gate completion is claimed by these Discovery artifacts.
