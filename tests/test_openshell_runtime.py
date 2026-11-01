@@ -313,6 +313,11 @@ def pointer_fixture(owned_root: Path) -> tuple[Path, dict[str, str]]:
     controller.mkdir(mode=0o700)
     for name in ("config", "data", "state", "cache", "tmp"):
         (controller / name).mkdir(mode=0o700)
+    prepared = owned_root / "prepared.json"
+    prepared.write_text(json.dumps({"schema_version": 1,
+                                   "sandbox_id": "ab123456-1234-4234-8234-123456789abc",
+                                   "container_id": "cd" * 32}))
+    prepared.chmod(0o600)
     env = {"PATH": "/usr/bin:/bin", "HOME": str(controller),
            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
            "GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C"}
@@ -917,7 +922,7 @@ def test_supported_classification_of_unavailable_guest_interfaces_is_explicit(
     assert result["runtime_qualification"] == "not_run"
 
 
-@pytest.mark.parametrize("mode", ["pointer", "immutable-pointer"])
+@pytest.mark.parametrize("mode", ["pointer", "immutable-pointer", "containment"])
 def test_cli_routes_selected_probe_without_changing_default(owned_root, monkeypatch, capsys, mode):
     selected = owned_root / "selection.json"
     selected.write_bytes(selection_bytes(owned_root))
@@ -933,8 +938,9 @@ def test_cli_routes_selected_probe_without_changing_default(owned_root, monkeypa
 
     monkeypatch.setattr(probe, "pointer_probe", report("pointer"))
     monkeypatch.setattr(probe, "immutable_pointer_probe", report("immutable-pointer"), raising=False)
+    monkeypatch.setattr(probe, "containment_probe", report("containment"), raising=False)
     args = ["probe_openshell_runtime.py", "--selection", str(selected)]
-    if mode == "immutable-pointer":
+    if mode != "pointer":
         args.extend(["--probe", mode])
     monkeypatch.setattr(sys, "argv", args)
     assert probe.main() == 0
@@ -1103,3 +1109,522 @@ def test_replacement_attempts_reach_each_case_alias_with_retained_temporary_file
     assert files["/work/.git"] == pointer_bytes
     assert len(files) == 1 + len(spellings)  # Retain each temporary file for evidence.
     assert descriptors == {}
+
+
+CONTAINMENT_MARKER = b"openshell-nonfunctional-host-marker\n"
+CONTAINMENT_TEXT = "OpenShell containment text: café\n".encode()
+CONTAINMENT_BINARY = bytes(range(256))
+CONTAINMENT_EXECUTABLE = b"#!/bin/sh\nexit 0\n"
+CONTAINMENT_TARGETS = ("host_sentinel", "controller_home", "podman_socket", "environment",
+                       "internal_control", "bootstrap")
+CONTAINMENT_RESOURCES = {"cpu_quota": 200000, "cpu_period": 100000,
+                         "memory_max": 2147483648, "pids_max": 256, "pids_current": 16,
+                         "scratch_size": 268435456, "scratch_rw": True}
+
+
+@pytest.fixture
+def containment_fixture(guarded_pointer_fixture):
+    root, env, guard, observed = guarded_pointer_fixture
+    (root / "input").mkdir(mode=0o700)
+    sentinel = root / "input/host-sentinel"
+    sentinel.write_bytes(CONTAINMENT_MARKER)
+    sentinel.chmod(0o600)
+    receipt = root / "containment.json"
+    receipt.write_text(json.dumps({"schema_version": 1,
+                                   "marker_sha256": hashlib.sha256(CONTAINMENT_MARKER).hexdigest()}))
+    receipt.chmod(0o600)
+    return root, env, guard, observed
+
+
+def containment_exclusions() -> dict:
+    return {"schema_version": 1, "operation": "exclusions", "checks": [
+        {"target": target, "outcome": "absent" if target == "environment" else "inaccessible",
+         "errno": 0 if target == "environment" else 13} for target in CONTAINMENT_TARGETS]}
+
+
+class ContainmentTransport(PointerTransport):
+    """Only native/guest transport is fake; source, receipt and guard checks run."""
+
+    def __init__(self, root, env):
+        super().__init__(root, env)
+        self.guest_home, self.guest_uid = "/home/fixture", 1000
+        self.resources = dict(CONTAINMENT_RESOURCES)
+        self.native_calls = []
+        self.create_files = True
+        self.delete_files = True
+
+    def identity(self, deadline):
+        generation = super().identity(deadline)[0]
+        return (generation, "same-process", 1700000000000, "cd" * 32, 1234,
+                "2026-11-01T00:00:00Z", "ab" * 32, 1, 1, 1, 1)
+
+    def guest(self, argv, deadline):
+        assert 0 < deadline - time.monotonic() <= 60
+        self.native_calls.append(argv)
+        return probe.CommandResult(0, json.dumps(self.resources).encode(), b"")
+
+    def execute(self, program, deadline):
+        assert 0 < deadline - time.monotonic() <= 60
+        assignment = next(node for node in ast.parse(program).body
+                          if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Tuple))
+        operation, _ = ast.literal_eval(assignment.value)
+        assert operation in {"source_create", "source_delete", "exclusions", "scratch_write"}
+        self.executions.append((operation, ""))
+        directory = self.root / "fixture/task/.openshell-containment"
+        if operation == "source_create" and self.create_files:
+            directory.mkdir(mode=0o700)
+            for name, content in (("text", CONTAINMENT_TEXT), ("binary", CONTAINMENT_BINARY),
+                                  ("delete-me", b"delete-me\n"), ("executable", CONTAINMENT_EXECUTABLE)):
+                path = directory / name
+                path.write_bytes(content)
+                path.chmod(0o755 if name == "executable" else 0o600)
+        elif operation == "source_delete" and self.delete_files:
+            (directory / "delete-me").unlink()
+        result = (containment_exclusions() if operation == "exclusions"
+                  else {"schema_version": 1, "operation": operation, "outcome": "succeeded"})
+        return self.action(operation, "", result) if self.action else result
+
+
+def install_containment_transport(monkeypatch, containment_fixture):
+    root, env, _, _ = containment_fixture
+    transport = ContainmentTransport(root, env)
+    monkeypatch.setattr(probe, "_PointerController", lambda selection, deadline: transport)
+    return transport
+
+
+@pytest.mark.parametrize("violation", [
+    "unknown_field", "duplicate_field", "boolean_schema", "wrong_hash", "wrong_marker",
+    "marker_permissions", "receipt_permissions", "marker_alias", "missing_marker",
+])
+def test_containment_admission_refuses_before_native_effects(containment_fixture, monkeypatch, violation):
+    root, _, _, _ = containment_fixture
+    receipt = root / "containment.json"
+    value = json.loads(receipt.read_text())
+    if violation == "unknown_field":
+        value["unexpected"] = "private marker"
+    elif violation == "boolean_schema":
+        value["schema_version"] = True
+    elif violation == "wrong_hash":
+        value["marker_sha256"] = "00" * 32
+    raw = json.dumps(value)
+    if violation == "duplicate_field":
+        raw = raw[:-1] + ',"schema_version":1}'
+    receipt.write_text(raw)
+    sentinel = root / "input/host-sentinel"
+    if violation == "wrong_marker":
+        sentinel.write_bytes(b"unexpected marker\n")
+    elif violation == "marker_permissions":
+        sentinel.chmod(0o644)
+    elif violation == "receipt_permissions":
+        receipt.chmod(0o644)
+    elif violation == "marker_alias":
+        sentinel.rename(root / "input/original-sentinel")
+        sentinel.symlink_to(root / "input/original-sentinel")
+    elif violation == "missing_marker":
+        sentinel.unlink()
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append("native")
+        raise AssertionError("invalid containment receipt must refuse before native effects")
+
+    monkeypatch.setattr(probe, "_PointerController", forbidden)
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert result["status"] == "unavailable" and result["runtime_qualification"] == "not_run"
+    assert calls == []
+
+
+def test_containment_resources_accept_observed_boundary_values():
+    assert probe._validate_containment_resources(dict(CONTAINMENT_RESOURCES)) == CONTAINMENT_RESOURCES
+
+
+@pytest.mark.parametrize("changes", [
+    {"cpu_quota": 200001}, {"cpu_quota": 0}, {"cpu_quota": "max"}, {"cpu_quota": True},
+    {"cpu_period": 0}, {"cpu_period": True}, {"cpu_period": "100000"},
+    {"memory_max": 2147483649}, {"memory_max": 0}, {"memory_max": "max"}, {"memory_max": True},
+    {"pids_max": 257}, {"pids_max": 0}, {"pids_max": "max"}, {"pids_max": True},
+    {"pids_current": 257}, {"pids_current": -1}, {"pids_current": True},
+    {"scratch_size": 268435457}, {"scratch_size": 0}, {"scratch_size": True},
+    {"scratch_rw": False}, {"scratch_rw": 1}, {"configured_limit": 1},
+])
+def test_containment_resources_refuse_unobserved_or_excessive_limits(changes):
+    with pytest.raises(probe.Refusal):
+        probe._validate_containment_resources(CONTAINMENT_RESOURCES | changes)
+
+
+@pytest.mark.parametrize("field", tuple(CONTAINMENT_RESOURCES))
+def test_containment_resources_require_every_native_observation(field):
+    value = dict(CONTAINMENT_RESOURCES)
+    del value[field]
+    with pytest.raises(probe.Refusal):
+        probe._validate_containment_resources(value)
+
+
+def test_containment_verifies_source_and_keeps_unperformed_runtime_checks_not_run(
+        containment_fixture, monkeypatch):
+    root, _, _, _ = containment_fixture
+    transport = install_containment_transport(monkeypatch, containment_fixture)
+    witnessed = []
+    original_identity = probe._regular_identity
+
+    def witness(path, limit):
+        result = original_identity(path, limit)
+        if path.name == "delete-me":
+            witnessed.append((path.read_bytes(), list(transport.executions)))
+        return result
+
+    monkeypatch.setattr(probe, "_regular_identity", witness)
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert set(result) == {"schema_version", "probe", "status", "reason", "checks", "resources",
+                           "retained", "runtime_qualification"}
+    assert result["status"] == "passed" and result["probe"] == "containment"
+    assert result["resources"] == CONTAINMENT_RESOURCES
+    assert result["runtime_qualification"] == "not_run" and result["retained"] is True
+    assert transport.executions == [(operation, "") for operation in
+                                    ("source_create", "source_delete", "exclusions", "scratch_write")]
+    assert transport.native_calls
+    assert witnessed and all(content == b"delete-me\n" and ("source_delete", "") not in calls
+                             for content, calls in witnessed)
+    directory = root / "fixture/task/.openshell-containment"
+    assert (directory / "text").read_bytes() == CONTAINMENT_TEXT
+    assert (directory / "binary").read_bytes() == CONTAINMENT_BINARY
+    assert (directory / "executable").read_bytes() == CONTAINMENT_EXECUTABLE
+    assert (directory / "executable").stat().st_mode & 0o777 == 0o755
+    assert not (directory / "delete-me").exists()
+    assert any(json.loads(path.read_text()) == result for path in (root / "evidence").glob("*.json"))
+
+
+@pytest.mark.parametrize("violation", ["missing_creation", "text", "binary", "executable_mode", "hardlink"])
+def test_containment_guest_success_cannot_replace_host_source_observation(
+        containment_fixture, monkeypatch, violation):
+    root, _, _, _ = containment_fixture
+    transport = install_containment_transport(monkeypatch, containment_fixture)
+    transport.create_files = violation != "missing_creation"
+
+    def lie(operation, spelling, result):
+        if operation == "source_create" and violation != "missing_creation":
+            directory = root / "fixture/task/.openshell-containment"
+            if violation in {"text", "binary"}:
+                (directory / violation).write_bytes(b"private wrong bytes")
+            elif violation == "executable_mode":
+                (directory / "executable").chmod(0o644)
+            else:
+                os.link(directory / "text", directory / "hardlink")
+        return result
+
+    transport.action = lie
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert result["status"] == "failed" and result["runtime_qualification"] == "not_run"
+    assert result["retained"] is True
+    assert transport.executions == [("source_create", "")]
+    assert "private wrong bytes" not in json.dumps(result)
+
+
+def test_containment_namespace_collision_refuses_before_workload(containment_fixture, monkeypatch):
+    root, _, _, _ = containment_fixture
+    directory = root / "fixture/task/.openshell-containment"
+    directory.mkdir()
+    transport = install_containment_transport(monkeypatch, containment_fixture)
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert result["status"] == "unavailable"
+    assert transport.executions == [] and directory.exists()
+
+
+def test_containment_delete_claim_requires_host_observed_absence(containment_fixture, monkeypatch):
+    root, _, _, _ = containment_fixture
+    transport = install_containment_transport(monkeypatch, containment_fixture)
+    transport.delete_files = False
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert result["status"] == "failed" and result["runtime_qualification"] == "not_run"
+    assert transport.executions == [("source_create", ""), ("source_delete", "")]
+    assert (root / "fixture/task/.openshell-containment/delete-me").read_bytes() == b"delete-me\n"
+
+
+@pytest.mark.parametrize("override", [
+    {"schema_version": True}, {"operation": "unreviewed"},
+    {"outcome": "passed"}, {"unexpected": "private guest value"},
+])
+def test_containment_rejects_malformed_guest_success(containment_fixture, monkeypatch, override):
+    root, _, _, _ = containment_fixture
+    transport = install_containment_transport(monkeypatch, containment_fixture)
+    transport.action = lambda operation, spelling, result: result | override
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert result["status"] == "unavailable" and result["runtime_qualification"] == "not_run"
+    assert transport.executions == [("source_create", "")]
+    assert "private guest value" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("violation", ["excessive_cpu", "missing_scratch", "malformed_native_output"])
+def test_containment_requires_native_resource_observations_before_workload(
+        containment_fixture, monkeypatch, violation):
+    root, _, _, _ = containment_fixture
+    transport = install_containment_transport(monkeypatch, containment_fixture)
+    if violation == "excessive_cpu":
+        transport.resources["cpu_quota"] = 200001
+    elif violation == "missing_scratch":
+        del transport.resources["scratch_size"]
+    else:
+        transport.guest = lambda argv, deadline: probe.CommandResult(0, b"private invalid native JSON", b"")
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert result["status"] != "passed" and result["runtime_qualification"] == "not_run"
+    assert transport.executions == []
+    assert "private invalid native JSON" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("during", ["source_create", "source_delete", "exclusions", "scratch_write"])
+def test_containment_rechecks_guard_even_after_transport_exception(containment_fixture, monkeypatch, during):
+    root, _, _, observed = containment_fixture
+    transport = install_containment_transport(monkeypatch, containment_fixture)
+
+    def mutate_then_fail(operation, spelling, result):
+        if operation == during:
+            observed["flags"] = 0
+            raise probe.Refusal("timeout")
+        return result
+
+    transport.action = mutate_then_fail
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert result["status"] == "failed" and result["reason"] == "protected_state_changed"
+    assert result["retained"] is True and transport.executions[-1] == (during, "")
+    assert observed["flags"] == 0
+
+
+@pytest.mark.parametrize("target", CONTAINMENT_TARGETS)
+def test_containment_observed_surface_access_fails_and_stops(containment_fixture, monkeypatch, target):
+    root, _, _, _ = containment_fixture
+    transport = install_containment_transport(monkeypatch, containment_fixture)
+
+    def expose(operation, spelling, result):
+        if operation == "exclusions":
+            for check in result["checks"]:
+                if check["target"] == target:
+                    check.update(outcome="exposed", errno=0)
+        return result
+
+    transport.action = expose
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert result["status"] == "failed" and result["runtime_qualification"] == "not_run"
+    assert transport.executions[-1] == ("exclusions", "")
+
+
+@pytest.mark.parametrize("violation", ["missing", "duplicate", "unknown", "stat_only", "wrong_errno", "boolean_schema"])
+def test_containment_exclusion_evidence_must_cover_exact_access_checks(violation):
+    value = containment_exclusions()
+    if violation == "missing":
+        value["checks"].pop()
+    elif violation == "duplicate":
+        value["checks"][-1] = dict(value["checks"][0])
+    elif violation == "unknown":
+        value["checks"][0]["target"] = "private unexpected target"
+    elif violation == "stat_only":
+        value["checks"][0]["outcome"] = "stat_denied"
+    elif violation == "wrong_errno":
+        value["checks"][0]["errno"] = 0
+    else:
+        value["schema_version"] = True
+    with pytest.raises(probe.Refusal):
+        probe._validate_containment_exclusions(value)
+
+
+def test_containment_changed_generation_stops_before_next_operation(containment_fixture, monkeypatch):
+    root, _, _, _ = containment_fixture
+    transport = install_containment_transport(monkeypatch, containment_fixture)
+    transport.identity_change_after_execution = 1
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert result["status"] == "unavailable" and result["reason"] == "sandbox_identity"
+    assert transport.executions == [("source_create", "")]
+
+
+@pytest.mark.parametrize("mode", ["pointer_probe", "immutable_pointer_probe", "containment_probe"])
+@pytest.mark.parametrize("age", [-30, 901])
+def test_all_modes_refuse_future_or_expired_preparation_before_native_calls(
+        containment_fixture, monkeypatch, mode, age):
+    root, _, _, _ = containment_fixture
+    prepared = root / "prepared.json"
+    timestamp = time.time() - age
+    os.utime(prepared, (timestamp, timestamp))
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append("native")
+        raise AssertionError("invalid experiment deadline must refuse before native effects")
+
+    monkeypatch.setattr(probe, "_PointerController", forbidden)
+    result = getattr(probe, mode)(probe.Selection(root, DIGEST))
+    assert result["status"] == "unavailable" and result["reason"] == "experiment_deadline"
+    assert calls == []
+
+
+@pytest.mark.parametrize("mode", ["pointer_probe", "immutable_pointer_probe", "containment_probe"])
+def test_mode_start_uses_remaining_experiment_window(containment_fixture, monkeypatch, mode):
+    root, env, _, _ = containment_fixture
+    timestamp = time.time() - 870
+    os.utime(root / "prepared.json", (timestamp, timestamp))
+    transport = (ContainmentTransport(root, env) if mode == "containment_probe" else PointerTransport(root, env))
+    deadlines = []
+
+    def controller(selection, deadline):
+        deadlines.append(deadline)
+        return transport
+
+    monkeypatch.setattr(probe, "_PointerController", controller)
+    started = time.monotonic()
+    result = getattr(probe, mode)(probe.Selection(root, DIGEST))
+    assert result["status"] == "passed"
+    assert len(deadlines) == 1 and 0 < deadlines[0] - started <= 30
+
+
+def run_containment_program_with_fake_interfaces(program, fake_os, fake_socket=None):
+    modules = {"errno": errno, "json": json, "os": fake_os,
+               "socket": fake_socket or SimpleNamespace()}
+
+    def isolated_import(name, *args, **kwargs):
+        assert name in modules, "unexpected import must not reach the host"
+        return modules[name]
+
+    namespace = {"__builtins__": vars(builtins) | {"__import__": isolated_import}}
+    output = StringIO()
+    with redirect_stdout(output):
+        exec(compile(program, "<fixed-containment-program>", "exec"), namespace)
+    return json.loads(output.getvalue())
+
+
+def test_generated_containment_source_programs_create_exact_bytes_then_delete_one_file():
+    files, modes, descriptors = {}, {}, {}
+    base = "/work/.openshell-containment"
+    directories = []
+
+    def mkdir(path, mode):
+        assert path == base and mode == 0o700
+        directories.append(path)
+
+    def open_file(path, flags, mode):
+        assert path in {base + "/" + name for name in ("text", "binary", "delete-me", "executable")}
+        assert flags == os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        assert mode == 0o600 and path not in files
+        files[path], modes[path] = b"", mode
+        fd = 10 + len(files)
+        descriptors[fd] = path
+        return fd
+
+    def write(fd, data):
+        files[descriptors[fd]] += data
+        return len(data)
+
+    def fsync(fd):
+        assert fd in descriptors
+
+    def close(fd):
+        del descriptors[fd]
+
+    def chmod(path, mode):
+        assert path == base + "/executable" and mode == 0o755
+        modes[path] = mode
+
+    def unlink(path):
+        assert path == base + "/delete-me"
+        del files[path]
+
+    fake_os = SimpleNamespace(mkdir=mkdir, open=open_file, write=write, fsync=fsync,
+                              close=close, chmod=chmod, unlink=unlink, O_WRONLY=os.O_WRONLY,
+                              O_CREAT=os.O_CREAT, O_EXCL=os.O_EXCL, O_NOFOLLOW=os.O_NOFOLLOW)
+    created = run_containment_program_with_fake_interfaces(probe._containment_program("source_create", None), fake_os)
+    assert created == {"schema_version": 1, "operation": "source_create", "outcome": "succeeded"}
+    assert directories == [base] and descriptors == {}
+    assert files == {base + "/text": CONTAINMENT_TEXT, base + "/binary": CONTAINMENT_BINARY,
+                     base + "/delete-me": b"delete-me\n", base + "/executable": CONTAINMENT_EXECUTABLE}
+    assert modes[base + "/executable"] == 0o755
+    deleted = run_containment_program_with_fake_interfaces(probe._containment_program("source_delete", None), fake_os)
+    assert deleted == {"schema_version": 1, "operation": "source_delete", "outcome": "succeeded"}
+    assert set(files) == {base + "/" + name for name in ("text", "binary", "executable")}
+
+
+@pytest.mark.parametrize("marker_present", [False, True])
+def test_generated_exclusions_attempt_access_and_never_emit_environment_value(marker_present):
+    calls = []
+
+    def open_file(path, flags):
+        assert flags == os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+        calls.append(("open", path))
+        raise FileNotFoundError(errno.ENOENT, "synthetic exclusion")
+
+    def scandir(path):
+        calls.append(("scandir", path))
+        raise PermissionError(errno.EACCES, "synthetic exclusion")
+
+    class DeniedSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def settimeout(self, value):
+            assert value == 1
+
+        def connect(self, path):
+            calls.append(("connect", path))
+            raise PermissionError(errno.EACCES, "synthetic exclusion")
+
+    fake_os = SimpleNamespace(open=open_file, scandir=scandir, O_RDONLY=os.O_RDONLY,
+                              O_NOFOLLOW=os.O_NOFOLLOW, O_NONBLOCK=os.O_NONBLOCK,
+                              environ={"OPENSHELL_QUALIFICATION_SENTINEL": "private-marker-value"}
+                              if marker_present else {})
+    fake_socket = SimpleNamespace(AF_UNIX=1, SOCK_STREAM=1, socket=lambda *args: DeniedSocket())
+    controller = SimpleNamespace(root=Path("/private/synthetic") / RUN_NAME,
+                                 guest_home="/home/fixture", guest_uid=1000)
+    result = run_containment_program_with_fake_interfaces(
+        probe._containment_program("exclusions", controller), fake_os, fake_socket)
+    assert "private-marker-value" not in json.dumps(result)
+    assert {row["target"] for row in result["checks"]} == set(CONTAINMENT_TARGETS)
+    assert {kind for kind, _ in calls} == {"open", "scandir", "connect"} and len(calls) == 5
+    environment = next(row for row in result["checks"] if row["target"] == "environment")
+    assert environment["outcome"] == ("exposed" if marker_present else "absent")
+    if marker_present:
+        with pytest.raises(probe.Refusal, match="^containment_access$"):
+            probe._validate_containment_exclusions(result)
+    else:
+        assert probe._validate_containment_exclusions(result) == result["checks"]
+
+
+@pytest.mark.parametrize("failed_call", ["execute", "native_observation"])
+@pytest.mark.parametrize("identity_changed", [False, True])
+def test_containment_observes_identity_after_failed_operation(
+        containment_fixture, monkeypatch, failed_call, identity_changed):
+    root, _, _, _ = containment_fixture
+    transport = install_containment_transport(monkeypatch, containment_fixture)
+    original_identity = transport.identity
+    original_execute = transport.execute
+    failure_observed = False
+    identity_observations = []
+
+    def identity(deadline):
+        value = original_identity(deadline)
+        identity_observations.append(failure_observed)
+        if failure_observed and identity_changed:
+            return ("replacement-after-failure", *value[1:])
+        return value
+
+    def fail_native(argv, deadline):
+        nonlocal failure_observed
+        failure_observed = True
+        raise probe.Refusal("timeout")
+
+    def fail_execute(program, deadline):
+        nonlocal failure_observed
+        original_execute(program, deadline)
+        failure_observed = True
+        raise probe.Refusal("timeout")
+
+    transport.identity = identity
+    if failed_call == "execute":
+        transport.execute = fail_execute
+    else:
+        transport.guest = fail_native
+    result = probe.containment_probe(probe.Selection(root, DIGEST))
+    assert failure_observed
+    assert result["status"] == "unavailable"
+    assert result["reason"] == ("sandbox_identity" if identity_changed else "timeout")
+    assert any(identity_observations), "failed calls must still receive a native identity observation"
+    assert result["retained"] is True and result["runtime_qualification"] == "not_run"
+    assert transport.executions == ([("source_create", "")] if failed_call == "execute" else [])

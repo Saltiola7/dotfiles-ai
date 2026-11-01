@@ -296,6 +296,14 @@ def _remaining(deadline: float) -> float:
     return min(60, remaining)
 
 
+def _prepared_deadline(root: Path) -> float:
+    private_file(root / "prepared.json")
+    age = time.time() - (root / "prepared.json").lstat().st_mtime
+    if not 0 <= age < 900:
+        raise Refusal("experiment_deadline")
+    return time.monotonic() + 900 - age
+
+
 def _host_git_fixture(root: Path, env: dict[str, str], deadline: float) -> tuple[Path, Path]:
     main, task = root / "fixture/main", root / "fixture/task"
     common = main / ".git"
@@ -361,6 +369,7 @@ class _PointerController:
         uid = self._lima(["/usr/bin/id", "-u"], deadline).stdout.strip()
         if not re.fullmatch(rb"/home/[A-Za-z0-9_.-]+", home) or not re.fullmatch(rb"[1-9][0-9]{0,9}", uid):
             raise Refusal("guest_identity")
+        self.guest_home, self.guest_uid = home.decode(), int(uid)
         self.guest_env = ["/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin",
                           "HOME=" + home.decode(), "XDG_CONFIG_HOME=" + home.decode() + "/.config",
                           "XDG_DATA_HOME=" + home.decode() + "/.local/share",
@@ -563,11 +572,11 @@ def _run_pointer_probe(selection: Selection, immutable: bool) -> dict:
     admitted, active = False, None
     try:
         validate_root(selection)
+        deadline = _prepared_deadline(selection.root)
         admitted = True
         guard = _validate_guard(selection.root) if immutable else None
         # Reserve the complete bounded probe budget before any workload effect.
         _check_pointer_evidence(selection.root, 10 * 1024 * 1024, 48 if immutable else 32)
-        deadline = time.monotonic() + 900
         controller = _PointerController(selection, deadline)
         common, pointer = _host_git_fixture(selection.root, controller.env, deadline)
         baseline = (_regular_identity(pointer, 4096), _metadata_snapshot(common))
@@ -691,17 +700,261 @@ def immutable_pointer_probe(selection: Selection) -> dict:
     return _run_pointer_probe(selection, immutable=True)
 
 
+_CONTAINMENT_TEXT = b"OpenShell containment text: caf\xc3\xa9\n"
+_CONTAINMENT_BINARY = bytes(range(256))
+_CONTAINMENT_EXECUTABLE = b"#!/bin/sh\nexit 0\n"
+_CONTAINMENT_MARKER = b"openshell-nonfunctional-host-marker\n"
+_CONTAINMENT_TARGETS = ("host_sentinel", "controller_home", "podman_socket", "environment",
+                        "internal_control", "bootstrap")
+
+
+def _validate_containment(root: Path) -> None:
+    private_directory(root / "input")
+    value = decode_object(private_file(root / "containment.json"))
+    if (set(value) != {"schema_version", "marker_sha256"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or value["marker_sha256"] != hashlib.sha256(_CONTAINMENT_MARKER).hexdigest()
+            or private_file(root / "input/host-sentinel", 1024) != _CONTAINMENT_MARKER):
+        raise Refusal("invalid_containment")
+
+
+def _validate_containment_resources(value: dict) -> dict:
+    integers = {"cpu_quota", "cpu_period", "memory_max", "pids_max", "pids_current", "scratch_size"}
+    if (not isinstance(value, dict) or set(value) != integers | {"scratch_rw"}
+            or any(type(value[key]) is not int for key in integers)
+            or value["scratch_rw"] is not True):
+        raise Refusal("invalid_resource_observation")
+    if (not 0 < value["cpu_quota"] <= 2 * value["cpu_period"]
+            or not 0 < value["memory_max"] <= 2147483648
+            or not 0 < value["pids_max"] <= 256
+            or not 0 <= value["pids_current"] <= value["pids_max"]
+            or not 0 < value["scratch_size"] <= 268435456):
+        raise Refusal("resource_limits")
+    return value
+
+
+def _native_containment_observation(controller, deadline: float) -> dict:
+    identity = controller.identity(deadline)
+    pid = identity[4]
+    if type(pid) is not int or pid <= 0:
+        raise Refusal("container_identity")
+    program = """import json,os,pathlib,re,stat,sys
+pid,root,uid=sys.argv[1:]
+def read(path,limit=65536):
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    with os.fdopen(fd,'rb') as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):raise ValueError()
+        data=stream.read(limit+1)
+    if len(data)>limit:raise ValueError()
+    return data
+try:
+    if read(root+'/input/host-sentinel',1024)!=b'openshell-nonfunctional-host-marker\\n':raise ValueError()
+    socket=os.lstat('/run/user/'+uid+'/podman/podman.sock')
+    if not stat.S_ISSOCK(socket.st_mode) or socket.st_uid!=int(uid):raise ValueError()
+    group=read('/proc/'+pid+'/cgroup',4096).decode().splitlines()
+    if len(group)!=1 or not group[0].startswith('0::/'):raise ValueError()
+    relative=group[0][3:]
+    if '..' in relative.split('/'):raise ValueError()
+    base=pathlib.Path('/sys/fs/cgroup'+relative).resolve(strict=True)
+    if not base.is_relative_to('/sys/fs/cgroup'):raise ValueError()
+    quota,period=map(int,read(base/'cpu.max',128).split())
+    values={'cpu_quota':quota,'cpu_period':period}
+    for name in ('memory.max','pids.max','pids.current'):
+        values[name.replace('.','_')]=int(read(base/name,128))
+    matches=[]
+    for line in read('/proc/'+pid+'/mountinfo',262144).decode().splitlines():
+        before,after=line.split(' - ',1);left,right=before.split(),after.split()
+        if left[4]=='/scratch':matches.append((left,right))
+    if len(matches)!=1:raise ValueError()
+    left,right=matches[0]
+    if right[0]!='tmpfs':raise ValueError()
+    sizes=[x[5:] for x in right[2].split(',') if x.startswith('size=')]
+    if len(sizes)!=1:raise ValueError()
+    match=re.fullmatch(r'([0-9]+)([kKmMgG]?)',sizes[0])
+    if match is None:raise ValueError()
+    values['scratch_size']=int(match[1])*({'':1,'k':1024,'m':1048576,'g':1073741824}[match[2].lower()])
+    values['scratch_rw']='rw' in left[5].split(',') and 'rw' in right[2].split(',')
+    print(json.dumps(values,sort_keys=True))
+except (OSError,ValueError,IndexError,UnicodeError):
+    print(json.dumps({'error':'native_observation_unavailable'}))
+"""
+    result = controller.guest(["/usr/bin/python3", "-I", "-B", "-c", program, str(pid),
+                               str(controller.root), str(controller.guest_uid)], deadline)
+    return _validate_containment_resources(decode_object(result.stdout))
+
+
+def _containment_program(operation: str, controller) -> str:
+    if operation not in {"source_create", "source_delete", "exclusions", "scratch_write"}:
+        raise Refusal("invalid_probe")
+    head = "import errno,json,os,socket\noperation,spelling=%r,''\n" % operation
+    if operation == "source_create":
+        return head + """base='/work/.openshell-containment'
+os.mkdir(base,0o700)
+for name,data in %r:
+    fd=os.open(base+'/'+name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    os.write(fd,data);os.fsync(fd);os.close(fd)
+os.chmod(base+'/executable',0o755)
+print(json.dumps({'schema_version':1,'operation':operation,'outcome':'succeeded'}))
+""" % ((('text', _CONTAINMENT_TEXT), ('binary', _CONTAINMENT_BINARY),
+          ('delete-me', b'delete-me\n'), ('executable', _CONTAINMENT_EXECUTABLE)),)
+    if operation == "source_delete":
+        return head + "os.unlink('/work/.openshell-containment/delete-me')\nprint(json.dumps({'schema_version':1,'operation':operation,'outcome':'succeeded'}))\n"
+    if operation == "scratch_write":
+        return head + """fd=os.open('/scratch/.openshell-containment',os.O_RDWR|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+os.write(fd,b'scratch\\n');os.fsync(fd);os.lseek(fd,0,os.SEEK_SET)
+if os.read(fd,32)!=b'scratch\\n':raise RuntimeError('scratch_mismatch')
+os.close(fd)
+print(json.dumps({'schema_version':1,'operation':operation,'outcome':'succeeded'}))
+"""
+    paths = (("host_sentinel", str(controller.root / "input/host-sentinel"), "file"),
+             ("controller_home", controller.guest_home, "directory"),
+             ("podman_socket", f"/run/user/{controller.guest_uid}/podman/podman.sock", "socket"),
+             ("environment", "OPENSHELL_QUALIFICATION_SENTINEL", "environment"),
+             ("internal_control", "/.openshell/channel/control", "directory"),
+             ("bootstrap", "/.openshell/channel/sandbox/bootstrap.json", "file"))
+    return head + """checks=[]
+for target,path,kind in %r:
+    item={'target':target,'outcome':'unavailable','errno':0}
+    try:
+        if kind=='environment':
+            item['outcome']='absent' if path not in os.environ else 'exposed'
+        else:
+            if kind=='directory':
+                with os.scandir(path) as entries:next(entries,None)
+            elif kind=='socket':
+                with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as stream:
+                    stream.settimeout(1);stream.connect(path)
+            else:
+                fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+                try:os.read(fd,1)
+                finally:os.close(fd)
+            item['outcome']='exposed'
+    except OSError as error:
+        item['errno']=error.errno or 0
+        if error.errno in (errno.ENOENT,errno.EACCES,errno.EPERM):item['outcome']='inaccessible'
+    checks.append(item)
+print(json.dumps({'schema_version':1,'operation':operation,'checks':checks}))
+""" % (paths,)
+
+
+def _validate_containment_exclusions(value: dict) -> list:
+    if (set(value) != {"schema_version", "operation", "checks"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or value["operation"] != "exclusions" or not isinstance(value["checks"], list)
+            or len(value["checks"]) != len(_CONTAINMENT_TARGETS)):
+        raise Refusal("invalid_exclusion_observation")
+    for row, target in zip(value["checks"], _CONTAINMENT_TARGETS):
+        if (not isinstance(row, dict) or set(row) != {"target", "outcome", "errno"}
+                or row["target"] != target or type(row["errno"]) is not int):
+            raise Refusal("invalid_exclusion_observation")
+        if row["outcome"] == "exposed":
+            raise Refusal("containment_access")
+        if ((target == "environment" and (row["outcome"] != "absent" or row["errno"] != 0))
+                or (target != "environment" and (row["outcome"] != "inaccessible" or row["errno"] not in {1, 2, 13}))):
+            raise Refusal("exclusion_unavailable")
+    return value["checks"]
+
+
+def containment_probe(selection: Selection) -> dict:
+    report = {"schema_version": 1, "probe": "containment", "status": "unavailable", "reason": None,
+              "runtime_qualification": "not_run", "checks": [], "resources": {}, "retained": False}
+    admitted = False
+    try:
+        validate_root(selection)
+        deadline = _prepared_deadline(selection.root)
+        admitted = True
+        guard = _validate_guard(selection.root)
+        _validate_containment(selection.root)
+        _check_pointer_evidence(selection.root, 10 * 1024 * 1024, 16)
+        output = selection.root / "fixture/task/.openshell-containment"
+        if os.path.lexists(output):
+            raise Refusal("probe_collision")
+        controller = _PointerController(selection, deadline)
+        common, pointer = _host_git_fixture(selection.root, controller.env, deadline)
+        baseline = _metadata_snapshot(common)
+        generation = controller.identity(min(deadline, time.monotonic() + 60))
+
+        def unchanged():
+            try:
+                validate_root(selection)
+                if _guard_snapshot(pointer) != guard or _metadata_snapshot(common) != baseline:
+                    raise Refusal("protected_state_changed")
+            except (OSError, Refusal):
+                raise Refusal("protected_state_changed") from None
+
+        def checked(call):
+            _remaining(deadline)
+            step = min(deadline, time.monotonic() + 60)
+            unchanged()
+            if controller.identity(step) != generation:
+                raise Refusal("sandbox_identity")
+            try:
+                value = call(step)
+            finally:
+                unchanged()
+                if controller.identity(step) != generation:
+                    raise Refusal("sandbox_identity")
+            return value
+
+        report["resources"] = checked(lambda step: _native_containment_observation(controller, step))
+        for operation in ("source_create", "source_delete", "exclusions", "scratch_write"):
+            result = checked(lambda step: controller.execute(_containment_program(operation, controller), step))
+            if operation == "exclusions":
+                report["checks"].extend(_validate_containment_exclusions(result))
+            else:
+                if (type(result.get("schema_version")) is not int or result !=
+                        {"schema_version": 1, "operation": operation, "outcome": "succeeded"}):
+                    raise Refusal("invalid_probe_output")
+                if operation == "source_create":
+                    try:
+                        private_directory(output)
+                        for name, data in (("text", _CONTAINMENT_TEXT), ("binary", _CONTAINMENT_BINARY),
+                                           ("delete-me", b"delete-me\n"), ("executable", _CONTAINMENT_EXECUTABLE)):
+                            identity = _regular_identity(output / name, 1024)
+                            expected_mode = 0o755 if name == "executable" else 0o600
+                            if identity[-1] != hashlib.sha256(data).hexdigest() or stat.S_IMODE(identity[2]) != expected_mode:
+                                raise Refusal("source_observation_failed")
+                    except (OSError, Refusal):
+                        raise Refusal("source_observation_failed") from None
+                elif operation == "source_delete" and os.path.lexists(output / "delete-me"):
+                    raise Refusal("source_observation_failed")
+                report["checks"].append({"operation": operation, "status": "passed"})
+            _write_pointer_evidence(selection.root, report)
+        final_resources = checked(lambda step: _native_containment_observation(controller, step))
+        if any(final_resources[key] != value for key, value in report["resources"].items() if key != "pids_current"):
+            raise Refusal("resource_identity")
+        report["resources"] = final_resources
+        report["status"] = "passed"
+    except Refusal as error:
+        report["reason"] = str(error)
+        if str(error) in {"protected_state_changed", "source_observation_failed", "containment_access", "resource_limits"}:
+            report["status"] = "failed"
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError):
+        report["reason"] = "native_observation_unavailable"
+    if admitted:
+        try:
+            report["retained"] = True
+            _write_pointer_evidence(selection.root, report)
+        except (OSError, Refusal):
+            report["retained"] = False
+            if report["status"] != "failed":
+                report["status"], report["reason"] = "unavailable", "evidence_retention_failed"
+    return report
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--selection", type=Path, required=True)
-    parser.add_argument("--probe", choices=("pointer", "immutable-pointer"), default="pointer")
+    parser.add_argument("--probe", choices=("pointer", "immutable-pointer", "containment"), default="pointer")
     args = parser.parse_args()
     try:
-        run_probe = immutable_pointer_probe if args.probe == "immutable-pointer" else pointer_probe
+        run_probe = {"pointer": pointer_probe, "immutable-pointer": immutable_pointer_probe,
+                     "containment": containment_probe}[args.probe]
         report = run_probe(parse_selection(private_file(args.selection)))
     except (Refusal, OSError):
         report = {"schema_version": 1,
-                  "probe": "immutable_git_pointer" if args.probe == "immutable-pointer" else "git_pointer",
+                  "probe": {"pointer": "git_pointer", "immutable-pointer": "immutable_git_pointer",
+                            "containment": "containment"}[args.probe],
                   "status": "unavailable",
                   "reason": "invalid_selection", "runtime_qualification": "not_run", "checks": [], "retained": False}
     print(json.dumps(report, sort_keys=True))
