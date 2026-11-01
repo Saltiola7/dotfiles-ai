@@ -114,11 +114,35 @@ def inode(path):
     info=os.lstat(path)
     return {'device':info.st_dev,'inode':info.st_ino}
 def connect_unix(path):
+    # Native volume paths can exceed sockaddr_un.sun_path. The single-threaded
+    # observer connects by basename while holding and verifying its directory.
+    path=pathlib.Path(path);parent=path.parent
+    if not path.is_absolute() or parent.resolve(strict=True)!=parent:raise ValueError()
     info=os.lstat(path)
     if not stat.S_ISSOCK(info.st_mode):raise ValueError()
-    with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as stream:
-        stream.settimeout(2);stream.connect(path)
-    return inode(path)
+    def same_socket(other):
+        return (stat.S_ISSOCK(other.st_mode) and
+                (other.st_dev,other.st_ino,other.st_mode,other.st_uid,other.st_gid)==
+                (info.st_dev,info.st_ino,info.st_mode,info.st_uid,info.st_gid))
+    flags=os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW
+    original=os.open('.',flags)
+    try:
+        directory=os.open(parent,flags)
+        try:
+            held=os.fstat(directory);named=parent.lstat()
+            if (held.st_dev,held.st_ino)!=(named.st_dev,named.st_ino):raise ValueError()
+            if not same_socket(os.stat(path.name,dir_fd=directory,follow_symlinks=False)):raise ValueError()
+            os.fchdir(directory)
+            try:
+                with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as stream:
+                    stream.settimeout(2);stream.connect(path.name)
+                if not same_socket(os.stat(path.name,dir_fd=directory,follow_symlinks=False)):raise ValueError()
+                named=parent.lstat()
+                if (held.st_dev,held.st_ino)!=(named.st_dev,named.st_ino):raise ValueError()
+                return {'device':info.st_dev,'inode':info.st_ino}
+            finally:os.fchdir(original)
+        finally:os.close(directory)
+    finally:os.close(original)
 try:
     before=ticks(pid)
     binary=hashlib.sha256(read('/proc/'+str(pid)+'/exe',134217728)).hexdigest()

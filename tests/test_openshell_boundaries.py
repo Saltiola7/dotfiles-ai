@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import subprocess
 import socket
+import stat
 import sys
 import time
 from types import SimpleNamespace
@@ -468,3 +469,89 @@ def test_macos_connection_numbers_do_not_qualify_linux_denials(boundaries, macos
     with pytest.raises(support.probe.Refusal, match="boundary_denial_unavailable"):
         boundaries._validate_result({"schema_version": 1, "operation": "gateway", "outcome": "denied",
                                      "errno": macos_errno}, "gateway")
+
+
+def unix_connector(boundaries, socket_module=socket):
+    """Load the exact embedded helper without running its native observer body."""
+    tree = ast.parse(boundaries._UNSHARE_OBSERVER)
+    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
+    namespace = {"os": os, "pathlib": SimpleNamespace(Path=Path), "socket": socket_module, "stat": stat}
+    exec(compile(ast.Module(body=functions, type_ignores=[]), "native-unix-observer-helper", "exec"), namespace)
+    return namespace["connect_unix"]
+
+
+@pytest.fixture
+def long_unix_socket(tmp_path):
+    directory = tmp_path.resolve() / ("volume-" + "a" * 70) / ("control-" + "b" * 70)
+    directory.mkdir(parents=True)
+    path = directory / "control.sock"
+    assert len(os.fsencode(path)) > 200
+    before = os.open(".", os.O_RDONLY | os.O_DIRECTORY)
+    parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        os.fchdir(parent)
+        server.bind(path.name)
+        server.listen(2)
+    finally:
+        os.fchdir(before)
+        os.close(parent)
+        os.close(before)
+    try:
+        yield path, server
+    finally:
+        server.close()
+
+
+def test_native_unix_positive_control_connects_long_path_and_restores_directory(boundaries, long_unix_socket):
+    path, server = long_unix_socket
+    before = os.stat(".")
+    original = path.lstat()
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as absolute:
+        with pytest.raises(OSError, match="AF_UNIX path too long"):
+            absolute.connect(str(path))
+    result = unix_connector(boundaries)(str(path))
+    accepted, _ = server.accept()
+    accepted.close()
+    after = os.stat(".")
+    assert (after.st_dev, after.st_ino) == (before.st_dev, before.st_ino)
+    assert result == {"device": original.st_dev, "inode": original.st_ino}
+
+
+def test_native_unix_failed_connection_restores_directory(boundaries, long_unix_socket):
+    path, server = long_unix_socket
+    server.close()
+    before = os.stat(".")
+    with pytest.raises(OSError):
+        unix_connector(boundaries)(str(path))
+    after = os.stat(".")
+    assert (after.st_dev, after.st_ino) == (before.st_dev, before.st_ino)
+
+
+def test_native_unix_socket_substitution_cannot_supply_positive_identity(boundaries, long_unix_socket):
+    path, _ = long_unix_socket
+    original = path.lstat()
+    replacements = []
+    class ReplacingConnection:
+        def __init__(self, *args): self.stream = socket.socket(*args)
+        def __enter__(self): return self
+        def __exit__(self, *args): self.stream.close()
+        def settimeout(self, value): self.stream.settimeout(value)
+        def connect(self, name):
+            self.stream.connect(name)
+            path.unlink()
+            replacement = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            replacements.append(replacement)
+            replacement.bind(path.name)
+            replacement.listen(1)
+            assert path.lstat().st_ino != original.st_ino
+    altered = SimpleNamespace(AF_UNIX=socket.AF_UNIX, SOCK_STREAM=socket.SOCK_STREAM, socket=ReplacingConnection)
+    before = os.stat(".")
+    try:
+        with pytest.raises(ValueError):
+            unix_connector(boundaries, altered)(str(path))
+    finally:
+        for replacement in replacements:
+            replacement.close()
+    after = os.stat(".")
+    assert (after.st_dev, after.st_ino) == (before.st_dev, before.st_ino)
