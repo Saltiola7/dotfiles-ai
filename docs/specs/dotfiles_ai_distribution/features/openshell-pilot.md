@@ -582,6 +582,51 @@ Record each boundary separately. Unavailable native inventories or unsupported
 operations leave that check unavailable. The function cannot promote other
 runtime matrix rows or infer physical-storage recovery from these observations.
 
+#### Bounded recovery observations
+
+`recovery_probe(Selection) -> dict`, selected by `--probe recovery`, runs last,
+after same-generation pointer, containment, protected-boundary, network and
+pause/resume evidence passes. It uses fixed synthetic files and exact owned
+services only. Every recovery case has a maximum sixty-second observation window
+within the original experiment deadline. Stop on an unexpected outcome; retain
+all earlier evidence and native state. Recovery never clears the pointer guard,
+resets Git, replaces the workload or switches to another worker.
+
+First create fixed text and binary checkpoint files under `.openshell-recovery`,
+fsync them and independently verify exact host bytes and identities. Separately
+create a bounded marker without an explicit fsync and label its durability
+unacknowledged. Capture native service/container identities before interruption.
+Stop only the private guest's `openshell-gateway` user service, confirm that it
+is inactive, then explicitly start that same service and require authenticated
+readiness plus the original workload generation. Observe source checkpoint
+preservation independently of gateway recovery.
+
+For storage-object unavailability, set only a dedicated newly created fixture
+file's permission to zero through its verified host descriptor, observe that a
+fixed workload open is denied, and restore only its recorded original mode.
+Require successful access and unchanged contents after restoration. Keep this
+case explicitly classified as synthetic object-permission denial; it proves
+neither VirtioFS withdrawal nor physical-drive loss. Restoration is part of this
+fixed recovery case and does not authorize changing any pointer flag or unrelated
+file. If the observed object identity changes, retain it without restoration.
+
+Finally stop and start only the selected private Lima worker, using its native
+owner and original configuration. Record changed boot/process identities as a
+restart, never a successful resume. Observe the fsynced checkpoints and retained
+evidence before and after restart; record whether the unacknowledged marker is
+present without claiming a durability guarantee. Do not recreate or start a
+replacement agent workload after restart. A final deliberately refused source
+operation may demonstrate terminal failure preservation, after which only
+exact-owner stop and preservation inventory are permitted.
+
+The report distinguishes controlled gateway interruption, synthetic storage
+denial, worker restart, acknowledged source preservation and unacknowledged state.
+It explicitly retains `physical_storage_loss: not_run` and
+`abrupt_host_power_loss: not_run`. Passing these bounded cases cannot silently
+satisfy a stronger storage-loss requirement. Full failure-preservation readiness
+requires reconciling those unperformed cases with the approved pilot scope;
+they are not converted into accepted risk by this implementation.
+
 Each probe produces an allowlisted identifier and `passed`, `failed` or
 `unavailable`, plus bounded private observations. Unperformed rows remain
 `not_run` in the aggregate report. A successful early probe cannot mark the
