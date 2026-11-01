@@ -109,22 +109,7 @@ def fail(message: str) -> NoReturn:
     raise RuntimeError(message)
 
 
-def parse_frontmatter(text: str) -> ParsedFrontmatter:
-    """Parse restricted syntax without asserting ticket-domain validity."""
-    raise NotImplementedError
-
-
-def approve_envelope_safety(value: object) -> SafetyApprovedEnvelope:
-    """Approve recursive safety and shape while retaining the original value."""
-    raise NotImplementedError
-
-
-def approve_envelope(source: str, value: object) -> SourceApprovedEnvelope:
-    """Approve safety and the selected source contract, in shell order."""
-    raise NotImplementedError
-
-
-def scalar(value):
+def scalar(value: str) -> ParsedScalar:
     value = value.strip()
     if value in {"null", "~"}:
         return None
@@ -134,7 +119,12 @@ def scalar(value):
         return []
     if value.startswith(('"', "'")):
         try:
-            return json.loads(value) if value.startswith('"') else value[1:-1].replace("''", "'")
+            if value.startswith('"'):
+                decoded: object = json.loads(value)
+                if isinstance(decoded, str):
+                    return decoded
+                fail("unsupported YAML scalar")
+            return value[1:-1].replace("''", "'")
         except (ValueError, json.JSONDecodeError) as error:
             fail(f"invalid quoted scalar: {error}")
     if re.fullmatch(r"-?(?:0|[1-9]\d*)(?:\.\d+)?", value):
@@ -144,7 +134,8 @@ def scalar(value):
     return value
 
 
-def frontmatter(text):
+def parse_frontmatter(text: str) -> ParsedFrontmatter:
+    """Parse restricted syntax without asserting ticket-domain validity."""
     lines = text.splitlines()
     if not lines or lines[0] != "---":
         fail("ticket frontmatter is missing")
@@ -152,7 +143,8 @@ def frontmatter(text):
         end = lines.index("---", 1)
     except ValueError:
         fail("ticket frontmatter is unterminated")
-    values, index = {}, 1
+    values: dict[str, ParsedValue] = {}
+    index = 1
     while index < end:
         line = lines[index]
         if not line or line.startswith((" ", "\t", "#")) or ":" not in line:
@@ -165,7 +157,7 @@ def frontmatter(text):
             values[key] = scalar(raw)
             index += 1
             continue
-        items = []
+        items: list[ParsedScalar] = []
         index += 1
         while index < end and lines[index].startswith("  - "):
             items.append(scalar(lines[index][4:]))
@@ -173,7 +165,12 @@ def frontmatter(text):
         if not items:
             fail("empty block collection is unsupported; use []")
         values[key] = items
-    return values, "\n".join(lines[end + 1:]).lstrip("\n")
+    return ParsedFrontmatter(values, "\n".join(lines[end + 1:]).lstrip("\n"))
+
+
+def frontmatter(text: str) -> tuple[dict[str, ParsedValue], str]:
+    parsed = parse_frontmatter(text)
+    return parsed.values, parsed.body
 
 
 def ticket_paths(root):
@@ -219,7 +216,8 @@ def validate_ticket(root, path):
     if values.get("points") not in POINTS:
         findings.append({"code": "invalid_ticket_points", "path": relative})
     for field in ("depends_on", "relations", "owns", "reads", "validation", "commits", "jira_publications"):
-        if not isinstance(values.get(field), list) or any(not isinstance(item, str) for item in values.get(field, [])):
+        items = values.get(field)
+        if not isinstance(items, list) or any(not isinstance(item, str) for item in items):
             findings.append({"code": "invalid_ticket_schema", "path": relative, "field": field})
     if (type(values.get("parallel_safe")) is not bool or not values.get("title") or not values.get("priority")
             or values.get("kind") not in KINDS or values.get("migration") is not None
@@ -490,10 +488,11 @@ def apply_migration_locked(root, outputs):
         shutil.rmtree(staging, ignore_errors=True)
 
 
-def safe_envelope(value):
+def approve_envelope_safety(value: object) -> SafetyApprovedEnvelope:
+    """Approve recursive safety and shape while retaining the original value."""
     forbidden = re.compile(r"(?:password|secret|token|credential|authorization|cookie|transcript|prompt|command_arguments?|api[_-]?key|private[_-]?key)", re.I)
     unsafe = re.compile(r"(?:op://|-----BEGIN [A-Z ]*PRIVATE KEY-----|\bBearer\s+\S+|(?:^|\s)/(?:Users|home|Volumes|var)/|\b[^\s@]+@[^\s@]+\.[^\s@]+)", re.I)
-    def visit(item):
+    def visit(item: object) -> None:
         if isinstance(item, dict):
             if any(forbidden.search(str(key)) for key in item):
                 fail("envelope contains a forbidden field")
@@ -511,9 +510,23 @@ def safe_envelope(value):
             or not isinstance(value["source_id"], str) or not 1 <= len(value["source_id"].encode()) <= 256
             or not isinstance(value["payload"], dict)):
         fail("envelope contract is incomplete")
+    return SafetyApprovedEnvelope(value, value["schema_version"], value["source_id"], value["payload"])
 
 
-def validate_envelope_contract(source, value):
+def safe_envelope(value: object) -> None:
+    approve_envelope_safety(value)
+
+
+def approve_envelope(source: str, value: object) -> SourceApprovedEnvelope:
+    """Approve safety and the selected source contract, in shell order."""
+    if source not in ENVELOPE_SOURCES:
+        fail("unsupported sanitized envelope source")
+    safety = approve_envelope_safety(value)
+    validate_envelope_contract(source, safety.value)
+    return SourceApprovedEnvelope(source, safety)
+
+
+def validate_envelope_contract(source: str, value) -> None:
     if value["schema_version"] != 1:
         fail("unsupported sanitized envelope schema version")
     payload = value["payload"]
@@ -535,7 +548,7 @@ def validate_envelope_contract(source, value):
         validate_envelope_field(key, item)
 
 
-def validate_envelope_field(key, value):
+def validate_envelope_field(key: str, value) -> None:
     if key == "gates":
         if set(value) - GATE_NAMES:
             fail("envelope gates contain an unknown gate")
