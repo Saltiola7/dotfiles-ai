@@ -1840,3 +1840,8 @@ complete shared-skill projection, source pins, retained licenses, documented
 adaptations and exact-target deployment. Small entrypoints load supporting detail
 only when relevant. Project tools and CI remain project-owned; installation does
 not execute examples, install target tools or grant operational authority.
+
+**Python repository audit:** `python-audit` composes the six existing Python
+specialists and QA into a report-only assessment with explicit coverage, evidence
+and ordered refactor batches. Distribution installs its complete wrapper/resources
+through exact targets; installing the entrypoint does not start a target audit.
