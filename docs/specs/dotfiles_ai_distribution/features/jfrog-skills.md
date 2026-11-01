@@ -34,7 +34,7 @@ not provision a platform, enable governance or start a client/server connection.
 | Interaction | required: selection/deployment handoff table in Spec |
 | State | required: readiness transition table in Contract |
 | Data/trust | required: trust and failure table in Contract |
-| Schema | not_applicable: no persistent application/configuration schema is added |
+| Schema | required: optional CLI interface table in Spec |
 | Dependency/deployment | required: selection/deployment handoff table in Spec |
 | Quantitative | not_applicable: no comparative reliability or token-cost claim is required for installation |
 
@@ -68,3 +68,54 @@ installation. It selects official JFrog CLI 2.129.0 assets; an existing compatib
 CLI remains owned by its current installer. Minimum capability is 2.106.0 for the
 whole collection. Planning alone does not require a CLI or configured platform.
 No credentials, platform identity or global default selection are provided.
+
+## Spec
+
+All seven source directories live at `dot_agents/skills/<upstream-name>` and
+project to the existing shared `~/.agents/skills/<name>` location. Each root has a
+compact `SKILL.md`, lazy complete upstream workflow material, unchanged supporting
+resources except reviewed reversible adaptations, `LICENSE.upstream` and
+`UPSTREAM.md`. Root descriptions use JFrog-specific task evidence. The init root
+preserves upstream manual invocation through native invocation metadata.
+
+`dbsctr/references/specialist-sources/sources.lock.json` appends seven records with
+immutable source roots/commit, original SHA-256/Git blobs/modes, packaged hashes,
+installed modes and reversible patches. Prior records retain identical values.
+Relocating entrypoint material must preserve relative links. Helpers are stored
+as readable resources and invoked with their selected interpreter after review;
+source execution bits and declared installed modes are separate facts.
+
+| Interface | Shape and owner |
+|---|---|
+| Native discovery | Seven scoped descriptions; `jfrog-init` retains explicit invocation policy |
+| DBSCTR platform table | One row per actual JFrog concern; no duplicate router in language modules |
+| QA | Configured Xray remains existing vulnerability authority; link relevant base guidance without making JFrog mandatory |
+| `.chezmoidata.toml` | Optional `dotfiles_ai.jfrog_cli.enabled=false`; no target or authentication fields |
+| `run_onchange_after_install-jfrog-cli.sh.tmpl` | Independent default-off, missing-only native binary installer; supported Darwin/Linux ARM64/AMD64 assets for 2.129.0 with reviewed SHA-256 |
+| CLI destination | Existing local-bin convention; refuse collisions/symlinks and preserve any existing selected CLI owner/version |
+| CLI check | Existing CLI >=2.106.0 qualifies; older CLI is preserved and reported unmet; isolated private home and reporting/version checks disabled |
+| Native MCP/client config | No new entries, hook/plugin installation or authentication changes |
+
+| Selection/deployment handoff | Required evidence before proceeding |
+|---|---|
+| Native task to specialist | JFrog-specific description plus current task evidence; unrelated MCP/GraphQL/skill requests do not trigger governance |
+| Specialist to reference/helper | Relevant lazy reference only; review helper side effects, actual selected tools/target and native config version |
+| Reviewed source to rendered skills | Full provenance, license, closed resource links/imports and exact file/mode inventory |
+| CLI opt-in to executable | Supported platform, no owner/collision, exact asset checksum, atomic staging and isolated version qualification |
+| Rendered skill files to live shared directory | Prior-live reconciliation, exact targets, scripts excluded, reviewed preview, complete verification and repeat diff |
+| Live guidance to platform operation | Explicit selected identity/permissions and task-specific capability; installation does not establish live readiness |
+
+**Text Equivalent (selection/deployment):** Native task evidence selects one
+relevant specialist, which loads only needed references. Source validation binds
+complete reviewed bundles to exact rendered targets. Optional CLI installation
+requires opt-in, target absence, checksum and isolated qualification before atomic
+promotion. Shared deployment reconciles prior state and excludes scripts. Platform
+operations separately need actual target/tool authority. Canonical source: this
+feature, inventory, router and installer; owner: distribution maintainer; update
+when selection, file layout, configuration, prerequisites or delivery changes.
+
+Implementation order is dependency-aware: first failing bundle/routing/installer
+regressions; then disjoint complete bundle adaptations and optional CLI owner;
+then primary-owned inventory/patch reconstruction, routing and documentation;
+finally integrated validation, exact deployment, native discovery and delivery.
+The primary alone owns lifecycle, shared inventory, integration and native writes.
