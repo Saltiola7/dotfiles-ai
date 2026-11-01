@@ -24,6 +24,8 @@ VENDORED = {
     "pulumi-best-practices", "pulumi-component", "pulumi-debug-failed-operation", "django-expert",
     "marimo-notebook", "jupyter-to-marimo", "wasm-compatibility",
     "prefect-operations",
+    "jfrog", "jfrog-setup-package-managers", "jfrog-package-curation",
+    "jfrog-reference-architecture", "jfrog-ai-catalog", "jfrog-init", "jfrog-mcp-management",
 }
 AUTHORED = {"linux-host-diagnostics", "macos-operations", "podman-quadlet", "python-modernization-review",
             "hetzner-operations", "dagger-pipelines", "chezmoi-operations",
@@ -56,7 +58,13 @@ def test_complete_specialists_retain_immutable_origins_and_modes():
         assert {"SKILL.md", "LICENSE.upstream"} <= package["upstream_files"].keys()
         assert package["upstream_files"].keys() <= package["files"].keys()
         assert "UPSTREAM.md" in package["files"]
-        assert package["modes"].keys() == package["installed_modes"].keys() == package["files"].keys()
+        assert package["modes"].keys() == package["files"].keys()
+        source_only = package.get("source_only_files", [])
+        if source_only:
+            assert package["name"] == "jfrog" and source_only == ["assets/.gitkeep"]
+            assert package["upstream_files"][source_only[0]] == digest(b"")
+            assert package["files"][source_only[0]] == digest(b"")
+        assert package["installed_modes"].keys() == package["files"].keys() - set(source_only)
         assert set(package["modes"].values()) <= {"100644", "100755"}
         assert set(package["installed_modes"].values()) <= {"100644", "100755"}
         attribution = (SKILLS / package["name"] / "UPSTREAM.md").read_text()
@@ -208,7 +216,7 @@ def test_exact_delivery_preserves_unrelated_state_and_resource_modes(tmp_path):
                "--exclude", "scripts"]
     for _ in range(2):
         subprocess.run([*command, "apply", "--parent-dirs", *map(str, targets)], check=True, capture_output=True)
-        assert_bundles(target_root, selected)
+        assert_bundles(target_root, selected, installed=True)
         for name in AUTHORED:
             assert inventory(target_root / name) == inventory(SKILLS / name)
         for name in SHARED:

@@ -1,0 +1,10 @@
+--- a/references/jf-cli-install-internals.md
++++ b/references/jf-cli-install-internals.md
+@@ -1,3 +1,7 @@
++# Local qualification boundary
++
++This describes the retained upstream installer, not the selected portable installer. Do not execute its npm/fallback/PATH mutation path from init. Use the existing native owner; see [helper boundaries](script-invocation.md).
++
+ # jfrog-install-jf-cli.mjs — installation internals
+ 
+ Background for Step 2 of `/jfrog-init` (`SKILL.md`). The model doesn't

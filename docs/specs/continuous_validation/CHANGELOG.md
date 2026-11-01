@@ -1,5 +1,26 @@
 # Continuous Validation Changelog
 
+## 2026-11-01 — CVS-STORAGE-005-BASE: current-base reconciliation
+
+Integrate protected main `adc34a17` after its independently reviewed JFrog skill
+delivery advanced the base during storage CI. Incoming files do not overlap the
+storage implementation or contracts. Preserve the same bounded replay, whole
+selection admission, crash retention and explicit recovery decisions.
+
+The combined storage, JFrog, platform/Python specialist, distribution and
+instruction scope passes 681 tests with one opt-in skip on each of Python 3.12
+and 3.14. All seven inherited bundles pass the original creator validator;
+resource syntax and provenance checks pass. Existing isolated installation
+remains byte-identical to its qualified six-file closure; no additional apply,
+JFrog activation or shared-controller write is required.
+
+Python and Security remain applicable; no Gate Exception is approved. Retain
+prior gate, runtime and superseded-base CI evidence. Recovery and support
+obligations below remain unchanged. Integration Gate Commit and new CI identities
+belong to the private follow-up Cycle Record. Delivery intent remains branch
+`fix/python-validation-storage` and existing PR #274 into `main`, followed by the
+approved ordinary merge only after fresh current-base CI and native protections.
+
 ## 2026-11-01 — CVS-STORAGE-005-LOCK: concurrent observation writes
 
 Complete the same bounded-storage repair before merging its existing PR. Serialize

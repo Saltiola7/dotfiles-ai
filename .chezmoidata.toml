@@ -20,6 +20,9 @@ enabled = false
 [dotfiles_ai.codex]
 channel = "stable"
 
+[dotfiles_ai.jfrog_cli]
+enabled = false
+
 [dotfiles_ai.prefect_mcp]
 enabled = false
 profiles_path = ""
