@@ -153,6 +153,20 @@ regression proposal; this slice cannot quietly strengthen the contract.
 
 ## Behavior
 
+**Scenario: Retain legacy helper compatibility**
+- Given a caller using `frontmatter`, `safe_envelope`, or source/field validators
+- When the typed policy boundary is introduced
+- Then `frontmatter` still returns an ordinary two-item tuple
+- And successful legacy envelope validators still return `None`.
+
+**Scenario: Preserve characterized edge behavior**
+- Given single-quoted input without a closing quote or a block list containing `[]`
+- When frontmatter parsing runs
+- Then existing quote slicing and nested empty-list results remain unchanged.
+- Given an unhashable availability, a lone surrogate, or a nonfinite metric
+- When the existing corresponding policy runs
+- Then its prior exception or acceptance is retained rather than silently repaired.
+
 **Scenario: Parse without granting ticket validity**
 - Given text accepted by the existing restricted frontmatter grammar
 - When the pure parser runs
