@@ -648,10 +648,14 @@ exact-owner stop and preservation inventory are permitted.
 The report distinguishes controlled gateway interruption, synthetic storage
 denial, worker restart, acknowledged source preservation and unacknowledged state.
 It explicitly retains `physical_storage_loss: not_run` and
-`abrupt_host_power_loss: not_run`. Passing these bounded cases cannot silently
-satisfy a stronger storage-loss requirement. Full failure-preservation readiness
-requires reconciling those unperformed cases with the approved pilot scope;
-they are not converted into accepted risk by this implementation.
+`abrupt_host_power_loss: not_run`. Scope reconciliation against approved Initiative
+requirements INT-010, INT-026 and INT-028 selects bounded gateway interruption,
+synthetic storage-object unavailability and worker restart with retained evidence
+and separate acknowledged/unacknowledged state observations. Those requirements
+do not specify physical disk removal or abrupt Mac power loss. Actual passing
+observations can satisfy these selected recovery cases; they establish neither
+physical-storage durability nor a power-loss guarantee. The unperformed physical
+cases remain `not_run`, not accepted risk, and no broader guarantee is promoted.
 
 Each probe produces an allowlisted identifier and `passed`, `failed` or
 `unavailable`, plus bounded private observations. Unperformed rows remain

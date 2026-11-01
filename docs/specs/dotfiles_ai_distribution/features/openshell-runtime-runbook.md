@@ -55,6 +55,13 @@ Before any worker or workload operation:
    exact setting and prove that workloads cannot submit or expand resource
    selections. Missing proof blocks admission; do not change another gateway.
 
+Complete source review, affected tests and the concrete native admission procedure
+before creating the selected worker. Preparation time is reserved for native
+resource and artifact checks; it is not extended while source defects are fixed.
+A stopped preparation that admitted no workload retains its original result and
+clock. A later reviewed experiment receives a new private identity and explicitly
+selected resources, subject to the same ceilings and retained-evidence capacity.
+
 Trusted preparation is bounded to 30 minutes. Missing capability produces an
 unavailable result. A contradictory identity or ownership observation produces a
 failed result. Neither permits a privileged container, unconfined seccomp,
@@ -64,7 +71,7 @@ additional host capability, another backend or automatic package-owner change.
 
 | Selected resource | Required boundary | Refusal condition |
 |---|---|---|
-| Worker | One owned disposable Lima worker with four virtual CPUs, eight GiB memory and 40 GiB virtual disk; exact configuration recorded | Unknown owner, conflicting generation, larger unreviewed budget or an existing agent worker |
+| Worker | One owned disposable Lima worker with at most four virtual CPUs, eight GiB memory and 40 GiB virtual disk; exact configuration recorded | Unknown owner, conflicting generation, larger unreviewed budget or an existing agent worker |
 | Workload | At most one qualification workload; two CPUs, two GiB memory and 256 processes enforced by actual runtime controls | Missing or ineffective resource enforcement |
 | Synthetic repository | Newly prepared synthetic content and native Worktrunk-created linked fixture membership | A real working repository, copied checkout used as direct-edit evidence, custom allocator or unverified membership |
 | Workload-visible source | Only selected fixture source is writable; Git pointer and protected metadata remain protected | Broad parent/home mount, writable shared Git metadata or an alias that expands access |
@@ -126,7 +133,7 @@ or repeatedly restarted experiment is permitted.
 | Exercise | Direct edits are observed from the host; protected writes, aliases, egress bypass and administrative access are denied | Stop new probes and retain modified synthetic fixtures and bounded diagnostics |
 | Pause | Every workload descendant stops progressing while the gateway remains responsive | Report failed or unavailable; terminal silence is insufficient |
 | Resume | The same workload generation and process/session markers continue with prior edits intact | A replacement process is restart, never successful resume |
-| Recover | Gateway interruption, worker restart and storage-loss cases have bounded, separately classified durability and state observations | Preserve ambiguous state; do not reset, delete or adopt a substitute resource |
+| Recover | Gateway interruption, worker restart and selected storage-object unavailability have bounded, separately classified durability and state observations | Preserve ambiguous state; do not reset, delete or adopt a substitute resource |
 | Finish | Every required probe has a truthful outcome and the controller has recorded preservation inventory | Leave incomplete checks unavailable; cleanup remains separately authorized |
 
 **Text Equivalent:** Preparation and enforcement admission precede workload
@@ -142,6 +149,21 @@ probe data, not evidence that a boundary held. Record a stable probe identifier,
 `passed`, `failed` or `unavailable`, an allowlisted reason, the observed component
 generation and a private evidence reference. Do not upgrade missing observations
 to passed because a command exited successfully.
+
+### Reviewed runner order
+
+The opt-in runner accepts an explicit private selection document. For this
+candidate, invoke `immutable-pointer`, `containment`, `boundaries`, `network`,
+`pause-resume`, then `recovery` through its `--probe` option. The original `pointer`
+mode remains available for inspecting the earlier candidate; it is not a substitute
+for immutable-pointer qualification. Stop at the first failed or unavailable result.
+All six candidate modes must bind the same admitted generation. Recovery runs last
+because a worker restart ends the original process generation.
+
+Each mode has an independent result and retained evidence. The runner never
+promotes an individual pass to overall runtime qualification. Recovery covers the
+selected controlled interruptions and synthetic permission denial; physical disk
+loss and abrupt host power loss remain explicitly unperformed.
 
 ### Full probe outcome matrix
 
