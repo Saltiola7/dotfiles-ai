@@ -1,5 +1,12 @@
 # DBSCTR V3 Lifecycle
 
+[Evidence rerun invalidation](features/gate-evidence-invalidation.md) specifies
+the PY-02 repair: replacing a disposed gate with failed or unavailable evidence
+reopens later required passed gates, even when the source HEAD is unchanged.
+Historical evidence, current exception rules, schema compatibility and command
+admission remain intact. This is Discovery authority; implementation and managed
+installation are separate validation claims.
+
 [Platform and language specialists](features/platform-specialists.md) extends
 conditional selection to shell, host/container/cloud operations, async Python,
 modernization review and Mojo while preserving existing lifecycle and QA ownership.

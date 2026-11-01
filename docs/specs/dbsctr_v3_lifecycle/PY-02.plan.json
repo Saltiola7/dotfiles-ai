@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Source-only draft delivery publishes no standalone release artifact under the existing Engineering Profile."},
+    "deploy": {"applicability": "not_applicable", "reason": "Managed helper installation and runtime activation are outside this source-only slice."},
+    "operate": {"applicability": "not_applicable", "reason": "No live cycle execution or service operation is performed in this source-only slice."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}
