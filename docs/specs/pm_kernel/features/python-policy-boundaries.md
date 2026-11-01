@@ -123,6 +123,35 @@ proof wrappers cannot replace those objects before validation. Preserve direct
 `sys.modules`; any internal type representation must pass that existing import
 contract on supported Python versions.
 
+## Concrete Interfaces
+
+The standalone file owns these pure interfaces:
+
+```python
+def scalar(value: str) -> ParsedScalar: ...
+def parse_frontmatter(text: str) -> ParsedFrontmatter: ...
+def approve_envelope_safety(value: object) -> SafetyApprovedEnvelope: ...
+def approve_envelope(source: str, value: object) -> SourceApprovedEnvelope: ...
+```
+
+`parse_frontmatter` returns named `values` and `body` fields. The legacy
+`frontmatter` adapter returns an ordinary tuple of those same values and body.
+`approve_envelope_safety` performs the existing recursive and shape checks before
+constructing its proof; `approve_envelope` first rejects unsupported source
+selections, then obtains safety approval and runs the existing selected-source
+contract before constructing its distinct proof. Each envelope proof retains the
+original dictionary through `.value`; source approval also identifies `.source`.
+Proofs are internal synchronous results, not persistent schemas or serialized
+payloads. Consumers must not mutate an approved value between checking and use.
+
+Legacy `safe_envelope`, `validate_envelope_contract`, and
+`validate_envelope_field` retain their direct-call behavior and `None` success
+returns. In particular, direct source-contract validation does not add safety or
+source-selection checks. The shell consumes a parsed result for ticket checks
+and a source-approved result for envelope projection; it retains all I/O and raw
+bytes. Spec-phase stubs are intentionally incomplete and remain unwired until
+runtime validation and regression evidence are in place.
+
 ## Compatibility Contracts
 
 1. Preserve the accepted and rejected input population, current exception classes

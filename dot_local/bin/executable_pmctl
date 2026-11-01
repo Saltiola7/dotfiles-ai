@@ -109,6 +109,21 @@ def fail(message: str) -> NoReturn:
     raise RuntimeError(message)
 
 
+def parse_frontmatter(text: str) -> ParsedFrontmatter:
+    """Parse restricted syntax without asserting ticket-domain validity."""
+    raise NotImplementedError
+
+
+def approve_envelope_safety(value: object) -> SafetyApprovedEnvelope:
+    """Approve recursive safety and shape while retaining the original value."""
+    raise NotImplementedError
+
+
+def approve_envelope(source: str, value: object) -> SourceApprovedEnvelope:
+    """Approve safety and the selected source contract, in shell order."""
+    raise NotImplementedError
+
+
 def scalar(value):
     value = value.strip()
     if value in {"null", "~"}:
