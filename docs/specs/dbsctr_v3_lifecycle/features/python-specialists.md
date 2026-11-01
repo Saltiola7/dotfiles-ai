@@ -409,3 +409,35 @@ Evidence Plan: Boundary/Interaction/Data-trust/Dependency evidence is required i
 this table and the mode/contract text; State uses the behavior/disposition table.
 Schema is not applicable because profiles and Gate Ledger remain unchanged;
 Quantitative is not applicable because no effectiveness or performance claim is made.
+
+### Architecture contracts and validation
+
+Project-declared architecture takes precedence over generic layer examples.
+Distinguish accepted rules, inferred intent and proposed alternatives. Findings
+need concrete locations, actual callers/import witnesses, impact/confidence,
+compatibility and validation; import topology alone does not establish good or
+bad design. Public APIs are not access-controlled by `__all__`. Preserve supported
+Python/tool versions, existing libraries and intentional architecture decisions.
+
+Import Linter is an optional example when selected by the project. Report roots,
+configuration, selected contracts, direct/indirect semantics, type-only/external
+exclusions, dynamic/generated/plugin coverage and cache/environment limits.
+Do not execute target imports to discover topology. A configured custom checker
+can execute code or write caches; inspect effects before using existing execution
+authority. Missing tooling stays a gap, not installation permission. A proposed
+rule is not an accepted gate; narrow exceptions need actual authority and scope.
+
+Architecture focus uses relevant configured checks; it does not silently request
+full typing, packaging or performance validation. Full-mode coverage retains
+existing obligations. Preserve snapshots/dirty overlays and resource privacy.
+Return in conversation by default; artifact writes, fixes, environments, services
+and external actions require the existing user/project scope.
+
+Validate intentional failing composition before authoring new skills. Verify
+complete upstream reconstruction, resource closure, declared mode routing and
+isolated exact-target/idempotent projection; run original creator validators.
+Independent source-only exercises cover a declared-boundary monolith, a simple
+library, focused/full scope and missing guidance/check evidence. Preserve actual
+coverage and target bytes; samples do not prove universal routing or effectiveness.
+Source reconciliation preserves both published Python/data and current-main
+router/infrastructure scopes and revalidates their union before delivery.
