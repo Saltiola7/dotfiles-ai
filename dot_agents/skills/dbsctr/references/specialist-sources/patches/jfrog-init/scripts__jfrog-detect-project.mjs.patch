@@ -1,0 +1,26 @@
+--- a/scripts/jfrog-detect-project.mjs
++++ b/scripts/jfrog-detect-project.mjs
+@@ -14,8 +14,8 @@
+ //
+ // Enumeration only ever runs to populate the interactive picker (no input
+ // passed) — see "Why no matching either" below for why a passed input skips
+-// it entirely. Cached per server for a few minutes (see lib/project-cache.mjs)
+-// since the picker can re-invoke this script more than once per walk.
++// it entirely. Enumeration stays live for the current identity; the compatibility
++// cache helpers do not retain credential-derived fingerprints or project lists.
+ //
+ // Usage: node jfrog-detect-project.mjs [server-id] [project-input]
+ //
+@@ -84,10 +84,8 @@
+   }
+ 
+   // ---------- Ask branch: no input passed; return candidates ----------
+-  // Cached per server for a short TTL (lib/project-cache.mjs): the
+-  // interactive picker re-invokes this script once per user attempt within
+-  // the same walk, and re-enumerating on every attempt is wasted network
+-  // traffic.
++  // The compatibility cache always misses. Enumerate using the current
++  // selected identity without retaining a credential-derived cache verifier.
+   let list;
+   const cachedBody = readCachedProjectList(serverId, creds);
+   if (cachedBody !== null) {

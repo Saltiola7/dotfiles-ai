@@ -1,0 +1,26 @@
+# Local execution and ownership boundaries
+
+These boundaries apply to the compact entrypoint, every retained reference and
+all bundled helpers. The complete tree is installed as inert guidance/resources.
+Review task-specific code and effects before invocation; do not run every helper
+as a readiness check.
+
+| Capability | Owner and execution boundary |
+|---|---|
+| CLI installation/update | Existing native installer; the distribution's optional missing-only CLI hook is independent of these skills. Never pipe a floating installer into a shell or install a competing npm/PATH owner from a reference. |
+| Environment and version helpers | `check-environment.*` and `cli-newer-version-offer.*` can perform network requests, write state/cache and emit a model-bearing user agent. They are retained upstream facilities, not required automatic probes or update offers. Select them only for an explicit compatible diagnostic task after reviewing disclosure and side effects. |
+| Authentication | Existing selected CLI/native client credential owner. A normal operation does not authorize login, token issuance, copying credentials, changing defaults or opening a browser. Reuse already authorized target identity; report the gap when unavailable. |
+| Login helpers | `jfrog-login-register-session.sh`, `jfrog-login-save-credentials.sh` and collision helpers participate in session creation, one-time token exchange and credential writes. They are not harmless reads. Review native compatibility, collisions, scope and secret handling before a separately authorized setup workflow. |
+| Runtime permissions | Use actual available tools and native permission policy. A failed request does not justify blanket network/filesystem escalation, changing sandbox settings or bypassing an approval denial. |
+| MCP/configuration | Existing version-qualified native client writer owns configuration/authentication. Generic MCP tasks do not route to Agent Guard. JFrog-governed catalog work must be specifically selected. |
+| Validation/security | Project-selected scan, license, provenance and release gates remain authoritative. Upload, policy allowance, cached presence and scan success are different observations. |
+
+Use redacted supported configuration metadata and target identity only. Raw CLI
+config exports and stored authentication headers can contain reusable secrets;
+never decode or print them for ordinary discovery. Do not copy native credential
+state between CLI and MCP or infer one connection's identity from the other.
+
+Network operations can create audit, cache or download records even when framed
+as checks. Bound their target and effect to the requested task. If authentication
+or permissions fail, preserve the same target and report failure; do not use a
+different transport or credential scope as an access-control workaround.

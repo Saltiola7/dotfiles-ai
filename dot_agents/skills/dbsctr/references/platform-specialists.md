@@ -23,6 +23,13 @@ project target policy and QA remain authoritative.
 | Actual Chezmoi source, templates, destination drift or scoped apply | `chezmoi-operations`; identify hook/script/external effects and preserve repository deployment ownership |
 | Actual PyInfra inventory, deploy code or host operation | `pyinfra-deployments`; distinguish preparation facts, execution-time conditions and verified host results |
 | Prefect run, deployment, log or orchestration-state diagnosis | `prefect-operations`; verify the selected API identity and available tools, with self-hosted operation independent of Cloud; project SDK/CLI remains sufficient for flow authoring |
+| JFrog Artifactory artifacts/repos, builds, Xray findings or platform API work | `jfrog`; use the selected server and relevant references; configured QA authority remains unchanged |
+| Explicit Artifactory package-manager binding | `jfrog-setup-package-managers`; preserve selected repository, runtime and workspace configuration owner |
+| JFrog Curation package-policy check/download or blocked-resolution diagnosis | `jfrog-package-curation`; CLI check/download differs from MCP-only historical troubleshooting |
+| JFrog topology, sizing, HA, recovery or hosting design | `jfrog-reference-architecture`; preserve selected hosting target; planning needs no configured CLI |
+| Selected JFrog AI Catalog skill/plugin lifecycle | `jfrog-ai-catalog`; preserve managed source and required scan/provenance gates |
+| Explicit JFrog installation/readiness diagnosis | `jfrog-init`; manual invocation policy and native installer/client owners remain authoritative |
+| Explicit JFrog Agent Guard or governed MCP catalog work | `jfrog-mcp-management`; no takeover of unrelated MCP setup or automatic global governance |
 
 Resolve target facts from existing project/configuration evidence before asking.
 Record material ambiguity rather than silently using an ambient cluster,
@@ -80,3 +87,12 @@ relevant prior installed state without removing unrelated skills.
 
 Filesystem installation, native discovery, actual target-tool availability and
 demonstrated task behavior are separate claims. Report only observed evidence.
+
+The complete seven-root official JFrog collection shares this inventory. Its
+compact entrypoints route into full lazy resources, with scoped adaptations for
+native configuration, tool ownership, requested package versions and scan gates.
+The optional CLI installer is default-off and missing-only; skills need no plugin,
+Agent Guard, login or MCP connection. CLI/API operations and MCP tools overlap,
+but Curation's historical troubleshooting requires actual `jfs_curation_*` tools.
+Legacy upstream helper/config writers remain inert until task-specific review and
+version-qualified owner selection. Preserve existing native MCP owners.

@@ -1,0 +1,6 @@
+interface:
+  display_name: "JFrog Setup Readiness"
+  short_description: "Inspect explicitly selected JFrog setup readiness"
+  default_prompt: "Use $jfrog-init to inspect the selected JFrog setup and report capability gaps."
+policy:
+  allow_implicit_invocation: false
