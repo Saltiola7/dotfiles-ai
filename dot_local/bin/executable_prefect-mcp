@@ -37,7 +37,8 @@ class Layout:
         self.config = self.home / ".config/dotfiles-ai/prefect-mcp.toml"
 
 
-def safe(path, *, directory=False, private=False, trusted_system=False):
+def safe(path, *, directory=False, private=False, trusted_system=False,
+         max_bytes=16 * 1024 * 1024):
     try:
         item = path.lstat()
     except OSError:
@@ -47,11 +48,12 @@ def safe(path, *, directory=False, private=False, trusted_system=False):
     if (item.st_uid not in owners or not expected_type(item.st_mode)
             or item.st_mode & (0o077 if private else 0o022)):
         raise Unavailable("unsafe_path")
-    if not directory and (item.st_nlink != 1 or item.st_size > 16 * 1024 * 1024):
+    if not directory and (item.st_nlink != 1 or item.st_size > max_bytes):
         raise Unavailable("unsafe_file")
 
 
-def checked_path(path, home, *, directory=False, private=False, trusted_system=False):
+def checked_path(path, home, *, directory=False, private=False, trusted_system=False,
+                 max_bytes=16 * 1024 * 1024):
     path = Path(path)
     if not path.is_absolute() or os.path.normpath(str(path)) != str(path):
         raise Unavailable("invalid_path")
@@ -60,7 +62,8 @@ def checked_path(path, home, *, directory=False, private=False, trusted_system=F
         safe(parent, directory=True, trusted_system=not parent.is_relative_to(home))
         if parent == boundary:
             break
-    safe(path, directory=directory, private=private, trusted_system=trusted_system)
+    safe(path, directory=directory, private=private, trusted_system=trusted_system,
+         max_bytes=max_bytes)
     return path
 
 
@@ -240,7 +243,7 @@ def uv_executable():
     if found is None:
         raise Unavailable("uv_unavailable")
     path = Path(found).resolve(strict=True)
-    checked_path(path, Path.home(), trusted_system=True)
+    checked_path(path, Path.home(), trusted_system=True, max_bytes=256 * 1024 * 1024)
     if not os.access(path, os.X_OK):
         raise Unavailable("uv_unavailable")
     return str(path)

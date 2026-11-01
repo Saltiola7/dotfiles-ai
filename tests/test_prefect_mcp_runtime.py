@@ -116,6 +116,21 @@ def test_private_settings_and_profile_paths_reject_links_and_writes(launcher, la
         launcher.selection(launcher.read_config(layout), {}, layout.home)
 
 
+def test_tool_size_allowance_preserves_default_input_limit(launcher, layout, monkeypatch):
+    tool = layout.home / "uv"
+    with tool.open("wb") as stream:
+        stream.truncate(24 * 1024 * 1024)
+    tool.chmod(0o700)
+    with pytest.raises(launcher.Unavailable, match="unsafe_file"):
+        launcher.safe(tool)
+    with pytest.raises(launcher.Unavailable, match="unsafe_file"):
+        launcher.checked_path(tool, layout.home)
+    assert launcher.checked_path(tool, layout.home, max_bytes=256 * 1024 * 1024) == tool
+    monkeypatch.setattr(launcher.shutil, "which", lambda name: str(tool) if name == "uv" else None)
+    monkeypatch.setattr(launcher.Path, "home", classmethod(lambda cls: layout.home))
+    assert launcher.uv_executable() == str(tool)
+
+
 def test_child_environment_has_neutral_home_and_only_selected_settings(launcher, layout, monkeypatch):
     generation = layout.base / "generations" / ("a" * 64)
     monkeypatch.setenv("PREFECT_API_URL", "https://wrong.invalid")
