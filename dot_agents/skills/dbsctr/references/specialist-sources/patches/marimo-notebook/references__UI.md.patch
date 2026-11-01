@@ -1,0 +1,36 @@
+--- a/references/UI.md
++++ b/references/UI.md
+@@ -1,4 +1,4 @@
+-marimo has a rich set of UI components. 
++marimo has a rich set of UI components.
+ 
+ * `mo.ui.altair_chart(altair_chart)` - create a reactive Altair chart
+ * `mo.ui.button(value=None, kind='primary')` - create a clickable button
+@@ -23,7 +23,8 @@
+ * `mo.ui.array(elements: list[mo.ui.Element])` - create an array of UI elements
+ * `mo.ui.form(element: mo.ui.Element, label='', bordered=True)` - wrap an element in a form
+ 
+-As always, you can learn more about the available inputs to all these components via `uv --with marimo run python -c "import marimo as mo; help(mo.ui.form)"` 
++These signatures are snapshot examples. Check affected inputs in the selected
++environment via `python -c "import marimo as mo; help(mo.ui.form)"`
+ 
+ ## Forms
+ 
+@@ -79,14 +80,14 @@
+ )
+ ```
+ 
+-However, the user may also want to use other components. Popular alternatives include the `ScatterWidget` from the `drawdata` library, `moutils`, and `wigglystuff`. 
++However, the user may also want to use other components. Popular alternatives include the `ScatterWidget` from the `drawdata` library, `moutils`, and `wigglystuff`.
+ 
+-For custom classes and static HTML representations you can also use the `_display_` method. 
++For custom classes and static HTML representations you can also use the `_display_` method.
+ 
+ ```python
+ class Dice:
+     def _display_(self):
+         import random
+ 
+-        return f"You rolled {random.randint(0, 7)}"
++        return f"You rolled {random.randint(1, 6)}"
+ ```

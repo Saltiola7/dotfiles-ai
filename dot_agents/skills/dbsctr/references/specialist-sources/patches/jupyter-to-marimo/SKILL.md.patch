@@ -1,0 +1,99 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,52 +1,56 @@
+ ---
+ name: jupyter-to-marimo
+-description: Convert a Jupyter notebook (.ipynb) to a marimo notebook (.py).
++description: Convert explicitly selected Jupyter notebooks to marimo while preserving source content, widgets, dependencies and intended behavior. Use for requested notebook migration.
+ ---
+ 
+-# Converting Jupyter Notebooks to Marimo
++# Converting Jupyter notebooks to marimo
+ 
+-## Convert first
++Resolve the source, a distinct output path, selected marimo/Python versions,
++dependency owner and intended modes. Preserve the original `.ipynb` and existing
++project choices; do not overwrite another artifact without task authority.
+ 
+-**Important:** Run the converter before you read the source notebook:
++Use the selected environment's converter first, then review its output:
++```bash
++marimo convert source.ipynb -o converted.py
++marimo check converted.py
++```
++These are command shapes, not permission to download a tool or execute the notebook.
++Inspect selected-version help when options differ. The generated file is a first
++draft; read source metadata/content when conversion fails or fidelity needs checking.
+ 
+-```bash
+-uvx marimo convert <notebook.ipynb> -o <notebook.py>
+-```
++If the target is open in an active kernel, `marimo-pair` owns durable mutations.
++Do not edit that live backing file or start another runtime to bypass its owner.
++Report unavailable pair capability before a live mutation. Perform conversion to
++a separate artifact unless the task explicitly selects a different safe handoff.
+ 
+-Read the `.ipynb` file only if conversion fails or the generated file omits required information. Treat the generated file as a first draft.
++## Review conversion fidelity
+ 
+-Run this command after conversion and after substantial edits:
++- Account for packages and existing PEP 723 metadata. Use the selected dependency
++  owner and sandbox mode when that metadata is the environment contract.
++- Remove obsolete installation cells and prose only after their requirements are
++  represented. Preserve the source purpose, required data and intended workflow.
++- Arrange cells for presentation; the dependency graph determines execution order.
++  Fix duplicate definitions, cycles and hidden cross-cell mutations.
++- Review every converted or unsupported magic and interactive terminal input.
++  Preserve outputs or explain why behavior/content cannot be reproduced.
++- Put rendered results in each cell's final expression. Remove redundant Jupyter
++  `display()` only when the replacement has the intended output.
++- Load [widget migration](references/widgets.md) for ipywidgets, callbacks and
++  trait-level behavior; load [LaTeX migration](references/latex.md) for renderer
++  differences. Extra UI, live refresh or custom widgets require an actual need.
++- Identify expensive work and external side effects before execution. Use suitable
++  `mo.stop()` gates and forms where the workflow needs explicit submission.
++  Define downstream values after the gate.
++- Do not print, log or persist secrets. A masked input is not a secrecy boundary.
+ 
+-```bash
+-uvx marimo check <notebook.py>
+-```
++## Validate and return
+ 
+-## Review the conversion
++Run the selected static checker after edits. Execute only the intended modes whose
++effects are understood and in scope, comparing content, controls, outputs and
++workflow with the source. Conversion or clean lint alone does not prove executed
++equivalence. Browser/WASM targets require their own compatibility evidence.
+ 
+-- Verify all required packages in the PEP 723 metadata. The converter can miss some package-installation forms.
+-- Remove residual installation cells and stale installation prose. Add version constraints only when required.
+-- Use `--sandbox` when a notebook uses PEP 723 metadata.
+-- Preserve the purpose and intended workflow of the source notebook.
+-- Arrange cells for presentation. marimo determines execution order from variable definitions and references.
+-- A cell can appear before a cell that defines its input.
+-- Merge or split cells when the current boundaries reduce clarity.
+-- Remove redundant Jupyter artifacts, such as unnecessary `display()` calls.
+-- Review converted magic commands. Keep valid conversions, and resolve comments that report unsupported magics.
+-- Put the value to render in the final expression of each cell.
+-- Keep added UI and helper functions proportional to the notebook purpose.
+-- Replace interactive input methods that wait for terminal input or do not work in the target interface. Use suitable UI controls, script parameters, or environment values.
+-- Do not print, log, or save secrets. Consider [EnvConfig](https://koaning.github.io/wigglystuff/reference/env-config.md) for multiple environment values.
+-- Identify expensive work and external side effects. If work must wait, gate it with `mo.stop()` and a suitable UI element.
+-- Use a form if the user must submit multiple values together.
+-- Define downstream values after the gate so the dependency graph defers dependent cells.
+-- Present useful results with simple native components. Add live refresh only when the intended workflow requires it.
+-- For ipywidgets, read [`references/widgets.md`](references/widgets.md).
+-- For LaTeX and MathJax, read [`references/latex.md`](references/latex.md).
+-
+-## Validate the result
+-
+-- **Run `marimo check` again** after all edits.
+-- Run the notebook in each intended mode. Confirm that it has the intended behavior.
+-- When practical, open the source and converted notebooks side by side and invite the user to review.
+-- Compare content, controls, outputs, and workflow. Cell order and layout can differ.
+-- Inspect changed files for secrets, generated data, caches, logs, and other runtime files.
++Return changes, preserved content, actual checks, unresolved conversion losses and
++execution gaps. Inspect changed artifacts for unintended data, caches and secrets.
++Existing project policy and QA retain acceptance; this skill neither installs tools
++nor authorizes publication. Provenance: [UPSTREAM.md](UPSTREAM.md).

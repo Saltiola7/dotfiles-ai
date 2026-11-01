@@ -1,0 +1,66 @@
+--- a/references/SQL.md
++++ b/references/SQL.md
+@@ -1,4 +1,4 @@
+-There are multiple ways to use SQL in marimo. Under the hood, a SQL cell is just a function call to `marimo.sql`. A cell looks like this: 
++There are multiple ways to use SQL in marimo. Under the hood, a SQL cell is just a function call to `marimo.sql`. A cell looks like this:
+ 
+ ```python
+ @app.cell(hide_code=True)
+@@ -12,21 +12,24 @@
+     return (grouped,)
+ ```
+ 
+-`grouped` is a polars dataframe. By defauly marimo uses DuckDB in memory and can refer to dataframe variables that are in scope. 
++`grouped` is a polars dataframe. By defauly marimo uses DuckDB in memory and can refer to dataframe variables that are in scope.
+ 
+-This is what the signature is of `mo.sql`: 
++The snapshot's signature shape is below; verify the selected version's actual
++engine types and return behavior. This is an illustrative declaration, not an
++implementation or an exact current API guarantee:
+ 
+ ```python
+-def sql(query: str, *, output: bool=True, engine: Optional[DBAPIConnection]=None) -> Any
++def sql(query: str, *, output: bool=True, engine: Optional[DBAPIConnection]=None) -> Any:
++    ...
+ ```
+ 
+-Typically a `sql` call returns a polars dataframe, but the user can configure pandas as an alternative. 
++Typically a `sql` call returns a polars dataframe, but the user can configure pandas as an alternative.
+ 
+-Notice how a query string goes in with SQL and how you can pass a specific database engine. Be aware that different SQL engines may have different SQL dialects. 
++Notice how a query string goes in with SQL and how you can pass a specific database engine. Be aware that different SQL engines may have different SQL dialects.
+ 
+ ## SQLAlchemy
+ 
+-One possible engine is SQLAlchemy. 
++One possible engine is SQLAlchemy.
+ 
+ ```python
+ import sqlalchemy
+@@ -37,7 +40,7 @@
+ 
+ You can also use `SQLModel` with a similar connection string.
+ 
+-## DuckDB 
++## DuckDB
+ 
+ You can also use DuckDB with a connection string.
+ 
+@@ -48,7 +51,7 @@
+ duckdb_conn = duckdb.connect("file.db", read_only=True)
+ ```
+ 
+-## PyIceberg 
++## PyIceberg
+ 
+ marimo supports data catalogs as well.
+ 
+@@ -59,7 +62,6 @@
+     name="catalog",
+     warehouse="1234567890",
+     uri="https://example.com",
+-    token="my-token",
++    token=existing_token,  # Obtain through the project's existing credential owner.
+ )
+ ```
+-

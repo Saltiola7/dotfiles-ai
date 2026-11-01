@@ -613,3 +613,136 @@ execution. Retain the first 46 failures and source identities, bind final guidan
 separately, and report all 50 native calls without claiming general accuracy or
 end-to-end token savings. Source delivery uses this final repaired snapshot;
 initial comparison measurements keep their original frozen-source attribution.
+
+## Notebook, host configuration and Rust/Python expansion
+
+### Domain and ownership
+
+This extension adds three complete reviewed marimo bundles and three original
+local methods. Prefect is excluded from this wave by user choice; no Prefect
+connector or deployment is introduced. Existing Linux/RHEL/Fedora diagnosis,
+shell reliability, Podman/Quadlet and macOS methods retain their ownership.
+
+| Concern | Owner and boundary |
+|---|---|
+| Saved marimo notebook conventions and validation | `marimo-notebook`; preserve project runtime, dependencies and selected tools |
+| A live marimo kernel and durable notebook mutation | Existing `marimo-pair`; file-authoring guidance cannot override live-session mutation authority |
+| Requested Jupyter conversion | `jupyter-to-marimo`; preserve source and verify converted behavior |
+| An actual browser/WASM deployment target | `wasm-compatibility`; distinguish native execution from browser qualification |
+| Chezmoi state, templates and scoped application | Original `chezmoi-operations`; repository runbooks retain installation and deployment policy |
+| PyInfra inventory, facts and deployment operations | Original `pyinfra-deployments`; target identity, operation semantics and verification stay explicit |
+| Python/Rust bindings, native packaging and runtime boundaries | Original `python-rust-interop`; project-selected PyO3, Rust, Python and build backend remain authoritative |
+| Selection, validation and lifecycle delivery | Existing native selector, current primary, QA and distribution owner |
+
+The three marimo roots come from one immutable official repository revision with
+complete resources, exact Apache-2.0 notices and reversible adaptations. The
+original methods use official documentation without redistributing unselected or
+license-unclear community trees. Versioned references are consulted on demand;
+installation does not install toolchains, start kernels, contact target hosts,
+run target deployment code or grant operational authority.
+
+The existing Visual Evidence boundary, interaction and deployment tables apply:
+source review precedes bounded selection, validation and exact installation.
+The ownership table above is the canonical boundary extension for this wave.
+State and schema remain unchanged; no dispatcher, registry schema or service is
+added. Quantitative claims require actual measurements and are not acceptance
+requirements for this expansion. Owner: lifecycle/distribution maintainer;
+update with bundle, authority, routing or delivery changes.
+
+**Text Equivalent (notebook/host/interop boundary):** Official complete marimo
+bundles and original documentation-grounded methods supply optional techniques.
+The live kernel retains notebook mutation authority; project policy retains
+versions, targets and tools. The existing primary and QA validate work, and the
+distribution owner installs exact reviewed guidance without activating tools or
+infrastructure. The table above owns this extension and changes with its scope.
+
+### Expansion behavior
+
+| Given / when | Required observable outcome |
+|---|---|
+| A saved marimo notebook is authored or reviewed | Use notebook conventions and relevant validation; retain the project's versions and dependency owner |
+| The notebook is open in an active kernel | Use `marimo-pair` for durable mutations; never overwrite its live state by editing the backing file |
+| Jupyter conversion is explicitly requested | Preserve the original, account for magics/widgets/outputs/dependencies, and distinguish conversion from executed equivalence |
+| Browser/WASM execution is the target | Check actual package/runtime capabilities; native-only success cannot prove browser compatibility |
+| A Chezmoi preview is requested | Resolve source/config/destination and script/hook/external effects; do not run broad update or forced apply |
+| A selected Chezmoi change is authorized | Inspect conflict/drift and preview exact targets, preserve unrelated state and verify applied bytes and repeated diff |
+| A PyInfra deploy reads facts before changing state | Distinguish preparation-time facts from execution-time conditions; use target-version operation semantics |
+| A PyInfra dry run is clean | Report its host/fact/connection and local Python effects; do not claim the real change or recovery was executed |
+| A Python/Rust boundary changes | Preserve selected ABI/toolchain, ownership, interpreter/thread and error contracts; verify applicable Rust and installed-Python behavior |
+| Async or NumPy interop is involved | Load the relevant detail and verify lifetime, cancellation, borrowing and mutation constraints |
+| A tool, target or environment is unavailable | Report the evidence gap; no implicit installation, host operation, fallback identity or passing runtime claim |
+| Ordinary adjacent work does not use these frameworks | Avoid unrelated specialist loads; no new lifecycle gate or coordinator |
+| Existing installed guidance differs from source | Preserve and reconcile unrelated live changes before exact target deployment |
+
+Native discovery, actual method loading and decision quality remain separate
+claims. Bounded synthetic forward checks evaluate the six new entrypoints with
+ordinary requests and retain failures; static source checks alone do not prove
+automatic selection or successful target execution.
+
+### Expansion interfaces
+
+Add `dot_agents/skills/{marimo-notebook,jupyter-to-marimo,wasm-compatibility}`
+from `marimo-team/skills` at commit
+`6454470960d3cd57151aaeffb1176dd55f598b18`. Preserve all 19 selected upstream
+skill files, adding exact `LICENSE.upstream` notices and per-bundle `UPSTREAM.md`.
+Short entrypoints may move original detail into lazy references, with reversible
+patches covering every adaptation in the existing shared source inventory.
+
+Add original `chezmoi-operations`, `pyinfra-deployments` and
+`python-rust-interop` entrypoints. Only substantial conditional procedures need
+supporting references. Official selected-version documentation is technical
+authority; no community bundle is incorporated into these three methods.
+
+The Python module owns the canonical marimo/interop triggers and checkpoints;
+the platform table owns Chezmoi/PyInfra triggers. Migration and WASM techniques
+are conditional on their actual task. Shared source notes explain provenance
+without duplicating trigger tables. No core entrypoint expansion is needed.
+
+Extend `tests/test_platform_specialists.py`'s existing complete inventory,
+reversible-patch, resource-closure, routing and isolated exact-target delivery
+authorities to include this wave. Creator validation and executable-example
+checks supplement independent method review. Synthetic forward checks use the
+existing native read-only evaluator where available, with fixed predeclared cases,
+private captures and actual usage; ordinary pytest remains offline.
+
+Delivery uses the existing exact-target Chezmoi workflow, selected machine config
+and scripts exclusion, complete file/mode verification, retained preimages and
+empty second diff. Native catalog observation is separate from filesystem
+installation. Existing project CI and ordinary protected-base merge gates apply.
+
+### Expansion contracts
+
+- Keep normal automatic discovery, compact discriminating descriptions and lazy
+  mode-specific references. A framework mention alone does not justify all six
+  specialists; no Prefect route or dependency is added.
+- A live marimo session remains the source of truth. File-authoring and conversion
+  advice must hand durable live mutations to the existing pair capability.
+  Correct unsafe/invalid upstream examples, preserve project tool/runtime choices,
+  and distinguish static lint, execution, export and actual browser evidence.
+- Chezmoi previews identify config/source/destination plus hooks, managed scripts,
+  external fetches and template evaluation. Dry-run is not an effects sandbox;
+  scripts exclusion does not disable hooks, and cached-external refresh policy
+  does not guarantee zero network. Avoid unconditional force, update or refresh.
+- PyInfra preparation can execute local Python and connect/read facts. Cached
+  preparation facts do not represent future mutations; execution-time conditions
+  must use selected-version semantics. Shell/imperative operations need explicit
+  repeatability. Dry-run output is not an executed deployment or recovery proof.
+- Rust/Python ownership, thread/interpreter attachment, errors, async cancellation,
+  array borrows and binary compatibility follow selected versions. Do not copy
+  obsolete GIL or ABI assumptions, claim `Bound` is a borrowed handle, or equate
+  attachment with mutual exclusion on free-threaded Python. Wheel qualification
+  exercises the built artifact on affected declared targets.
+- Preserve complete official marimo bundles, exact notices, original hashes/blob
+  identities and reversible patches. Review every changed supporting resource.
+  Original local methods do not copy unselected community material.
+- Source/resource/provenance and isolated delivery checks pass before managed
+  installation. Independent method/forward review reports true outcomes and gaps;
+  no static check becomes model compliance, tool execution or token-savings proof.
+- Before any shared write, compare exact live preimages against known reviewed
+  generations. Preserve unrelated live edits in explicitly reviewed projections;
+  unresolved overlap blocks only its affected target. Retain preimages and verify
+  complete target bytes/file sets/modes after each apply, with an empty second diff.
+- Publication and merge include all Gate Commits and current-base CI under native
+  protections. Guidance installation does not authorize target infrastructure,
+  package/tool installation, kernel execution, account configuration or publishing
+  user project artifacts. Retain branches and worktrees.

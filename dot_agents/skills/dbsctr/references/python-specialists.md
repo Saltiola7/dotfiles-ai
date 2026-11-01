@@ -41,6 +41,12 @@ is locally maintained. Each vendored bundle's `UPSTREAM.md` explains adaptations
 and its `LICENSE.upstream` retains the exact notice. The Trail of Bits adaptations
 remain CC-BY-SA-4.0 independently of the repository license.
 
+The three marimo bundles use the shared expansion inventory too. Notebook and
+Rust/Python techniques apply only to their actual task boundary; they do not
+expand the general Python audit's selected lenses. `marimo-pair` retains live
+kernel mutation ownership. The original Rust/Python method follows official
+selected-version documentation instead of importing a general Rust skill tree.
+
 Updates deliberately review the complete pinned bundle and local patches,
 including supporting resources. Ordinary loading consumes installed reviewed
 bytes. Use source provenance/resource tests and the distribution's exact-target
