@@ -57,7 +57,10 @@ selection, authority, evidence or delivery boundaries change.
 ## Repository-wide audit domain
 
 `python-audit` is a standalone assessment entrypoint for existing repositories.
-An explicit full audit considers all six specialist lenses, inventories owned
+The [Python/data extension](python-data-specialists.md) defines the current eleven
+language lenses plus conditional Python database boundary and engine delegation;
+original six-lens qualification below remains historical evidence.
+An explicit full audit considers all eleven language specialist lenses, inventories owned
 Python across production code, tests, scripts, stubs and notebooks, and returns
 evidence-backed recommendations and an ordered refactoring roadmap. It retains
 one primary and reuses QA for configured validation. The target repository is
@@ -85,7 +88,7 @@ existing bundles and their source inventories remain unchanged.
 
 ### Audit behavior
 
-- Given an explicit repository-wide Python audit, the primary assesses all six
+- Given an explicit repository-wide Python audit, the primary assesses all eleven language
   specialist lenses and reports actual scope, evidence and a prioritized roadmap.
   Ordinary scoped development does not automatically start this audit.
 - Given existing project policy, the audit distinguishes compatible improvements
@@ -190,14 +193,14 @@ maintainers update it with corresponding routing changes.
 ## Audit interfaces
 
 The new bundle is `dot_agents/skills/python-audit/`, containing `SKILL.md`,
-`agents/openai.yaml` and `references/report.md`. The entrypoint resolves the six
+`agents/openai.yaml` and `references/report.md`. The entrypoint resolves the eleven language
 existing specialist skills through the native catalog or their managed sibling
 paths. It loads entrypoints for assessment and relevant resources progressively;
 it does not duplicate their bodies or change their pinned files. Existing QA is
 the validation owner. A short link in `references/python-specialists.md` exposes
 the explicit audit route without changing ordinary development selection.
 
-Example request: `Use $python-audit to audit this repository across all six Python
+Example request: `Use $python-audit to audit this repository across all eleven Python language
 lenses and propose prioritized refactor batches.` The repository defaults to the
 current target; an explicit package or concern narrows the reported scope.
 
@@ -213,7 +216,7 @@ or a new repository-root documentation hierarchy.
 | Handoff | Owner and output |
 |---|---|
 | Project source and policy to inventory | Primary records reviewed snapshot, artifact population and owning environments |
-| Inventory to specialist assessment | Same primary considers six lenses; bounded read-only helpers may report independent evidence |
+| Inventory to specialist assessment | Same primary considers eleven language lenses; bounded read-only helpers may report independent evidence |
 | Configured authorities to findings | QA reports actual scope, child results and unavailable capabilities |
 | Findings to roadmap | Primary deduplicates root causes and separates defects, recommendations, migration options and hypotheses |
 | Roadmap to implementation | User selects bounded work; existing DBSCTR handles applicable behavior changes |
@@ -225,7 +228,7 @@ or a new repository-root documentation hierarchy.
 | Not applicable | No owned Python in the declared scope; zero units is not 100% coverage |
 
 **Text Equivalent (audit):** The primary inventories project-owned source, uses
-the six existing techniques and QA results, then returns a report and roadmap.
+the eleven language techniques and QA results, then returns a report and roadmap.
 The user selects implementation separately. Audit disposition describes assessment
 coverage, while validation retains its actual result. Canonical source: these
 tables and the report reference. Owner: lifecycle/skill maintainer. Update when
@@ -233,7 +236,7 @@ audit scope, evidence fields or handoff responsibilities change.
 
 ## Contracts and Validation
 
-- The explicit audit considers all six installed entrypoints as assessment
+- The explicit audit considers all eleven installed language entrypoints as assessment
   lenses; loading a recipe does not select its migration or authorize execution.
   Missing lenses stay visible and preclude a complete all-lens claim.
 - Inventory covers owned Python, stubs, tests, scripts and notebooks with nested

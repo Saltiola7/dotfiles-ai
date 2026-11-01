@@ -1,5 +1,35 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Python and database specialist mapping
+
+- Added 21 discoverable skills: five Python techniques, six DuckDB/ClickHouse
+  bundles, eight stable Databricks bundles, Python database boundaries and
+  `database-audit`. Extended existing Python/Data routing; `python-audit` now
+  considers eleven language lenses plus applicable database concerns. No new
+  PostgreSQL or dbt skills. Ordinary work selects the smallest relevant set;
+  explicit audits produce findings and ordered refactor batches by default.
+- Retained 19 complete pinned upstream bundles, licenses/notices, original
+  hashes/blobs/modes and reversible adaptations. Databricks material remains
+  service-scoped. Corrected concrete example issues in retry/ownership/typing,
+  aggregate windows, checkpoint recovery, lineage and asynchronous results.
+  Per-file modification notices and existing exact-upstream whitespace policy
+  preserve redistribution and reconstruction requirements.
+- Affected QA passed: 165 tests, one optional skip; all 22 selected creator
+  validators passed. Complete isolated projection verified bytes, modes, local
+  resource closure, unrelated-state preservation and repeat-apply idempotency.
+  Two independent synthetic audits and six routing scenarios preserved target
+  source and selected tools; 16 offline snippet cases checked statement states.
+  These are bounded samples, not live engine qualification or effectiveness gains.
+- Managed installation uses 29 exact targets with a prior-live drift guard and
+  complete verification. Existing local Django routing and independent skill edits
+  are preserved. Native client catalog refresh remains unverified; no database,
+  warehouse, notebook, credential or remote job operation is part of deployment.
+  Prior-live snapshots and reviewed source support recovery through the same owner.
+- Implementation Gate Commit: `132a435`. Other Gate Commits and actual deployment
+  results remain in the private Cycle Record. Intended Final Push: feature branch
+  and draft PR into `main`; actual push/PR identity is recorded there. No Gate
+  Exception or consumer-repository remediation.
+
 ## 2026-10-31 — Repository-wide Python audit
 
 - Added `python-audit`, a report-only entrypoint composing all six current Python
