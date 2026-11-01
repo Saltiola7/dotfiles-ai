@@ -102,8 +102,8 @@ Version-specific proposals name the minimum runtime and affected consumers, with
 primary-source support or an explicit verification gap. A floor increase remains
 an explicit proposal with migration costs, not a compatible cleanup.
 
-For actual framework, validation, dataframe, fuzzing, package-release or
-free-threaded concerns, consult [conditional stack assessment](references/stack-specialists.md).
+For actual framework/dataframe/Arrow boundaries, process workers, durable jobs,
+selected mutation/fuzzing, package-release or free-threaded concerns, consult [conditional stack assessment](references/stack-specialists.md).
 These methods supplement the fourteen generic lenses only where relevant.
 Architecture focus preserves its structural scope; installing a method does not
 select a migration, dependency, campaign or publication.

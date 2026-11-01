@@ -25,6 +25,21 @@ missing selected guidance remains an explicit coverage gap.
   shared state, native dependencies, failed imports, actual GIL state and races.
   A proposed runtime migration stays a proposal with costs and validation needs.
 
+- [Process parallelism](../../python-process-parallelism/SKILL.md): assess existing
+  process/subinterpreter pools, bounded work, serialization, IPC, worker failure
+  and shutdown/shared-memory ownership against selected runtimes.
+- [Data contracts](../../python-data-contracts/SKILL.md): assess actual dataframe
+  schema, coercion and value constraints; distinguish validation depth from lazy
+  error aggregation. Keep backend choice and authorized data scope.
+- [Arrow interchange](../../python-arrow-interchange/SKILL.md): assess actual
+  schema/null/time, batches, copy/lifetime and producer/consumer boundaries.
+- [Mutation testing](../../python-mutation-testing/SKILL.md): assess existing setup
+  or propose targeted analysis when requested. Report-only audit does not run a
+  campaign; execution needs green baseline, selected scope, budget and isolation.
+- [Durable jobs](../../python-durable-jobs/SKILL.md): assess actual durable handoff,
+  claims/leases, idempotent effects, acknowledgement/redelivery and crash recovery.
+  Databricks platform task graphs remain with `databricks-jobs`.
+
 Architecture focus limits each method to relevant component, data/state, ownership
 and consumer boundaries. It does not expand into full query tuning, framework
 replacement, fuzzing or runtime migration. Preserve one primary and deduplicate

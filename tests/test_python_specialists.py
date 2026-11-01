@@ -70,7 +70,7 @@ def assert_bundles(skills_root, packages):
 
 def copy_stack_resources(skills_root):
     """Close the conditional guide linked by the shared Python module."""
-    for name in {"pydantic", "polars", "typer", "fastapi", "atheris",
+    for name in {"python-process-parallelism", "python-data-contracts", "python-arrow-interchange", "python-mutation-testing", "python-durable-jobs", "pydantic", "polars", "typer", "fastapi", "atheris",
                  "secure-python-release-pipeline", "port-to-free-threaded-python"}:
         shutil.copytree(SKILLS / name, skills_root / name)
     references = skills_root / "dbsctr/references"

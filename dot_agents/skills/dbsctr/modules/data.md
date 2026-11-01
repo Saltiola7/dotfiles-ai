@@ -50,6 +50,13 @@ lakes, warehouses, or changes to governed datasets and their consumers.
   for every Python dataset, pandas operation or SQL task. Schema discovery may
   read metadata, samples or remote files and follows existing data authorization.
 
+- **CONDITIONAL:** For actual Python dataframe schema/coercion/value boundaries,
+  use `python-data-contracts`; for Arrow schemas, batches, IPC or columnar
+  producer/consumer handoffs, use `python-arrow-interchange`. Preserve selected
+  libraries and engine ownership. Schema planning is not value validation;
+  zero-copy and streaming claims require actual representation/lifetime evidence.
+  Python's canonical selector maps checkpoints; reuse the same method and findings.
+
 - **CONDITIONAL:** For actual DuckDB, ClickHouse or Databricks concerns, select
   relevant guidance through [database specialists](../references/database-specialists.md).
   Select the Python database boundary only when Python client code is involved.

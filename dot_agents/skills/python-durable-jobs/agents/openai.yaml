@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Durable Jobs"
+  short_description: "Review durable enqueue, leases and job recovery"
+  default_prompt: "Use $python-durable-jobs to audit this repository’s durable worker and redelivery boundaries."

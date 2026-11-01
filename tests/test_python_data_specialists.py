@@ -118,7 +118,7 @@ def test_complete_skill_tree_has_closed_resources_and_exact_projection(tmp_path)
                "--config-format", "toml", "--override-data", json.dumps(DATA),
                "--cache", str(tmp_path / "cache"), "--persistent-state", str(tmp_path / "state"),
                "--exclude", "scripts"]
-    names = PYTHON | ENGINES | DATABRICKS | AUTHORED | NAMES | {
+    names = PYTHON | ENGINES | DATABRICKS | AUTHORED | NAMES | {"python-process-parallelism", "python-data-contracts", "python-arrow-interchange", "python-mutation-testing", "python-durable-jobs",
         "python-audit", "dbsctr", "qa", "async-python-patterns", "python-modernization-review",
         "architecture-patterns", "python-project-structure", "python-architecture-fitness",
         "pydantic", "polars", "typer", "fastapi", "atheris", "secure-python-release-pipeline", "port-to-free-threaded-python"}

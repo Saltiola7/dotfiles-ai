@@ -55,6 +55,11 @@
 | Actual Pydantic input/output validation or serialization models | `pydantic` | Domain/Contract; Test |
 | Actual FastAPI routes, dependency/resource scopes, responses or streaming | `fastapi` | Domain/Contract; Test |
 | Actual Typer commands, options, output or automation compatibility | `typer` | Spec/Contract; Test |
+| Actual process/subinterpreter pools, IPC, shared memory or child lifecycle | `python-process-parallelism` | Contract/Test; version-bound runtime evidence |
+| Actual dataframe schema, coercion or value invariants | `python-data-contracts` | Contract/Test; relevant Data controls |
+| Actual Arrow schemas, batches, IPC or columnar producer/consumer handoffs | `python-arrow-interchange` | Spec/Contract/Test; relevant Data/engine controls |
+| Explicit mutation analysis or existing mutation setup | `python-mutation-testing` | Test; selected campaign scope and budget |
+| Actual durable enqueue, worker claims, acknowledgement or crash recovery | `python-durable-jobs` | Domain/Contract/Test; platform job orchestration retains its owner |
 | Actual Polars expressions, lazy frames, joins or materialization | `polars` | Spec/Contract; Test; relevant Data controls |
 | Explicitly selected coverage-guided Python/native fuzz harness or campaign | `atheris` | Contract/Test; scoped QA; bounded execution |
 | Actual Python package release artifacts or publishing pipeline | `secure-python-release-pipeline` | Spec/Test; existing Release gate |

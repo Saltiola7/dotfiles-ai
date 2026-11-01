@@ -3,7 +3,7 @@
 The [Python module](../modules/python.md#conditional-controls) owns the canonical
 selector/checkpoint table. The existing primary owns the task; project policy owns
 runtimes, dependencies and compatibility; QA owns executed check evidence. These
-seven methods add detail when actual project evidence needs it. They do not expand
+conditional methods add detail when actual project evidence needs it. They do not expand
 ordinary work into a full audit or replace the fourteen generic audit lenses.
 
 [`pydantic`](../../pydantic/SKILL.md) owns runtime input/output validation and serialization technique. Keep
@@ -40,6 +40,45 @@ extensions, GIL state and selected runtime evidence. Failed imports remain error
 import success is neither no-GIL proof nor thread-safety proof. Keep async,
 modernization and Python/Rust responsibilities distinct. Both upstream methods
 remain Experimental and need applicable primary-source/version verification.
+
+## Locally authored advanced methods
+
+[`python-process-parallelism`](../../python-process-parallelism/SKILL.md) owns
+actual process/subinterpreter pools, serialization, bounded submission, IPC and
+child/shared-memory lifecycle. Keep async task ownership, selected free-threaded
+runtime qualification and resource cleanup with their existing specialists; reuse
+rather than duplicate findings. Runtime-version gates matter: a cancelled Future
+is not proof that running work stopped or that executor shutdown is bounded.
+
+[`python-data-contracts`](../../python-data-contracts/SKILL.md) owns actual
+frame schema, coercion and value invariants. Pydantic retains object/API boundary
+validation; Polars retains query/expression semantics. Inspect the chosen backend
+and actual validation depth. Lazy error aggregation does not imply LazyFrame
+value validation, and schema discovery may access data.
+[`python-arrow-interchange`](../../python-arrow-interchange/SKILL.md) owns actual
+Arrow schemas, batches, null/time semantics, representation/lifetime and columnar
+handoffs. Engine specialists retain query/storage choices; zero-copy, round trips
+and bounded memory need producer/consumer-specific evidence.
+
+[`python-mutation-testing`](../../python-mutation-testing/SKILL.md) owns explicitly
+requested mutation analysis or existing mutation configuration. Preserve a green
+baseline, isolated source, selected target/test scope and time budget. Static
+audit can recommend a campaign without executing it. Distinguish raw tool status
+from a meaningful killed mutant and unsupported equivalence claims; retain
+property-based and ordinary testing as complementary methods, without adding a
+universal score or gate.
+
+[`python-durable-jobs`](../../python-durable-jobs/SKILL.md) owns durable enqueue,
+claims/leases, effects, acknowledgement, redelivery and crash recovery. Database
+boundaries retain client/transaction mechanics; resilience retains per-call retry
+policy. Databricks Jobs retains platform task graphs. Request-local background
+callbacks and ordinary async tasks do not become durable queues. Review dual-write
+and stale-worker windows against actual engine guarantees.
+
+These five are original local guidance informed by linked primary documentation.
+They are not additions to the seven vendored provenance records below. Maintain
+version-sensitive decisions against project-selected runtimes/backends and refresh
+with demonstrated usage failures. No tool installation or operation is implied.
 
 ## Provenance and delivery
 
