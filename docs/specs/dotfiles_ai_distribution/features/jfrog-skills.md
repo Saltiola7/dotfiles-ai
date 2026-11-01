@@ -119,3 +119,53 @@ regressions; then disjoint complete bundle adaptations and optional CLI owner;
 then primary-owned inventory/patch reconstruction, routing and documentation;
 finally integrated validation, exact deployment, native discovery and delivery.
 The primary alone owns lifecycle, shared inventory, integration and native writes.
+
+## Contract
+
+| Readiness state / transition | Guard and observation |
+|---|---|
+| Source reviewed to filesystem installed | Complete pinned bundles, closed dependencies and exact modes; no helper execution |
+| Installed to natively discovered | Actual client skill catalog returns the seven shared roots; filesystem presence alone is insufficient |
+| CLI missing to qualified executable | Explicit opt-in, supported platform, no existing owner/destination, pinned hash and isolated expected version |
+| CLI pre-existing | Preserve its owner and bytes; qualify minimum version or report incompatibility, never auto-upgrade |
+| CLI install fails | Nonzero status, bounded diagnostic, temporary cleanup and unchanged existing destination; no login or fallback download |
+| Guidance to live platform ready | Separately selected server/authentication and successful task-specific operation; no transition is implied by this installation |
+| MCP absent | Base CLI/API and planning remain usable; MCP-only troubleshooting remains unavailable |
+
+| Trust/failure boundary | Required control |
+|---|---|
+| Public upstream to portable source | Immutable pin, exact licenses/original blobs, reversible changes, reviewed executable helpers and current vulnerability intake |
+| Large upstream instructions to active context | Compact native entrypoints; upstream workflows load lazily under overriding local ownership rules |
+| MCP governance | Restrict universal upstream instructions to explicitly selected JFrog Agent Guard/catalog tasks; unrelated native MCP owners remain authoritative |
+| Legacy helper to client configuration | Do not execute install/detect/auth writers as harmless checks; old OpenCode V1 assumptions require current native V2 owner qualification |
+| Runtime package resolution | No unpinned npm/Agent Guard installation during skill deployment; separate explicit task and reviewed version/provenance needed |
+| CLI download to execution | Validate official SHA-256 before any execution; no shell-evaluated metadata, ambient plugin/config loading, credential access or global PATH mutation |
+| Server/secret handling | No invented target, direct secret/config dump, cross-server fallback or preparatory mutation to make a read succeed |
+| Shared deployment | Exact-target preview/apply with scripts excluded; preserve foreign live overlays and all client/authentication bytes |
+
+Compatibility includes selected project runtimes, native client schemas and
+existing installer owners. The source CLI hook uses Bash compatible with system
+macOS Bash and existing Linux support; argument boundaries, subprocess status,
+cleanup and destination collisions are meaningful regression cases. Supported
+asset mappings and all four hashes are source-controlled; unsupported platforms
+fail only when the optional installer is enabled.
+
+The affected authorities are creator validation for all roots, pytest specialist
+provenance/reconstruction/resource/delivery regressions, focused CLI failure and
+idempotency tests, Bash syntax, static Node helper syntax, reviewed trust-boundary
+content, native skill catalogs and exact deployment/repeated-diff evidence.
+Offline tests do not establish platform connectivity or security scan coverage.
+Native automatic selection may be sampled separately; a catalog or lexical test
+must not be called a successful automatic-trigger experiment.
+
+Rollback restores reviewed source/inventory and private prior installed bytes for
+only this capability. Preserve unrelated edits, native credentials/configuration
+and existing CLI owners. A newly installed distribution-owned CLI may be retired
+only after owner/version identity and dependent callers are reviewed; disabling
+opt-in alone does not uninstall it. Do not delete branches, worktrees or caches.
+
+Maintenance rechecks the entire upstream tree, licenses, helper side effects,
+client-version assumptions, source patches and CLI asset integrity on a reviewed
+update. JFrog-specific vulnerability intelligence remains conditional on actual
+configured capabilities. No accepted risks, gate exceptions, external platform
+changes or live MCP connection are part of this feature.
