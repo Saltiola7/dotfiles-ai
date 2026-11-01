@@ -129,6 +129,8 @@ def test_tool_size_allowance_preserves_default_input_limit(launcher, layout, mon
     monkeypatch.setattr(launcher.shutil, "which", lambda name: str(tool) if name == "uv" else None)
     monkeypatch.setattr(launcher.Path, "home", classmethod(lambda cls: layout.home))
     assert launcher.uv_executable() == str(tool)
+    monkeypatch.setattr(launcher, "run_command", lambda *_args, **_kwargs: b"[3,13,16]\n")
+    assert launcher.python_identity(tool)["path"] == str(tool)
 
 
 def test_child_environment_has_neutral_home_and_only_selected_settings(launcher, layout, monkeypatch):

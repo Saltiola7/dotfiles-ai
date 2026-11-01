@@ -224,7 +224,7 @@ def run_command(argv, *, cwd, env, timeout=60, max_bytes=16384):
 
 def python_identity(path):
     path = Path(path).resolve(strict=True)
-    checked_path(path, Path.home(), trusted_system=True)
+    checked_path(path, Path.home(), trusted_system=True, max_bytes=256 * 1024 * 1024)
     if not os.access(path, os.X_OK):
         raise Unavailable("interpreter_unavailable")
     output = run_command([str(path), "-I", "-c",
