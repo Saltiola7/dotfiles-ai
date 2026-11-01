@@ -1,5 +1,36 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Infrastructure and framework specialist follow-up
+
+- Added three official Pulumi bundles and the reviewed Django/DRF bundle, plus
+  original Hetzner Cloud and Dagger guidance from official sources. Existing
+  Python/Cloud routes select them conditionally. Preserved complete selected
+  resources, exact licenses, immutable original identities and reversible patches;
+  Terraform remains excluded. Corrected reviewed Pulumi identity/EKS and Django
+  query, permission, transaction and serializer examples.
+- Current-base union regression: 211 passed, one optional native smoke skipped;
+  six original-creator validations and independent source reviews passed. Six
+  declared native cases selected required guidance and respected read-only scope.
+  Independent decision quality was three passes and three partials: omitted URN
+  constituents, omitted Django object/create/list detail and unsupported
+  selected-version Dagger API compatibility. Core diagnoses were sound; no
+  application, SDK/provider, database or engine execution was claimed or observed.
+- Retained all six calls and twelve full method-read proofs. Native usage was
+  420,695 input, 345,472 cached input and 3,869 output tokens, separate from the
+  earlier 46-call comparison and four repair checks. This single-arm smoke
+  establishes no comparative effectiveness, universal trigger or savings claim.
+- Deployed 75 canonical files and one reference projection through exact targets,
+  verifying first-apply empty diff, repeated application, complete files/bytes/
+  modes and preserved audit guidance/core. Operational dependencies and accounts
+  were not installed or changed. Recovery preimages and reviews remain private.
+- Main acquired Python-audit during the router PR's CI. Reconciled both approved
+  scopes and amended delivery to one current-base PR requiring every gate and
+  Gate Commit from both cycles. Original router CI passed all eight checks on its
+  prior base and remains historical evidence. Fresh current-base CI is required
+  before the requested ordinary merge. No check was waived; no Gate Exception used.
+  Cycles `SKILL-ROUTER-001` and `INFRASTRUCTURE-SPECIALISTS-001` retain final
+  closure and actual delivery. All branches/worktrees remain preserved.
+
 ## 2026-10-31 — Native specialist-router qualification
 
 - Added opt-in native automatic-selection evaluation with private raw evidence,
