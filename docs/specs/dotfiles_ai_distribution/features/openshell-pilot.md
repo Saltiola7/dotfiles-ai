@@ -349,6 +349,60 @@ fixture. Restoration requires confirmed stop, identity revalidation and explicit
 authorization. Canonical source: immutable-pointer experiment contract. Owner:
 distribution maintainers. Change trigger: guard admission or restoration changes.
 
+#### Bounded containment observations
+
+The next fixed operation is `containment_probe(Selection) -> dict`, selected by
+`--probe containment`. It reuses the verified immutable pointer, native runtime
+identity and protected Git observations. Its private `containment.json` contains
+only integer `schema_version: 1` and lowercase SHA256 `marker_sha256`. Before any
+native command, the controller validates the owner-only receipt and the private
+`input/host-sentinel` file containing exactly
+`openshell-nonfunctional-host-marker` followed by a newline. Preparation places
+the nonfunctional environment marker `OPENSHELL_QUALIFICATION_SENTINEL` only in
+the trusted create-command environment; it is never passed as workload `--env`.
+Guest username, home and IDs come from native passwd identity, not the basename
+of the home directory. Native rootless UID/GID mappings are checked before image
+admission.
+
+This operation shares the existing experiment window. The host-owned preparation
+receipt's modification time starts the conservative fifteen-minute deadline;
+expired or future-dated preparation refuses execution. Each native call or probe
+remains bounded to sixty seconds. Starting another operation never resets the
+experiment budget.
+
+Fixed workload code creates `.openshell-containment` with exact UTF-8 text,
+the byte sequence zero through 255, a temporary file, and a small executable-mode
+file containing `#!/bin/sh` and `exit 0` lines. The executable is not run. The host
+independently verifies bytes, ownership, single-link regular-file identity and
+mode `0755`; it observes the temporary file before a separate deletion step and
+then verifies absence. Pre-existing output refuses admission; source results and
+diagnostics remain retained.
+
+Exclusion checks cover the known host sentinel, the controller home, the selected
+guest user's actual Podman socket, the fixed environment marker, and internal
+`/.openshell/channel/control` and
+`/.openshell/channel/sandbox/bootstrap.json` paths. The trusted guest controller
+first verifies its marker file and actual socket. Workload probes attempt bounded
+opens or directory enumeration without returning contents. Mere `stat` visibility
+is not evidence of administrative access. Observed access fails; absent or denied
+access is recorded for that exact surface. Other errors remain unavailable.
+These selected observations do not replace the separate network and complete
+control-plane qualification rows.
+
+For resource observations, the exact native container PID selects its actual
+cgroup-v2 and mount records. Kernel values must be finite and positive: CPU quota
+at most twice its period, memory at most two GiB, process limit at most 256 with
+current usage within that limit, and a writable `/scratch` tmpfs at most 256 MiB.
+A small scratch write provides a positive control. Missing native reads remain
+unavailable; configuration declarations cannot substitute for observed kernel
+state. This step makes no pressure, OOM, fork-exhaustion or performance claim.
+
+Host guard, protected metadata and native policy/process identity are checked
+around every attempt, including errors. The report uses `probe: containment`,
+separate fixed check results and observed resources, with overall
+`runtime_qualification: not_run`. The implementation cannot promote unperformed
+network, pause/resume or recovery checks.
+
 Each probe produces an allowlisted identifier and `passed`, `failed` or
 `unavailable`, plus bounded private observations. Unperformed rows remain
 `not_run` in the aggregate report. A successful early probe cannot mark the
