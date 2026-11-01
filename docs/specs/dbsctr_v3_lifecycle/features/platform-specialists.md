@@ -678,3 +678,34 @@ Native discovery, actual method loading and decision quality remain separate
 claims. Bounded synthetic forward checks evaluate the six new entrypoints with
 ordinary requests and retain failures; static source checks alone do not prove
 automatic selection or successful target execution.
+
+### Expansion interfaces
+
+Add `dot_agents/skills/{marimo-notebook,jupyter-to-marimo,wasm-compatibility}`
+from `marimo-team/skills` at commit
+`6454470960d3cd57151aaeffb1176dd55f598b18`. Preserve all 19 selected upstream
+skill files, adding exact `LICENSE.upstream` notices and per-bundle `UPSTREAM.md`.
+Short entrypoints may move original detail into lazy references, with reversible
+patches covering every adaptation in the existing shared source inventory.
+
+Add original `chezmoi-operations`, `pyinfra-deployments` and
+`python-rust-interop` entrypoints. Only substantial conditional procedures need
+supporting references. Official selected-version documentation is technical
+authority; no community bundle is incorporated into these three methods.
+
+The Python module owns the canonical marimo/interop triggers and checkpoints;
+the platform table owns Chezmoi/PyInfra triggers. Migration and WASM techniques
+are conditional on their actual task. Shared source notes explain provenance
+without duplicating trigger tables. No core entrypoint expansion is needed.
+
+Extend `tests/test_platform_specialists.py`'s existing complete inventory,
+reversible-patch, resource-closure, routing and isolated exact-target delivery
+authorities to include this wave. Creator validation and executable-example
+checks supplement independent method review. Synthetic forward checks use the
+existing native read-only evaluator where available, with fixed predeclared cases,
+private captures and actual usage; ordinary pytest remains offline.
+
+Delivery uses the existing exact-target Chezmoi workflow, selected machine config
+and scripts exclusion, complete file/mode verification, retained preimages and
+empty second diff. Native catalog observation is separate from filesystem
+installation. Existing project CI and ordinary protected-base merge gates apply.
