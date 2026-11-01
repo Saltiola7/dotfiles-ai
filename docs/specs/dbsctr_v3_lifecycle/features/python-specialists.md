@@ -601,3 +601,37 @@ or publishing follows merely from guidance selection.
 | Durable queue/worker behavior changes | Check atomic handoff, claims/leases/fencing, idempotent effects, acknowledgements, redelivery and crash recovery |
 | Report-only full or architecture audit encounters these boundaries | Assess relevant static evidence; retain scope, deduplicate root causes and disclose unexecuted checks |
 | Required tools/runtime/backend are missing | State coverage gap; keep useful static assessment separate from runtime proof |
+
+### Advanced-method interfaces and visual evidence
+
+| Evidence signal | Method | Checkpoint / ownership |
+|---|---|---|
+| Process pools, subinterpreters, IPC or shared memory | `python-process-parallelism` | Contract/Test; async and resource guidance only where needed |
+| Dataframe schema, coercion or value invariants | `python-data-contracts` | Contract/Test; Pydantic retains object/API boundaries |
+| Arrow schemas, batches, IPC or dataframe/database handoffs | `python-arrow-interchange` | Spec/Contract/Test; engine query design stays with engine specialist |
+| Explicit mutation analysis or existing mutation setup | `python-mutation-testing` | Test; campaign execution requires selected scope and budget |
+| Durable enqueue, claims, worker effects or acknowledgement | `python-durable-jobs` | Domain/Contract/Test; Databricks Jobs remains platform owner |
+
+Each bundle contains a concise `SKILL.md`, generated `agents/openai.yaml` with
+normal implicit discovery, and only useful on-demand resources. Primary links and
+version-sensitive decision points belong with the methods. Extend existing
+`dbsctr/references/python-stack-specialists.md` and
+`python-audit/references/stack-specialists.md`; add no coordinator or new gate.
+The canonical Python table and Data delegates reference these same names.
+
+| Visual concern | Disposition and review question |
+|---|---|
+| Boundary | Required: selector/owner table above distinguishes five techniques and adjacent owners |
+| Interaction | Required: project evidence selects relevant method; primary reconciles findings; existing QA records executed evidence |
+| State | Required: researched, reviewed source, isolated projection verified, drift-guarded installation verified; failures remain failures |
+| Data/trust | Required: public primary sources inform original guidance; private project/evaluation inputs stay outside public source |
+| Schema | Not applicable: no new persistent schema or provenance record format |
+| Dependency/deployment | Required: full source/resources precede isolated projection, live-state comparison, scoped apply and repeat diff |
+| Quantitative | Not applicable: no universal score or effectiveness comparison |
+
+**Text Equivalent (advanced methods):** The selector table maps actual evidence
+to one technique and checkpoint. Existing primary, project and QA owners retain
+authority. Public documentation informs original source. Review and isolated
+projection precede guarded shared installation; missing or failed evidence cannot
+advance as a pass. The selector and sequence tables are canonical; lifecycle and
+distribution maintainers update them when selection or deployment changes.
