@@ -58,6 +58,31 @@ dbt and other new providers are outside this change.
 | Audit discovers possible remediation or a migration | Recommend ordered batches with costs/compatibility; do not execute the proposal |
 | Existing live skill differs from source | Preserve edits and reconcile only authorized source changes before bounded deployment |
 
+## Interfaces and composition
+
+- Existing `dbsctr/modules/python.md` and `references/python-specialists.md`
+  route the five techniques and database boundary conditionally. Existing
+  `dbsctr/modules/data.md` links a new `references/database-specialists.md`.
+- `python-audit/SKILL.md` and its report contract retain QA, snapshot, coverage
+  and remediation ownership while considering expanded lenses.
+- `python-database-boundaries/SKILL.md` owns cross-engine Python adapter review;
+  on-demand `references/boundaries.md` covers concrete driver/ORM semantics.
+- `database-audit/SKILL.md` and `references/report.md` define source-first stack
+  inventory, relevant lens selection, separate static/live evidence, findings,
+  retained decisions and independently reviewable refactor batches.
+- New skills use normal automatic discovery and generated `agents/openai.yaml`.
+  Their source is `dot_agents/skills/<name>` and shared projection is
+  `~/.agents/skills/<name>` through the existing distribution owner.
+- Complete vendored bundles have `UPSTREAM.md`, `LICENSE.upstream` and immutable
+  provenance under `dbsctr/references/python-data-sources/`: independent `python`,
+  `engines` and `databricks` inventories use existing schema 1 packages, file
+  SHA-256/Git blob identities, source/installed modes and reversible patches.
+  Local authoring does not relabel upstream licensing.
+- `tests/test_python_data_specialists.py` validates complete provenance and
+  adaptation round trips, declared local resource closure, exact delivery/modes,
+  preservation of unrelated state and repeat-apply behavior. Existing instruction,
+  Python/platform specialist and Python audit tests cover changed downstreams.
+
 ## Visual Evidence
 
 | Concern | Decision and canonical evidence |
