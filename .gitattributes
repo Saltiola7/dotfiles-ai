@@ -10,3 +10,39 @@ dot_agents/skills/bats-testing-patterns/LICENSE.upstream -whitespace
 dot_agents/skills/async-python-patterns/LICENSE.upstream -whitespace
 dot_agents/skills/k8s-manifest-generator/LICENSE.upstream -whitespace
 dot_agents/skills/helm-chart-scaffolding/LICENSE.upstream -whitespace
+
+# Pinned Python/data patch preimages retain exact original whitespace.
+dot_agents/skills/dbsctr/references/python-data-sources/**/patches/** -whitespace
+# Verbatim licenses and upstream Markdown formatting are source-preserved.
+dot_agents/skills/clickhouse-architecture-advisor/AGENTS.md -whitespace
+dot_agents/skills/clickhouse-architecture-advisor/examples/finserv-market-surveillance.md -whitespace
+dot_agents/skills/clickhouse-architecture-advisor/examples/observability-high-throughput.md -whitespace
+dot_agents/skills/clickhouse-architecture-advisor/examples/siem-security-analytics.md -whitespace
+dot_agents/skills/databricks-spark-structured-streaming/references/checkpoint-best-practices.md -whitespace
+dot_agents/skills/databricks-spark-structured-streaming/references/kafka-streaming.md -whitespace
+dot_agents/skills/databricks-spark-structured-streaming/references/merge-operations.md -whitespace
+dot_agents/skills/databricks-spark-structured-streaming/references/multi-sink-writes.md -whitespace
+dot_agents/skills/databricks-spark-structured-streaming/references/stateful-operations.md -whitespace
+dot_agents/skills/databricks-spark-structured-streaming/references/stream-static-joins.md -whitespace
+dot_agents/skills/databricks-spark-structured-streaming/references/stream-stream-joins.md -whitespace
+dot_agents/skills/databricks-spark-structured-streaming/references/trigger-and-cost-optimization.md -whitespace
+dot_agents/skills/python-observability/LICENSE.upstream -whitespace
+dot_agents/skills/python-resilience/LICENSE.upstream -whitespace
+dot_agents/skills/python-resource-management/LICENSE.upstream -whitespace
+dot_agents/skills/python-testing-patterns/LICENSE.upstream -whitespace
+dot_agents/skills/python-type-safety/LICENSE.upstream -whitespace
+
+# Exact architecture skill preimages and verbatim MIT license notices.
+dot_agents/skills/dbsctr/references/architecture-sources/patches/** -whitespace
+dot_agents/skills/architecture-patterns/LICENSE.upstream -whitespace
+dot_agents/skills/python-project-structure/LICENSE.upstream -whitespace
+
+# Exact Python stack skill preimages and verbatim upstream license notices.
+dot_agents/skills/dbsctr/references/python-expansion-sources/**/patches/** -whitespace
+dot_agents/skills/pydantic/LICENSE.upstream -whitespace
+dot_agents/skills/polars/LICENSE.upstream -whitespace
+dot_agents/skills/typer/LICENSE.upstream -whitespace
+dot_agents/skills/fastapi/LICENSE.upstream -whitespace
+dot_agents/skills/atheris/LICENSE.upstream -whitespace
+dot_agents/skills/secure-python-release-pipeline/LICENSE.upstream -whitespace
+dot_agents/skills/port-to-free-threaded-python/LICENSE.upstream -whitespace

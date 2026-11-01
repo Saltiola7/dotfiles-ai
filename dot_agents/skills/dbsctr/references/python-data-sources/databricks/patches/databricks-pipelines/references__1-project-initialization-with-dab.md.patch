@@ -1,0 +1,11 @@
+--- a/references/1-project-initialization-with-dab.md
++++ b/references/1-project-initialization-with-dab.md
+@@ -1,4 +1,8 @@
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Project Initialization with DAB
++
++Use setup, validation and mutation commands below only for the corresponding authorized live task. A static repository audit preserves tool versions, profiles and target resources; it records unavailable live evidence instead of installing tools, deploying or creating monitors.
+ 
+ Two DAB-based workflows for creating Spark Declarative Pipelines:
+ 

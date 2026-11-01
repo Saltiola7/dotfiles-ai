@@ -1,0 +1,19 @@
+--- a/rules/insert-mutation-avoid-delete.md
++++ b/rules/insert-mutation-avoid-delete.md
+@@ -4,6 +4,8 @@
+ impactDescription: "Use lightweight DELETE, CollapsingMergeTree, or DROP PARTITION instead"
+ tags: [insert, mutation, DELETE, CollapsingMergeTree]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Avoid ALTER TABLE DELETE
+ 
+@@ -72,3 +74,7 @@
+ | DROP PARTITION | Instant | Bulk deletion by partition |
+ 
+ Reference: [Avoid Mutations](https://clickhouse.com/docs/best-practices/avoid-mutations)
++
++## Workload and compatibility qualification
++
++Deletion visibility, physical removal, replicas, retention and legal-erasure requirements differ by method. DROP PARTITION is destructive and bounded to the exact partition; never apply it from an audit recipe. Verify target version, engine and async completion before claiming data is removed.

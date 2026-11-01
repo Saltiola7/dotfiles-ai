@@ -1,0 +1,22 @@
+--- a/rules/schema-pk-prioritize-filters.md
++++ b/rules/schema-pk-prioritize-filters.md
+@@ -1,15 +1,17 @@
+ ---
+ title: Prioritize Filter Columns in ORDER BY
+ impact: CRITICAL
+-impactDescription: "Columns not in ORDER BY cause full table scans"
++impactDescription: "Align sort keys with important filters and verify pruning"
+ tags: [schema, primary-key, WHERE, filtering]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Prioritize Filter Columns in ORDER BY
+ 
+ **Impact: CRITICAL**
+ 
+-Prioritize columns frequently used in query filters (WHERE clause), especially those that exclude large numbers of rows. Queries filtering on columns not in ORDER BY result in full table scans.
++Prioritize columns frequently used in query filters (WHERE clause), especially those that exclude large numbers of rows. Other filters may prune through partitioning, projections or skipping indexes; inspect actual plans rather than declaring a full scan from SQL alone.
+ 
+ **Incorrect (ORDER BY doesn't match query patterns):**
+ 

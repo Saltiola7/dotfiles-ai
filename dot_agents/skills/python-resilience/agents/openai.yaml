@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Resilience"
+  short_description: "Design bounded and replay-safe retries"
+  default_prompt: "Use $python-resilience to review retry and timeout behavior, including duplicate effects, cancellation and terminal outcomes."

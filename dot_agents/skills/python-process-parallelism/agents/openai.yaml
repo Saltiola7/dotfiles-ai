@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Process Parallelism"
+  short_description: "Bound Python pools, IPC and worker lifetimes"
+  default_prompt: "Use $python-process-parallelism to review this repository’s process pools and shutdown contract."

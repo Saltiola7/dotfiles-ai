@@ -1,0 +1,3 @@
+interface:
+  display_name: "Pydantic"
+  short_description: "Validate data boundaries and serialization"

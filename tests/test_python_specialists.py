@@ -68,6 +68,19 @@ def assert_bundles(skills_root, packages):
         assert inventory(skills_root / package["name"]) == package["files"], package["name"]
 
 
+def copy_stack_resources(skills_root):
+    """Close the conditional guide linked by the shared Python module."""
+    for name in {"python-process-parallelism", "python-data-contracts", "python-arrow-interchange", "python-mutation-testing", "python-durable-jobs", "pydantic", "polars", "typer", "fastapi", "atheris",
+                 "secure-python-release-pipeline", "port-to-free-threaded-python"}:
+        shutil.copytree(SKILLS / name, skills_root / name)
+    references = skills_root / "dbsctr/references"
+    references.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(SKILLS / "dbsctr/references/python-stack-specialists.md",
+                 references / "python-stack-specialists.md")
+    shutil.copytree(SKILLS / "dbsctr/references/python-expansion-sources",
+                    references / "python-expansion-sources")
+
+
 def copy_selected(skills_root):
     for name in NAMES:
         shutil.copytree(SKILLS / name, skills_root / name)
@@ -76,6 +89,7 @@ def copy_selected(skills_root):
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(SKILLS / relative, target)
     shutil.copytree(INVENTORY, skills_root / "dbsctr/references/python-specialists")
+    copy_stack_resources(skills_root)
 
 
 def test_complete_bundles_have_immutable_source_identity_and_attribution():

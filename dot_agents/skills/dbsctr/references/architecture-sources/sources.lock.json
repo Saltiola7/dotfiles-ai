@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "architecture-patterns",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/backend-development/skills/architecture-patterns",
+      "license": "MIT",
+      "upstream_files": {
+        "SKILL.md": "350caf22b856b7d2908a10a69a8cc13e743c757ba9838716051b4e29fc1d7595",
+        "references/advanced-patterns.md": "a3513435c141f177ae6603697e1fbbaeec404943ea89dab14c6b76a0b51b03e3",
+        "references/details.md": "a53411600b253b343247db9d86140f3136ee7bd26a67aa8411962bcc1f5ff981",
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746"
+      },
+      "git_blobs": {
+        "SKILL.md": "d893cabeab6a84c17bd0dd4ea9f56b3c4d02c0f5",
+        "references/advanced-patterns.md": "158b062807afbc0bd1778655ba412f24121d7872",
+        "references/details.md": "7b98690c602ac710938c4f99f6c5fc612b3911ad",
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e"
+      },
+      "upstream_modes": {
+        "SKILL.md": "100644",
+        "references/advanced-patterns.md": "100644",
+        "references/details.md": "100644",
+        "LICENSE.upstream": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "229f2103ca7c8f2fc34bdb1f1c55411ec3012efcf44cdc5c5d190cabe9bd74bc",
+        "UPSTREAM.md": "53633889278b984b9858f858bf55305cede606ff2d464db65b053a276c198e59",
+        "agents/openai.yaml": "43e06e0840d0ed6f628e6d554976cea2895bf27aef1d477fff6615a88306b8ff",
+        "references/advanced-patterns.md": "15cb1f2ce385bd9a40e991512046d088ac4577345ead6495f4e491d47943392d",
+        "references/details.md": "62350e6d975aaebb4e6440504852faabc53c7f1389471a1a3264a4c6985c9f78"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/advanced-patterns.md": "100644",
+        "references/details.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/advanced-patterns.md": "100644",
+        "references/details.md": "100644"
+      },
+      "patches": {
+        "patches/architecture-patterns/SKILL.md.patch": "7b0b1bd5a2027a61f9200c2cb0352e49dce3e1ef1ab2783284f3a371c6946ee9",
+        "patches/architecture-patterns/references__advanced-patterns.md.patch": "fbee643cc38b651f698704df7d37d4ad6991a36e35210ed391020ec7d27243b5",
+        "patches/architecture-patterns/references__details.md.patch": "e3edba718d45dd0f1b971c3930f3525ddc33d47f472a7cbc8395ee8595f9e2fe"
+      },
+      "changes": "Preserved the complete selected resource tree and scoped patterns to demonstrated architectural costs, project policy and compatible incremental choices. Kept modular monolith and simpler interface alternatives; made layers, repositories, ORM mapping, eventing and tool execution conditional. Moved fake tests on demand with explicit integration limits, corrected the borrowed-pool factory and quantity-aware Money totals with explicit unit rounding, populated required order-submission event fields from actual order values, replaced the blocking/global Stripe example with an injected asynchronous boundary, and made outbox encoding/commit/event ownership explicit. Added original attribution, generated UI metadata and immutable provenance."
+    },
+    {
+      "name": "python-project-structure",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/python-development/skills/python-project-structure",
+      "license": "MIT",
+      "upstream_files": {
+        "SKILL.md": "c53696fb8d9014abc280fc0e64220cae0d087766a16380e211a6745e481dae65",
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746"
+      },
+      "git_blobs": {
+        "SKILL.md": "504df638b71a09c24f5e6f0a993a4e2f3eaf01f7",
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e"
+      },
+      "upstream_modes": {
+        "SKILL.md": "100644",
+        "LICENSE.upstream": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "553b5ba866489357b4098a0016f19efaa233ac0b32bafe357f0761dd4f9da09b",
+        "UPSTREAM.md": "4e1e6f3924f8cf0fa558f20e34d3c813b8d71bd71d57d876729696ff7071993b",
+        "agents/openai.yaml": "cb0322275d97bc9c61d2afb086f9ccd9dd892e83d9adfa659c598e80849b734b"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644"
+      },
+      "patches": {
+        "patches/python-project-structure/SKILL.md.patch": "a8968397bdb353f186bd67ee0c846cba07ade70f2f31054b58fa4e45884069e6"
+      },
+      "changes": "Preserved the complete selected skill and scoped package/layout examples to actual cohesion, public imports, project conventions and consumer compatibility. Corrected __all__ privacy and absolute/relative import claims, removed arbitrary file-size/nesting requirements, addressed import-time resource effects and namespace packages, and retained existing packaging/version/test authorities. Added original attribution, generated UI metadata and immutable provenance."
+    }
+  ]
+}

@@ -753,6 +753,8 @@ def test_v3_module_registry_is_extensible_and_normalized():
         "analytics.md",
         "python.md",
         "python-specialists.md",
+        "python-stack-specialists.md",
+        "database-specialists.md",
         "platform-specialists.md",
         "specialist-selection.md",
             "semantic-audit.md",

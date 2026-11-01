@@ -1,0 +1,4 @@
+interface:
+  display_name: "ClickHouse Best Practices"
+  short_description: "Review ClickHouse engine rules within task scope"
+  default_prompt: "Use $clickhouse-best-practices to review relevant ClickHouse rules and report source-backed findings and evidence limits."

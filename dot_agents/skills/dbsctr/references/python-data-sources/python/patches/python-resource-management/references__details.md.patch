@@ -1,0 +1,177 @@
+--- a/references/details.md
++++ b/references/details.md
+@@ -1,14 +1,23 @@
+ # python-resource-management — detailed worked examples
+ 
++Apply the entrypoint's ownership and failure rules. The examples borrow their
++inputs unless explicitly stated; the owner closes the underlying response/stream.
++Prefer native driver contexts. Test failed acquisition, cancellation, early close
++and secondary cleanup errors. See [contextlib](https://docs.python.org/3/library/contextlib.html)
++for ExitStack, generator closure and exception propagation semantics.
++
+ ## Advanced Patterns
+ 
+ ### Pattern 5: Selective Exception Suppression
+ 
+-Only suppress specific, documented exceptions.
++Suppress only a documented domain outcome; returning True affects the body
++exception, while close itself may raise a different failure. A client disconnect
++is not universally a successful operation. Close only an owned stream and preserve
++other errors. This example applies only when that ownership/contract is explicit.
+ 
+ ```python
+ class StreamWriter:
+-    """Writer that handles broken pipe gracefully."""
++    """Own the supplied stream under an explicit broken-pipe contract."""
+ 
+     def __init__(self, stream) -> None:
+         self._stream = stream
+@@ -35,18 +44,28 @@
+ 
+ ### Pattern 6: Streaming with Accumulated State
+ 
+-Maintain both incremental chunks and accumulated state during streaming.
+-
+-```python
+-from collections.abc import Generator
++Retain a full result only when required, with a caller-selected budget. This
++illustration handles decoded text, not arbitrary wire bytes. Returning every full
++prefix performs repeated joins and can cost quadratic copying; prefer yielding
++only new chunks when consumers do not require snapshots. Early generator close
++is incomplete output; only exhaustion returns the final result.
++
++```python
++from collections.abc import Generator, Iterable
+ from dataclasses import dataclass, field
+ 
+ @dataclass
+ class StreamingResult:
+     """Accumulated streaming result."""
+ 
++    max_chars: int
+     chunks: list[str] = field(default_factory=list)
++    _size: int = 0
+     _finalized: bool = False
++
++    def __post_init__(self) -> None:
++        if self.max_chars < 0:
++            raise ValueError("Retention budget must be nonnegative")
+ 
+     @property
+     def content(self) -> str:
+@@ -57,7 +76,10 @@
+         """Add chunk to accumulator."""
+         if self._finalized:
+             raise RuntimeError("Cannot add to finalized result")
++        if self._size + len(chunk) > self.max_chars:
++            raise ValueError("Stream retention budget exceeded")
+         self.chunks.append(chunk)
++        self._size += len(chunk)
+ 
+     def finalize(self) -> str:
+         """Mark stream complete and return content."""
+@@ -65,7 +87,7 @@
+         return self.content
+ 
+ def stream_with_accumulation(
+-    response: StreamingResponse,
++    response: Iterable[str], *, max_chars: int,
+ ) -> Generator[tuple[str, str], None, str]:
+     """Stream response while accumulating content.
+ 
+@@ -75,9 +97,9 @@
+     Returns:
+         Final accumulated content.
+     """
+-    result = StreamingResult()
+-
+-    for chunk in response.iter_content():
++    result = StreamingResult(max_chars=max_chars)
++
++    for chunk in response:
+         result.add_chunk(chunk)
+         yield result.content, chunk
+ 
+@@ -86,10 +108,13 @@
+ 
+ ### Pattern 7: Efficient String Accumulation
+ 
+-Avoid O(n²) string concatenation when accumulating.
+-
+-```python
+-def accumulate_stream(stream) -> str:
++When a full bounded result is required, collect chunks then join once. Repeated
++full-prefix construction can cost quadratic copying; implementation-dependent
++concatenation optimizations are not a performance guarantee. Use profiling for
++performance claims and account for retained memory as well as runtime.
++
++```python
++def accumulate_stream(stream, *, max_chars: int) -> str:
+     """Efficiently accumulate stream content."""
+     # BAD: O(n²) due to string immutability
+     # content = ""
+@@ -98,22 +123,29 @@
+ 
+     # GOOD: O(n) with list and join
+     chunks: list[str] = []
++    size = 0
+     for chunk in stream:
++        size += len(chunk)
++        if size > max_chars:
++            raise ValueError("Stream retention budget exceeded")
+         chunks.append(chunk)
+     return "".join(chunks)  # Single allocation
+ ```
+ 
+ ### Pattern 8: Tracking Stream Metrics
+ 
+-Measure time-to-first-byte and total streaming time.
++Measure time to first decoded chunk and time to normal exhaustion separately.
++These timings exclude work before iteration starts and do not prove wire-level
++time-to-first-byte. Empty streams have no first-chunk latency; early termination
++must not publish a successful final metric.
+ 
+ ```python
+ import time
+-from collections.abc import Generator
++from collections.abc import Generator, Iterable
+ 
+ def stream_with_metrics(
+-    response: StreamingResponse,
+-) -> Generator[str, None, dict]:
++    response: Iterable[str],
++) -> Generator[str, None, dict[str, float | int | None]]:
+     """Stream response while collecting metrics.
+ 
+     Yields:
+@@ -127,7 +159,7 @@
+     chunk_count = 0
+     total_bytes = 0
+ 
+-    for chunk in response.iter_content():
++    for chunk in response:
+         if first_chunk_time is None:
+             first_chunk_time = time.perf_counter() - start
+ 
+@@ -138,7 +170,7 @@
+     total_time = time.perf_counter() - start
+ 
+     return {
+-        "time_to_first_byte_ms": round((first_chunk_time or 0) * 1000, 2),
++        "first_chunk_latency_ms": None if first_chunk_time is None else round(first_chunk_time * 1000, 2),
+         "total_time_ms": round(total_time * 1000, 2),
+         "chunk_count": chunk_count,
+         "total_bytes": total_bytes,
+@@ -147,7 +179,11 @@
+ 
+ ### Pattern 9: Managing Multiple Resources with ExitStack
+ 
+-Handle a dynamic number of resources cleanly.
++ExitStack unwinds already acquired resources when later acquisition fails.
++Keep the input population bounded; a single stack that opens every file/connection
++at once can exhaust descriptors or pools. Batch work or cap active resources when
++the project workload requires it. AsyncExitStack still follows the selected
++resources' cancellation and close semantics.
+ 
+ ```python
+ from contextlib import ExitStack, AsyncExitStack

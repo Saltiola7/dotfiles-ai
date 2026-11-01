@@ -1,0 +1,17 @@
+--- a/rules/query-index-skipping-indices.md
++++ b/rules/query-index-skipping-indices.md
+@@ -5,11 +5,13 @@
+ tags: [query, index, skipping, bloom_filter]
+ ---
+ 
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
++
+ ## Use Data Skipping Indices for Non-ORDER BY Filters
+ 
+ **Impact: HIGH**
+ 
+-Queries filtering on columns not in ORDER BY cannot use the primary index and result in full scans. Data skipping indices store metadata about blocks and skip granules that definitely don't match.
++Filters outside ORDER BY may benefit from partition pruning, projections or skipping indexes. Determine actual pruning from plans and representative data; absence from the sort key alone does not prove a full scan. Data skipping indices store metadata about blocks and skip granules that definitely don't match.
+ 
+ **Important:** Skip indices should be considered **after** optimizing data types, primary key selection, and materialized views.
+ 
