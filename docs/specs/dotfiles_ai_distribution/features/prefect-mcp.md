@@ -44,3 +44,27 @@ selects the existing API and credentials. Native clients own registration and
 stdio lifetime. The API's service owner retains backend operations. The primary
 and QA own reviewed delivery. Canonical source: this feature and the ownership
 table; owner: distribution maintainer; update when a represented boundary changes.
+
+## Behavior
+
+| Given / when | Observable outcome |
+|---|---|
+| Public defaults are applied without opt-in | No runtime download, MCP startup, backend request or client registration |
+| Explicit installation has an existing compatible interpreter | Install the frozen runtime in a new isolated generation and mark it complete only after offline qualification |
+| A generation is incomplete or disagrees with its lock | Refuse reuse and retain it for deliberate recovery; no destructive replacement |
+| A client invokes the adapter without an installed runtime or selected API | Return a bounded non-secret unavailable result before importing Prefect or opening a transport |
+| A private profile is selected | Resolve only that profile, preserve the global active profile and reject an unresolved/ambiguous target |
+| A repository contains `.env` or Prefect configuration | Use a controlled working directory and explicit child target; repository settings cannot silently redirect the adapter |
+| Transport initializes against a selected self-hosted target | Expose exactly twelve inspection tools; omit cloud workspace selection and external documentation proxy |
+| Experimental publication is requested directly or through altered ambient flags | Refuse it without contacting the backend or performing a write |
+| A backend is unreachable, unauthorized or incompatible | Report the actual failure; do not start an ephemeral API, switch profiles/accounts or claim workflow readiness |
+| A native client entry is added | Preserve unrelated settings, hooks, plugins and servers; reconcile only the selected native configuration owner |
+| A different same-name MCP entry already exists | Retain it and report the collision rather than overwrite its transport or credentials |
+| A real Prefect operation is diagnosed | Load operational guidance, verify identity and use bounded relevant evidence; API failure and hypothesis remain distinct |
+| Only flow code needs authoring or review | Keep project-selected SDK/CLI and tests; MCP installation is not a requirement for flow code |
+| Installation and registration repeat unchanged | Reuse the qualified generation and preserve client configuration without extra dependencies or duplicate entries |
+
+Discovery, native client registration, returned tool metadata, backend connectivity
+and demonstrated task behavior remain separate claims. Local installation can be
+qualified while an existing backend is unavailable; that availability gap remains
+explicit and is never reported as a successful live query.
