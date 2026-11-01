@@ -635,3 +635,35 @@ authority. Public documentation informs original source. Review and isolated
 projection precede guarded shared installation; missing or failed evidence cannot
 advance as a pass. The selector and sequence tables are canonical; lifecycle and
 distribution maintainers update them when selection or deployment changes.
+
+### Advanced-method contracts and validation
+
+- Preserve supported runtimes and installed framework/queue choices. Version-gate
+  process start defaults, interpreter pools, bounded map and worker termination.
+  Cancellation, deadline expiry, shutdown and actual process termination remain
+  distinct outcomes. Shared-memory cleanup has explicit ownership.
+- Data contracts distinguish schema-only planning, full value checks, nullability,
+  coercion, uniqueness and cross-column invariants. Lazy error aggregation does
+  not imply LazyFrame value validation. Arrow zero-copy and bounded memory are
+  conditional on representation, buffer ownership and actual producer/consumer.
+- Mutation guidance requires a passing baseline, exact target/test scope, time
+  budget and source isolation. Preserve original source and raw tool results;
+  surviving, uncovered, equivalent, timeout and invalid mutants are distinct.
+  Static audit does not run a campaign or invent a gate threshold.
+- Durable work separates DB commit from broker publication, claim ownership from
+  stale effects, and business idempotency from acknowledgement. Validate actual
+  engine guarantees and crash windows; do not promise exactly-once delivery.
+- Tests verify complete scoped projection, resource/link closure, ordinary
+  discoverability, bytes/modes, unrelated-state preservation and repeat diff.
+  Read every changed routing/audit resource. Run creator validators for five
+  bundles and independent forward cases with realistic static artifacts. Runtime
+  engine qualification is distinct from static advice and file installation.
+- Deploy only exact managed targets with explicit source/configuration and scripts
+  excluded. Snapshot prior live file sets/bytes/modes, compare before applying,
+  preserve unexpected drift and verify full installed closure plus empty repeat
+  diff. Recovery uses retained preimages and reviewed source. Native catalogue
+  selection is not inferred from filesystem or physical-sibling resolution.
+- Kernel, Review/Integrate, Deploy and Maintain/Retire are required. Release and
+  Operate are not applicable: no independently released package or running service.
+  Source-only artifact phases create no executable type-bearing changes; existing
+  test environment validates implementation contracts without new installations.
