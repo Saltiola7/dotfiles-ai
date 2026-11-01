@@ -22,6 +22,7 @@ project target policy and QA remain authoritative.
 | Actual Dagger module or CI execution graph | `dagger-pipelines`; selected SDK/engine, terminal evaluation, caches, secrets and capabilities |
 | Actual Chezmoi source, templates, destination drift or scoped apply | `chezmoi-operations`; identify hook/script/external effects and preserve repository deployment ownership |
 | Actual PyInfra inventory, deploy code or host operation | `pyinfra-deployments`; distinguish preparation facts, execution-time conditions and verified host results |
+| Prefect run, deployment, log or orchestration-state diagnosis | `prefect-operations`; verify the selected API identity and available tools, with self-hosted operation independent of Cloud; project SDK/CLI remains sufficient for flow authoring |
 
 Resolve target facts from existing project/configuration evidence before asking.
 Record material ambiguity rather than silently using an ambient cluster,
@@ -63,6 +64,11 @@ The marimo notebook, Jupyter conversion and WASM bundles share this inventory an
 retain their official complete resource trees. Original Chezmoi, PyInfra and
 Python/Rust methods link official documentation; they do not redistribute the
 considered community candidates. The Python module owns notebook/interop routing.
+
+The official Prefect workflow bundle shares this inventory as
+`prefect-operations`. It is adapted for capability-aware self-hosted inspection;
+installing guidance does not require the optional local MCP runtime. Runtime,
+private API selection and native client registration retain separate owners.
 
 Use the existing distribution owner: isolated exact-target projection, prior-live
 comparison, reviewed preview, application with scripts excluded, then complete

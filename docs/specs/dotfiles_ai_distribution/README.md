@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution
 
+The optional [self-hosted Prefect inspection capability](features/prefect-mcp.md)
+adds reviewed operational guidance and an independently installed frozen stdio
+adapter. Private selection owns the existing API and credentials; native clients
+own registration and process lifetime. Backend availability remains separate from
+installation and tool discovery. The adapter does not provision a Prefect service
+or make MCP a prerequisite for project SDK/CLI flow work.
+
 ## History Projection Refresh Duration
 
 The distribution-owned scheduler reports completed refresh duration as whole

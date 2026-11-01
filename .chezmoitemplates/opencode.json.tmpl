@@ -1,4 +1,5 @@
 {{- $references := dict -}}
+{{- $prefectMCP := index .dotfiles_ai "prefect_mcp" | default dict -}}
 {{- $worktrees := printf "%s/.local/state/dbsctr/worktrees" .chezmoi.homeDir -}}
 {{- if .dotfiles_ai.state.root }}{{ $worktrees = printf "%s/dbsctr/worktrees" .dotfiles_ai.state.root }}{{ end -}}
 {{- $_ := set $references "legacy-worktrees" (dict "path" $worktrees "description" "Retained pre-transition worktrees for explicit in-place adoption. Use native Git/Worktrunk inventory; this directory does not allocate or redirect tasks.") -}}
@@ -134,7 +135,12 @@
       "type": "local",
       "command": ["npx", "-y", "@playwright/mcp@0.0.83"],
       "disabled": true
-    }
+    }{{ if get $prefectMCP "enabled" }},
+    "prefect_local": {
+      "type": "local",
+      "command": [{{ joinPath .chezmoi.homeDir ".local/bin/prefect-mcp" | toJson }}, "serve"],
+      "disabled": false
+    }{{ end }}
     }
   },
   "agent": {
