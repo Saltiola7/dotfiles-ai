@@ -11,15 +11,15 @@ The stable Engineering Profile is
 [`../PROFILE.md`](../PROFILE.md). Product Intent remains
 [`../PRODUCT.md`](../PRODUCT.md).
 
-## PY-01 First-Clone Repair Discovery
+## PY-01 First-Clone Repair
 
 ### Problem And Scope
 
-Audit finding `PY-01` identifies a first-install failure in
-`remote-user-bootstrap`: a new `git clone --no-checkout` reports tracked files as
-deleted, and the existing dirty-source guard rejects it before the requested
-checkout. The current bootstrap unit fixture and CentOS smoke workflow both
-prepare an already checked-out source, so neither establishes first-clone success.
+Audit finding `PY-01` identified a first-install failure in
+`remote-user-bootstrap`: a new `git clone --no-checkout` reported tracked files as
+deleted, and the dirty-source guard rejected it before the requested checkout.
+The previous bootstrap unit fixture and CentOS smoke workflow both prepared an
+already checked-out source, leaving first-clone success untested.
 
 This is a single-context repair owned by `dotfiles_ai_distribution`. Reuse the
 Engineering Profile and Product Intent linked above, especially the remote-user
@@ -157,12 +157,11 @@ cross-revision pin enforcement. A separate scoped follow-up must decide and test
 rejection before source mutation and failure-state replacement. This Discovery
 neither fixes that behavior nor claims the whole rollout is qualified.
 
-### Candidate DBSCTR Applicability Plan
+### DBSCTR Applicability Plan
 
-Build must persist this plan under the selected checkout's ignored
-`.dbsctr/plans/` directory and bind it to the committed Engineering Profile when
-starting the future cycle. This is an artifact-ready plan, not a registered cycle
-or evidence that any gate has passed.
+The cycle uses this plan under the selected checkout's ignored `.dbsctr/plans/`
+directory, bound to the committed Engineering Profile. This declaration records
+applicability; actual gate results and delivery evidence remain in the Cycle Record.
 
 ```json
 {
@@ -377,23 +376,28 @@ and validation are ready. Implementation requires the reconciled cross-repositor
 Begin behavior in protected source plus a fresh Initiative receipt and exact
 digest-bound approval.
 
-### PY-01 Build Handoff
+### PY-01 Implementation And Delivery
 
-Specification scope is ready for the bounded source correction above; no material
-behavior or ownership question requires another interview. Public-content and
-instruction checks must pass on the exact Discovery artifact set before handoff.
-The broader RWUE-005A Initiative receipt/launch requirements do not become an
-implicit launch of this separate single-context repair.
+The source correction uses exclusive new-directory admission, an ordinary Git
+clone and identity-checked cleanup on preparation failure. Existing sources
+retain their safety and cleanliness checks. Commit verification compares the
+peeled commit identity with the requested full hash before checkout, rejecting
+annotated-tag objects as well as blobs and unavailable objects.
 
-Build should use the current conversation's selected primary with Python and
-Security guidance, refresh source/doc freshness, and register the future cycle
-through the existing native DBSCTR route before implementation. Begin with the
-absent-source regression, then the smallest compatible source fix and failure
-matrix. One writer owns bootstrap and its test fixture; a bounded reviewer may
-inspect safety/refusal paths in parallel without owning another cycle.
+Regression coverage uses real Git with local-only transport substitution. It
+covers absent-source success/reuse; partial clone, fetch and checkout failure;
+same-revision retry; downstream apply failure; tracked/staged/untracked and legacy
+source refusal; wrong origin; replaced and symlinked cleanup targets; and invalid
+object identities. The CentOS workflow now runs the offline bootstrap tests using
+the existing uv/pytest toolchain before its original install/reapply smoke.
 
-Discovery changes only this existing feature specification and its context README
-pointer/override. Engineering Profile and Product Intent are reused. CHANGELOG
-was reviewed; add a completed-cycle outcome only after implementation and actual
-delivery evidence exist. No implementation, live bootstrap, deployment, remote
-publication or gate completion is claimed by these Discovery artifacts.
+The bounded implementation belongs to this single context. The broader
+RWUE-005A Initiative is not launched by this correction. Live bootstrap,
+deployment, authentication and remote rollout remain separate. The adjacent
+cross-revision retry-pin gap above remains unresolved and is not covered by a
+claim of broader rollout readiness.
+
+Engineering Profile and Product Intent are reused. The context CHANGELOG records
+the source outcome and intended draft delivery; the private Cycle Record and
+final response own actual validation and push outcomes. No Gate Exception is
+implicitly granted by this specification.
