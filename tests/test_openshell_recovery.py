@@ -497,3 +497,43 @@ def test_recovery_cannot_extend_expiring_original_experiment(recovery_fixture, r
     assert 0 < clock.now - started <= 45
     assert "worker_stop" not in transport.calls
     assert max(deadline for _, _, deadline in transport.deadlines) - started <= 45
+
+
+@pytest.mark.parametrize("failure", ["gateway_host", "checkpoint_identity", "storage_host"])
+def test_transport_truncation_survives_later_host_or_identity_failure(
+        recovery_fixture, recovery, monkeypatch, failure):
+    root, _, _, observed = recovery_fixture
+    transport, _ = install_transport(recovery_fixture, recovery, monkeypatch)
+    identity_changed = False
+    original_identity, original_execute = transport.identity, transport.execute
+    original_gateway_start = transport.gateway_start
+
+    def identity(deadline):
+        value = original_identity(deadline)
+        return (*value[:4], 5678, *value[5:]) if identity_changed else value
+
+    def execute(program, deadline):
+        nonlocal identity_changed
+        result = original_execute(program, deadline)
+        if failure == "checkpoint_identity" and result["operation"] == "checkpoint_create":
+            identity_changed = True
+            raise support.probe.Refusal("output_limit", output_limit_bytes=1234)
+        if failure == "storage_host" and result.get("outcome") == "denied":
+            observed["flags"] = 0
+            raise support.probe.Refusal("output_limit", output_limit_bytes=1234)
+        return result
+
+    def gateway_start(deadline):
+        original_gateway_start(deadline)
+        if failure == "gateway_host":
+            observed["flags"] = 0
+            raise support.probe.Refusal("output_limit", output_limit_bytes=1234)
+
+    transport.identity, transport.execute, transport.gateway_start = identity, execute, gateway_start
+    result = recovery.recovery_probe(support.probe.Selection(root, support.DIGEST))
+    assert result["truncation"] == {"transport_output": True, "limit_bytes": 1234}
+    assert result["reason"] == ("sandbox_identity" if failure == "checkpoint_identity" else "protected_state_changed")
+    assert result["status"] == ("unavailable" if failure == "checkpoint_identity" else "failed")
+    assert result["retained"] is True and "worker_stop" not in transport.calls
+    if failure == "storage_host":
+        assert stat.S_IMODE((root / "fixture/task/.openshell-recovery/storage").stat().st_mode) == 0

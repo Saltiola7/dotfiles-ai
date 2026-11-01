@@ -154,7 +154,7 @@ def _storage_result(value: dict, denied: bool) -> None:
         raise runtime.Refusal("storage_recovery_unobserved")
 
 
-def _storage_case(root: Path, controller, deadline: float, check_host) -> None:
+def _storage_case(root: Path, controller, deadline: float, check_host, record_error=None) -> None:
     path = root / "fixture/task/.openshell-recovery/storage"
     before = runtime._regular_identity(path, 4096)
     if stat.S_IMODE(before[2]) != 0o600 or before[-1] != hashlib.sha256(STORAGE).hexdigest():
@@ -174,6 +174,10 @@ def _storage_case(root: Path, controller, deadline: float, check_host) -> None:
         os.fchmod(fd, 0)
         try:
             _storage_result(controller.execute(_recovery_program("storage_open"), deadline), True)
+        except runtime.Refusal as error:
+            if record_error is not None:
+                record_error(error)
+            raise
         finally:
             check_host()
         same_object(0)
@@ -182,6 +186,10 @@ def _storage_case(root: Path, controller, deadline: float, check_host) -> None:
         same_object(0o600)
         try:
             _storage_result(controller.execute(_recovery_program("storage_open"), deadline), False)
+        except runtime.Refusal as error:
+            if record_error is not None:
+                record_error(error)
+            raise
         finally:
             check_host()
         if runtime._regular_identity(path, 4096) != before:
@@ -349,6 +357,9 @@ def recovery_probe(selection: runtime.Selection) -> dict:
                 raise runtime.Refusal("sandbox_identity")
             try:
                 return call()
+            except runtime.Refusal as error:
+                runtime._record_truncation(report, error)
+                raise
             finally:
                 host_check()
                 if ordinary:
@@ -384,7 +395,8 @@ def recovery_probe(selection: runtime.Selection) -> dict:
         report["checks"].append({"operation": "gateway_interruption", "status": "passed"})
 
         deadline = min(experiment_deadline, time.monotonic() + 60)
-        checked(lambda: _storage_case(root, controller, deadline, host_check))
+        checked(lambda: _storage_case(root, controller, deadline, host_check,
+                                     lambda error: runtime._record_truncation(report, error)))
         report["checks"].append({"operation": "storage_permission_denial", "status": "passed", "scope": "synthetic_object_permission"})
 
         deadline = min(experiment_deadline, time.monotonic() + 60)
