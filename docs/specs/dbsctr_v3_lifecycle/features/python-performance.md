@@ -261,6 +261,51 @@ CI job or component RSS cannot establish a whole-cycle gain, foreground
 responsiveness, total host memory use or a performance regression. No percentile
 is invented for unavailable samples. No candidate is optimized in PY-09.
 
+### Concrete foundation interfaces
+
+The implementation has two modules: `performance_evidence.py` owns immutable
+records, bounded file I/O and statistics; `python_performance.py` owns fixture,
+process and CLI orchestration. Tests use their public seams, not production
+helper monkeypatches. The checked-in `cli_workloads.json` freezes source-helper
+and runtime-specific help digests before timing; a different source/help oracle
+is unavailable until deliberately requalified. The initial supported-runtime
+oracles cover Python 3.12, 3.13 and 3.14. Native Git system configuration must be
+qualified inert independently because the selected helper drops injected Git
+configuration variables. Reject non-inert configuration; do not use a timing
+wrapper as a substitute. Fixture-local hooks, signing, credential helpers,
+fsmonitor, maintenance and templates are disabled explicitly.
+
+Evidence module signatures:
+
+- `canonical(value: object) -> bytes` and `digest(value: object) -> str`.
+- `build_record(source, environment, cell, attempts, planned) -> dict` computes
+  coverage/statistics from attempts; `validate_record(record) -> dict` refuses
+  malformed or inconsistent serialized records.
+- `read_records(paths: Sequence[Path]) -> list[dict]` applies the declared file,
+  population, ownership and byte bounds before returning validated records.
+- `create_private_output(path: Path, source: Path | None = None) -> Path` creates
+  a fresh safe directory; `write_private_json(directory, name, value) -> Path`
+  writes one bounded owner-private file without replacement.
+
+Record fields are closed: `schema_version`, `source`, `environment`, `cell`,
+`attempts`, `coverage` and `summary`. Source holds `commit`, `tree`, `tool_commit`,
+`lock_sha256`, `workload_sha256` and `clean`. Environment holds `python`,
+`python_sha256`, `git_version`, `git_sha256`, `os`, `os_version`, `architecture`,
+`cpu_count` and `execution_cohort`. Cell holds `surface`, `workload`, `dimensions`,
+`fixture_sha256`, `instrumentation`, `cache` and `metrics`. Metric descriptors
+hold `unit`, `scope` and `required`; each attempt holds `sequence`, `warmup`,
+`status`, `reason`, `compatible`, `returncode`, `metrics`, `unavailable` and
+`output_sha256`. Coverage and per-metric summary are derived and checked exactly;
+unknown fields or duplicate JSON keys refuse ingestion. Serialized cohort and
+source claims are not authenticated by an offline report. Separate input files
+remain separate cohorts unless independently verified provenance exists.
+
+CLI success is exit 0 for a complete requested cohort/report, exit 75 for an
+unavailable/incomplete required measurement, exit 1 for an incompatible execution
+or failed cohort, and exit 2 for invalid input. Optional unavailable metrics never
+erase a qualified primary wall-time observation. A report validates input without
+executing code or upgrading provenance. No actual runtime paths enter records.
+
 ### Bounds, recovery and publication
 
 | Benchmark attempt | Condition | Disposition |
