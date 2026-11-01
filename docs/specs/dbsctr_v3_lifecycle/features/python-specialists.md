@@ -569,3 +569,22 @@ maintainers update them when selection, ownership, schema or deployment changes.
   phases have no new executable type artifacts; implementation checks use the
   existing compatible test environment. Publishing a package, running a campaign,
   changing credentials or operating a remote service is outside this installation.
+
+## Conditional advanced Python methods
+
+### Domain and ownership
+
+Add five locally authored methods: `python-process-parallelism`,
+`python-data-contracts`, `python-arrow-interchange`, `python-mutation-testing`
+and `python-durable-jobs`. Process ownership, dataframe validation, columnar
+interchange, selected mutation campaigns and durable worker delivery are distinct
+boundaries. Project policy retains runtimes, backends, queues and acceptance
+thresholds. The Python module owns canonical selection; Data delegates actual
+data contracts and Arrow handoffs. The existing audit primary reconciles relevant
+methods and one roadmap. Full audit retains fourteen core lenses and architecture
+focus remains structural. Databricks Jobs retains platform orchestration ownership.
+
+These are original local guidance bundles informed by primary documentation, not
+vendored upstream skills. Existing seven-package provenance remains unchanged.
+No tool installation, interpreter migration, campaign, data read, worker operation
+or publishing follows merely from guidance selection.
