@@ -12,10 +12,16 @@
 - Corrected automatic login/install/config writes, generic MCP takeover,
   cached-package safety and version substitution, forced Kubernetes, scan
   bypass and hidden attestation failures in reachable guidance.
+- Removed the optional credential-derived project-list cache after native
+  CodeQL identified its fast password/token fingerprint. Compatibility cache
+  exports now always miss/no-op; selected enumeration stays live. Three
+  regressions fail against the original implementation and pass after repair;
+  no scanner suppression, alert dismissal or gate exception is introduced.
 - Added default-off, missing-only JFrog CLI 2.129.0 installation with four
   reviewed asset hashes, isolated bounded version probes, atomic no-replace
   publication, existing-owner retention and cancellation/failure cleanup.
-- Original creator, scoped pytest, provenance reconstruction, resource/import
+- 212 scoped tests pass with one opt-in native check skipped. Original creator,
+  scoped pytest, provenance reconstruction, resource/import
   closure and script syntax are delivery authorities. Exact local skill/CLI
   deployment and native discovery evidence belong to `JFROG-SKILLS-001`;
   no live platform, plugin, hooks, authentication or MCP activation is implied.
