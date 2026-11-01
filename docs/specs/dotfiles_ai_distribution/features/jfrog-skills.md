@@ -186,3 +186,22 @@ client-version assumptions, source patches and CLI asset integrity on a reviewed
 update. JFrog-specific vulnerability intelligence remains conditional on actual
 configured capabilities. No accepted risks, gate exceptions, external platform
 changes or live MCP connection are part of this feature.
+
+
+### Credential-cache repair contract
+
+The compatibility cache functions do not inspect credential properties, derive a
+verifier, touch a filesystem path, start a process or contact a network. Reads
+always return `null`; writes return normally without retaining inputs. Legacy
+cache files are ignored and remain untouched; no wildcard cleanup or credential
+migration is introduced. The existing discovery caller therefore enumerates for
+the selected current identity and keeps its existing live per-project access
+check and error behavior. Installation still executes no helper.
+
+Regression evidence uses only synthetic credentials and an isolated temporary
+directory: a prior cache remains ignored and byte-identical, a write creates no
+state, reads cannot return stale authorization metadata, and credential getters
+are never accessed. The original implementation must fail these cases before the
+repair. Reversible provenance and static helper/resource qualification remain
+required. Native CodeQL must succeed on the repaired head; no suppression,
+security-rule weakening, alert dismissal or gate exception is permitted.
