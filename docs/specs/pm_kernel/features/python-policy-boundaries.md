@@ -1,6 +1,6 @@
 # Python Policy Boundaries
 
-Status: approved Discovery contract; implementation and runtime qualification are pending.
+Status: source implementation qualified; managed installation remains separately scoped.
 Owner: dotfiles-ai maintainer. Risk: elevated. Delivery: source-only draft PR first.
 
 ## Purpose And Authority
@@ -142,15 +142,24 @@ selections, then obtains safety approval and runs the existing selected-source
 contract before constructing its distinct proof. Each envelope proof retains the
 original dictionary through `.value`; source approval also identifies `.source`.
 Proofs are internal synchronous results, not persistent schemas or serialized
-payloads. Consumers must not mutate an approved value between checking and use.
+payloads. Checked typed fields are captured during their existing runtime checks,
+without re-reading dictionary subclasses after validation. Consumers must not
+mutate an approved value between checking and use.
 
 Legacy `safe_envelope`, `validate_envelope_contract`, and
 `validate_envelope_field` retain their direct-call behavior and `None` success
 returns. In particular, direct source-contract validation does not add safety or
 source-selection checks. The shell consumes a parsed result for ticket checks
 and a source-approved result for envelope projection; it retains all I/O and raw
-bytes. Spec-phase stubs are intentionally incomplete and remain unwired until
-runtime validation and regression evidence are in place.
+bytes. The implementation contains no unfinished stubs.
+
+The two legacy heterogeneous source/field validator value parameters remain
+dynamic: their direct-call duck typing and incidental failures are part of
+compatibility. Loader-based tests likewise retain dynamic module attributes.
+Whole-file ty analysis covers those files but does not imply complete annotation
+precision. No casts, broad `Any`, checker exclusions, or diagnostic suppressions
+are introduced. New raw approval inputs use `object`; their advertised fields
+are established by runtime narrowing before proof construction.
 
 ## Compatibility Contracts
 
@@ -279,7 +288,7 @@ or publish failure output using real PM files, private paths, credentials,
 Jira content, or runtime lifecycle records. Local example-database state is not
 portable evidence; retained regression cases and recorded settings provide it.
 
-## Validation And Gate Ledger
+## Validation And Gate Plan
 
 Use the exact commands and settings recorded in the Engineering Profile.
 Evidence must bind the candidate commit, complete affected-file inventory,
@@ -294,19 +303,22 @@ through its existing inventory mechanism. A manifest check cannot substitute for
 publication safety. Relevant PM pytest coverage, typing, properties, instruction
 contracts, and affected distribution checks remain distinct evidence.
 
-| Gate | Applicability | Result | Required evidence or reason |
-|---|---|---|---|
-| Domain | required | pending | Raw/approved language, ownership, and compatibility reviewed in the registered cycle. |
-| Behavior | required | pending | Characterization and scenarios cover observable outcomes. |
-| Spec | required | pending | Profile-bound tool contract, complete inventory, and interfaces resolved. |
-| Contract | required | pending | Runtime proofs, trust transitions, failure precedence, and byte identity preserved. |
-| Test-driven implementation | required | pending | Focused examples/properties, affected pytest, and required ty evidence pass. |
-| Refactor | required | pending | Narrow extraction and annotations introduce no contract drift or duplicate policy. |
-| Review/Integrate | required | pending | Independent review, publication authority, and affected distribution checks pass. |
-| Release | not_applicable | not_run | Source-only draft delivery publishes no versioned package or image. |
-| Deploy | not_applicable | not_run | This slice stops at reviewed source; managed installation is a separate delivery decision. |
-| Operate | not_applicable | not_run | No installed command or service changes in this source-only slice. |
-| Maintain/Retire | required | pending | Tool ownership, counterexample maintenance, and rollback obligations recorded. |
+The private Cycle Record owns live results and evidence. This stable map defines
+applicability and proof obligations rather than copying execution state.
+
+| Gate | Applicability | Required evidence or reason |
+|---|---|---|
+| Domain | required | Raw/approved language, ownership, and compatibility reviewed in the registered cycle. |
+| Behavior | required | Characterization and scenarios cover observable outcomes. |
+| Spec | required | Profile-bound tool contract, complete inventory, and interfaces resolved. |
+| Contract | required | Runtime proofs, trust transitions, failure precedence, and byte identity preserved. |
+| Test-driven implementation | required | Focused examples/properties, affected pytest, and required ty evidence pass. |
+| Refactor | required | Narrow extraction and annotations introduce no contract drift or duplicate policy. |
+| Review/Integrate | required | Independent review, publication authority, and affected distribution checks pass. |
+| Release | not_applicable | Source-only draft delivery publishes no versioned package or image. |
+| Deploy | not_applicable | This slice stops at reviewed source; managed installation is a separate delivery decision. |
+| Operate | not_applicable | No installed command or service changes in this source-only slice. |
+| Maintain/Retire | required | Tool ownership, counterexample maintenance, and rollback obligations recorded. |
 
 No Gate Exception is granted by this document. Discovery readiness, lifecycle
 preflight, registration, and later integration authority remain the primary's

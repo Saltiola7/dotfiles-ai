@@ -372,6 +372,33 @@ def test_boundary_exact_type_checks_see_original_subclasses() -> None:
     rejects(lambda: pm.approve_envelope("cycle_record", value), "envelope payload has an invalid field type")
 
 
+def test_boundary_proof_captures_checked_subclass_fields() -> None:
+    class ChangingFields(dict[str, object]):
+        def __init__(self) -> None:
+            super().__init__(envelope({}))
+            self.reads: dict[str, int] = {}
+
+        def __getitem__(self, key: str) -> object:
+            self.reads[key] = self.reads.get(key, 0) + 1
+            if key == "schema_version" and self.reads[key] > 1:
+                return "unchecked"
+            if key == "source_id" and self.reads[key] > 2:
+                return 0
+            if key == "payload" and self.reads[key] > 1:
+                return "unchecked"
+            return super().__getitem__(key)
+
+    value = ChangingFields()
+    approved = pm.approve_envelope_safety(value)
+    assert approved.value is value
+    assert type(approved.schema_version) is int and approved.schema_version == 1
+    assert type(approved.source_id) is str and approved.source_id == "source-1"
+    assert approved.payload is dict.__getitem__(value, "payload")
+    assert value.reads == {"schema_version": 1, "source_authority": 1,
+                           "availability": 1, "source_id": 2, "payload": 1}
+    assert pm.safe_envelope(ChangingFields()) is None
+
+
 def test_boundary_safety_rejects_before_contract_and_does_not_mutate() -> None:
     value = envelope({"token": "synthetic"})
     before = copy.deepcopy(value)

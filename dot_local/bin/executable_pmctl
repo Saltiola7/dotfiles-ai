@@ -52,6 +52,7 @@ class SourceApprovedEnvelope:
     def value(self) -> dict[object, object]:
         return self.envelope.value
 
+
 STATES = {"intake", "refining", "ready", "committed", "in_progress", "blocked", "review", "done", "cancelled"}
 POINTS = {None, 0.5, 1, 2, 3, 5, 8}
 KINDS = {"story", "bug", "task", "spike", "epic"}
@@ -506,12 +507,12 @@ def approve_envelope_safety(value: object) -> SafetyApprovedEnvelope:
             fail("envelope contains unsafe content")
     visit(value)
     required = {"schema_version", "source_id", "source_authority", "availability", "payload"}
-    if (not isinstance(value, dict) or set(value) != required or type(value["schema_version"]) is not int
+    if (not isinstance(value, dict) or set(value) != required or type(schema_version := value["schema_version"]) is not int
             or value["source_authority"] != "dbsctr" or value["availability"] not in {"available", "unavailable"}
-            or not isinstance(value["source_id"], str) or not 1 <= len(value["source_id"].encode()) <= 256
-            or not isinstance(value["payload"], dict)):
+            or not isinstance(source_id := value["source_id"], str) or not 1 <= len(value["source_id"].encode()) <= 256
+            or not isinstance(payload := value["payload"], dict)):
         fail("envelope contract is incomplete")
-    return SafetyApprovedEnvelope(value, value["schema_version"], value["source_id"], value["payload"])
+    return SafetyApprovedEnvelope(value, schema_version, source_id, payload)
 
 
 def safe_envelope(value: object) -> None:
@@ -528,6 +529,7 @@ def approve_envelope(source: str, value: object) -> SourceApprovedEnvelope:
 
 
 def validate_envelope_contract(source: str, value) -> None:
+    # Legacy direct calls retain duck typing and their original failure behavior.
     if value["schema_version"] != 1:
         fail("unsupported sanitized envelope schema version")
     payload = value["payload"]

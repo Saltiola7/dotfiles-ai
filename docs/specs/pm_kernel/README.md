@@ -3,17 +3,19 @@ title: PM Kernel
 status: active
 owner: dotfiles-ai maintainer
 created: 2026-08-18
-last_updated: 2026-08-19
+last_updated: 2026-11-01
 ---
 
 # PM Kernel
 
 The approved [Python policy-boundary feature](features/python-policy-boundaries.md)
-defines a source-only refactor of existing parsing and sanitized-envelope checks.
+defines the source-only extraction of existing parsing and sanitized-envelope checks.
 It preserves the standalone CLI, runtime validation, byte identities and reporting
 authority. Its [Engineering Profile](PROFILE.md#python-policy-boundary-slice)
-selects affected-scope ty and test-only Hypothesis; Discovery does not implement
-or install those changes. The existing Product Intent and PM behavior below
+selects affected-scope ty and test-only Hypothesis. The standalone source now
+exposes typed syntax, safety, and source-contract results, retaining legacy
+helper adapters and original validation rules. Managed installation remains a
+separate delivery decision. The existing Product Intent and PM behavior below
 remain authoritative.
 
 ## Engineering Profile
