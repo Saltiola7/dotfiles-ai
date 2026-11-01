@@ -45,3 +45,26 @@ CLI versions, configuration, authentication and mutations. JFrog governance is
 selected explicitly. Resources remain inert until task-specific review and use.
 Canonical source: this feature and ownership table; owner: distribution
 maintainer; update when any represented boundary or imported root changes.
+
+## Behavior
+
+| ID | Given / when | Observable outcome |
+|---|---|---|
+| B01 | Ordinary skill deployment | Install all seven complete bundles, license notices and dependencies without executing helpers, contacting a platform or installing a plugin |
+| B02 | Actual JFrog artifact/build/security work | Select the base skill and relevant domain references; preserve configured project/QA authority |
+| B03 | Explicit Artifactory package binding, Curation or topology work | Select only matching setup, curation or reference-architecture guidance |
+| B04 | Unrelated GraphQL, MCP, skill discovery or package installation | Do not select JFrog guidance merely from generic terms |
+| B05 | Explicit JFrog AI Catalog or Agent Guard workflow | Select that specialist; retain existing managed source, native config and target ownership |
+| B06 | Explicit JFrog readiness/init request | Keep upstream manual invocation policy; report actual capability, never auto-login or overwrite client configuration |
+| B07 | CLI-only check/download or MCP-only Curation troubleshooting | Use available appropriate capability; report missing MCP troubleshooting tools without claiming CLI equivalence |
+| B08 | Missing or incompatible CLI/target/authentication | Report prerequisite gaps; never install tools from a copied recipe or switch target to obtain success |
+| B09 | Public CLI installation defaults | No executable download, authentication, config write or MCP registration |
+| B10 | Explicit optional CLI install with no existing owner | Verify pinned supported-platform binary before execution, install atomically and verify version using an isolated private home |
+| B11 | Existing CLI, incompatible CLI, destination collision or failed download | Preserve existing bytes; retain supported owners, report incompatibility/collision/integrity failures without upgrading or fallback |
+| B12 | Repeated unchanged deployment | Preserve exact file sets/modes, unrelated live edits, native configuration and credentials; repeat apply/diff remains empty |
+
+The optional CLI owner is default-off and missing-only, independently of skill
+installation. It selects official JFrog CLI 2.129.0 assets; an existing compatible
+CLI remains owned by its current installer. Minimum capability is 2.106.0 for the
+whole collection. Planning alone does not require a CLI or configured platform.
+No credentials, platform identity or global default selection are provided.
