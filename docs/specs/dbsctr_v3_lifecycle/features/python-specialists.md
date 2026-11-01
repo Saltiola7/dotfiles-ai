@@ -361,3 +361,18 @@ or authenticate external systems. Existing execution authorization remains usabl
 This cycle builds on the reviewed Python/data source and reconciles merged router/
 infrastructure guidance, preserving both source histories and all gate ancestry.
 It does not remediate unrelated pending pull requests or their validated findings.
+
+### Architecture behaviors
+
+| Given / when | Required outcome |
+|---|---|
+| A full Python audit is requested without a narrower focus | Consider fourteen current assessment lenses and applicable boundaries; keep coverage/evidence gaps visible |
+| Architecture-only review is requested in natural language | Load three architecture lenses plus component design first; other techniques follow actual evidence, not a full automatic tooling/runtime audit |
+| An accepted dependency rule has a concrete contrary source path | Report the rule, witness chain, owning boundary and consequence; distinguish source observation from checker execution |
+| A cycle or layering preference has no accepted project rule | Explain concrete maintenance cost and alternatives as advisory design, not a fabricated contract violation |
+| A small flat library or modular monolith already meets needs | Retain simple design; no mandatory services, DDD layers, interfaces or checker installation |
+| Existing checker is missing, unavailable or configured with exclusions | Continue bounded source review and disclose guidance/check/coverage limits; no invented pass |
+| Re-exports, dynamic plugins, generated or type-only imports affect the boundary | Trace relevant actual paths and expose static-check limitations |
+| Python interacts with other languages | Inspect relevant interface consumers and disclose unreviewed scope; no full cross-language architecture claim |
+| No Python is present | Explain Python-audit scope and use reusable architecture guidance if sufficient, without mislabeling a full Python audit |
+| Audit identifies refactoring or proposed contracts | Return one ordered roadmap; no automatic source/ADR/config changes or second lifecycle ledger |
