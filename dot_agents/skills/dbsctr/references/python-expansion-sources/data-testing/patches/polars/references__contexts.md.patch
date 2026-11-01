@@ -1,0 +1,13 @@
+--- a/references/contexts.md
++++ b/references/contexts.md
+@@ -243,8 +243,8 @@
+ 
+ ```python
+ # filtering after expensive work
+-lf.group_by("id").agg(...).filter(pl.col("year") == 2024)   # avoid
+-lf.filter(pl.col("year") == 2024).group_by("id").agg(...)   # prefer
++lf.group_by("id", "year").agg(...).filter(pl.col("year") == 2024)   # avoid
++lf.filter(pl.col("year") == 2024).group_by("id", "year").agg(...)   # prefer
+ 
+ # loop of contexts
+ for c in cols: lf = lf.with_columns(pl.col(c) * 2)     # avoid

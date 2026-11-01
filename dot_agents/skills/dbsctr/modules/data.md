@@ -44,6 +44,12 @@ lakes, warehouses, or changes to governed datasets and their consumers.
 
 ## Conditional Controls
 
+- **CONDITIONAL:** For actual Polars dataframe expressions, lazy execution, joins
+  or sinks, use `polars` and relevant project-selected schema/grain/quality
+  authorities. Preserve the chosen engine and data scope; Polars is not selected
+  for every Python dataset, pandas operation or SQL task. Schema discovery may
+  read metadata, samples or remote files and follows existing data authorization.
+
 - **CONDITIONAL:** For actual DuckDB, ClickHouse or Databricks concerns, select
   relevant guidance through [database specialists](../references/database-specialists.md).
   Select the Python database boundary only when Python client code is involved.

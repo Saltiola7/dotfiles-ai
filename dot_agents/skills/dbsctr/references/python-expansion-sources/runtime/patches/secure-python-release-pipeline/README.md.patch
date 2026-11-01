@@ -1,0 +1,84 @@
+--- a/README.md
++++ b/README.md
+@@ -1,64 +1,21 @@
+-# Skill: secure build-and-release pipeline for Python (GitHub Actions)
++# Secure Python package release guidance
+ 
+-Build, verify, and publish a Python package from GitHub Actions the secure way:
+-split sdist and wheel builds (wheels build **from** the sdist, so a broken sdist
+-is caught), publish to PyPI via a **Trusted Publisher** (OIDC, no API token) from
+-a dedicated job, use **cibuildwheel** for C/C++/Rust wheels, and harden the
+-pipeline (minimal permissions, SHA-pinned actions, no cache on release, **zizmor**
+-audit, [PEP 740](https://peps.python.org/pep-0740/) attestations).
++Local adaptation of pinned Experimental upstream guidance; see bundle UPSTREAM.md.
+ 
+-**Status: Experimental** — assembled from two real shipping projects (pycxxfilt,
+-zipwire) plus upstream docs; the consolidated workflow is a new draft. Review
+-permissions and the PyPI publisher config before relying on it.
++**Experimental:** adapted from Christian Heimes' consolidated release workflow,
++which is a draft grounded in shipping projects and primary tooling documentation.
++Use [SKILL.md](SKILL.md) when an actual GitHub Actions package release path is
++selected. This bundle preserves build-from-sdist, built-artifact verification,
++scoped PyPI Trusted Publishing and the distinction between signed origin and
++functional correctness. It does not select a build backend or authorize publication.
+ 
+-## Why this matters
++- [Project boundaries](GUARDRAILS.md): tooling, task scope and lifecycle ownership.
++- [Workflow examples](reference/templates.md): project-adapted release shapes.
++- [Hardening rationale](reference/hardening.md): permissions and trust boundaries.
++- [Provenance](UPSTREAM.md): original commit, complete resource set and adaptations.
+ 
+-Stored publishing credentials get stolen and abused. The Dec 2024
+-[**ultralytics** compromise](https://www.reversinglabs.com/blog/compromised-ultralytics-pypi-package-delivers-crypto-coinminer)
+-used a stolen PyPI API token to push malicious releases of a popular AI package,
+-and PyPI has since documented a
+-[campaign that injected GitHub Actions workflows to exfiltrate publishing tokens](https://blog.pypi.org/archive/2025/)
+-stored as secrets; AI packages such as
+-[litellm](https://www.trendmicro.com/en_us/research/26/c/your-ai-stack-just-handed-over-your-root-keys-inside-the-litellm-pypi-breach.html)
+-and [Mistral](https://raven.io/blog/the-mistral-compromise) were hit in 2026.
+-Trusted Publishing removes the standing token entirely, and PEP 740 attestations
+-let consumers verify an artifact's origin — that's the core of this pipeline.
+-
+-## Layout
+-
+-| File | Role |
+-| --- | --- |
+-| `SKILL.md` | The workflow — 8 ordered steps + frontmatter. **Source of truth.** |
+-| `AGENTS.md` | Cross-agent entry point (Codex and other `AGENTS.md`-aware agents). |
+-| `reference/templates.md` | Copy-paste workflows: pure-Python, compiled+cibuildwheel, zizmor, PyPI trusted-publisher checklist. |
+-| `reference/hardening.md` | Security rationale and the per-job permission map. |
+-
+-## Related
+-
+-- [`port-to-scikit-build-core`](../port-to-scikit-build-core/) /
+-  [`port-to-meson-python`](../port-to-meson-python/) — the build backends;
+-  their VCS versioning is frozen into the sdist by this pipeline.
+-- [`pybind11-to-nanobind`](../pybind11-to-nanobind/) /
+-  [`port-to-torch-stable-abi`](../port-to-torch-stable-abi/) — produce the abi3
+-  wheels this pipeline builds and audits.
+-
+-## Acknowledgments
+-
+-This skill distills the work of many people and projects:
+-
+-- **Hynek Schlawack** —
+-  [`build-and-inspect-python-package`](https://github.com/hynek/build-and-inspect-python-package)
+-  and modern release practice.
+-- The **PyPA** —
+-  [`gh-action-pypi-publish`](https://github.com/pypa/gh-action-pypi-publish)
+-  (Sviatoslav Sydorenko), [`cibuildwheel`](https://github.com/pypa/cibuildwheel),
+-  and [PyPI Trusted Publishers](https://docs.pypi.org/trusted-publishers/).
+-- **William Woodruff / zizmorcore** —
+-  [`zizmor`](https://github.com/zizmorcore/zizmor).
+-- The **OpenSSF** — Scorecard.
+-- **Christian Heimes** ([`tiran/zipwire`](https://github.com/tiran/zipwire),
+-  [`retread`](https://github.com/tiran/retread)) — the secure-release templates.
+-
+-See [`../reference-repos.md`](../reference-repos.md) for the full grounding list.
+-
+-See the repository [`README.md`](../../README.md) for per-agent setup.
++Acknowledgments retained: Hynek Schlawack's build-and-inspect-python-package;
++PyPA's gh-action-pypi-publish, cibuildwheel and Trusted Publishers; William
++Woodruff/zizmorcore; OpenSSF Scorecard; Christian Heimes' zipwire, retread and
++pycxxfilt release work. The upstream [grounding list](https://github.com/tiran/agent-skills/blob/0c51c24122b33afed31fd8d50534e089534f77a7/skills/reference-repos.md)
++is optional source context, not a required installed dependency.

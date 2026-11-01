@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "secure-python-release-pipeline",
+      "state": "vendored",
+      "upstream_url": "https://github.com/tiran/agent-skills",
+      "commit": "0c51c24122b33afed31fd8d50534e089534f77a7",
+      "upstream_path": "skills/secure-python-release-pipeline",
+      "license": "Apache-2.0",
+      "maturity": "Experimental",
+      "upstream_paths": {
+        "AGENTS.md": "skills/secure-python-release-pipeline/AGENTS.md",
+        "GUARDRAILS.md": "skills/GUARDRAILS.md",
+        "LICENSE.upstream": "LICENSE",
+        "README.md": "skills/secure-python-release-pipeline/README.md",
+        "SKILL.md": "skills/secure-python-release-pipeline/SKILL.md",
+        "reference/hardening.md": "skills/secure-python-release-pipeline/reference/hardening.md",
+        "reference/templates.md": "skills/secure-python-release-pipeline/reference/templates.md"
+      },
+      "upstream_files": {
+        "AGENTS.md": "38f05ea7aca6bda9bead8574f90a7011da8c8eac468b90ecfeef616a6f2c8800",
+        "GUARDRAILS.md": "2844e58f404c4e40ddc1423801a7fbc359e9c61bc8565bd1f5a6262b85678cdd",
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "README.md": "c072343153f3ac27d6c133d3294ead4fbf1d67d3e73e9b176c6b0f44a60eaade",
+        "SKILL.md": "5a3012498b2a621a6736bc2f96cff6e88352ccb11501d12dcf7fafb19c32955e",
+        "reference/hardening.md": "360ce673d2964ab5d804c789706523d2c9fc7d6d26dc3f9efcaacb3c88f262e0",
+        "reference/templates.md": "796ae370f692d41d5dee5c9cc5a5d5ee4edcb581b63f6be9c089deaf9568a732"
+      },
+      "git_blobs": {
+        "AGENTS.md": "84981aae85c3853795486b6542987c2cf1aced28",
+        "GUARDRAILS.md": "32024d3274e7b73d559eeb1a6ed911ce7894d02f",
+        "LICENSE.upstream": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+        "README.md": "fdcc1281d3fdd016bb2dd9622cc355eb02036477",
+        "SKILL.md": "e5dcd01c412673022cedb060f531362fa42a6d31",
+        "reference/hardening.md": "880b3f02df0c3395789627b8fbda740bdd4d36ad",
+        "reference/templates.md": "655e2b420e2791b1ff71f2ae4d692db21bbd2257"
+      },
+      "upstream_modes": {
+        "AGENTS.md": "100644",
+        "GUARDRAILS.md": "100644",
+        "LICENSE.upstream": "100644",
+        "README.md": "100644",
+        "SKILL.md": "100644",
+        "reference/hardening.md": "100644",
+        "reference/templates.md": "100644"
+      },
+      "files": {
+        "AGENTS.md": "a22b82626a4ea8ee34e5ad602d11cb6f8c93fb04d0abfe38ab12809c8f0e82d6",
+        "GUARDRAILS.md": "5e5222efbe28586a675b5dbc01788207dbe071d0b1aa9539af501c9bbd076d62",
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "README.md": "8d33ebd430ff3c3818046e9704c8b139f55cfee7c1e81ca2366032e4e40e4538",
+        "SKILL.md": "8da12bcc177da0d5264c814c4472b95b8410cad5438a3475d321e58f0dfd409f",
+        "UPSTREAM.md": "c074406f674ebd09eb65be09a21fbf79736871649f414ab91a5bb2867f9ad664",
+        "agents/openai.yaml": "f353586b76a4b1a33da9c614021d62cf6685fff5f28c7454411b7eab0264717b",
+        "reference/hardening.md": "a259449b80a2eb894704aa1eb26eaebaee7427938135238af01500c035370dd2",
+        "reference/templates.md": "3f95a877993b34cc485ec1719bba5b3125df93c6adb0f3a1bbf097265e5a09c3"
+      },
+      "modes": {
+        "AGENTS.md": "100644",
+        "GUARDRAILS.md": "100644",
+        "LICENSE.upstream": "100644",
+        "README.md": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "reference/hardening.md": "100644",
+        "reference/templates.md": "100644"
+      },
+      "installed_modes": {
+        "AGENTS.md": "100644",
+        "GUARDRAILS.md": "100644",
+        "LICENSE.upstream": "100644",
+        "README.md": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "reference/hardening.md": "100644",
+        "reference/templates.md": "100644"
+      },
+      "patches": {
+        "patches/secure-python-release-pipeline/AGENTS.md.patch": "940c385675d8f3faedd36e38af7005dbfb6b021bdbf015f341d7a47eb9d4f051",
+        "patches/secure-python-release-pipeline/GUARDRAILS.md.patch": "935cb16a2102acd3ee03d6ac057739aabea16bb22615e5d28f55a5877c5ff7ba",
+        "patches/secure-python-release-pipeline/README.md.patch": "7525d136e0ea7406e024077ac5d5d3bcc741917588e153e1fb532f3cc478a7fb",
+        "patches/secure-python-release-pipeline/SKILL.md.patch": "b7e2b0f95b87189ad312c320d83f5a7c2a5f7b5f41758dd6c283f208bac3a5c5",
+        "patches/secure-python-release-pipeline/reference__hardening.md.patch": "16938f5f1941f4fb41f8a768cfac635ca07080ab96beb0b43a120a5e187d4e9d",
+        "patches/secure-python-release-pipeline/reference__templates.md.patch": "a70472467a69724c6a90d45b117f6b85a54a9ced07acf26f73cfdf9d1a8faf45"
+      },
+      "changes": "Preserved every selected root resource and mapped shared guardrails into the bundle. Retained Experimental maturity and Apache notices. Scoped GitHub Actions release guidance to the existing project, task and QA/Release owners. Reconciled mandatory uv, versioning, updater, cooldown, cache, approval and CI conventions with project authority. Added build-from-sdist and clean installed-artifact evidence, clarified metadata/attestation limits, scoped publication permissions, corrected cache trust and release-cancellation claims, and qualified workflow examples, tool setup and sdist selection. Generated UI metadata through the original Skill Creator helper."
+    },
+    {
+      "name": "port-to-free-threaded-python",
+      "state": "vendored",
+      "upstream_url": "https://github.com/tiran/agent-skills",
+      "commit": "0c51c24122b33afed31fd8d50534e089534f77a7",
+      "upstream_path": "skills/port-to-free-threaded-python",
+      "license": "Apache-2.0",
+      "maturity": "Experimental",
+      "upstream_paths": {
+        "AGENTS.md": "skills/port-to-free-threaded-python/AGENTS.md",
+        "GUARDRAILS.md": "skills/GUARDRAILS.md",
+        "LICENSE.upstream": "LICENSE",
+        "README.md": "skills/port-to-free-threaded-python/README.md",
+        "SKILL.md": "skills/port-to-free-threaded-python/SKILL.md",
+        "reference/background.md": "skills/port-to-free-threaded-python/reference/background.md",
+        "reference/build-and-test.md": "skills/port-to-free-threaded-python/reference/build-and-test.md",
+        "reference/declaring-support.md": "skills/port-to-free-threaded-python/reference/declaring-support.md",
+        "reference/thread-safety.md": "skills/port-to-free-threaded-python/reference/thread-safety.md"
+      },
+      "upstream_files": {
+        "AGENTS.md": "22883fa502322cf32346c11c690e9578cd9c8557ac86ead4a2a60f6d15c7f032",
+        "GUARDRAILS.md": "2844e58f404c4e40ddc1423801a7fbc359e9c61bc8565bd1f5a6262b85678cdd",
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "README.md": "6ecde52e1ad0332c09b369101b49c86dc24bb49d7f0255932b479734760c40e6",
+        "SKILL.md": "7ea8390b0a8e1a280576533add657146ccb9cc26b0fc4cc0697624638ce43344",
+        "reference/background.md": "15955cd39b15ee42d95cad85707a6d4e3fc508e6d50729e957679f59ac310cc5",
+        "reference/build-and-test.md": "b494b5e5d2f72646ece3e5e8187c98f6bb45e6593490e16d294aa2706abe063f",
+        "reference/declaring-support.md": "f115f6cc5247f07bb1280293b075345fb8c175d6d442b48c7fbf285f23d69217",
+        "reference/thread-safety.md": "9a7254d3fef6dc0d73c6ceac54e677a892d86f69701b17195ff4d23aab4874d2"
+      },
+      "git_blobs": {
+        "AGENTS.md": "e334c5025042818cb7526a2ac73e7759ba60edba",
+        "GUARDRAILS.md": "32024d3274e7b73d559eeb1a6ed911ce7894d02f",
+        "LICENSE.upstream": "261eeb9e9f8b2b4b0d119366dda99c6fd7d35c64",
+        "README.md": "075d31a996cfcc22051aeb74a4c6def7abc7b78c",
+        "SKILL.md": "d9cc153b99c176d31fe5ad8cb8fc96147646ef99",
+        "reference/background.md": "89e559f9e8cb8b415a85001beec9d7753125a955",
+        "reference/build-and-test.md": "890afc58a2de9052cd67a01058200090981d348c",
+        "reference/declaring-support.md": "df02d73c410e5d3fe99b5d3f2fe11acf6962e3de",
+        "reference/thread-safety.md": "62f5590cfcce9069a851f3aace5d853a7ddc4100"
+      },
+      "upstream_modes": {
+        "AGENTS.md": "100644",
+        "GUARDRAILS.md": "100644",
+        "LICENSE.upstream": "100644",
+        "README.md": "100644",
+        "SKILL.md": "100644",
+        "reference/background.md": "100644",
+        "reference/build-and-test.md": "100644",
+        "reference/declaring-support.md": "100644",
+        "reference/thread-safety.md": "100644"
+      },
+      "files": {
+        "AGENTS.md": "c9481f38cd5d80c717157178c08f1a5d65a6df1504bb79229041e4113b15659b",
+        "GUARDRAILS.md": "5e5222efbe28586a675b5dbc01788207dbe071d0b1aa9539af501c9bbd076d62",
+        "LICENSE.upstream": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "README.md": "32a5e4fc74623d194dbcfb3b8c7e2ac384c5d284b3dc6ff4fa716dd1238c8ef9",
+        "SKILL.md": "7f5f3ab7ab21b10f1a422ffe35c343e389b07222bb79a776dfa56aca6ae62257",
+        "UPSTREAM.md": "577fe304824a4011aceacbf5239126afc75bbe001fc91f6e430521fb8fe4a132",
+        "agents/openai.yaml": "0a69951ae07ec8c2e5e19a012605d25fad3132eb48478b119a004864735e32a4",
+        "reference/background.md": "dccf1e27fe94e5e97c2b172aaf7b972a1c9bd0eb85413afca44f4e77f8acf146",
+        "reference/build-and-test.md": "89c2c453cd3da97d96bfd285f50a52651390026ce4d8fb15fb2b6831101d232d",
+        "reference/declaring-support.md": "4c94b7f5cdd03953ab06119a8037aa6a561d55ee83b9a4130285de114074b794",
+        "reference/thread-safety.md": "df8adf9dd71530c572e30ae9b4893eda09fd30c0165f0f1e05b1ab327411b313"
+      },
+      "modes": {
+        "AGENTS.md": "100644",
+        "GUARDRAILS.md": "100644",
+        "LICENSE.upstream": "100644",
+        "README.md": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "reference/background.md": "100644",
+        "reference/build-and-test.md": "100644",
+        "reference/declaring-support.md": "100644",
+        "reference/thread-safety.md": "100644"
+      },
+      "installed_modes": {
+        "AGENTS.md": "100644",
+        "GUARDRAILS.md": "100644",
+        "LICENSE.upstream": "100644",
+        "README.md": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "reference/background.md": "100644",
+        "reference/build-and-test.md": "100644",
+        "reference/declaring-support.md": "100644",
+        "reference/thread-safety.md": "100644"
+      },
+      "patches": {
+        "patches/port-to-free-threaded-python/AGENTS.md.patch": "f525cf54b4f7f5cbeb998cac37614746a7cfd41e49378ecd83edf82c9df26766",
+        "patches/port-to-free-threaded-python/GUARDRAILS.md.patch": "935cb16a2102acd3ee03d6ac057739aabea16bb22615e5d28f55a5877c5ff7ba",
+        "patches/port-to-free-threaded-python/README.md.patch": "37514138d4544d79ed635fb322f01601055fc015ad68d14f3db7e47dd5bcbcb5",
+        "patches/port-to-free-threaded-python/SKILL.md.patch": "64463dbc69ef119dc89f679b683390dfa5e155cc5075007393850152b615bb8a",
+        "patches/port-to-free-threaded-python/reference__background.md.patch": "84554c56f3058d91de4ba1932c6aee21aee6257cfd4be2ffff760349e71e2d54",
+        "patches/port-to-free-threaded-python/reference__build-and-test.md.patch": "ed5a407cd8fa1b4c2b412160d157516d851210a804c6ac937529efc38bcc175b",
+        "patches/port-to-free-threaded-python/reference__declaring-support.md.patch": "ff785b4720d9b945c72d415ac8ab82ba5addc1ed417833bd2a64fce6b560da47",
+        "patches/port-to-free-threaded-python/reference__thread-safety.md.patch": "18a047ead513e5ac4c94e927042c2db3d43c5c702fe1becd912e4490dc12c453"
+      },
+      "changes": "Preserved every selected root resource and mapped shared guardrails into the bundle. Retained Experimental maturity and Apache notices. Replaced a forced 3.14t baseline, universal tool installs and fixed QA gates with project-selected runtime, dependencies and evidence. Separated native declarations, actual GIL state, admitted concurrency and ABI support; made limited-API sibling guidance an optional immutable external source. Replaced the warning-only import gate with an explicit failed-import-aware runtime check. Corrected GIL/container and cache claims, PyDict_Next protection, atomic-storage guidance, native ownership/attachment and parallel-flake interpretation; qualified binding/backend examples and sanitizer coverage. Generated UI metadata through the original Skill Creator helper."
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Polars"
+  short_description: "Write and review selected Polars transformations"
+  default_prompt: "Use $polars to review this Polars pipeline for schema, lazy execution and result semantics."

@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "polars",
+      "upstream_url": "https://github.com/polars-inc/skills",
+      "commit": "b102cc948ba9a058f075e9794861ae5c56f31f6d",
+      "upstream_path": "skills/polars",
+      "license": "MIT",
+      "state": "vendored",
+      "upstream_files": {
+        "LICENSE.upstream": "f3704cbff1dbdd5a30cec6e812e1b9be2e52c31ffe965f20361b2db911d116ae",
+        "SKILL.md": "e4e61e8a22519e917514747107a793675ed391dd4bf3ad04d5c2203132d5f332",
+        "references/contexts.md": "9a35ec14509715b2844980e089b7e36dc75465e53138cc4f60335a3a5060feb4",
+        "references/expressions.md": "7fda3c873a394e8e6fa1ae5d003f4c7dbeaa9da1ad12eb160984bf27c7a18444",
+        "references/insight-recipes.md": "91424ab3686685d188faa17e685ee4e0319c4fd67ad2a17736b256af19b784dd",
+        "references/lazy-api.md": "fe8d8ef81ab95aa88be3320906ecd144f40fe9e9cd0350e6c592ec238e1bff1e",
+        "references/pandas-to-polars.md": "5ecadc60292edde82744c632288ae4201dc096a119731e8d13dd27da40fbbb92",
+        "references/sql.md": "b54bfa0ef65325d085c9033e1a2f5f4010b946f15111c3146ac34b9890aae09c"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "bc2250ff32506ce9d3526339d16c74f897744d39",
+        "SKILL.md": "b6ec0bf7f496b4627acaeda4b14ad9984ffc3907",
+        "references/contexts.md": "e6c1f73f6a4ccaa095ed0068c35c47a72df8ebf4",
+        "references/expressions.md": "0172cd591865a79ed399fe2ac6e34515637f9eb7",
+        "references/insight-recipes.md": "33ea219d668d3abd2fdcdefc6e109b9d09456f42",
+        "references/lazy-api.md": "6a30a81b02bb8e5121c3f6d4b72ebe403794061a",
+        "references/pandas-to-polars.md": "19019951ebb19124f9c15570ffd628700a23fdc7",
+        "references/sql.md": "7bd7f94bde24dc05e1b18b25e2f07dc1ab56a77f"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/contexts.md": "100644",
+        "references/expressions.md": "100644",
+        "references/insight-recipes.md": "100644",
+        "references/lazy-api.md": "100644",
+        "references/pandas-to-polars.md": "100644",
+        "references/sql.md": "100644"
+      },
+      "upstream_paths": {
+        "LICENSE.upstream": "LICENSE",
+        "SKILL.md": "skills/polars/SKILL.md",
+        "references/contexts.md": "skills/polars/references/contexts.md",
+        "references/expressions.md": "skills/polars/references/expressions.md",
+        "references/insight-recipes.md": "skills/polars/references/insight-recipes.md",
+        "references/lazy-api.md": "skills/polars/references/lazy-api.md",
+        "references/pandas-to-polars.md": "skills/polars/references/pandas-to-polars.md",
+        "references/sql.md": "skills/polars/references/sql.md"
+      },
+      "files": {
+        "LICENSE.upstream": "f3704cbff1dbdd5a30cec6e812e1b9be2e52c31ffe965f20361b2db911d116ae",
+        "SKILL.md": "43ad45da411e8fe371617c953d8b2c4b4066a83bd23a91e2be5689eb96e51bbb",
+        "UPSTREAM.md": "a9e4c5b07ce1759427ea9226ebb6f513b718c550fd3e0f68abed6feaeb5bb5ba",
+        "agents/openai.yaml": "bd5ff7bdc37f01b6d7e2cc02217000069011e2d3b33216220402c1402c416b98",
+        "references/contexts.md": "69bc3d9573d183bb05977892428b20e0dee7f0d8ec72723d92b44161957ca5ce",
+        "references/expressions.md": "570e0dbf23c0bd05578c9428d4b074ace4ed9648a17b9a6492f1f02121f12ad2",
+        "references/insight-recipes.md": "9694e63ad1194351ea5bcb74206a9d6c66aeec9f90d54031d60d91e6bbeb2697",
+        "references/lazy-api.md": "e294b752fa4005beac5f3b6367b1f8c6319a101c2f17c838282232846a3e3bed",
+        "references/pandas-to-polars.md": "6c37f881b91499606daaa1ba959234042326a0782cbb5fbae10281ff375cae5a",
+        "references/sql.md": "b54bfa0ef65325d085c9033e1a2f5f4010b946f15111c3146ac34b9890aae09c"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/contexts.md": "100644",
+        "references/expressions.md": "100644",
+        "references/insight-recipes.md": "100644",
+        "references/lazy-api.md": "100644",
+        "references/pandas-to-polars.md": "100644",
+        "references/sql.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/contexts.md": "100644",
+        "references/expressions.md": "100644",
+        "references/insight-recipes.md": "100644",
+        "references/lazy-api.md": "100644",
+        "references/pandas-to-polars.md": "100644",
+        "references/sql.md": "100644"
+      },
+      "patches": {
+        "patches/polars/SKILL.md.patch": "8002a634cfbb3d6e9cb05fc0cbfbe157c31c11f6d91205726c6f01c8aa0c4acb",
+        "patches/polars/references__contexts.md.patch": "a7dc462daec29bee75cbebf94fc5ee142bcdb08ebef786361dee74eff508940a",
+        "patches/polars/references__expressions.md.patch": "478a2ba61233ae49f91e336f655948b65f0f16671471033bb657071051780f2e",
+        "patches/polars/references__insight-recipes.md.patch": "92e383f0a041ab17d3aff20bb3686dd034cf895463bf3e2aa565b8fe44c185c0",
+        "patches/polars/references__lazy-api.md.patch": "e61f91f88138f229326ef9618d2ff806260f7f0f621481dcb103d0d314720b6e",
+        "patches/polars/references__pandas-to-polars.md.patch": "ab22555e0a9be868ea7cf5a37d0534c51a686a1fc378ae7216eed3834bb60131"
+      },
+      "changes": "Preserved the complete official Polars root and MIT notice; scoped selection to actual Polars or explicit migration; retained engine/runtime choices; qualified lazy boundaries and schema I/O; corrected pandas outer-bin, interpolation, monetary rounding and NOT IN null semantics, rank ties, period gaps, zero denominators, iterable-argument guidance and filter example; generated UI through the original helper."
+    },
+    {
+      "name": "atheris",
+      "upstream_url": "https://github.com/trailofbits/skills",
+      "commit": "2be6433b39e009cd2b6fd3be1895f6b1faa5af9a",
+      "upstream_path": "plugins/testing-handbook-skills/skills/atheris",
+      "license": "CC-BY-SA-4.0",
+      "state": "vendored",
+      "upstream_files": {
+        "LICENSE.upstream": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "SKILL.md": "133306875d88bb063636a9165c56141ac8b30d3b993db3740f166693dfeecbb5",
+        "agents/openai.yaml": "6f27be8bad0d46dae80d0bab910a0b649e22e6b4cbb85797b3edbee73b4dcbf5",
+        "assets/trail-of-bits-mark.svg": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "examples.md": "e5ed1413286ca10ea238b9952a3ef19db13e2f4b24b2aaf18ec908bfaacfc815",
+        "structured-input.md": "0f33bf58db91eaabc2bbff2e4eec5c3811ab5a74866ce4698320dfa384d76f4b"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "3b7b82d0da2db857eda1a798dbd908ea136f07b5",
+        "SKILL.md": "4127c8954893466acec88622c526590baef187eb",
+        "agents/openai.yaml": "5bafb6e8b5ca15ac2aebe44c57b1731d4c2b4815",
+        "assets/trail-of-bits-mark.svg": "7cd6e7ca7348897984f2498f301a888bb2f3ca71",
+        "examples.md": "18b7a103ffc72b373b1bc93afc9347b9cffaa765",
+        "structured-input.md": "1a71857f510243b6a8edae51eb6a3699c510d5e0"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "agents/openai.yaml": "100644",
+        "assets/trail-of-bits-mark.svg": "100644",
+        "examples.md": "100644",
+        "structured-input.md": "100644"
+      },
+      "upstream_paths": {
+        "LICENSE.upstream": "LICENSE",
+        "SKILL.md": "plugins/testing-handbook-skills/skills/atheris/SKILL.md",
+        "agents/openai.yaml": "plugins/testing-handbook-skills/skills/atheris/agents/openai.yaml",
+        "assets/trail-of-bits-mark.svg": "plugins/testing-handbook-skills/skills/atheris/assets/trail-of-bits-mark.svg",
+        "examples.md": "plugins/testing-handbook-skills/skills/atheris/examples.md",
+        "structured-input.md": "plugins/testing-handbook-skills/skills/atheris/structured-input.md"
+      },
+      "files": {
+        "LICENSE.upstream": "7abe19ec9bb73b36141b999b861d24ad855e808bafe0f81e84cce28556f6c297",
+        "SKILL.md": "642eb150e72d8736f59e25f6212c0c47907ec0898d14914f950073e900caafdf",
+        "UPSTREAM.md": "ad268ebc5139d0f823b0dbeffb8f162055ff116e2070f60033fd38c7b04e960b",
+        "agents/openai.yaml": "c5a742ac122b0840ce85d7278ce15541ee8c2cb40ef8546b30bd3511bd447136",
+        "assets/trail-of-bits-mark.svg": "4bf74c789b38dcf6ad762c136b6832363d27ae19fbaa9a18ec18d66ecce6ca05",
+        "examples.md": "9b4688a7aadcda980a9265dfc2da41f7d1f8631689dcc1612e04167e35ea5da5",
+        "structured-input.md": "f0c133c8e949dbca65efe7cf2fbea1ecef84c68f9d3bd632f8d319feff8b13bf"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "assets/trail-of-bits-mark.svg": "100644",
+        "examples.md": "100644",
+        "structured-input.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "assets/trail-of-bits-mark.svg": "100644",
+        "examples.md": "100644",
+        "structured-input.md": "100644"
+      },
+      "patches": {
+        "patches/atheris/SKILL.md.patch": "167529d9a991e859420f8231acb1ce886696711228572faa6797f450dcae0ebb",
+        "patches/atheris/agents__openai.yaml.patch": "103a2414ad10c3f765175a3aeaaffb1c19199132263c5656ec73e814d458eac5",
+        "patches/atheris/examples.md.patch": "b83738dddc376f821442d4b9685c022df1f66bb1c606561875fd8df17161a1e9",
+        "patches/atheris/structured-input.md.patch": "e0094c9d6a87b71661da946b10235504b31fe37f5dbd7f87d1b127e8c1f674bf"
+      },
+      "changes": "Preserved the complete Trail of Bits Atheris root, CC-BY-SA-4.0 terms, icon and original UI icon/brand fields; scoped fuzz targets, environment effects and budgets; resolved runtime compatibility against pinned official version guidance; narrowed expected failures and corrected HTTP/header and JSON examples; qualified native build/loading, Linux preload and historical CPython recipes; removed automatic OOM/leak suppression; pinned optional sibling references; generated compatible UI through the original helper."
+    }
+  ]
+}

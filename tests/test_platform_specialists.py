@@ -11,7 +11,7 @@ from urllib.parse import unquote, urlsplit
 import pytest
 
 from test_opencode_control_plane import DATA, ROOT
-from test_python_specialists import assert_bundles, digest, inventory, markdown_destinations, portable_path
+from test_python_specialists import assert_bundles, copy_stack_resources, digest, inventory, markdown_destinations, portable_path
 
 
 SKILLS = ROOT / "dot_agents/skills"
@@ -95,6 +95,8 @@ def copy_scope(destination):
         shutil.copy2(SKILLS / name, target)
     for name in ("specialist-sources", "python-specialists"):
         shutil.copytree(SKILLS / "dbsctr/references" / name, destination / "dbsctr/references" / name)
+
+    copy_stack_resources(destination)
 
 
 def test_selected_bundles_have_closed_local_resources(tmp_path):

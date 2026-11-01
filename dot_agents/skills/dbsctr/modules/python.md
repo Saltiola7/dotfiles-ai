@@ -52,6 +52,17 @@
 | Changed async tasks, cancellation, concurrent I/O or sync/async boundaries | `async-python-patterns` | Domain/Contract; Test/Refactor |
 | Runtime/support-floor change or requested modernization/debt review | `python-modernization-review` | Profile/Spec; Maintain/Retire |
 | Actual Django/DRF ORM, serializers, views, permissions, migrations or framework tests | `django-expert` | Domain/Contract; Test/Refactor |
+| Actual Pydantic input/output validation or serialization models | `pydantic` | Domain/Contract; Test |
+| Actual FastAPI routes, dependency/resource scopes, responses or streaming | `fastapi` | Domain/Contract; Test |
+| Actual Typer commands, options, output or automation compatibility | `typer` | Spec/Contract; Test |
+| Actual Polars expressions, lazy frames, joins or materialization | `polars` | Spec/Contract; Test; relevant Data controls |
+| Explicitly selected coverage-guided Python/native fuzz harness or campaign | `atheris` | Contract/Test; scoped QA; bounded execution |
+| Actual Python package release artifacts or publishing pipeline | `secure-python-release-pipeline` | Spec/Test; existing Release gate |
+| Selected free-threaded Python target or explicit no-GIL compatibility assessment | `port-to-free-threaded-python` | Profile/Contract; Test and runtime evidence |
+| Saved marimo notebook authoring, reactivity or validation | `marimo-notebook`; active-session mutations remain with `marimo-pair` | Spec/Contract; Test |
+| Requested Jupyter notebook conversion to marimo | `jupyter-to-marimo` | Spec; conversion and behavior verification |
+| Actual marimo browser/WASM export or runtime compatibility | `wasm-compatibility` | Profile/Contract; target validation |
+| Actual Python/Rust binding or embedding boundary, Rust-backed Python wheels or interop ownership changes | `python-rust-interop` | Domain/Contract; build and runtime verification |
 | Changed pytest fixtures, isolation, mocking or integration-test design | `python-testing-patterns` | Behavior/Test |
 | Changed protocols, generics, narrowing or public typed interfaces | `python-type-safety` | Domain/Spec/Contract; existing checker policy remains authoritative |
 | Remote failure/retry behavior, deadlines or circuit breaking | `python-resilience` | Behavior/Contract; Test |
@@ -77,6 +88,11 @@
 - **CONDITIONAL:** When removing a supported API, runtime, or dependency, document deprecation, migration, support horizon, and retirement conditions.
 - **PROJECT POLICY:** Requirements for reproducible builds, signatures, release branches, and operational telemetry come from project policy or the Engineering Profile.
 - **EXAMPLE:** A library can warn before removing an API; an application can migrate internally without public notice when no external consumer exists.
+
+For selected stack/runtime methods, read
+[stack technique notes](../references/python-stack-specialists.md) only when
+relevant. The table above remains the canonical selector; an installed method
+does not select a framework, runtime migration, campaign or publication.
 
 ## Validation Capabilities
 
