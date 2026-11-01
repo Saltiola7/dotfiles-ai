@@ -212,11 +212,11 @@ execution, target, provenance or recovery change.
 
 The approved follow-up adds six capabilities through the existing source,
 distribution and conditional selection owners. The current primary owns both
-source cycles and serializes their delivery: router qualification is deployed and
-merged first, then this follow-up reconciles that source before deployment/merge.
-Source preparation can use a separate clean linked checkout without changing the
-first experiment's frozen guide snapshots or live catalog. Applicable modules are
-Python, Cloud, Security and ML/AI.
+source cycles. Router qualification and its reviewed source generation precede
+this follow-up; final delivery may be sequential or use one combined current-base
+PR after reconciliation and all gates for both cycles. Source preparation can use
+a separate clean linked checkout without changing the first experiment's frozen
+snapshots or evidence. Applicable modules are Python, Cloud, Security and ML/AI.
 
 | Capability | Source ownership and bounded concern |
 |---|---|
@@ -342,14 +342,22 @@ resource dependencies, native observation or deployment boundaries.
   independent method review and exact isolated/shared delivery must pass. Native
   smoke uses six predeclared read-only tasks and retains true results/limits;
   no source reachability test is relabeled as runtime selection or SDK coverage.
-- Reconcile the router wave's verified merged main before final closure and
-  preserve its single routing owner, metadata and measurement contracts. Deploy
-  this follow-up only after that wave merges; source preparation grants no early
-  production or infrastructure activation.
+- Reconcile current main and the reviewed router generation before final closure;
+  preserve its single routing owner, metadata and measurement contracts. Both
+  approved waves may use one combined current-base PR when every applicable gate
+  for both cycles passes and every Gate Commit is included in its tested head.
+  Exact guidance deployment remains separate from production or infrastructure
+  activation. A target advance requires fresh reconciliation and CI.
 - Deploy exact reviewed targets with scripts excluded, retained prior state,
   complete byte/file/mode verification and empty second diff. Unresolved live
   ownership conflict blocks that target; recovery preserves unrelated skills and
   restores matching routing/inventory. Retain all branches/worktrees.
+
+The delivery sequence was amended after main acquired the separately approved
+Python-audit wrapper during the router PR's CI. Keep the completed router cycle,
+original measurements and PR as historical evidence. The combined follow-up head
+includes both approved scopes and the current target; its ordinary merge must
+verify both cycles and fresh current-base CI. No gate or required check is waived.
 
 | Transfer | Acceptance and retained evidence |
 |---|---|
