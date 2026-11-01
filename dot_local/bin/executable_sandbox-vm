@@ -125,53 +125,113 @@ LENS_CATEGORY_VALUES = {
 
 
 def command(argv, timeout=30, input_data=None, environment=None):
-    process = subprocess.Popen(argv, stdin=subprocess.PIPE if input_data is not None else None,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
-                               env=environment)
-    selector = selectors.DefaultSelector()
-    selector.register(process.stdout, selectors.EVENT_READ)
-    selector.register(process.stderr, selectors.EVENT_READ)
-    chunks = {process.stdout: [], process.stderr: []}
-    size = 0
-    deadline = time.monotonic() + timeout
+    """Transport private command I/O under one deadline, then close owned resources."""
+    process, selector = None, None
+    failed = False
+
+    def terminate():
+        if process is None:
+            return
+        cleanup_deadline = time.monotonic() + 1
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except BaseException:
+            try:
+                process.kill()
+            except BaseException:
+                pass
+        try:
+            process.wait(timeout=max(0, cleanup_deadline - time.monotonic()))
+        except BaseException:
+            pass
+
     try:
+        process = subprocess.Popen(argv, stdin=subprocess.PIPE if input_data is not None else None,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+                                   env=environment)
+        deadline = time.monotonic() + timeout
+        selector = selectors.DefaultSelector()
+        chunks = {"stdout": [], "stderr": []}
+        for stream, channel in ((process.stdout, "stdout"), (process.stderr, "stderr")):
+            os.set_blocking(stream.fileno(), False)
+            selector.register(stream, selectors.EVENT_READ, channel)
+        pending, offset, size = None, 0, 0
         if input_data is not None:
-            process.stdin.write(input_data)
-            process.stdin.close()
+            pending = memoryview(input_data)
+            os.set_blocking(process.stdin.fileno(), False)
+            if pending:
+                selector.register(process.stdin, selectors.EVENT_WRITE, "stdin")
+            else:
+                process.stdin.close()
         while selector.get_map():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(argv, timeout)
             for key, _ in selector.select(remaining):
-                chunk = key.fileobj.read1(64 * 1024)
+                if time.monotonic() >= deadline:
+                    raise subprocess.TimeoutExpired(argv, timeout)
+                if key.data == "stdin":
+                    try:
+                        written = os.write(key.fd, pending[offset:offset + 64 * 1024])
+                    except (BlockingIOError, InterruptedError):
+                        continue
+                    if not written:
+                        raise BrokenPipeError("command input delivery incomplete")
+                    offset += written
+                    if offset == len(pending):
+                        selector.unregister(key.fileobj)
+                        process.stdin.close()
+                    continue
+                try:
+                    chunk = os.read(key.fd, 64 * 1024)
+                except (BlockingIOError, InterruptedError):
+                    continue
                 if not chunk:
                     selector.unregister(key.fileobj)
                     continue
                 size += len(chunk)
                 if size > MAX_OUTPUT:
                     raise RuntimeError("command output exceeded bound")
-                chunks[key.fileobj].append(chunk)
-        return_code = process.wait(timeout=max(0, deadline - time.monotonic()))
-    except Exception:
+                chunks[key.data].append(chunk)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(argv, timeout)
+        return_code = process.wait(timeout=remaining)
+        if time.monotonic() >= deadline:
+            raise subprocess.TimeoutExpired(argv, timeout)
+        stdout = b"".join(chunks["stdout"]).decode(errors="replace").strip()
+        stderr = b"".join(chunks["stderr"]).decode(errors="replace").strip()
+        if return_code:
+            script = re.search(r"chezmoi: ([a-z][a-z0-9-]{0,80}\.sh): exit status ([0-9]{1,3})(?:\n|$)", stderr)
+            detail = f", managed script {script[1]} exited {script[2]}" if script else ""
+            raise RuntimeError(f"{Path(argv[0]).name} failed (exit {return_code}{detail})")
+        return stdout
+    except BaseException:
+        failed = True
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-        try:
-            process.wait(timeout=1)
-        except subprocess.TimeoutExpired:
+            terminate()
+        except BaseException:
             pass
         raise
-    stdout = b"".join(chunks[process.stdout]).decode(errors="replace").strip()
-    stderr = b"".join(chunks[process.stderr]).decode(errors="replace").strip()
-    if return_code:
-        script = re.search(r"chezmoi: ([a-z][a-z0-9-]{0,80}\.sh): exit status ([0-9]{1,3})(?:\n|$)", stderr)
-        detail = f", managed script {script[1]} exited {script[2]}" if script else ""
-        raise RuntimeError(f"{Path(argv[0]).name} failed (exit {return_code}{detail})")
-    return stdout
+    finally:
+        close_error = None
+        owned = [selector]
+        if process is not None:
+            owned.extend((process.stdin, process.stdout, process.stderr))
+        for resource in owned:
+            if resource is None:
+                continue
+            try:
+                resource.close()
+            except BaseException as error:
+                if close_error is None:
+                    close_error = error
+        if close_error is not None and not failed:
+            try:
+                terminate()
+            except BaseException:
+                pass
+            raise close_error
 
 
 def load_config(path=CONFIG):
