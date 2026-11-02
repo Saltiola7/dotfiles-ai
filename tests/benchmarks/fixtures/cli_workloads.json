@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "helper_sha256": "062cee335058ead3b532e29cf00b72f1e26b5de7ecb5e35d2eed0ef6a0112a1b",
+  "columns": 100,
+  "runtime_help": {
+    "3.12": {
+      "version": "3.12.15",
+      "stdout_sha256": "37e961e14729096c1b1b53d1dfb6c64ca51bbbb020f7895cd1df8095d4880de4"
+    },
+    "3.13": {
+      "version": "3.13.1",
+      "stdout_sha256": "221dd6cfabd67284c0b29981560f5d2569913e1002673b15555d1e4263f3681e"
+    },
+    "3.14": {
+      "version": "3.14.9",
+      "stdout_sha256": "221dd6cfabd67284c0b29981560f5d2569913e1002673b15555d1e4263f3681e"
+    }
+  },
+  "histories": [
+    1,
+    100
+  ],
+  "cases": [
+    {
+      "id": "help",
+      "nodes": 0
+    },
+    {
+      "id": "status_empty",
+      "nodes": 0
+    },
+    {
+      "id": "initiative_10",
+      "nodes": 10
+    },
+    {
+      "id": "initiative_100",
+      "nodes": 100
+    }
+  ]
+}

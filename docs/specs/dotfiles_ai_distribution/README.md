@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution
 
+The [PY-09 retained-CI precursor](features/validation-execution-performance.md#py-09-retained-ci-baseline-precursor)
+defines opt-in analysis of existing job metadata/logs through the shared evidence
+contract. It starts no CI jobs and changes no workflow, runtime or required-check
+authority. Its source tooling and evidence collection remain pending Build.
+
 The [complete official JFrog skill collection](features/jfrog-skills.md) adds seven
 portable, narrowly routed workflows and an independent optional missing-only CLI
 installer. Native discovery, CLI readiness, MCP connection and live platform
