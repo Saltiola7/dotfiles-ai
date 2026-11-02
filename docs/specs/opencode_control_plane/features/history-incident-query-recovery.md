@@ -50,7 +50,9 @@ configured output/page bounds remain enforced.
 
 ## Compatibility And Dependencies
 
-Detailed History and Incident modes remain unchanged. This slice depends on
+Detailed History retains its existing qualified contract. Detailed Incident
+invocation remains unavailable under the current native boundary; this planned
+recovery slice does not restore retired tools or manufacture identity. This slice depends on
 `history-incident-query-core` and the delivered refresh schedule. It owns or
 reuses the existing bounded subprocess cleanup convention independently of the
 deferred DKS `runtime-query-recovery` slice. It adds no database access,

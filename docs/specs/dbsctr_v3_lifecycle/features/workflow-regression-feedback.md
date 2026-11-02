@@ -1,6 +1,6 @@
 # Workflow rollback and regression feedback
 
-**SPECIFICATION READY, NOT IMPLEMENTED — not runtime qualified.** Owner: lifecycle Discovery primary.
+**SOURCE IMPLEMENTED — runtime qualification remains capability-specific.** Owner: lifecycle Discovery primary.
 Profile: [../PROFILE.md](../PROFILE.md); risk: critical (privacy and rollback data safety); modules: Python,
 Security, Data, Analytics, ML/AI. Covers convergence INT-040–INT-043, INT-047–INT-048
 and Q-10–Q-11 in the [Initiative](../../../initiatives/dbsctr-workflow-convergence/README.md).
@@ -195,7 +195,7 @@ Build source write closure (subject to exact launch approval):
 Incident/backlog skills remain read-only authorities. Existing `report` mechanism
 is reused, not extended into native Incident authority. Distribution configuration
 is owned by `storage-config`, not by this slice. `regression-telemetry` depends on
-`safety-inventory`; integration and guidance share the helper executable/test
+`storage-config`; integration and guidance share the helper executable/test
 closure and must serialize edits. Build may record completion evidence only;
 material contract changes return `readiness_reopened` to Discovery.
 

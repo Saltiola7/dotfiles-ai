@@ -2,17 +2,51 @@
 
 ## Scope And Authority
 
-The existing four-context map remains approved: lifecycle, OpenCode control
-plane, distribution, and DKS, all in dotfiles-ai. One invoking primary performs
+The original four-context map remains approved: lifecycle, OpenCode control
+plane, distribution, and DKS, all in dotfiles-ai. The approved PY-09 extension
+adds continuous-validation solely for isolated synthetic snapshot measurement. One invoking primary performs
 Discovery and implementation serially. No child sessions or subagents launch.
 Adjacent Codex and unrelated PRs receive ownership review only. Preserve existing
 dirty and unmerged work; prefer verified resumption to duplicate implementation.
 
-There are twelve sequenced delivery units. Historical reporting repair and the
-refresh scheduler are delivered, leaving ten. This is not a promise that every unit is
-ready. Discovery owns contracts and can split a unit only after material scope is
+The original sequence contains twelve delivery units. Historical reporting repair,
+the refresh scheduler and both DKS disablement units are delivered, leaving eight.
+This is not a promise that every unit is ready. Discovery owns contracts and can split a unit only after material scope is
 reconciled. Concurrency implementation and activation are deferred until
 separately approved; its benchmark requirements remain unchanged.
+
+## PY-09 source order
+
+1. Deliver `python-cli-baseline`: common versioned evidence, fixture/isolation
+   controls, CLI measurements and report-only ingestion.
+2. Deliver `python-ci-baseline`: retained-file analysis only; no CI dispatch or
+   workflow execution changes.
+3. Deliver `python-snapshot-memory-baseline`: isolated disposable capture and
+   qualified per-controller resource evidence; no production runner changes.
+4. Reconcile the local report and all unavailable cells. Existing optimization
+   slices may consume delivered compatible baselines under fresh approvals.
+
+The invoking primary performs context Discovery and source slices serially.
+Shared evidence code belongs to the first slice; later owners consume it without
+parallel shared-file edits. Scope decisions and source readiness are specified in
+[PYTHON-BASELINES.md](PYTHON-BASELINES.md); no source slice, benchmark run or old
+optimization receipt starts automatically.
+
+## Independent Python source tranche
+
+`lifecycle-performance-core` is the operator-requested behavior-preserving source
+tranche described in [python-performance.md](../../specs/dbsctr_v3_lifecycle/features/python-performance.md).
+It now depends on the delivered audit workflow and the PY-09 CLI baseline
+foundation; the added prerequisite invalidates earlier receipts. It does not
+wait for or authorize DKS retirement. Its primary executes one registered cycle, serializing shared
+helper/test changes. Existing native adapter, federation, formal validation reuse
+and concurrency slices retain their states and separate activation requirements.
+The twelve-unit historical ordering below remains authoritative for those units;
+this independent tranche does not claim their delivery. After verified core
+and retained-CI baseline delivery, the specification-ready
+`validation-execution-performance` slice may
+be promoted under the distribution profile with a fresh receipt and preflight.
+Its workflow changes preserve required coverage and current job semantics.
 
 ## Sequence And Readiness
 

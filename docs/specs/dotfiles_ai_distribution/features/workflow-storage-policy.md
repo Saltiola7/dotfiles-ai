@@ -1,6 +1,6 @@
 # Workflow storage policy
 
-**SPECIFICATION READY; IMPLEMENTATION/ROLLOUT UNQUALIFIED.** Owner: distribution maintainers; Discovery
+**SOURCE IMPLEMENTED; ROLLOUT QUALIFICATION REMAINS CAPABILITY-SPECIFIC.** Owner: distribution maintainers; Discovery
 primary owns reconciliation. Profile: [../PROFILE.md](../PROFILE.md); Product
 Intent: [../PRODUCT.md](../PRODUCT.md). Risk: critical (retained work and data).
 This freezes contracts for workflow-convergence INT-005–INT-011 and configuration

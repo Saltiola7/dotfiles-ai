@@ -1,5 +1,10 @@
 # Continuous Validation
 
+The [PY-09 snapshot baseline](features/snapshot-performance-baseline.md) specifies
+opt-in synthetic capture measurements and qualified per-controller memory evidence.
+Its source-only tooling does not modify the runner, enroll worktrees or activate
+workers. Discovery readiness does not establish collected resource measurements.
+
 **Status:** implemented default-off local advisory shadow with explicit checkpoint
 hooks, complete test-identity receipts, typed Codex/OpenCode CLI feedback and
 independently opted-in PR-Agent review.

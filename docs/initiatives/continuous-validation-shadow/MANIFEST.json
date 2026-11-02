@@ -419,7 +419,7 @@
     {
       "id": "local-shadow",
       "context": "continuous_validation",
-      "state": "ready",
+      "state": "delivered",
       "execution_owner": "build",
       "requirements": [
         "INT-001",
@@ -588,7 +588,7 @@
       "members": [
         "local-shadow"
       ],
-      "state": "ready"
+      "state": "delivered"
     },
     {
       "id": "session-hooks",
