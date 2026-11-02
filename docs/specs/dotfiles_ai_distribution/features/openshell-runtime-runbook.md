@@ -17,6 +17,24 @@ Concrete command sequences must come from the selected source-verified native
 interfaces and the reviewed runner/recipes. This runbook does not invent a new
 public CLI or substitute guessed flags for missing native capability.
 
+The source-only storage report is `python3 tests/probe_openshell_storage.py
+--root PATH`, where `PATH` is the existing private pilot store. It performs no
+allocation, prints all admission blockers and exits nonzero while native hard
+limits remain unqualified. A low-space refusal does not authorize deleting other
+application data or selecting another volume. The operator retained the current
+external storage selection and will free capacity before native qualification.
+
+After capacity is available, the next native storage proof uses an owned tiny
+image before any VM: verify its attachment and physical-store chain, establish
+a separate cache quota, demonstrate bounded quota exhaustion while the runtime
+sentinel remains writable, and prove a missing cache mount refuses rather than
+writing beneath it. Retain compact evidence and retire that exact test image.
+Then qualify the real-size image, actual cache routing and Lima compatibility.
+Do not infer image attachment schema, mount permissions or enforcement from
+portable fixtures. Admission must observe free space on the underlying host
+volume and include the requested operation: creating another VM when one is
+retained refuses, even if that existing VM is stopped.
+
 ## Prerequisites and artifact admission
 
 Initial read-only host inventory reported Lima 2.2.1 and Podman 6.1.4, with
