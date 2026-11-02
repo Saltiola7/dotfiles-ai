@@ -1,0 +1,19 @@
+{
+  "profile": "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {
+      "applicability": "not_applicable",
+      "reason": "The distribution profile delivers managed local configuration; PY-06 publishes no versioned package, image, registry artifact or hosted service."
+    },
+    "deploy": {"applicability": "required"},
+    "operate": {"applicability": "required"},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

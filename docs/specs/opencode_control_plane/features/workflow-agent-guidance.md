@@ -1,6 +1,6 @@
 # Workflow agent guidance and compression evaluation
 
-**SPECIFICATION READY, NOT IMPLEMENTED — not runtime qualified.** Owner: control-plane Discovery
+**SOURCE IMPLEMENTED — runtime qualification remains capability-specific.** Owner: control-plane Discovery
 primary. Profile: [../PROFILE.md](../PROFILE.md); risk: elevated; modules:
 ML/AI, Security. Covers convergence INT-024–INT-025, INT-028, INT-044–INT-052,
 Q-12–Q-13 in the [Initiative](../../../initiatives/dbsctr-workflow-convergence/README.md).

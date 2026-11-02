@@ -1,0 +1,46 @@
+--- a/references/rca-procedure.md
++++ b/references/rca-procedure.md
+@@ -25,6 +25,14 @@
+ 
+ ## Preflight
+ 
++Preserve the failing requested/locked version and repository. Existence, index
++visibility, historic evaluation, current allowance and security safety are
++separate observations. Diagnostic remediation is a proposal: changing a pin,
++creating/approving a waiver, reindexing or clearing a cache needs the existing
++project/platform owner's task authority and required controls. A generic download
++request never waives a required security gate.
++
++
+ **Right environment.** The MCP curation tools only ever query the
+ **currently connected** JFrog tenant, and a different env has different audit data —
+ an answer from the wrong tenant is worse than none. When the failing URL's host
+@@ -40,12 +48,13 @@
+ present:
+ 
+ - **No JFrog MCP tools at all** (not even `catalog_packages_list_versions` /
+-  `artifactory_repositories_get`) → the JFrog MCP server isn't connected. Say
+-  so; never substitute a `jf` command or raw HTTP.
++  `artifactory_repositories_get`) → this session has no usable registered JFrog MCP capability. Report that
++  observation without claiming a specific connection cause; never substitute a `jf` command or raw HTTP.
+ - **Other JFrog MCP tools work but `jfs_curation_*` is absent** → the
+-  platform is below the required Xray version or the tenant isn't
+-  Curation-entitled. **Stop gracefully:** report that the audit-based investigation
+-  can't run here and that it needs Xray ≥ 3.153.0 with Curation enabled.
++  required audit capability is unavailable. Version, entitlement, registration or
++  permissions may explain it; do not infer which without evidence. **Stop
++  gracefully:** report the missing tools and verify their current requirements
++  against the selected server before proposing an upgrade or configuration change.
+ 
+ Either way, do **not** fabricate calls or guess results.
+ 
+@@ -481,7 +490,8 @@
+ 
+ - **Ruled out:** the non-curation causes you checked — auth / permissions, repo or remote config, a version that never existed.
+ - **Evidence:** discrete `key=value` tokens on one line, each individually searchable/copyable — e.g. `tool=jfs_curation_query_cvs_audit_events` `event_id=1290` `created_at=1786000000000` `action=blocked` `policy=cve`. Emit only the tokens you have.
+-- **Remediation** *(High confidence only — omit entirely at Medium/Low):* use a curation-**compliant** version (the one CVS selected, or an `allowed_versions` entry), or **raise a waiver** scoped to the curated remote(s) you resolve through. **Never** propose changing or loosening a curation policy (e.g. "lower the CVE threshold in policy `cve`") — a policy change is out of scope for this RCA; the waiver is the only sanctioned exception.
++- **Remediation** *(High confidence only — omit entirely at Medium/Low):* use a curation-**compliant** version (the one CVS selected, or an `allowed_versions` entry), or **raise a waiver** scoped to the curated remote(s) you resolve through. **Never** propose changing or loosening a curation policy (e.g. "lower the CVE threshold in policy `cve`") — a policy change is out of scope for this RCA; a waiver is a possible project-policy exception path, never automatically
++  sanctioned or approved by this diagnostic workflow.
+ 
+ **Insufficient evidence** *(use instead of the table above when the output
+ gate stopped you)*: state **Cannot conclude** — name the missing tool call(s)

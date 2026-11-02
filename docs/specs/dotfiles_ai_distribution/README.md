@@ -1,5 +1,34 @@
 # dotfiles-ai Distribution
 
+The [PY-09 retained-CI precursor](features/validation-execution-performance.md#py-09-retained-ci-baseline-precursor)
+defines opt-in analysis of existing job metadata/logs through the shared evidence
+contract. It starts no CI jobs and changes no workflow, runtime or required-check
+authority. Its source tooling and evidence collection remain pending Build.
+
+The [complete official JFrog skill collection](features/jfrog-skills.md) adds seven
+portable, narrowly routed workflows and an independent optional missing-only CLI
+installer. Native discovery, CLI readiness, MCP connection and live platform
+operations remain separate observations. No plugin, Agent Guard, platform target,
+authentication or MCP activation is implied by skill deployment. Project
+enumeration stays live without persistent credential-derived cache fingerprints;
+a typed project selection alone does not prove existence or access.
+
+The optional [self-hosted Prefect inspection capability](features/prefect-mcp.md)
+adds reviewed operational guidance and an independently installed frozen stdio
+adapter. Private selection owns the existing API and credentials; native clients
+own registration and process lifetime. Backend availability remains separate from
+installation and tool discovery. The adapter does not provision a Prefect service
+or make MCP a prerequisite for project SDK/CLI flow work.
+
+## History Projection Refresh Duration
+
+The distribution-owned scheduler reports completed refresh duration as whole
+elapsed seconds, measured independently of wall-clock changes. Run timestamps
+remain Unix milliseconds. The existing
+[refresh schedule contract](features/history-projection-refresh-schedule.md)
+defines rounding, retained-summary compatibility and the bounded PY-06 delivery
+slice; lifecycle snapshot authority remains in its owning context.
+
 ## Optional Cline Domain
 
 Cline Desktop and Cline CLI are independently enabled developer tools. Their
@@ -971,6 +1000,17 @@ feature branch with a draft pull request; the operator retains merge authority.
   then every `limactl` subprocess receives that path through `LIMA_HOME`.
 - Given a relative or non-string Lima home, when sandbox configuration is
   validated, then the controller fails before invoking Lima.
+
+### Sandbox Command Deadline Repair (PY-05)
+
+The [command deadline contract](features/sandbox-command-deadlines.md) governs
+the existing synchronous `sandbox-vm.command` helper. All owned pipe I/O and final child wait share one
+monotonic execution deadline after successful process creation, followed by a
+separate bounded cleanup allowance. Existing output limits, private-data handling,
+caller deadlines and recovery authority remain binding. Source delivery is one
+reviewed pull request; local activation and live operations are separate work.
+Local process and caller qualification is source evidence; managed Lima rollout
+and live guest qualification remain separate.
 
 ### Optional Personal Atuin Service
 

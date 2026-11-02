@@ -63,9 +63,13 @@ def read_lock():
     return packages
 
 
-def assert_bundles(skills_root, packages):
+def assert_bundles(skills_root, packages, *, installed=False):
     for package in packages:
-        assert inventory(skills_root / package["name"]) == package["files"], package["name"]
+        expected = package["files"]
+        if installed:
+            expected = {name: value for name, value in expected.items()
+                        if name not in package.get("source_only_files", [])}
+        assert inventory(skills_root / package["name"]) == expected, package["name"]
 
 
 def copy_selected(skills_root):

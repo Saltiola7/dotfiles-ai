@@ -1,0 +1,23 @@
+--- a/references/cli-gotchas.md
++++ b/references/cli-gotchas.md
+@@ -46,8 +46,9 @@
+   `jf rt replication-template`. For server setup, follow `references/jfrog-login-flow.md`.
+   For templates, use JSON schemas or REST API. If a command prompts for input
+   unexpectedly, find the non-interactive alternative via `--help` or REST API.
+-- `jf config export` output is base64-encoded JSON. Decode with
+-  `base64 -d | jq` to extract fields.
++- `jf config export` contains reusable credential material; base64 is not
++  redaction. Do not print, decode or collect it for ordinary metadata discovery.
++  Use supported redacted metadata and preserve the selected credential owner.
+ - Build info lookups require a scope (`?buildRepo=` or `?project=`) —
+   resolve it before calling the API. See `references/artifactory-operations.md`
+   §Retrieving build info for the full workflow.
+@@ -59,7 +60,7 @@
+   these errors, do not try a different configured server as a workaround —
+   that targets a different environment. Report the error and ask the user.
+ - **No retry loops (HARD).** No `while true`; no empty `offset=`/`page=`.
+-  403/404/timeout → stop. 401 → re-login **same** server, then **one** retry of that URL (sole identical-request exception). Identical path + query a **second** time → stop. First page `offset=0` or `page_num=1`.
++  403/404/timeout → stop. 401 → report; only after authorized same-server recovery, consider **one** retry of that URL (sole identical-request exception). Identical path + query a **second** time → stop. First page `offset=0` or `page_num=1`.
+   Pager: 2xx and `next_offset` **greater than** last offset, or increment
+   `page_num`. Cap **20 pages**. No `GET /api/v1/artifacts`. AQL on
+   `<repo>-cache` (never `<virtual>-cache`). Package-block 403 → `jfrog-package-curation`.

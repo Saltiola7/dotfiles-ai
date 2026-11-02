@@ -1,0 +1,12 @@
+--- a/scripts/jfrog-install-jf-cli.mjs
++++ b/scripts/jfrog-install-jf-cli.mjs
+@@ -425,8 +425,7 @@
+   // here too.
+   try {
+     // "wx" refuses to follow/overwrite anything already at tmp (e.g. a
+-    // pre-planted symlink) — same symlink-safe pattern as
+-    // lib/project-cache.mjs's writeCachedProjectList().
++    // pre-planted symlink); rename then replaces the directory entry itself.
+     writeFileSync(tmp, bytes, { flag: "wx" });
+     chmodSync(tmp, 0o755);
+     renameSync(tmp, INSTALL_PATH);

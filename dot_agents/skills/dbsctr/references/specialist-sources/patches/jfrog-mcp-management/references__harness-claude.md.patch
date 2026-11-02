@@ -1,0 +1,60 @@
+--- a/references/harness-claude.md
++++ b/references/harness-claude.md
+@@ -1,3 +1,12 @@
++# Portable ownership qualification
++
++Use these retained mechanics only for an explicitly selected JFrog-governed task
++and a current version-qualified native configuration owner. Examples do not grant
++mutation, plugin/runtime installation, OAuth, cache deletion or trust changes.
++Use a reviewed Agent Guard pin and actual native secret controls; legacy schema
++examples require current-client verification. Do not auto-run `enable_*_tools` or
++login. Preserve unrelated entries, settings and credential state.
++
+ # Harness: Claude Code
+ 
+ Claude Code-specific config for the `jfrog-mcp-management` skill. Read this
+@@ -58,25 +67,21 @@
+ - Skip Install Step 5 (`--login`): OAuth runs between Claude Code and the
+   Gateway on first use, not against the upstream.
+ - Enable, Restart and Verify are unchanged, including the ≥1-tool criterion.
+-- Write the entry in every case — never stop the add over a managed policy.
+-  After writing it, tell the user: managed Claude settings must list the copied
+-  `serverUrl` in `allowedMcpServers`; if that list does not include the URL,
+-  Claude Code rejects the server on first use.
++- A managed denial blocks the affected registration. Do not write an unusable
++  entry or change `allowedMcpServers`/policy to bypass it; report the native gap.
+ 
+ ## Enable
+ 
+-Pre-approve to skip the per-server prompt: edit
+-`<cwd>/.claude/settings.local.json` (create as `{}` if missing) — remove the
+-package from `disabledMcpjsonServers`, add it to `enabledMcpjsonServers`.
+-Team-wide (committed): write the same arrays to `<cwd>/.claude/settings.json`.
+-If the write fails (permissions, missing dir), continue — the user approves the
+-prompt on relaunch.
++Use the existing native approval/configuration owner for the exact selected
++server. Do not pre-approve servers, edit trust/settings arrays or create team-wide
++approval as an automatic install step. Permission/write failure remains a gap;
++do not suppress it or change a managed policy to obtain success.
+ 
+ ## Restart
+ 
+ `/exit` or `/reload-plugins` in the same directory. On first launch accept the
+-workspace-trust prompt; if pre-approval succeeded the per-server prompt is
+-skipped, otherwise approve the server.
++workspace-trust and per-server prompts only within actual authorized native
++activation. This skill cannot grant trust or approve those prompts itself.
+ 
+ ## List installed
+ 
+@@ -111,7 +116,8 @@
+ 5. Managed `managed-settings.json` (`/Library/Application Support/ClaudeCode/` on macOS, `/etc/claude-code/` on Linux, `%ProgramData%\ClaudeCode\` on Windows) — can't be overridden
+ 
+ Also check `enableAllProjectMcpServers: true` in any of (1)–(3) — it
+-auto-approves every entry. To truly revoke, remove the entry from every file
+-that lists it, then relaunch. A missing entry from `claude mcp list` is usually
++auto-approves every entry. Preserve that separately owned policy; use the actual
++native owner to retire only the selected exact entry and review surviving layers.
++Do not remove settings across every file as an automatic cleanup. A missing entry from `claude mcp list` is usually
+ a JSON parse failure (undefined `${VAR}`) or an `allowedMcpServers` /
+ `deniedMcpServers` policy in `managed-settings.json`.

@@ -1,0 +1,9 @@
+#!/bin/bash
+# project: {{ include "private_dot_config/dotfiles-ai/runtime/prefect-mcp/pyproject.toml" | sha256sum }}
+# lock: {{ include "private_dot_config/dotfiles-ai/runtime/prefect-mcp/uv.lock" | sha256sum }}
+# bootstrap: {{ include "private_dot_config/dotfiles-ai/runtime/prefect-mcp/server.py" | sha256sum }}
+set -euo pipefail
+{{ if not .dotfiles_ai.prefect_mcp.enabled -}}
+exit 0
+{{ end -}}
+exec "$HOME/.local/bin/prefect-mcp" install

@@ -40,6 +40,11 @@ for server in mcp["servers"].values():
         if not isinstance(server["enabled"], bool):
             sys.exit("OpenCode MCP enabled must be boolean; original left unchanged")
         server.setdefault("disabled", not server.pop("enabled"))
+# Opt-in claims only this exact declaration, never an existing private transport.
+prefect = managed["mcp"]["servers"].get("prefect_local")
+if prefect is not None and "prefect_local" in mcp["servers"]:
+    if json.dumps(mcp["servers"]["prefect_local"], sort_keys=True) != json.dumps(prefect, sort_keys=True):
+        sys.exit("OpenCode MCP prefect_local conflicts with managed entry; original left unchanged")
 local["mcp"] = mcp
 config = merge(local, managed)
 retired = """status attach preflight begin initiative_begin initiative_launch reconcile

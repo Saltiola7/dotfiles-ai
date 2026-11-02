@@ -1,0 +1,23 @@
+--- a/references/INDEX.md
++++ b/references/INDEX.md
+@@ -7,7 +7,7 @@
+ install when needed.
+ 
+ Paths relative to skill root. List **every** `references/` file (except this
+-one). CI: `tests/jfrog/test_reference_index_contract.py`.
++one). The distribution owns resource-closure/provenance validation.
+ 
+ ---
+ 
+@@ -32,6 +32,11 @@
+ 
+ Load the most specific file for the task. Avoid more than 2–3 reference files
+ for one operation.
++
++## Local execution and extended workflow
++
++- **Installer, authentication, telemetry, configuration or helper ownership**: read `references/local-ownership.md` before invoking any related facility.
++- **Extended upstream procedure/examples**: read `references/upstream-workflow.md` only for the relevant operation; compact SKILL.md owns the common guards.
+ 
+ ## Cross-domain
+ 

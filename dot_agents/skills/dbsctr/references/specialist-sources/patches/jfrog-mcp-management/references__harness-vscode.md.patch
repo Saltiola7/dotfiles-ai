@@ -1,0 +1,24 @@
+--- a/references/harness-vscode.md
++++ b/references/harness-vscode.md
+@@ -1,3 +1,12 @@
++# Portable ownership qualification
++
++Use these retained mechanics only for an explicitly selected JFrog-governed task
++and a current version-qualified native configuration owner. Examples do not grant
++mutation, plugin/runtime installation, OAuth, cache deletion or trust changes.
++Use a reviewed Agent Guard pin and actual native secret controls; legacy schema
++examples require current-client verification. Do not auto-run `enable_*_tools` or
++login. Preserve unrelated entries, settings and credential state.
++
+ # Harness: VS Code (GitHub Copilot)
+ 
+ VS Code-specific config for the `jfrog-mcp-management` skill. Read this together
+@@ -56,7 +65,7 @@
+     "<spec.packageName>": {
+       "type": "stdio",
+       "command": "npx",
+-      "args": ["--yes", "--registry", "<REGISTRY_URL>", "@jfrog/agent-guard", "--server", "<SERVER_ID>"],
++      "args": ["--yes", "--registry", "<REGISTRY_URL>", "@jfrog/agent-guard@<APPROVED_VERSION>", "--server", "<SERVER_ID>"],
+       "env": {
+         "_JF_ARGS": "project=<JFROG_PROJECT_KEY>&mcp=<spec.packageName>",
+         "<SECRET_ENV_OR_HEADER_NAME>": "${input:<mcp-slug>-<secret-input-name>}"

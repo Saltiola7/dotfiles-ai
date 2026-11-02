@@ -20,6 +20,17 @@ enabled = false
 [dotfiles_ai.codex]
 channel = "stable"
 
+[dotfiles_ai.jfrog_cli]
+enabled = false
+
+[dotfiles_ai.prefect_mcp]
+enabled = false
+profiles_path = ""
+profile = ""
+api_url = ""
+api_auth_string_env = ""
+api_key_env = ""
+
 [dotfiles_ai.cline_desktop]
 enabled = false
 

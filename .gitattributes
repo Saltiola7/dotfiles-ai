@@ -10,3 +10,8 @@ dot_agents/skills/bats-testing-patterns/LICENSE.upstream -whitespace
 dot_agents/skills/async-python-patterns/LICENSE.upstream -whitespace
 dot_agents/skills/k8s-manifest-generator/LICENSE.upstream -whitespace
 dot_agents/skills/helm-chart-scaffolding/LICENSE.upstream -whitespace
+
+# Preserve untouched JFrog resources, including original EOF whitespace.
+dot_agents/skills/jfrog-init/scripts/jfrog-detect-jfrog-mcp.mjs -whitespace
+dot_agents/skills/jfrog-init/scripts/jfrog-reinstall-jfrog-plugin.mjs -whitespace
+dot_agents/skills/jfrog/references/artifactory-aql-syntax.md -whitespace
