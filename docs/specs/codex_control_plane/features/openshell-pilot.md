@@ -34,6 +34,12 @@ enrollment. The client runs interactively inside its own OpenShell workload.
 Host app-server exposure, Desktop management and a general host service bridge
 are not required by this pilot.
 
+This is a separate opt-in trial entrypoint, selected for each new pilot session.
+Installing the adapter does not intercept ordinary Codex commands, Desktop
+launches, resume paths or automation, and does not enable OpenShell by default.
+The [activation contract](../../dotfiles_ai_distribution/features/openshell-pilot-activation.md)
+owns selection, refusal and coexistence with ordinary sessions.
+
 Project code, tests and dependency scripts execute inside the sandbox. All host
 Git, Worktrunk and lifecycle effects use the
 [restricted host contract](../../dbsctr_v3_lifecycle/features/openshell-host-boundary.md).

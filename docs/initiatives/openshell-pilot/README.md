@@ -27,6 +27,12 @@ The initial runtime experiment uses Fedora/Lima and rootless Podman. Native Mac
 MicroVM replacement remains a deferred alternative, not pilot rollout. Existing
 native launches remain separately selectable and never become automatic fallback.
 
+The operator reaffirmed that OpenShell is an optional testing route, selected
+explicitly for each new trial session through a separate entrypoint. Installation
+must not intercept ordinary agent commands, enroll existing sessions, start
+workers at login or change automation defaults. INT-015, INT-026 and INT-029
+already cover this opt-in boundary; the activation contract defines its checks.
+
 ## Approved ownership and dependencies
 
 All contexts have one home repository: Saltiola7/dotfiles-ai. Context work began
@@ -191,6 +197,15 @@ Case-sensitive storage is a separate alternative requiring an explicit checkout
 location decision. Provider, agent, host-helper and activation slices remain
 dependent on successful runtime qualification.
 
+Subsequent synthetic qualification reached the actual internal Unix control
+socket from workload code. A successful connection did not establish an
+authentication bypass, but failed the existing transport-exclusion contract.
+The operator selected strict socket exclusion and investigation of an additional
+isolation boundary. Authentication after connection is not accepted as a
+substitute. The runtime feature records the source-backed finding, candidate
+investigation and required proof; actual results remain in the private Cycle
+Record. This preserves INT-008 and reopens only the isolation mechanism.
+
 ## Promotion and Build handoff
 
 Runtime-qualification scope: source recipes/fixtures/runner/runbook, actual
@@ -218,12 +233,14 @@ behavior, contract and tests before a separately identified bounded experiment.
 Historical gate evidence does not establish that a revised candidate passed.
 The private Cycle Record is authoritative for actual registration and results.
 
-The next technical proof is the host-owned immutable pointer candidate described
-in the runtime feature and runbook. It keeps the approved direct-edit requirement,
-Git approval rules, provider scope and resource ceilings. Successful pointer
-qualification only permits the remaining runtime matrix to proceed; it does not
-qualify agent authentication or activate real checkouts. A changed approval scope
-or a genuinely new cycle retains the applicable preflight and approval boundary.
+The next technical decision is an additional boundary for strict internal socket
+exclusion, described in the runtime feature and runbook. It keeps the approved
+direct-edit requirement, Git approval rules, provider scope and resource ceilings.
+Earlier pointer evidence does not qualify a changed runtime generation. Any
+revised candidate must repeat the complete required runtime matrix before
+successors advance; it does not qualify agent authentication or activate real
+checkouts. A changed approval scope or a genuinely new cycle retains the
+applicable preflight and approval boundary.
 
 Recommended Build primary: current native Codex session, preserving OpenAI
 provider affinity and explicit checkout targeting. No session relocation or

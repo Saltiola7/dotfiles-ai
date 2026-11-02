@@ -28,6 +28,12 @@ privately and do not infer readiness from the inventory above.
 
 Before any worker or workload operation:
 
+0. Run the read-only aggregate storage inspection. Require the runtime feature's
+   disk/cache ceilings, parent reserve and independent native hard-limit proof
+   before any allocating command. Missing proof blocks creation/start even when
+   free space is ample. Historical private preparation scripts are superseded;
+   their old 12 GiB check and per-run caches cannot admit another worker. Keep
+   inspection, exact stop and authorized deletion available for recovery.
 1. Confirm the registered runtime slice, approved disposable scope and exact
    source revision. Use the committed feature and complete imported specification
    closure; a later edited document cannot silently broaden the current launch.
@@ -71,7 +77,8 @@ additional host capability, another backend or automatic package-owner change.
 
 | Selected resource | Required boundary | Refusal condition |
 |---|---|---|
-| Worker | One owned disposable Lima worker with at most four virtual CPUs, eight GiB memory and 40 GiB virtual disk; exact configuration recorded | Unknown owner, conflicting generation, larger unreviewed budget or an existing agent worker |
+| Worker | One retained disposable Lima worker, running or stopped, with at most four virtual CPUs, eight GiB memory and 20 GiB virtual disk; exact configuration recorded | Unknown owner, conflicting generation, a second retained worker or an existing agent worker |
+| Runtime storage and cache | At most 24 GiB bounded image, 2 GiB native cache quota, 1 GiB format-overhead allowance and 1 GiB external retention; retain 20 GiB parent free space after remaining growth | Missing native quota proof, cache outside the bounded volume, overflow or insufficient reserve; a fresh store requires 46 GiB available |
 | Workload | At most one qualification workload; two CPUs, two GiB memory and 256 processes enforced by actual runtime controls | Missing or ineffective resource enforcement |
 | Synthetic repository | Newly prepared synthetic content and native Worktrunk-created linked fixture membership | A real working repository, copied checkout used as direct-edit evidence, custom allocator or unverified membership |
 | Workload-visible source | Only selected fixture source is writable; Git pointer and protected metadata remain protected | Broad parent/home mount, writable shared Git metadata or an alias that expands access |
@@ -314,11 +321,13 @@ administrative authority or an authentication bypass; do not claim either.
 
 Resume technical qualification only after the affected boundary design is
 resolved and its contracts, negative cases and validation plan are reviewable.
-An additional isolation mechanism needs its own compatibility and lifecycle
-proof. An authentication-based internal-channel contract requires an explicit
-scope decision and actual unauthorized-operation tests; it is not an exception
-that the observer can grant itself. Preserve gateway and Podman exclusion,
-existing Git approvals and the remaining pilot context map.
+The operator selected strict socket exclusion. An additional isolation mechanism
+needs its own compatibility and lifecycle proof; authentication after connection
+does not satisfy this selection. Preserve gateway and Podman exclusion, existing
+Git approvals and the remaining pilot context map. Keep this synthetic procedure
+separate from normal agent startup. A future trial requires an explicit session
+selection through the dependent activation route; neither installation nor a
+passing probe enables automatic routing.
 
 Cleanup is a separate, exact operation. Before requesting or performing it:
 

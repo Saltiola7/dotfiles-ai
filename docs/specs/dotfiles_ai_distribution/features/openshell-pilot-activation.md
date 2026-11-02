@@ -64,6 +64,34 @@ arbitrary Git commands, history rewrites or a new host execution channel.
 
 ## Native operation contracts
 
+### Optional trial entrypoint
+
+Provide a separate, explicitly named trial entrypoint for starting either agent
+in OpenShell. Every new trial session requires selection of that entrypoint,
+agent and eligible checkout. Installing or qualifying the pilot only makes this
+route available; it does not select it for later ordinary launches. Inspect and
+dry-run remain available before the trial is ready and report blockers without
+starting a workload or sign-in.
+
+An explicit trial resume may reuse the same qualified retained session and
+enrollment after freshness and ownership checks. Unavailable recovery refuses;
+it never silently creates a replacement session or takes over an ordinary one.
+
+Do not replace or intercept ordinary Codex/OpenCode commands, shell aliases,
+desktop launches, shared services, session-resume paths or automation defaults.
+Do not add shell-startup, login or background triggers that enroll sessions. The
+trial can coexist with ordinary sessions in other checkouts under existing
+ownership rules. Trial admission refuses known competing ownership and retains
+existing quiescence and drift checks; cooperative locks do not exclude arbitrary
+trusted host writers. Stopping a trial preserves its work and never starts an
+ordinary session as fallback. A later normal launch remains an explicit operator
+action.
+
+These requirements refine the existing opt-in constraints INT-015, INT-026 and
+INT-029. They do not introduce a global enable switch or authorize rollout to all
+sessions. The final command spelling remains an adapter implementation decision;
+this specification does not claim an executable launcher already exists.
+
 The following describe required behavior, not newly established CLI names or
 flags. Implement them through qualified native interfaces and existing owners.
 The operator's machine-local selection contains private runtime, checkout and
@@ -72,6 +100,7 @@ without reading provider secrets or publishing private selectors.
 
 | Operation | Behavior | Mutation boundary |
 |---|---|---|
+| Ordinary launch/resume | Use the existing native agent route, whether pilot support is unavailable, installed or stopped | No implicit trial enrollment, worker start or routing change |
 | Inspect | Report installed generations, prerequisite freshness, workload state, bounded operation status and blockers | No login, provider-token read, model call, process start or configuration repair |
 | Dry-run | Resolve and display exact enrollment, effective permission differences, selected resources, retained state and installation targets | No file apply, grant creation, runtime start, Git mutation or implicit consent |
 | Start | Revalidate the approved exact selection, reserve native checkout ownership, attach qualified providers and activate one workload | Only the selected enrollment; drift returns to review rather than widening scope |
@@ -80,8 +109,9 @@ without reading provider secrets or publishing private selectors.
 | Revoke | Reject new enrollment requests immediately, quiesce the workload, detach workload-facing provider access and invalidate its generation-scoped authority | Report incomplete containment if quiescence or detachment cannot be confirmed; retain private grants and data for separately authorized disposition |
 | Restore native use | Verify stopped/revoked state, trusted Git identity, retained changes and known operation outcomes before explicit native launch | No hidden continuation, automatic data apply or fabricated session identity |
 
-**Text Equivalent:** Inspection and dry-run are nonmutating. Start acts only on
-the reviewed selection after fresh validation. Pause/resume retains the native
+**Text Equivalent:** Ordinary launches and resumes retain their existing route.
+Inspection and dry-run are nonmutating. Trial start requires explicit selection
+of the separate entrypoint and fresh validation. Pause/resume retains the native
 session. Stop and revocation first close new host requests and resolve uncertain
 operations, then contain the workload while retaining work and credentials.
 Restoring native use is explicit and requires trusted checkout identity.
@@ -158,6 +188,13 @@ restart unrelated services or apply the entire source tree as a convenience.
    coding task ends, then only review and validation may proceed automatically
    within existing authority. Host apply requires stopped/revoked enrollment and
    a separately reviewed targeted deployment; a signed commit is not apply consent.
+9. **Explicit trial selection.** Given installed pilot support, when an ordinary
+   Codex or OpenCode session starts or resumes, then it follows its existing route
+   without starting OpenShell. Given an explicit trial launch, then only the
+   selected agent and eligible checkout are enrolled after prerequisite checks.
+   Stopping that trial leaves subsequent ordinary launches unchanged. Verify both
+   agents with the trial unavailable, installed and stopped; unchanged default
+   routing is required in every state.
 
 The complete capability matrix in the host-boundary contract must have current
 passing evidence for both agents. Approval-required paths are exercised through
@@ -170,7 +207,9 @@ continue to use their existing owners and preservation checks.
 ## Rollback, operations and privacy
 
 Default remains disabled. Activation records one private exact-target selection;
-no global shell alias, provider default or automatic agent routing changes.
+no global shell alias, provider default or automatic agent routing changes. That
+selection applies only to the explicitly requested trial session; installing the
+launcher does not create a persistent default for future sessions.
 Additional concurrent workloads require explicit private resource selection and
 qualified independent checkout/enrollment behavior. They are not enabled by the
 first sequential result. Cooperative host locks do not exclude arbitrary trusted

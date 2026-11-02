@@ -126,8 +126,8 @@ before claiming authenticated session preservation.
 
 ## Initial experiment ceilings
 
-The initial reviewed worker budget is four virtual CPUs, eight GiB of RAM and a
-40 GiB virtual disk. Admit at most one qualification workload at a time, capped
+The reviewed worker budget is four virtual CPUs, eight GiB of RAM and a
+20 GiB virtual disk. Admit at most one qualification workload at a time, capped
 at two CPUs, two GiB memory and 256 processes through actual runtime controls.
 Unenforceable required runtime limits produce unavailable, not a best-effort pass.
 Private selection may reduce budgets; raising them requires a revised reviewed
@@ -151,6 +151,79 @@ and monitor growth; it must report any unprovided hard filesystem quota honestly
 Authorized writes to the selected checkout remain capable of consuming that
 volume's space. No claim of general host availability protection follows from
 filesystem access isolation.
+
+### Aggregate storage admission before further experiments
+
+Retaining stopped workers and their separate download/conversion caches caused
+host storage pressure. The operator authorized their retirement and requires disk
+and cache limits before any further VM starts. Historical evidence and compact
+fixtures remain retained; retired resources cannot be resumed or represented as
+current native evidence. This changes preparation admission, not socket exclusion
+or the default-off agent route.
+
+| Resource | Ceiling or required margin | Enforcement owner |
+|---|---|---|
+| Retained trial VM | One total, including stopped or partially created instances | Exclusive trusted preparation admission; a second instance refuses |
+| Worker virtual disk | 20 GiB | Exact native Lima configuration and disk identity |
+| Aggregate disposable runtime storage | One disk image with at most 24 GiB usable capacity | Native image capacity; all VM disks, container layers, controller state and temporary files stay inside it |
+| Download and conversion cache | 2 GiB allocated data | Dedicated native APFS volume quota inside the image; no unbounded fallback cache |
+| Image-format overhead allowance | At most 1 GiB additional parent allocation | Admission allowance; unsupported or unbounded image format refuses |
+| Host application reserve | At least 20 GiB after worst-case remaining image growth and bounded external retention | Fresh parent-filesystem free-space observation before allocation/start and during operation |
+| External compact retention | At most 1 GiB total fixtures, inputs, receipts and diagnostics; diagnostics also retain their existing 100 MiB ceiling | Bounded inventory; no automatic evidence deletion |
+
+**Text Equivalent:** One disposable image bounds the runtime and contains the
+separately quota-limited cache. Stopped VMs count against the single-instance
+limit. The parent filesystem retains a 20 GiB application margin after accounting
+for remaining possible growth, image overhead and external retention. Native
+image/quota proof is mandatory; byte counting alone is not that proof. Canonical
+source: this storage contract. Owner: distribution maintainers. Change trigger:
+capacity, storage topology, accounting or admission changes.
+
+On macOS, Lima uses `HOME/Library/Caches/lima`; changing `XDG_CACHE_HOME` alone
+does not contain it. The original download and converted raw image both count.
+See [Lima's storage layout](https://lima-vm.io/docs/dev/internals/).
+The cache quota must cover that actual path, independently verified through
+native volume identity. A quota failure retains work and refuses preparation;
+it never retries in the ordinary home, system temporary directory or another
+volume. The existing physical SSD container is not repartitioned or given a new
+shared volume by this contract. The bounded image is a directory-local candidate
+whose native format, quota and Lima compatibility still require qualification.
+
+`inspect_storage(root) -> StorageInventory` is read-only. It reports allocated
+bytes separately from logical file lengths, counts all retained runs and caches,
+and refuses unsafe ownership, unsupported accounting or inventory bounds. Tiny
+synthetic fixture aliases are inventoried without following them; aliases cannot
+redirect storage authority. `admit_storage(inventory) -> StorageAdmission`
+requires the remaining full budget, not merely the previous 12 GiB threshold.
+A fresh empty store needs 46 GiB available: 24 GiB image, 1 GiB overhead,
+1 GiB external retention and 20 GiB reserve. No reserve credit is inferred from
+sparse length, APFS clone sharing or a caller-written receipt.
+
+The first source increment supplies inspection and a fail-closed gate before
+the runner can invoke Lima. Until an independent native image/quota verifier is
+implemented and qualified, creation, start and other potentially allocating
+Lima operations remain refused even when capacity is sufficient. Read-only native
+inventory and exact stop/delete remain available for recovery. A JSON field
+claiming a quota is not admission authority. Existing private preparation scripts
+are superseded; their calls through the runner are refused. This guard governs
+trusted pilot preparation and is not a security boundary against an operator
+who invokes host tools independently.
+
+Required behaviors include refusal before downloader or native VM execution on
+low reserve, a second retained VM, cache overflow, external-retention overflow,
+ambiguous ownership or missing native quota proof. Inspecting a missing store
+must not create it. An exclusive operation lock must span fresh admission and any
+future allocating operation. Native quota exhaustion must be demonstrated with
+a bounded disposable fixture before the actual VM topology is admitted; portable
+tests cannot establish kernel enforcement. No live trial is authorized by a
+passing source-only storage check.
+
+The image/quota ceilings bound OpenShell allocation. The free-space margin is
+an admission and monitoring rule, not reserved space against unrelated apps.
+Low free space stops new work; preservation and exact native stop take priority.
+Neither stopped workers nor caches are kept indefinitely to start successive
+experiments. Their explicit disposition precedes replacement; compact failure
+evidence remains available independently.
 
 ## Required behaviors
 
@@ -630,13 +703,50 @@ approved socket-exclusion requirement associated with INT-008. No stock policy
 setting has been qualified to make this internal socket unreachable while the
 trusted runtime retains its required connection.
 
-The affected design decision is therefore open: preserve strict exclusion using
-an independently qualified additional boundary, or explicitly revise the internal
-transport contract and qualify authentication, credential isolation and authority
-denial instead. Gateway and Podman exclusion remain required in either case.
-Neither alternative is accepted by this finding. Do not weaken the existing
-assertion, accept risk, admit providers or real checkouts, or repeat the same
-unchanged topology as though another run would establish the missing boundary.
+The operator selected strict socket exclusion and investigation of an additional
+isolation boundary. Authentication after connection is not an accepted substitute
+for transport exclusion. Gateway and Podman exclusion remain required. The
+mechanism is still unqualified; this decision preserves INT-008 rather than
+waiving it. Do not weaken the existing assertion, accept risk, admit providers or
+real checkouts, or repeat the same unchanged topology as though another run would
+establish the missing boundary.
+
+This work supports an optional trial route. Successful runtime qualification does
+not change normal Codex or OpenCode launches, enroll existing sessions or make
+OpenShell the default. The separate explicit entrypoint and per-session selection
+belong to the dependent [activation contract](openshell-pilot-activation.md).
+
+#### Additional isolation investigation
+
+The smallest source-change candidate is a workload-only extension of OpenShell's
+existing child seccomp filter that denies creation of `AF_UNIX` sockets and socket
+pairs. Trusted runtime processes retain their control transport. Upstream initial
+launch and both native-exec paths install child hardening before the final filter;
+the final filter prevents a later ordinary wrapper from installing its own filter.
+See the pinned [child hardening](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/crates/openshell-sandbox/src/linux/child_seccomp.rs),
+[initial launch](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/crates/openshell-sandbox/src/process.rs)
+and [native exec](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/crates/openshell-sandbox/src/boundary_exec.rs).
+This is an investigation candidate, not a stock setting, implemented patch or
+qualified image. It is not selected for deployment by this document.
+
+Required proof covers every initial/native-exec route with and without a PTY,
+descendants, descriptor inheritance and acquisition, restart and reconnect.
+Descriptors above standard input/output/error must not survive exec; those three
+must be verified pipes or PTYs rather than inherited Unix sockets. Test all Unix
+socket types and creation flags, pathname and abstract destinations, `socketpair`,
+descriptor passing and cross-process acquisition attempts. Independently prove
+trusted controller access before and after denials. Preserve existing networking,
+source-editing, subprocess, pause and recovery positive controls.
+
+Broad Unix-socket denial may break legitimate client IPC. Both actual agents
+must later pass their complete compatibility matrix; a synthetic result cannot
+waive it. A more selective alternative is a mandatory child Landlock policy with
+pathname Unix-socket mediation on a compatible kernel. The baseline policy uses
+ABI3, so a kernel upgrade alone is insufficient. Child mount masking also needs
+launch-lifecycle changes because the supervisor already forbids later mounts.
+These alternatives remain research, with no automatic kernel upgrade, runtime
+fork, relaxed policy or new VM. Storage admission is a prerequisite to further
+native experiments, whichever mechanism is eventually selected.
 
 #### Bounded recovery observations
 
