@@ -5,7 +5,7 @@ vmType: vz
 arch: aarch64
 cpus: 4
 memory: "8GiB"
-disk: "40GiB"
+disk: "20GiB"
 images:
   - location: "https://download.fedoraproject.org/pub/fedora/linux/releases/44/Cloud/aarch64/images/Fedora-Cloud-Base-Generic-44-1.7.aarch64.qcow2"
     arch: aarch64

@@ -5,6 +5,7 @@ of the runtime matrix. Preparation and retained-state retirement are separate.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 import argparse
@@ -118,6 +119,40 @@ def validate_root(selection: Selection) -> None:
         raise Refusal("invalid_root") from None
 
 
+@contextmanager
+def _storage_guard_for_command(argv: list[str], cwd: Path, env: dict[str, str]):
+    """Gate trusted Lima operations; this does not mediate arbitrary host tools."""
+    if Path(argv[0]).name != "limactl":
+        yield
+        return
+    # Closed recovery/inventory forms. Unknown verbs and global-option variants
+    # cannot evade the storage gate as the upstream command surface grows.
+    if tuple(argv[1:]) in {
+        ("list",), ("list", "q"), ("list", "--json"), ("list", "q", "--json"),
+        ("stop", "q"), ("delete", "q"), ("--yes", "delete", "q"), ("--version",),
+    }:
+        yield
+        return
+    lima_home = Path(env.get("LIMA_HOME", ""))
+    run_root = lima_home.parent
+    if (not lima_home.is_absolute() or str(lima_home) != env.get("LIMA_HOME")
+            or ".." in lima_home.parts or lima_home.name != "lima"
+            or not re.fullmatch(r"openshell-q-[a-f0-9]{12}", run_root.name)
+            or run_root.parent.name != "qualification" or cwd != run_root
+            or env.get("HOME") != str(run_root / "controller")
+            or env.get("TMPDIR") != str(run_root / "controller/tmp")):
+        raise Refusal("storage_route_unqualified")
+    try:
+        storage = importlib.import_module("probe_openshell_storage")
+    except ImportError:
+        raise Refusal("storage_enforcement_unavailable") from None
+    try:
+        with storage.allocation_guard(run_root.parent.parent):
+            yield
+    except storage.Refusal as error:
+        raise Refusal(str(error)) from None
+
+
 def run_command(argv: list[str], *, cwd: Path, env: dict[str, str],
                 timeout: float = 60, limit: int = 1024 * 1024) -> CommandResult:
     """Bound owned child groups and both streams; retain nonzero exit status."""
@@ -125,6 +160,13 @@ def run_command(argv: list[str], *, cwd: Path, env: dict[str, str],
             or isinstance(timeout, bool) or not 0 < timeout <= 1800
             or type(limit) is not int or not 0 < limit <= 10 * 1024 * 1024):
         raise Refusal("invalid_command")
+    with _storage_guard_for_command(argv, cwd, env):
+        return _run_bounded_command(argv, cwd=cwd, env=env, timeout=timeout, limit=limit)
+
+
+def _run_bounded_command(argv: list[str], *, cwd: Path, env: dict[str, str],
+                         timeout: float, limit: int) -> CommandResult:
+    """Run only after argument validation and applicable storage admission."""
     try:
         process = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,

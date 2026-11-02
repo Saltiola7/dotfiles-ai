@@ -4,7 +4,7 @@ from __future__ import annotations
 import importlib.util
 import ast
 import builtins
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 import errno
 import hashlib
 from io import StringIO
@@ -273,6 +273,109 @@ def test_command_preserves_exit_status_streams_and_argument_boundaries(tmp_path:
     assert result.returncode == 17
     assert result.stdout == (argument + "\n").encode()
     assert result.stderr == b"diagnostic\n"
+
+
+@pytest.mark.parametrize("arguments", [
+    ["create", "--name", "q", "fixture.yaml"], ["start", "q"],
+    ["restart", "q"], ["shell", "q", "--", "true"],
+    ["clone", "q", "other"], ["disk", "create", "extra"],
+    ["template", "copy", "template://fedora", "fixture.yaml"],
+    ["--debug", "start", "q"], ["--tty=false", "create", "fixture.yaml"],
+    ["unknown-future-operation"],
+])
+def test_lima_allocation_refuses_before_native_execution(tmp_path: Path, monkeypatch, arguments):
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append("spawn")
+        raise AssertionError("unqualified storage must refuse before native execution")
+
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
+    with pytest.raises(probe.Refusal, match="^storage_route_unqualified$"):
+        probe.run_command(["/opt/homebrew/bin/limactl", *arguments], cwd=tmp_path,
+                          env={"PATH": "/usr/bin:/bin"})
+    assert calls == []
+
+
+@pytest.mark.parametrize("arguments", [
+    ["list", "q", "--json"], ["list", "--json"], ["list"],
+    ["stop", "q"], ["delete", "q"], ["--yes", "delete", "q"], ["--version"],
+])
+def test_lima_read_and_retirement_remain_available(tmp_path: Path, monkeypatch, arguments):
+    calls = []
+
+    def unavailable(argv, **kwargs):
+        calls.append(argv)
+        raise FileNotFoundError("native executable unavailable in this fixture")
+
+    monkeypatch.setattr(subprocess, "Popen", unavailable)
+    with pytest.raises(probe.Refusal, match="^spawn_failed$"):
+        probe.run_command(["/opt/homebrew/bin/limactl", *arguments], cwd=tmp_path, env={})
+    assert calls == [["/opt/homebrew/bin/limactl", *arguments]]
+
+
+def test_runtime_fixture_uses_reduced_virtual_disk_ceiling():
+    fixture = Path(__file__).parent / "fixtures/openshell_runtime/lima.yaml"
+    assert re.search(r'^disk: "20GiB"$', fixture.read_text(), re.MULTILINE)
+
+
+def storage_route(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
+    pilot = tmp_path.resolve() / "pilot"
+    pilot.mkdir(mode=0o700)
+    run = pilot / "qualification" / RUN_NAME
+    run.mkdir(mode=0o700, parents=True)
+    marker = run / "owner.json"
+    marker.write_text(json.dumps({"schema_version": 1, "run_id": RUN_NAME}))
+    marker.chmod(0o600)
+    return pilot, run, {"LIMA_HOME": str(run / "lima"), "HOME": str(run / "controller"),
+                        "TMPDIR": str(run / "controller/tmp")}
+
+
+def test_valid_lima_route_still_requires_native_storage_proof(tmp_path: Path, monkeypatch):
+    import probe_openshell_storage as storage
+
+    pilot, run, env = storage_route(tmp_path)
+    monkeypatch.setattr(storage.os, "fstatvfs", lambda fd: SimpleNamespace(
+        f_bavail=64 * 1024**3 // 4096, f_frsize=4096))
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append("spawn")
+        raise AssertionError("no native command before independent quota proof")
+
+    monkeypatch.setattr(subprocess, "Popen", forbidden)
+    before = sorted(str(path.relative_to(pilot)) for path in pilot.rglob("*"))
+    with pytest.raises(probe.Refusal, match="^storage_enforcement_unqualified$"):
+        probe.run_command(["/opt/homebrew/bin/limactl", "start", "q"], cwd=run, env=env)
+    assert calls == []
+    assert sorted(str(path.relative_to(pilot)) for path in pilot.rglob("*")) == before
+
+
+def test_command_holds_storage_guard_until_spawn_failure(tmp_path: Path, monkeypatch):
+    import probe_openshell_storage as storage
+
+    pilot, run, env = storage_route(tmp_path)
+    events = []
+
+    @contextmanager
+    def selected_guard(root):
+        assert root == pilot
+        events.append("locked")
+        try:
+            yield
+        finally:
+            events.append("released")
+
+    def unavailable(*args, **kwargs):
+        assert events == ["locked"]
+        events.append("spawn")
+        raise FileNotFoundError
+
+    monkeypatch.setattr(storage, "allocation_guard", selected_guard)
+    monkeypatch.setattr(subprocess, "Popen", unavailable)
+    with pytest.raises(probe.Refusal, match="^spawn_failed$"):
+        probe.run_command(["/opt/homebrew/bin/limactl", "create", "fixture.yaml"], cwd=run, env=env)
+    assert events == ["locked", "spawn", "released"]
 
 
 def test_command_uses_explicit_environment_only(tmp_path: Path, monkeypatch):
