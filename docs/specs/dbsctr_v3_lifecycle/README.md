@@ -3853,3 +3853,10 @@ opt-in or enqueue failure cannot change the native commit, ledger result, stdout
 or exit status. Status, evidence recording, set-gate and final delivery never
 trigger execution. Only an explicitly running shared worker executes checks;
 shadow evidence grants no lifecycle or delivery authority.
+
+## Explicit historical lineage recovery
+
+The [audited lineage recovery feature](features/lineage-recovery.md) specifies a
+critical, digest-bound recovery transaction for omitted historical documentation
+commits and exact accepted-base merges in registered schema-5 Initiative cycles.
+It grants no gate credit and preserves normal delivery guards and private history.
