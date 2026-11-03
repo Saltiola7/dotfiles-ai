@@ -1,5 +1,11 @@
 # Codex Control Plane
 
+**RRW-002 successor Discovery:** Initiative `rhel-remote-workspace`, slice
+`rrw-002-rhel-user-runtime`, approves the standalone RHEL 10 x86_64 successor,
+not implementation or deployment. Readiness, gate applicability/results, and
+release qualification remain pending coordinator authority and primary
+verification. Earlier completion and RWUE evidence retain their original scope.
+
 Codex CLI and Desktop may consume the existing shared DBSCTR CLI through native
 tools targeting an explicit validated task checkout. A Desktop attachment failure
 does not block otherwise authorized checkout operations or require a new chat.
@@ -29,7 +35,33 @@ The stable profile is [`PROFILE.md`](PROFILE.md).
 | Scope | Host and Fedora guest CLI, native configuration, shared DBSCTR adapter, history, workers, recovery, and parity evidence |
 | Non-goals | Desktop management, OpenCode retirement, MCP, plugin packaging, private storage parsing, SDK-bundled runtime, Rust rewrite, or Codex fork |
 
-### RWUE-002 Remote Workspace Override
+### RRW-002 RHEL Successor Override — Discovery Only
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: independent authenticated Codex state for users of a shared remote host |
+| Delivery | Normal PR approval without admin bypass; disposable UBI10 userland proof, with actual RHEL qualification and private rollout separate |
+| Scope | RHEL 10 x86_64 user-local CLI, dedicated per-user `CODEX_HOME`, managed configuration, and content-free local readiness |
+| Overrides | Both users supported; independent login and no owner/peer credential copying; colleague readiness unverified until independently exercised |
+
+Given a remote user has a valid shared foundation, when configuration, install,
+update, rollback, or startup runs, no login is required or started. Each user
+authenticates independently; the
+[distribution runtime contract](../dotfiles_ai_distribution/features/remote-user-rollout-runtime.md)
+defines local readiness evidence, not online credential validity. Existing
+installer/update ownership and immutable artifact verification remain intact;
+optional UBI10 Toolbx adds no containerized toolchain or second Codex runtime.
+
+Given a smoke passes in `registry.access.redhat.com/ubi10/ubi`, it does not qualify
+a full RHEL VM, SELinux, rootless Podman, systemd, or IAP. The standalone remote
+client is IAP-only without a Tailscale requirement; macOS and Fedora Lima behavior
+remain unchanged. Each RHEL user's home has the same isolation boundary as an
+independent guest home; the existing visuals keep their host/guest scope and
+introduce no cross-user sharing edge.
+
+### Historical RWUE-002 Remote Workspace Override
+
+The predecessor contract below retains its CentOS scope, not RHEL acceptance.
 
 | Field | Value |
 |---|---|
@@ -95,7 +127,8 @@ outcomes without copying client internals or weakening lifecycle authority.
 
 ## Goals
 
-- Manage Codex CLI on the macOS host and Fedora 44 Lima guests.
+- Manage Codex CLI on the macOS host and Fedora 44 Lima guests; qualify the
+  intended RHEL 10 x86_64 remote successor before claiming release support.
 - Keep OpenCode installed, supported, and unchanged during coexistence.
 - Reuse the existing user skill directory and shared DBSCTR, Discovery, QA, PM,
   writing, DKS, and Graphify contracts.
@@ -495,7 +528,7 @@ final parity for a requested outcome without a separately approved scope change.
 - OpenCode remains installed and its existing tests remain regression authority.
 - `CODEX_HOME` is explicit and wrapper-scoped; it is not exported to the desktop
   application or broad GUI session.
-- Host and each guest authenticate separately.
+- Host, each guest, and each remote Unix user authenticate separately.
 - Codex release and adapter revisions are exact non-secret evidence.
 - Runtime identity comes only from supported structured interfaces.
 - Live probes and workers require `codex login status` to prove an existing login
