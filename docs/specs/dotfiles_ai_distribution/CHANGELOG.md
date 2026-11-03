@@ -1,5 +1,23 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-02 — RRW-002 RHEL remote-user Discovery
+
+- Defined the RHEL 10 x86_64 successor, IAP-only portable client, remote-only
+  local Atuin history, UBI 10 disposable qualification and preservation contract.
+  Existing macOS/Fedora Tailscale and sync behavior stays outside the migration.
+- Kept immutable bootstrap interfaces, local-only authentication evidence and
+  Yazi overlay ownership; linked the `rhel-remote-workspace` intent/slice IDs
+  without importing private deployment identities into public documentation.
+- This change is Discovery only. Source, workflows, local installations and
+  remote homes remain unchanged. RHEL/UBI qualification, implementation, fresh
+  coordinator receipt/preflight/approval and live user acceptance remain pending;
+  no Gate Exception or completed rollout is claimed.
+- Local Python 3.14 validation: existing remote runtime tests passed (37), and
+  configured publication/instruction checks passed (93, one opt-in skip).
+  Disposable fixture commits required a test-process-only signing override;
+  repository commit signing remains enabled. These are source regressions,
+  not UBI or RHEL operating evidence.
+
 ## 2026-11-01 — Complete JFrog specialist setup
 
 - Added all seven official Apache-2.0 skill roots at immutable revision
