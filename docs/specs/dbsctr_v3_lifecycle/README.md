@@ -3888,7 +3888,8 @@ qualification of an unfinished producer branch or active executor readiness.
 
 Owner selection requires the actual managed `continuous_validation/cli.py` file;
 a directory containing older checkpoint code is insufficient. Resolve the
-selected package once, validate cached/imported modules belong to it, and do not
+selected package once, require regular `__init__.py` and `cli.py` files before
+import, validate cached/imported modules belong to it, and do not
 fall back after selection. Keep legacy checkpoint routing and native offline
 lineage admission intact. Retaining a disabled feature does not activate it.
 
@@ -3916,7 +3917,8 @@ Gate Commit produce their declared events after formal locks close. Selection
 binds one real managed owner, and its failures confer no gate or delivery power.
 Managed rollout preserves the external component and uses its generation owner
 to bind the accepted helper. Canonical source: the behavior and boundary tables
-in this subsection. Owner: lifecycle and continuous-validation maintainers.
+in this subsection. Dependency/deployment uses the generation handoff row.
+Owner: lifecycle and continuous-validation maintainers.
 Update trigger: command surface, enrollment, routing, owner, generation or rollout
 compatibility changes. Boundary, interaction, state and data/trust concerns use
 these tables; schema is unchanged and quantitative evidence is not applicable.
