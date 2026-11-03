@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-03 — Refresh reconciled runtime qualification
+
+- Preserved the actual protected-main metadata, resolved test dependencies and
+  benchmark helper identity while retaining the Python 3.15 help oracle. Root
+  support remains Python 3.12+, and isolated runtime pins and owners are unchanged.
+- Refreshed Initiative authority for the reconciled source without changing its
+  thirteen requirements or gate applicability. Earlier failures, incomplete runs
+  and preparation results remain historical evidence.
+- Qualification uses fresh local oldest/newest regressions, publication checks,
+  PM's selected three-file ty analysis and property tests. Exact-source full
+  weekly/manual and PR jobs remain mandatory Review/Integrate authorities before
+  ordinary guarded merge. This is source delivery, with no live installation,
+  deployment, restart or gate exception.
+
 ## 2026-11-03 — Prepare post-PM Python qualification authority
 
 - Reconciled the verified protected-main delivery of PY-01, PY-02 and PM policy
