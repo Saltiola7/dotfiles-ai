@@ -43,6 +43,8 @@ only for verification/recovery of an already externally completed record in its
 original checkout. Supported records are GitHub `draft_pr` schemas 3, 4 and 5;
 Forgejo/local-only and unversioned historical delivery are outside this interface.
 Commit pins are full lowercase object IDs, with the repository's object width.
+Initial admission supports single-parent native merge objects; it does not infer
+whether GitHub produced that object through squash, rebase or fast-forward.
 
 Admission reuses current profile, amendment, import, Graphify, gate-envelope,
 artifact, clean checkout, original branch/upstream and DVC checks. Pending gates
