@@ -1,5 +1,21 @@
 # PM Kernel Changelog
 
+## 2026-11-01 - PY-07 PM Policy Boundaries
+
+- Added typed pure frontmatter, safety, and selected-source approval results
+  inside standalone `pmctl`, preserving legacy adapters, validation order,
+  acceptance quirks, serialization, and original-byte digests.
+- Pinned test-only ty and Hypothesis in the root lock. All three affected Python
+  files pass ty; 189 PM examples/property cases pass on Python 3.12 and 3.14.
+  Independent review found and resolved a checked-field re-read in proof
+  construction, with a retained synthetic regression. Dynamic legacy validator
+  inputs and loader attributes remain explicit precision limits.
+- Gate Exceptions: none. Pre-final Gate Commits: `0eb992c`, `1fa6af8`,
+  `a07647c`, `d501b00`, `a4ccebc`. Deployment: not run; this source-only slice
+  changes no installed command, PM data, Jira, or database. Intended Final Push:
+  feature branch and draft PR into `main`. Adjacent Initiative slices retain
+  their Discovery-owned dependency and readiness gates.
+
 ## 2026-08-29 - Explicit Local Reporting Workflow
 
 - Moved directly invoked PM files to `data/backlog/tickets/` and replaced Git

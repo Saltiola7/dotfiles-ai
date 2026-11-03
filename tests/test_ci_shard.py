@@ -23,6 +23,7 @@ ROOT = Path(__file__).parents[1]
 @pytest.fixture(scope="module")
 def core():
     spec = importlib.util.spec_from_file_location("ci_shard_under_test", ROOT / "tests/ci_shard.py")
+    assert spec is not None and spec.loader is not None, "CI helper must have an executable module spec"
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
@@ -229,17 +230,25 @@ def test_junit_must_match_exact_attempts_and_skips(core, receipts, change):
     path = artifact(root, expected, 1) / "junit.xml"
     document = ET.parse(path)
     case = document.find(".//testcase")
-    prop = case.find("properties/property")
+    assert case is not None, "Synthetic JUnit must contain a testcase to corrupt"
+    properties = case.find("properties")
+    assert properties is not None, "Synthetic testcase must carry identity properties"
+    prop = properties.find("property")
+    assert prop is not None, "Synthetic testcase must carry its exact node ID"
+    nodeid = prop.get("value")
+    assert nodeid is not None, "Synthetic node ID property must have a value"
     if change in {"failure", "error"}:
         ET.SubElement(case, change, message="Real failure cannot be hidden by exit code")
     elif change == "missing_id":
-        case.remove(case.find("properties"))
+        case.remove(properties)
     elif change == "duplicate_id":
-        ET.SubElement(case.find("properties"), "property", name="ci_nodeid", value=prop.get("value"))
+        ET.SubElement(properties, "property", name="ci_nodeid", value=nodeid)
     elif change == "wrong_id":
         prop.set("value", "tests/test_foreign.py::test_unknown")
     elif change == "lost_skip":
-        case.remove(case.find("skipped"))
+        skipped = case.find("skipped")
+        assert skipped is not None, "Synthetic skipped testcase must contain its skipped outcome"
+        case.remove(skipped)
     elif change == "invented_skip":
         ET.SubElement(document.findall(".//testcase")[1], "skipped", message="Unobserved skip")
     else:
@@ -259,8 +268,13 @@ def collection_skip_evidence(root, expected, manifests):
         path = artifact(root, expected, manifest["shard"]) / "junit.xml"
         document = ET.parse(path)
         suite = document.find("testsuite")
-        suite.set("tests", str(int(suite.get("tests")) + 1))
-        suite.set("skipped", str(int(suite.get("skipped")) + 1))
+        assert suite is not None, "Synthetic JUnit must contain its testsuite"
+        tests = suite.get("tests")
+        skipped = suite.get("skipped")
+        assert tests is not None and tests.isdecimal(), "Synthetic suite must contain a numeric test count"
+        assert skipped is not None and skipped.isdecimal(), "Synthetic suite must contain a numeric skip count"
+        suite.set("tests", str(int(tests) + 1))
+        suite.set("skipped", str(int(skipped) + 1))
         case = ET.SubElement(suite, "testcase", classname="", name="tests.test_optional")
         ET.SubElement(case, "skipped", message="collection skipped")
         document.write(path, encoding="utf-8", xml_declaration=True)
@@ -282,6 +296,7 @@ def test_collection_skip_requires_matching_collector_and_junit_evidence(core, re
     path = artifact(root, expected, 0) / "junit.xml"
     document = ET.parse(path)
     suite = document.find("testsuite")
+    assert suite is not None, "Synthetic JUnit must contain its testsuite"
     case = suite.findall("testcase")[-1]
     if change == "collector_mismatch":
         manifest["collection_reports"] = []
@@ -290,7 +305,9 @@ def test_collection_skip_requires_matching_collector_and_junit_evidence(core, re
     elif change == "duplicate_junit":
         suite.append(copy.deepcopy(case))
     elif change == "wrong_message":
-        case.find("skipped").set("message", "This is not a collection skip")
+        skipped = case.find("skipped")
+        assert skipped is not None, "Synthetic collection skip must contain its skipped outcome"
+        skipped.set("message", "This is not a collection skip")
     elif change == "wrong_module":
         case.set("name", "tests.test_unobserved")
     else:
