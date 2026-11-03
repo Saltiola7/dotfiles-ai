@@ -1,5 +1,35 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-03 — Bounded full-suite CI partitions
+
+Replaced serial full-suite jobs with four independent partitions per selected
+Python/Worktrunk lane, retaining the existing 90-minute worker limit, pinned
+tools, early checks, Swift authority and native required-check names. An
+always-run aggregate rejects incomplete, failed, filtered, stale or inconsistent
+evidence and reconciles exact collection, execution, JUnit and skip outcomes.
+Tracked module inventory prevents pre-collection omissions. Existing large test
+IDs and module-level skips remain represented without truncation or exclusions.
+
+Fresh current-main integration validation: 352 passed and one existing native-V2
+binary-selection skip; affected three-file typing passed, and those files compile
+on Python 3.12.15, 3.13.1 and 3.14.10. Real disposable CLI fixtures cover four
+successful partitions, setup/call/collection skips and xfail, failed collection,
+assertion failure, filtering, ignored modules and exit-zero partial execution.
+Independent review found no remaining source blocker. Original failed boundary
+checks, typing findings and eight temporary-repository signing failures remain
+retained; the successful replacement isolates unsigned synthetic Git fixtures
+without changing native lifecycle signing or global Git configuration.
+
+This follow-on preserves the completed lineage-recovery cycle and its cancelled
+hosted CI history. Native Gate Commits include `7125325c`, `fb48814e`, `03dbcf64`
+and accepted-main integration `63b8f934`. No Gate Exception applies. README and
+retired backlog authority were reviewed. Source-only Final Push updates the
+existing feature branch and draft PR into main; fresh complete hosted workers and
+aggregates remain required before acceptance. No helper installation, validation
+feature retirement, policy activation or consumer recovery occurs. The owner
+maintains partition allocation and pinned action updates; rollback must preserve
+full coverage and native protections. Actual delivery belongs to the Cycle Record.
+
 ## 2026-11-03 — Audited historical lineage recovery
 
 Added a closed, one-time recovery transaction for active native registered
