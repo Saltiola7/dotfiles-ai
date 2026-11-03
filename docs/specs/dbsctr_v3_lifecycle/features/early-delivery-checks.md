@@ -65,7 +65,8 @@ without repeating every compatibility run on every edit. Python support remains
 | Manual workflow dispatch | Python 3.12, 3.13, 3.14 | Maintainers can request the complete compatibility matrix without changing source |
 
 Every selected runtime retains the same pinned tooling, early publication checks,
-native Swift authority and full pytest command. Each job has a 90-minute timeout.
+native Swift authority and complete pytest population. Four independent workers
+partition each selected runtime/tool lane. Each worker has a 90-minute timeout.
 Workflow tokens have read-only repository contents permission. No path filter,
 test exclusion, failure waiver, dependency change or privileged PR event is added.
 
@@ -82,6 +83,71 @@ and a successful full-matrix rerun. Reverting this cadence requires restoring
 the three-version workflow and matching required checks together. Native CI
 results, queue times and protection snapshots remain the execution evidence;
 the configuration alone proves no measured wall-clock speedup.
+
+## Bounded full-suite execution
+
+The distribution owner owns worker execution and result reconciliation. Lifecycle
+owns the fail-closed merge contract. A **lane** is one selected Python/Worktrunk
+pair. A **partition** is a deterministic, disjoint subset of the lane's complete
+collected pytest node IDs, assigned by module. A **receipt** records collection,
+selected and observed test IDs, actual terminal exit code, runtime, source commit,
+workflow run and attempt. Existing failed execution-limit evidence remains valid
+history; a receipt is not an approval or lifecycle gate pass.
+
+| Given | When | Required outcome |
+|---|---|---|
+| A selected lane has a complete test collection | Workers execute | Every collected item belongs to exactly one of four partitions; no existing tests are removed, shortened or newly skipped |
+| A selector or another collection hook removes tests | Collection is reconciled | Fail rather than treating the filtered population as the full suite |
+| Existing setup skips or collection skips occur | Execution is recorded | Preserve pytest's real skipped outcomes; setup reports count as attempted items, not passing assertions |
+| A worker fails, times out, is cancelled or never publishes a receipt | The required aggregate runs | Fail; pending, missing, malformed or nonterminal evidence cannot pass |
+| Workers disagree about source, runtime, tool, run, attempt or complete collection | Results are reconciled | Fail before accepting their union |
+| All workers succeed with matching identities | Results are reconciled | Require a disjoint selected union equal to the full collection and observed item IDs equal to each selected partition |
+| A later PR update starts a new run | Artifacts are reconciled | Accept only the current run and attempt; retain obsolete results as history |
+
+`tests/ci_shard.py run` owns collection and execution. Its fixed interface takes
+`--shard` (0–3), `--python-version`, `--worktrunk-version`, `--commit`, `--run-id`,
+`--attempt` and `--output`. It invokes the unfiltered configured pytest authority
+with the existing first-failure behavior, per-test durations and JUnit output.
+The amendment module occupies partition 0 and lineage-recovery module partition
+1, based on observed slow-module progress intervals. Other modules use SHA-256
+modulo two for partitions 2 and 3. This allocation is a bounded scheduling choice,
+not a measured speedup claim. New modules join automatically.
+
+`tests/ci_shard.py verify` takes the same lane/run/source identities, an artifact
+directory and the native worker-job result. It validates four bounded receipts
+and JUnit reports. Duplicate IDs, unknown fields, unsafe files, incomplete
+collection, failed phases, nonzero exit codes and incorrect partition assignment
+fail closed. Workflow artifacts contain repository-relative test IDs and ordinary
+test diagnostics, never credentials or private lifecycle records. Existing
+workflow-token permissions remain read-only. Artifact publication uses only the
+native Actions artifact service, with seven-day retention.
+
+The aggregate retains the app-bound names `test (3.14)` and
+`test (3.14, 0.80.0)`, and the selected weekly/manual runtime contexts. It runs
+after all workers even on failure and cannot succeed when any required worker
+job is unsuccessful. No protection change, privileged PR event, admin bypass,
+dependency change or timeout increase is part of this amendment.
+
+Focused validation covers deterministic assignment, exact union, setup skips,
+test and collection failures, common filtering, missing/corrupt/duplicate results,
+source/attempt mismatch and native-workflow dependency binding. Hosted completion
+of every current-head worker and aggregate remains required operating evidence.
+
+| From | Guard/action | To |
+|---|---|---|
+| Complete unfiltered collection | Assign every module deterministically | Four disjoint partitions |
+| Each partition | Preserve actual pytest outcomes and identity | Terminal receipt and JUnit |
+| All four receipts | Native workers succeeded; identities and full population agree | Exact-union verification |
+| Missing, failed or inconsistent evidence | Always-run aggregate rejects | Required check failed |
+| Exact union and actual attempts verified | Required aggregate succeeds | Eligible for existing native merge checks |
+
+**Text Equivalent:** Each selected runtime/tool lane executes its complete
+collection across four bounded workers. The native required aggregate accepts
+only successful, matching, terminal evidence covering every collected item
+exactly once. Any missing, failed, filtered or inconsistent evidence blocks it.
+Canonical source: the interfaces and behavior table in this section. Owner:
+distribution and lifecycle maintainers. Update trigger: partition, identity,
+artifact, workflow dependency or merge-check contract changes.
 
 ## Maintenance and rollback
 
