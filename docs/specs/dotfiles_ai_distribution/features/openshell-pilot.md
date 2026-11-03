@@ -415,8 +415,10 @@ the VZ driver can run inside the host-agent process.
 Running storage observations must preserve stable image, attachment, store,
 volume, mount, worker, configuration and disk identities while taking conservative
 usage maxima and host-free-space minima. Native capacity and quota ceilings stay
-unchanged. File allocation, directory size and native usage may change during
-boot; such changes cannot erase accounting, admit replacement identities or hide
+unchanged. File allocation, directory size, non-anchor runtime/cache file lengths
+(such as logs) and native usage may change during boot. Image/disk lengths and
+configuration bytes remain fixed; external retention stays independently bounded.
+Such changes cannot erase accounting, admit replacement identities or hide
 another worker. Preserve bounded no-follow traversal and all external-retention,
 ownership, alias, cache-routing and single-worker checks. Unknown sockets remain
 refused. The only source-derived VZ socket candidates for this exact no-mount
@@ -1013,6 +1015,21 @@ retain the relevant behavior from v0.1.6. A version upgrade alone is therefore
 not evidence of strict transport exclusion. The release also updates vulnerable
 dependencies; select and review the actual build baseline before any new native
 trial instead of silently changing the pinned qualification generation.
+
+The reviewed actual-build candidate is v0.1.7 commit
+`5d25211b25a8fc887e8d5c606d57d6ab22f1d76c`. Its child-filter preimage and patched
+output are byte-identical to the v0.1.6 comparison, while launch environment and
+logging changes still require the complete native regression matrix. Keep new
+application listeners and agent trace relay disabled. Update experimental source
+identity before building; never silently mix component generations. The smallest
+candidate builds only `openshell-sandbox`, with the upstream Rust 1.95.0 toolchain,
+locked dependencies and `aarch64-unknown-linux-musl`, retaining the default crypto
+backend and matching v0.1.7 control components. This does not establish that a cold
+build fits the existing disk, cache or preparation deadline. Qualify build routes
+and measured capacity first; no larger quota, host build or alternate backend is
+authorized by a failed build. See the pinned
+[build workflow](https://github.com/NVIDIA/OpenShell/blob/5d25211b25a8fc887e8d5c606d57d6ab22f1d76c/.github/workflows/build-binaries.yml)
+and [toolchain](https://github.com/NVIDIA/OpenShell/blob/5d25211b25a8fc887e8d5c606d57d6ab22f1d76c/rust-toolchain.toml).
 
 Required proof covers every initial/native-exec route with and without a PTY,
 descendants, descriptor inheritance and acquisition, restart and reconnect.
