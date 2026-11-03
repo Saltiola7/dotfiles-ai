@@ -148,7 +148,8 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
   `registry.access.redhat.com/ubi10/ubi`; OS package managers own their package versions. Review CI changes
   as CI input changes, not evidence that the live host was updated.
 - RRW-002 replaces the remote-user image for RHEL 10 userland qualification.
-  Container execution remains pending until recorded by the cycle. Record the selected base revision,
+  Native x86_64 UBI smoke passed in RRW-002; full RHEL-host acceptance remains
+  separate. Record the selected base revision,
   runtime versions and any workflow/check-name migration in implementation
   evidence; UBI installation does not establish live RHEL, SELinux, systemd,
   OS Login or rootless-Podman qualification. Remote-only local Atuin history must

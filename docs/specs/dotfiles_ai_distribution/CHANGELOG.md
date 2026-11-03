@@ -1,5 +1,24 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-03 — RRW-002 portable RHEL successor source
+
+- Replaced CentOS userland CI with UBI 10, removed remote-client alternate-host
+  settings and Tailscale prerequisites, and kept remote Atuin local-only without
+  enrolling its server. Unrelated macOS/Fedora behavior and private history/auth
+  state retain their owners.
+- Preserved the stronger PY-01 first-clone admission repair merged on `main`,
+  including retry-safe cleanup and negative tests, while adding remote migration
+  and preservation regressions. Gate Commits include `16bc409a`, `fe729a8a`, and
+  reconciliation `76c8f631`.
+- Native x86_64 UBI run `41705268407` passed 22 offline bootstrap checks and full
+  install/readiness/reapply/retry/update/rollback smoke. Focused post-conflict
+  bootstrap/publication checks passed (58); runtime/portable/instruction checks
+  also passed. Earlier failed/unavailable attempts are retained, not waived.
+- Operator-approved early qualification draft is PR #279, not Final Push or a
+  live deployment. Full hosted CI and final cycle delivery remain separately
+  recorded; RHEL-host, owner/colleague acceptance and INT-021's merged revision
+  are not claimed. No Gate Exception or provider login was performed.
+
 ## 2026-11-02 — RRW-002 RHEL remote-user Discovery
 
 - Defined the RHEL 10 x86_64 successor, IAP-only portable client, remote-only
