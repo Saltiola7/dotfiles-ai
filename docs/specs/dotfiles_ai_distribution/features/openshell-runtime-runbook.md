@@ -63,6 +63,29 @@ unknown sockets, workers or mount changes still refuse. Only source-reviewed
 Lima control-socket metadata belongs to this storage proof. OpenShell workload
 socket denial and trusted control access require their later distinct matrix.
 
+Read-only guest build inventory is another closed operation on that worker:
+`python3 tests/probe_openshell_guest_inventory.py --selection PRIVATE_JSON`.
+It repeats fresh storage/worker admission, starts the selected worker, runs one
+fixed isolated Python inventory, and verifies exact shutdown. The shell transport
+explicitly disables automatic worker start. Its 15-minute deadline includes the
+same shutdown reserve as boot qualification; no caller command, package list,
+environment or uploaded script is accepted.
+
+The inventory reports Fedora/architecture identity, installed package versions,
+tool availability and filesystem capacity for `/` and `/var/lib`. Each directory
+is bound through its own open descriptor, mount ID and inode. Btrfs device numbers
+can differ from mountinfo, so both are retained and mount IDs establish the
+relationship. Missing or conflicting evidence refuses the operation. Guest
+inspection failures do not skip shutdown or erase earlier diagnostics.
+
+Inventory success keeps `build_enabled: false` and `session_enabled: false`.
+The host's 2 GiB Lima cache quota does not cap guest package downloads, toolchain
+files or Cargo output separately. Before installing compilers or building the
+patched runtime, qualify the guest build/cache boundary and account for the exact
+package transaction, toolchain extraction and retained output inside existing
+20 GiB guest and 24 GiB host-image ceilings. Missing tools never authorize a host
+build, another VM, larger disk or fallback to an older OpenShell generation.
+
 After capacity is available, the next native storage proof uses an owned tiny
 image before any VM: verify its attachment and physical-store chain, establish
 a separate cache quota, demonstrate bounded quota exhaustion while the runtime
