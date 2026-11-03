@@ -3180,6 +3180,12 @@ def read_cycle_record(root, path, label="Cycle Record", *, historical=False, max
                 validate_initiative_amendments(root, record)
             except (KeyError, TypeError, ValueError, AttributeError, OSError):
                 fail("invalid Initiative amendment history")
+    if "lineage_recovery" in record:
+        with local_completion_git_context():
+            try:
+                validate_lineage_recovery(root, record)
+            except (RuntimeError, OSError, ValueError, TypeError, KeyError, AttributeError):
+                fail("invalid lineage recovery custody")
     return record
 
 
@@ -3570,6 +3576,9 @@ def load(root, *, bindings=True):
 
 
 def save(path, record):
+    if "lineage_recovery" in record:
+        with local_completion_git_context():
+            validate_lineage_recovery(root_dir(), record)
     if local_only_cycle(record):
         try:
             validate_schema6_record(root_dir(), record)
@@ -5266,6 +5275,9 @@ def initiative_amend_offline(args):
             if args.expected_launch_digest in custody:
                 durable, digest = True, args.expected_launch_digest
             admitted = read_cycle_record(root, cycle_dir(root) / "cycles" / f"{args.cycle_id}.json")
+            lineage_pending_guard(root, admitted)
+            if admitted.get("lineage_recovery"):
+                fail("Initiative amendment after lineage recovery is not supported")
             applied = {e["launch_digest"] for e in admitted.get("initiative_amendments", [])}
             outstanding = set(custody) - applied
             durable = bool(outstanding)
@@ -5355,6 +5367,457 @@ def command_initiative_amend(args):
                       else ["amendment_recovery_required" if status == "recovery_required" else "amendment_blocked"],
                       "next_action": "continue" if status in {"applied", "already_applied"} else
                       "approve_exact_plan" if status == "preflight" else "retain_and_reconcile"}, sort_keys=True))
+    if status in {"blocked", "recovery_required"}:
+        raise SystemExit(75 if status == "recovery_required" else 1)
+
+
+def lineage_location(root, cycle_id, digest, name):
+    if (not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id)
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or name not in {"plan.json", "before.json", "envelope.json", "outcome.json"}):
+        fail("invalid lineage recovery custody")
+    return cycle_dir(root) / "evidence" / cycle_id / "lineage-recovery" / digest / name
+
+
+LINEAGE_CUSTODY_CAP = 32 * 1024 * 1024
+
+
+def lineage_write_once(root, path, data):
+    """Publish single-link immutable custody; interrupted staging stays private."""
+    if not isinstance(data, bytes) or len(data) > LINEAGE_CUSTODY_CAP:
+        fail("lineage recovery artifact exceeds private read bounds")
+    managed_directory(root, path.parent, create=True)
+    os.chmod(path.parent, 0o700)
+    if os.path.lexists(path):
+        if amendment_read(root, path) != data:
+            fail("conflicting lineage recovery evidence")
+    else:
+        # Cooperating writers hold the same cycle/target locks. Staging outside
+        # custody avoids hard-linked or unknown custody leaves after SIGKILL.
+        staging = cycle_dir(root) / "lineage-recovery-staging"
+        managed_directory(root, staging, create=True)
+        os.chmod(staging, 0o700)
+        descriptor, temporary = tempfile.mkstemp(prefix="custody-", dir=staging)
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if os.path.lexists(path):
+            fail("lineage recovery destination appeared during publication")
+        os.replace(temporary, path)
+        fsync_directory(staging)
+    current = path.parent
+    while True:
+        fsync_directory(current)
+        if current == cycle_dir(root):
+            break
+        current = current.parent
+
+
+class LineageCustodyError(RuntimeError):
+    """Retained recovery custody needs reconciliation, never an overwrite."""
+
+
+def lineage_custody(root, cycle_id):
+    try:
+        return lineage_custody_entries(root, cycle_id)
+    except (RuntimeError, OSError):
+        raise LineageCustodyError("lineage recovery custody requires reconciliation") from None
+
+
+def lineage_custody_entries(root, cycle_id):
+    directory = lineage_location(root, cycle_id, "0" * 64, "plan.json").parent.parent
+    if not os.path.lexists(directory):
+        return {}
+    managed_directory(root, directory)
+    children = list(directory.iterdir())
+    if len(children) > 64:
+        fail("lineage recovery custody exceeds bounds")
+    found = {}
+    for child in children:
+        if child.is_symlink() or not child.is_dir() or not re.fullmatch(r"[0-9a-f]{64}", child.name):
+            fail("unsafe lineage recovery custody")
+        managed_directory(root, child)
+        leaves = list(child.iterdir())
+        if any(p.name not in {"plan.json", "before.json", "envelope.json", "outcome.json"} for p in leaves):
+            fail("unknown lineage recovery evidence")
+        found[child.name] = {p.name for p in leaves}
+    return found
+
+
+def lineage_pending_guard(root, record):
+    found = lineage_custody(root, record["cycle_id"])
+    applied = record.get("lineage_recovery", {}).get("launch_digest")
+    for digest, leaves in found.items():
+        if leaves - {"plan.json"} and digest != applied:
+            fail("prepared lineage recovery requires reconciliation")
+
+
+def lineage_oid(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value):
+        fail("invalid lineage recovery object")
+    return value
+
+
+def lineage_git(root, *args):
+    # Keep the existing bounded-pipe authority while honoring this operation's
+    # offline context; the CI reader has a separate environment contract.
+    if LOCAL_COMPLETION_GIT.get() is None:
+        fail("lineage Git reads require the offline context")
+    child = subprocess.Popen(["git", *args], cwd=root, env=git_environment(INSPECT_ENV),
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True)
+    output, errors = preservation_output(child, limit=1024 * 1024, timeout=5)
+    if child.returncode or errors.strip():
+        fail("lineage committed objects are unavailable")
+    return output.decode("utf-8")
+
+
+def lineage_ancestor(root, older, newer):
+    older, newer = lineage_oid(older), lineage_oid(newer)
+    return lineage_git(root, "merge-base", older, newer).strip() == older
+
+
+def lineage_document_blobs(root, blobs):
+    """Resolve every historical blob offline under one bounded batch budget."""
+    if not blobs or len(blobs) > 8192 or LOCAL_COMPLETION_GIT.get() is None:
+        fail("invalid lineage documentation blob population")
+    selected = sorted(lineage_oid(blob) for blob in blobs)
+    request_bytes = ("\n".join(selected) + "\n").encode("ascii")
+    if len(request_bytes) > 1024 * 1024:
+        fail("lineage documentation blob request exceeds bounds")
+    with tempfile.TemporaryFile() as request:
+        request.write(request_bytes)
+        request.seek(0)
+        child = subprocess.Popen(["git", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+            cwd=root, env=git_environment(INSPECT_ENV), stdin=request,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        output, errors = preservation_output(child, limit=1024 * 1024, timeout=5)
+    if child.returncode or errors.strip() or output.decode("ascii").splitlines() != [b + " blob" for b in selected]:
+        fail("historical lineage documentation blobs are unavailable")
+
+
+def lineage_merge_tree(root, first, second):
+    objects = Path(lineage_git(root, "rev-parse", "--git-path", "objects").strip())
+    objects = objects if objects.is_absolute() else root / objects
+    objects = objects.resolve(strict=True)
+    if "\n" in str(objects) or "\r" in str(objects):
+        fail("unsupported lineage object store")
+    object_format = lineage_git(root, "rev-parse", "--show-object-format").strip()
+    if object_format not in {"sha1", "sha256"}:
+        fail("unsupported lineage object format")
+    with tempfile.TemporaryDirectory(prefix="dbsctr-lineage-merge-") as directory:
+        temporary = Path(directory)
+        bare = temporary / "control.git"
+        lineage_git(temporary, "init", "--bare", "--template=", "--initial-branch=control",
+                    "--object-format=" + object_format, str(bare))
+        (bare / "objects/info/alternates").write_text(str(objects) + "\n")
+        result = lineage_git(bare, "merge-tree", "--write-tree", first, second).splitlines()
+        if len(result) != 1:
+            fail("lineage merge is not an exact clean merge")
+        return lineage_oid(result[0])
+
+
+def lineage_history(root, before, head, accepted, target):
+    baseline = lineage_oid(before["git"]["head"])
+    head, accepted, target = map(lineage_oid, (head, accepted, target))
+    if not lineage_ancestor(root, baseline, target) or not lineage_ancestor(root, accepted, target):
+        fail("accepted lineage base is outside the bound upstream")
+    actual = lineage_git(root, "rev-list", "--first-parent", "--reverse", "--max-count=1025",
+                         baseline + ".." + head).splitlines()
+    if not actual or len(actual) > 1024 or any(lineage_oid(oid) != oid for oid in actual):
+        fail("lineage exceeds recovery bounds")
+    recorded = before["commits"]
+    if (not isinstance(recorded, list) or not recorded or any(not isinstance(c, dict)
+            or set(c) != {"id", "gates"} or not isinstance(c["gates"], list)
+            or any(g not in GATES for g in c["gates"]) for c in recorded)):
+        fail("invalid recorded lineage")
+    ids = [lineage_oid(c["id"]) for c in recorded]
+    if len(ids) != len(set(ids)) or [oid for oid in actual if oid in ids] != ids:
+        fail("recorded lineage is missing, duplicate or reordered")
+    known = {c["id"]: c for c in recorded}
+    missing = [oid for oid in actual if oid not in known]
+    if not missing or len(missing) > 32:
+        fail("missing lineage exceeds recovery bounds")
+    proofs, merges, blobs = [], 0, set()
+    for oid in missing:
+        fields = lineage_git(root, "show", "-s", "--format=%T %P", oid).strip().split()
+        tree, parents = lineage_oid(fields[0]), fields[1:]
+        if len(parents) == 2:
+            merges += 1
+            if merges > 1 or parents[1] != accepted or lineage_merge_tree(root, *parents) != tree:
+                fail("missing merge is not the exact selected accepted base")
+            proofs.append({"id": oid, "kind": "accepted_base_merge", "parents": parents, "tree": tree})
+        elif len(parents) == 1:
+            raw = lineage_git(root, "diff-tree", "--no-commit-id", "--raw", "--no-abbrev",
+                              "--no-renames", "-r", "-z", parents[0], oid).split("\0")
+            if not raw or raw[-1] != "" or (len(raw) - 1) % 2 or not 1 <= (len(raw) - 1) // 2 <= 128:
+                fail("documentation recovery requires bounded nonempty changes")
+            changes = []
+            for index in range(0, len(raw) - 1, 2):
+                fields, name = raw[index].split(), raw[index + 1]
+                path = PurePosixPath(name)
+                if (len(fields) != 5 or fields[0] not in {":000000", ":100644"}
+                        or fields[1] not in {"000000", "100644"} or fields[4] not in {"A", "M", "D"}
+                        or len(name.encode()) > 4096 or name != path.as_posix()
+                        or path.is_absolute() or len(path.parts) < 2 or path.parts[0] != "docs"
+                        or not name.endswith(".md") or "\\" in name
+                        or any(part in {".", ".."} for part in path.parts)
+                        or any(ord(c) < 32 or ord(c) == 127 for c in name)):
+                    fail("missing commit is not reviewed regular documentation")
+                for blob in (fields[2], fields[3]):
+                    lineage_oid(blob)
+                    if int(blob, 16):
+                        blobs.add(blob)
+                changes.append({"path": name, "old_mode": fields[0][1:], "mode": fields[1],
+                                "old_blob": fields[2], "blob": fields[3], "status": fields[4]})
+            proofs.append({"id": oid, "kind": "documentation", "parents": parents,
+                           "tree": tree, "changes": changes})
+        else:
+            fail("unsupported missing lineage commit")
+    if blobs:
+        lineage_document_blobs(root, blobs)
+    return [known.get(oid, {"id": oid, "gates": []}) for oid in actual], proofs
+
+
+def lineage_admission(before):
+    if (before.get("schema_version") != 5 or before.get("state") != "active"
+            or not native_workspace_execution(before) or before["execution"]["origin"] != "registered"
+            or not isinstance(before.get("initiative"), dict) or not before.get("initiative_approval")
+            or before.get("initiative_amendments") or before.get("initiative_authority_checkpoints")
+            or before.get("lineage_recovery") or before.get("delivery_intent") != "draft_pr"
+            or before.get("delivery", {}).get("github", {}).get("host") != "github.com"):
+        fail("unsupported lineage recovery cycle")
+
+
+def lineage_plan(root, before, raw, head, target, accepted, reason):
+    recovered, proofs = lineage_history(root, before, head, accepted, target)
+    return {"schema_version": 1, "cycle_id": before["cycle_id"],
+            "before_record_sha256": amendment_hash(raw), "head": head,
+            "tree": lineage_git(root, "rev-parse", head + "^{tree}").strip(),
+            "accepted_base": accepted, "target": target, "reason": reason,
+            "checkout": {"root": str(root.resolve()), "git_dir": str(git_dir(root).resolve()),
+                         "common_dir": str(common_git_dir(root).resolve()),
+                         "branch": branch(root), "upstream": upstream(root)},
+            "delivery": before["delivery"], "engineering_profile": before["engineering_profile"],
+            "applicability_plan": before["applicability_plan"],
+            "recorded_commits": before["commits"], "recovered_commits": recovered, "proofs": proofs}
+
+
+def lineage_replacement(before, plan, entry):
+    result = json.loads(json.dumps(before))
+    result["commits"] = plan["recovered_commits"]
+    result["lineage_recovery"] = entry
+    review = result["gates"]["review_integrate"]
+    review["result"] = "pending"
+    review.pop("evidence", None)
+    review.pop("exception", None)
+    return result
+
+
+def lineage_payloads(before, plan, raw, digest, envelope):
+    entry = {"schema_version": 1, "launch_digest": digest,
+             "approval_method": envelope["approval_method"], "approved_at": envelope["approved_at"]}
+    replacement = lineage_replacement(before, plan, entry)
+    expected = amendment_bytes(replacement)
+    outcome = {"schema_version": 1, "replacement": expected.decode(), "replacement_sha256": amendment_hash(expected)}
+    payloads = {"plan.json": amendment_bytes(plan), "envelope.json": amendment_bytes(envelope),
+                "before.json": raw, "outcome.json": amendment_bytes(outcome)}
+    if any(len(data) > LINEAGE_CUSTODY_CAP for data in payloads.values()):
+        fail("lineage recovery artifacts exceed private read bounds")
+    return replacement, payloads
+
+
+def validate_lineage_recovery(root, record):
+    entry = record["lineage_recovery"]
+    if (not isinstance(entry, dict)
+            or set(entry) != {"schema_version", "launch_digest", "approval_method", "approved_at"}
+            or type(entry["schema_version"]) is not int or entry["schema_version"] != 1
+            or entry["approval_method"] not in {"agent_confirmed", "interactive_cli"}):
+        fail("invalid lineage recovery provenance")
+    datetime.fromisoformat(entry["approved_at"].replace("Z", "+00:00"))
+    digest, cycle = entry["launch_digest"], record["cycle_id"]
+    paths = {name: lineage_location(root, cycle, digest, name)
+             for name in ("plan.json", "before.json", "envelope.json", "outcome.json")}
+    custody = lineage_custody(root, cycle)
+    if (custody.get(digest) != set(paths)
+            or any(leaves - {"plan.json"} for other, leaves in custody.items() if other != digest)):
+        fail("incomplete or competing lineage recovery custody")
+    plan = amendment_json(root, paths["plan.json"])
+    raw = amendment_read(root, paths["before.json"])
+    before = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    lineage_admission(before)
+    if set(plan) != {"schema_version", "cycle_id", "before_record_sha256", "head", "tree", "accepted_base",
+                     "target", "reason", "checkout", "delivery", "engineering_profile", "applicability_plan",
+                     "recorded_commits", "recovered_commits", "proofs"}:
+        fail("invalid lineage recovery plan")
+    if (continuation_digest(plan) != digest or type(plan["schema_version"]) is not int or plan["schema_version"] != 1
+            or plan["cycle_id"] != cycle or plan["before_record_sha256"] != amendment_hash(raw)
+            or plan["delivery"] != before["delivery"] or plan["engineering_profile"] != before["engineering_profile"]
+            or plan["applicability_plan"] != before["applicability_plan"]
+            or plan["recorded_commits"] != before["commits"]
+            or lineage_git(root, "rev-parse", lineage_oid(plan["head"]) + "^{tree}").strip() != plan["tree"]):
+        fail("lineage recovery plan identity changed")
+    checkout = plan["checkout"]
+    if (not isinstance(checkout, dict) or set(checkout) != {"root", "git_dir", "common_dir", "branch", "upstream"}
+            or any(not isinstance(v, str) or not v or len(v.encode()) > 4096 for v in checkout.values())
+            or any(not Path(checkout[k]).is_absolute() for k in ("root", "git_dir", "common_dir"))
+            or checkout["branch"] != before["git"]["branch"] or checkout["upstream"] != before["git"]["upstream"]):
+        fail("invalid lineage recovery checkout binding")
+    recovered, proofs = lineage_history(root, before, plan["head"], plan["accepted_base"], plan["target"])
+    if recovered != plan["recovered_commits"] or proofs != plan["proofs"]:
+        fail("lineage recovery proof changed")
+    envelope = amendment_json(root, paths["envelope.json"])
+    if type(envelope.get("schema_version")) is not int or envelope != {"schema_version": 1, "plan": plan,
+                    "approval_method": entry["approval_method"], "approved_at": entry["approved_at"]}:
+        fail("lineage recovery approval changed")
+    replacement = lineage_replacement(before, plan, entry)
+    expected = amendment_bytes(replacement)
+    outcome = amendment_json(root, paths["outcome.json"])
+    if type(outcome.get("schema_version")) is not int or outcome != {"schema_version": 1, "replacement": expected.decode(), "replacement_sha256": amendment_hash(expected)}:
+        fail("lineage recovery outcome changed")
+    if record.get("initiative_amendments") or record.get("initiative_authority_checkpoints"):
+        fail("lineage recovery with Initiative amendment is not supported")
+    amendment_progress(replacement, record)
+    review = record["gates"]["review_integrate"]
+    if review["result"] in {"passed", "failed", "unavailable"}:
+        identifier = review.get("evidence")
+        item = record.get("evidence", {}).get("items", {}).get(identifier)
+        if (not isinstance(item, dict) or identifier in before["evidence"]["items"]
+                or item.get("gate") != "review_integrate" or item.get("result") != review["result"]
+                or datetime.fromisoformat(item["started_at"].replace("Z", "+00:00"))
+                < datetime.fromisoformat(entry["approved_at"].replace("Z", "+00:00"))):
+            fail("lineage recovery requires fresh review evidence")
+    return plan, outcome
+
+
+def lineage_snapshot(root, args):
+    if (not isinstance(args.reason, str) or not args.reason.strip() or len(args.reason.encode()) > 4096
+            or "\0" in args.reason):
+        fail("invalid private lineage recovery reason")
+    pointer = resolved_active_path(root, bindings=False)
+    if active_pointer_id(root, pointer) != args.cycle_id:
+        fail("lineage recovery active pointer changed")
+    path = cycle_dir(root) / "cycles" / (args.cycle_id + ".json")
+    raw = amendment_read(root, path)
+    record = read_cycle_record(root, path, historical=True)
+    if record.get("cycle_id") != args.cycle_id or raw != amendment_read(root, path):
+        fail("lineage recovery record changed")
+    if not record_worktree_matches(root, record, root, bindings=False):
+        fail("lineage recovery checkout changed")
+    if record.get("lineage_recovery"):
+        require_current_profile(root, record)
+        if (branch(root) != record["git"]["branch"] or upstream(root) != record["git"]["upstream"]
+                or remote_destination(root, upstream(root)) != record["git"]["remote"]):
+            fail("lineage recovery delivery binding changed")
+        github_remote_url(root, record["delivery"]["remote"], record["delivery"]["github"]["repository"])
+        return path, record, raw, None
+    lineage_admission(record)
+    if amendment_custody(root, args.cycle_id):
+        fail("prepared Initiative amendment blocks lineage recovery")
+    require_current_profile(root, record)
+    require_local_read_filters(root)
+    if status_paths(root) or record["git"].get("pre_cycle_ahead_commits"):
+        fail("lineage recovery requires a clean owned checkout")
+    for operation in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
+        if git(root, "rev-parse", "--verify", "-q", operation, check=False).returncode == 0:
+            fail("lineage recovery refuses active Git operations")
+    if (branch(root) != record["git"]["branch"] or upstream(root) != record["git"]["upstream"]
+            or remote_destination(root, upstream(root)) != record["git"]["remote"]):
+        fail("lineage recovery delivery binding changed")
+    github = record["delivery"]["github"]
+    github_remote_url(root, record["delivery"]["remote"], github["repository"])
+    target = lineage_git(root, "rev-parse", "--verify", record["git"]["upstream"] + "^{commit}").strip()
+    head = lineage_git(root, "rev-parse", "HEAD").strip()
+    return path, record, raw, lineage_plan(root, record, raw, head, target,
+                                          lineage_oid(args.accepted_base), args.reason)
+
+
+def lineage_recover_offline(args):
+    digest, durable = None, False
+    try:
+        root = root_dir()
+        if not OPAQUE_ID.fullmatch(args.cycle_id):
+            fail("invalid lineage cycle")
+        with evidence_lock(root, "local-mutation-" + args.cycle_id, timeout=1), evidence_lock(root, args.cycle_id, timeout=1):
+            found = lineage_custody(root, args.cycle_id)
+            durable = any(leaves - {"plan.json"} for leaves in found.values())
+            record_path = cycle_dir(root) / "cycles" / (args.cycle_id + ".json")
+            admitted = read_cycle_record(root, record_path, historical=True)
+            if admitted.get("lineage_recovery"):
+                durable = False
+            path, record, raw, plan = lineage_snapshot(root, args)
+            with target_lock(root, record):
+                if record.get("lineage_recovery"):
+                    plan, outcome = validate_lineage_recovery(root, record)
+                    digest = record["lineage_recovery"]["launch_digest"]
+                    durable = False  # Qualified completed custody, not an uncertain write.
+                    if (args.preflight or args.expected_launch_digest != digest or args.reason != plan["reason"]
+                            or args.accepted_base != plan["accepted_base"] or raw != outcome["replacement"].encode()
+                            or lineage_git(root, "rev-parse", "HEAD").strip() != plan["head"]
+                            or lineage_git(root, "rev-parse", record["git"]["upstream"]).strip() != plan["target"]
+                            or status_paths(root)):
+                        fail("stale lineage recovery replay")
+                    return "already_applied", digest
+                digest = continuation_digest(plan)
+                outstanding = {d for d, leaves in found.items() if leaves - {"plan.json"}}
+                if outstanding and outstanding != {digest}:
+                    fail("unreconciled prepared lineage recovery")
+                location = lambda name: lineage_location(root, args.cycle_id, digest, name)
+                if args.preflight:
+                    if digest not in found and len(found) >= 64:
+                        fail("lineage recovery plan custody is full")
+                    if outstanding:
+                        fail("prepared lineage recovery needs exact replay")
+                    capacity = {"schema_version": 1, "plan": plan, "approval_method": "agent_confirmed",
+                                "approved_at": "2000-01-01T00:00:00.000000Z"}
+                    lineage_payloads(record, plan, raw, digest, capacity)
+                    lineage_write_once(root, location("plan.json"), amendment_bytes(plan))
+                    return "preflight", digest
+                if args.expected_launch_digest != digest or amendment_json(root, location("plan.json")) != plan:
+                    fail("lineage recovery approval is stale")
+                if args.approval == "interactive":
+                    if not sys.stdin.isatty():
+                        fail("lineage recovery requires operator confirmation")
+                    print(f"Type RECOVER {args.cycle_id} {digest}: ", file=sys.stderr, end="", flush=True)
+                    if sys.stdin.readline(512).strip() != f"RECOVER {args.cycle_id} {digest}":
+                        fail("lineage recovery confirmation declined")
+                method = "agent_confirmed" if args.approval == "agent-confirmed" else "interactive_cli"
+                if lineage_snapshot(root, args)[3] != plan:
+                    fail("lineage recovery state changed during approval")
+                if os.path.lexists(location("envelope.json")):
+                    envelope = amendment_json(root, location("envelope.json"))
+                    if (envelope.get("plan") != plan or envelope.get("approval_method") != method
+                            or set(envelope) != {"schema_version", "plan", "approval_method", "approved_at"}):
+                        fail("conflicting lineage recovery approval")
+                else:
+                    envelope = {"schema_version": 1, "plan": plan, "approval_method": method, "approved_at": now()}
+                replacement, payloads = lineage_payloads(record, plan, raw, digest, envelope)
+                durable = True
+                for name in ("envelope.json", "before.json", "outcome.json"):
+                    lineage_write_once(root, location(name), payloads[name])
+                validate_lineage_recovery(root, replacement)
+                if lineage_snapshot(root, args)[3] != plan:
+                    fail("lineage recovery state changed before replacement")
+                private_json(path, replacement, strict=True)
+                return "applied", digest
+    except LineageCustodyError:
+        return "recovery_required", digest
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
+        return ("recovery_required" if durable else "blocked"), digest
+
+
+def command_lineage_recover(args):
+    with local_completion_git_context():
+        status, digest = lineage_recover_offline(args)
+    print(json.dumps({"schema_version": 1,
+        "cycle_id": args.cycle_id if OPAQUE_ID.fullmatch(args.cycle_id) else None,
+        "status": status, "state_digest": digest,
+        "reasons": [] if status in {"preflight", "applied", "already_applied"} else [
+            "lineage_recovery_required" if status == "recovery_required" else "lineage_recovery_blocked"],
+        "next_action": "continue" if status in {"applied", "already_applied"} else
+            "approve_exact_plan" if status == "preflight" else "retain_and_reconcile"}, sort_keys=True))
     if status in {"blocked", "recovery_required"}:
         raise SystemExit(75 if status == "recovery_required" else 1)
 
@@ -9353,6 +9816,7 @@ def local_cli_mutation_guard(args, selected):
                 or not pointer.exists() or active_pointer_id(root, pointer) != record["cycle_id"]
                 or not record_worktree_matches(root, record, root, bindings=False)):
             fail("local-only mutation binding changed")
+        lineage_pending_guard(root, record)
         if args.command in {"final-push", "reconcile-target"}:
             require_pushable(record)
         else:
@@ -20171,6 +20635,16 @@ def graphify_timeout(value):
 def parser():
     result = argparse.ArgumentParser(prog="dbsctrctl")
     commands = result.add_subparsers(dest="command", required=True)
+
+    recovery = commands.add_parser("lineage-recover")
+    recovery.add_argument("--cycle-id", required=True)
+    recovery.add_argument("--accepted-base", required=True)
+    recovery.add_argument("--reason", required=True)
+    recovery.add_argument("--preflight", action="store_true")
+    recovery.add_argument("--expected-launch-digest")
+    recovery.add_argument("--approval", choices=("interactive", "agent-confirmed"), default="interactive")
+    recovery.add_argument("--json", action="store_true")
+    recovery.set_defaults(func=command_lineage_recover)
     start = commands.add_parser("start")
     start.add_argument("--cycle-id", required=True)
     start.add_argument("--context", required=True)
@@ -20791,7 +21265,7 @@ def main():
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
         args = parser().parse_args()
-        if args.command == "initiative-amend":
+        if args.command in {"initiative-amend", "lineage-recover"}:
             # This command owns offline admission, locks and bounded error output.
             # No generic telemetry, continuation transport or credential discovery.
             args.func(args)

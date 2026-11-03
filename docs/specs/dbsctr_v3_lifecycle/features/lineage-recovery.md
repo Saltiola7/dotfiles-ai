@@ -95,9 +95,21 @@ custody validation and transaction execution. Git reads use the existing offline
 no-replacement/no-lazy-fetch context and bounded commands. Merge-tree generation
 writes only disposable objects, preserving source refs, index, worktree and object
 store. Plan size, lineage count, changed-path count and private reads are bounded.
-Reject unsafe file types, symlinks, hard links, foreign ownership and permissive
-private evidence. Existing immutable write/fsync and atomic private replacement
+Resolve every nonzero old/new historical documentation blob as an existing blob
+in a bounded offline batch. Reject unsafe file types, symlinks, hard links,
+foreign ownership and permissive private evidence. Preflight checks the serialized
+transaction capacity; apply bounds all exact artifacts before publishing approval.
+Each custody artifact must fit the existing 32-MiB private reader limit, including
+the escaped replacement stored inside the outcome. Existing immutable write/fsync and atomic private replacement
 primitives remain authoritative; no second lifecycle engine is introduced.
+The lineage publisher stages single-link files in a separate private staging
+area, fsyncs bytes, then atomically publishes into absent custody destinations
+under the existing locks. A crash before publication leaves retained staging,
+which is never read as approval. A published approval envelope blocks competing
+mutation; exact replay can supply missing subsequent custody artifacts without
+changing that approval time. Unknown or corrupt final artifacts are never
+replaced. Cooperating writers must use the qualified installed helper; older
+copies do not enforce this newly introduced recovery contract.
 
 `lineage_recovery` has a closed schema identifying the plan digest and approval
 method/time. Custody locations are derived from cycle ID/digest, never supplied
