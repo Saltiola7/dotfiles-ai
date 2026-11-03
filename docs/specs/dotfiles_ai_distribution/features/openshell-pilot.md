@@ -225,6 +225,96 @@ Neither stopped workers nor caches are kept indefinitely to start successive
 experiments. Their explicit disposition precedes replacement; compact failure
 evidence remains available independently.
 
+#### Native storage binding and operation admission
+
+The next increment separates trusted native collection from pure validation.
+`NativeStorageSelection` contains only the private pilot/run roots, selected
+image path and file identity, expected container/volume UUIDs and exact mount
+locations. These are comparison targets, not proof that a quota exists. It cannot
+carry native commands, arbitrary environment values or an admission override.
+`collect_native_storage(selection) -> NativeStorageObservation` invokes fixed,
+bounded read-only native commands and observes the backing file and mounts itself.
+`validate_native_storage(selection, observation, operation) -> StorageAdmission`
+rejects missing, ambiguous, stale or contradictory observations. Neither function
+accepts a stored success receipt as a substitute for current native evidence.
+
+Mount the selected runtime APFS volume at `run/lima`, retaining the existing
+short `LIMA_HOME/q` path. Set the dedicated controller home to
+`run/lima/_controller`; place its temporary and XDG state inside that volume.
+Mount the cache volume exactly at `HOME/Library/Caches/lima`. Lima 2.2.1 excludes
+underscore-prefixed directories from instance discovery; see its
+[instance inventory](https://github.com/lima-vm/lima/blob/v2.2.1/pkg/store/store.go#L47-L70).
+Fixtures, inputs, receipts and evidence remain outside the disposable image.
+This topology requires revised environment construction and native qualification;
+the previous `run/controller` layout cannot be relabeled as bounded storage.
+
+The native collector is initially inspection-only: a validated topology report
+does not enable Lima allocation. Use fixed profiles for the 768 MiB mechanism
+fixture with a 32 MiB cache quota and the 24 GiB pilot image with a 2 GiB quota.
+The mechanism profile cannot admit a pilot worker. Selection parsing is closed,
+rejects duplicate/unknown fields and aliases, and never executes caller-supplied
+commands. Native calls use minimal environments, bounded output and deadlines.
+
+| Binding | Independent observation required |
+|---|---|
+| Image and attachment | Private single-link backing file identity; exact native `image-path`, `owner-uid`, writable state and `blockcount * blocksize`; one matching attachment and no shadow layer |
+| Attached device and container | Normalize the native device spelling, including attach output without `/dev/`; bind `system-entities` device entries to the APFS container's sole `PhysicalStores` entry; reject foreign stores |
+| Capacity and volumes | Selected image capacity no greater than 24 GiB; matching `APFSContainerUUID`, `APFSVolumeUUID` and `CapacityCeiling`; cache `CapacityQuota` exactly 2 GiB |
+| Effective filesystem routing | Exact mountpoints and observed device/volume identities for `LIMA_HOME`, HOME, temporary/XDG state and the actual Lima cache; all required mounts present and writable |
+| Host availability and ownership | Underlying host-volume free space, backing-image allocation, bounded external retention and every retained VM, including stopped or partially created instances |
+
+**Text Equivalent:** The trusted collector binds an owned backing file through
+its actual attachment and sole physical store to the selected APFS container,
+runtime volume and quota-limited cache volume. Effective process paths must use
+those mounted devices. The underlying host volume supplies the free-space
+observation. Canonical source: this native-binding contract and the aggregate
+ceilings above. Owner: distribution maintainers. Change trigger: native schema,
+image format, mount layout, device identity, accounting or operation changes.
+
+Native schema adapters must preserve the distinction between attachment device
+names and device paths rather than assuming they have identical spelling. Read
+cache quota from the independently observed APFS volume's `CapacityQuota`; absent,
+zero, oversized or contradictory quota data refuses admission. Unknown native
+formats and unavailable attachment or mount proof remain unavailable capability.
+The inventory may cross only the two independently proved runtime/cache mounts;
+all other mount crossings remain refused. Count backing allocation once rather
+than adding the same bytes again through mounted contents. Keep the conservative
+46 GiB fresh-admission requirement until remaining-growth accounting is qualified.
+
+`allocation_guard(selection, operation)` owns the exclusive pilot lock from fresh
+collection through the exact admitted operation and post-operation identity
+checks. Operation descriptors are closed: `create` requires zero retained VMs;
+`start` requires the one exact selected `q`; `workload_exec` requires that same
+running worker and qualified generation. Each checks the 20 GiB virtual-disk
+ceiling and applicable resource identity. Unknown operations, clone, resize and
+arbitrary native arguments remain refused after quota support is implemented.
+Read-only inventory and exact stop/delete retain their separate recovery route.
+
+Validation must cover replaced backing files or mounts, foreign physical stores,
+duplicate attachments, shadow layers, invalid quotas, escaped controller paths,
+missing cache mounts, low host reserve, a stopped VM followed by another create,
+native observation timeout/malformed output and lock release after failure. A
+missing cache mount must refuse before a write can reach its underlying directory.
+The bounded tiny-image exercise must demonstrate native quota denial while the
+runtime sentinel stays writable, then retire only its exact owned attachment.
+That result does not qualify the real-size topology, Lima behavior or socket
+exclusion. The current runner continues refusing allocations until the native
+collector, real-size bindings and required compatibility evidence are qualified.
+
+The small native mechanism exercise established a compatibility constraint:
+the initial 256 MiB image refused a second APFS volume without changing its
+single-volume inventory. Apple defines the maximum volume count from container
+size divided by 512 MiB, rounded up; see the
+[Apple File System Reference](https://developer.apple.com/support/downloads/Apple-File-System-Reference.pdf).
+That image was detached and retired with failure evidence retained. A separately
+identified 768 MiB image admitted two volumes. Its 32 MiB cache quota produced
+`ENOSPC` after 30 MiB of writes while a runtime-volume write still succeeded.
+After cache unmount, native identity checks refused a write to the underlying
+directory and its sentinel remained unchanged. The fixture was detached and
+retired; private evidence owns exact identities and observations. This qualifies
+the tested quota mechanism only, not the production collector, real-size topology,
+VM startup or OpenShell socket exclusion.
+
 ## Required behaviors
 
 1. **Enforcement admission.** Given the selected worker, when qualification
@@ -848,11 +938,11 @@ Initiative receipt; failed feasibility reopens the affected design decision.
 | Concern | Decision | Review question |
 |---|---|---|
 | Boundary | required: ownership table and Text Equivalent | Which actor may control each resource? |
-| Interaction | required: ordered qualification table and Text Equivalent | What must be verified before execution and recovery? |
+| Interaction | required: ordered qualification table, native-storage operation contract and Text Equivalents | What must be verified before execution and recovery? |
 | State | required: ordered qualification and guard-state tables with Text Equivalents | Which observations distinguish admission, failure, restoration, pause, resume and restart? |
 | Data/trust | required: ownership table and Text Equivalent | Can workloads obtain host authority or alter evidence? |
-| Schema | required: private-artifact binding table and Text Equivalent | Which independently produced identities must match before results can be combined? |
-| Dependency/deployment | required: ownership table and ordered qualification table | Where do Mac, guest, runtime and workload controls apply? |
+| Schema | required: private-artifact and native-storage binding tables with Text Equivalents | Which independently produced identities must match before results can be combined? |
+| Dependency/deployment | required: ownership, native-storage binding and ordered qualification tables | Where do Mac, guest, runtime and workload controls apply? |
 | Quantitative | not_applicable: no performance, capacity or savings claim is made | Probe bounds and pass/fail observations are not forecasts |
 
 The tables are the editable canonical visuals. Their adjacent Text Equivalents

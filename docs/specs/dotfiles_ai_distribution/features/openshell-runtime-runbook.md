@@ -35,6 +35,28 @@ portable fixtures. Admission must observe free space on the underlying host
 volume and include the requested operation: creating another VM when one is
 retained refuses, even if that existing VM is stopped.
 
+Use a 768 MiB image for the two-volume mechanism fixture, with a 32 MiB cache
+quota and at most 40 MiB of attempted writes. A 256 MiB APFS container permits
+only one volume and cannot establish this proof. Retire an unsuccessful fixture
+under its original identity before a revised experiment; never resize it or
+discard failure evidence to manufacture a passing result.
+
+Use native image attachment output and independent image/APFS inventories to
+bind the backing file, whole image device, sole physical store and container.
+The current native attach output spells devices without `/dev/`, while image
+inventory includes that prefix. Bind volume UUIDs and exact mountpoints before
+adding quota or writing. Cache unmount can make path-based native inspection fail;
+that is refusal, not permission to use the underlying directory. An unmounted
+volume reports an empty `MountPoint`; do not invent a `Mounted` field.
+
+Require a real `ENOSPC` or quota error before the write ceiling, then successfully
+write and sync a runtime sentinel. For the missing-mount check, verify native
+cache identity before any write and retain an unchanged underlay sentinel. Exact
+volume unmounts precede `hdiutil detach` of the verified whole image device;
+the current `diskutil image` command has no detach subcommand. Confirm attachment
+absence and unchanged backing-file identity before removing the disposable image.
+Never force detach or select the physical SSD container by a guessed disk number.
+
 ## Prerequisites and artifact admission
 
 Initial read-only host inventory reported Lima 2.2.1 and Podman 6.1.4, with
