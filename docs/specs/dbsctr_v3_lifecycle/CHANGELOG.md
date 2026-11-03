@@ -1,5 +1,34 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-10-31 — Evidence rerun invalidation (PY-02)
+
+- Evidence recording and manual gate replacement share a pure transition policy.
+  Losing disposition reopens exactly later required passed gates, including an
+  exception-backed failure rerun without a result-string change. Same-HEAD
+  recovery cannot restore stale downstream success. History, sidecars, exception
+  policy, CLI admission, schemas and failure/remediation counter meanings remain.
+- Three new regression cases demonstrated the prior failure; all six new
+  CLI/completion cases passed after repair. The finite policy suite passes 2,688
+  cases across supported schema modes, exceptions, gate positions, evidence
+  references and counter defaults, with repeated transitions and owned I/O
+  boundaries checked. Full controller, completion, amendment and policy QA passes
+  3,031 tests and 101 subtests, with one filesystem-dependent non-UTF-8-name skip.
+  Publication/instruction contracts pass 93 tests with one optional skip; four
+  affected Python files compile. Local disposable-repository checks isolate Git
+  signing; original environment failures and replacement evidence remain private.
+- No Gate Exception, dependency or runtime migration, managed installation or
+  automatic live-record repair. Recovery retains reopened gate state and private
+  evidence; fresh downstream evidence remains required. Intended Final Push is
+  the isolated feature branch and a draft PR into `main`; actual delivery and
+  Gate Commits belong to the Cycle Record. Full PR CI remains required for merge.
+- Current-base CI exposed the newer benchmark fixture's frozen pre-PY-02 helper
+  identity. Deliberate requalification retained every workload and runtime-help
+  oracle on Python 3.12.15, 3.13.1 and 3.14.9: each produced 24 complete smoke
+  records and 16 private profiles, with unchanged synthetic sources. Only the
+  helper identity pin was refreshed; mismatch refusal remains. Original CI
+  failures and baseline records remain private, and no performance gain is
+  claimed. Fresh full native CI remains required.
+
 ## 2026-11-01 — PY-09 hosted Git configuration qualification
 
 The first hosted CI run failed in both Worktrunk lanes because the macOS image

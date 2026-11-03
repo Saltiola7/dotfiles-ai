@@ -167,6 +167,87 @@ def test_complete_local_cli_records_exact_source_without_delivery(ready, capsys)
     assert root.is_dir()
 
 
+@pytest.mark.parametrize("outcome", ["failed", "unavailable"])
+def test_evidence_rerun_requires_fresh_downstream_completion(ready, capsys, outcome):
+    core, root = ready.core, ready.root
+    before = json.loads(ready.path.read_text())
+    head = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    later_passed = {
+        name for name in core.GATES[core.GATES.index("domain") + 1:]
+        if before["gates"][name]["applicability"] == "required"
+        and before["gates"][name]["result"] == "passed"
+    }
+    assert later_passed
+
+    if outcome == "failed":
+        evidence(ready, "domain", code=1)
+    else:
+        missing = root.parent / "missing-evidence-executable"
+        assert not missing.exists()
+        core.command_record_evidence(core.parser().parse_args([
+            "record-evidence", "domain", "--authority", "fixture", "--", str(missing),
+        ]))
+    capsys.readouterr()
+
+    reopened = json.loads(ready.path.read_text())
+    selected = reopened["gates"]["domain"]
+    assert selected["result"] == outcome
+    assert selected["evidence"] != before["gates"]["domain"]["evidence"]
+    assert reopened["evidence"]["items"][selected["evidence"]]["result"] == outcome
+    for name in core.GATES:
+        if name == "domain":
+            continue
+        expected = dict(before["gates"][name])
+        if name in later_passed:
+            expected["result"] = "pending"
+            expected.pop("evidence", None)
+            expected.pop("exception", None)
+        assert reopened["gates"][name] == expected
+    for identifier, envelope in before["evidence"]["items"].items():
+        assert reopened["evidence"]["items"][identifier] == envelope
+    assert len(reopened["evidence"]["items"]) == len(before["evidence"]["items"]) + 1
+    assert reopened["metrics"] == {
+        **before["metrics"],
+        "gate_failure_count": before["metrics"]["gate_failure_count"] + 1,
+        "gate_reopen_count": before["metrics"]["gate_reopen_count"] + len(later_passed),
+    }
+    assert reopened["commits"] == before["commits"]
+    assert reopened["artifact_reviews"] == before["artifact_reviews"]
+
+    evidence(ready, "domain")
+    capsys.readouterr()
+    remediated = json.loads(ready.path.read_text())
+    assert core.git(root, "rev-parse", "HEAD").stdout.strip() == head
+    assert remediated["gates"]["domain"]["result"] == "passed"
+    assert all(remediated["gates"][name] == reopened["gates"][name] for name in later_passed)
+    assert remediated["metrics"] == {
+        **reopened["metrics"],
+        "remediation_round_count": reopened["metrics"]["remediation_round_count"] + 1,
+    }
+    pointer = core.resolved_active_path(root, bindings=False)
+    record_bytes, pointer_bytes = ready.path.read_bytes(), pointer.read_bytes()
+    assert ready.invoke("complete-local") == 1
+    assert "required gates have not all passed" in capsys.readouterr().err
+    assert ready.path.read_bytes() == record_bytes
+    assert pointer.read_bytes() == pointer_bytes
+
+    for name in core.GATES:
+        if name in later_passed:
+            evidence(ready, name)
+    capsys.readouterr()
+    assert ready.invoke("complete-local") == 0
+    result = json.loads(capsys.readouterr().out)
+    completed = core.read_cycle_record(root, ready.path)
+    assert result["status"] == "locally_validated"
+    assert completed["state"] == "completed"
+    assert completed["local_completion"]["head"] == head
+    assert completed["local_completion"]["manual_delivery"] == {"status": "pending"}
+    assert completed["metrics"] == remediated["metrics"]
+    for identifier, envelope in before["evidence"]["items"].items():
+        assert completed["evidence"]["items"][identifier] == envelope
+    assert not pointer.exists()
+
+
 @pytest.mark.parametrize("problem", ["receipt_extra", "receipt_missing", "profile_path", "review_extra", "evidence_shape"])
 def test_malformed_nested_local_record_refuses_mutation(cycle, capsys, problem):
     record = json.loads(cycle.path.read_text())
