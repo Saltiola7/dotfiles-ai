@@ -386,6 +386,51 @@ not independent capacity proof. Keep `start_worker` refused until that preparati
 path qualifies: native start can create a missing worker and repeat disk resizing.
 Never enable boot from a stored success report or missing-worker fallback.
 
+The create-only native qualification subsequently prepared one stopped worker
+under the full-size image and cache quota. Independent Apple and QEMU inspection
+agreed on the raw 20 GiB disk. A second create refused with the retained worker
+present, and the start interface remained refused. The private Cycle Record owns
+the measured allocation and exact identities. This establishes stopped-worker
+preparation, not VM boot, running inventory, OpenShell isolation or agent readiness.
+
+The next interface is a separate, closed boot-and-stop qualification, not a
+general session launcher. `qualify_boot(selection) -> BootObservation` must hold
+the pilot lock across fresh stopped-worker admission, one native start, running
+observations, exact stop and independently confirmed stopped state. Recollect
+source, executable, effective configuration, raw-disk and native quota evidence;
+never authorize from the earlier creation report. Require exactly the selected
+existing worker and no autostart LaunchAgent. Keep `create_worker` and the legacy
+allocation routes unchanged; neither acquires implicit boot or workload authority.
+
+The fixed start is `start --tty=false --timeout 10m q`, with a 15-minute overall
+qualification deadline and at least 90 seconds reserved for bounded shutdown
+and verification. First boot may run only the existing reviewed system package
+provisioning. No agent, OpenShell workload, provider, extra mount or real checkout
+is admitted. Any start failure or timeout still requires explicit exact-worker
+stop and independent status verification: Lima's host agent uses a separate
+process group and can outlive its launch client. Do not detach or delete storage
+when shutdown is uncertain. Equal VZ driver and host-agent PIDs are valid because
+the VZ driver can run inside the host-agent process.
+
+Running storage observations must preserve stable image, attachment, store,
+volume, mount, worker, configuration and disk identities while taking conservative
+usage maxima and host-free-space minima. Native capacity and quota ceilings stay
+unchanged. File allocation, directory size and native usage may change during
+boot; such changes cannot erase accounting, admit replacement identities or hide
+another worker. Preserve bounded no-follow traversal and all external-retention,
+ownership, alias, cache-routing and single-worker checks. Unknown sockets remain
+refused. The only source-derived VZ socket candidates for this exact no-mount
+profile are `q/ha.sock`, `q/default_ep.sock`, `q/default_fd.sock` and `q/ssh.sock`;
+qualify their exact owned locations through metadata without opening them.
+Native Lima status may separately contact its trusted host-agent socket. This
+does not relax workload access to OpenShell's internal sockets.
+
+After stop, recheck the same worker, source, effective configuration, disk length
+and native caps. Run Apple/QEMU format inspection only while independently
+stopped, never force-share a live disk. Missing or contradictory observations
+preserve failure and partial state. There is no automatic second start, recreation,
+fallback, quota increase, forced detach or unbounded diagnostic output.
+
 Required inventory scenarios include zero workers, empty partial workers,
 stopped workers in another run, a second worker, hidden/additional-disk state,
 missing cache mounts, cache children on another device, ambiguous image ownership,
