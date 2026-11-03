@@ -377,6 +377,20 @@ def test_remote_atuin_is_local_only_without_changing_host_sync(remote: bool) -> 
     assert config["secrets_filter"] is True
 
 
+def test_remote_atuin_ignores_inherited_server_enablement() -> None:
+    configured = data(remote_user_environment=True)
+    configured["chezmoi"] = {"os": "linux", "arch": "amd64"}
+    configured["dotfiles_ai"]["atuin"]["server_enabled"] = True
+    result = subprocess.run([
+        "chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
+        "--override-data", json.dumps(configured), "managed",
+    ], text=True, capture_output=True, check=True)
+    managed = set(result.stdout.splitlines())
+    assert "enable-atuin-server.sh" not in managed
+    assert ".config/containers/systemd/atuin.container" not in managed
+    assert ".config/containers/systemd/atuin-data.volume" not in managed
+
+
 def test_remote_workspace_doctor_rejects_missing_root_mise_before_gcloud(tmp_path: Path) -> None:
     marker = tmp_path / "gcloud-called"
     for command in ("herdr", "mise", "ssh"):
