@@ -7,6 +7,7 @@ continuous monitoring, a general launcher, or authority to start any workload.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 import fcntl
@@ -286,14 +287,18 @@ def _admit(selection: create.CreateSelection, fd: int, deadline: float) -> _Anch
     return anchor
 
 
-def qualify_boot(selection: create.CreateSelection) -> BootObservation:
-    """One closed start and exact stop; preserve partial state on every failure."""
+def _qualify_with_inspection(
+    selection: create.CreateSelection,
+    inspector: Callable[[create.CreateSelection, _Anchors, float], object] | None = None,
+) -> tuple[BootObservation, object]:
+    """Private composition for source-defined checks, never a caller command API."""
     deadline = time.monotonic() + QUALIFICATION_SECONDS
     work_deadline = deadline - SHUTDOWN_RESERVE
     start_requested = stop_requested = stopped_verified = running_observed = False
     reason = None
     fd = None
     anchor = running = final = processes = None
+    inspection: object = None
     try:
         selection = create.parse_selection(create.selection_json(selection))
         fd = create.legacy._open_root(selection.storage.pilot_root)
@@ -308,6 +313,11 @@ def qualify_boot(selection: create.CreateSelection) -> BootObservation:
         running = _guard(selection, fd, anchor, work_deadline)
         processes = _processes(selection, anchor, _status(selection, anchor, work_deadline, "Running"), work_deadline)
         running_observed = True
+        if inspector is not None:
+            inspection = inspector(selection, anchor, work_deadline)
+            running = _guard(selection, fd, anchor, work_deadline)
+            if _processes(selection, anchor, _status(selection, anchor, work_deadline, "Running"), work_deadline) != processes:
+                raise Refusal("process_changed")
     except (Exception, KeyboardInterrupt) as error:
         reason = str(error) if isinstance(error, Refusal) else "qualification_unavailable"
     finally:
@@ -351,7 +361,12 @@ def qualify_boot(selection: create.CreateSelection) -> BootObservation:
     if not running_observed or not stopped_verified or processes is None or running is None or final is None:
         raise BootRefusal("qualification_incomplete", start_requested=start_requested,
                           stop_requested=stop_requested, stopped_verified=stopped_verified)
-    return BootObservation("Stopped", True, True, *processes.pids, running, final)
+    return BootObservation("Stopped", True, True, *processes.pids, running, final), inspection
+
+
+def qualify_boot(selection: create.CreateSelection) -> BootObservation:
+    """One closed start and exact stop; preserve partial state on every failure."""
+    return _qualify_with_inspection(selection)[0]
 
 
 def main() -> int:
