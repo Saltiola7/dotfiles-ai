@@ -51,6 +51,21 @@ class ForgejoTransportTest(unittest.TestCase):
         tools.start()
         self.addCleanup(tools.stop)
 
+        # Synthetic fetch commands use a controlled interpreter. Keep the real
+        # owner/mode validator and the host interpreter's security policy intact.
+        fixture_python = Path(self.directory.name) / "fixture-python"
+        fixture_python.write_text("#!/bin/sh\nexit 99\n")
+        fixture_python.chmod(0o700)
+        trusted_file = self.core._forgejo_trusted_file
+        host_python = sys.executable
+
+        def trusted_fixture(value):
+            return trusted_file(fixture_python if value == host_python else value)
+
+        interpreter = mock.patch.object(self.core, "_forgejo_trusted_file", side_effect=trusted_fixture)
+        interpreter.start()
+        self.addCleanup(interpreter.stop)
+
     def test_trusted_executable_filesystem_failures_are_sanitized(self):
         with mock.patch.object(self.core.Path, "resolve", side_effect=OSError("PRIVATE_PATH_SENTINEL")):
             with self.assertRaisesRegex(RuntimeError, "^Forgejo trusted executable unavailable$"):
@@ -215,7 +230,7 @@ class ForgejoTransportTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "Forgejo") as caught:
                     self.core.fetch_forgejo_branch(self.root, "origin", IDENTITY, "main", "fixture-user")
                 self.assertNotIn("PRIVATE_SENTINEL", str(caught.exception))
-                self.assertEqual(len(intercepted), 1)
+                self.assertEqual(len(intercepted), 1, str(caught.exception))
         result = subprocess.run([self.git, "show-ref", "--verify", "refs/remotes/origin/main"],
                                 cwd=self.root, env=self.env, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
