@@ -1,5 +1,15 @@
 # Native platform-local tool updates
 
+## Remote platform successor (RRW-002)
+
+[RRW-002](remote-user-rollout-runtime.md#approved-rhel-successor-rrw-002)
+targets RHEL 10 x86_64 for new standalone remote qualification, with UBI 10
+userland evidence and separately owned live-RHEL acceptance. Implementation and
+qualification are pending. The SSD source-parity contract below retains its
+original scope and evidence; prior CentOS results are not relabelled as RHEL
+results. This platform transition does not change native installer ownership,
+activate services, or authorize a rollout of existing hosts or Lima guests.
+
 ## Explicit guarded preparation
 
 [Guarded OpenCode maintenance](opencode-safe-maintenance.md) provides source for a
