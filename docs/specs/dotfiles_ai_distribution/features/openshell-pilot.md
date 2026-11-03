@@ -1057,6 +1057,29 @@ service. A successful inventory is evidence for subsequent build admission,
 never build authority or workload isolation proof. Always stop and independently
 verify the selected worker afterward, preserving inventory or shutdown failures.
 
+Filesystem observations must resolve the longest mount-point ancestor of each
+selected path independently. The guest root and `/var/lib` can belong to distinct
+local mounts or Btrfs subvolumes; requiring their device numbers to be equal is
+not a valid inventory contract. The closed report records each path's device,
+inode, mode, filesystem capacity, and selected mount point/device. For mounted
+subvolumes, the selected mount device must equal that path's observed device.
+Ambiguous mount entries, a device mismatch, aliases, unsupported filesystems,
+or impossible capacity facts refuse the inspection and still require shutdown.
+An unmounted subvolume with a distinct device remains unsupported until its
+identity can be established separately. A distinct mount is observation only;
+it does not grant build authority or extra disk capacity.
+
+| Selected path | Eligible ancestor mount points | Required evidence |
+|---|---|---|
+| `/` | `/` | One root mount, matching device, bounded capacity |
+| `/var/lib` | `/`, `/var`, `/var/lib` | Unique longest ancestor, matching device, bounded capacity |
+
+Given a separate mounted `/var` subvolume, inventory reports its actual device
+for `/var/lib` while retaining the root's separate identity. Given conflicting
+mount entries or a mismatched device, inventory refuses and verifies shutdown.
+The mount-selection table provides the visual evidence for this local identity
+contract; the existing storage ownership table still governs all native caps.
+
 The build budget must distinguish the host's native 2 GiB Lima cache quota from
 guest downloads, toolchain files, Cargo caches and compilation output. All guest
 data remains inside the verified 20 GiB VM disk and 24 GiB host image; a host cache
