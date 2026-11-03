@@ -322,6 +322,11 @@ workers, both native observations, external allocation, backing-image allocation
 runtime/cache use, maximum logical VM-disk size, scan/socket/fixture-alias counts
 and underlying-host free space. Scan limits retain the existing entry/depth
 bounds. Every owned qualification run requires its closed owner marker.
+The exact `qualification/.DS_Store` Finder metadata file may be counted as
+external retention when it is a regular single-link file owned by the current
+user and no larger than 64 KiB. It is never interpreted as a run or parsed for
+authority. A directory, alias, foreign owner or oversized file at that name
+refuses inspection. Other unknown qualification entries remain refused.
 
 Every immediate directory below a run's Lima home counts as a retained worker
 except the exact `_controller`, `_config` and `_networks` directories. Unexpected
