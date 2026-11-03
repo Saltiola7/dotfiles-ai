@@ -1,5 +1,40 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-03 — Preserve managed validation compatibility
+
+Preserved managed checkpoint/opt-out commands, registration feedback input,
+new-task enrollment and post-lock checkpoint routing alongside audited history
+recovery. Missing, disabled and explicit-only policy remains inert. Managed
+delegation selects one real package owner, checks regular package entry files
+before import, rejects foreign cached modules and never switches owners after
+selection. Optional failures preserve formal results; legacy checkpoint routing,
+offline recovery and gate invalidation remain intact.
+
+Fresh affected validation: 2,909 passed and one existing native-V2 binary-selection
+skip; the new compatibility test passes typing, and the helper/test compile on
+Python 3.12.15, 3.13.1 and 3.14.10. Actual native registration, resume, evidence
+and Gate Commit fixtures prove post-lock events and durable-record agreement.
+Independent source review found no blocker; 661 existing definitions are unchanged.
+The retained external component passed 16 actual isolated fixture commands and
+48-file generation verification, with native identity-drift negatives and actual
+API signature binding. This does not qualify enabled execution or feedback.
+
+Three actual-runtime correctness smokes completed 72 records and 48 profiles in
+total; only measured helper/help identities changed, without a performance claim.
+Original missing-feature, malformed-owner and fixture-expectation failures remain
+retained. Gate Commits include `42c861f0`, `0aa9fe41` and `673af415`. No Gate
+Exception applies; README and retired backlog authority were reviewed. This
+source-only Final Push updates the existing feature branch and draft PR into
+main; fresh complete hosted CI remains mandatory before acceptance.
+
+No live installation, validation-policy activation, controller/task execution or
+consumer recovery occurred. The separate accepted-source rollout preserves the
+retained component and uses its existing generation renderer/template; a bounded
+read-only preview changes only helper identity and derived generation. The owner
+maintains external-component compatibility and drift refusal. Rollback after any
+consumer recovery must preserve compatible readers and custody guards. Actual
+delivery and subsequent deployment belong to their private Cycle Records.
+
 ## 2026-11-03 — Bounded full-suite CI partitions
 
 Replaced serial full-suite jobs with four independent partitions per selected
