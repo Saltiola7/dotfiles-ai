@@ -91,7 +91,8 @@ owns the fail-closed merge contract. A **lane** is one selected Python/Worktrunk
 pair. A **partition** is a deterministic, disjoint subset of the lane's complete
 collected pytest node IDs, assigned by module. A **receipt** records collection,
 selected and observed test IDs, actual terminal exit code, runtime, source commit,
-workflow run and attempt. Existing failed execution-limit evidence remains valid
+workflow run and attempt. Skipped collector modules are recorded separately from
+executable items. Existing failed execution-limit evidence remains valid
 history; a receipt is not an approval or lifecycle gate pass.
 
 | Given | When | Required outcome |
@@ -108,6 +109,13 @@ history; a receipt is not an approval or lifecycle gate pass.
 `--shard` (0–3), `--python-version`, `--worktrunk-version`, `--commit`, `--run-id`,
 `--attempt` and `--output`. It invokes the unfiltered configured pytest authority
 with the existing first-failure behavior, per-test durations and JUnit output.
+It reconciles collected modules against Git's tracked default pytest module
+inventory (`test_*.py` and `*_test.py` under `tests/`). An ignored tracked module,
+unexpected collection filter, changed source overlay or changed runtime identity
+fails rather than shrinking that inventory. Existing module-level skips remain
+explicit collector outcomes, repeated consistently across workers. Full node IDs
+are retained, including existing multi-megabyte invalid-input parametrizations;
+individual IDs are bounded at 4 MiB and each evidence file at 32 MiB.
 The amendment module occupies partition 0 and lineage-recovery module partition
 1, based on observed slow-module progress intervals. Other modules use SHA-256
 modulo two for partitions 2 and 3. This allocation is a bounded scheduling choice,
@@ -117,7 +125,11 @@ not a measured speedup claim. New modules join automatically.
 directory and the native worker-job result. It validates four bounded receipts
 and JUnit reports. Duplicate IDs, unknown fields, unsafe files, incomplete
 collection, failed phases, nonzero exit codes and incorrect partition assignment
-fail closed. Workflow artifacts contain repository-relative test IDs and ordinary
+fail closed. Workers must also agree on the actual full Python version and
+collector outcomes. Exact item IDs and skip parity are checked against JUnit
+properties; propertyless collection skips require a unique canonical module-path
+mapping. Their count is reported separately from executed-item skips.
+Workflow artifacts contain repository-relative test IDs and ordinary
 test diagnostics, never credentials or private lifecycle records. Existing
 workflow-token permissions remain read-only. Artifact publication uses only the
 native Actions artifact service, with seven-day retention.

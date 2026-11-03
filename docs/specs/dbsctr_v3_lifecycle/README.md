@@ -471,7 +471,11 @@ has not been qualified. This source implementation does not qualify live cutover
 [Early delivery checks](features/early-delivery-checks.md) require the existing
 publication authority before Discovery handoff, include downstream instruction
 tests, and distinguish bounded editorial remediation from material readiness
-changes. Exact approval and provenance requirements remain unchanged.
+changes. Full hosted pytest lanes use four bounded partitions with exact
+collection/execution reconciliation and an always-run, fail-closed native required
+check. Existing runtime/tool lanes, test outcomes, 90-minute worker bounds and
+native merge protections remain. Exact approval and provenance requirements
+remain unchanged.
 
 Checkout-independent continuation and explicit unfinished-cycle release have
 [approved corrective Discovery](../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md).
