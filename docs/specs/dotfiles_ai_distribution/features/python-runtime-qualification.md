@@ -41,9 +41,10 @@ owners remain adjacent consumers with unchanged interfaces and runtime contracts
 No independent context implementation is selected. Native documentation-import
 packaging is a separate registration concern described in the Build handoff.
 
-Non-goals: raising the support floor; PR promotion to 3.15; free-threaded or
-experimental interpreter qualification; new syntax adoption; a checker migration;
-dependency upgrades; a Python manager, runtime registry, updater or scheduler;
+Non-goals for PY-08: raising the support floor; PR promotion to 3.15; free-threaded or
+experimental interpreter qualification; new syntax adoption; a checker migration
+or dependency upgrade selected by this slice; a Python manager, runtime registry,
+updater or scheduler;
 host/guest installation; service operations; container/model changes; and fixes
 for the other Python audit findings. An incompatibility requiring one of these
 changes returns for a bounded scope decision instead of being hidden or skipped.
@@ -52,7 +53,7 @@ changes returns for a bounded scope decision instead of being hidden or skipped.
 
 | Runtime role | Authority and preserved boundary | PY-08 action |
 |---|---|---|
-| Root scripts, test dependencies and hosted tests | Root `pyproject.toml`, `uv.lock` and `.github/workflows/test.yml`; metadata alone does not qualify future interpreters | Qualify 3.15 against the unchanged root lock and existing full authorities |
+| Root scripts, test dependencies and hosted tests | Root `pyproject.toml`, `uv.lock` and `.github/workflows/test.yml`; metadata alone does not qualify future interpreters | Qualify 3.15 against root metadata and lock bytes preserved from the actual reconciled protected-main baseline and existing full authorities |
 | Repository advisory adapter | `.github/continuous_validation.py` deliberately selects its existing frozen 3.14 commands | Preserve this default; hosted 3.15 compatibility does not promote advisory execution |
 | Isolated SDKs, workloads and optional tools | The runbook's Dagger, PR-Agent, Graphify, reranker, managed DVC, Hermes, Prefect MCP, security-toolkit and other declared owners; source ranges, exact pins and artifact identities take precedence | Include each in monthly review; preserve its runtime and require its own future candidate qualification |
 
@@ -100,10 +101,12 @@ Qualification does not adopt lazy imports or any other new language feature.
 
 Acceptance requires:
 
-1. The unchanged root lock resolves/installs through existing CI dependency
+1. Root metadata and lock bytes from the actual reconciled protected-main
+   baseline remain unchanged and resolve/install through existing CI dependency
    setup on the selected runtime. Use frozen lock validation and explicit
-   interpreter selection; record exact Python patch and lock digest. Do not
-   regenerate dependencies to conceal incompatibility.
+   interpreter selection; record the baseline commit, exact Python patch and
+   metadata/lock digests. Do not regenerate dependencies or restore a historical
+   lock to conceal incompatibility or discard legitimate upstream changes.
 2. The focused credential-child regression passes on 3.12 and 3.15 after its
    compatible repair, retaining the current security assertions. Other repairs
    need their own demonstrated trigger and focused oldest/newest checks.
@@ -127,7 +130,7 @@ The full root authority is pytest with `--maxfail=1`, invoked through
 `uv run --frozen --python VERSION --group test` for the selected runtime. The repository's
 early authority remains the portable publication test plus
 `tests/test_opencode_control_plane.py` and `tests/test_dbsctr_lifecycle.py`.
-No new checker, linter, dependency or test-runner authority is selected.
+PY-08 selects no new checker, linter, dependency or test-runner authority.
 
 ### Concrete implementation interfaces
 
@@ -148,8 +151,9 @@ The focused credential fixture keeps its isolated child and synthetic secret
 sentinel, replacing only its removed loader API. Existing lifecycle workflow
 tests are updated to cover the distinct event arrays, unchanged Worktrunk member,
 frozen explicit selection and early-before-full ordering. No type-bearing API is
-introduced; the project has no selected static checker or formatter, and this
-cycle does not claim either analysis capability.
+introduced by PY-08. This slice selects no checker or formatter migration;
+existing project-selected authorities, including PM's scoped ty and Hypothesis
+checks, remain in force. This cycle claims no repository-wide analysis capability.
 
 Domain, Behavior, Spec and Contract reuse the approved Discovery scenarios,
 native Initiative/plan validation, artifact reviews and affected source checks.
@@ -202,12 +206,15 @@ reopens required gates; execute fresh evidence under the amended authority.
 Initial Discovery inspected source at `12f5959701f8c075699b69ee5b4bac2cc5c2c535`;
 that workflow ended at 3.14. The candidate now adds 3.15 to weekly/manual source
 configuration, uses frozen explicit selection and repairs the removed loader API.
-Local publication/instruction checks passed 94 tests with one optional native
-test skipped on both CPython 3.12.15 and 3.15.0. All 22 transport tests passed on
+Historical local publication/instruction checks passed 94 tests with one optional
+native test skipped on both CPython 3.12.15 and 3.15.0. All 22 transport tests passed on
 3.15; the selected root and `python3` child also reported matching real runtime
-identities and the unchanged lock digest. These are observed local versions,
-not new deployment pins. The root lock retains pytest 9.1.1. Full hosted
-qualification is separate and must be evidenced at the exact candidate source.
+identities and the then-selected lock digest. These are historical observations,
+not new deployment pins or qualification of later combined source. The later PM
+change legitimately adds selected test/checker dependencies to protected main;
+PY-08 preserves that merged root metadata and lock. Fresh oldest/newest checks
+and full hosted qualification must bind the actual reconciled baseline and exact
+candidate source. Earlier results remain preserved rather than reused as a pass.
 
 Official version/support and porting evidence rechecked on 2026-11-01:
 [Python version status](https://devguide.python.org/versions/),
@@ -295,7 +302,10 @@ reviews every declared Python owner monthly or urgently on security intake. Root
 3.15 remains a candidate until exact-source full qualification passes. PR/main
 3.14, the 3.12 floor and isolated runtime constraints remain unchanged. Failed
 qualification preserves evidence and returns bounded repairs; it cannot activate
-an isolated runtime. Canonical sources: the three tables and acceptance above,
+an isolated runtime. Root qualification preserves metadata and lock bytes from
+the actual reconciled protected-main baseline and retains existing scoped tool
+authorities. Historical results do not qualify a later combination. Canonical
+sources: the three tables and acceptance above,
 plus the existing CI cadence contract. Owner: distribution maintainers. Update
 trigger: runtime ownership, support target, cadence, workflow authority, pin or
 qualification-boundary changes.

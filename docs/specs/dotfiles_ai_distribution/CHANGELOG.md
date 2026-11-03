@@ -1,5 +1,21 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-03 — Prepare post-PM Python qualification authority
+
+- Reconciled the verified protected-main delivery of PY-01, PY-02 and PM policy
+  boundaries. The actual merged root metadata and lock remain byte-for-byte
+  unchanged; PY-08 consumes their selected test/checker inputs rather than
+  restoring its historical dependency baseline.
+- Clarified the existing qualification feature: PY-08 selects no checker or
+  dependency migration, while PM's scoped ty and Hypothesis authorities remain
+  binding. Earlier local results remain historical evidence. No new manifest
+  requirement, runtime-floor change, isolated pin change or gate exception is
+  introduced.
+- Retained the updated benchmark helper digest together with the qualified
+  Python 3.15 help oracle and every earlier fixture input. Current-source
+  qualification still requires fresh authority, local gates and the full hosted
+  matrix before final delivery; this preparation does not claim those outcomes.
+
 ## 2026-11-03 — Isolate synthetic fetch interpreter
 
 - Removed an accidental host-interpreter permission dependency from synthetic
@@ -18,8 +34,8 @@
 - Qualified the new opt-in benchmark's help oracle on Python 3.15.0. Its exact
   output digest matches the retained 3.13/3.14 oracles; adding the observed entry
   preserves the smoke/profile assertions and all existing runtime entries.
-- Local combined-source validation passed 325 tests and 63 subtests, with one
-  existing optional native skip. The approved authority refresh retains the
+- Historical local validation before PM reconciliation passed 325 tests and
+  63 subtests, with one existing optional native skip. The approved authority refresh retains the
   merged documentation and all required gates; current-source hosted evidence
   is still required before qualification, completion and merge.
 
@@ -168,6 +184,24 @@
   Linux AMD64/ARM64 targets. Native deployment/protocol and protected CI evidence
   are recorded separately in the private `PREFECT-MCP-001` cycle. Installation,
   tool discovery, backend connectivity and workflow readiness are distinct claims.
+
+## 2026-10-31 — PY-01 first-clone bootstrap repair
+
+- Corrected absent-source admission with normal Git clone, exact detached commit
+  selection and cleanup restricted to the newly reserved directory's verified
+  identity. Existing dirty, legacy no-checkout, unsafe and wrong-origin sources
+  remain preserved and refused.
+- Reject annotated-tag object hashes before checkout/apply; full requested
+  identity must identify the selected commit itself.
+- Added real-Git offline failure/refusal/retry regressions and CentOS CI admission
+  checks before the existing install/reapply smoke. Affected tests passed after
+  reproducing both the first-clone and annotated-tag defects before their fixes.
+  Full validation details remain in the private Cycle Record.
+- Reused the existing Engineering Profile and Product Intent. No Gate Exceptions,
+  runtime/dependency migration, live apply, service restart or remote rollout.
+  The adjacent cross-revision retry-pin gap remains outside this bounded repair.
+- Intended Final Push: feature branch and draft pull request into the configured
+  protected base. The Cycle Record and final response record actual delivery.
 
 ## 2026-10-29 — Global Graphify source ownership
 
