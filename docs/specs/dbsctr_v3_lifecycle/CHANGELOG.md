@@ -10,14 +10,23 @@ preimages/outcomes and shared locks preserve audit continuity across interruptio
 Recovered entries receive no gate credit; Review/Integrate reopens and ordinary
 CI, Graphify, Final Push and protected delivery guards remain unchanged.
 
-Validation: 60 source-bound behavior cases passed; 363 existing cases have qualified
-successful observations, with original signing/storage fixture failures retained.
-Twelve selected compatibility cases passed with the actual Python 3.14.10 child
-version recorded; both changed Python files compile under that runtime. The older
-60-case aggregate records its qualifier's Python 3.13.16 version, not independent
-child-runtime evidence; no complete Python 3.13 validation claim is made. Fresh
-full native Python 3.14 CI remains required before acceptance or deployment.
-Independent critical-risk source review accepted the final implementation.
+Validation before the final accepted-base integration: 60 source-bound behavior
+cases and 363 existing cases had successful observations; original fixture failures
+remain retained. Those results are historical, not reruns at the integrated source.
+Fresh integration validation passes 2,817 cases, including the 2,688-case transition
+matrix, real gate-admission/completion checks, two composed recovery/remediation
+cases, downstream performance contracts and publication/instruction contracts.
+Both composed cases fail against the actual historical result handler and pass
+with the accepted transition policy. Independent critical-risk review accepted the
+combined implementation and evidence boundary.
+
+Frozen helper/help identities were requalified from actual output on Python
+3.12.15, 3.13.1 and 3.14.10. Each correctness smoke retained 24 complete records
+and 16 profiles; no performance comparison is claimed. Five affected Python files
+compile on all three runtimes. The earlier 60-case aggregate identifies its
+qualifier's Python 3.13.16, not independently captured child runtimes; no complete
+Python 3.13 test-population claim is made. Fresh full native CI remains required
+before acceptance or deployment.
 
 Domain and implementation Gate Commits: `e41fedab`, `6ffb4244`; accepted-main
 integration: `5ad5782b`. No Gate Exception is selected. README and retired backlog
@@ -31,6 +40,35 @@ Existing installed capabilities require preservation or an explicit retirement
 before the separate targeted managed rollout. Final Push targets the feature
 branch and draft PR into main; actual push, CI and later deployment outcomes
 belong to the private Cycle Record. No branch, worktree or recovery data is removed.
+
+## 2026-10-31 — Evidence rerun invalidation (PY-02)
+
+- Evidence recording and manual gate replacement share a pure transition policy.
+  Losing disposition reopens exactly later required passed gates, including an
+  exception-backed failure rerun without a result-string change. Same-HEAD
+  recovery cannot restore stale downstream success. History, sidecars, exception
+  policy, CLI admission, schemas and failure/remediation counter meanings remain.
+- Three new regression cases demonstrated the prior failure; all six new
+  CLI/completion cases passed after repair. The finite policy suite passes 2,688
+  cases across supported schema modes, exceptions, gate positions, evidence
+  references and counter defaults, with repeated transitions and owned I/O
+  boundaries checked. Full controller, completion, amendment and policy QA passes
+  3,031 tests and 101 subtests, with one filesystem-dependent non-UTF-8-name skip.
+  Publication/instruction contracts pass 93 tests with one optional skip; four
+  affected Python files compile. Local disposable-repository checks isolate Git
+  signing; original environment failures and replacement evidence remain private.
+- No Gate Exception, dependency or runtime migration, managed installation or
+  automatic live-record repair. Recovery retains reopened gate state and private
+  evidence; fresh downstream evidence remains required. Intended Final Push is
+  the isolated feature branch and a draft PR into `main`; actual delivery and
+  Gate Commits belong to the Cycle Record. Full PR CI remains required for merge.
+- Current-base CI exposed the newer benchmark fixture's frozen pre-PY-02 helper
+  identity. Deliberate requalification retained every workload and runtime-help
+  oracle on Python 3.12.15, 3.13.1 and 3.14.9: each produced 24 complete smoke
+  records and 16 private profiles, with unchanged synthetic sources. Only the
+  helper identity pin was refreshed; mismatch refusal remains. Original CI
+  failures and baseline records remain private, and no performance gain is
+  claimed. Fresh full native CI remains required.
 
 ## 2026-11-01 — PY-09 hosted Git configuration qualification
 

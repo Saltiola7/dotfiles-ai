@@ -1,5 +1,13 @@
 # DBSCTR V3 Lifecycle
 
+[Evidence rerun invalidation](features/gate-evidence-invalidation.md) specifies
+the PY-02 repair: replacing a disposed gate with failed or unavailable evidence
+reopens later required passed gates, even when the source HEAD is unchanged.
+Historical evidence, current exception rules, schema compatibility and command
+admission remain intact. Evidence and manual result replacement share the same
+internal transition policy. Source validation and managed installation remain
+separate claims.
+
 The [PY-09 measurement foundation](features/python-performance.md#py-09-measurement-only-foundation)
 adds opt-in synthetic CLI benchmarks and shared evidence before optimization.
 The CLI foundation is implemented as repository-owned stdlib tooling. Retained-CI

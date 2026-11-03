@@ -67,8 +67,11 @@ accepted-source qualification through the existing targeted distribution process
    recovered commit sequence remains an exact prefix; later Gate Commits may
    append. Original evidence remains retained. Corrupt custody blocks reading.
 9. Given repaired lineage but stale/failed required evidence, Final Push still
-   fails. Normal current-base reconciliation, gates, Graphify, CI and protected
-   delivery requirements continue to apply.
+   fails. After recovery and a fresh review, a failed or unavailable rerun of a
+   passed prerequisite reopens later required passed gates. Remediation retains recovery
+   custody and original evidence; ordered fresh gate evidence is required before
+   progress resumes. Normal current-base reconciliation, gates, Graphify, CI and
+   protected delivery requirements continue to apply.
 
 ## Interfaces and contracts
 

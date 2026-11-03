@@ -718,3 +718,65 @@ def test_plan_capacity_refuses_new_plan_without_blocking_ordinary_work(recovery)
     result_body(result, "blocked")
     assert len(list(parent.iterdir())) == 64 and recovery["path"].read_bytes() == before
     harness.run(recovery["target"], "set-gate", "review_integrate", "--result", "pending")
+
+
+@pytest.mark.parametrize("outcome", ["failed", "unavailable"])
+def test_recovered_prerequisite_rerun_requires_ordered_fresh_evidence(recovery, outcome):
+    """Recovery custody survives ordinary invalidation and ordered remediation."""
+    _, replay = apply(recovery)
+    core, target, path = recovery["core"], recovery["target"], recovery["path"]
+    evidence(core, "review_integrate")
+    for gate in core.GATES[core.GATES.index("review_integrate") + 1:]:
+        if record(path)["gates"][gate]["applicability"] == "required":
+            evidence(core, gate)
+    qualified = record(path)
+    required_tail = [gate for gate in core.GATES[1:]
+                     if qualified["gates"][gate]["applicability"] == "required"]
+    assert all(qualified["gates"][gate]["result"] == "passed" for gate in required_tail)
+    old_tail_ids = {gate: qualified["gates"][gate]["evidence"] for gate in required_tail}
+    retained = {name: custody(recovery, name).read_bytes()
+                for name in ("plan.json", "before.json", "envelope.json", "outcome.json")}
+    if outcome == "failed":
+        evidence(core, "domain", code=1)
+    else:
+        args = core.parser().parse_args([
+            "record-evidence", "domain", "--authority", "synthetic-unavailable-command",
+            "--", str(target / "missing-synthetic-evidence-executable"),
+        ])
+        args.func(args)
+    reopened = record(path)
+    assert reopened["gates"]["domain"]["result"] == outcome
+    rejected_id = reopened["gates"]["domain"]["evidence"]
+    assert all(reopened["gates"][gate]["result"] == "pending" for gate in required_tail)
+    assert all("evidence" not in reopened["gates"][gate]
+               and "exception" not in reopened["gates"][gate] for gate in required_tail)
+    assert reopened["commits"] == qualified["commits"]
+    assert reopened["lineage_recovery"] == qualified["lineage_recovery"]
+    assert all(reopened["evidence"]["items"][key] == value
+               for key, value in qualified["evidence"]["items"].items())
+    assert core.read_cycle_record(target, path, historical=True)["gates"]["domain"]["result"] == outcome
+    harness.run(target, "status", "--json")
+
+    evidence(core, "domain")
+    remediated = record(path)
+    assert remediated["gates"]["domain"]["result"] == "passed"
+    assert all(remediated["gates"][gate]["result"] == "pending" for gate in required_tail)
+    assert remediated["evidence"]["items"][rejected_id]["result"] == outcome
+    for gate in required_tail:
+        evidence(core, gate)
+    fresh = record(path)
+    assert all(fresh["gates"][gate]["result"] == "passed" for gate in required_tail)
+    assert all(fresh["gates"][gate]["evidence"] != old_tail_ids[gate] for gate in required_tail)
+    assert fresh["commits"] == qualified["commits"]
+    assert fresh["lineage_recovery"] == qualified["lineage_recovery"]
+    assert all(fresh["evidence"]["items"][key] == value
+               for key, value in qualified["evidence"]["items"].items())
+    assert fresh["evidence"]["items"][rejected_id]["result"] == outcome
+    assert {name: custody(recovery, name).read_bytes() for name in retained} == retained
+    core.read_cycle_record(target, path, historical=True)
+    harness.run(target, "status", "--json")
+    before_replay = path.read_bytes()
+    result = harness.run(target, *replay, ok=False)
+    assert result.returncode == 1
+    result_body(result, "blocked")
+    assert path.read_bytes() == before_replay
