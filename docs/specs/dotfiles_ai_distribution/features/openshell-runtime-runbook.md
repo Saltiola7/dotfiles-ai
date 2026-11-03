@@ -7,8 +7,10 @@ Owner: distribution maintainers. This document defines observations and recovery
 boundaries; it does not report completed probes or passed gates.
 
 The target is one explicitly selected disposable Fedora 44 aarch64 Lima worker
-on Apple Silicon macOS, rootless Podman and the reviewed OpenShell v0.1.6 component
-generation. Only synthetic fixtures are admitted. No provider sign-in, model
+on Apple Silicon macOS and rootless Podman. The historical comparison used
+OpenShell v0.1.6; the next experimental build candidate is the separately pinned
+v0.1.7 workload-only patch described in the runtime contract. Only synthetic
+fixtures are admitted. No provider sign-in, model
 request, native agent session, host Git bridge or real-repository enrollment
 belongs to this procedure. Existing guests and host package ownership remain
 unchanged.
@@ -39,6 +41,27 @@ It must account for every retained or partially created worker across owned runs
 the single selected backing image and bounded external retention. A successful
 report still cannot create or start a worker. Before enabling allocation, qualify
 the cache-volume `_xdg` and `_tmp` routes and closed operation-specific admission.
+
+The closed create-only interface is
+`python3 tests/probe_openshell_storage_create.py --selection PRIVATE_JSON`.
+Its selection adds source-recipe, Lima and QEMU SHA256 comparison targets to the
+native storage selection. It recollects native evidence under the exclusive pilot
+lock, checks the fixed reviewed Linux recipe and binaries, and refuses any
+retained worker before invoking create. A passing result means one stopped worker
+has a verified raw 20 GiB disk inside the capped image. It cannot boot a VM.
+Failed creation retains partial state and counts it against the one-worker limit;
+do not retry or adopt that state automatically.
+
+Boot qualification is a separate closed operation on that same existing worker.
+It must freshly inspect the stopped disk and current resource bindings, perform
+one bounded start, observe running storage and always request exact-worker stop
+after an attempted start. It reserves shutdown time inside the overall deadline.
+Cancellation of the start client does not prove shutdown of Lima's separately
+running host agent. Preserve uncertain state without detaching its disk image.
+Running inspection permits changing usage only with stable identities and caps;
+unknown sockets, workers or mount changes still refuse. Only source-reviewed
+Lima control-socket metadata belongs to this storage proof. OpenShell workload
+socket denial and trusted control access require their later distinct matrix.
 
 After capacity is available, the next native storage proof uses an owned tiny
 image before any VM: verify its attachment and physical-store chain, establish
