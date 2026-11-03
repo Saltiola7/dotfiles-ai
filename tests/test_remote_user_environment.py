@@ -1,9 +1,13 @@
 import base64
+import importlib.machinery
+import importlib.util
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import shutil
 import stat
+import sys
 import subprocess
 import threading
 
@@ -400,6 +404,284 @@ def _install_foundation_targets(tmp_path: Path, state: str = "auth_pending") -> 
     )
     readiness.chmod(0o755)
     return marker
+
+
+@pytest.fixture
+def bootstrap_case(tmp_path: Path):
+    home = tmp_path / "home"
+    home.mkdir()
+    source = home / ".local/share/chezmoi-dotfiles-ai"
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    real_git = shutil.which("git")
+    assert real_git
+    subprocess.run([real_git, "init", "-q", "-b", "main"], cwd=seed, check=True)
+    for key, value in (("user.name", "Test"), ("user.email", "test@example.invalid"),
+                       ("commit.gpgsign", "false"), ("core.hooksPath", "/dev/null")):
+        subprocess.run([real_git, "config", key, value], cwd=seed, check=True)
+    (seed / "config.remote-user.example.toml").write_text(
+        'sourceDir = "/home/you/.local/share/chezmoi-dotfiles-ai"\n'
+    )
+    foundation = seed / "dot_local/bin/executable_remote-user-foundation"
+    foundation.parent.mkdir(parents=True)
+    foundation.write_text(
+        '#!/bin/sh\n[ "${PY01_FAULT:-}" != apply ] || exit 1\n'
+        f'printf "%s\\n" "$*" > {str(tmp_path / "apply-args")!r}\n'
+    )
+    foundation.chmod(0o755)
+    subprocess.run([real_git, "add", "."], cwd=seed, check=True)
+    _commit(seed, "initial")
+    initial = tmp_path / "initial"
+    subprocess.run([real_git, "clone", "-q", "--no-hardlinks", str(seed), str(initial)], check=True)
+    revision = _commit(seed, "requested")
+    binary = home / ".local/bin"
+    binary.mkdir(parents=True)
+    (binary / "python3").symlink_to(sys.executable)
+    chezmoi = binary / "chezmoi"
+    chezmoi.write_text(
+        f'#!/bin/sh\ntouch {str(tmp_path / "chezmoi-called")!r}\n'
+        "echo 'chezmoi version 2.69.4'\n"
+    )
+    chezmoi.chmod(0o755)
+    shim = binary / "git"
+    shim.write_text(f'''#!{sys.executable}
+import json, os, pathlib, subprocess, sys
+args = sys.argv[1:]
+real_git = {real_git!r}
+source = {str(source)!r}
+with open({str(tmp_path / "git-calls")!r}, "a") as stream:
+    stream.write(json.dumps(args) + "\\n")
+operation = args[2] if args[:1] == ["-C"] else args[0]
+fault = os.environ.get("PY01_FAULT")
+if operation == "clone":
+    assert args[-2] == "https://github.com/Saltiola7/dotfiles-ai.git"
+    if fault == "clone":
+        destination = pathlib.Path(args[-1])
+        destination.mkdir(exist_ok=True)
+        (destination / "partial-clone").write_text("partial")
+        sys.exit(1)
+    result = subprocess.run([real_git, *args[:-2], {str(initial)!r}, args[-1]])
+    if result.returncode == 0:
+        subprocess.run([real_git, "-C", args[-1], "remote", "set-url", "origin",
+                        "https://github.com/Saltiola7/dotfiles-ai.git"], check=True)
+    sys.exit(result.returncode)
+if operation == "fetch":
+    if fault == "fetch":
+        sys.exit(1)
+    assert args[4:] == ["origin", "main"]
+    args[4] = {str(seed)!r}
+if operation == "checkout" and fault in {{"replaced", "symlink"}}:
+    original = pathlib.Path(source)
+    original.rename(original.with_name("retained-original"))
+    if fault == "symlink":
+        original.symlink_to({str(tmp_path / "replacement")!r}, target_is_directory=True)
+    else:
+        original.mkdir()
+        (original / "user-marker").write_text("preserve")
+    sys.exit(1)
+if operation == "checkout" and fault == "checkout":
+    pathlib.Path(source, "managed.txt").write_text("partial checkout")
+    sys.exit(1)
+sys.exit(subprocess.run([real_git, *args]).returncode)
+''')
+    shim.chmod(0o755)
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith("GIT_")}
+    environment.update({"HOME": str(home), "PATH": f"{binary}:{os.environ['PATH']}",
+                        "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                        "DOTFILES_AI_SOURCE": str(source),
+                        "DOTFILES_AI_CONFIG": str(home / ".config/dotfiles-ai/chezmoi.toml"),
+                        "DOTFILES_AI_FOUNDATION_STATE": str(home / ".local/state/foundation.json")})
+
+    def run(*, fault: str = "", requested: str = revision):
+        return subprocess.run([str(BOOTSTRAP), "bootstrap", requested], text=True,
+                              capture_output=True, env={**environment, "PY01_FAULT": fault}, timeout=20)
+
+    return source, seed, revision, run
+
+
+def test_remote_user_bootstrap_clones_absent_source_and_reuses_exact_revision(tmp_path, bootstrap_case):
+    source, _seed, revision, run = bootstrap_case
+    assert not source.exists()
+    first = run()
+    assert first.returncode == 0, first.stderr
+    assert subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip() == revision
+    assert subprocess.check_output(["git", "-C", str(source), "status", "--porcelain"]) == b""
+    assert subprocess.run(["git", "-C", str(source), "symbolic-ref", "-q", "HEAD"]).returncode == 1
+    config = tmp_path / "home/.config/dotfiles-ai/chezmoi.toml"
+    assert str(tmp_path / "home") in config.read_text()
+    assert stat.S_IMODE(config.stat().st_mode) == 0o600
+    assert (tmp_path / "apply-args").read_text().strip() == f"apply {revision}"
+    second = run()
+    assert second.returncode == 0, second.stderr
+    calls = [json.loads(line) for line in (tmp_path / "git-calls").read_text().splitlines()]
+    assert sum(args[0] == "clone" for args in calls) == 1
+
+
+@pytest.mark.parametrize("fault", ["clone", "fetch", "checkout"])
+def test_remote_user_bootstrap_new_source_failure_is_retryable(tmp_path, bootstrap_case, fault):
+    source, _seed, revision, run = bootstrap_case
+    failed = run(fault=fault)
+    assert failed.returncode != 0
+    assert failed.stderr == "remote user bootstrap failed\n"
+    assert not source.exists()
+    assert not (tmp_path / "home/.config/dotfiles-ai/chezmoi.toml").exists()
+    assert not (tmp_path / "chezmoi-called").exists()
+    assert not (tmp_path / "apply-args").exists()
+    state = tmp_path / "home/.local/state/foundation.json"
+    previous = state.read_bytes()
+    assert json.loads(previous)["desired_revision"] == revision
+    assert json.loads(previous)["state"] == "failed_retryable"
+    assert run(fault=fault).returncode != 0
+    assert state.read_bytes() == previous
+    retried = run()
+    assert retried.returncode == 0, retried.stderr
+    assert (tmp_path / "apply-args").read_text().strip() == f"apply {revision}"
+
+
+@pytest.mark.parametrize("kind", ["tracked", "staged", "untracked", "legacy", "origin"])
+def test_remote_user_bootstrap_preserves_existing_source_on_refusal(tmp_path, bootstrap_case, kind):
+    source, seed, _revision, run = bootstrap_case
+    source.parent.mkdir(parents=True)
+    command = ["git", "clone", "-q", *(["--no-checkout"] if kind == "legacy" else []), str(seed), str(source)]
+    subprocess.run(command, check=True)
+    if kind != "origin":
+        subprocess.run(["git", "-C", str(source), "remote", "set-url", "origin",
+                        "https://github.com/Saltiola7/dotfiles-ai.git"], check=True)
+    if kind in {"tracked", "staged"}:
+        (source / "managed.txt").write_text("user changes")
+        if kind == "staged":
+            subprocess.run(["git", "-C", str(source), "add", "managed.txt"], check=True)
+    if kind == "untracked":
+        (source / "user.txt").write_text("user changes")
+    before = {path.relative_to(source): path.read_bytes() for path in source.rglob("*")
+              if path.is_file() and ".git" not in path.relative_to(source).parts}
+    index = subprocess.check_output(["git", "-C", str(source), "ls-files", "--stage"])
+    head = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"])
+    failed = run()
+    assert failed.returncode != 0
+    assert failed.stderr == ("bootstrap source is invalid\n" if kind == "origin"
+                             else "bootstrap source is not clean\n")
+    assert source.is_dir()
+    assert before == {path.relative_to(source): path.read_bytes() for path in source.rglob("*")
+                      if path.is_file() and ".git" not in path.relative_to(source).parts}
+    assert index == subprocess.check_output(["git", "-C", str(source), "ls-files", "--stage"])
+    assert head == subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"])
+    assert not (tmp_path / "chezmoi-called").exists()
+    assert not (tmp_path / "apply-args").exists()
+
+
+def test_remote_user_bootstrap_reuses_source_after_apply_failure(tmp_path, bootstrap_case):
+    source, _seed, _revision, run = bootstrap_case
+    failed = run(fault="apply")
+    assert failed.returncode != 0
+    assert source.is_dir()
+    assert subprocess.check_output(["git", "-C", str(source), "status", "--porcelain"]) == b""
+    assert run().returncode == 0
+    calls = [json.loads(line) for line in (tmp_path / "git-calls").read_text().splitlines()]
+    assert sum(args[0] == "clone" for args in calls) == 1
+
+
+@pytest.mark.parametrize("fault", ["replaced", "symlink"])
+def test_remote_user_bootstrap_cleanup_preserves_replaced_source(tmp_path, bootstrap_case, fault):
+    source, _seed, _revision, run = bootstrap_case
+    replacement = tmp_path / "replacement"
+    replacement.mkdir()
+    (replacement / "user-marker").write_text("preserve")
+    failed = run(fault=fault)
+    assert failed.returncode != 0
+    assert (replacement / "user-marker").read_text() == "preserve"
+    assert source.with_name("retained-original").is_dir()
+    if fault == "replaced":
+        assert (source / "user-marker").read_text() == "preserve"
+    else:
+        assert source.is_symlink()
+    assert not (tmp_path / "apply-args").exists()
+
+
+@pytest.mark.parametrize("kind", ["missing", "blob"])
+def test_remote_user_bootstrap_rejects_invalid_commit_before_downstream(tmp_path, bootstrap_case, kind):
+    source, seed, _revision, run = bootstrap_case
+    requested = ("f" * 40 if kind == "missing" else subprocess.check_output(
+        ["git", "-C", str(seed), "rev-parse", "HEAD:managed.txt"], text=True).strip())
+    failed = run(requested=requested)
+    assert failed.returncode != 0
+    assert failed.stderr == "remote user bootstrap failed\n"
+    assert not source.exists()
+    assert not (tmp_path / "chezmoi-called").exists()
+    assert not (tmp_path / "apply-args").exists()
+
+
+def test_remote_user_bootstrap_rejects_annotated_tag_identity(tmp_path, bootstrap_case):
+    source, seed, _revision, run = bootstrap_case
+    subprocess.run(["git", "-C", str(seed), "-c", "tag.gpgsign=false", "tag", "-a",
+                    "-m", "annotated", "v1"], check=True)
+    tag = subprocess.check_output(["git", "-C", str(seed), "rev-parse", "v1"], text=True).strip()
+    source.parent.mkdir(parents=True)
+    subprocess.run(["git", "clone", "-q", str(seed), str(source)], check=True)
+    subprocess.run(["git", "-C", str(source), "remote", "set-url", "origin",
+                    "https://github.com/Saltiola7/dotfiles-ai.git"], check=True)
+    head = subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"])
+    failed = run(requested=tag)
+    assert failed.returncode != 0
+    assert failed.stderr == "bootstrap revision is invalid\n"
+    assert head == subprocess.check_output(["git", "-C", str(source), "rev-parse", "HEAD"])
+    assert not (tmp_path / "chezmoi-called").exists()
+    assert not (tmp_path / "apply-args").exists()
+
+
+@pytest.mark.parametrize("link", ["source", "ancestor"])
+def test_remote_user_bootstrap_refuses_symlinked_source_admission(tmp_path, bootstrap_case, link):
+    source, _seed, _revision, run = bootstrap_case
+    target = tmp_path / "retained-target"
+    target.mkdir()
+    (target / "user-marker").write_text("preserve")
+    if link == "source":
+        source.parent.mkdir(parents=True)
+        source.symlink_to(target, target_is_directory=True)
+    else:
+        source.parent.parent.mkdir(parents=True, exist_ok=True)
+        source.parent.symlink_to(target, target_is_directory=True)
+    failed = run()
+    assert failed.returncode != 0
+    assert failed.stderr == "bootstrap path is unsafe\n"
+    assert (target / "user-marker").read_text() == "preserve"
+    assert not (tmp_path / "chezmoi-called").exists()
+    assert not (tmp_path / "apply-args").exists()
+
+
+def test_remote_user_bootstrap_refuses_foreign_source_owner(tmp_path, monkeypatch):
+    loader = importlib.machinery.SourceFileLoader("bootstrap_owner_under_test", str(BOOTSTRAP))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    home = tmp_path / "home"
+    source = home / "source"
+    source.mkdir(parents=True)
+    (source / "user-marker").write_text("preserve")
+    for name, path in (("HOME", home), ("SOURCE", source),
+                       ("CONFIG", home / "config"), ("STATE", home / "state")):
+        monkeypatch.setattr(module, name, path)
+    original_lstat = Path.lstat
+
+    def foreign_owner(path, *args, **kwargs):
+        value = original_lstat(path, *args, **kwargs)
+        if path == source:
+            fields = list(value)
+            fields[4] = os.getuid() + 1
+            return os.stat_result(fields)
+        return value
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("unsafe source reached downstream work")
+
+    monkeypatch.setattr(Path, "lstat", foreign_owner)
+    for name in ("run", "prepare_config", "install_chezmoi"):
+        monkeypatch.setattr(module, name, forbidden)
+    with pytest.raises(module.BootstrapError, match="bootstrap path is unsafe"):
+        module.bootstrap("a" * 40)
+    assert (source / "user-marker").read_text() == "preserve"
+    assert not (home / "config").exists()
 
 
 def test_remote_user_bootstrap_validates_revision_and_creates_private_config(tmp_path: Path) -> None:

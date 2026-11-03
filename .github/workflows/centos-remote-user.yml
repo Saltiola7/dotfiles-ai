@@ -18,6 +18,9 @@ on:
       - "dot_local/bin/executable_remote-user-foundation"
       - "dot_local/bin/executable_vertex-reauth.tmpl"
       - "run_onchange_after_install-*.sh.tmpl"
+      - "tests/test_remote_user_environment.py"
+      - "pyproject.toml"
+      - "uv.lock"
       - "tests/remote_user_environment_smoke.sh"
       - ".github/workflows/centos-remote-user.yml"
 
@@ -28,6 +31,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils lsof xz
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
+        with:
+          python-version: "3.12"
+      - name: Check offline bootstrap admission
+        run: >-
+          uv run --frozen --group test pytest
+          tests/test_remote_user_environment.py
+          -k remote_user_bootstrap -q
       - name: Run smoke
         run: |
           unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
