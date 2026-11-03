@@ -1,5 +1,56 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-01 — PY-09 hosted Git configuration qualification
+
+The first hosted CI run failed in both Worktrunk lanes because the macOS image
+installs system Git LFS definitions. Qualified the exact complete standard LFS
+definition set only when effective native attribute checks prove every cached
+and untracked nonignored path has no filter. Unknown or duplicate definitions,
+active filters and gitlinks remain unavailable. Qualification precedes the first
+fixture add and every source status, preserving the clean-source oracle without
+executing filters, wrapping Git, changing host configuration or skipping smokes.
+
+Added 25 regressions covering dormant/explicitly unset filters, active working-tree,
+repository-info and XDG attributes, changed/incomplete/duplicate definitions,
+local LFS definitions, pre-add refusal and submodules. All 62 focused tests pass;
+publication/instruction regression and configured hosted CI retain their own
+authorities. The original failed CI evidence and completed source cycle remain
+intact. No new runtime, dependency, workflow, production helper or installed
+configuration is changed; no performance improvement or new baseline is claimed.
+
+The follow-up uses Python/Security and the existing source-only gate plan.
+Specification commit: `0e3edb6`; later Gate Commits and actual push/CI outcomes
+belong to the private Cycle Record. Final Push updates the existing feature branch
+and PR #275. Release, Deploy and Operate remain not applicable; no exception,
+restart, private-evidence migration or branch/worktree removal is selected.
+
+## 2026-11-01 — PY-09 opt-in CLI measurement foundation
+
+Added repository-owned stdlib CLI benchmarks, frozen synthetic workload oracles,
+strict version-1 evidence records and an offline report reader. Separate timing,
+Git-count and optional profile cohorts retain failures, unavailable metrics and
+attempt denominators. Private output, bounded process ownership, cancellation and
+source/tool/fixture identity checks preserve the measurement boundary. Production
+helpers, dependencies, workflows and installed configuration are unchanged.
+
+Validation: 37 focused tests pass, including finite generated statistics,
+unsafe-file/configuration refusal, cancellation and committed-source profile
+smokes. Existing publication/instruction checks passed (93 tests, one optional
+skip); the new modules also compile with existing Python 3.12, 3.13 and 3.14.
+No root static checker or linter is configured, so no static coverage is claimed.
+A full private baseline at `af3c7b3` completed 16 cells, 160 recorded attempts
+and 16 warmups on Python 3.14; its offline report validated all records without
+pooling or authenticating input provenance. This establishes measurement coverage,
+not an optimization, cross-host comparison or whole-cycle performance gain.
+
+Kernel Gate Commits: `356972d`, `d7bbc8a`, `085a48b`, `af3c7b3`; original Discovery
+import is retained as `7b28894`. No Gate Exception is selected. CI and snapshot
+measurement consumers remain separate, unlaunched slices; all DKS work is deferred.
+Release, Deploy and Operate are not applicable to this source-only change.
+Final Push targets the feature branch and draft PR into protected main; actual
+publication and CI outcomes belong to the Cycle Record. Retain private evidence,
+branch and worktree; rollback requires no installed-state or evidence migration.
+
 ## 2026-10-31 — Notebook, host configuration and Rust/Python guidance
 
 Added official marimo notebook, Jupyter conversion and WASM guidance plus original

@@ -1,5 +1,40 @@
 # DBSCTR V3 Lifecycle
 
+The [PY-09 measurement foundation](features/python-performance.md#py-09-measurement-only-foundation)
+adds opt-in synthetic CLI benchmarks and shared evidence before optimization.
+The CLI foundation is implemented as repository-owned stdlib tooling. Retained-CI
+analysis and isolated snapshot-memory evidence remain dependent source slices,
+owned by distribution and continuous-validation respectively. No measured gain
+or runtime activation is claimed.
+
+Run from a clean committed checkout with an existing supported Python interpreter
+and qualified native Git. Choose a fresh private output directory outside the
+checkout; resolving the temporary parent avoids symlinked system temporary paths:
+
+```sh
+output_parent="$(python -c 'import pathlib, tempfile; print(pathlib.Path(tempfile.mkdtemp()).resolve())')"
+python tests/benchmarks/python_performance.py cli --source-tree . --output "$output_parent/baseline"
+python tests/benchmarks/python_performance.py report --input "$output_parent/baseline/timing-1-help.json" --output "$output_parent/report"
+```
+
+The default run measures eight workload/history cells in separate timing and
+Git-count cohorts, with one warmup and ten recorded attempts per cell. `--smoke`
+uses one recorded attempt and does not satisfy a full baseline. `--profile` adds
+a separate attribution cohort and retains private profiles. Repeat `--input` to
+validate more records; reports keep input files separate and mark authenticity
+unverified. Raw output, paths and profiles remain private. The runner refuses
+changed source/tool identities, unsafe paths or unqualified Git configuration;
+it never installs tools, activates the harness or profiles private stores.
+Standard system Git LFS definitions are accepted only with fresh proof that no
+path selects a filter. Active filters, altered definitions and submodule sources
+remain unavailable; the runner never edits host Git configuration to qualify.
+
+The [behavior-preserving Python performance specification](features/python-performance.md)
+owns the current source-only optimization tranche: query scaling, bounded
+optional telemetry, diagnostic correctness, profiling and compatible CI/startup
+evaluation. Its implementation and performance gains remain pending; existing
+harness behavior and activation authorities are unchanged.
+
 [Platform and language specialists](features/platform-specialists.md) extends
 conditional selection to shell, host/container/cloud operations, async Python,
 modernization review and Mojo while preserving existing lifecycle and QA ownership.

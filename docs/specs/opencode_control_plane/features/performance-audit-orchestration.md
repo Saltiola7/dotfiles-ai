@@ -26,9 +26,9 @@ to the lifecycle audit. The lifecycle context owns conclusions and priority.
   candidate fallback defaults to pages of 25 with immutable continuation.
 - `reviewer-openai` remains available only for explicit review, critical work, or
   a named specialist lens. A routine final double-check is not a reviewer task.
-- Model and reasoning changes require comparable-cycle evaluation. The default
-  primary remains GPT-5.6 Sol Fast medium; Explore remains Luna Fast low; Scout
-  and bounded Builder remain Terra Fast medium unless evidence supports change.
+- Model and reasoning changes require comparable-cycle evaluation. Use the
+  canonical [native helper delegation](native-helper-delegation.md) routing
+  contract; this audit specification does not duplicate or change model routes.
 - Prompt instructions state each rule once and compact at meaningful milestones.
 
 ## Evidence Interpretation
