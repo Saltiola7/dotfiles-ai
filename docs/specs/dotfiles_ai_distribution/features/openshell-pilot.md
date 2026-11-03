@@ -1061,22 +1061,29 @@ Filesystem observations must resolve the longest mount-point ancestor of each
 selected path independently. The guest root and `/var/lib` can belong to distinct
 local mounts or Btrfs subvolumes; requiring their device numbers to be equal is
 not a valid inventory contract. The closed report records each path's device,
-inode, mode, filesystem capacity, and selected mount point/device. For mounted
-subvolumes, the selected mount device must equal that path's observed device.
-Ambiguous mount entries, a device mismatch, aliases, unsupported filesystems,
-or impossible capacity facts refuse the inspection and still require shutdown.
-An unmounted subvolume with a distinct device remains unsupported until its
-identity can be established separately. A distinct mount is observation only;
-it does not grant build authority or extra disk capacity.
+inode, mode, filesystem capacity, and selected mount point/device/ID. Open the
+selected directory without following aliases, read `mnt_id` and `ino` from its
+own bounded `/proc/self/fdinfo/<fd>` record, and require those values to match the
+selected mount entry and opened inode. Collect capacity from that same open
+descriptor and recheck the path's identity. Btrfs can report a subvolume device
+different from mountinfo's device; retain both values rather than equating them.
+For other supported filesystems, device equality remains required. Ambiguous
+mount entries, mismatched mount IDs/inodes, aliases, unsupported filesystems, or
+impossible capacity facts refuse inspection and still require shutdown. A
+distinct mount or Btrfs device is observation only; it does not grant build
+authority or extra disk capacity. Linux documents the descriptor's mount ID in
+[proc_pid_fdinfo(5)](https://man7.org/linux/man-pages/man5/proc_pid_fdinfo.5.html).
 
 | Selected path | Eligible ancestor mount points | Required evidence |
 |---|---|---|
-| `/` | `/` | One root mount, matching device, bounded capacity |
-| `/var/lib` | `/`, `/var`, `/var/lib` | Unique longest ancestor, matching device, bounded capacity |
+| `/` | `/` | One root mount, descriptor mount ID/inode binding, bounded capacity |
+| `/var/lib` | `/`, `/var`, `/var/lib` | Unique longest ancestor, descriptor mount ID/inode binding, bounded capacity |
 
 Given a separate mounted `/var` subvolume, inventory reports its actual device
 for `/var/lib` while retaining the root's separate identity. Given conflicting
-mount entries or a mismatched device, inventory refuses and verifies shutdown.
+mount entries or a mismatched descriptor mount ID, inventory refuses and verifies
+shutdown. Given Btrfs device aliases with a matching descriptor mount ID and inode,
+inventory preserves both observed device values without claiming separate space.
 The mount-selection table provides the visual evidence for this local identity
 contract; the existing storage ownership table still governs all native caps.
 
