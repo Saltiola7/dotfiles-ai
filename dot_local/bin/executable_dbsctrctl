@@ -6276,6 +6276,8 @@ def command_start(args):
     with registration_lock(root, args):
         record = start_cycle(root, args, plan)
     print(record["cycle_id"])
+    return {"validation_registration": {"worktree": root.resolve(), "cycle": record["cycle_id"],
+        "feedback_target": getattr(args, "validation_feedback_target", None)}}
 
 
 def require_legacy_start_network(root):
@@ -6599,6 +6601,8 @@ def begin_registration(args):
         "worktree": str(worktree), "upstream": target,
         **({"initiative": initiative} if initiative is not None else {}),
     }, sort_keys=True))
+    return {"validation_registration": {"worktree": worktree.resolve(), "cycle": record["cycle_id"],
+        "feedback_target": getattr(args, "validation_feedback_target", None)}}
 
 
 def cycle_runtime_locator(runtime, worktree, source):
@@ -18564,8 +18568,105 @@ def command_gate_commit(args):
     return {"worktree": root.resolve(), "cycle": record["cycle_id"], "head": commit, "gates": list(args.gates)}
 
 
+def managed_validation_enabled(*, automatic: bool = False):
+    """Inspect only the private feature flag before optional imports or Git."""
+    if type(automatic) is not bool:
+        raise RuntimeError("continuous_validation_origin_invalid")
+    policy_path = Path.home() / ".config/dotfiles-ai/continuous-validation-policy.json"
+    if not os.path.lexists(policy_path):
+        return False
+    if (any(parent.is_symlink() for parent in (policy_path, *policy_path.parents))
+            or not policy_path.is_absolute()):
+        raise RuntimeError("continuous_validation_policy_unavailable")
+    descriptor = os.open(policy_path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1
+                or info.st_mode & 0o077 or info.st_size > 1024 * 1024):
+            raise RuntimeError("continuous_validation_policy_unavailable")
+        selected = json.loads(stream.read(1024 * 1024 + 1), object_pairs_hook=no_duplicate_keys)
+    if not isinstance(selected, dict):
+        raise RuntimeError("continuous_validation_policy_unavailable")
+    return selected.get("enabled") is True and not (automatic and selected.get("enrollment") == "explicit-only")
+
+def managed_validation_action(action, event):
+    """Bind optional delegation to one real managed owner after policy admission."""
+    automatic = action == "enroll" and event.get("automatic", False)
+    if not managed_validation_enabled(automatic=automatic):
+        return {"status": "disabled", "advisory": True}
+    policy_path = Path.home() / ".config/dotfiles-ai/continuous-validation-policy.json"
+    source = Path(__file__).resolve().parents[2] / "private_dot_config/dotfiles-ai"
+    selected = source if (source / "continuous_validation/cli.py").is_file() else Path.home() / ".config/dotfiles-ai"
+    previous_path = sys.path[:]
+    try:
+        selected = selected.resolve(strict=True)
+        package = selected / "continuous_validation"
+        if package.resolve(strict=True) != package or any(
+                not stat.S_ISREG((package / name).lstat().st_mode) for name in ("__init__.py", "cli.py")):
+            raise RuntimeError("continuous_validation_owner_unavailable")
+
+        def validate_cached_owner():
+            for name, module in tuple(sys.modules.items()):
+                if name == "continuous_validation" or name.startswith("continuous_validation."):
+                    location = getattr(module, "__file__", None)
+                    if not isinstance(location, str) or not Path(location).resolve(strict=True).is_relative_to(package):
+                        raise RuntimeError("continuous_validation_owner_unavailable")
+
+        validate_cached_owner()
+        sys.path.insert(0, str(selected))
+        owner = __import__("continuous_validation.cli", fromlist=["managed_action"])
+        validate_cached_owner()
+        if Path(owner.__file__).resolve(strict=True) != package / "cli.py":
+            raise RuntimeError("continuous_validation_owner_unavailable")
+        return owner.managed_action(action, worktree=event["worktree"], cycle=event["cycle"], policy_path=policy_path,
+            feedback_target=event.get("feedback_target"), gate=event.get("gate"), purpose=event.get("purpose"),
+            expected_ids=event.get("expected_ids"), head=event.get("head"), checkpoint_id=event.get("checkpoint_id"),
+            lifecycle_path=Path(__file__), automatic=automatic)
+    except Exception:
+        raise RuntimeError("continuous_validation_owner_unavailable") from None
+    finally:
+        sys.path[:] = previous_path
+
+def optional_validation_registration(event):
+    """Publish a genuinely new task only after lifecycle locks have closed."""
+    try:
+        managed_validation_action("enroll", {**event, "automatic": True})
+    except Exception:
+        print("continuous_validation_enrollment_unavailable", file=sys.stderr)
+
+def command_validation_checkpoint(args):
+    if not managed_validation_enabled():
+        print(json.dumps({"status": "disabled", "advisory": True}))
+        return
+    root = root_dir()
+    _, record = load(root)
+    result = managed_validation_action("checkpoint", {"worktree": root.resolve(), "cycle": record["cycle_id"],
+        "gate": args.gate, "purpose": args.purpose, "expected_ids": args.expected_test_id})
+    print(json.dumps(result, sort_keys=True))
+
+def command_validation_opt_out(args):
+    if not managed_validation_enabled():
+        print(json.dumps({"status": "disabled", "advisory": True}))
+        return
+    root = root_dir()
+    _, record = load(root)
+    print(json.dumps(managed_validation_action("opt-out", {"worktree": root.resolve(), "cycle": record["cycle_id"]}),
+                     sort_keys=True))
+
+
 def optional_shadow_checkpoint(checkpoint):
     """Bounded optional enqueue after lifecycle locks; missing binding is inert."""
+    try:
+        gate = max(checkpoint["gates"], key=GATES.index)
+        purpose = ("artifact" if gate in {"domain", "behavior", "spec"} else "regression" if gate == "refactor"
+            else "final-reconcile" if gate in {"review_integrate", "release", "deploy", "operate", "maintain_retire"}
+            else "green-validation")
+        result = managed_validation_action("checkpoint", {**checkpoint, "gate": gate, "purpose": purpose,
+            "checkpoint_id": "gate-" + checkpoint["head"] + "-" + gate})
+        if result.get("status") not in {"disabled", "not_enrolled", "legacy_enrolled"}:
+            return
+    except Exception:
+        print("continuous_validation_checkpoint_unavailable", file=sys.stderr)
     registry = Path.home() / ".local/state/dotfiles-ai/continuous-validation/checkpoint-bindings"
     if not os.path.lexists(registry):
         return
@@ -20649,6 +20750,7 @@ def parser():
     start.add_argument("--risk", required=True, choices=("routine", "elevated", "critical"))
     start.add_argument("--delivery-intent", required=True, choices=DELIVERY_INTENTS)
     start.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
+    start.add_argument("--validation-feedback-target", help="private qualified exact-session target JSON")
     start.add_argument("--github-account")
     start.add_argument("--github-repository")
     start.add_argument("--base-branch", default="main")
@@ -20659,6 +20761,7 @@ def parser():
     begin.add_argument("--risk", required=True, choices=("routine", "elevated", "critical"))
     begin.add_argument("--delivery-intent", required=True, choices=DELIVERY_INTENTS)
     begin.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
+    begin.add_argument("--validation-feedback-target", help="private qualified exact-session target JSON")
     begin.add_argument("--github-account")
     begin.add_argument("--github-repository")
     begin.add_argument("--forge-provider")
@@ -20706,6 +20809,15 @@ def parser():
     orphan.add_argument("--preview", action="store_true")
     orphan.add_argument("--expected-state")
     orphan.set_defaults(func=command_workspace_recover_orphan)
+    validation = commands.add_parser("validation-checkpoint")
+    validation.add_argument("--gate", required=True, choices=GATES)
+    validation.add_argument("--purpose", required=True,
+        choices=("artifact", "red-proof", "green-validation", "regression", "final-reconcile"))
+    validation.add_argument("--expected-test-id", action="append", default=[])
+    validation.set_defaults(func=command_validation_checkpoint)
+    validation = commands.add_parser("validation-opt-out")
+    validation.add_argument("--on", action="store_true", required=True)
+    validation.set_defaults(func=command_validation_opt_out)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=command_status)
@@ -21255,6 +21367,7 @@ def agent_analytics_output(action):
 def main():
     capture = None
     checkpoint = None
+    registration = None
     quiet_local = sys.argv[1:2] == ["complete-local"]
     try:
         if forgejo_internal_main(sys.argv[1:]):
@@ -21263,6 +21376,10 @@ def main():
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
         args = parser().parse_args()
+        if args.command in {"validation-checkpoint", "validation-opt-out"}:
+            # Advisory queue mutation owns private locks, not formal gate locks.
+            args.func(args)
+            return 0
         if args.command in {"initiative-amend", "lineage-recover"}:
             # This command owns offline admission, locks and bounded error output.
             # No generic telemetry, continuation transport or credential discovery.
@@ -21288,8 +21405,12 @@ def main():
                 outcome = args.func(args)
                 if args.command == "gate-commit":
                     checkpoint = outcome
+                elif args.command in {"begin", "start"} and isinstance(outcome, dict):
+                    registration = outcome.get("validation_registration")
             if not quiet_local:
                 workflow_operation_finish(capture, True)
+        if registration is not None:
+            optional_validation_registration(registration)
         if checkpoint is not None:
             optional_shadow_checkpoint(checkpoint)
     except SourceIndexUnavailable:
