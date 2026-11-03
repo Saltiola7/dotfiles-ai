@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import sys
 import time
+import traceback
 import unittest
 from unittest import mock
 import uuid
@@ -592,6 +593,155 @@ raise SystemExit(module.main())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, "")
         self.assertEqual(result.stdout, self.basic_response())
+
+    @unittest.skipUnless(os.name == "posix" and Path("/bin/ps").is_file(),
+                         "requires native observation of an unreaped owned child")
+    def test_completed_child_preserves_safe_output_error_after_group_disappears(self):
+        real_popen, real_killpg = subprocess.Popen, os.killpg
+        children, signals = [], []
+
+        def acquire(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        def cleanup():
+            for child in children:
+                if child.poll() is None:
+                    child.kill()
+                child.wait(timeout=2)
+                for stream in (child.stdin, child.stdout, child.stderr):
+                    if stream is not None:
+                        stream.close()
+
+        self.addCleanup(cleanup)
+
+        def observe_then_signal(group, sent):
+            self.assertEqual(len(children), 1)
+            self.assertEqual(group, children[0].pid)
+            signals.append(sent)
+            if sent == self.core.signal.SIGKILL:
+                # The original output producer stays unchanged. Observe its
+                # natural exit without reaping before attempting the real signal.
+                deadline = time.monotonic() + 2
+                while True:
+                    with real_popen(["/bin/ps", "-o", "stat=", "-p", str(group)],
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE) as observer:
+                        state, _ = observer.communicate(timeout=.5)
+                    if observer.returncode == 0 and state.strip().startswith(b"Z"):
+                        break
+                    if time.monotonic() >= deadline:
+                        self.fail("owned output producer did not reach the exit observation")
+                    time.sleep(.001)
+                self.assertIsNone(children[0].returncode)
+            return real_killpg(group, sent)
+
+        with mock.patch.object(self.core.subprocess, "Popen", side_effect=acquire), \
+                mock.patch.object(self.core.os, "killpg", side_effect=observe_then_signal):
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport output unavailable$"):
+                self.core._forgejo_run([sys.executable, "-I", "-B", "-c",
+                                       "import sys; sys.stdout.write('x' * 70000)"],
+                                      cwd=self.root, env=self.core._forgejo_environment(), timeout=2)
+        self.assertEqual(signals[0], self.core.signal.SIGKILL)
+        for child in children:
+            self.assertIsNotNone(child.returncode)
+            self.assertTrue(all(stream.closed for stream in (child.stdin, child.stdout, child.stderr)
+                                if stream is not None))
+            with self.assertRaises(ProcessLookupError):
+                real_killpg(child.pid, 0)
+
+    @contextlib.contextmanager
+    def cleanup_subject(self, *, wait_failure=False, close_failure=False):
+        real_popen = subprocess.Popen
+        subjects = []
+
+        class CloseOnce:
+            def __init__(self, stream):
+                self.stream, self.failed = stream, False
+
+            def __getattr__(self, name):
+                return getattr(self.stream, name)
+
+            def close(self):
+                self.stream.close()
+                if not self.failed:
+                    self.failed = True
+                    raise OSError("PRIVATE_CLEANUP_SENTINEL")
+
+        def acquire(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            subject = {"child": child, "wait": child.wait,
+                       "streams": (child.stdin, child.stdout, child.stderr), "wait_timeouts": []}
+            subjects.append(subject)
+            if wait_failure:
+                def cannot_confirm_wait(timeout=None):
+                    subject["wait_timeouts"].append(timeout)
+                    self.assertIsNotNone(timeout, "cleanup wait must be bounded")
+                    self.assertLessEqual(timeout, 2)
+                    raise subprocess.TimeoutExpired("PRIVATE_CLEANUP_SENTINEL", timeout)
+                child.wait = cannot_confirm_wait
+            if close_failure:
+                child.stdout = CloseOnce(child.stdout)
+            return child
+
+        try:
+            with mock.patch.object(self.core.subprocess, "Popen", side_effect=acquire):
+                yield subjects
+        finally:
+            for subject in subjects:
+                child = subject["child"]
+                if child.poll() is None:
+                    child.kill()
+                subject["wait"](timeout=2)
+                for stream in subject["streams"]:
+                    if stream is not None:
+                        stream.close()
+
+    def test_cleanup_denial_requires_confirmed_group_absence(self):
+        for probe in ("present", "unverifiable"):
+            signals = []
+
+            def denied_or_unknown(group, sent):
+                signals.append(sent)
+                if sent == self.core.signal.SIGKILL or probe == "unverifiable":
+                    raise PermissionError(1, "PRIVATE_CLEANUP_SENTINEL")
+                self.assertEqual(sent, 0)
+                return None
+
+            with self.subTest(probe=probe), self.cleanup_subject() as subjects, \
+                    mock.patch.object(self.core.os, "killpg", side_effect=denied_or_unknown):
+                with self.assertRaisesRegex(RuntimeError, "^Forgejo transport unavailable$") as failure:
+                    self.core._forgejo_run([sys.executable, "-I", "-B", "-c",
+                                           "import time; time.sleep(10)"],
+                                          cwd=self.root, env=self.core._forgejo_environment(), timeout=.05)
+                self.assertEqual(signals, [self.core.signal.SIGKILL, 0])
+                self.assertNotIn("PRIVATE_CLEANUP_SENTINEL", "".join(traceback.format_exception(failure.exception)))
+                self.assertIsInstance(failure.exception.__context__, RuntimeError)
+                self.assertIn("timed out", str(failure.exception.__context__))
+                for subject in subjects:
+                    self.assertIsNotNone(subject["child"].returncode)
+                    self.assertTrue(all(stream.closed for stream in subject["streams"] if stream is not None))
+
+    def test_cleanup_reap_failure_is_bounded_and_sanitized(self):
+        with self.cleanup_subject(wait_failure=True) as subjects:
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport unavailable$") as failure:
+                self.core._forgejo_run([sys.executable, "-I", "-B", "-c", "import time; time.sleep(10)"],
+                                      cwd=self.root, env=self.core._forgejo_environment(), timeout=.05)
+            self.assertNotIn("PRIVATE_CLEANUP_SENTINEL", "".join(traceback.format_exception(failure.exception)))
+            self.assertIsInstance(failure.exception.__context__, RuntimeError)
+            for subject in subjects:
+                self.assertTrue(subject["wait_timeouts"])
+                self.assertTrue(all(stream.closed for stream in subject["streams"] if stream is not None))
+
+    def test_cleanup_stream_failure_cannot_return_success(self):
+        with self.cleanup_subject(close_failure=True) as subjects:
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport unavailable$") as failure:
+                self.core._forgejo_run([sys.executable, "-I", "-B", "-c", "print('{}')"],
+                                      cwd=self.root, env=self.core._forgejo_environment(), timeout=2)
+            self.assertNotIn("PRIVATE_CLEANUP_SENTINEL", "".join(traceback.format_exception(failure.exception)))
+            for subject in subjects:
+                self.assertIsNotNone(subject["child"].returncode)
+                self.assertTrue(all(stream.closed for stream in subject["streams"] if stream is not None))
 
     def test_process_output_and_timeout_are_bounded_and_sanitized(self):
         cases = [("import sys; sys.stdout.write('x' * 70000)", 2, "output unavailable"),
