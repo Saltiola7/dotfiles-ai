@@ -255,6 +255,18 @@ The mechanism profile cannot admit a pilot worker. Selection parsing is closed,
 rejects duplicate/unknown fields and aliases, and never executes caller-supplied
 commands. Native calls use minimal environments, bounded output and deadlines.
 
+The implemented inspection entrypoint is
+`tests/probe_openshell_storage_native.py --selection PRIVATE_JSON`.
+Its schema version 1 accepts exactly `profile`, `pilot_root`, `run_root`,
+`image_path`, `image_device`, `image_inode`, `container_uuid`, `runtime_uuid`
+and `cache_uuid`, in addition to `schema_version`. Image device and inode are
+filesystem identity integers; native disk identifiers come from independent
+collection. Mount locations derive from the fixed profile, never caller-selected
+paths. Only `--operation inspect` is accepted. Exit zero means the observed
+topology passed inspection; `allocation_enabled` remains false and
+`inventory_qualification` remains `not_run`. This increment does not qualify
+aggregate retained-VM counting, external retention or a running worker.
+
 | Binding | Independent observation required |
 |---|---|
 | Image and attachment | Private single-link backing file identity; exact native `image-path`, `owner-uid`, writable state and `blockcount * blocksize`; one matching attachment and no shadow layer |
@@ -267,7 +279,9 @@ commands. Native calls use minimal environments, bounded output and deadlines.
 its actual attachment and sole physical store to the selected APFS container,
 runtime volume and quota-limited cache volume. Effective process paths must use
 those mounted devices. The underlying host volume supplies the free-space
-observation. Canonical source: this native-binding contract and the aggregate
+observation. A successful inspection reports verified topology while allocation
+remains disabled; aggregate inventory and the separate operation guard must be
+qualified before that state can change. Canonical source: this native-binding contract and the aggregate
 ceilings above. Owner: distribution maintainers. Change trigger: native schema,
 image format, mount layout, device identity, accounting or operation changes.
 
@@ -281,7 +295,7 @@ all other mount crossings remain refused. Count backing allocation once rather
 than adding the same bytes again through mounted contents. Keep the conservative
 46 GiB fresh-admission requirement until remaining-growth accounting is qualified.
 
-`allocation_guard(selection, operation)` owns the exclusive pilot lock from fresh
+The future `qualified_allocation_guard(selection, operation)` owns the exclusive pilot lock from fresh
 collection through the exact admitted operation and post-operation identity
 checks. Operation descriptors are closed: `create` requires zero retained VMs;
 `start` requires the one exact selected `q`; `workload_exec` requires that same
@@ -289,6 +303,8 @@ running worker and qualified generation. Each checks the 20 GiB virtual-disk
 ceiling and applicable resource identity. Unknown operations, clone, resize and
 arbitrary native arguments remain refused after quota support is implemented.
 Read-only inventory and exact stop/delete retain their separate recovery route.
+Keep the existing legacy `allocation_guard(root)` unconditionally refusing;
+qualifying the new mounted layout cannot enable historical preparation scripts.
 
 Validation must cover replaced backing files or mounts, foreign physical stores,
 duplicate attachments, shadow layers, invalid quotas, escaped controller paths,
@@ -312,8 +328,20 @@ identified 768 MiB image admitted two volumes. Its 32 MiB cache quota produced
 After cache unmount, native identity checks refused a write to the underlying
 directory and its sentinel remained unchanged. The fixture was detached and
 retired; private evidence owns exact identities and observations. This qualifies
-the tested quota mechanism only, not the production collector, real-size topology,
+the tested quota mechanism only; it does not itself qualify the collector, real-size topology,
 VM startup or OpenShell socket exclusion.
+
+A separately identified 24 GiB image then established the full-size runtime and
+2 GiB cache layout with the read-only collector. The cache mount command timed
+out; independent fresh native observations subsequently confirmed the exact
+intended attachment, volumes and mounts without retrying that mutation. The
+timeout remains retained as unavailable command evidence. After cache unmount,
+the collector refused inspection before any write to the underlying directory;
+that directory remained unchanged. The runtime volume was unmounted, the exact
+image detached and the disposable image removed with compact evidence retained.
+No VM was created or started. This proves the observed storage layout and
+missing-mount refusal, while allocation admission, Lima compatibility and the
+runtime security matrix remain unqualified.
 
 ## Required behaviors
 
@@ -819,6 +847,25 @@ and [native exec](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/crates/openshe
 This is an investigation candidate, not a stock setting, implemented patch or
 qualified image. It is not selected for deployment by this document.
 
+The source-only review proposes two conditional denials in
+`child_seccomp::prepare`: use the existing `append_argument_equal_deny` helper
+for `libc::SYS_socket` and `libc::SYS_socketpair`, with argument zero equal to
+`libc::AF_UNIX`, returning `EPERM`. Update the module contract that currently
+says mediated networking calls are left alone. Keep all existing hardening and
+the descriptor close-on-exec sweep. The trusted runtime must not receive these
+new workload rules. A resulting image needs its own source, patch, build and
+artifact identities; it cannot claim to be an unchanged upstream release.
+
+The November 3 upstream [v0.1.7 release](https://github.com/NVIDIA/OpenShell/releases/tag/v0.1.7)
+does not remove this decision. Its
+[child filter](https://github.com/NVIDIA/OpenShell/blob/v0.1.7/crates/openshell-sandbox/src/linux/child_seccomp.rs),
+[network broker](https://github.com/NVIDIA/OpenShell/blob/v0.1.7/crates/openshell-sandbox/src/network_broker.rs)
+and [control listener](https://github.com/NVIDIA/OpenShell/blob/v0.1.7/crates/openshell-sandbox-backend/src/runtime_initiated.rs)
+retain the relevant behavior from v0.1.6. A version upgrade alone is therefore
+not evidence of strict transport exclusion. The release also updates vulnerable
+dependencies; select and review the actual build baseline before any new native
+trial instead of silently changing the pinned qualification generation.
+
 Required proof covers every initial/native-exec route with and without a PTY,
 descendants, descriptor inheritance and acquisition, restart and reconnect.
 Descriptors above standard input/output/error must not survive exec; those three
@@ -938,7 +985,7 @@ Initiative receipt; failed feasibility reopens the affected design decision.
 | Concern | Decision | Review question |
 |---|---|---|
 | Boundary | required: ownership table and Text Equivalent | Which actor may control each resource? |
-| Interaction | required: ordered qualification table, native-storage operation contract and Text Equivalents | What must be verified before execution and recovery? |
+| Interaction | required: ordered qualification table, read-only native inspection followed by separate operation admission, and Text Equivalents | What must be verified before execution and recovery? |
 | State | required: ordered qualification and guard-state tables with Text Equivalents | Which observations distinguish admission, failure, restoration, pause, resume and restart? |
 | Data/trust | required: ownership table and Text Equivalent | Can workloads obtain host authority or alter evidence? |
 | Schema | required: private-artifact and native-storage binding tables with Text Equivalents | Which independently produced identities must match before results can be combined? |

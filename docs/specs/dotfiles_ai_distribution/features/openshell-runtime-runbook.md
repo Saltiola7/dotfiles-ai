@@ -24,6 +24,15 @@ limits remain unqualified. A low-space refusal does not authorize deleting other
 application data or selecting another volume. The operator retained the current
 external storage selection and will free capacity before native qualification.
 
+For a separately prepared image, use the read-only native topology inspector:
+`python3 tests/probe_openshell_storage_native.py --selection PRIVATE_JSON`.
+The private selection contains the fixed profile, roots, backing-file identity
+and expected container/volume UUIDs described in the runtime contract. This
+command does not mount, resize, create or start anything. Exit zero and
+`topology_verified: true` qualify only the observed image/mount bindings;
+`allocation_enabled: false` and `inventory_qualification: not_run` remain explicit.
+Never substitute that report for aggregate inventory or VM admission.
+
 After capacity is available, the next native storage proof uses an owned tiny
 image before any VM: verify its attachment and physical-store chain, establish
 a separate cache quota, demonstrate bounded quota exhaustion while the runtime
@@ -56,6 +65,14 @@ volume unmounts precede `hdiutil detach` of the verified whole image device;
 the current `diskutil image` command has no detach subcommand. Confirm attachment
 absence and unchanged backing-file identity before removing the disposable image.
 Never force detach or select the physical SSD container by a guessed disk number.
+
+Preserve a timed-out mount command as unavailable even if a later observation
+finds the intended mount present. Inspect exact file, attachment, container and
+volume identities independently before further action; do not blindly retry or
+interpret cancellation of the command as proof that the native operation stopped.
+Storage-only qualification retires its owned image after positive and
+missing-mount checks. It creates no worker and cannot reuse an earlier report to
+admit a later attachment or worker generation.
 
 ## Prerequisites and artifact admission
 
