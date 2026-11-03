@@ -10,6 +10,7 @@ from pathlib import Path
 import plistlib
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -111,15 +112,15 @@ def fixture(native, tmp_path, monkeypatch):
 
     original = native._observe_paths
 
-    def paths(value):
-        observed = original(value)
+    def paths(value, **kwargs):
+        observed = original(value, **kwargs)
         return tuple(replace(item, device=9002 if item.path == cache else 9001)
                      if item.path == runtime or runtime in item.path.parents else item
                      for item in observed)
 
     monkeypatch.setattr(native, "run_command", command)
     monkeypatch.setattr(native, "_observe_paths", paths)
-    monkeypatch.setattr(native, "_host_free", lambda path: 64 * 1024**3)
+    monkeypatch.setattr(native, "_host_free", lambda path, **kwargs: 64 * 1024**3)
     return selection, selected, responses, calls
 
 
@@ -257,9 +258,9 @@ def test_filesystem_aliases_refuse_before_native_calls(native, fixture, kind):
 def test_missing_cache_mount_cannot_fall_back_to_runtime_device(native, fixture, monkeypatch):
     selection, _, _, _ = fixture
     original = native._observe_paths
-    monkeypatch.setattr(native, "_observe_paths", lambda value: tuple(
+    monkeypatch.setattr(native, "_observe_paths", lambda value, **kwargs: tuple(
         replace(item, device=9001) if item.path == selection.cache_path else item
-        for item in original(value)))
+        for item in original(value, **kwargs)))
     result = native.validate_native_storage(selection, native.collect_native_storage(selection), "inspect")
     assert not result.topology_verified
 
@@ -269,12 +270,12 @@ def test_path_replacement_during_collection_refuses(native, fixture, monkeypatch
     original = native._observe_paths
     count = 0
 
-    def changed(value):
+    def changed(value, **kwargs):
         nonlocal count
         count += 1
         return tuple(replace(item, inode=item.inode + 1)
                      if count > 1 and item.path == selection.cache_path else item
-                     for item in original(value))
+                     for item in original(value, **kwargs))
 
     monkeypatch.setattr(native, "_observe_paths", changed)
     observation = native.collect_native_storage(selection)
@@ -285,7 +286,7 @@ def test_host_reserve_uses_parent_filesystem(native, fixture, monkeypatch):
     selection, _, _, _ = fixture
     seen = []
 
-    def free(path):
+    def free(path, **kwargs):
         seen.append(path)
         return 46 * 1024**3 - 1
 
@@ -412,3 +413,89 @@ def test_cli_only_accepts_inspect_operation(native, tmp_path):
                               "--operation", "start"], capture_output=True, timeout=5)
     assert outcome.returncode == 2
     assert b"invalid choice" in outcome.stderr
+
+
+def test_expired_deadline_refuses_before_native_or_filesystem_collection(native, fixture, monkeypatch):
+    selection, _, _, calls = fixture
+    monkeypatch.setattr(native, "time", SimpleNamespace(monotonic=lambda: 100.0), raising=False)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Expired collection reached filesystem inspection")
+
+    monkeypatch.setattr(native, "_observe_paths", forbidden)
+    with pytest.raises(native.Refusal, match="storage_deadline"):
+        native.collect_native_storage(selection, deadline=100.0)
+    assert not calls
+
+
+@pytest.mark.parametrize("deadline", [True, 100, float("nan"), float("inf"), float("-inf"), "100"])
+def test_deadline_requires_finite_float(native, fixture, deadline):
+    selection, _, _, calls = fixture
+    with pytest.raises(native.Refusal, match="invalid_deadline"):
+        native.collect_native_storage(selection, deadline=deadline)
+    assert not calls
+
+
+@pytest.mark.parametrize("deadline,first,last", [(103.5, 3.5, 1.75), (1000.0, 10.0, 10.0)])
+def test_native_query_timeouts_share_remaining_deadline(native, fixture, monkeypatch, deadline, first, last):
+    selection, _, _, calls = fixture
+    clock = [100.0]
+    monkeypatch.setattr(native, "time", SimpleNamespace(monotonic=lambda: clock[0]), raising=False)
+    original = native.run_command
+
+    def timed(*args, **kwargs):
+        result = original(*args, **kwargs)
+        clock[0] += 0.25
+        return result
+
+    monkeypatch.setattr(native, "run_command", timed)
+    observation = native.collect_native_storage(selection, deadline=deadline)
+    assert native.validate_native_storage(selection, observation, "inspect").topology_verified
+    assert calls[0][1]["timeout"] == first and calls[-1][1]["timeout"] == last
+
+
+@pytest.mark.parametrize("expire_on", [1, 8])
+def test_expiry_during_native_query_sequence_never_returns_success(native, fixture, monkeypatch, expire_on):
+    selection, _, _, calls = fixture
+    clock = [100.0]
+    monkeypatch.setattr(native, "time", SimpleNamespace(monotonic=lambda: clock[0]), raising=False)
+    original = native.run_command
+
+    def timed(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if len(calls) == expire_on:
+            clock[0] = 101.0
+        return result
+
+    monkeypatch.setattr(native, "run_command", timed)
+    with pytest.raises(native.Refusal, match="storage_deadline"):
+        native.collect_native_storage(selection, deadline=101.0)
+    assert len(calls) == expire_on
+
+
+def test_path_observation_checks_deadline_between_filesystem_steps(native, fixture, monkeypatch):
+    selection, _, _, _ = fixture
+    clock = [100.0]
+    seen = []
+    monkeypatch.setattr(native, "time", SimpleNamespace(monotonic=lambda: clock[0]), raising=False)
+    original = Path.lstat
+
+    def expires(path, *args, **kwargs):
+        result = original(path, *args, **kwargs)
+        seen.append(path)
+        clock[0] = 101.0
+        return result
+
+    monkeypatch.setattr(Path, "lstat", expires)
+    with pytest.raises(native.Refusal, match="storage_deadline"):
+        native._observe_paths(selection, deadline=101.0)
+    assert seen == [selection.pilot_root]
+
+
+@pytest.mark.parametrize("mode", [2**32, 2**63 - 1])
+def test_large_stat_mode_refuses_without_overflow(native, fixture, mode):
+    selection, _, _, _ = fixture
+    observed = native.collect_native_storage(selection)
+    records = (replace(observed.before[0], mode=mode), *observed.before[1:])
+    report = native.validate_native_storage(selection, replace(observed, before=records, after=records), "inspect")
+    assert not report.topology_verified

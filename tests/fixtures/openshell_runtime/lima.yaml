@@ -1,7 +1,11 @@
 # Declaration only. A private exact-target copy may add the admitted synthetic
 # Worktrunk source share; never add the host home or a parent repository tree.
 minimumLimaVersion: "2.2.1"
+os: Linux
 vmType: vz
+vmOpts:
+  vz:
+    diskImageFormat: raw
 arch: aarch64
 cpus: 4
 memory: "8GiB"

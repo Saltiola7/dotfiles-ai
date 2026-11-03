@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/NVIDIA/OpenShell",
+    "tag": "v0.1.6",
+    "commit": "ac7f615cd12d5cc49cb16eb1f5f10ffeb1e90f47",
+    "source": {
+      "path": "crates/openshell-sandbox/src/linux/child_seccomp.rs",
+      "fixture": "upstream/child_seccomp.rs",
+      "git_blob": "6fc9f67f73ebda29d3dccadf8ea0ee74b898e1f5",
+      "sha256": "14c06d0d2c33a56b9a075f469a16436b92cc101186ef19a00a4f1ab84871fa0f",
+      "size_bytes": 21098,
+      "url": "https://github.com/NVIDIA/OpenShell/blob/ac7f615cd12d5cc49cb16eb1f5f10ffeb1e90f47/crates/openshell-sandbox/src/linux/child_seccomp.rs"
+    },
+    "license": {
+      "path": "LICENSE",
+      "fixture": "upstream/LICENSE",
+      "git_blob": "f13d24c3fa482d61605d600e5ac1248799bd4107",
+      "sha256": "d07c0367e2861e7fe70fa1b679f879f4fa2f9138ade4457d44ecf8b2e135bb45",
+      "size_bytes": 11431,
+      "url": "https://github.com/NVIDIA/OpenShell/blob/ac7f615cd12d5cc49cb16eb1f5f10ffeb1e90f47/LICENSE"
+    },
+    "license_spdx": "Apache-2.0"
+  },
+  "patch": {
+    "path": "child-unix-sockets.patch",
+    "sha256": "27d68bf08dc74a87d28e55e636f54a3541d38c733499fd81f953fa009a03463d",
+    "target": "crates/openshell-sandbox/src/linux/child_seccomp.rs",
+    "patched_sha256": "259e77596f3f70ee28bdd8672f4747f3462f4c727b609e92d782cf749782ccb3"
+  },
+  "experimental_identity": {
+    "name": "openshell-v0.1.6+dotfiles-ai.child-unix-deny.1",
+    "artifact_kind": "source-only-patch",
+    "unchanged_upstream_release": false
+  }
+}

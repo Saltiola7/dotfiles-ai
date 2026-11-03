@@ -1,0 +1,151 @@
+diff --git a/crates/openshell-sandbox/src/linux/child_seccomp.rs b/crates/openshell-sandbox/src/linux/child_seccomp.rs
+--- a/crates/openshell-sandbox/src/linux/child_seccomp.rs
++++ b/crates/openshell-sandbox/src/linux/child_seccomp.rs
+@@ -5,8 +5,12 @@
+ //!
+ //! The program is built before `fork` and installed by the workload launcher
+ //! after the child has inherited the network user-notification filter. It does
+-//! not allocate while installing and deliberately leaves mediated networking
+-//! syscalls alone so the older `USER_NOTIF` action can still win.
++//! not allocate while installing. Workload Unix socket and socket-pair creation
++//! is denied; brokered INET networking remains available to the older
++//! `USER_NOTIF` filter. The trusted runtime does not install this child filter.
++//!
++//! This does not revoke existing descriptors: launchers must provide only pipes
++//! or PTYs on stdio, and the descriptor sweep marks every higher FD close-on-exec.
+
+ #![allow(unsafe_code)]
+
+@@ -193,6 +197,13 @@
+         append_unconditional_deny(&mut instructions, syscall)?;
+     }
+
++    // Workload children must not create a transport to the runtime's internal
++    // Unix control socket. Match the domain, independent of socket type/flags.
++    // The trusted runtime keeps its Unix transport outside this child filter.
++    for syscall in [libc::SYS_socket, libc::SYS_socketpair] {
++        append_argument_equal_deny(&mut instructions, syscall, 0, libc::AF_UNIX.cast_unsigned())?;
++    }
++
+     // Modern launchers fall back from clone3 and pidfd_open only for ENOSYS.
+     // Returning EPERM here breaks otherwise portable process creation. The
+     // fallback paths remain constrained: namespace creation is denied from
+@@ -533,6 +544,118 @@
+     }
+
+     #[test]
++    fn filter_denies_unix_creation_only_in_workload_children() {
++        const CHILD_MARKER: &str = "OPENSHELL_CHILD_UNIX_DENIAL_PROBE";
++        const CHECKED: &str = "openshell-child-unix-denial-checked";
++        const TEST_NAME: &str =
++            "linux::child_seccomp::tests::filter_denies_unix_creation_only_in_workload_children";
++        if let Ok(mode) = std::env::var(CHILD_MARKER) {
++            assert!(matches!(mode.as_str(), "filtered" | "inherited"));
++            if mode == "filtered" {
++                // The parent is the trusted test process. Never install this
++                // thread-local, irreversible filter in the outer test harness.
++                let parent = unsafe { libc::getppid() };
++                let mut filter = prepare(u32::try_from(parent).expect("positive parent PID"))
++                    .expect("prepare child hardening filter");
++                filter.install().expect("install child hardening filter");
++            }
++            // Linux treats domain as an int. Nonzero upper argument bits must
++            // not bypass the check on either supported 64-bit architecture.
++            let unix = u64::from(libc::AF_UNIX.cast_unsigned());
++            for domain in [unix, unix | (1_u64 << 32)] {
++                for kind in [libc::SOCK_STREAM, libc::SOCK_DGRAM, libc::SOCK_SEQPACKET] {
++                    for flags in [
++                        0,
++                        libc::SOCK_CLOEXEC,
++                        libc::SOCK_NONBLOCK,
++                        libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
++                    ] {
++                        // SAFETY: scalar socket arguments; the filter must
++                        // refuse the call before the kernel creates an FD.
++                        let result =
++                            unsafe { libc::syscall(libc::SYS_socket, domain, kind | flags, 0) };
++                        let error = io::Error::last_os_error().raw_os_error();
++                        assert_eq!(
++                            result, -1,
++                            "socket domain={domain} kind={kind} flags={flags}"
++                        );
++                        assert_eq!(error, Some(libc::EPERM));
++
++                        let mut pair = [-1_i32; 2];
++                        // SAFETY: pair is writable for both returned FDs.
++                        let result = unsafe {
++                            libc::syscall(
++                                libc::SYS_socketpair,
++                                domain,
++                                kind | flags,
++                                0,
++                                pair.as_mut_ptr(),
++                            )
++                        };
++                        let error = io::Error::last_os_error().raw_os_error();
++                        assert_eq!(result, -1, "socketpair kind={kind} flags={flags}");
++                        assert_eq!(error, Some(libc::EPERM));
++                        assert_eq!(pair, [-1, -1]);
++                    }
++                }
++            }
++            // The child filter must retain ordinary Internet socket creation
++            // and pipe IPC. Full broker policy is tested at the runtime layer.
++            let inet = rustix::net::socket(
++                rustix::net::AddressFamily::INET,
++                rustix::net::SocketType::STREAM,
++                None,
++            )
++            .expect("child filter preserves INET sockets");
++            drop(inet);
++            let mut pipe = [-1_i32; 2];
++            // SAFETY: pipe is writable for both returned descriptors.
++            assert_eq!(
++                unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) },
++                0
++            );
++            for fd in pipe {
++                // SAFETY: each successful pipe descriptor is owned here.
++                assert_eq!(unsafe { libc::close(fd) }, 0);
++            }
++            if mode == "filtered" {
++                let inherited =
++                    std::process::Command::new(std::env::current_exe().expect("test executable"))
++                        .args(["--exact", TEST_NAME, "--nocapture", "--test-threads=1"])
++                        .env(CHILD_MARKER, "inherited")
++                        .output()
++                        .expect("start descendant with inherited filter");
++                assert!(
++                    inherited.status.success(),
++                    "inherited child filter failed: {}",
++                    String::from_utf8_lossy(&inherited.stderr)
++                );
++                assert!(String::from_utf8_lossy(&inherited.stdout).contains(CHECKED));
++            }
++            println!("{CHECKED}");
++            return;
++        }
++
++        let trusted_unix = || {
++            socket2::Socket::pair(socket2::Domain::UNIX, socket2::Type::STREAM, None)
++                .expect("trusted parent keeps Unix socket creation")
++        };
++        drop(trusted_unix());
++        let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
++            .args(["--exact", TEST_NAME, "--nocapture", "--test-threads=1"])
++            .env(CHILD_MARKER, "filtered")
++            .output()
++            .expect("run isolated Unix denial test");
++        assert!(
++            output.status.success(),
++            "isolated Unix denial test failed: {}",
++            String::from_utf8_lossy(&output.stderr)
++        );
++        assert!(String::from_utf8_lossy(&output.stdout).contains(CHECKED));
++        drop(trusted_unix());
++    }
++
++    #[test]
+     fn filter_preserves_thread_and_process_creation() {
+         if std::env::var_os("OPENSHELL_CHILD_SECCOMP_CREATION_PROBE").is_some() {
+             let mut filter = prepare(std::process::id().saturating_add(1))

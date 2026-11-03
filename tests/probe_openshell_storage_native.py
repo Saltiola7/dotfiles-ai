@@ -10,11 +10,13 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict, dataclass, fields
 import json
+import math
 import os
 from pathlib import Path
 import plistlib
 import re
 import stat
+import time
 from xml.parsers.expat import ExpatError
 
 from probe_openshell_runtime import CommandResult, Refusal as CommandRefusal, run_command
@@ -199,6 +201,25 @@ def _number(value: object) -> int:
     return value
 
 
+def _mode(value: object) -> int:
+    value = _number(value)
+    if value > 0xffff:
+        raise Refusal("native_schema")
+    return value
+
+
+def _deadline_timeout(deadline: float | None) -> float:
+    """Check an absolute monotonic deadline and bound the next native call."""
+    if deadline is None:
+        return 10.0
+    if type(deadline) is not float or not math.isfinite(deadline):
+        raise Refusal("invalid_deadline")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise Refusal("storage_deadline")
+    return min(10.0, remaining)
+
+
 def _boolean(value: object) -> bool:
     if type(value) is not bool:
         raise Refusal("native_schema")
@@ -289,11 +310,13 @@ def _paths(selection: NativeStorageSelection) -> tuple[Path, ...]:
             *(home / name for name in ("tmp", "config", "data", "state", "cache")), selection.cache_path)
 
 
-def _observe_paths(selection: NativeStorageSelection) -> tuple[FileIdentity, ...]:
+def _observe_paths(selection: NativeStorageSelection, *, deadline: float | None = None) -> tuple[FileIdentity, ...]:
     result = []
     try:
         for path in _paths(selection):
+            _deadline_timeout(deadline)
             info = path.lstat()
+            _deadline_timeout(deadline)
             image = path == selection.image_path
             expected_mode = 0o600 if image else 0o700
             if (path.resolve(strict=True) != path or info.st_uid != os.getuid()
@@ -302,13 +325,16 @@ def _observe_paths(selection: NativeStorageSelection) -> tuple[FileIdentity, ...
                     or (image and (info.st_nlink != 1 or info.st_size != selection.image_bytes
                                    or (info.st_dev, info.st_ino) != (selection.image_device, selection.image_inode)))):
                 raise Refusal("storage_identity")
+            _deadline_timeout(deadline)
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | (0 if image else os.O_DIRECTORY))
             try:
+                _deadline_timeout(deadline)
                 opened = os.fstat(fd)
                 if (opened.st_dev, opened.st_ino, opened.st_mode) != (info.st_dev, info.st_ino, info.st_mode):
                     raise Refusal("storage_identity")
             finally:
                 os.close(fd)
+            _deadline_timeout(deadline)
             result.append(FileIdentity(path, info.st_dev, info.st_ino, info.st_mode, info.st_uid,
                                        info.st_nlink, info.st_size, _number(info.st_blocks) * 512))
     except (OSError, RuntimeError):
@@ -316,34 +342,42 @@ def _observe_paths(selection: NativeStorageSelection) -> tuple[FileIdentity, ...
     return tuple(result)
 
 
-def _host_free(root: Path) -> int:
+def _host_free(root: Path, *, deadline: float | None = None) -> int:
+    _deadline_timeout(deadline)
     try:
         fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
+            _deadline_timeout(deadline)
             space = os.fstatvfs(fd)
-            return _number(space.f_bavail) * _number(space.f_frsize)
+            available = _number(space.f_bavail) * _number(space.f_frsize)
         finally:
             os.close(fd)
     except OSError:
         raise Refusal("storage_unavailable") from None
+    _deadline_timeout(deadline)
+    return available
 
 
-def _query(selection: NativeStorageSelection, argv: list[str]) -> dict[str, object]:
+def _query(selection: NativeStorageSelection, argv: list[str], *, deadline: float | None = None) -> dict[str, object]:
+    timeout = _deadline_timeout(deadline)
     try:
         result = run_command(argv, cwd=selection.run_root,
                              env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C", "HOME": "/"},
-                             timeout=10, limit=NATIVE_LIMIT)
+                             timeout=timeout, limit=NATIVE_LIMIT)
     except CommandRefusal as error:
         reason = str(error)
         raise Refusal("native_" + reason if reason in {"timeout", "output_limit"} else "native_unavailable") from None
+    _deadline_timeout(deadline)
     if result.returncode != 0:
         raise Refusal("native_unavailable")
     if len(result.stdout) + len(result.stderr) > NATIVE_LIMIT:
         raise Refusal("native_output_limit")
     try:
-        return _object(plistlib.loads(result.stdout, dict_type=_UniqueDict))
+        parsed = _object(plistlib.loads(result.stdout, dict_type=_UniqueDict))
     except (ValueError, TypeError, OverflowError, RecursionError, ExpatError):
         raise Refusal("native_schema") from None
+    _deadline_timeout(deadline)
+    return parsed
 
 
 def _attachment(value: dict[str, object], selection: NativeStorageSelection) -> Attachment:
@@ -420,25 +454,33 @@ def _mount(value: dict[str, object]) -> Mount:
                  _boolean(value.get("WritableVolume")), _number(value.get("APFSContainerSize")))
 
 
-def _native_snapshot(selection: NativeStorageSelection) -> NativeSnapshot:
-    attachment = _attachment(_query(selection, ["/usr/bin/hdiutil", "info", "-plist"]), selection)
+def _native_snapshot(selection: NativeStorageSelection, *, deadline: float | None = None) -> NativeSnapshot:
+    attachment = _attachment(_query(selection, ["/usr/bin/hdiutil", "info", "-plist"], deadline=deadline), selection)
     container = _container(_query(selection, ["/usr/sbin/diskutil", "apfs", "list", "-plist",
-                                            attachment.container_device]), selection)
-    runtime = _mount(_query(selection, ["/usr/sbin/diskutil", "info", "-plist", str(selection.runtime_path)]))
-    cache = _mount(_query(selection, ["/usr/sbin/diskutil", "info", "-plist", str(selection.cache_path)]))
+                                            attachment.container_device], deadline=deadline), selection)
+    runtime = _mount(_query(selection, ["/usr/sbin/diskutil", "info", "-plist", str(selection.runtime_path)], deadline=deadline))
+    cache = _mount(_query(selection, ["/usr/sbin/diskutil", "info", "-plist", str(selection.cache_path)], deadline=deadline))
+    _deadline_timeout(deadline)
     return NativeSnapshot(attachment, container, runtime, cache)
 
 
-def collect_native_storage(selection: NativeStorageSelection) -> NativeStorageObservation:
-    """Collect fresh native state; no receipt input, mount, quota, or VM writes."""
+def collect_native_storage(selection: NativeStorageSelection, *, deadline: float | None = None) -> NativeStorageObservation:
+    """Collect fresh state without writes, using an optional shared deadline.
+
+    Checks between filesystem steps cannot interrupt a blocking kernel call.
+    Native subprocesses additionally receive the remaining execution budget.
+    """
+    _deadline_timeout(deadline)
     _check_selection(selection)
-    before = _observe_paths(selection)
-    free_before = _host_free(selection.pilot_root)
-    first = _native_snapshot(selection)
-    second = _native_snapshot(selection)
-    after = _observe_paths(selection)
-    return NativeStorageObservation(os.getuid(), before, after, first, second,
-                                    min(free_before, _host_free(selection.pilot_root)))
+    before = _observe_paths(selection, deadline=deadline)
+    free_before = _host_free(selection.pilot_root, deadline=deadline)
+    first = _native_snapshot(selection, deadline=deadline)
+    second = _native_snapshot(selection, deadline=deadline)
+    after = _observe_paths(selection, deadline=deadline)
+    observation = NativeStorageObservation(os.getuid(), before, after, first, second,
+                                           min(free_before, _host_free(selection.pilot_root, deadline=deadline)))
+    _deadline_timeout(deadline)
+    return observation
 
 
 def _typed(value: object, expected: type) -> None:
@@ -504,6 +546,7 @@ def _validate_paths(selection: NativeStorageSelection, observation: NativeStorag
             _typed(item, FileIdentity)
             for number in (item.device, item.inode, item.mode, item.uid, item.links, item.size, item.allocated):
                 _number(number)
+            _mode(item.mode)
             image = path == selection.image_path
             if (item.path != path or item.uid != observation.owner_uid
                     or stat.S_IMODE(item.mode) != (0o600 if image else 0o700)
