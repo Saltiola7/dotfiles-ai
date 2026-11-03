@@ -34,10 +34,11 @@ def guest():
 
 def observation(guest):
     return {
-        "schema_version": 1, "os": "Linux", "arch": "aarch64", "kernel": "6.19.1-1.fc44.aarch64",
+        "schema_version": 2, "os": "Linux", "arch": "aarch64", "kernel": "6.19.1-1.fc44.aarch64",
         "release": {"id": "fedora", "version_id": "44"}, "uid": 1000,
         "filesystems": [
             {"path": p, "device": 253, "inode": n, "mode": 0o40755,
+             "mount_point": "/", "mount_device": 253,
              "filesystem_type": "btrfs", "bytes_total": 19 * 1024**3,
              "bytes_free": 17 * 1024**3, "bytes_available": 16 * 1024**3,
              "block_size": 4096}
@@ -56,12 +57,21 @@ def test_missing_tools_are_observation_not_build_authority(guest):
     assert "gcc" in result.missing_packages
 
 
+def test_distinct_mounted_build_parent_is_observed_without_build_authority(guest):
+    value = observation(guest)
+    value["filesystems"][1].update(device=254, mount_device=254, mount_point="/var")
+    result = guest.parse_inventory(json.dumps(value).encode())
+    assert result.filesystems[0].device != result.filesystems[1].device
+    assert result.filesystems[1].mount_point == "/var"
+    assert result.build_enabled is False
+
+
 @pytest.mark.parametrize("change", [
     "unknown", "duplicate", "bool_uid", "root_uid", "host_os", "wrong_arch", "wrong_release",
     "unknown_filesystem", "alias_mode", "foreign_device", "too_large", "free_over_total",
     "available_over_free", "invalid_block", "duplicate_path", "tool_command", "tool_integer",
     "unknown_package", "duplicate_package", "missing_with_version", "installed_without_version",
-    "foreign_package_arch", "control_character", "oversized",
+    "foreign_package_arch", "control_character", "oversized", "invalid_mount",
 ])
 def test_closed_guest_inventory_refuses_invalid_facts(guest, change):
     value = observation(guest)
@@ -74,6 +84,7 @@ def test_closed_guest_inventory_refuses_invalid_facts(guest, change):
     elif change == "unknown_filesystem": value["filesystems"][0]["filesystem_type"] = "nfs"
     elif change == "alias_mode": value["filesystems"][1]["mode"] = 0o120777
     elif change == "foreign_device": value["filesystems"][1]["device"] = 254
+    elif change == "invalid_mount": value["filesystems"][1]["mount_point"] = "/var/lib/other"
     elif change == "too_large": value["filesystems"][0]["bytes_total"] = 21 * 1024**3
     elif change == "free_over_total": value["filesystems"][0]["bytes_free"] = 21 * 1024**3
     elif change == "available_over_free": value["filesystems"][0]["bytes_available"] = 18 * 1024**3
@@ -156,6 +167,38 @@ def script_namespace(guest):
     namespace = {"__name__": "inventory_test"}
     exec(compile(guest.GUEST_SCRIPT, "fixed-guest-inventory", "exec"), namespace)
     return namespace
+
+
+@pytest.mark.parametrize("layout", ["root", "var", "var_lib", "ambiguous", "mismatch"])
+def test_guest_collect_resolves_each_selected_mount(guest, layout):
+    namespace = script_namespace(guest)
+    mountinfo = "31 1 0:32 /root / rw - btrfs /dev/vda3 rw\n"
+    device = os.makedev(0, 32)
+    point = "/"
+    if layout != "root":
+        point = "/var/lib" if layout == "var_lib" else "/var"
+        mountinfo += f"32 31 0:33 /var {point} rw - btrfs /dev/vda3 rw\n"
+        device = os.makedev(0, 33 if layout != "mismatch" else 34)
+    if layout == "ambiguous":
+        mountinfo += "33 31 0:33 /other /var rw - btrfs /dev/vda3 rw\n"
+    namespace["read_file"] = lambda path, limit: (
+        'ID=fedora\nVERSION_ID=44\n' if path == '/usr/lib/os-release' else mountinfo)
+    namespace["os"] = SimpleNamespace(
+        lstat=lambda path: SimpleNamespace(st_mode=0o40755, st_dev=os.makedev(0,32) if path=='/' else device, st_ino=256),
+        path=SimpleNamespace(realpath=lambda path: path, isfile=lambda path: False),
+        access=lambda path, mode: False, X_OK=os.X_OK, major=os.major, minor=os.minor, makedev=os.makedev,
+        statvfs=lambda path: SimpleNamespace(f_blocks=2**20, f_bfree=2**19, f_bavail=2**18, f_frsize=4096),
+        uname=lambda: SimpleNamespace(sysname='Linux', machine='aarch64', release='6.19.1'),
+        getuid=lambda: 1000)
+    namespace["query"] = lambda name: {'name':name, 'installed':False, 'version':None, 'arch':None}
+    if layout in {"ambiguous", "mismatch"}:
+        with pytest.raises(RuntimeError, match="guest_mount_"):
+            namespace["collect"]()
+    else:
+        result = guest.parse_inventory(json.dumps(namespace["collect"]()).encode())
+        assert result.filesystems[1].mount_point == point
+        assert result.filesystems[1].device == device
+        assert result.build_enabled is False
 
 
 def test_guest_reads_bound_regular_files_and_release_descriptors(guest, tmp_path):
