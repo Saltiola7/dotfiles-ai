@@ -648,3 +648,248 @@ def test_large_disk_mode_refuses_without_overflow(inventory, mounted, mode):
     worker = replace(worker, disks=(replace(worker.disks[0], mode=mode),))
     report = inventory.validate_native_inventory(selection, replace(observed, workers=(worker,)))
     assert not report.inventory_verified
+
+
+def running_worker(selection):
+    private(selection.runtime_path / "q/disk")
+    private(selection.runtime_path / "q/lima.yaml", b"source-bound configuration")
+
+
+def collect_running(inventory, selection, **kwargs):
+    fd = os.open(selection.pilot_root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return inventory.collect_running_inventory_locked(selection, fd, **kwargs)
+    finally:
+        os.close(fd)
+
+
+def socket_file(path):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    sock = socket.socket(socket.AF_UNIX)
+    previous = Path.cwd()
+    try:
+        os.chdir(path.parent)
+        sock.bind(path.name)
+    finally:
+        os.chdir(previous)
+        sock.close()
+
+
+def test_running_inventory_allows_exact_owned_socket_metadata_only(inventory, mounted, monkeypatch):
+    selection, _ = mounted
+    running_worker(selection)
+    for name in ("ha.sock", "default_ep.sock", "default_fd.sock", "ssh.sock"):
+        socket_file(selection.runtime_path / "q" / name)
+    opened = []
+    original = os.open
+
+    def track(path, *args, **kwargs):
+        if Path(path).suffix == ".sock":
+            opened.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(inventory.os, "open", track)
+    with pytest.raises(inventory.Refusal, match="inventory_socket_unqualified"):
+        inventory.collect_native_inventory(selection)
+    observed = collect_running(inventory, selection)
+    assert observed.socket_count == 4 and not opened
+    report = inventory.validate_running_inventory(selection, observed)
+    assert report.inventory_verified and not report.allocation_enabled
+
+
+@pytest.mark.parametrize("relative", ["q/unknown.sock", "other/ha.sock", "_controller/ha.sock", "q/nested/ha.sock"])
+def test_running_inventory_refuses_other_socket_locations(inventory, mounted, relative):
+    selection, _ = mounted
+    running_worker(selection)
+    socket_file(selection.runtime_path / relative)
+    with pytest.raises(inventory.Refusal, match="inventory_socket_unqualified"):
+        collect_running(inventory, selection)
+
+
+@pytest.mark.parametrize("running", [True, False])
+def test_running_inventory_preserves_maximum_allocation_while_logs_grow(inventory, mounted, monkeypatch, running):
+    selection, _ = mounted
+    running_worker(selection)
+    log = selection.runtime_path / "q/ha.stdout.log"
+    private(log)
+    original = inventory._scan
+    scans = []
+
+    def grow(*args, **kwargs):
+        observed = original(*args, **kwargs)
+        scans.append(observed)
+        if len(scans) == 1:
+            with log.open("ab") as stream:
+                stream.write(b"growing log\n" * 1024)
+        return observed
+
+    monkeypatch.setattr(inventory, "_scan", grow)
+    if not running:
+        with pytest.raises(inventory.Refusal, match="storage_changed"):
+            inventory.collect_native_inventory(selection)
+        return
+    observed = collect_running(inventory, selection)
+    assert inventory.validate_running_inventory(selection, observed).inventory_verified
+    assert observed.external_allocated_bytes == max(scan.external for scan in scans)
+    assert next(item.size for item in scans[1].entries if item.path == log) > next(
+        item.size for item in scans[0].entries if item.path == log)
+
+
+@pytest.mark.parametrize("change", ["disk_growth", "config_growth", "disk_replacement", "worker_replacement", "new_worker", "new_entry"])
+def test_running_inventory_refuses_anchor_and_entry_changes(inventory, mounted, monkeypatch, change):
+    selection, _ = mounted
+    running_worker(selection)
+    original = inventory._scan
+    count = 0
+
+    def mutate(*args, **kwargs):
+        nonlocal count
+        result = original(*args, **kwargs)
+        count += 1
+        if count == 1:
+            if change in {"disk_growth", "config_growth"}:
+                name = "disk" if change == "disk_growth" else "lima.yaml"
+                with (selection.runtime_path / "q" / name).open("ab") as stream:
+                    stream.write(b"unexpected growth")
+            elif change == "disk_replacement":
+                disk = selection.runtime_path / "q/disk"
+                replacement = disk.with_name("replacement")
+                private(replacement, disk.read_bytes())
+                replacement.replace(disk)
+            elif change == "worker_replacement":
+                worker = selection.runtime_path / "q"
+                worker.rename(worker.with_name("old-worker"))
+                running_worker(selection)
+            elif change == "new_worker":
+                (selection.runtime_path / "other").mkdir()
+            else:
+                private(selection.runtime_path / "q/new-log")
+        return result
+
+    monkeypatch.setattr(inventory, "_scan", mutate)
+    with pytest.raises(inventory.Refusal):
+        collect_running(inventory, selection)
+
+
+def test_running_inventory_requires_exact_existing_selected_worker(inventory, mounted):
+    selection, _ = mounted
+    with pytest.raises(inventory.Refusal, match="worker_identity"):
+        collect_running(inventory, selection)
+
+
+def test_running_inventory_propagates_deadline(inventory, mounted, monkeypatch):
+    selection, _ = mounted
+    running_worker(selection)
+    monkeypatch.setattr(inventory.native, "time", SimpleNamespace(monotonic=lambda: 100.0))
+    with pytest.raises(inventory.Refusal, match="storage_deadline"):
+        collect_running(inventory, selection, deadline=100.0)
+
+
+@pytest.mark.parametrize("pressure,reason", [("host", "host_free_space"), ("cache", "native_binding"),
+                                            ("external", "external_retention_limit")])
+def test_running_identity_observation_survives_budget_pressure_for_safe_stop(inventory, mounted, monkeypatch, pressure, reason):
+    selection, _ = mounted
+    running_worker(selection)
+    original = inventory.native.collect_native_storage
+
+    def pressured(value, **kwargs):
+        observed = original(value, **kwargs)
+        if pressure == "host":
+            observed = replace(observed, free_bytes=1)
+        elif pressure == "cache":
+            snapshot = observed.native_before
+            snapshot = replace(snapshot, container=replace(snapshot.container,
+                               cache=replace(snapshot.container.cache, in_use=selection.cache_bytes + 4096)))
+            observed = replace(observed, native_before=snapshot, native_after=snapshot)
+        return observed
+
+    monkeypatch.setattr(inventory.native, "collect_native_storage", pressured)
+    if pressure == "external":
+        evidence = selection.run_root / "evidence/retained"
+        private(evidence)
+        original_stat = inventory._stat
+
+        def allocated(fd, name=None):
+            result = original_stat(fd, name)
+            if result.st_ino == evidence.stat().st_ino:
+                result.st_blocks = 1024**3 // 512 + 1
+            return result
+
+        monkeypatch.setattr(inventory, "_stat", allocated)
+    observed = collect_running(inventory, selection)
+    assert reason in inventory.validate_running_inventory(selection, observed).blockers
+    assert inventory.validate_running_inventory_identity(selection, observed).inventory_verified
+    assert not inventory.validate_running_inventory_identity(selection, observed).allocation_enabled
+
+
+@pytest.mark.parametrize("observation_name", ["native_before", "native_after"])
+@pytest.mark.parametrize("snapshot_name", ["native_before", "native_after"])
+def test_running_admission_rejects_impossible_native_usage_but_preserves_recovery_identity(
+        inventory, mounted, observation_name, snapshot_name):
+    selection, _ = mounted
+    running_worker(selection)
+    observed = collect_running(inventory, selection)
+    observation = getattr(observed, observation_name)
+    snapshot = getattr(observation, snapshot_name)
+    snapshot = replace(snapshot, container=replace(snapshot.container,
+                       runtime=replace(snapshot.container.runtime, in_use=snapshot.container.capacity + 1)))
+    observation = replace(observation, **{snapshot_name: snapshot})
+    observed = replace(observed, **{observation_name: observation})
+
+    report = inventory.validate_running_inventory(selection, observed)
+    assert not report.inventory_verified
+    assert report.blockers == ("native_binding",)
+    assert inventory.validate_running_inventory_identity(selection, observed).inventory_verified
+
+
+def test_running_usage_uses_minimum_host_free_and_maximum_native_allocation(inventory, mounted, monkeypatch):
+    selection, _ = mounted
+    running_worker(selection)
+    original = inventory.native.collect_native_storage
+    records = []
+
+    def changed(value, **kwargs):
+        observed = original(value, **kwargs)
+        if records:
+            paths = tuple(replace(item, allocated=item.allocated + 4096)
+                          if item.path == selection.image_path else item for item in observed.before)
+            snapshot = observed.native_before
+            snapshot = replace(snapshot, container=replace(snapshot.container, free=snapshot.container.free - 8192,
+                               cache=replace(snapshot.container.cache, in_use=snapshot.container.cache.in_use + 4096)))
+            observed = replace(observed, before=paths, after=paths, native_before=snapshot, native_after=snapshot,
+                               free_bytes=observed.free_bytes - 16384)
+        records.append(observed)
+        return observed
+
+    monkeypatch.setattr(inventory.native, "collect_native_storage", changed)
+    observed = collect_running(inventory, selection)
+    assert inventory.validate_running_inventory(selection, observed).inventory_verified
+    assert observed.free_bytes == records[-1].free_bytes
+    assert observed.image_allocated_bytes == next(item.allocated for item in records[-1].after
+                                                 if item.path == selection.image_path)
+    assert observed.cache_used_bytes == records[-1].native_after.container.cache.in_use
+    assert observed.runtime_used_bytes == records[-1].native_after.container.capacity - records[-1].native_after.container.free
+
+
+def test_running_external_accounting_retains_each_entry_maximum(inventory, mounted, monkeypatch):
+    selection, _ = mounted
+    running_worker(selection)
+    first_path = selection.run_root / "evidence/first"
+    second_path = selection.run_root / "evidence/second"
+    private(first_path)
+    private(second_path)
+    original = inventory._scan
+    scans = []
+
+    def swapped(*args, **kwargs):
+        scan = original(*args, **kwargs)
+        selected = first_path if not scans else second_path
+        entries = tuple(replace(item, allocated=item.allocated + 8192) if item.path == selected else item for item in scan.entries)
+        scan = replace(scan, entries=entries, external=scan.external + 8192)
+        scans.append(scan)
+        return scan
+
+    monkeypatch.setattr(inventory, "_scan", swapped)
+    observed = collect_running(inventory, selection)
+    assert observed.external_allocated_bytes == scans[0].external + 8192

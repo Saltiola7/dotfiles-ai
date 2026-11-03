@@ -7,7 +7,7 @@ qualifies disk format, or proves compatibility with a running worker.
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 import fcntl
 import json
 import os
@@ -25,6 +25,7 @@ MAX_DEPTH = legacy.MAX_DEPTH
 _RUN = re.compile(r"openshell-q-[a-f0-9]{12}\Z")
 _EXCLUSIONS = {"_controller", "_config", "_networks"}
 _DISKS = {"disk", "image", "basedisk", "diffdisk"}
+_RUNNING_SOCKETS = {"ha.sock", "default_ep.sock", "default_fd.sock", "ssh.sock"}
 _IMAGE_SUFFIXES = {".raw", ".qcow", ".qcow2", ".asif", ".dmg", ".sparseimage", ".sparsebundle", ".vmdk", ".vdi", ".vhd", ".vhdx"}
 
 
@@ -114,17 +115,25 @@ def _check_root_fd(selection: native.NativeStorageSelection, root_fd: int) -> No
         raise Refusal("storage_unavailable") from None
 
 
-def _check_native(selection: native.NativeStorageSelection, observation: native.NativeStorageObservation) -> None:
-    report = native.validate_native_storage(selection, observation, "inspect")
+def _check_native(selection: native.NativeStorageSelection, observation: native.NativeStorageObservation,
+                  *, running: bool = False, identity_only: bool = False) -> None:
+    if running:
+        validator = (native.validate_running_native_storage_identity if identity_only
+                     else native.validate_running_native_storage)
+        report = validator(selection, observation)
+    else:
+        report = native.validate_native_storage(selection, observation, "inspect")
     if not report.topology_verified:
         raise Refusal(report.blockers[0])
 
 
-def _same_binding(before: native.NativeStorageObservation, after: native.NativeStorageObservation) -> None:
+def _same_binding(before: native.NativeStorageObservation, after: native.NativeStorageObservation, *, running: bool = False) -> None:
     # Deliberately conservative until the running-worker contract is qualified.
     # Host free space is sampled separately; unrelated host writes are not an
     # image identity change. Native image usage changes still refuse this phase.
-    if before.after != after.before or before.native_after != after.native_before:
+    if running:
+        native.assert_same_running_binding(before, after)
+    elif before.after != after.before or before.native_after != after.native_before:
         raise Refusal("storage_changed")
 
 
@@ -138,7 +147,7 @@ def _unused_cache_route(selection: native.NativeStorageSelection, parts: tuple[s
 
 
 def _scan(selection: native.NativeStorageSelection, root_fd: int,
-          observation: native.NativeStorageObservation, *, deadline: float | None = None) -> _Scan:
+          observation: native.NativeStorageObservation, *, deadline: float | None = None, running: bool = False) -> _Scan:
     native._deadline_timeout(deadline)
     records: list[native.FileIdentity] = []
     workers: dict[tuple[str, str], RetainedWorker] = {}
@@ -197,7 +206,9 @@ def _scan(selection: native.NativeStorageSelection, root_fd: int,
             inside_image = path == selection.runtime_path or selection.runtime_path in path.parents
             inside_cache = path == selection.cache_path or selection.cache_path in path.parents
             if path == selection.image_path:
-                if item != bound[path]:
+                same = (native._stable_file_identity(item) == native._stable_file_identity(bound[path])
+                        if running else item == bound[path])
+                if not same:
                     raise Refusal("storage_identity")
                 image = item.allocated
             elif not inside_image:
@@ -252,7 +263,9 @@ def _scan(selection: native.NativeStorageSelection, root_fd: int,
             elif stat.S_ISLNK(item.mode) and legacy._fixture_alias(parts, item.size):
                 aliases += 1
             elif stat.S_ISSOCK(item.mode):
-                raise Refusal("inventory_socket_unqualified")
+                if (not running or path.parent != selection.runtime_path / "q"
+                        or name not in _RUNNING_SOCKETS or item.links != 1):
+                    raise Refusal("inventory_socket_unqualified")
             else:
                 raise Refusal("storage_alias")
         current = _stat(fd)
@@ -268,35 +281,76 @@ def _scan(selection: native.NativeStorageSelection, root_fd: int,
     return _Scan(tuple(records), tuple(workers[key] for key in sorted(workers)), external, image, maximum_disk, aliases)
 
 
-def _collect_locked(selection: native.NativeStorageSelection, root_fd: int, *, deadline: float | None = None) -> NativeInventory:
-    """Borrow the caller's locked root descriptor; never close or relock it."""
+def _same_running_scans(selection: native.NativeStorageSelection, before: _Scan, after: _Scan) -> None:
+    anchors = {selection.image_path, selection.runtime_path / "q/disk", selection.runtime_path / "q/lima.yaml"}
+
+    def identity(item: native.FileIdentity) -> native.FileIdentity:
+        stable = native._stable_file_identity(item)
+        if (stat.S_ISREG(item.mode) and selection.runtime_path in item.path.parents
+                and item.path not in anchors):
+            stable = replace(stable, size=0)
+        return stable
+
+    if tuple(map(identity, before.entries)) != tuple(map(identity, after.entries)):
+        raise Refusal("storage_changed")
+
+
+def _collect_inventory(selection: native.NativeStorageSelection, root_fd: int, *, deadline: float | None,
+                       running: bool) -> NativeInventory:
     native._deadline_timeout(deadline)
     _check_selection(selection)
     _check_root_fd(selection, root_fd)
     native._deadline_timeout(deadline)
-    before = native.collect_native_storage(selection, deadline=deadline)
+    collector = native.collect_running_native_storage if running else native.collect_native_storage
+    before = collector(selection, deadline=deadline)
     native._deadline_timeout(deadline)
-    _check_native(selection, before)
+    _check_native(selection, before, running=running, identity_only=running)
     try:
-        first = _scan(selection, root_fd, before, deadline=deadline)
-        second = _scan(selection, root_fd, before, deadline=deadline)
+        first = _scan(selection, root_fd, before, deadline=deadline, running=running)
+        second = _scan(selection, root_fd, before, deadline=deadline, running=running)
         native._deadline_timeout(deadline)
-        if first != second:
+        if running:
+            _same_running_scans(selection, first, second)
+        elif first != second:
             raise Refusal("storage_changed")
-        after = native.collect_native_storage(selection, deadline=deadline)
+        after = collector(selection, deadline=deadline)
         native._deadline_timeout(deadline)
-        _check_native(selection, after)
-        _same_binding(before, after)
+        _check_native(selection, after, running=running, identity_only=running)
+        _same_binding(before, after, running=running)
         _check_root_fd(selection, root_fd)
     except (OSError, RuntimeError):
         raise Refusal("storage_unavailable") from None
     snapshots = (before.native_before, before.native_after, after.native_before, after.native_after)
-    result = NativeInventory(before, after, first.workers, first.external, first.image,
+    image_allocation = max(item.allocated for observation in (before, after)
+                           for records in (observation.before, observation.after)
+                           for item in records if item.path == selection.image_path)
+    external_allocation = sum(max(left.allocated, right.allocated)
+                              for left, right in zip(first.entries, second.entries, strict=True)
+                              if left.path not in {selection.image_path, selection.runtime_path}
+                              and selection.runtime_path not in left.path.parents)
+    result = NativeInventory(before, after, second.workers, external_allocation,
+                           max(first.image, second.image, image_allocation),
                            max(s.container.capacity - s.container.free for s in snapshots),
                            max(s.container.cache.in_use for s in snapshots), first.maximum_disk,
-                           len(first.entries), 0, first.aliases, min(before.free_bytes, after.free_bytes))
+                           len(second.entries), sum(stat.S_ISSOCK(item.mode) for item in second.entries),
+                           max(first.aliases, second.aliases), min(before.free_bytes, after.free_bytes))
+    if running:
+        report = validate_running_inventory_identity(selection, result)
+        if not report.inventory_verified:
+            raise Refusal(report.blockers[0])
     native._deadline_timeout(deadline)
     return result
+
+
+def _collect_locked(selection: native.NativeStorageSelection, root_fd: int, *, deadline: float | None = None) -> NativeInventory:
+    """Borrow the caller's lock while retaining strict stopped-state behavior."""
+    return _collect_inventory(selection, root_fd, deadline=deadline, running=False)
+
+
+def collect_running_inventory_locked(selection: native.NativeStorageSelection, root_fd: int,
+                                     *, deadline: float | None = None) -> NativeInventory:
+    """Observe exact live resources; usage pressure alone cannot block safe stop."""
+    return _collect_inventory(selection, root_fd, deadline=deadline, running=True)
 
 
 def collect_native_inventory(selection: native.NativeStorageSelection, *, deadline: float | None = None) -> NativeInventory:
@@ -318,8 +372,8 @@ def collect_native_inventory(selection: native.NativeStorageSelection, *, deadli
         os.close(fd)
 
 
-def validate_native_inventory(selection: native.NativeStorageSelection, inventory: NativeInventory) -> StorageAdmission:
-    """Validate typed inventory; format, running state and allocation stay unqualified."""
+def _validate_inventory(selection: native.NativeStorageSelection, inventory: NativeInventory,
+                        *, running: bool, identity_only: bool) -> StorageAdmission:
     try:
         _check_selection(selection)
         if type(inventory) is not NativeInventory or type(inventory.workers) is not tuple:
@@ -327,9 +381,9 @@ def validate_native_inventory(selection: native.NativeStorageSelection, inventor
         for field in fields(NativeInventory):
             if field.name not in {"native_before", "native_after", "workers"}:
                 native._number(getattr(inventory, field.name))
-        _check_native(selection, inventory.native_before)
-        _check_native(selection, inventory.native_after)
-        _same_binding(inventory.native_before, inventory.native_after)
+        _check_native(selection, inventory.native_before, running=running, identity_only=identity_only)
+        _check_native(selection, inventory.native_after, running=running, identity_only=identity_only)
+        _same_binding(inventory.native_before, inventory.native_after, running=running)
         identities: set[tuple[str, str]] = set()
         disks = []
         for worker in inventory.workers:
@@ -363,17 +417,25 @@ def validate_native_inventory(selection: native.NativeStorageSelection, inventor
                 names.add(disk.path.name)
         snapshots = (inventory.native_before.native_before, inventory.native_before.native_after,
                      inventory.native_after.native_before, inventory.native_after.native_after)
-        image = next(item for item in inventory.native_before.before if item.path == selection.image_path)
+        image_allocation = max(item.allocated for observation in (inventory.native_before, inventory.native_after)
+                               for records in (observation.before, observation.after)
+                               for item in records if item.path == selection.image_path)
         if (inventory.maximum_vm_disk_logical_bytes != max(disks, default=0)
-                or inventory.image_allocated_bytes != image.allocated
+                or (inventory.image_allocated_bytes < image_allocation if running else inventory.image_allocated_bytes != image_allocation)
                 or inventory.runtime_used_bytes != max(s.container.capacity - s.container.free for s in snapshots)
                 or inventory.cache_used_bytes != max(s.container.cache.in_use for s in snapshots)
                 or inventory.free_bytes != min(inventory.native_before.free_bytes, inventory.native_after.free_bytes)
                 or inventory.entry_count > MAX_ENTRIES or inventory.fixture_alias_count > inventory.entry_count
-                or inventory.socket_count != 0):
+                or inventory.socket_count > (len(_RUNNING_SOCKETS) if running else 0)):
             raise Refusal("invalid_inventory")
+        if running and (len(inventory.workers) != 1 or inventory.workers[0].run_id != selection.run_root.name
+                        or inventory.workers[0].name != "q" or not inventory.workers[0].has_config
+                        or len(inventory.workers[0].disks) != 1 or inventory.workers[0].disks[0].path.name != "disk"):
+            raise Refusal("worker_identity")
     except Refusal as error:
         return StorageAdmission((str(error),))
+    if identity_only:
+        return StorageAdmission((), inventory_verified=True)
     blockers = tuple(reason for exceeded, reason in (
         (len(inventory.workers) > legacy.RETAINED_VM_LIMIT, "retained_vm_limit"),
         (inventory.maximum_vm_disk_logical_bytes > legacy.VIRTUAL_DISK_LIMIT, "virtual_disk_limit"),
@@ -384,6 +446,25 @@ def validate_native_inventory(selection: native.NativeStorageSelection, inventor
         (inventory.free_bytes < legacy.REQUIRED_FREE_BYTES, "host_free_space"),
     ) if exceeded)
     return StorageAdmission(blockers, inventory_verified=not blockers)
+
+
+def validate_native_inventory(selection: native.NativeStorageSelection, inventory: NativeInventory) -> StorageAdmission:
+    """Preserve strict stopped-state validation and its existing refusal rules."""
+    return _validate_inventory(selection, inventory, running=False, identity_only=False)
+
+
+def validate_running_inventory(selection: native.NativeStorageSelection, inventory: NativeInventory) -> StorageAdmission:
+    """Validate live identities and all usage budgets without enabling an operation."""
+    return _validate_inventory(selection, inventory, running=True, identity_only=False)
+
+
+def validate_running_inventory_identity(selection: native.NativeStorageSelection, inventory: NativeInventory) -> StorageAdmission:
+    """Verify exact recovery identities, independent of usage-pressure blockers.
+
+    A verified result here permits no operation. The boot controller must still
+    bind its original worker, configuration, disk, and source evidence for stop.
+    """
+    return _validate_inventory(selection, inventory, running=True, identity_only=True)
 
 
 def main() -> int:

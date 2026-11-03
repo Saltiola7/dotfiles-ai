@@ -8,7 +8,7 @@ increment does not qualify aggregate external retention or retained VM inventory
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, fields, replace
 import json
 import math
 import os
@@ -483,13 +483,27 @@ def collect_native_storage(selection: NativeStorageSelection, *, deadline: float
     return observation
 
 
+def collect_running_native_storage(selection: NativeStorageSelection, *, deadline: float | None = None) -> NativeStorageObservation:
+    """Collect live usage without relaxing identity or native capacity bindings.
+
+    Usage pressure is reported for admission and cannot suppress an identity
+    observation needed to stop the exact worker safely.
+    """
+    observation = collect_native_storage(selection, deadline=deadline)
+    report = validate_running_native_storage_identity(selection, observation)
+    if not report.topology_verified:
+        raise Refusal(report.blockers[0])
+    _deadline_timeout(deadline)
+    return observation
+
+
 def _typed(value: object, expected: type) -> None:
     """Do not accept dictionaries or truthy scalar substitutions as evidence."""
     if type(value) is not expected:
         raise Refusal("native_observation")
 
 
-def _validate_snapshot(selection: NativeStorageSelection, snapshot: NativeSnapshot, uid: int) -> None:
+def _validate_snapshot(selection: NativeStorageSelection, snapshot: NativeSnapshot, uid: int, *, check_usage: bool = True) -> None:
     _typed(snapshot, NativeSnapshot)
     image, container = snapshot.attachment, snapshot.container
     _typed(image, Attachment)
@@ -522,8 +536,9 @@ def _validate_snapshot(selection: NativeStorageSelection, snapshot: NativeSnapsh
             or container.runtime.device == container.cache.device
             or tuple(sorted((container.runtime.device, container.cache.device))) != image.volume_devices
             or container.runtime.quota != 0 or container.cache.quota != selection.cache_bytes
-            or any(volume.reserve != 0 for volume in (container.runtime, container.cache))
-            or container.runtime.in_use > container.capacity or container.cache.in_use > container.cache.quota):
+            or any(volume.reserve != 0 for volume in (container.runtime, container.cache))):
+        raise Refusal("native_binding")
+    if check_usage and (container.runtime.in_use > container.capacity or container.cache.in_use > container.cache.quota):
         raise Refusal("native_binding")
     for volume, mount, path in ((container.runtime, snapshot.runtime, selection.runtime_path),
                                 (container.cache, snapshot.cache, selection.cache_path)):
@@ -536,7 +551,35 @@ def _validate_snapshot(selection: NativeStorageSelection, snapshot: NativeSnapsh
             raise Refusal("native_mount")
 
 
-def _validate_paths(selection: NativeStorageSelection, observation: NativeStorageObservation) -> None:
+def _stable_file_identity(item: FileIdentity) -> FileIdentity:
+    """Project comparison identity only; original observations retain all usage."""
+    _typed(item, FileIdentity)
+    _mode(item.mode)
+    return replace(item, allocated=0, size=0 if stat.S_ISDIR(item.mode) else item.size)
+
+
+def _stable_native_identity(snapshot: NativeSnapshot) -> NativeSnapshot:
+    _typed(snapshot, NativeSnapshot)
+    _typed(snapshot.container, Container)
+    _typed(snapshot.container.runtime, Volume)
+    _typed(snapshot.container.cache, Volume)
+    return replace(snapshot, container=replace(snapshot.container, free=0,
+                   runtime=replace(snapshot.container.runtime, in_use=0), cache=replace(snapshot.container.cache, in_use=0)))
+
+
+def assert_same_running_binding(before: NativeStorageObservation, after: NativeStorageObservation) -> None:
+    """Compare already validated observations across calls, retaining all caps."""
+    _typed(before, NativeStorageObservation)
+    _typed(after, NativeStorageObservation)
+    _typed(before.after, tuple)
+    _typed(after.before, tuple)
+    if (before.owner_uid != after.owner_uid
+            or tuple(map(_stable_file_identity, before.after)) != tuple(map(_stable_file_identity, after.before))
+            or _stable_native_identity(before.native_after) != _stable_native_identity(after.native_before)):
+        raise Refusal("storage_changed")
+
+
+def _validate_paths(selection: NativeStorageSelection, observation: NativeStorageObservation, *, running: bool = False) -> None:
     _typed(observation.before, tuple)
     _typed(observation.after, tuple)
     for records in (observation.before, observation.after):
@@ -565,30 +608,48 @@ def _validate_paths(selection: NativeStorageSelection, observation: NativeStorag
                         if item.path == selection.runtime_path or selection.runtime_path in item.path.parents else host)
             if item.device != expected:
                 raise Refusal("storage_mount")
-    if observation.before != observation.after:
+    before = tuple(map(_stable_file_identity, observation.before)) if running else observation.before
+    after = tuple(map(_stable_file_identity, observation.after)) if running else observation.after
+    if before != after:
         raise Refusal("storage_identity")
 
 
-def validate_native_storage(selection: NativeStorageSelection, observation: NativeStorageObservation,
-                            operation: str) -> StorageAdmission:
-    """Validate typed evidence only; even verified inspection cannot allocate."""
-    if type(operation) is not str or operation != "inspect":
-        return StorageAdmission(("unsupported_operation",))
+def _validate_native_storage(selection: NativeStorageSelection, observation: NativeStorageObservation,
+                             *, running: bool, check_usage: bool) -> StorageAdmission:
     try:
         _check_selection(selection)
         _typed(observation, NativeStorageObservation)
         _number(observation.owner_uid)
         _number(observation.free_bytes)
-        _validate_paths(selection, observation)
+        _validate_paths(selection, observation, running=running)
         for snapshot in (observation.native_before, observation.native_after):
-            _validate_snapshot(selection, snapshot, observation.owner_uid)
-        if observation.native_before != observation.native_after:
+            _validate_snapshot(selection, snapshot, observation.owner_uid, check_usage=check_usage)
+        before = _stable_native_identity(observation.native_before) if running else observation.native_before
+        after = _stable_native_identity(observation.native_after) if running else observation.native_after
+        if before != after:
             raise Refusal("native_changed")
-        if observation.free_bytes < REQUIRED_FREE_BYTES:
+        if check_usage and observation.free_bytes < REQUIRED_FREE_BYTES:
             raise Refusal("host_free_space")
     except Refusal as error:
         return StorageAdmission((str(error),))
     return StorageAdmission((), topology_verified=True)
+
+
+def validate_native_storage(selection: NativeStorageSelection, observation: NativeStorageObservation,
+                            operation: str) -> StorageAdmission:
+    """Preserve strict stopped-state validation; no inspection can allocate."""
+    if type(operation) is not str or operation != "inspect":
+        return StorageAdmission(("unsupported_operation",))
+    return _validate_native_storage(selection, observation, running=False, check_usage=True)
+
+
+def validate_running_native_storage(selection: NativeStorageSelection, observation: NativeStorageObservation) -> StorageAdmission:
+    return _validate_native_storage(selection, observation, running=True, check_usage=True)
+
+
+def validate_running_native_storage_identity(selection: NativeStorageSelection, observation: NativeStorageObservation) -> StorageAdmission:
+    """Check identities and fixed ceilings for exact recovery, ignoring usage pressure."""
+    return _validate_native_storage(selection, observation, running=True, check_usage=False)
 
 
 def main() -> int:

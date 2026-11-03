@@ -4,13 +4,19 @@ This is a source-only patch for the operator-selected optional OpenShell trial.
 It is not a built runtime, a qualified image, an upstream release, or an agent
 activation route. Normal Codex and OpenCode sessions do not consume these files.
 
-The comparison baseline is NVIDIA OpenShell `v0.1.6`, commit
-`ac7f615cd12d5cc49cb16eb1f5f10ffeb1e90f47`. The upstream tag was resolved through
-the [GitHub tag reference](https://api.github.com/repos/NVIDIA/OpenShell/git/ref/tags/v0.1.6),
+The reviewed actual-build candidate is NVIDIA OpenShell `v0.1.7`, commit
+`5d25211b25a8fc887e8d5c606d57d6ab22f1d76c`. The upstream tag was resolved through
+the [GitHub tag reference](https://api.github.com/repos/NVIDIA/OpenShell/git/ref/tags/v0.1.7),
 then the exact commit's file and blob identities were checked. `source.json`
 records the repository, immutable source URLs, Git blob IDs, byte counts, SHA256
 hashes, patch hash, expected patched-source hash, and distinct experimental
-identity `openshell-v0.1.6+dotfiles-ai.child-unix-deny.1`.
+identity `openshell-v0.1.7+dotfiles-ai.child-unix-deny.1`.
+
+The historical comparison used `v0.1.6`, commit
+`ac7f615cd12d5cc49cb16eb1f5f10ffeb1e90f47`. The selected v0.1.7 commit has the
+same child-filter and license Git blobs, so the vendored preimage, license,
+patch bytes and expected patched-source hash are unchanged. This provenance
+update does not replace any earlier native result or establish a new one.
 
 `upstream/child_seccomp.rs` is the complete, unchanged 21,098-byte preimage.
 `upstream/LICENSE` is the unchanged 11,431-byte upstream Apache-2.0 license.
@@ -71,7 +77,7 @@ source check cannot replace Linux execution. No toolchain installation, build,
 VM startup, image replacement, provider access, or deployment is part of this
 artifact's validation.
 
-After a separately reviewed build baseline and admitted Linux environment exist,
+After the selected build environment and storage routes are admitted,
 the upstream test suite must include the new isolated test and existing child
 hardening tests. For an already prepared complete Linux upstream checkout:
 
@@ -90,11 +96,18 @@ can break legitimate client IPC.
 
 ## Build identity and maintenance
 
-The initial comparison patch stays on the approved v0.1.6 generation. NVIDIA
-[v0.1.7](https://github.com/NVIDIA/OpenShell/releases/tag/v0.1.7) retains the
-relevant socket behavior but also updates vulnerable dependencies. Review and
-select the actual build baseline before any native trial; this source delta
-does not authorize building an older release or silently switching generations.
+NVIDIA [v0.1.7](https://github.com/NVIDIA/OpenShell/releases/tag/v0.1.7) retains
+the relevant socket behavior and updates vulnerable dependencies. Its launch
+environment and logging changes still require the complete native regression
+matrix. Keep new application listeners and the agent trace relay disabled.
+
+The selected candidate builds only `openshell-sandbox`, using upstream Rust
+1.95.0, locked dependencies and `aarch64-unknown-linux-musl`, with the default
+crypto backend and matching v0.1.7 control components. Build prerequisites,
+download/cache routes, disk use and the preparation deadline must be qualified
+before building. No larger quota, host build, alternate backend or older release
+is authorized by a failed build. Source-only checks do not establish that a cold
+build fits the capped trial.
 
 Any future experimental runtime must record its full upstream commit, exact
 patch hash, build inputs/toolchain, binary hash, and OCI manifest/config digests.

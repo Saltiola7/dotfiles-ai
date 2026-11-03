@@ -11,7 +11,7 @@ import pytest
 
 ROOT = Path(__file__).parent / "fixtures/openshell_runtime/patches"
 REPOSITORY = "https://github.com/NVIDIA/OpenShell"
-COMMIT = "ac7f615cd12d5cc49cb16eb1f5f10ffeb1e90f47"
+COMMIT = "5d25211b25a8fc887e8d5c606d57d6ab22f1d76c"
 TARGET = "crates/openshell-sandbox/src/linux/child_seccomp.rs"
 SOURCE_BLOB = "6fc9f67f73ebda29d3dccadf8ea0ee74b898e1f5"
 LICENSE_BLOB = "f13d24c3fa482d61605d600e5ac1248799bd4107"
@@ -45,7 +45,7 @@ def test_patch_metadata_matches_pinned_source():
     assert record["schema_version"] == 1
     upstream = record["upstream"]
     assert upstream["repository"] == REPOSITORY
-    assert upstream["tag"] == "v0.1.6"
+    assert upstream["tag"] == "v0.1.7"
     assert upstream["commit"] == COMMIT
     expected = {
         "source": (TARGET, "upstream/child_seccomp.rs", SOURCE_BLOB),
@@ -65,10 +65,13 @@ def test_patch_metadata_matches_pinned_source():
     assert patch["target"] == TARGET
     assert patch["sha256"] == hashlib.sha256((ROOT / patch["path"]).read_bytes()).hexdigest()
     assert record["experimental_identity"] == {
-        "name": "openshell-v0.1.6+dotfiles-ai.child-unix-deny.1",
+        "name": "openshell-v0.1.7+dotfiles-ai.child-unix-deny.1",
         "artifact_kind": "source-only-patch",
         "unchanged_upstream_release": False,
     }
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert COMMIT in readme and record["experimental_identity"]["name"] in readme
+    assert "ac7f615cd12d5cc49cb16eb1f5f10ffeb1e90f47" in readme
 
 
 def test_only_bounded_attributed_upstream_files_are_vendored():

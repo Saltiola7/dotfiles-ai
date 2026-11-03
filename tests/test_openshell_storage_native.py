@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import stat
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -499,3 +500,71 @@ def test_large_stat_mode_refuses_without_overflow(native, fixture, mode):
     records = (replace(observed.before[0], mode=mode), *observed.before[1:])
     report = native.validate_native_storage(selection, replace(observed, before=records, after=records), "inspect")
     assert not report.topology_verified
+
+
+def test_running_native_validation_allows_only_mutable_usage(native, fixture):
+    selection, _, _, _ = fixture
+    observed = native.collect_native_storage(selection)
+    after = tuple(replace(item, allocated=item.allocated + 4096,
+                          size=item.size + 16 if stat.S_ISDIR(item.mode) else item.size)
+                  for item in observed.after)
+    snapshot = observed.native_after
+    changed = replace(snapshot, container=replace(snapshot.container, free=snapshot.container.free - 8192,
+                      runtime=replace(snapshot.container.runtime, in_use=snapshot.container.runtime.in_use + 4096),
+                      cache=replace(snapshot.container.cache, in_use=snapshot.container.cache.in_use + 4096)))
+    observed = replace(observed, after=after, native_after=changed)
+    assert not native.validate_native_storage(selection, observed, "inspect").topology_verified
+    report = native.validate_running_native_storage(selection, observed)
+    assert report.topology_verified and not report.allocation_enabled
+    assert observed.native_after.container.cache.in_use > observed.native_before.container.cache.in_use
+
+
+@pytest.mark.parametrize("change", ["image_inode", "image_length", "directory_owner", "directory_mode", "directory_links",
+                                    "store_uuid", "quota", "mountpoint"])
+def test_running_native_validation_preserves_stable_binding(native, fixture, change):
+    selection, _, _, _ = fixture
+    observed = native.collect_native_storage(selection)
+    if change.startswith("image_") or change.startswith("directory_"):
+        index = next(index for index, item in enumerate(observed.after)
+                     if item.path == (selection.image_path if change.startswith("image_") else selection.home_path))
+        item = observed.after[index]
+        field = {"image_inode": "inode", "image_length": "size", "directory_owner": "uid",
+                 "directory_mode": "mode", "directory_links": "links"}[change]
+        after = (*observed.after[:index], replace(item, **{field: getattr(item, field) + 1}), *observed.after[index + 1:])
+        observed = replace(observed, after=after)
+    else:
+        snapshot = observed.native_after
+        if change == "store_uuid":
+            snapshot = replace(snapshot, container=replace(snapshot.container, physical_uuid="55555555-5555-4555-8555-555555555555"))
+        elif change == "quota":
+            snapshot = replace(snapshot, container=replace(snapshot.container, cache=replace(snapshot.container.cache, quota=0)))
+        else:
+            snapshot = replace(snapshot, cache=replace(snapshot.cache, mountpoint="/private/not-the-cache"))
+        observed = replace(observed, native_after=snapshot)
+    assert not native.validate_running_native_storage(selection, observed).topology_verified
+
+
+def test_running_native_collection_uses_existing_bounded_queries(native, fixture, monkeypatch):
+    selection, _, _, calls = fixture
+    monkeypatch.setattr(native, "time", SimpleNamespace(monotonic=lambda: 100.0))
+    observed = native.collect_running_native_storage(selection, deadline=102.0)
+    assert native.validate_running_native_storage(selection, observed).topology_verified
+    assert len(calls) == 8 and all(kwargs["timeout"] == 2.0 for _, kwargs in calls)
+
+
+def test_running_native_identity_can_preserve_safe_stop_under_usage_pressure(native, fixture):
+    selection, _, _, _ = fixture
+    observed = native.collect_native_storage(selection)
+    snapshot = observed.native_before
+    snapshot = replace(snapshot, container=replace(snapshot.container,
+                       cache=replace(snapshot.container.cache, in_use=selection.cache_bytes + 1)))
+    pressure = replace(observed, free_bytes=1, native_before=snapshot, native_after=snapshot)
+    assert not native.validate_running_native_storage(selection, pressure).topology_verified
+    assert native.validate_running_native_storage_identity(selection, pressure).topology_verified
+    native.assert_same_running_binding(observed, pressure)
+    bad_quota = replace(snapshot, container=replace(snapshot.container,
+                        cache=replace(snapshot.container.cache, quota=selection.cache_bytes + 1)))
+    changed = replace(pressure, native_before=bad_quota, native_after=bad_quota)
+    assert not native.validate_running_native_storage_identity(selection, changed).topology_verified
+    with pytest.raises(native.Refusal, match="storage_changed"):
+        native.assert_same_running_binding(observed, changed)
