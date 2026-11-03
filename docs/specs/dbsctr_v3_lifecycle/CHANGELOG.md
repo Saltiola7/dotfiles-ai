@@ -1,5 +1,37 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-03 — Audited historical lineage recovery
+
+Added a closed, one-time recovery transaction for active native registered
+schema-5 GitHub Initiative cycles whose recorded history omitted reviewed
+Markdown documentation commits or one exact accepted-base merge. Exact-plan
+approval, offline bounded Git proofs, disposable merge objects, immutable private
+preimages/outcomes and shared locks preserve audit continuity across interruptions.
+Recovered entries receive no gate credit; Review/Integrate reopens and ordinary
+CI, Graphify, Final Push and protected delivery guards remain unchanged.
+
+Validation: 60 source-bound behavior cases passed; 363 existing cases have qualified
+successful observations, with original signing/storage fixture failures retained.
+Twelve selected compatibility cases passed with the actual Python 3.14.10 child
+version recorded; both changed Python files compile under that runtime. The older
+60-case aggregate records its qualifier's Python 3.13.16 version, not independent
+child-runtime evidence; no complete Python 3.13 validation claim is made. Fresh
+full native Python 3.14 CI remains required before acceptance or deployment.
+Independent critical-risk source review accepted the final implementation.
+
+Domain and implementation Gate Commits: `e41fedab`, `6ffb4244`; accepted-main
+integration: `5ad5782b`. No Gate Exception is selected. README and retired backlog
+authority were reviewed; retained private evidence stays with the cycle. The owner
+maintains compatibility and vulnerability response. Rollback must preserve readers
+and guards for any recovered record; old helpers must not mutate those records.
+
+Release, Deploy and Operate are not applicable to this source-only draft delivery.
+No helper installation, validation-policy activation or consumer recovery occurred.
+Existing installed capabilities require preservation or an explicit retirement
+before the separate targeted managed rollout. Final Push targets the feature
+branch and draft PR into main; actual push, CI and later deployment outcomes
+belong to the private Cycle Record. No branch, worktree or recovery data is removed.
+
 ## 2026-11-01 — PY-09 hosted Git configuration qualification
 
 The first hosted CI run failed in both Worktrunk lanes because the macOS image
