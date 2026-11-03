@@ -1,5 +1,12 @@
 # Shell Auth Startup
 
+**RRW-002 successor Discovery:** Initiative `rhel-remote-workspace`, slice
+`rrw-002-rhel-user-runtime`, approves RHEL 10 x86_64 for the standalone remote
+successor only. This is not implementation or deployment evidence. Readiness,
+gate applicability/results, and release qualification remain pending coordinator
+authority and primary verification; prior completion and RWUE checks remain
+history for their recorded cycles and platforms.
+
 ## OpenCode capture uncertainty
 
 The [guarded maintenance contract](../dotfiles_ai_distribution/features/opencode-safe-maintenance.md)
@@ -152,14 +159,43 @@ have not been performed.
 | Deliverable | Managed shell startup, bounded 1Password loading, Keychain-backed Herdr authentication, durable Herdr host identity, external-volume health handling, native Herdr installation, exact OpenCode/Codex recovery, and status-bar polling contracts |
 | Languages/frameworks | Bash, Zsh, C, Swift, ServiceManagement, Go templates, app bundles, launchd plists, and Markdown |
 | Applicable modules | Security |
-| Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, macOS Aqua, SMAppService, Full Disk Access, OpenCode, Codex CLI, managed Fedora Lima guests, chezmoi, 1Password CLI, and Keychain |
+| Runtime/platform support | Interactive macOS shells, SSH, Herdr panes, macOS Aqua, SMAppService, Full Disk Access, OpenCode, Codex CLI, managed Fedora Lima guests, intended RHEL 10 x86_64 remote successor with release qualification pending, chezmoi, 1Password CLI, Keychain, and Linux runtime-local authentication |
 | Public compatibility | Shell startup remains non-blocking; optional authentication does not become a startup dependency |
 | Trust/data classification | Public configuration and private credentials; tokens remain in environment, Keychain, cache, or 1Password and never enter Git or logs. Authoritative OpenCode state remains on the configured external volume; internal health metadata contains no prompt or session content. |
 | Operational owner | Dotfiles owner maintains shell, Keychain, 1Password, and Herdr startup compatibility |
 | Release/deployment | No public release; managed configuration builds and signs a local app bundle, registers its agent explicitly, and deploys through reviewed chezmoi apply |
 | Maintenance/retirement | Rotate or revoke credentials externally; document signing-certificate provisioning and rotation; upgrade native Herdr through reviewed version and checksum pins; preserve bounded failure and explicit Herdr ownership handoff |
 
-### RWUE-002 Remote Workspace Override
+### RRW-002 RHEL Successor Override — Discovery Only
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: SSH startup and per-user authentication on a shared remote host |
+| Delivery intent | Normal PR approval without admin bypass; disposable UBI10 userland proof, with actual RHEL qualification and private rollout separate |
+| Scope | RHEL 10 x86_64 nonblocking shell, explicit per-user login, runtime-local stores, and local-only Atuin with history preserved |
+| Overrides | Both users supported; no owner/peer credential copying; colleague readiness unverified until independently exercised |
+
+Given either RHEL remote user opens a shell, startup invokes no `op`, OpenAI,
+Vertex, Codex, Atuin, or network authentication. Explicit login occurs only in
+that user's interactive session and never copies macOS/peer tokens, uses Keychain,
+or creates a shared token cache. Remote Atuin neither signs in nor syncs; update
+and rollback preserve existing history. Missing authentication remains
+`auth_pending`, distinct from retryable structural failure, and never blocks SSH.
+
+Given bootstrap fails, root-cause investigation preserves safe output and the
+retryable failure rather than asserting a known cause without evidence. The
+[distribution runtime contract](../dotfiles_ai_distribution/features/remote-user-rollout-runtime.md)
+owns those diagnostics and state semantics; no new secret-bearing log is added.
+
+Given `registry.access.redhat.com/ubi10/ubi` smoke succeeds, it proves userland
+only, not full RHEL VM, SELinux, rootless Podman, systemd, or IAP behavior. The
+standalone remote client is IAP-only; unrelated macOS/Fedora Lima Tailscale and
+the existing macOS credential/recovery diagrams remain unchanged. Tools remain
+user-local; optional UBI10 Toolbx adds no new containerized toolchain.
+
+### Historical RWUE-002 Remote Workspace Override
+
+The predecessor contract below retains its CentOS scope, not RHEL acceptance.
 
 | Field | Value |
 |---|---|

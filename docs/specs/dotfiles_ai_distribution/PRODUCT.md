@@ -58,7 +58,7 @@ target files.
     rootless services while client-specific containers stay inside their client
     workspaces; project files never need to enter the service container.
 17. An authorized remote-workspace user receives the public foundation on
-     CentOS Stream 10 x86_64 without adopting maintainer identity, host paths,
+     RHEL 10 x86_64 without adopting maintainer identity, host paths,
      credentials, personal services, or another user's authentication state.
 18. A repository owner may explicitly enable guarded PR merging for exact targets;
     default delivery remains draft review. Teammate integration can stop at a
@@ -112,7 +112,7 @@ flowchart LR
     W -->|Optional Vertex launchers| T[Cline dedicated profile and Hub]
     W -->|Optional opt-in| A[Isolated automation profiles]
     W -->|Optional personal service role| S[Rootless personal services]
-    C -->|Standalone CentOS x86_64 role| V[Remote user-owned workspace]
+    C -->|Standalone RHEL 10 x86_64 role| V[Remote user-owned workspace]
     A -->|Ready P0 or P1 work| I[Isolated implementation cycle]
     A -->|Uncertain work| U[Operator approval]
     U -->|Explicit proceed| I
@@ -128,7 +128,9 @@ flowchart LR
 **Text Equivalent:** Public defaults become usable only after private local
 values are supplied. Applying them creates managed host and workspace
 environments with explicitly invoked OpenCode and a managed Codex CLI wrapper;
-Codex desktop state remains separate. Optional Cline launchers use a dedicated
+Codex desktop state remains separate. The standalone RHEL 10 remote-user
+successor is a separate opt-in role, with implementation/qualification pending.
+Optional Cline launchers use a dedicated
 native profile and Hub with process-local Vertex ADC; default Cline state stays
 separate. Automation remains optional and isolated. Evidence-ready
 P0/P1 Discovery may proceed automatically when evidence resolves every material
@@ -162,9 +164,12 @@ approval outcome changes.
 - macOS is the initial supported platform.
 - Fedora Linux is supported only inside managed Lima client VMs; it is not a
   general standalone-host commitment.
-- CentOS Stream 10 x86_64 is the supported standalone remote-workspace Linux
+- RHEL 10 x86_64 is the approved successor standalone remote-workspace Linux
   profile. It does not inherit Lima, VZ, Apple Silicon, launchd, or host-mount
-  assumptions.
+  assumptions. RRW-002 implementation and qualification remain pending; prior
+  CentOS evidence does not prove RHEL readiness. This remote profile uses IAP-only
+  access and local-only Atuin history; optional host/Lima tailnet and sync
+  journeys retain their existing owners and behavior.
 - Existing personal configuration remains authoritative until live cutover
   validation passes.
 - The writable source path is machine-local and never a public default or
@@ -220,5 +225,7 @@ approval outcome changes.
   verified on the real Lima runtime before sandbox deployment passes.
 - Disabled Tailscale rendering, secret-safe one-off enrollment, direct SSH, and
   cross-host Herdr reattachment are verified before tailnet deployment passes.
-- Disposable CentOS x86_64 installation, empty second apply, checksum validation,
-  secret-free rendering, and rollback pass before remote-workspace deployment.
+- Disposable UBI 10 x86_64 installation, empty second apply, checksum validation,
+  secret-free rendering, local-only history and rollback must pass before the
+  RHEL successor rollout. UBI userland proof does not replace live RHEL, OS Login,
+  SELinux, rootless Podman, IAP or independently owned authentication evidence.

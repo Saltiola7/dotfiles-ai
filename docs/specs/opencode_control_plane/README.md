@@ -1,5 +1,12 @@
 # OpenCode Control Plane
 
+**RRW-002 successor Discovery:** Initiative `rhel-remote-workspace`, slice
+`rrw-002-rhel-user-runtime`, approves RHEL 10 x86_64 as the standalone remote
+successor. Implementation, deployment, release qualification, and readiness are
+not established; coordinator authority and primary verification remain pending.
+Existing completion statements and RWUE evidence below retain their original
+cycle/platform scope and do not qualify RHEL.
+
 ## Retirement recovery Discovery
 
 [Supported retirement journey](features/cycle-retirement-journey.md) specifies
@@ -200,12 +207,37 @@ plugin failure, role retention, replaced Task allowlists and early child rejecti
 | Deliverable | Managed OpenCode providers, agents, commands, permissions, skills, and routing |
 | Languages/frameworks | JSON/JSONC configuration, Markdown agent prompts, Python contract tests |
 | Modules | ML/AI |
-| Runtime/platform support | OpenCode on the managed macOS host and managed Fedora 44 Lima guests; Python `>=3.12` tests |
+| Runtime/platform support | OpenCode on the managed macOS host and managed Fedora 44 Lima guests; intended RHEL 10 x86_64 remote successor with release qualification pending; Python `>=3.12` tests |
 | Public compatibility | Preserve native Plan-to-Build and provider-affine Build workflows; retire provider entries that current authentication cannot use |
 | Trust/data classification | Local configuration and public provider metadata; credentials remain outside the repository |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
-### RWUE-002 Initiative Override
+### RRW-002 RHEL Successor Override — Discovery Only
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: independent authenticated OpenCode state for users of a shared remote host |
+| Delivery intent | Normal PR approval without admin bypass; disposable UBI10 userland proof, with actual RHEL qualification and private rollout separate |
+| Scope | RHEL 10 x86_64 user-local OpenCode install/configuration, credential-free render/startup, and content-free per-user readiness |
+| Overrides | Both users are supported targets; no owner/peer credential copying; colleague readiness is unverified until independently exercised |
+
+Given either remote user has a valid shared foundation, when OpenCode renders or
+starts, it requires no login. Each user explicitly authenticates into their own
+stores; readiness retains only the safe local-evidence contract in the
+[distribution runtime specification](../dotfiles_ai_distribution/features/remote-user-rollout-runtime.md),
+not proof of online credential validity. User-local tools remain native; optional
+UBI10 Toolbx introduces no new containerized toolchain.
+
+Given CI uses `registry.access.redhat.com/ubi10/ubi`, a successful smoke is only
+userland evidence, not full RHEL VM, SELinux, rootless Podman, systemd, or IAP
+qualification. The standalone remote client is IAP-only without a Tailscale
+requirement; unrelated macOS/Fedora Lima Tailscale paths remain unchanged.
+RRW-002 gate applicability/results remain pending. Existing provider-routing
+visuals retain their bounded scope; no provider or delegation topology changes.
+
+### Historical RWUE-002 Initiative Override
+
+The predecessor contract below retains its CentOS scope, not RHEL acceptance.
 
 | Field | Value |
 |---|---|

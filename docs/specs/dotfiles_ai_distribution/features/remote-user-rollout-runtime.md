@@ -11,6 +11,87 @@ The stable Engineering Profile is
 [`../PROFILE.md`](../PROFILE.md). Product Intent remains
 [`../PRODUCT.md`](../PRODUCT.md).
 
+## Approved RHEL Successor: RRW-002
+
+**Discovery only:** `rhel-remote-workspace` / `rrw-002-rhel-user-runtime`
+defines the RHEL 10 x86_64 successor to the historical RWUE runtime below.
+This document does not establish implementation, container qualification, live
+RHEL readiness, or completed authentication. Coordinator manifest validation,
+fresh receipt, feasible Begin preflight, and exact approval remain prerequisites
+for Build. This public source records portable contracts, not private deployment
+identities or infrastructure inventory.
+
+| Intent | Portable contract |
+|---|---|
+| INT-001, INT-011 | Standalone remote support targets RHEL 10 x86_64; macOS and Fedora Lima behavior remains unchanged. |
+| INT-002 | The remote-workspace client supports IAP only; remove its alternate-host data and Tailscale prerequisite. Unrelated host and Lima Tailscale features remain unchanged. |
+| INT-008, INT-009 | Keep user tools in the invoking user's home and Atuin history local-only. Do not introduce a containerized toolchain or an Atuin server. |
+| INT-010 | Replace the CentOS smoke image with `registry.access.redhat.com/ubi10/ubi`; retain the existing disposable bootstrap/retry/reapply/update/rollback checks. |
+| INT-016, INT-020 | The same public runtime supports independently owned users. Diagnose portable bootstrap failures with safe failure classes; never fabricate colleague or live-RHEL acceptance. |
+| INT-021 | Private rollout consumes one full merged public runtime commit SHA. This Discovery PR is not that implementation revision. |
+| INT-022, INT-024 | No staging, OpenShell, cloud changes, provider login, or managed-host apply; normal protected PR review, no admin bypass. |
+
+### Successor Behavior And Compatibility
+
+- **Given** a configured IAP client with no Tailscale executable, **when** the
+  local doctor runs, **then** it checks mise, gcloud, SSH, Herdr, endpoint
+  coordinates, and usable repository-root task configuration without requiring
+  Tailscale or starting the VM.
+- **Given** an arbitrary caller directory, **when** the IAP wrapper forwards a
+  task, **then** task arguments and repository-bound discovery are unchanged.
+  VM up/down, connection rejection while stopped, idle-stop, and keep-awake
+  behavior remain owned by the infrastructure repository, not duplicated here.
+- **Given** remote-user intent, **when** the role renders/applies, **then** Atuin
+  remains a host-side per-user executable with local history and automatic sync
+  disabled, no sync-service activation, and no login or sync request from startup.
+  Already saved history and credentials are neither read nor deleted to perform
+  this migration. macOS and Fedora sync behavior is unchanged.
+- **Given** a clean disposable UBI 10 userland, **when** bootstrap, retry, second
+  apply, update and rollback are exercised, **then** checksums, target integrity,
+  safe state transitions and preservation pass without real provider credentials.
+- **Given** a portable bootstrap failure, **when** a bounded diagnostic is emitted,
+  **then** it identifies a safe failing stage or class, exits nonzero and retains
+  retry state, without raw subprocess/provider output, identity, paths, prompts,
+  credentials, sessions or history. An unknown cause stays unknown until reproduced.
+
+`remote-user-bootstrap bootstrap REVISION`, the 40-character immutable revision
+rule, state schema, owned-home checks, local-only readiness semantics, and rollback
+preservation remain compatible. Default templates and rendered client environment
+drop `tailscale_host` and `REMOTE_DEV_TAILSCALE_HOST`; doctor no longer reads them.
+Stale machine-local values must not select a transport, add a prerequisite, or
+enable network activity. The migration does not rewrite unrelated local settings
+or revoke a network identity. Remote sync stays disabled even if an old local
+Atuin sync endpoint exists; do not change non-remote defaults to implement it.
+
+### Evidence And Completion Boundary
+
+Use the existing remote-user smoke entry point and extend its assertions rather
+than adding a second bootstrap. If the CI workflow is renamed, update its own
+path filters, render tests, documentation references and any required-check
+consumer in the same reviewed change. A container run qualifies UBI userland,
+not a RHEL VM, RHEL subscription repositories, enforcing SELinux, a real systemd
+user manager, OS Login, IAP, or rootless Podman on the host. Those proofs remain
+with the private rebuild/onboarding owner. Shared/personal target-disjointness
+proof uses an exact reviewed personal-source revision without changing its
+Yazi-only ownership.
+
+| Gate | Applicability | Result |
+|---|---|---|
+| Domain, Behavior, Spec, Contract | required: migration and preservation contracts | pending |
+| Test-driven implementation, Refactor, Review/Integrate | required: red-first client/config regression checks, affected pytest, configured CI and publication authorities | pending |
+| Release | not_applicable: no separate versioned release artifact | not_run |
+| Deploy | required: disposable UBI user-home installation, not a live-host apply | pending |
+| Operate | required: disposable prerequisites, readiness classes and preservation checks | pending |
+| Maintain/Retire | required: remote transport/sync retirement, rollback and retained private state | pending |
+
+Acceptance retains Python 3.12/3.13/3.14 compatibility and configured CI cadence,
+shell/TOML/JSON validation, public-content checks including new docs, missing
+Tailscale and stale-key cases, IAP forwarding outside the repository, remote-only
+Atuin/no-sync assertions, and empty second apply. Simulated `ready` is explicitly
+local/synthetic evidence, never independent two-user authentication acceptance.
+No Gate Exception is approved. Return the merged RRW-002 SHA and evidence paths
+to the coordinator after implementation delivery, not before.
+
 ## Scope And Boundaries
 
 ### Native-update CI compatibility follow-up
@@ -140,7 +221,12 @@ RWUE-003 in the separately owned personal source.
 - Rollback preserves authentication, sessions, history, personal overlays, and
   unrelated files.
 
-## Visual Evidence Plan
+## Visual Evidence
+
+The distribution owner maintains the ownership/state view below when bootstrap,
+authentication evidence, platform or rollout boundaries change. RRW-002 keeps
+those boundaries; its IAP-only and local-history acceptance remains explicit in
+the successor behavior above rather than duplicating the private deployment view.
 
 | Concern | Decision | Review question | Canonical source |
 |---|---|---|---|
