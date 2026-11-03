@@ -176,10 +176,29 @@ instruction activation is claimed by source delivery.
 | Boundary | not_applicable: Domain and ownership names each owner explicitly |
 | Interaction | required: ordered transition table below |
 | State | required: ordered transition table below |
-| Data/trust | not_applicable: no private data is moved; reuse the existing publication authority |
-| Schema | not_applicable: no schema changes |
+| Data/trust | required: native worker/artifact/aggregate handoff table below |
+| Schema | required: bounded receipt field/authority table below; Cycle Record schema is unchanged |
 | Dependency/deployment | required: CI event/runtime/cancellation and merge dependency table above |
 | Quantitative | not_applicable: no speedup claim |
+
+| Receipt fields | Producer and validation authority |
+|---|---|
+| `schema_version`, `shard`, `identity` | Worker schema 1; aggregate requires its fixed lane, source/tree/authority hashes, repository, run, attempt and partition identities |
+| `collected`, `selected`, `collection_reports`, `collection_complete` | Worker collection hooks and tracked-module inventory; aggregate checks exact populations, allocation and common skipped collectors |
+| `reports`, `exit_code`, `python_full` | Actual pytest phase reports, terminal code and interpreter; aggregate reconciles every selected item, full runtime agreement and exact JUnit identities/outcomes |
+
+| From | Direction and trust boundary | To |
+|---|---|---|
+| Selected source and pinned runtime/tool lane | Worker executes the complete configured population in an isolated native job | Bounded terminal receipt and JUnit diagnostics |
+| Worker diagnostics | Native Actions artifact service; current run/attempt names and seven-day retention | Aggregate job for that lane |
+| Downloaded artifacts | Validate fixed identities, every worker outcome and exact coverage; artifacts grant no approval | Existing app-bound required check |
+
+**Text Equivalent:** Workers publish only ordinary test evidence through the
+native artifact service. The aggregate validates the fixed receipt schema and
+current-run source/runtime identities before accepting complete coverage. Artifact
+claims alone grant no merge, lifecycle or installation approval. Canonical source:
+the bounded-execution interfaces above. Owner: distribution/lifecycle maintainers.
+Update trigger: receipt fields, artifact transport, identity or retention changes.
 
 | From | Guard/action | To |
 |---|---|---|
