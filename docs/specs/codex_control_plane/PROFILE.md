@@ -6,7 +6,7 @@
 | Owner | Dotfiles owner |
 | Languages/frameworks | TOML and Go templates; Markdown instructions and skills; Python `>=3.12` adapters and tests; supported Codex CLI and app-server stdio interfaces |
 | Modules | Python, Security, Cloud, ML/AI, Data, Analytics |
-| Runtime/platform support | Managed Codex CLI peer on Apple Silicon macOS, Fedora 44 aarch64 Lima guests, and CentOS Stream 10 x86_64 remote workspaces; Codex Desktop may consume the shared lifecycle CLI through native tools against explicit task checkouts without managing Desktop itself; stable native installer ownership after qualified transition and body-free semantic compatibility validation |
+| Runtime/platform support | Managed Codex CLI peer on Apple Silicon macOS and Fedora 44 aarch64 Lima guests; intended RHEL 10 x86_64 remote-workspace successor (release qualification pending); Codex Desktop may consume the shared lifecycle CLI through native tools against explicit task checkouts without managing Desktop itself; stable native installer ownership after qualified transition and body-free semantic compatibility validation |
 | Compatibility | Preserve OpenCode behavior and explicit invocation; capability-probe version-dependent Codex interfaces; never depend on private storage schemas |
 | Trust/data | Public configuration and bounded sanitized evidence; credentials, transcripts, machine paths, CODEX_HOME, sessions, and private runtime identity remain outside Git |
 | Delivery | Feature branch and draft pull request; managed deployment only after affected gates and runtime probes pass |
@@ -19,3 +19,12 @@ unchanged.
 Distribution's `features/native-platform-updates.md` owns the approved package
 successor policy. Existing private-lock deployment remains until qualification;
 configuration projection, state validation and recorded cycle authority persist.
+
+`rhel-remote-workspace` / `rrw-002-rhel-user-runtime` (planned `RRW-002`)
+approves the standalone RHEL successor in Discovery only, not implementation or
+deployment. Historical RWUE evidence retains its original platform. Codex stays
+user-local with a separate `CODEX_HOME` and authentication for each user; neither
+owner nor peer credentials are copied. Both users are supported targets, but
+colleague readiness is unverified until independently exercised. Coordinator
+authority, primary verification, and actual RHEL qualification remain pending;
+UBI10 userland smoke is not host qualification.

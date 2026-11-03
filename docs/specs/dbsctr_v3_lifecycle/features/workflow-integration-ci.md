@@ -1,10 +1,10 @@
 # Workflow PR integration and affected CI
 
-**SPECIFICATION READY, NOT IMPLEMENTED — not runtime qualified.** Owner: lifecycle Discovery primary.
+**SOURCE IMPLEMENTED — runtime qualification remains capability-specific.** Owner: lifecycle Discovery primary.
 Profile: [../PROFILE.md](../PROFILE.md); risk: critical (authorization and retained data); modules: Python,
 Security, Data, ML/AI. Covers convergence INT-022–INT-039 and Q-06–Q-09 in the
 [Initiative](../../../initiatives/dbsctr-workflow-convergence/README.md).
-No implementation, merge, gate result or consumer-repository change is authorized.
+Source delivery does not establish live merge authority, gate results or consumer-repository activation.
 
 ## Domain and ownership
 

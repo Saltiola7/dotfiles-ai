@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Source-only performance PR; no independently published package or release."},
+    "deploy": {"applicability": "not_applicable", "reason": "No installed helper, runtime, model, routing, activation or environment change in this source-only slice."},
+    "operate": {"applicability": "not_applicable", "reason": "Validation uses disposable synthetic fixtures; live rollout and whole-primary telemetry remain separate."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

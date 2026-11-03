@@ -1,5 +1,42 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-03 — Isolate synthetic fetch interpreter
+
+- Removed an accidental host-interpreter permission dependency from synthetic
+  Forgejo fetch tests. The fixture now validates an owned executable while the
+  production owner/mode guard and real credential-child interpreter stay intact.
+  Both injected failure branches must still reach the mocked fetch exactly once;
+  a failed assertion includes the already-sanitized error category.
+- Reproduced both failing subcases with an existing group-writable framework
+  Python. After correction, all 22 transport tests passed on Python 3.12, both
+  existing 3.13 environments and 3.15; the real unsafe-mode executable remains
+  denied. Exact hosted runner permissions were not logged, so that local cause
+  is a demonstrated fixture dependency rather than a proven hosted diagnosis.
+- Preserved current main's sandbox deadline repair, opt-in performance tooling
+  and remote-platform Discovery. Fresh combined-source hosted qualification
+  remains required; previous failed CI evidence is retained.
+- Qualified the new opt-in benchmark's help oracle on Python 3.15.0. Its exact
+  output digest matches the retained 3.13/3.14 oracles; adding the observed entry
+  preserves the smoke/profile assertions and all existing runtime entries.
+
+## 2026-11-02 — RRW-002 RHEL remote-user Discovery
+
+- Defined the RHEL 10 x86_64 successor, IAP-only portable client, remote-only
+  local Atuin history, UBI 10 disposable qualification and preservation contract.
+  Existing macOS/Fedora Tailscale and sync behavior stays outside the migration.
+- Kept immutable bootstrap interfaces, local-only authentication evidence and
+  Yazi overlay ownership; linked the `rhel-remote-workspace` intent/slice IDs
+  without importing private deployment identities into public documentation.
+- This change is Discovery only. Source, workflows, local installations and
+  remote homes remain unchanged. RHEL/UBI qualification, implementation, fresh
+  coordinator receipt/preflight/approval and live user acceptance remain pending;
+  no Gate Exception or completed rollout is claimed.
+- Local Python 3.14 validation: existing remote runtime tests passed (37), and
+  configured publication/instruction checks passed (93, one opt-in skip).
+  Disposable fixture commits required a test-process-only signing override;
+  repository commit signing remains enabled. These are source regressions,
+  not UBI or RHEL operating evidence.
+
 ## 2026-11-01 — Python runtime policy and 3.15 CI candidate
 
 - Added standard CPython 3.15 to weekly/manual full macOS validation. PR/main
@@ -55,6 +92,28 @@
   no live platform, plugin, hooks, authentication or MCP activation is implied.
   No gate exceptions are introduced. Final delivery targets a feature-branch
   draft PR and ordinary protected merge only after current-base CI passes.
+
+## 2026-10-31 — Bounded sandbox command I/O (PY-05)
+
+- Repaired blocked stdin by servicing input, stdout and stderr together under one
+  monotonic execution deadline. Preserved the synchronous interface, caller
+  deadlines, combined output bound, replacement decoding and safe error detail.
+- Close owned pipes/selectors on success, partial acquisition, failure and
+  interruption. Failed invocations attempt local process-group termination,
+  direct-child fallback and reaping with one shared one-second cleanup allowance;
+  original failure/interrupt remains primary. Remote guest effects stay uncertain
+  for existing caller recovery, with no new retry or rollback authority.
+- Retained the original failing watchdog regression and added real-pipe,
+  partial-write, capacity, descendant, input-ownership, privacy and cleanup-fault
+  coverage. Independent review hardened test-owned process cleanup as well.
+- Existing native sandbox/caller and publication/instruction authorities provide
+  scoped evidence. Exact interpreter versions, red/replacement checks and broad
+  regression results remain in the private PY-05 Cycle Record; no typing/lint
+  authority or new dependency was introduced.
+- Source PR only; no managed apply, restart or live VM operation. No Gate
+  Exceptions approved. Intended Final Push: recorded feature branch and draft PR
+  into the protected base; actual outcome is recorded privately and reported
+  separately. Live deployment/guest qualification remains separate work.
 
 ## 2026-10-31 — PY-06 refresh elapsed duration
 

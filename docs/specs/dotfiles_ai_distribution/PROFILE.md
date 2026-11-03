@@ -6,15 +6,15 @@
 | Owner | Project maintainers |
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, and launchd plist |
 | Modules | Python, Security, Cloud |
-| Runtime/platform support | Apple Silicon macOS; Fedora 44 aarch64 Lima guests on VZ; CentOS Stream 10 x86_64 remote workspaces; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
+| Runtime/platform support | Apple Silicon macOS; Fedora 44 aarch64 Lima guests on VZ; intended RHEL 10 x86_64 remote-workspace successor (release qualification pending); chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
 | Compatibility | Stable local TOML keys and managed state boundaries; OpenCode-default automation; sanitized defaults; qualified native platform-local installer ownership with compatibility and recovery checks |
 | Trust/data | Public configuration; credentials and machine identifiers remain local |
 | Delivery | Feature branch and draft pull request; managed local deployment only after affected gates pass |
 | Authorities | Rendered chezmoi output, shell syntax, checksums, `pytest`, launchd validation, and configured runtime smokes |
 | Product Intent | `docs/specs/dotfiles_ai_distribution/PRODUCT.md` |
 
-RWUE-001 is elevated risk because it adds a standalone Linux platform, shell
-startup, executable installers, user-service recovery, and rollback contracts.
+Historical RWUE-001 is elevated risk because it adds a standalone Linux platform,
+shell startup, executable installers, user-service recovery, and rollback contracts.
 It must preserve all existing macOS and Fedora aarch64 rendering and deployment
 behavior.
 
@@ -40,3 +40,29 @@ and hosted CI changes only. Kernel, Review/Integrate and Maintain/Retire gates
 are required. Release, Deploy and Operate are not applicable because no separately
 versioned artifact or managed runtime activation is selected. Existing source,
 platform and owner-specific runtime obligations remain unchanged.
+
+## RRW-002 Approved Successor Discovery
+
+Initiative `rhel-remote-workspace`, slice `rrw-002-rhel-user-runtime`, planned
+cycle `RRW-002` (not registered), replaces only the standalone CentOS Stream 10
+x86_64 target with RHEL 10 x86_64. This is approved successor Discovery, not implementation,
+deployment, or release qualification evidence. Historical RWUE acceptance remains
+evidence for its original platform. Readiness, gate applicability, and results
+remain pending coordinator authority and primary verification; the primary must
+supply the full public merged runtime SHA for downstream handoff.
+
+- Risk remains elevated. Tools stay user-local; optional UBI10 Toolbx adds no new
+  containerized toolchain or installation owner.
+- The remote client is IAP-only, with no Tailscale requirement; successor source
+  must remove remote-client keys `tailscale_host` and `REMOTE_DEV_TAILSCALE_HOST`.
+  Unrelated macOS and Fedora Lima Tailscale behavior remains unchanged.
+- Remote Atuin is local-only and preserves existing history. Each Unix user owns
+  authentication; no owner or peer credentials are copied. Both users are
+  supported targets, but colleague readiness is unverified until independently
+  exercised.
+- CI uses `registry.access.redhat.com/ubi10/ubi` for userland smoke, not proof of
+  a full RHEL VM, SELinux, rootless Podman, systemd user services, or IAP.
+- Bootstrap root-cause diagnostics preserve safe output without asserting an
+  unverified cause. Staging, OpenShell, MarimoHub, and infrastructure stay out of
+  scope. Delivery uses normal PR approval without admin bypass; private rollout
+  remains separate from local disposable proof.

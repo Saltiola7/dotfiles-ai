@@ -176,6 +176,14 @@ grant installation, restart, minor-version migration or fleet authority.
   [CentOS job](../.github/workflows/centos-remote-user.yml) uses `ubuntu-latest` and
   `stream10`; OS package managers own their package versions. Review CI changes
   as CI input changes, not evidence that the live host was updated.
+- RRW-002 plans to replace that remote-user image with
+  `registry.access.redhat.com/ubi10/ubi` for RHEL 10 userland qualification.
+  The workflow is not changed by Discovery. Record the selected base revision,
+  runtime versions and any workflow/check-name migration in implementation
+  evidence; UBI installation does not establish live RHEL, SELinux, systemd,
+  OS Login or rootless-Podman qualification. Remote-only local Atuin history must
+  not disable host/Fedora sync. See the
+  [RHEL successor contract](specs/dotfiles_ai_distribution/features/remote-user-rollout-runtime.md#approved-rhel-successor-rrw-002).
 - Explicitly select the supported validation interpreter. An unconstrained
   `uv run` may choose a newer installed Python than the tested CI matrix even
   while `python3` resolves another interpreter. Package lock identity does not

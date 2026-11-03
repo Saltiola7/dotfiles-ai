@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution
 
+The [PY-09 retained-CI precursor](features/validation-execution-performance.md#py-09-retained-ci-baseline-precursor)
+defines opt-in analysis of existing job metadata/logs through the shared evidence
+contract. It starts no CI jobs and changes no workflow, runtime or required-check
+authority. Its source tooling and evidence collection remain pending Build.
+
 The [complete official JFrog skill collection](features/jfrog-skills.md) adds seven
 portable, narrowly routed workflows and an independent optional missing-only CLI
 installer. Native discovery, CLI readiness, MCP connection and live platform
@@ -470,13 +475,23 @@ Its rollout slice is captured; prior deployment does not qualify the correction.
 | Deliverable | Public standalone chezmoi source for DBSCTR, OpenCode, Herdr, and opt-in Hermes R&D orchestration |
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, launchd plist |
 | Modules | Python, Security, Cloud |
-| Runtime/platform support | Apple Silicon macOS host; Fedora 44 aarch64 Lima guests on VZ; CentOS Stream 10 x86_64 remote workspaces; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
+| Runtime/platform support | Apple Silicon macOS host; Fedora 44 aarch64 Lima guests on VZ; RHEL 10 x86_64 remote workspaces (RRW-002 successor qualification pending); chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
 | Public compatibility | Stable local TOML keys and managed target paths; sanitized defaults |
 | Trust/data classification | Public configuration; credentials and machine identifiers remain local |
 | Operational owner | Project maintainers own releases, compatibility, and migration guidance |
 | Product Intent | `docs/specs/dotfiles_ai_distribution/PRODUCT.md` |
 
-### RWUE-001 Initiative Override
+### Remote User Platform Successor (RRW-002)
+
+The approved `rhel-remote-workspace` / `rrw-002-rhel-user-runtime` Discovery
+replaces the standalone remote platform with RHEL 10 x86_64, makes its client
+IAP-only, and keeps remote Atuin history local-only. The
+[successor contract](features/remote-user-rollout-runtime.md#approved-rhel-successor-rrw-002)
+owns intent coverage, compatibility, validation and pending gates. No RHEL
+implementation or deployment is claimed here. Historical RWUE overrides below
+describe their original CentOS scope; their evidence is not RHEL qualification.
+
+### RWUE-001 Initiative Override (Historical)
 
 | Field | Value |
 |---|---|
@@ -521,7 +536,7 @@ shell/TOML/JSON, verify x86_64 release digests, scan public output for private
 identity, compare cross-source target ownership, and prove install, idempotency,
 update, failure, and rollback in a disposable CentOS x86_64 environment.
 
-### RWUE-005A Initiative Override
+### RWUE-005A Initiative Override (Historical)
 
 | Field | Value |
 |---|---|
@@ -1006,6 +1021,17 @@ feature branch with a draft pull request; the operator retains merge authority.
 - Given a relative or non-string Lima home, when sandbox configuration is
   validated, then the controller fails before invoking Lima.
 
+### Sandbox Command Deadline Repair (PY-05)
+
+The [command deadline contract](features/sandbox-command-deadlines.md) governs
+the existing synchronous `sandbox-vm.command` helper. All owned pipe I/O and final child wait share one
+monotonic execution deadline after successful process creation, followed by a
+separate bounded cleanup allowance. Existing output limits, private-data handling,
+caller deadlines and recovery authority remain binding. Source delivery is one
+reviewed pull request; local activation and live operations are separate work.
+Local process and caller qualification is source evidence; managed Lima rollout
+and live guest qualification remain separate.
+
 ### Optional Personal Atuin Service
 
 - Given shared defaults select no Atuin workspace, when configuration renders,
@@ -1458,17 +1484,19 @@ feature branch with a draft pull request; the operator retains merge authority.
   host/guest staging, activation, recovery, and post-commit retirement of the
   legacy guest provision. Once package state exists, managed launch fails closed
   rather than falling back to Homebrew.
-- `[dotfiles_ai.remote_workspace]` is disabled by default and contains only a
-  local repository path plus non-secret project, zone, instance, optional account,
-  and optional alternate host values. When enabled, chezmoi renders them into a
-  private local environment file.
+- The approved RRW-002 successor for `[dotfiles_ai.remote_workspace]` is disabled
+  by default and contains only a local repository path plus non-secret project,
+  zone, instance and optional account. Its private environment no longer exports
+  alternate-host values. Implementation is pending under the linked successor
+  contract; the historical client can still render those values until delivery.
 - `remote-workspace TASK [ARG ...]` sources that file and forwards unchanged to
   `mise run` in the configured repository; `remote-workspace doctor` invokes the
   prerequisite check.
-- `remote-workspace-doctor` verifies the local gcloud, mise, SSH, and Herdr
-  commands, requires a usable root `mise.toml` in the configured repository plus endpoint coordinates,
-  resolves an omitted account from gcloud, and requires the Tailscale client only
-  when an alternate host is configured. It performs no remote mutation.
+- `remote-workspace-doctor` verifies local gcloud, mise, SSH and Herdr commands,
+  a usable root `mise.toml`, endpoint coordinates and an omitted account resolved
+  from gcloud. It performs no remote mutation. RRW-002 retires its conditional
+  Tailscale prerequisite even when stale alternate-host configuration is present;
+  this is pending implementation, not a claim about the current executable.
 - `remote-user-bootstrap bootstrap REVISION` accepts one full public commit,
   rejects user-home symlink or ownership escapes, verifies or clones the fixed
   public source, installs checksum-pinned chezmoi `2.69.4` under the invoking

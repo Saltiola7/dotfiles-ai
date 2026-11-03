@@ -12,13 +12,14 @@ results or enables automatic cleanup. The rules below remain canonical for
 automatic removal and successful-delivery proof; the new manual path requires
 its own source and installed qualification.
 
-**SPECIFICATION READY; IMPLEMENTATION/ROLLOUT UNQUALIFIED.** Owner: lifecycle maintainers; Discovery
+**SOURCE IMPLEMENTED; ROLLOUT QUALIFICATION REMAINS CAPABILITY-SPECIFIC.** Owner: lifecycle maintainers; Discovery
 primary integrates this contract. Profile: [../PROFILE.md](../PROFILE.md).
 Risk: critical (irreversible data loss). Covers workflow-convergence
 INT-009–INT-023 and storage-safety dependencies; not generic CI/merge-policy
-implementation. The selected interfaces below are not yet implemented CLI flags
-or qualified runtime behavior. Current operation remains report-only; specification
-readiness grants no publication, launch, upload, removal or deployment authority.
+implementation. Source guards and interfaces exist; strict automatic retirement
+remains blocked where ownership, handoff, fresh-default or coordination evidence
+is unavailable. Source delivery grants no publication, launch, upload, removal or
+deployment authority.
 
 ## Authority and source distinction
 
