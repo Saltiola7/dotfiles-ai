@@ -206,6 +206,13 @@ substitute. The runtime feature records the source-backed finding, candidate
 investigation and required proof; actual results remain in the private Cycle
 Record. This preserves INT-008 and reopens only the isolation mechanism.
 
+The operator subsequently selected a small workload-only Unix-socket patch for
+the next optional trial, with compatibility testing and normal sessions unchanged.
+Prepare it as a distinctly identified experimental runtime; it is not an upstream
+configuration switch or a completed qualification. Disk/cache admission must be
+complete before any new VM starts. The runtime feature owns patch provenance,
+the complete denial/positive-control matrix and the remaining storage gates.
+
 ## Promotion and Build handoff
 
 Runtime-qualification scope: source recipes/fixtures/runner/runbook, actual

@@ -306,6 +306,60 @@ Read-only inventory and exact stop/delete retain their separate recovery route.
 Keep the existing legacy `allocation_guard(root)` unconditionally refusing;
 qualifying the new mounted layout cannot enable historical preparation scripts.
 
+The next read-only implementation is
+`collect_native_inventory(selection) -> NativeInventory`, with
+`validate_native_inventory(selection, inventory) -> StorageAdmission` and
+`tests/probe_openshell_storage_inventory.py --selection PRIVATE_JSON`.
+Collection holds the exclusive private pilot-root lock while obtaining fresh
+native topology observations before and after a bounded, descriptor-based scan.
+Validation never loads a stored passing receipt. Its result may verify inventory
+but always leaves allocation disabled and running-worker compatibility `not_run`.
+
+`RetainedWorker` records run identifier, name, directory device/inode, presence
+of configuration and observed disk file identities. Absence of configuration
+does not erase a partially created worker. `NativeInventory` records those
+workers, both native observations, external allocation, backing-image allocation,
+runtime/cache use, maximum logical VM-disk size, scan/socket/fixture-alias counts
+and underlying-host free space. Scan limits retain the existing entry/depth
+bounds. Every owned qualification run requires its closed owner marker.
+
+Every immediate directory below a run's Lima home counts as a retained worker
+except the exact `_controller`, `_config` and `_networks` directories. Unexpected
+reserved names, `_disk`/`_disks`, additional backing images and unknown mounts
+refuse inspection; an unmounted image cannot prove absence of retained workers.
+Only the selected, independently verified runtime and cache mounts may be crossed.
+Count backing-image allocation once and keep mounted usage separate, using native
+APFS observations instead of double-counting the same physical bytes. Conservatively
+count external fixture aliases under the existing narrow no-follow rules.
+
+Inspect regular single-link `disk`, `image`, `basedisk` and `diffdisk` candidates,
+including partial state, against the 20 GiB logical-size ceiling. This inventory
+keeps `disk_format_qualification: not_run`: a filename and logical file size
+cannot qualify raw format or QCOW2/ASIF virtual capacity. Allocation requires
+independent format/capacity evidence. Unknown runtime aliases or sockets refuse;
+native socket names/locations require separate source
+and live qualification before metadata-only inspection is allowed. No socket is
+opened or connected by storage inspection.
+
+The allocating route must derive `XDG_CACHE_HOME` and `TMPDIR` as the private
+`_xdg` and `_tmp` children of `HOME/Library/Caches/lima`, on the same cache-volume
+device. The old home-level cache/tmp directories are not active routes. Lima's
+download partials and converted cached images remain under its native cache;
+conversion temporaries created beside VM-disk destinations remain under the
+24 GiB runtime ceiling. See the pinned
+[downloader](https://github.com/lima-vm/lima/blob/v2.2.1/pkg/downloader/downloader.go)
+and [image conversion](https://github.com/lima-vm/lima/blob/v2.2.1/pkg/imgutil/nativeimgutil/nativeimgutil.go).
+The earlier topology proof does not qualify these additional routes.
+
+Required inventory scenarios include zero workers, empty partial workers,
+stopped workers in another run, a second worker, hidden/additional-disk state,
+missing cache mounts, cache children on another device, ambiguous image ownership,
+external overflow, unknown sockets, traversal limits and lock release on failure.
+Current strict native snapshot equality can safely refuse during active writes.
+Before supporting a running worker, separate stable identity/ceiling comparisons
+from conservative usage maxima and free-space minima; do not omit changing usage
+from accounting or label this inspection increment running-state qualification.
+
 Validation must cover replaced backing files or mounts, foreign physical stores,
 duplicate attachments, shadow layers, invalid quotas, escaped controller paths,
 missing cache mounts, low host reserve, a stopped VM followed by another create,
@@ -844,8 +898,11 @@ the final filter prevents a later ordinary wrapper from installing its own filte
 See the pinned [child hardening](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/crates/openshell-sandbox/src/linux/child_seccomp.rs),
 [initial launch](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/crates/openshell-sandbox/src/process.rs)
 and [native exec](https://github.com/NVIDIA/OpenShell/blob/v0.1.6/crates/openshell-sandbox/src/boundary_exec.rs).
-This is an investigation candidate, not a stock setting, implemented patch or
-qualified image. It is not selected for deployment by this document.
+The operator selected this small workload-only patch for the next optional
+credential-free trial, including compatibility testing. This is not a stock
+setting or qualified image. Selection authorizes preparation of the experimental
+patch; VM startup still requires completed storage admission, and agent or real
+checkout activation remains in its dependent slice.
 
 The source-only review proposes two conditional denials in
 `child_seccomp::prepare`: use the existing `append_argument_equal_deny` helper
@@ -855,6 +912,17 @@ says mediated networking calls are left alone. Keep all existing hardening and
 the descriptor close-on-exec sweep. The trusted runtime must not receive these
 new workload rules. A resulting image needs its own source, patch, build and
 artifact identities; it cannot claim to be an unchanged upstream release.
+
+Keep the source-only patch under `tests/fixtures/openshell_runtime/patches/` with
+an explanatory README and `source.json` binding the upstream repository, tag,
+full commit, original file blob/SHA256 and patch SHA256. The first source delta
+uses the existing v0.1.6 baseline for comparison; the build baseline must still
+undergo the release review below. Tests must distinguish exact patch application
+and source provenance from real Linux filter execution. Add isolated upstream
+Rust syscall tests for Unix denial and unaffected Internet socket creation where
+the existing test harness supports them. Host source checks cannot stand in for
+the complete native launch/descriptor matrix. Missing toolchains remain explicit;
+do not install a substitute or build outside the capped trial scope.
 
 The November 3 upstream [v0.1.7 release](https://github.com/NVIDIA/OpenShell/releases/tag/v0.1.7)
 does not remove this decision. Its
@@ -881,9 +949,10 @@ waive it. A more selective alternative is a mandatory child Landlock policy with
 pathname Unix-socket mediation on a compatible kernel. The baseline policy uses
 ABI3, so a kernel upgrade alone is insufficient. Child mount masking also needs
 launch-lifecycle changes because the supervisor already forbids later mounts.
-These alternatives remain research, with no automatic kernel upgrade, runtime
-fork, relaxed policy or new VM. Storage admission is a prerequisite to further
-native experiments, whichever mechanism is eventually selected.
+These alternatives remain research; the selected experiment uses the workload
+patch, with no kernel upgrade or relaxed policy. Keep the experimental runtime
+separate from normal session launchers. Storage admission remains a prerequisite
+to every further VM experiment.
 
 #### Bounded recovery observations
 

@@ -33,6 +33,13 @@ command does not mount, resize, create or start anything. Exit zero and
 `allocation_enabled: false` and `inventory_qualification: not_run` remain explicit.
 Never substitute that report for aggregate inventory or VM admission.
 
+The next read-only aggregate report is
+`python3 tests/probe_openshell_storage_inventory.py --selection PRIVATE_JSON`.
+It must account for every retained or partially created worker across owned runs,
+the single selected backing image and bounded external retention. A successful
+report still cannot create or start a worker. Before enabling allocation, qualify
+the cache-volume `_xdg` and `_tmp` routes and closed operation-specific admission.
+
 After capacity is available, the next native storage proof uses an owned tiny
 image before any VM: verify its attachment and physical-store chain, establish
 a separate cache quota, demonstrate bounded quota exhaustion while the runtime
