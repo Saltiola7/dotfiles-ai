@@ -1,5 +1,22 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-03 — Bound Forgejo transport cleanup
+
+- Preserved the existing sanitized transport error when an exited child is
+  reaped and its original process group is confirmed absent. Cleanup now bounds
+  reaping, attempts every owned stream close, and fails safely if group absence
+  or resource cleanup cannot be established. Existing group termination after
+  leader exit and credential isolation remain intact.
+- Reproduced the real exited-child permission race on Python 3.15 and 3.12;
+  retained intentional red evidence and passed all 26 transport tests and
+  65 subtests on both runtimes. Added negative coverage for surviving or
+  unverifiable groups, reap timeout and stream-close failure.
+- Requalified the reviewed helper with actual CLI smoke/profile workloads on
+  Python 3.12–3.15 before updating its benchmark digest: 96 complete records and
+  64 profiles, with every prior help oracle unchanged. This is compatibility
+  evidence, with no performance improvement claim. Fresh affected local gates
+  and exact-source hosted qualification remain required before guarded merge.
+
 ## 2026-11-03 — Refresh reconciled runtime qualification
 
 - Preserved the actual protected-main metadata, resolved test dependencies and
