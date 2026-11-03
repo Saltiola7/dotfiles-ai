@@ -18646,6 +18646,167 @@ def pr_review_rebind(root, prior, updated, merged, gates):
     # cannot authorize the rebound recommendation; collection belongs to CI.
 
 
+def ci_repair_ledger(root, repository):
+    directory = cycle_dir(root) / "qualifications"
+    managed_directory(root, directory, create=True)
+    anchor = directory / "ci-repair-anchor.json"
+    path = directory / "ci-repairs.json"
+    identity = {"schema_version": 1, "repository": repository}
+    if not anchor.exists() and not anchor.is_symlink():
+        if path.exists() or path.is_symlink():
+            fail("ci_repair_accounting_incomplete")
+        return path, anchor, identity, {"schema_version": 1, "entries": {}}
+    established = json.loads(pr_review_private_bytes(anchor, 4096), object_pairs_hook=no_duplicate_keys)
+    if (not isinstance(established, dict) or type(established.get("schema_version")) is not int
+            or established != identity):
+        fail("ci_repair_accounting_identity_mismatch")
+    value = json.loads(pr_review_private_bytes(path, 1024 * 1024), object_pairs_hook=no_duplicate_keys)
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "entries"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or not isinstance(value["entries"], dict) or len(value["entries"]) > 2048):
+        fail("ci_repair_accounting_invalid")
+    for fingerprint, attempts in value["entries"].items():
+        if not re.fullmatch(r"[0-9a-f]{64}", fingerprint) or not isinstance(attempts, list) or not 1 <= len(attempts) <= 3:
+            fail("ci_repair_accounting_invalid")
+        for number, attempt in enumerate(attempts, 1):
+            if (not isinstance(attempt, dict) or set(attempt) != {"number", "plan_digest", "reserved_at"}
+                    or type(attempt["number"]) is not int or attempt["number"] != number
+                    or not isinstance(attempt["plan_digest"], str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", attempt["plan_digest"])
+                    or not isinstance(attempt["reserved_at"], str)):
+                fail("ci_repair_accounting_invalid")
+    return path, anchor, identity, value
+
+
+def ci_repair_plan(root, args, *, request=None):
+    request = request or workflow_github
+    if any(type(number) is not int or not 0 < number <= 2**53 - 1
+           for number in (args.pull_request, args.job_id)):
+        fail("ci_repair_native_identity_invalid")
+    if not isinstance(args.github_account, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}", args.github_account):
+        fail("ci_repair_account_invalid")
+    remote, separator, target = (upstream(root) or "").partition("/")
+    if not separator:
+        fail("ci_repair_upstream_required")
+    repository = github_repository_from_url(
+        git(root, "remote", "get-url", "--push", remote).stdout.strip(), "ci_repair_repository_invalid")
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    deadline = time.monotonic() + 90
+
+    def native(endpoint):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            fail("ci_repair_native_evidence_unavailable")
+        result = request(args.github_account, "GET", f"repos/{repository}/{endpoint}", {}, min(30, remaining))
+        if not isinstance(result, dict) or result.get("status") != "success" or not isinstance(result.get("value"), dict):
+            fail("ci_repair_native_evidence_unavailable")
+        return result["value"]
+
+    pull = native(f"pulls/{args.pull_request}")
+    job = native(f"actions/jobs/{args.job_id}")
+    run_id = job.get("run_id")
+    if type(run_id) is not int or not 0 < run_id <= 2**53 - 1:
+        fail("ci_repair_native_identity_invalid")
+    run = native(f"actions/runs/{run_id}")
+    for side in ("head", "base"):
+        if not isinstance(pull.get(side), dict) or not isinstance(pull[side].get("repo"), dict):
+            fail("ci_repair_native_identity_invalid")
+    if not isinstance(run.get("repository"), dict):
+        fail("ci_repair_native_identity_invalid")
+    if (pull.get("number") != args.pull_request or pull.get("state") != "open"
+            or pull.get("head", {}).get("repo", {}).get("full_name") != repository
+            or pull.get("base", {}).get("repo", {}).get("full_name") != repository
+            or pull.get("head", {}).get("sha") != head
+            or pull.get("head", {}).get("ref") != branch(root)
+            or pull.get("base", {}).get("ref") != target
+            or run.get("repository", {}).get("full_name") != repository
+            or type(run.get("id")) is not int or run["id"] != run_id
+            or type(job.get("id")) is not int or type(job.get("run_attempt")) is not int
+            or type(run.get("run_attempt")) is not int
+            or run["run_attempt"] < 1 or job.get("run_attempt") != run["run_attempt"]
+            or not isinstance(run.get("pull_requests"), list)
+            or not any(isinstance(item, dict) and item.get("number") == args.pull_request
+                       and isinstance(item.get("head"), dict) and item["head"].get("sha") == head
+                       and isinstance(item.get("base"), dict) and item["base"].get("sha") == pull["base"].get("sha")
+                       for item in run["pull_requests"])
+            or run.get("event") != "pull_request" or run.get("head_sha") != head
+            or job.get("head_sha") != head or job.get("id") != args.job_id
+            or job.get("status") != "completed" or job.get("conclusion") != "failure"):
+        fail("ci_repair_native_identity_mismatch")
+    base = pull["base"].get("sha", "")
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", base):
+        fail("ci_repair_base_invalid")
+    workflow = run.get("path", "")
+    if not re.fullmatch(r"\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml", workflow):
+        fail("ci_repair_workflow_invalid")
+    paths = sorted(set(safe_paths(root, args.paths)))
+    specification = safe_paths(root, [args.specification])[0]
+    for name in paths + [specification]:
+        current = root
+        for part in PurePosixPath(name).parts:
+            current = current / part
+            if current.is_symlink():
+                fail("ci_repair_scope_unsafe")
+    spec = git(root, "show", f"{head}:{specification}").stdout
+    if not (root / specification).is_file() or (root / specification).read_text() != spec:
+        fail("ci_repair_specification_changed")
+    signature = " ".join(evidence_text(args.signature, 512, "failure signature").split())
+    job_name = evidence_text(job.get("name", ""), 256, "job name")
+    problem = {"repository": repository,
+               "workflow": workflow, "job_name": job_name, "signature": signature,
+               "specification": specification}
+    plan = {"schema_version": 1, "problem": problem, "head": head, "base": base,
+            "pull_request": args.pull_request,
+            "github_account": args.github_account, "branch": branch(root),
+            "target_ref": f"refs/heads/{target}", "run_attempt": run["run_attempt"],
+            "run_id": run_id, "job_id": args.job_id,
+            "workflow_digest": hashlib.sha256(git(root, "show", f"{head}:{workflow}").stdout.encode()).hexdigest(),
+            "specification_digest": hashlib.sha256(spec.encode()).hexdigest(),
+            "paths": evidence_path_blobs(root, paths)}
+    fingerprint = pr_review_digest(problem)
+    return repository, fingerprint, plan
+
+
+def command_ci_repair(args):
+    root = root_dir()
+    if args.preflight and (args.approval or args.expected_repair_digest):
+        fail("ci_repair_preflight_is_not_approval")
+    if not args.preflight and (args.approval != "agent-confirmed"
+                               or not isinstance(args.expected_repair_digest, str)
+                               or not re.fullmatch(r"[0-9a-f]{64}", args.expected_repair_digest)):
+        fail("ci_repair_exact_approval_required")
+    try:
+        # One common-Git lock covers linked worktrees and process restarts.
+        with evidence_lock(root, "ci-repair-reservations", timeout=0):
+            repository, fingerprint, plan = ci_repair_plan(root, args)
+            path, anchor, identity, ledger = ci_repair_ledger(root, repository)
+            attempts = ledger["entries"].get(fingerprint, [])
+            if len(attempts) >= 3:
+                fail("ci_repair_attempts_exhausted")
+            if not attempts and len(ledger["entries"]) >= 2048:
+                fail("ci_repair_accounting_full")
+            plan["attempt"] = len(attempts) + 1
+            digest = pr_review_digest(plan)
+            if args.preflight:
+                print(json.dumps({"status": "preflight", "repair_digest": digest, "plan": plan}, sort_keys=True))
+                return
+            if digest != args.expected_repair_digest:
+                fail("ci_repair_plan_changed")
+            # Establish loss detection first. Interrupted initialization blocks,
+            # rather than treating an absent established ledger as zero attempts.
+            if not anchor.exists():
+                private_json(anchor, identity, strict=True)
+            ledger["entries"][fingerprint] = attempts + [{"number": plan["attempt"],
+                "plan_digest": digest, "reserved_at": now()}]
+            if len(json.dumps(ledger).encode()) > 1024 * 1024:
+                fail("ci_repair_accounting_full")
+            private_json(path, ledger, strict=True)
+            print(json.dumps({"status": "reserved", "repair_digest": digest, "attempt": plan["attempt"],
+                              "approval": "caller_assertion", "merge_authority": False}, sort_keys=True))
+    except (OSError, ValueError, TypeError, KeyError):
+        fail("ci_repair_evidence_unavailable")
+
+
 def check_pr_review(root, record, source, *, prior_source=None, merge_commit=None, repair_check=None, ci_source=None):
     """Non-mutating preflight, never a merge authorization or CI result."""
     try:
@@ -20647,6 +20808,17 @@ def parser():
     evidence.add_argument("--path", action="append")
     evidence.add_argument("program", nargs="+")
     evidence.set_defaults(func=command_record_evidence)
+    repair = commands.add_parser("ci-repair", help="reserve an explicitly approved supervised mechanical CI repair; never execute or merge")
+    repair.add_argument("--pull-request", required=True, type=int)
+    repair.add_argument("--job-id", required=True, type=int)
+    repair.add_argument("--github-account", required=True)
+    repair.add_argument("--signature", required=True, help="bounded sanitized failure signature, never raw private logs")
+    repair.add_argument("--specification", required=True)
+    repair.add_argument("--paths", required=True, nargs="+")
+    repair.add_argument("--preflight", action="store_true")
+    repair.add_argument("--expected-repair-digest")
+    repair.add_argument("--approval", choices=("agent-confirmed",), help="caller assertion of explicit chat approval, not authenticated identity")
+    repair.set_defaults(func=command_ci_repair)
     check = commands.add_parser("check")
     check.add_argument("subject", choices=("artifacts", "pr-review"))
     check.add_argument("--recommendations", help="private schema-1 policy-approved recommendations; read-only, never merge authority")

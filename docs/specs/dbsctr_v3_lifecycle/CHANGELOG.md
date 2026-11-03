@@ -1,5 +1,41 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-03 — CI repair benchmark requalification (CI-REPAIR-002)
+
+- Preserved CI-REPAIR-001's signed source as merge ancestry and requalified the
+  committed helper SHA-256 plus exact help-output hashes under the existing
+  isolated Python 3.12.15, 3.13.1 and 3.14.9 runtimes. Reviewed help changes are
+  limited to the newly specified `ci-repair` command; no oracle is bypassed.
+- Retained the original hosted `helper_oracle_unavailable` failure. The local
+  integrated smoke subsequently hit its unchanged 90-second test deadline under
+  heavy host load; 14 completed synthetic cohorts are partial evidence only.
+  Native hosted benchmark/profile smoke must pass before source completion.
+- This follow-up prepares a separately approved early qualification draft, not
+  Final Push, managed installation, consumer qualification or a failure waiver.
+  Prior PR/branch and private failed evidence remain retained; actual delivery
+  identities belong to this cycle's private record and final report.
+
+## 2026-11-03 — Supervised CI repair reservations (CI-REPAIR-001)
+
+- Added explicit native-failure preflight and digest-approved attempt reservation
+  through `ci-repair`, reusing the bounded authenticated GitHub reader and managed
+  Git-common private state/locks. No patch execution, gate pass, cycle reopening,
+  waiver, push, merge, authentication setup or automatic integration is granted.
+- The three-attempt budget survives head changes, linked worktrees, process
+  restarts and replacement PRs. Negative tests cover stale jobs/bases/approvals,
+  denied APIs, unsafe scope/accounting, lost state, interrupted initialization,
+  replay and concurrent reservation. Original automatic-repair rejection remains.
+- Affected Python/CLI/publication/instruction tests pass; compatibility checks
+  pass on Python 3.12 and 3.13. The original skill validator passes using the
+  existing pre-commit Python environment. Full-helper typing retains 89 verified
+  baseline diagnostics without new messages; this is not a clean full-helper
+  typing claim. Independent helper review was unavailable due native read denial;
+  primary review and validation remain the source evidence.
+- Source-only delivery targets an isolated feature branch/draft PR into `main`.
+  No Gate Exception or managed activation; exact-head merge approval and reviewed
+  post-merge installation/consumer qualification remain separate. Actual Gate
+  Commit and Final Push outcomes belong to the private Cycle Record.
+
 ## 2026-10-31 — Evidence rerun invalidation (PY-02)
 
 - Evidence recording and manual gate replacement share a pure transition policy.
