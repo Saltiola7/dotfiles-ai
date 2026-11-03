@@ -1096,6 +1096,76 @@ and package transaction accounting. No guest installation or build is admitted
 by a proposed directory limit, source-only package availability or a guessed
 expanded archive size.
 
+### Bounded guest build and kernel qualification
+
+The next closed operation, `qualify_guest_build_storage(selection)`, prepares one
+root-owned 8 GiB ext4 image inside the selected worker, under
+`/var/lib/dotfiles-ai-openshell-build`. It retains the existing host image, VM disk,
+one-worker and free-space contracts. Require at least 12 GiB available in the
+guest before allocation, leaving a 4 GiB guest reserve. The image is a regular,
+single-link, root-owned 0600 file; an unprivileged build cannot enlarge it.
+Mount only that file, with `nodev,nosuid`, and independently bind mount ID,
+loop backing file, device size, ext4 UUID and filesystem capacity. Never format
+a caller-selected path or adopt an unknown retained directory, file or mount.
+
+Before preparing the 8 GiB area, prove the same mechanism with a 64 MiB temporary
+image and bounded writes that must return `ENOSPC`. Verify the process cannot
+write outside its selected filesystem and that temporary paths resolve to it.
+Retire only that exact temporary fixture after verified unmount and loop release.
+Preserve partial or uncertain state; no forced unmount, resize or automatic retry.
+The retained 8 GiB area is unmounted after each operation and revalidated before
+reuse. A root-owned receipt records identity for comparison, never sole admission.
+
+| Resource | Enforced ceiling or boundary | Native proof |
+|---|---|---|
+| Build files, downloads and caches | One 8 GiB ext4 filesystem, inside existing 20 GiB disk | Root-owned fixed-size backing file, loop binding, UUID and capacity |
+| Mechanism fixture | 64 MiB, at most 65 MiB attempted writes | Real `ENOSPC`, exact unmount and loop release |
+| Build process | UID/GID 65534, no new privileges or capabilities; two CPUs, 6 GiB memory, zero swap, 512 tasks | Transient system service settings and process observations |
+| Writable paths | Selected filesystem only; home and temporary paths point inside it | Positive writes inside; negative writes outside; descriptor devices match |
+| Execution network and sockets | Private network namespace during compilation/tests; guest socket paths hidden | No guest abstract/socket access; trusted test parent retains local Unix sockets |
+| Logs | Bounded pipes or files inside selected filesystem; no journal output | Explicit standard-stream routing and retained byte accounting |
+
+**Text Equivalent:** Guest root owns the fixed-size disk file and temporary mount
+lifecycle. Only the build directory inside it is writable to the unprivileged
+builder. Downloads, extraction, Cargo data, temporary files and artifacts consume
+that same 8 GiB capacity. Compilation and tests cannot reach guest services or
+write to the guest system. This table extends the existing storage ownership
+visual; distribution maintainers update it when build boundaries change.
+
+Use a transient systemd service with a read-only system, hidden normal homes,
+private devices, disabled namespace creation, empty capability set and
+`NoNewPrivileges`. Hide guest `/run` and `/dev/shm`, disable journal socket binds,
+and route standard streams explicitly. Read-only mounts alone do not exclude Unix
+socket connections. Compilation/tests use `PrivateNetwork=yes`; retain `AF_UNIX`
+inside that private namespace so the trusted-parent positive control remains
+meaningful. Fixed, verified artifact downloads and `cargo fetch --locked` may use
+a separate network-enabled preparation service under the same file/resource
+limits; they execute no downloaded project build scripts. Compilation is offline.
+
+Given a missing mount, changed backing identity, excess capacity, failed escape
+probe or unavailable confinement property, refuse downloads and compilation and
+verify worker shutdown. Given exhaustion or timeout, retain bounded diagnostics
+and partial artifacts without enlarging storage or moving work elsewhere.
+
+An initial kernel test may compile the exact patched `child_seccomp.rs` in a
+minimal harness, retaining module path `linux::child_seccomp`, its tests, and the
+exact dependency/checksum subset from the pinned OpenShell lockfile. The reviewed
+no-GCC candidate uses official Rust 1.95.0 aarch64-musl host components and bundled
+`rust-lld`; verify archive hashes, bounded extraction and static-link behavior
+before using it. Build scripts and tests must use the selected linker and cached
+dependencies. A failed candidate does not authorize a different toolchain.
+
+Kernel qualification requires the new test's sentinel, actual AF_UNIX socket and
+socketpair denials across types/flags and descendants, permitted INET/pipe cases,
+and an unaffected trusted parent. It is preliminary evidence only: it does not
+qualify the full OpenShell binary, native exec/PTY routes, broker interaction,
+descriptor acquisition, agent compatibility or opt-in activation. Full runtime
+builds still require a separately accounted signed C-compiler transaction.
+Storage preparation retains the 15-minute lifecycle; artifact preparation,
+compilation and tests use a separate 30-minute lifecycle with five minutes
+reserved for shutdown. Deadlines never extend automatically. No normal command,
+login startup, GCP VM, real checkout or provider session changes in this step.
+
 Required proof covers every initial/native-exec route with and without a PTY,
 descendants, descriptor inheritance and acquisition, restart and reconnect.
 Descriptors above standard input/output/error must not survive exec; those three
