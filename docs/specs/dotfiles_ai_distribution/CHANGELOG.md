@@ -18,6 +18,10 @@
 - Qualified the new opt-in benchmark's help oracle on Python 3.15.0. Its exact
   output digest matches the retained 3.13/3.14 oracles; adding the observed entry
   preserves the smoke/profile assertions and all existing runtime entries.
+- Local combined-source validation passed 325 tests and 63 subtests, with one
+  existing optional native skip. The approved authority refresh retains the
+  merged documentation and all required gates; current-source hosted evidence
+  is still required before qualification, completion and merge.
 
 ## 2026-11-02 — RRW-002 RHEL remote-user Discovery
 
