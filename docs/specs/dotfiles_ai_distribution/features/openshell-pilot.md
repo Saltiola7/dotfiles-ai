@@ -350,6 +350,36 @@ conversion temporaries created beside VM-disk destinations remain under the
 [downloader](https://github.com/lima-vm/lima/blob/v2.2.1/pkg/downloader/downloader.go)
 and [image conversion](https://github.com/lima-vm/lima/blob/v2.2.1/pkg/imgutil/nativeimgutil/nativeimgutil.go).
 The earlier topology proof does not qualify these additional routes.
+Require historical controller cache/tmp locations and the selected controller's
+unused home-level cache/tmp directories to be empty. Counting such leftovers as
+external or runtime storage does not establish the shared 2 GiB cache ceiling.
+Unknown data is refused and retained, never automatically deleted by inspection.
+
+The first allocating interface will be a closed, create-only operation:
+`create_worker(selection) -> PreparedWorkerObservation`. It derives the exact
+Linux/VZ/aarch64/raw/20 GiB recipe from reviewed source, forbids global default,
+override or base templates and additional disks, and invokes only the pinned
+Lima `create --tty=false --name=q` command for that exact input. The Linux create
+path prepares disks without booting a VM; other guest operating systems are not
+admitted. The pilot lock spans fresh complete inventory, creation and native
+postchecks. Any partial worker remains counted after failure. Legacy allocating
+scripts stay refused.
+
+Before any later start, independently inspect the exact regular single-link
+`lima/q/disk` and its unchanged identity on the runtime volume. Require native
+Apple image format `RAW`, exactly 20 GiB virtual capacity, no encryption or backing
+file, and matching raw file length and pinned QEMU image-info observations.
+QEMU automatic probing alone is insufficient: the installed verifier reports an
+ASIF file as raw, while native Apple inspection correctly identifies ASIF and its
+virtual capacity. Tiny unused raw/ASIF/QCOW2 fixtures established this distinction
+and were removed; they do not qualify a prepared VM disk.
+
+Native Lima inventory must identify the exact stopped `q`, no errors or active
+host-agent/driver PID, the reviewed effective configuration and unchanged source
+and executable identities. The top-level Lima disk field is configuration data,
+not independent capacity proof. Keep `start_worker` refused until that preparation
+path qualifies: native start can create a missing worker and repeat disk resizing.
+Never enable boot from a stored success report or missing-worker fallback.
 
 Required inventory scenarios include zero workers, empty partial workers,
 stopped workers in another run, a second worker, hidden/additional-disk state,
