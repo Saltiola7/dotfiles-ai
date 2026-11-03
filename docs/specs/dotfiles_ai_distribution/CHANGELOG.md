@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-03 — Keep Codex lock fixture contended
+
+- Replaced the fixture's early parent-side lock release with ownership through
+  the hook invocation and assertions, followed by guaranteed release and close.
+  Production behavior, all five assertions and the parent-side 4.5-second bound
+  remain unchanged.
+- Reproduced the early-release counterexample with real hooks, clocks and locks
+  on Python 3.12 and 3.15. After correction, all 33 Codex tests and the same
+  controlled startup case passed on each runtime. This establishes a fixture
+  correction, not the cause of a particular hosted timing overrun.
+- Preserved runtime pins, protected-main inputs and qualified benchmark oracles.
+  Fresh exact-source hosted matrix and PR qualification remain required before
+  final delivery; no live activation or gate exception is introduced.
+
 ## 2026-11-03 — Bound Forgejo transport cleanup
 
 - Preserved the existing sanitized transport error when an exited child is
