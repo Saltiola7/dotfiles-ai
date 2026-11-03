@@ -20,7 +20,8 @@ launchagent = false
 host_enabled = false
 
 [data.dotfiles_ai.atuin]
-sync_address = "https://api.atuin.sh"
+# Remote history stays local; the role ignores any inherited sync endpoint.
+sync_address = ""
 server_enabled = false
 
 [data.dotfiles_ai.hermes]

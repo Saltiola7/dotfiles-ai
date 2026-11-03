@@ -95,7 +95,6 @@ project = ""
 zone = ""
 instance = ""
 account = ""
-tailscale_host = ""
 
 # Native Linux desktop, independent of the CentOS remote-user profile.
 [dotfiles_ai.linux_workstation]

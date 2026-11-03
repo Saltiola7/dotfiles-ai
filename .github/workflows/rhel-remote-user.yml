@@ -1,4 +1,4 @@
-name: centos-remote-user
+name: rhel-remote-user
 
 on:
   workflow_dispatch:
@@ -7,6 +7,7 @@ on:
       - ".chezmoidata.toml"
       - ".chezmoiignore"
       - "config.remote-user.example.toml"
+      - "private_dot_config/atuin/**"
       - "dot_local/bin/executable_codex-install.tmpl"
       - "dot_local/bin/executable_agent-worktree"
       - "dot_local/bin/executable_worktree-dvc-setup"
@@ -19,12 +20,12 @@ on:
       - "dot_local/bin/executable_vertex-reauth.tmpl"
       - "run_onchange_after_install-*.sh.tmpl"
       - "tests/remote_user_environment_smoke.sh"
-      - ".github/workflows/centos-remote-user.yml"
+      - ".github/workflows/rhel-remote-user.yml"
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    container: quay.io/centos/centos:stream10
+    container: registry.access.redhat.com/ubi10/ubi
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils lsof xz

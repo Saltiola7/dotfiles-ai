@@ -75,7 +75,7 @@ def prepare_source(revision: str) -> None:
     if not SOURCE.exists():
         SOURCE.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
         safe_path(SOURCE.parent, "directory")
-        run("git", "clone", "--no-checkout", PUBLIC_SOURCE, str(SOURCE))
+        run("git", "clone", PUBLIC_SOURCE, str(SOURCE))
     safe_path(SOURCE, "directory")
     remote = run("git", "-C", str(SOURCE), "remote", "get-url", "origin").stdout.strip()
     if remote.removesuffix(".git") != PUBLIC_SOURCE.removesuffix(".git"):

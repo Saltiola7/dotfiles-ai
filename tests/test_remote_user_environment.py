@@ -1,6 +1,8 @@
 import base64
 import json
 import os
+import shutil
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import stat
@@ -13,6 +15,15 @@ import pytest
 ROOT = Path(__file__).parents[1]
 COMMAND = ROOT / "dot_local/bin/executable_remote-user-foundation"
 BOOTSTRAP = ROOT / "dot_local/bin/executable_remote-user-bootstrap"
+
+
+def test_remote_user_ci_uses_ubi10_and_tracks_its_runtime_inputs() -> None:
+    workflow = (ROOT / ".github/workflows/rhel-remote-user.yml").read_text()
+    assert "container: registry.access.redhat.com/ubi10/ubi" in workflow
+    for path in (".github/workflows/rhel-remote-user.yml", "private_dot_config/atuin/**",
+                 "dot_local/bin/executable_remote-user-bootstrap"):
+        assert f'"{path}"' in workflow
+    assert not (ROOT / ".github/workflows/centos-remote-user.yml").exists()
 
 
 def _render(path: str) -> str:
@@ -402,7 +413,8 @@ def _install_foundation_targets(tmp_path: Path, state: str = "auth_pending") -> 
     return marker
 
 
-def test_remote_user_bootstrap_validates_revision_and_creates_private_config(tmp_path: Path) -> None:
+@pytest.mark.parametrize("fresh", [False, True])
+def test_remote_user_bootstrap_validates_revision_and_creates_private_config(tmp_path: Path, fresh: bool) -> None:
     home = tmp_path / "home"
     home.mkdir()
     source = home / ".local/share/chezmoi-dotfiles-ai"
@@ -427,11 +439,27 @@ def test_remote_user_bootstrap_validates_revision_and_creates_private_config(tmp
         cwd=source, check=True,
     )
     revision = _commit(source, "bootstrap")
+    seed = tmp_path / "seed"
+    if fresh:
+        _commit(source, "newer")
+        source.rename(seed)
     local_bin = home / ".local/bin"
     local_bin.mkdir(parents=True)
     chezmoi = local_bin / "chezmoi"
     chezmoi.write_text("#!/bin/sh\necho 'chezmoi version 2.69.4'\n")
     chezmoi.chmod(0o755)
+    git = local_bin / "git"
+    git.write_text(
+        f"#!{sys.executable}\nimport subprocess, sys\n"
+        f"real = {shutil.which('git')!r}\nargs = sys.argv[1:]\n"
+        "if args[0] == 'clone':\n"
+        f"    args[-2] = {str(seed)!r}\n"
+        "    subprocess.run([real, *args], check=True)\n"
+        f"    args = ['-C', args[-1], 'remote', 'set-url', 'origin', "
+        "'https://github.com/Saltiola7/dotfiles-ai.git']\n"
+        "sys.exit(subprocess.run([real, *args]).returncode)\n"
+    )
+    git.chmod(0o755)
 
     result = subprocess.run(
         [str(BOOTSTRAP), "bootstrap", revision], text=True, capture_output=True,
@@ -440,6 +468,7 @@ def test_remote_user_bootstrap_validates_revision_and_creates_private_config(tmp
             "HOME": str(home),
             "DOTFILES_AI_SOURCE": str(source),
             "DOTFILES_AI_CONFIG": str(home / ".config/dotfiles-ai/chezmoi.toml"),
+            "PATH": f"{local_bin}:{os.environ['PATH']}",
         },
     )
 
@@ -449,6 +478,19 @@ def test_remote_user_bootstrap_validates_revision_and_creates_private_config(tmp
     assert "/home/you" not in config.read_text()
     assert stat.S_IMODE(config.stat().st_mode) == 0o600
     assert (tmp_path / "apply-args").read_text().strip() == f"apply {revision}"
+    assert subprocess.check_output(
+        ["git", "-C", str(source), "rev-parse", "HEAD"], text=True,
+    ).strip() == revision
+
+    # Reapply must preserve and reject edits, not repair them with a reset.
+    (source / "managed.txt").write_text("keep-local-edit")
+    dirty = subprocess.run(
+        [str(BOOTSTRAP), "bootstrap", revision], text=True, capture_output=True,
+        env={**os.environ, "HOME": str(home), "DOTFILES_AI_SOURCE": str(source)},
+    )
+    assert dirty.returncode != 0
+    assert dirty.stderr == "bootstrap source is not clean\n"
+    assert (source / "managed.txt").read_text() == "keep-local-edit"
 
 
 def test_remote_user_bootstrap_rejects_symlinked_home(tmp_path: Path) -> None:
