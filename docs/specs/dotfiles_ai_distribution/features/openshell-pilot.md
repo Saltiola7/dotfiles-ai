@@ -1041,6 +1041,31 @@ authorized by a failed build. See the pinned
 [build workflow](https://github.com/NVIDIA/OpenShell/blob/5d25211b25a8fc887e8d5c606d57d6ab22f1d76c/.github/workflows/build-binaries.yml)
 and [toolchain](https://github.com/NVIDIA/OpenShell/blob/5d25211b25a8fc887e8d5c606d57d6ab22f1d76c/rust-toolchain.toml).
 
+Before selecting a guest build transaction, a separate closed
+`qualify_guest_inventory(selection)` may reuse the verified boot/stop lifecycle
+to execute one fixed read-only Python inventory in the same worker. It retains
+the 15-minute overall deadline and shutdown reserves. The native shell command
+must explicitly refuse a stopped-worker start fallback and use the exact selected
+worker, `/` working directory and isolated Python mode. No caller commands,
+environment, package list, files to upload or shell fragments are accepted.
+The fixed inventory observes Linux/ARM64/Fedora release identity, guest UID,
+root and prospective build-parent filesystem identities/capacity, selected tool
+availability and installed package versions. Bound local file reads, subprocess
+output and time; validate the returned closed schema independently. It must not
+install, download, mount, allocate build storage, invoke a compiler or enable a
+service. A successful inventory is evidence for subsequent build admission,
+never build authority or workload isolation proof. Always stop and independently
+verify the selected worker afterward, preserving inventory or shutdown failures.
+
+The build budget must distinguish the host's native 2 GiB Lima cache quota from
+guest downloads, toolchain files, Cargo caches and compilation output. All guest
+data remains inside the verified 20 GiB VM disk and 24 GiB host image; a host cache
+quota is not a guest directory quota. A separate bounded guest build volume is a
+candidate for a stricter build budget, subject to actual tool/filesystem proof
+and package transaction accounting. No guest installation or build is admitted
+by a proposed directory limit, source-only package availability or a guessed
+expanded archive size.
+
 Required proof covers every initial/native-exec route with and without a PTY,
 descendants, descriptor inheritance and acquisition, restart and reconnect.
 Descriptors above standard input/output/error must not survive exec; those three
