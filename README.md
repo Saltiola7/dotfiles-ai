@@ -19,7 +19,7 @@ replace the DBSCTR specifications as lifecycle authority.
 | Configure Git identities and signed commits | [Git identity and signing guide](docs/git-identity-signing.md) |
 | Enable autonomous R&D | [Optional Autonomous RD](#optional-autonomous-rd) |
 | Create isolated Fedora workspaces | [Optional Lima Workspaces](#optional-lima-workspaces) |
-| Configure a standalone CentOS user | [CentOS Remote User Foundation](#centos-remote-user-foundation) |
+| Plan a standalone RHEL 10 user | [RHEL 10 Remote User Foundation](#rhel-10-remote-user-foundation) |
 | Maintain this repository | [Update And Validate](#update-and-validate) and [Documentation Authority](#documentation-authority) |
 | Update tools and dependencies | [Manual update runbook](docs/UPDATES.md) |
 
@@ -284,10 +284,16 @@ autonomous execution. See [`docs/RND_RUNBOOK.md`](docs/RND_RUNBOOK.md) for trans
 status and historical recovery reference. Project maintainers must qualify the
 native identity, complete capture and permission routes before re-enabling dispatch.
 
-## CentOS Remote User Foundation
+## RHEL 10 Remote User Foundation
 
-The default-off remote user role supports a standalone CentOS Stream 10 x86_64
-home without changing the Fedora Lima profile. Host bootstrap supplies system
+The approved successor remote user role targets a standalone RHEL 10 x86_64
+home without changing the Fedora Lima profile. **RRW-002 is Discovery only:**
+the following bootstrap interfaces already exist, but RHEL support, the UBI 10
+CI replacement, IAP-only client and local-only Atuin migration still require
+implementation and qualification. Prior CentOS proof is historical, not a RHEL
+acceptance claim. See the
+[successor contract](docs/specs/dotfiles_ai_distribution/features/remote-user-rollout-runtime.md#approved-rhel-successor-rrw-002).
+Host bootstrap supplies system
 packages; this source owns pinned user-local `chezmoi`, tools, and configuration.
 System prerequisites include `lsof` and `xz`; foundation readiness also verifies
 the pinned Worktrunk runtime before running authentication probes.
@@ -314,7 +320,9 @@ remote-user-foundation refresh-auth
 ```
 
 Rendering and startup never authenticate providers. OpenAI, Vertex, Codex,
-1Password, and optional Atuin login remain explicit per-user operations. Atuin
+1Password login remain explicit per-user operations. The RHEL successor keeps
+Atuin local-only: no history synchronization, server activation, or startup
+login/sync request. Existing history and credential stores remain untouched. Atuin
 server, PostgreSQL, knowledge services, R&D scheduling, and privileged container
 daemons stay disabled.
 
@@ -487,7 +495,8 @@ and replace `/home/you` with your home path. Use this independent config for
 The opt-in `linux_workstation.enabled` profile installs native x86_64 Herdr,
 OpenCode and Codex and deploys the shared agent configuration. It preserves
 Omarchy shell configuration and disables guest VMs in the example. It does not
-use the CentOS remote-user role. Authenticate providers separately on the laptop.
+use the standalone remote-user role (RHEL successor qualification pending).
+Authenticate providers separately on the laptop.
 
 On Omarchy, `dotfiles-ai-omarchy-setup` creates a private user-owned state root
 at `/var/lib/dotfiles-ai/<username>` and applies the profile. This avoids placing

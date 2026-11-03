@@ -21,6 +21,13 @@
   evidence; fresh downstream evidence remains required. Intended Final Push is
   the isolated feature branch and a draft PR into `main`; actual delivery and
   Gate Commits belong to the Cycle Record. Full PR CI remains required for merge.
+- Current-base CI exposed the newer benchmark fixture's frozen pre-PY-02 helper
+  identity. Deliberate requalification retained every workload and runtime-help
+  oracle on Python 3.12.15, 3.13.1 and 3.14.9: each produced 24 complete smoke
+  records and 16 private profiles, with unchanged synthetic sources. Only the
+  helper identity pin was refreshed; mismatch refusal remains. Original CI
+  failures and baseline records remain private, and no performance gain is
+  claimed. Fresh full native CI remains required.
 
 ## 2026-11-01 — PY-09 hosted Git configuration qualification
 
