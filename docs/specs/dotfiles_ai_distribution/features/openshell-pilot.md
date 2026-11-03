@@ -393,7 +393,7 @@ present, and the start interface remained refused. The private Cycle Record owns
 the measured allocation and exact identities. This establishes stopped-worker
 preparation, not VM boot, running inventory, OpenShell isolation or agent readiness.
 
-The next interface is a separate, closed boot-and-stop qualification, not a
+The separate interface is a closed boot-and-stop qualification, not a
 general session launcher. `qualify_boot(selection) -> BootObservation` must hold
 the pilot lock across fresh stopped-worker admission, one native start, running
 observations, exact stop and independently confirmed stopped state. Recollect
@@ -432,6 +432,16 @@ and native caps. Run Apple/QEMU format inspection only while independently
 stopped, never force-share a live disk. Missing or contradictory observations
 preserve failure and partial state. There is no automatic second start, recreation,
 fallback, quota increase, forced detach or unbounded diagnostic output.
+
+The native boot-and-stop qualification subsequently completed on the selected
+capped worker. Fresh admission verified its existing raw disk and native quotas;
+running observations bound the selected worker and owned host-agent process;
+native stop completed and independent observations confirmed both stopped status
+and process exit before disk-format reinspection. Compact private evidence owns
+the identities, timings and measured usage. The worker remains stopped. This
+qualifies the observed storage lifecycle only. It does not qualify guest build
+cache limits, a patched OpenShell binary, workload isolation or either agent, and
+it does not enable ordinary session launchers.
 
 Required inventory scenarios include zero workers, empty partial workers,
 stopped workers in another run, a second worker, hidden/additional-disk state,
