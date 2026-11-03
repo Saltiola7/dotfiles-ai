@@ -34,11 +34,12 @@ def guest():
 
 def observation(guest):
     return {
-        "schema_version": 2, "os": "Linux", "arch": "aarch64", "kernel": "6.19.1-1.fc44.aarch64",
+        "schema_version": 3, "os": "Linux", "arch": "aarch64", "kernel": "6.19.1-1.fc44.aarch64",
         "release": {"id": "fedora", "version_id": "44"}, "uid": 1000,
         "filesystems": [
             {"path": p, "device": 253, "inode": n, "mode": 0o40755,
              "mount_point": "/", "mount_device": 253,
+             "mount_id": 31, "fd_mount_id": 31,
              "filesystem_type": "btrfs", "bytes_total": 19 * 1024**3,
              "bytes_free": 17 * 1024**3, "bytes_available": 16 * 1024**3,
              "block_size": 4096}
@@ -59,11 +60,21 @@ def test_missing_tools_are_observation_not_build_authority(guest):
 
 def test_distinct_mounted_build_parent_is_observed_without_build_authority(guest):
     value = observation(guest)
-    value["filesystems"][1].update(device=254, mount_device=254, mount_point="/var")
+    value["filesystems"][1].update(device=254, mount_device=254, mount_point="/var", mount_id=32, fd_mount_id=32)
     result = guest.parse_inventory(json.dumps(value).encode())
     assert result.filesystems[0].device != result.filesystems[1].device
     assert result.filesystems[1].mount_point == "/var"
     assert result.build_enabled is False
+
+
+def test_btrfs_device_alias_keeps_descriptor_mount_binding(guest):
+    value = observation(guest)
+    for item in value["filesystems"]:
+        item.update(device=37, mount_device=35)
+    result = guest.parse_inventory(json.dumps(value).encode())
+    assert result.filesystems[0].device == 37
+    assert result.filesystems[0].mount_device == 35
+    assert result.filesystems[0].mount_id == result.filesystems[0].fd_mount_id
 
 
 @pytest.mark.parametrize("change", [
@@ -71,7 +82,7 @@ def test_distinct_mounted_build_parent_is_observed_without_build_authority(guest
     "unknown_filesystem", "alias_mode", "foreign_device", "too_large", "free_over_total",
     "available_over_free", "invalid_block", "duplicate_path", "tool_command", "tool_integer",
     "unknown_package", "duplicate_package", "missing_with_version", "installed_without_version",
-    "foreign_package_arch", "control_character", "oversized", "invalid_mount",
+    "foreign_package_arch", "control_character", "oversized", "invalid_mount", "wrong_mount_id", "zero_mount_id", "conflicting_mount_id",
 ])
 def test_closed_guest_inventory_refuses_invalid_facts(guest, change):
     value = observation(guest)
@@ -83,8 +94,11 @@ def test_closed_guest_inventory_refuses_invalid_facts(guest, change):
     elif change == "wrong_release": value["release"]["version_id"] = "45"
     elif change == "unknown_filesystem": value["filesystems"][0]["filesystem_type"] = "nfs"
     elif change == "alias_mode": value["filesystems"][1]["mode"] = 0o120777
-    elif change == "foreign_device": value["filesystems"][1]["device"] = 254
+    elif change == "foreign_device": value["filesystems"][1].update(device=254, filesystem_type="ext4")
     elif change == "invalid_mount": value["filesystems"][1]["mount_point"] = "/var/lib/other"
+    elif change == "wrong_mount_id": value["filesystems"][1]["fd_mount_id"] = 99
+    elif change == "zero_mount_id": value["filesystems"][1].update(mount_id=0, fd_mount_id=0)
+    elif change == "conflicting_mount_id": value["filesystems"][1]["mount_point"] = "/var"
     elif change == "too_large": value["filesystems"][0]["bytes_total"] = 21 * 1024**3
     elif change == "free_over_total": value["filesystems"][0]["bytes_free"] = 21 * 1024**3
     elif change == "available_over_free": value["filesystems"][0]["bytes_available"] = 18 * 1024**3
@@ -169,36 +183,64 @@ def script_namespace(guest):
     return namespace
 
 
-@pytest.mark.parametrize("layout", ["root", "var", "var_lib", "ambiguous", "mismatch"])
+@pytest.mark.parametrize("layout", ["root", "var", "var_lib", "btrfs_alias", "ambiguous", "mismatch", "inode_mismatch", "missing_id", "duplicate_id", "path_changed"])
 def test_guest_collect_resolves_each_selected_mount(guest, layout):
     namespace = script_namespace(guest)
     mountinfo = "31 1 0:32 /root / rw - btrfs /dev/vda3 rw\n"
     device = os.makedev(0, 32)
     point = "/"
-    if layout != "root":
+    if layout not in {"root", "btrfs_alias"}:
         point = "/var/lib" if layout == "var_lib" else "/var"
         mountinfo += f"32 31 0:33 /var {point} rw - btrfs /dev/vda3 rw\n"
-        device = os.makedev(0, 33 if layout != "mismatch" else 34)
+        device = os.makedev(0, 33)
+    if layout == "btrfs_alias":
+        device = os.makedev(0, 37)
+        mountinfo = "31 1 0:35 /root / rw - btrfs /dev/vda3 rw\n"
     if layout == "ambiguous":
         mountinfo += "33 31 0:33 /other /var rw - btrfs /dev/vda3 rw\n"
-    namespace["read_file"] = lambda path, limit: (
-        'ID=fedora\nVERSION_ID=44\n' if path == '/usr/lib/os-release' else mountinfo)
+    def read(path, limit):
+        if path == '/usr/lib/os-release': return 'ID=fedora\nVERSION_ID=44\n'
+        if path == '/proc/self/mountinfo': return mountinfo
+        assert path in {'/proc/self/fdinfo/100','/proc/self/fdinfo/101'} and limit == 4096
+        mount_id = 31 if path.endswith('/100') or layout in {'root','btrfs_alias'} else 32
+        if layout == 'mismatch': mount_id = 99
+        if layout == 'missing_id': return 'ino: 256\n'
+        if layout == 'duplicate_id': return f'mnt_id: {mount_id}\nmnt_id: {mount_id}\nino: 256\n'
+        return f'mnt_id: {mount_id}\nino: {257 if layout == "inode_mismatch" else 256}\n'
+    namespace["read_file"] = read
+    def info(path):
+        return SimpleNamespace(st_mode=0o40755, st_dev=os.makedev(0,32) if path=='/' and layout!='btrfs_alias' else device, st_ino=256)
+    opened, closed = [], []
+    def opening(path, flags):
+        assert flags & os.O_NOFOLLOW and flags & os.O_DIRECTORY
+        fd=100 if path=='/' else 101
+        opened.append(fd)
+        return fd
+    def lstat(path):
+        result = info(path)
+        if layout=='path_changed' and opened: result.st_ino=257
+        return result
+    def capacity(fd):
+        assert fd in {100,101}
+        return SimpleNamespace(f_blocks=2**20, f_bfree=2**19, f_bavail=2**18, f_frsize=4096)
     namespace["os"] = SimpleNamespace(
-        lstat=lambda path: SimpleNamespace(st_mode=0o40755, st_dev=os.makedev(0,32) if path=='/' else device, st_ino=256),
+        lstat=lstat, open=opening, fstat=lambda fd: info('/' if fd==100 else '/var/lib'),
+        fstatvfs=capacity, close=closed.append,
+        O_RDONLY=os.O_RDONLY, O_DIRECTORY=os.O_DIRECTORY, O_NOFOLLOW=os.O_NOFOLLOW, O_NONBLOCK=os.O_NONBLOCK,
         path=SimpleNamespace(realpath=lambda path: path, isfile=lambda path: False),
         access=lambda path, mode: False, X_OK=os.X_OK, major=os.major, minor=os.minor, makedev=os.makedev,
-        statvfs=lambda path: SimpleNamespace(f_blocks=2**20, f_bfree=2**19, f_bavail=2**18, f_frsize=4096),
         uname=lambda: SimpleNamespace(sysname='Linux', machine='aarch64', release='6.19.1'),
         getuid=lambda: 1000)
     namespace["query"] = lambda name: {'name':name, 'installed':False, 'version':None, 'arch':None}
-    if layout in {"ambiguous", "mismatch"}:
-        with pytest.raises(RuntimeError, match="guest_mount_"):
+    if layout in {"ambiguous", "mismatch", "inode_mismatch", "missing_id", "duplicate_id", "path_changed"}:
+        with pytest.raises(RuntimeError, match="guest_(mount|path)_"):
             namespace["collect"]()
     else:
         result = guest.parse_inventory(json.dumps(namespace["collect"]()).encode())
         assert result.filesystems[1].mount_point == point
         assert result.filesystems[1].device == device
         assert result.build_enabled is False
+    assert sorted(opened) == sorted(closed)
 
 
 def test_guest_reads_bound_regular_files_and_release_descriptors(guest, tmp_path):

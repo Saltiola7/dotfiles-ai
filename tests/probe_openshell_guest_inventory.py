@@ -131,8 +131,8 @@ def collect():
             raise RuntimeError("guest_mount_schema")
         if fields[4] in ("/", "/var", "/var/lib"):
             major, minor = fields[2].split(":")
-            mounts.append((fields[4], os.makedev(int(major), int(minor)), after[0]))
-    if sum(item[0] == "/" for item in mounts) != 1:
+            mounts.append((fields[4], os.makedev(int(major), int(minor)), after[0], int(fields[0])))
+    if sum(item[0] == "/" for item in mounts) != 1 or len({item[3] for item in mounts}) != len(mounts):
         raise RuntimeError("guest_mount_schema")
     filesystems = []
     for path in ("/", "/var/lib"):
@@ -145,21 +145,41 @@ def collect():
         candidates = [item for item in candidates if len(item[0]) == longest]
         if len(candidates) != 1:
             raise RuntimeError("guest_mount_schema")
-        mount_point, mount_device, filesystem_type = candidates[0]
-        if mount_device != info.st_dev:
-            raise RuntimeError("guest_mount_identity " + json.dumps({
-                "path": path, "device": info.st_dev, "mount_point": mount_point,
-                "mount_device": mount_device, "filesystem_type": filesystem_type}))
-        space = os.statvfs(path)
+        mount_point, mount_device, filesystem_type, mount_id = candidates[0]
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            opened = os.fstat(fd)
+            identity = lambda item: (item.st_dev, item.st_ino, item.st_mode)
+            if identity(info) != identity(opened):
+                raise RuntimeError("guest_path_identity")
+            # Btrfs subvolume st_dev can differ from mountinfo's device. Bind
+            # the open directory using Linux's descriptor mount ID instead.
+            details = {}
+            for line in read_file("/proc/self/fdinfo/" + str(fd), 4096).splitlines():
+                key, separator, value = line.partition(":")
+                if key in ("mnt_id", "ino"):
+                    if not separator or key in details or not value.strip().isascii() or not value.strip().isdecimal():
+                        raise RuntimeError("guest_mount_identity")
+                    details[key] = int(value)
+            if (set(details) != {"mnt_id", "ino"} or details["mnt_id"] != mount_id
+                    or details["ino"] != opened.st_ino or mount_id <= 0
+                    or (filesystem_type != "btrfs" and mount_device != opened.st_dev)):
+                raise RuntimeError("guest_mount_identity")
+            space = os.fstatvfs(fd)
+            if identity(info) != identity(os.lstat(path)):
+                raise RuntimeError("guest_path_identity")
+        finally:
+            os.close(fd)
         filesystems.append({"path": path, "device": info.st_dev, "inode": info.st_ino,
                             "mode": info.st_mode, "filesystem_type": filesystem_type,
                             "mount_point": mount_point, "mount_device": mount_device,
+                            "mount_id": mount_id, "fd_mount_id": details["mnt_id"],
                             "bytes_total": space.f_blocks * space.f_frsize,
                             "bytes_free": space.f_bfree * space.f_frsize,
                             "bytes_available": space.f_bavail * space.f_frsize,
                             "block_size": space.f_frsize})
     uname = os.uname()
-    result = {"schema_version": 2, "os": uname.sysname, "arch": uname.machine,
+    result = {"schema_version": 3, "os": uname.sysname, "arch": uname.machine,
               "kernel": uname.release, "uid": os.getuid(),
               "release": {"id": release.get("ID"), "version_id": release.get("VERSION_ID")},
               "filesystems": filesystems,
@@ -183,6 +203,8 @@ class GuestFilesystem:
     filesystem_type: str
     mount_point: str
     mount_device: int
+    mount_id: int
+    fd_mount_id: int
     bytes_total: int
     bytes_free: int
     bytes_available: int
@@ -229,7 +251,7 @@ def parse_inventory(raw: bytes) -> GuestInventory:
             raise Refusal("guest_inventory_schema")
         value = native._object(json.loads(raw, object_pairs_hook=native._unique_json))
         keys = {"schema_version", "os", "arch", "kernel", "uid", "release", "filesystems", "tools", "packages"}
-        if (set(value) != keys or type(value["schema_version"]) is not int or value["schema_version"] != 2
+        if (set(value) != keys or type(value["schema_version"]) is not int or value["schema_version"] != 3
                 or value["os"] != "Linux" or value["arch"] != "aarch64"
                 or value["release"] != {"id": "fedora", "version_id": "44"}
                 or type(value["uid"]) is not int or not 0 < value["uid"] < 2**31
@@ -243,11 +265,12 @@ def parse_inventory(raw: bytes) -> GuestInventory:
             item = native._object(item)
             if set(item) != set(GuestFilesystem.__dataclass_fields__) or item["path"] != path:
                 raise Refusal("guest_inventory_schema")
-            for key in ("device", "inode", "mode", "mount_device", "bytes_total", "bytes_free", "bytes_available", "block_size"):
+            for key in ("device", "inode", "mode", "mount_device", "mount_id", "fd_mount_id", "bytes_total", "bytes_free", "bytes_available", "block_size"):
                 native._number(item[key])
             native._mode(item["mode"])
             if (not item["device"] or not item["inode"] or not stat.S_ISDIR(item["mode"])
-                    or item["mount_device"] != item["device"]
+                    or (item["filesystem_type"] != "btrfs" and item["mount_device"] != item["device"])
+                    or not item["mount_device"] or not item["mount_id"] or item["fd_mount_id"] != item["mount_id"]
                     or item["mount_point"] not in (("/",) if path == "/" else ("/", "/var", "/var/lib"))
                     or item["filesystem_type"] not in {"btrfs", "ext4", "xfs"}
                     or not 0 < item["bytes_total"] <= create.DISK_BYTES
@@ -256,6 +279,11 @@ def parse_inventory(raw: bytes) -> GuestInventory:
                     or item["block_size"] & (item["block_size"] - 1)):
                 raise Refusal("guest_inventory_schema")
             filesystems.append(GuestFilesystem(**item))
+        left, right = filesystems
+        if left.mount_id == right.mount_id and (
+                left.mount_point, left.mount_device, left.filesystem_type) != (
+                right.mount_point, right.mount_device, right.filesystem_type):
+            raise Refusal("guest_inventory_schema")
         tools = native._object(value["tools"])
         if set(tools) != set(TOOLS) or any(type(flag) is not bool for flag in tools.values()):
             raise Refusal("guest_inventory_schema")
