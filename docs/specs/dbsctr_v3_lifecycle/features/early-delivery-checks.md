@@ -145,6 +145,51 @@ test and collection failures, common filtering, missing/corrupt/duplicate result
 source/attempt mismatch and native-workflow dependency binding. Hosted completion
 of every current-head worker and aggregate remains required operating evidence.
 
+### Parent items and subtest occurrences
+
+A **parent item** is a collected pytest node ID. A **subtest occurrence** is an
+actual `pytest.SubtestReport`, identified by its selected parent and a contiguous
+positive occurrence ordinal within that parent. Repeated or nested contexts may
+produce distinct occurrences with identical messages or parameters. The worker
+does not serialize context values, messages or arbitrary object representations.
+The distribution owner maintains this adapter against the locked pytest version.
+
+| Given | When | Required outcome |
+|---|---|---|
+| A selected parent executes unittest or pytest-fixture subtests | Reports are captured | Preserve each native subtest occurrence separately from the unique ordinary setup/call/teardown phases |
+| Repeated or nested contexts have identical values | Subtests are recorded | Assign separate contiguous ordinals; never deduplicate by context or infer children from duplicate ordinary call reports |
+| A child fails while its ordinary parent reports success | Evidence is reconciled | Fail independently of the parent result, worker-success claim or exit-code claim |
+| A passing parent has skipped children | Evidence is reconciled | Preserve the passing parent and report child skips separately; reconcile every skipped child with JUnit |
+| A child is missing, malformed, duplicated, out of sequence, foreign or attached to a setup-skipped parent | Evidence is reconciled | Fail; children never replace missing ordinary parent phases |
+| Earlier artifacts flattened children into ordinary call reports | A repaired aggregate receives them | Reject the old schema; never invent lost child identity or relabel old evidence |
+
+Receipt schema **2** adds the required `subtests` list. Each child has exactly
+`nodeid`, `index` and `outcome`: the selected parent ID, a non-Boolean integer
+ordinal beginning at one, and its actual outcome. The list is bounded at 100,000
+occurrences per worker and by the existing 32 MiB file budget. Only passed or
+skipped children qualify. Ordinary reports retain their exact three fields,
+unique phases and complete execution checks. Child reports require a passed
+parent setup and complete ordinary call/teardown, including a legitimate parent
+call skip after earlier children. No child enlarges the selected population.
+
+JUnit remains independent evidence. Its one native suite must report
+`tests = selected parents + subtest occurrences + skipped collectors`, zero
+failures/errors and matching skip counters. Each parent testcase keeps its exact
+item identity; its skipped-element count equals its ordinary skipped reports plus
+its skipped child occurrences. The suite skip counter includes those occurrences
+and skipped collectors. These counters expose omitted passing children as well
+as lost or invented child skips. Parent selected/passed/skipped totals remain
+separate from `subtests_passed` and `subtests_skipped` aggregate totals.
+
+Actual native fixture validation covers passing, repeated, nested, skipped and
+failing subtests, a failed child with a passing parent, and child skips followed
+by parent skips. Corruption checks cover ordinary duplicate phases, missing
+children/parents, ordinal gaps or Booleans, unknown fields, false successful exit
+claims and JUnit count/skip disagreement. The complete test population, pinned
+tools, required check contexts, worker time limits, retention and native merge
+protections remain unchanged. This amendment grants no deployment, validation
+policy activation or history-recovery credit.
+
 | From | Guard/action | To |
 |---|---|---|
 | Complete unfiltered collection | Assign every module deterministically | Four disjoint partitions |
@@ -183,9 +228,9 @@ instruction activation is claimed by source delivery.
 
 | Receipt fields | Producer and validation authority |
 |---|---|
-| `schema_version`, `shard`, `identity` | Worker schema 1; aggregate requires its fixed lane, source/tree/authority hashes, repository, run, attempt and partition identities |
+| `schema_version`, `shard`, `identity` | Worker schema 2; aggregate requires its fixed lane, source/tree/authority hashes, repository, run, attempt and partition identities; flattened schema 1 is rejected |
 | `collected`, `selected`, `collection_reports`, `collection_complete` | Worker collection hooks and tracked-module inventory; aggregate checks exact populations, allocation and common skipped collectors |
-| `reports`, `exit_code`, `python_full` | Actual pytest phase reports, terminal code and interpreter; aggregate reconciles every selected item, full runtime agreement and exact JUnit identities/outcomes |
+| `reports`, `subtests`, `exit_code`, `python_full` | Unique ordinary phases and separately identified native child occurrences, terminal code and interpreter; aggregate reconciles every selected parent, child outcome, full runtime and exact JUnit identities/counters/skips |
 
 | From | Direction and trust boundary | To |
 |---|---|---|
@@ -195,7 +240,10 @@ instruction activation is claimed by source delivery.
 
 **Text Equivalent:** Workers publish only ordinary test evidence through the
 native artifact service. The aggregate validates the fixed receipt schema and
-current-run source/runtime identities before accepting complete coverage. Artifact
+current-run source/runtime identities before accepting complete coverage. Unique
+ordinary parent phases and separately identified subtest occurrences must agree
+with JUnit identities, total counts and skipped occurrences; failed children
+block acceptance even when their parent passes. Artifact
 claims alone grant no merge, lifecycle or installation approval. Canonical source:
 the bounded-execution interfaces above. Owner: distribution/lifecycle maintainers.
 Update trigger: receipt fields, artifact transport, identity or retention changes.
