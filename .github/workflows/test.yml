@@ -26,7 +26,7 @@ jobs:
       matrix:
         # PR/main feedback uses one full native suite. Compatibility stays full
         # on the weekly schedule and explicit manual runs.
-        python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14"]' || '["3.14"]') }}
+        python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14", "3.15"]' || '["3.14"]') }}
         worktrunk-version: ["0.81.0"]
         include:
           - python-version: "3.14"
@@ -42,6 +42,38 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Verify selected Python runtime
+        env:
+          EXPECTED_PYTHON: ${{ matrix.python-version }}
+        run: |
+          uv run --frozen --python "$EXPECTED_PYTHON" --group test python -I -B - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          import sysconfig
+
+          expected = os.environ["EXPECTED_PYTHON"]
+          observed = ".".join(map(str, sys.version_info[:2]))
+          child = json.loads(subprocess.check_output([
+              "python3", "-I", "-B", "-c",
+              "import json, sys; print(json.dumps(list(sys.version_info[:3])))",
+          ], text=True))
+          child_minor = ".".join(map(str, child[:2]))
+          if observed != expected or child_minor != expected:
+              raise SystemExit(f"Python runtime mismatch: requested={expected}, root={observed}, python3={child_minor}")
+          if (sys.implementation.name != "cpython" or sysconfig.get_config_var("Py_GIL_DISABLED")
+                  or sys.version_info.releaselevel != "final"):
+              raise SystemExit("Qualification requires standard stable CPython")
+          print(json.dumps({
+              "requested": expected,
+              "python": ".".join(map(str, sys.version_info[:3])),
+              "python3": ".".join(map(str, child)),
+              "lock_sha256": hashlib.sha256(Path("uv.lock").read_bytes()).hexdigest(),
+          }, sort_keys=True))
+          PY
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
         with:
           bun-version: 1.4.4
@@ -84,12 +116,12 @@ jobs:
       - run: bun install --global opencode-ai@1.19.4
       - name: Check publication and instruction contracts
         run: >-
-          uv run --group test pytest
+          uv run --frozen --python "${{ matrix.python-version }}" --group test pytest
           tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers
           tests/test_opencode_control_plane.py
           tests/test_dbsctr_lifecycle.py -q
       - name: Check native Swift compilation
         run: >-
-          uv run --group test pytest
+          uv run --frozen --python "${{ matrix.python-version }}" --group test pytest
           tests/test_herdr_launchagent.py::test_herdr_host_swift_source_compiles_with_warnings_as_errors -q
-      - run: uv run --group test pytest --maxfail=1
+      - run: uv run --frozen --python "${{ matrix.python-version }}" --group test pytest --maxfail=1

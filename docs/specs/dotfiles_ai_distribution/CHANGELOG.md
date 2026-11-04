@@ -1,5 +1,102 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-03 — Preserve external completion during runtime qualification
+
+- Combined protected-main external-completion and lifecycle-validation changes
+  with the bounded Forgejo cleanup. Preserved the Codex fixture correction,
+  approved thirteen requirements, root metadata, support floor and runtime pins.
+- Qualified the combined helper with actual CLI smoke/profile workloads on
+  Python 3.12–3.15: 96 complete records and 64 profiles. Preserved upstream
+  3.12–3.14 help oracles and observed the new 3.15.0 help output before updating
+  its oracle. This establishes output compatibility, with no performance claim.
+- Earlier hosted results remain historical evidence. Fresh kernel evidence and
+  exact-source full hosted qualification remain required before ordinary guarded
+  merge; no gate exception or live activation is introduced.
+
+## 2026-11-03 — Keep Codex lock fixture contended
+
+- Replaced the fixture's early parent-side lock release with ownership through
+  the hook invocation and assertions, followed by guaranteed release and close.
+  Production behavior, all five assertions and the parent-side 4.5-second bound
+  remain unchanged.
+- Reproduced the early-release counterexample with real hooks, clocks and locks
+  on Python 3.12 and 3.15. After correction, all 33 Codex tests and the same
+  controlled startup case passed on each runtime. This establishes a fixture
+  correction, not the cause of a particular hosted timing overrun.
+- Preserved runtime pins, protected-main inputs and qualified benchmark oracles.
+  Fresh exact-source hosted matrix and PR qualification remain required before
+  final delivery; no live activation or gate exception is introduced.
+
+## 2026-11-03 — Bound Forgejo transport cleanup
+
+- Preserved the existing sanitized transport error when an exited child is
+  reaped and its original process group is confirmed absent. Cleanup now bounds
+  reaping, attempts every owned stream close, and fails safely if group absence
+  or resource cleanup cannot be established. Existing group termination after
+  leader exit and credential isolation remain intact.
+- Reproduced the real exited-child permission race on Python 3.15 and 3.12;
+  retained intentional red evidence and passed all 26 transport tests and
+  65 subtests on both runtimes. Added negative coverage for surviving or
+  unverifiable groups, reap timeout and stream-close failure.
+- Requalified the reviewed helper with actual CLI smoke/profile workloads on
+  Python 3.12–3.15 before updating its benchmark digest: 96 complete records and
+  64 profiles, with every prior help oracle unchanged. This is compatibility
+  evidence, with no performance improvement claim. Fresh affected local gates
+  and exact-source hosted qualification remain required before guarded merge.
+
+## 2026-11-03 — Refresh reconciled runtime qualification
+
+- Preserved the actual protected-main metadata, resolved test dependencies and
+  benchmark helper identity while retaining the Python 3.15 help oracle. Root
+  support remains Python 3.12+, and isolated runtime pins and owners are unchanged.
+- Refreshed Initiative authority for the reconciled source without changing its
+  thirteen requirements or gate applicability. Earlier failures, incomplete runs
+  and preparation results remain historical evidence.
+- Qualification uses fresh local oldest/newest regressions, publication checks,
+  PM's selected three-file ty analysis and property tests. Exact-source full
+  weekly/manual and PR jobs remain mandatory Review/Integrate authorities before
+  ordinary guarded merge. This is source delivery, with no live installation,
+  deployment, restart or gate exception.
+
+## 2026-11-03 — Prepare post-PM Python qualification authority
+
+- Reconciled the verified protected-main delivery of PY-01, PY-02 and PM policy
+  boundaries. The actual merged root metadata and lock remain byte-for-byte
+  unchanged; PY-08 consumes their selected test/checker inputs rather than
+  restoring its historical dependency baseline.
+- Clarified the existing qualification feature: PY-08 selects no checker or
+  dependency migration, while PM's scoped ty and Hypothesis authorities remain
+  binding. Earlier local results remain historical evidence. No new manifest
+  requirement, runtime-floor change, isolated pin change or gate exception is
+  introduced.
+- Retained the updated benchmark helper digest together with the qualified
+  Python 3.15 help oracle and every earlier fixture input. Current-source
+  qualification still requires fresh authority, local gates and the full hosted
+  matrix before final delivery; this preparation does not claim those outcomes.
+
+## 2026-11-03 — Isolate synthetic fetch interpreter
+
+- Removed an accidental host-interpreter permission dependency from synthetic
+  Forgejo fetch tests. The fixture now validates an owned executable while the
+  production owner/mode guard and real credential-child interpreter stay intact.
+  Both injected failure branches must still reach the mocked fetch exactly once;
+  a failed assertion includes the already-sanitized error category.
+- Reproduced both failing subcases with an existing group-writable framework
+  Python. After correction, all 22 transport tests passed on Python 3.12, both
+  existing 3.13 environments and 3.15; the real unsafe-mode executable remains
+  denied. Exact hosted runner permissions were not logged, so that local cause
+  is a demonstrated fixture dependency rather than a proven hosted diagnosis.
+- Preserved current main's sandbox deadline repair, opt-in performance tooling
+  and remote-platform Discovery. Fresh combined-source hosted qualification
+  remains required; previous failed CI evidence is retained.
+- Qualified the new opt-in benchmark's help oracle on Python 3.15.0. Its exact
+  output digest matches the retained 3.13/3.14 oracles; adding the observed entry
+  preserves the smoke/profile assertions and all existing runtime entries.
+- Historical local validation before PM reconciliation passed 325 tests and
+  63 subtests, with one existing optional native skip. The approved authority refresh retains the
+  merged documentation and all required gates; current-source hosted evidence
+  is still required before qualification, completion and merge.
+
 ## 2026-11-02 — RRW-002 RHEL remote-user Discovery
 
 - Defined the RHEL 10 x86_64 successor, IAP-only portable client, remote-only
@@ -17,6 +114,33 @@
   Disposable fixture commits required a test-process-only signing override;
   repository commit signing remains enabled. These are source regressions,
   not UBI or RHEL operating evidence.
+
+## 2026-11-01 — Python runtime policy and 3.15 CI candidate
+
+- Added standard CPython 3.15 to weekly/manual full macOS validation. PR/main
+  retain 3.14, the root floor remains 3.12, and every isolated runtime pin and
+  installer owner stays unchanged. Root commands use the frozen lock and an
+  explicit interpreter; root/child identity and lock evidence precede pytest.
+- Replaced the removed module-loader API in the synthetic credential-child
+  fixture while preserving isolation and secret-output assertions. Workflow
+  regressions cover event-specific job sets and wrong/missing interpreters.
+- Local source checks passed 94 tests with one optional native skip on both
+  Python 3.12 and 3.15; all 22 transport tests passed on 3.15. Full exact-source
+  hosted matrix and current PR checks remain required before Review/Integrate
+  and completion; their actual results belong to the private Cycle Record.
+- Real local runtime probes recorded Python 3.12.15 and 3.15.0 with matching
+  PATH-selected children and one unchanged frozen-lock digest. These observed
+  patch versions are evidence, not new deployment pins.
+- Reconciled current main while retaining both changes’ documentation. Affected
+  publication, lifecycle, transport, scheduler, JFrog and validation-storage tests
+  pass on Python 3.15; hosted results remain bound to the exact tested revision.
+- The canonical update runbook adds monthly owner review and urgent security
+  intake, without a scheduler, automatic upgrade or live activation. No Gate
+  Exception selected; the exact-approved sequence amendment preserves failures
+  and permits candidate CI publication while Review/Integrate stays open.
+- Gate Commits and actual push results remain in private cycle evidence. Intended
+  Final Push: `feat/python-runtime-qualification`, draft PR into
+  `Saltiola7/dotfiles-ai:main`. No installation, deployment or restart is selected.
 
 ## 2026-11-01 — Complete JFrog specialist setup
 

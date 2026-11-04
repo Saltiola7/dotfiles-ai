@@ -1,7 +1,9 @@
+import hashlib
 import json
 import re
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 
@@ -12,6 +14,10 @@ COMMANDS = ROOT / "private_dot_config/opencode/commands"
 
 def text(path: Path | str) -> str:
     return (ROOT / path).read_text() if isinstance(path, str) else path.read_text()
+
+
+def workflow_steps(workflow: str) -> list[str]:
+    return re.split(r"(?m)^      - ", workflow.split("    steps:\n", 1)[1])[1:]
 
 
 def test_discovery_records_the_full_python_typing_contract():
@@ -208,12 +214,26 @@ def test_public_lifecycle_commands_are_unversioned_and_thin():
 def test_early_publication_and_editorial_remediation_contract():
     workflow = text(".github/workflows/test.yml")
     early = workflow.index("- name: Check publication and instruction contracts")
-    full = workflow.index("- run: uv run --group test pytest --maxfail=1\n")
+    full_command = re.search(r"(?m)^      - run: uv run [^\n]*\bpytest\s+--maxfail=1\s*$", workflow)
+    assert full_command, "full pytest authority must retain --maxfail=1"
+    full = full_command.start()
     assert early < full
     command = workflow[early:full]
     for authority in ("tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers",
                       "tests/test_opencode_control_plane.py", "tests/test_dbsctr_lifecycle.py"):
         assert authority in command
+    pytest_steps = [step for step in workflow_steps(workflow) if re.search(r"\bpytest\b", step)]
+    assert len(pytest_steps) == 3
+    for step in pytest_steps:
+        invocation = re.search(r"\buv run\s+(.*?)\bpytest\b", " ".join(step.split()))
+        assert invocation, "each pytest authority must use the root uv environment"
+        options = invocation.group(1)
+        assert re.search(r"(?:^|\s)--frozen(?:\s|$)", options)
+        assert re.search(r'--python\s+[\"\']?\$\{\{\s*matrix\.python-version\s*\}\}[\"\']?', options)
+        assert re.search(r"--group\s+test(?:\s|$)", options)
+    assert any("tests/test_herdr_launchagent.py::test_herdr_host_swift_source_compiles_with_warnings_as_errors"
+               in step for step in pytest_steps)
+    assert workflow.index("- name: Verify selected Python runtime") < early
     discovery = text(SKILLS / "discovery/SKILL.md")
     assert "publication checks before receipt, preflight, or push" in discovery
     assert "exact candidate artifact set" in discovery
@@ -816,16 +836,89 @@ def test_global_routing_defaults_to_unversioned_v3():
 
 def test_ci_and_specs_cover_lifecycle_sources():
     workflow = text(".github/workflows/test.yml")
-    # Runtime support remains covered; cadence belongs to the native workflow.
-    for version in ("3.12", "3.13", "3.14"):
-        assert f'"{version}"' in workflow
+    selection = re.search(
+        r"(?m)^        python-version:\s*\$\{\{\s*fromJSON\(\((.*?)\)\s*"
+        r"&&\s*'([^']+)'\s*\|\|\s*'([^']+)'\)\s*\}\}\s*$", workflow)
+    assert selection, "runtime matrix must retain distinct compatibility and ordinary-event branches"
+    condition = re.fullmatch(
+        r"\s*github\.event_name\s*==\s*'([^']+)'\s*\|\|\s*"
+        r"github\.event_name\s*==\s*'([^']+)'\s*", selection.group(1))
+    assert condition
+    compatibility_events = set(condition.groups())
+    assert compatibility_events == {"schedule", "workflow_dispatch"}
+    compatibility = json.loads(selection.group(2))
+    ordinary = json.loads(selection.group(3))
+    worktrunk = re.search(r"(?m)^        worktrunk-version:\s*(\[[^\n]+\])\s*$", workflow)
+    assert worktrunk
+    worktrunk_versions = json.loads(worktrunk.group(1))
+    included = re.search(r"(?m)^        include:\n((?: {10,}[^\n]*\n)+)", workflow)
+    assert included
+    included_jobs = re.findall(
+        r'(?m)^          - python-version:\s*"([^"]+)"\n'
+        r'            worktrunk-version:\s*"([^"]+)"\s*$', included.group(1))
+    assert included_jobs == [("3.14", "0.80.0")]
+    ordinary_jobs = {("3.14", "0.81.0"), ("3.14", "0.80.0")}
+    compatibility_jobs = ordinary_jobs | {(version, "0.81.0") for version in ("3.12", "3.13", "3.15")}
+    for event in ("push", "pull_request", "schedule", "workflow_dispatch"):
+        versions = compatibility if event in compatibility_events else ordinary
+        actual_jobs = {(version, tool) for version in versions for tool in worktrunk_versions} | set(included_jobs)
+        assert actual_jobs == (compatibility_jobs if event in compatibility_events else ordinary_jobs), event
     assert "push:\n    branches: [main]" in workflow
     assert "pull_request:\n\n" in workflow
-    assert "uv run --group test pytest" in workflow
+    assert "fail-fast: false" in workflow
+    assert "timeout-minutes: 90" in workflow
+    assert "contents: read" in workflow
+    assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
+    assert "format('test ({0})', matrix.python-version)" in workflow
+    assert "format('test ({0}, {1})', matrix.python-version, matrix.worktrunk-version)" in workflow
 
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     for term in ("Engineering Profile", "Gate Ledger", "MethodWeave", "RigorWeave"):
         assert term in spec
+
+
+def test_ci_runtime_check_rejects_wrong_root_and_child_interpreters(tmp_path):
+    workflow = text(".github/workflows/test.yml")
+    step = next((step for step in workflow_steps(workflow)
+                 if step.startswith("name: Verify selected Python runtime\n")), None)
+    assert step is not None, "CI must verify the root and python3 child before qualification"
+    assert re.search(r'EXPECTED_PYTHON:\s*[\"\']?\$\{\{\s*matrix\.python-version\s*\}\}', step)
+    invocation = re.search(r"(?m)^ +uv run\s+([^\n]+)<<'PY'\n", step)
+    assert invocation
+    assert re.search(r"(?:^|\s)--frozen(?:\s|$)", invocation.group(1))
+    assert re.search(r'--python\s+[\"\']?\$EXPECTED_PYTHON\b', invocation.group(1))
+    assert re.search(r"--group\s+test\s+python\s+-I\s+-B\s+-\s*$", invocation.group(1))
+    script = re.search(r"(?ms)^ +uv run [^\n]*<<'PY'\n(.*?)^ +PY[ \t]*$", step)
+    assert script
+    code = textwrap.dedent(script.group(1))
+    lock = (ROOT / "uv.lock").read_bytes()
+    (tmp_path / "uv.lock").write_bytes(lock)
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    child = binaries / "python3"
+    child.symlink_to(sys.executable)
+    requested = f"{sys.version_info.major}.{sys.version_info.minor}"
+
+    def check(expected):
+        return subprocess.run([sys.executable, "-I", "-B", "-c", code], cwd=tmp_path,
+                              env={"PATH": str(binaries), "EXPECTED_PYTHON": expected},
+                              capture_output=True, text=True, timeout=10)
+
+    matched = check(requested)
+    assert matched.returncode == 0, matched.stderr
+    evidence = json.loads(matched.stdout)
+    actual = ".".join(map(str, sys.version_info[:3]))
+    assert evidence["requested"] == requested
+    assert evidence["python"] == actual
+    assert evidence["python3"] == actual
+    assert evidence["lock_sha256"] == hashlib.sha256(lock).hexdigest()
+    assert check(f"{sys.version_info.major}.{sys.version_info.minor + 1}").returncode != 0
+    child.unlink()
+    child.write_text("#!/bin/sh\nprintf '%s\\n' '[0, 0, 0]'\n")
+    child.chmod(0o755)
+    assert check(requested).returncode != 0
+    child.unlink()
+    assert check(requested).returncode != 0
 
 
 def test_dbsctr_commits_gate_increments_and_pushes_completed_cycles():

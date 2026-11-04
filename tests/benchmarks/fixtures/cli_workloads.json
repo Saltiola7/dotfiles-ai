@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "helper_sha256": "1a5332383ad3c2b342657ecce3ee81828336e6ab379bad36949bc4235537f1b2",
+  "helper_sha256": "043f41935a61c6d090088a8a52671a3163c92a0d56fe0dd271631a3147514127",
   "columns": 100,
   "runtime_help": {
     "3.12": {
@@ -13,6 +13,10 @@
     },
     "3.14": {
       "version": "3.14.9",
+      "stdout_sha256": "ec4de56f43a7d744316fd2d8efba61fdae2cf691ee2f03dcd2d8f3c0ae997984"
+    },
+    "3.15": {
+      "version": "3.15.0",
       "stdout_sha256": "ec4de56f43a7d744316fd2d8efba61fdae2cf691ee2f03dcd2d8f3c0ae997984"
     }
   },
