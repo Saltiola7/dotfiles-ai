@@ -92,6 +92,92 @@ def elf(interpreter=None, needed=None, machine=183):
     return bytes(data)
 
 
+def runtime_files(full, links=1):
+    module,_,_=full
+    release=module.WORK/'full-target-1/release';(release/'deps').mkdir(parents=True)
+    binary=release/'openshell-sandbox';binary.write_bytes(elf());binary.chmod(0o755)
+    companion=release/'deps/openshell_sandbox-0123456789abcdef'
+    if links==2:os.link(binary,companion)
+    return binary,companion
+
+
+@pytest.mark.parametrize('links',[1,2])
+def test_fixed_runtime_accepts_singleton_or_exact_cargo_hardlink(full,links):
+    module,_,_=full;binary,companion=runtime_files(full,links)
+    unrelated=companion.with_name('openshell_sandbox-fedcba9876543210')
+    unrelated.write_bytes(elf());unrelated.chmod(0o755)
+    with module.full_cargo_runtime_artifact() as (fd,layout):
+        assert layout=={'link_count':links,'companion':companion.name if links==2 else None}
+        assert os.fstat(fd).st_ino==binary.stat().st_ino
+        assert module.full_cargo_runtime_digest(fd)==hashlib.sha256(elf()).hexdigest()
+        # Cargo's later lib-test output is a distinct inode, not another alias.
+        (companion.parent/'openshell_sandbox-1111111111111111').write_bytes(elf())
+    assert binary.read_bytes()==elf() and binary.stat().st_nlink==links
+
+
+@pytest.mark.parametrize('failure',['third_link','wrong_name','outside_alias','symlink_binary','symlink_companion',
+    'different_inode','non_executable','writable','oversize','empty','ancestor_symlink'])
+def test_runtime_alias_refusals_retain_actual_metadata(full,failure):
+    module,_,_=full;binary,companion=runtime_files(full,2)
+    if failure=='third_link':os.link(binary,binary.parent/'third')
+    elif failure=='wrong_name':companion.rename(companion.with_name('openshell_sandbox-deadbeef'))
+    elif failure=='outside_alias':companion.rename(module.WORK/'outside-alias')
+    elif failure=='symlink_binary':binary.unlink();binary.symlink_to(companion)
+    elif failure=='symlink_companion':
+        companion.rename(module.WORK/'outside-alias');companion.symlink_to(module.WORK/'outside-alias')
+    elif failure=='different_inode':
+        companion.rename(module.WORK/'outside-alias');companion.write_bytes(elf());companion.chmod(0o755)
+    elif failure=='non_executable':binary.chmod(0o600)
+    elif failure=='writable':binary.chmod(0o777)
+    elif failure=='oversize':
+        with binary.open('r+b') as stream:stream.truncate(256*1024**2+1)
+    elif failure=='empty':binary.write_bytes(b'')
+    else:
+        target=binary.parent.parent;target.rename(module.WORK/'moved-target')
+        target.symlink_to(module.WORK/'moved-target',target_is_directory=True)
+    with pytest.raises(RuntimeError,match='full_cargo_runtime:') as caught:
+        with module.full_cargo_runtime_artifact():pytest.fail('accepted invalid artifact')
+    diagnostic=str(caught.value)
+    assert len(diagnostic.encode())<=8192
+    assert 'reason' in diagnostic and 'observed' in diagnostic
+    assert os.path.lexists(binary)
+
+
+@pytest.mark.parametrize('mutation',['canonical','companion','bytes','ancestor'])
+def test_runtime_retained_descriptor_or_path_change_refuses(full,mutation):
+    module,_,_=full;binary,companion=runtime_files(full,2)
+    with pytest.raises(RuntimeError,match='full_cargo_runtime:'):
+        with module.full_cargo_runtime_artifact() as (fd,_):
+            if mutation=='bytes':binary.write_bytes(b'changed')
+            elif mutation=='ancestor':binary.parent.rename(binary.parent.with_name('moved-release'))
+            else:
+                target=binary if mutation=='canonical' else companion
+                target.unlink();target.write_bytes(elf());target.chmod(0o755)
+
+
+def test_runtime_scandir_stops_at_fixed_entry_budget(full,monkeypatch):
+    module,_,_=full;runtime_files(full,2)
+    observed=[]
+    class Scan:
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def __iter__(self):return self
+        def __next__(self):
+            observed.append(1)
+            if len(observed)>8193:pytest.fail('unbounded directory scan')
+            return type('Entry',(),{'name':'unrelated','stat':lambda self,**kwargs:os.stat(module.WORK)})()
+    monkeypatch.setattr(module.os,'scandir',lambda fd:Scan())
+    with pytest.raises(RuntimeError,match='full_cargo_runtime:'):
+        with module.full_cargo_runtime_artifact():pytest.fail('accepted over-budget scan')
+    assert len(observed)==8193
+
+
+def test_generic_cache_reader_still_refuses_hardlinks(full):
+    module,_,_=full;binary,companion=runtime_files(full,2)
+    with pytest.raises(RuntimeError,match='full_cargo_file_identity'):
+        module.full_cargo_read(binary,1024)
+
+
 @pytest.mark.parametrize('offline',[False,True])
 def test_environment_preserves_rust_loader_and_scopes_all_c_compilers(full,monkeypatch,offline):
     module,_,_=full
@@ -238,7 +324,7 @@ def test_expired_transaction_refuses_before_process(full,monkeypatch):
 def test_helper_preserves_transport_bound():
     helper=BASE/'guest_full_cargo.py'
     assert helper.is_file(), 'full Cargo helper absent: intended red'
-    assert helper.stat().st_size<=28*1024
+    assert helper.stat().st_size<=32*1024
 
 
 def test_protoc_wrapper_keeps_exact_compiler_and_clears_rust_loader(full,monkeypatch):
@@ -262,13 +348,30 @@ def test_protoc_wrapper_keeps_exact_compiler_and_clears_rust_loader(full,monkeyp
     assert wrapper.read_text()=='unexpected'
 
 
-@pytest.mark.parametrize('failure',[None,'version','sentinel','lock','patch'])
-def test_full_build_is_offline_and_requires_native_identity_and_sentinel(full,monkeypatch,failure):
+@pytest.mark.parametrize('links',[1,2])
+@pytest.mark.parametrize('failure',[None,'version','sentinel','lock','patch','runtime_mutation','runtime_replacement'])
+def test_full_build_is_offline_and_requires_native_identity_and_sentinel(full,monkeypatch,failure,links):
     module,payload,source=full;locked(full)
     release=module.WORK/'full-target-1/release';(release/'deps').mkdir(parents=True)
     binary=release/'openshell-sandbox';binary.write_bytes(elf());binary.chmod(0o755)
+    companion='openshell_sandbox-fedcba9876543210'
+    if links==2:os.link(binary,release/'deps'/companion)
     test=release/'deps/openshell_sandbox-0123456789abcdef';test.write_bytes(elf());test.chmod(0o755)
     monkeypatch.setattr(module,'full_protoc',lambda payload:{'wrapper':str(module.WORK/'full-protoc-1'),'include':str(module.WORK/'includes')})
+    verify=module.verify_static_arm64
+    class DescriptorPath:
+        def __init__(self,fd):self.fd=fd
+        def open(self,mode):
+            assert mode=='rb'
+            stream=os.fdopen(os.dup(self.fd),'rb');stream.seek(0)
+            return stream
+    def verify_descriptor(path):
+        if str(path).startswith('/proc/self/fd/'):
+            fd=int(str(path).rsplit('/',1)[1])
+            assert os.fstat(fd).st_ino==binary.stat().st_ino
+            return verify(DescriptorPath(fd))
+        return verify(path)
+    monkeypatch.setattr(module,'verify_static_arm64',verify_descriptor)
     calls=[]
     def command(argv,**kwargs):
         calls.append((argv,kwargs))
@@ -279,6 +382,8 @@ def test_full_build_is_offline_and_requires_native_identity_and_sentinel(full,mo
             assert '--target' not in argv
             return b'',b''
         if argv[1:2]==['--version']:
+            assert argv[0].startswith(f'/proc/{os.getpid()}/fd/')
+            assert os.fstat(int(argv[0].rsplit('/',1)[1])).st_ino==binary.stat().st_ino
             return ('openshell-sandbox '+('0.1.7' if failure=='version' else module.FULL_VERSION)+'\n').encode(),b''
         if argv[1:2]==['test']:
             assert '--no-run' in argv and '--lib' in argv and '--offline' in argv
@@ -288,6 +393,11 @@ def test_full_build_is_offline_and_requires_native_identity_and_sentinel(full,mo
         assert kwargs['environment']['OPENSHELL_CHILD_UNIX_DENIAL_PROBE']=='filtered'
         if failure=='lock':(source/'Cargo.lock').write_text('modified')
         if failure=='patch':(source/'crates/openshell-sandbox/src/linux/child_seccomp.rs').write_text('modified')
+        if failure=='runtime_mutation':
+            with binary.open('r+b') as stream:stream.seek(511);stream.write(b'x')
+        if failure=='runtime_replacement':
+            binary.rename(binary.with_name('retained-runtime'))
+            binary.write_bytes(elf());binary.chmod(0o755)
         return (('' if failure=='sentinel' else module.SENTINEL+'\n')+'test result: ok. 1 passed; 0 failed; 0 ignored\n').encode(),b''
     monkeypatch.setattr(module,'command',command)
     if failure:
@@ -297,4 +407,5 @@ def test_full_build_is_offline_and_requires_native_identity_and_sentinel(full,mo
         assert result['status']=='full_cargo_tested' and result['static_arm64'] is True
         assert result['session_enabled'] is False and result['full_runtime_qualified'] is False
         assert result['experimental_version']==module.FULL_VERSION
+        assert result['binary_layout']=={'link_count':links,'companion':companion if links==2 else None}
         assert module.SENTINEL in result['filtered_stdout'] and len(calls)==5

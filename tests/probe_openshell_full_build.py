@@ -273,6 +273,13 @@ def parse_stages(stages: dict, operation: str, *, complete: bool = True) -> None
                 if protoc.get('version')!='31.1' or not sha(protoc.get('binary_sha256')):
                     raise build.Refusal('full_build_protoc_proof')
         elif stage=='cargo-test':
+            layout=result.get('binary_layout')
+            if (type(layout) is not dict or set(layout)!={'link_count','companion'}
+                    or type(layout['link_count']) is not int or layout['link_count'] not in (1,2)
+                    or (layout['link_count']==1 and layout['companion'] is not None)
+                    or (layout['link_count']==2 and (type(layout['companion']) is not str
+                        or re.fullmatch(r'openshell_sandbox-[a-f0-9]{16}',layout['companion']) is None))):
+                raise build.Refusal('full_build_binary_layout')
             if (result.get('status')!='full_cargo_tested' or result.get('static_arm64') is not True
                     or result.get('experimental_version')!=selected['experimental_version']
                     or result.get('patched_source_sha256')!=build.PATCHED_SHA

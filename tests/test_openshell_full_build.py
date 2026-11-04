@@ -156,6 +156,7 @@ def stage_report(full):
             'experimental_version':value['experimental_version'],'patched_source_sha256':full.build.PATCHED_SHA,
             'derived_lock_sha256':value['source']['derived_lock_sha256'],
             'binary_sha256':sha,'test_binary_sha256':sha,
+            'binary_layout':{'link_count':1,'companion':None},
             'filtered_stdout':'openshell-child-unix-denial-checked',
             'session_enabled':False,'full_runtime_qualified':False}
     return {'rust-verify':{'status':'rust_verified','files':105,'rustc':'release: 1.95.0\n'},
@@ -169,6 +170,46 @@ def stage_report(full):
 
 def test_host_accepts_complete_selected_build_proof(full,stage_report):
     full.parse_stages(stage_report,'full-test')
+
+
+@pytest.mark.parametrize('layout',[
+    {'link_count':1,'companion':None},
+    {'link_count':2,'companion':'openshell_sandbox-0123456789abcdef'},
+])
+def test_host_accepts_only_observed_singleton_or_exact_cargo_companion(full,stage_report,layout):
+    stage_report['cargo-test']['binary_layout']=layout
+    full.parse_stages(stage_report,'full-test')
+
+
+@pytest.mark.parametrize('layout',[
+    None,[],{},
+    {'link_count':1},
+    {'companion':None},
+    {'link_count':1,'companion':None,'verified':True},
+    {'link_count':True,'companion':None},
+    {'link_count':1.0,'companion':None},
+    {'link_count':'1','companion':None},
+    {'link_count':0,'companion':None},
+    {'link_count':3,'companion':'openshell_sandbox-0123456789abcdef'},
+    {'link_count':1,'companion':'openshell_sandbox-0123456789abcdef'},
+    {'link_count':2,'companion':None},
+    {'link_count':2,'companion':False},
+    {'link_count':2,'companion':'openshell_sandbox-0123456789ABCDEF'},
+    {'link_count':2,'companion':'openshell_sandbox-01234567'},
+    {'link_count':2,'companion':'openshell_sandbox-0123456789abcdef0'},
+    {'link_count':2,'companion':'openshell-sandbox-0123456789abcdef'},
+    {'link_count':2,'companion':'../openshell_sandbox-0123456789abcdef'},
+    {'link_count':2,'companion':'/release/deps/openshell_sandbox-0123456789abcdef'},
+    {'link_count':2,'companion':'openshell_sandbox-0123456789abcdef\n'},
+])
+def test_host_refuses_missing_ambiguous_or_unselected_binary_layout(full,stage_report,layout):
+    stage_report['cargo-test']['binary_layout']=layout
+    with pytest.raises(full.build.Refusal):full.parse_stages(stage_report,'full-test')
+
+
+def test_host_requires_binary_layout_in_cargo_result(full,stage_report):
+    stage_report['cargo-test'].pop('binary_layout')
+    with pytest.raises(full.build.Refusal):full.parse_stages(stage_report,'full-test')
 
 
 def test_host_admits_only_verified_prefix_before_next_stage(full,stage_report):
