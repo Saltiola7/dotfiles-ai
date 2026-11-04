@@ -92,6 +92,10 @@ Only these closed operations are accepted:
 
 - `prepare` qualifies the root-owned 8 GiB build/cache filesystem and a separate
   64 MiB exhaustion fixture, including outside-write and guest-socket exclusion.
+- `bind-storage` explicitly establishes a current host/Btrfs binding for the
+  exact retained store, preserving the original receipt. It writes only the
+  exclusive root-owned `binding.json` sidecar after the feature's independent
+  identity checks; it does not mount the image, download or compile.
 - `inventory` reports actual free space and metadata-only retained-directory
   usage inside the already qualified build filesystem. It starts no build service
   and deletes nothing; usage estimates do not authorize cleanup.
@@ -126,6 +130,43 @@ shutdown. The build service has a 2 CPU quota, 6 GiB memory ceiling, zero swap a
 kernel test does not enable OpenShell or qualify its complete launch, descriptor,
 PTY, broker or agent compatibility matrix. Keep run results in private evidence,
 and keep optional activation disabled until those separate gates pass.
+
+### Binding retained guest storage across boots
+
+If a retained Btrfs image fails only the legacy `st_dev` comparison, preserve the
+failure and original `receipt.json`. A dynamically assigned subvolume device
+number can change across boots. That explanation alone does not prove the image
+is unchanged and never authorizes editing the receipt or ignoring a mismatch.
+The legacy record contains no historical outer filesystem/subvolume UUID.
+
+After the binding contract and source checks pass, explicitly select
+`--operation bind-storage` on the same guest build runner and private selection.
+Fresh host admission computes the feature's canonical host-binding digest; the
+operator supplies no digest, guest path or replacement identity. The guest must
+observe no mount or loop attachment, verify the six unchanged non-device image
+fields, and read the exact inner ext4 UUID through the same held image FD. Image,
+receipt, root and parent FDs must agree on the observed Btrfs filesystem UUID,
+tree ID and subvolume UUID, with strict current FD/path/mount checks.
+
+Successful binding creates and syncs only the exclusive root-owned 0600
+`binding.json`. Confirm the original receipt bytes remain unchanged and the
+worker is independently stopped. The result must report `storage_bound`,
+`unmounted_verified: true`, `session_enabled: false` and
+`historical_outer_identity_verified: false`, together with the closed digest and
+size fields specified by the feature. Retain identifiers privately. Any existing
+sidecar, partial publication, unsupported identity or mismatch refuses; do not
+delete, overwrite, repair or retry it automatically.
+
+Before resuming a build, perform one separate subsequent
+`--operation inventory` boot/inspect/stop lifecycle. It must recompute the
+fresh host digest, validate the same sidecar and unchanged legacy receipt, and
+prove current storage and shutdown. Record whether device numbers changed;
+do not claim renumbering was exercised when they stayed equal. Sidecar presence
+always requires its complete validation, with no fallback to legacy admission.
+Without a sidecar, ordinary callers retain the original strict seven-field check.
+These observations establish current binding and reuse only; all storage caps,
+build prerequisites, strict socket exclusion and disabled-session boundaries
+remain unchanged.
 
 After capacity is available, the next native storage proof uses an owned tiny
 image before any VM: verify its attachment and physical-store chain, establish

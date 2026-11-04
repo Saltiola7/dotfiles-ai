@@ -1125,6 +1125,118 @@ single-link identity, mount device and bounded size. It then makes a new bounded
 write. Promotion to the final receipt requires successful proof and verified
 unmount; failures retain the pending record and image.
 
+#### Stable binding for a retained Btrfs build image
+
+The legacy receipt records the image's seven-field stat identity, including
+`st_dev`, but no historical outer filesystem or subvolume UUID. Btrfs supplies
+`st_dev` from a dynamically allocated subvolume device number; that number may
+change across boots without proving replacement. Do not overwrite the receipt,
+drop its device comparison silently, or claim that a new observation recovers
+the missing historical identity. See the kernel's
+[stat implementation](https://github.com/torvalds/linux/blob/v6.19/fs/btrfs/inode.c#L8162)
+and [anonymous-device allocation](https://github.com/torvalds/linux/blob/v6.19/fs/btrfs/disk-io.c#L1091).
+
+The explicit closed `bind-storage` operation on
+`tests/probe_openshell_guest_build.py` may establish a new current binding for
+the exact retained store. It accepts only the existing private selection and
+operation; no guest path, UUID, replacement receipt or digest override is caller
+input. Fresh host admission under the exclusive pilot lock must identify the
+selected backing image, APFS volumes, worker and VM disk before the host computes
+and supplies `host_binding_sha256`. Binding starts the same selected worker and
+independently verifies its stop afterward. It does not mount the build image,
+download, compile, run a build service or change retained build contents.
+
+The host digest is SHA256 over the ASCII bytes
+`dotfiles-ai.openshell.build-store-host-binding.v1` followed by one NUL byte and
+canonical JSON: sorted keys, separators `,` and `:`, ASCII escaping enabled and
+nonfinite numbers forbidden. The closed record contains `schema_version: 1`;
+`storage` with the parsed selection's `profile`, `pilot_root`, `run_root`,
+`image_path`, `image_device`, `image_inode`, `container_uuid`, `runtime_uuid` and
+`cache_uuid`; `worker` with `run_id`, `name`, canonical `path`, `volume_uuid`
+equal to `runtime_uuid`, and freshly observed `inode`; and `disk` with canonical
+`path`, that same `volume_uuid`, and freshly observed `inode`, `mode`, `uid` and
+`links`. Paths are the already admitted canonical strings. Exclude usage, sizes,
+timestamps, PIDs, transient device numbers inside the mounted APFS volume, and
+source, tool, recipe, configuration or receipt hashes. The outer backing-image
+device remains part of the admitted selection; this does not authorize an
+external-volume remount or replacement selection. Recompute the digest from
+fresh native admission on every later use; a stored digest is only a comparison.
+
+With the store unmounted and no loop attachment, hold no-follow read-only FDs
+for `ROOT/image.raw`, `ROOT/receipt.json`, `ROOT` and `ROOT.parent`, where `ROOT`
+is `/var/lib/dotfiles-ai-openshell-build`. Verify existing root-controlled path,
+mode and ownership requirements, exact allowed directory entries and the legacy
+receipt schema. Require the image's inode, mode, UID, GID, link count and size
+to equal the six non-device legacy fields. Read the inner ext4 superblock and
+UUID from that same held image FD and require the exact receipt UUID and 8 GiB
+image size. No path reopening may substitute another image for this proof.
+
+Read `BTRFS_IOC_FS_INFO` and `BTRFS_IOC_GET_SUBVOL_INFO` on all four held FDs.
+Require the same nonzero filesystem UUID, valid tree ID and nonzero subvolume
+UUID on each; unsupported filesystems, ioctl failures or conflicting identities
+refuse binding. Use zero-initialized ARM64 Linux UAPI buffers: FS_INFO is 1,024
+bytes, request `0x8400941f`, filesystem UUID at bytes 16 through 31; SUBVOL_INFO
+is 504 bytes, request `0x81f8943c`, tree ID at offset 0 and subvolume UUID at
+bytes 296 through 311. These requests accept regular-file and directory FDs.
+Top-level tree ID 5 does not imply a zero UUID; parent/received UUIDs are not
+substitutes for the subvolume UUID. The selected guest's actual IDs must be
+observed, never inferred from its path. Sources:
+[UAPI](https://github.com/torvalds/linux/blob/v6.19/include/uapi/linux/btrfs.h#L866),
+[inode-root lookup](https://github.com/torvalds/linux/blob/v6.19/fs/btrfs/ioctl.c#L2021)
+and [top-level UUID creation](https://github.com/kdave/btrfs-progs/blob/v6.17/mkfs/common.c#L123).
+
+Publish only `ROOT/binding.json`, exclusively as a root-owned, single-link 0600
+regular file; sync the completed file and parent directory. Never overwrite or
+remove an existing sidecar, including a partial or invalid one. The closed
+schema contains `schema_version: 1`, `host_binding_sha256`,
+`legacy_receipt_sha256` over the unchanged receipt bytes, `inner_uuid`,
+`btrfs` with `fsid`, `tree_id` and `subvolume_uuid`, `image_identity` and
+`receipt_identity` as six-element arrays ordered inode/mode/UID/GID/link count/size,
+and `root_identity` and `parent_identity` as four-element arrays ordered
+inode/mode/UID/GID. UUIDs and digests have one canonical representation; duplicate,
+unknown or missing fields and booleans in integer fields refuse parsing.
+Directory size and link count are not persistent anchors. Within an operation,
+full current stat snapshots, descriptor mount IDs, path identities and mount
+relationships remain strict before publication and around observations. Only
+the directory-size change caused by this operation's own exclusive sidecar
+publication is expected; post-publication checks still require its current
+device, mount ID, inode, mode, ownership and link count. File identities remain
+exact. Preserve partial sidecars and all earlier evidence on failure.
+
+| Retained state | Required admission | Permitted result |
+|---|---|---|
+| No sidecar, ordinary operation | Original seven-field legacy comparison and existing live storage checks | Unchanged legacy admission; device drift still refuses |
+| No sidecar, explicit `bind-storage` | Fresh host digest, unchanged legacy bytes and six image fields, same-FD ext4 UUID, agreeing Btrfs anchors, no mount or loop | Exclusive durable sidecar establishing current identity only |
+| Sidecar present, ordinary operation | Closed valid sidecar, exact legacy receipt hash and anchors, fresh matching host digest, live outer/inner identity and existing limits | Reuse with current device/mount checks; no legacy fallback |
+| Sidecar present, repeated binding; invalid or mismatched evidence | Refuse without overwriting, deleting or repairing records | Preserve state and independently stop the worker |
+
+**Text Equivalent:** A legacy receipt remains unchanged. Explicit binding adds
+current host and Btrfs identity without claiming historical proof. Once a sidecar
+exists it is mandatory for admission, even when malformed or mismatched; the
+controller never falls back to the legacy device comparison. Current mount and
+FD checks remain mandatory. Canonical source: this binding contract. Owner:
+distribution maintainers. Change trigger: identity fields, canonicalization,
+publication, reuse or migration behavior changes.
+
+The closed binding result contains exactly `schema_version: 1`,
+`status: storage_bound`, `host_binding_sha256`, `legacy_receipt_sha256`,
+`binding_sha256`, `image_bytes`, `unmounted_verified: true`,
+`session_enabled: false` and `historical_outer_identity_verified: false`.
+Native identifiers remain in private sidecar evidence. A successful result does
+not qualify an OpenShell runtime, authorize sessions or alter any resource cap.
+Before resuming builds, qualify actual exclusive publication and preservation,
+then revalidate the same sidecar and receipt in one subsequent
+boot/inspect/stop lifecycle. Record observed device numbers honestly; unchanged
+numbers do not demonstrate a forced renumbering experiment.
+
+Required scenarios cover accepted explicit binding after only legacy device
+drift; refusal for any other legacy image field or inner UUID change; host,
+Btrfs, receipt, FD/path or mount mismatch; unsupported/zero identities; malformed,
+duplicate, partial or existing sidecars; publication/sync failure; and successful
+reuse across the binding and subsequent inspection boots. Tests must show that sidecar presence cannot enter a
+legacy fallback, unexpected changes do not publish a new baseline, and every
+failure preserves the original receipt, capped image and verified-stop duty.
+
 | Resource | Enforced ceiling or boundary | Native proof |
 |---|---|---|
 | Build files, downloads and caches | One 8 GiB ext4 filesystem, inside existing 20 GiB disk | Root-owned fixed-size backing file, loop binding, UUID and capacity |
@@ -1493,7 +1605,7 @@ Initiative receipt; failed feasibility reopens the affected design decision.
 | Interaction | required: ordered qualification table, read-only native inspection followed by separate operation admission, and Text Equivalents | What must be verified before execution and recovery? |
 | State | required: ordered qualification and guard-state tables with Text Equivalents | Which observations distinguish admission, failure, restoration, pause, resume and restart? |
 | Data/trust | required: ownership table and Text Equivalent | Can workloads obtain host authority or alter evidence? |
-| Schema | required: private-artifact and native-storage binding tables with Text Equivalents | Which independently produced identities must match before results can be combined? |
+| Schema | required: private-artifact, native-storage and retained-build binding tables with Text Equivalents | Which independently produced identities must match before results can be combined? |
 | Dependency/deployment | required: ownership, native-storage binding and ordered qualification tables | Where do Mac, guest, runtime and workload controls apply? |
 | Quantitative | not_applicable: no performance, capacity or savings claim is made | Probe bounds and pass/fail observations are not forecasts |
 
