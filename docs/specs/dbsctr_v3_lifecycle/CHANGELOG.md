@@ -2,18 +2,26 @@
 
 ## 2026-11-03 — CI repair benchmark requalification (CI-REPAIR-002)
 
-- Preserved CI-REPAIR-001's signed source as merge ancestry and requalified the
-  committed helper SHA-256 plus exact help-output hashes under the existing
-  isolated Python 3.12.15, 3.13.1 and 3.14.9 runtimes. Reviewed help changes are
-  limited to the newly specified `ci-repair` command; no oracle is bypassed.
-- Retained the original hosted `helper_oracle_unavailable` failure. The local
-  integrated smoke subsequently hit its unchanged 90-second test deadline under
-  heavy host load; 14 completed synthetic cohorts are partial evidence only.
-  Native hosted benchmark/profile smoke must pass before source completion.
-- This follow-up prepares a separately approved early qualification draft, not
-  Final Push, managed installation, consumer qualification or a failure waiver.
-  Prior PR/branch and private failed evidence remain retained; actual delivery
-  identities belong to this cycle's private record and final report.
+- Preserved CI-REPAIR-001's signed source as merge ancestry. Its new `ci-repair`
+  command changed the pinned helper SHA-256 and help output, which that cycle
+  omitted from its validation closure; the hosted `helper_oracle_unavailable`
+  failure is retained.
+- Reconciled accepted external-merge completion, then lineage recovery and
+  partitioned CI. Only this changelog and the benchmark pin fixture conflicted;
+  the helper merged automatically and every validation command is preserved.
+- Requalified the combined helper SHA-256 and exact help-output hashes from actual
+  output on isolated Python 3.12.15, 3.13.1 and 3.14.10; 3.14.9 output is
+  identical. Help changes beyond accepted main are limited to `ci-repair`.
+  Workloads, profile assertions and timeouts are unchanged; no oracle is bypassed.
+- Local full-union runs exceeded their unchanged evidence deadline and remain
+  unavailable; 14 completed synthetic cohorts were partial evidence only. Native
+  hosted CI on the reconciled head and current base, including every full-suite
+  partition, benchmark/profile smoke and security analysis, is the integration
+  qualification.
+- Source-only delivery: no managed installation, consumer qualification, failure
+  waiver or automatic repair. The superseded draft, its branch and private failed
+  evidence remain retained; actual delivery identities belong to this cycle's
+  private record and final report.
 
 ## 2026-11-03 — Supervised CI repair reservations (CI-REPAIR-001)
 
