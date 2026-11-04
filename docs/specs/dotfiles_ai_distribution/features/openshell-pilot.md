@@ -1688,7 +1688,7 @@ member may be buffered for ELF/JSON inspection under the existing memory limit.
 
 `guest_agent_build.py` exposes `agent_build_prepare(payload)` for source assembly
 with the existing full-source verifier, and `agent_build_compile(payload)` for
-the separate offline build with the existing full-Cargo helper. The payload's
+the separate offline build with the existing full-Cargo helper. The preparation payload's
 `fixture_files` contains exactly `Cargo.toml`, `Cargo.lock`, `src/main.rs`, from
 `agentcheck/`. Assemble `WORK/agent-fixture-1` with those files plus
 `src/upstream_child_seccomp.rs` and `src/patched_child_seccomp.rs`. Reauthenticate
@@ -1697,6 +1697,11 @@ verified `full-source-2`; require SHA256
 `14c06d0d2c33a56b9a075f469a16436b92cc101186ef19a00a4f1ab84871fa0f` and
 `57a91bdc412ceb124da0b409f841420de35b692b07db0e806cd888c3ab7a3bb1`, respectively.
 Do not transport duplicate full modules or edit existing source generations.
+The compile payload carries the validated preparation report instead of repeating
+`fixture_files`. Read the three fixed local files through the same bounded
+no-follow checks, validate the manifest and lock, and match all five source hashes
+to that report before compiling. This preserves source binding within the 64 KiB
+service-script limit.
 The normal binary build excludes module test code and uses only std plus cached
 `libc=0.2.189`, checksum `3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2`.
 Use the same verified Rust, bundled linker, `full-cargo-1` and `full-target-1`,
