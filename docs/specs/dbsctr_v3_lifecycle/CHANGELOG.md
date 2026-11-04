@@ -18,6 +18,45 @@
   consumer retry require separately approved, verified merged source. No runtime
   redeployment, gate exception or canonical-record repair is introduced.
 
+## 2026-11-03 — Preserve native subtest reporting
+
+Receipt schema 2 separates actual pytest subtest occurrences from unique ordinary
+parent phases. Repeated and nested contexts retain distinct parent/ordinal
+identities without serializing arbitrary context values. Failed children block
+acceptance even when the parent passes. Native JUnit counters and per-parent
+skip multiplicities reconcile child outcomes, collection skips and ordinary
+teardown skips; parent coverage totals remain separate. Old flattened artifacts
+remain invalid. Complete collection, required contexts, pinned dependencies,
+90-minute worker bounds and native protections are unchanged.
+
+Fresh integrated validation: 3,133 passed and one existing native-V2 binary-selection
+skip, including full history-recovery and accepted external-completion tests.
+The 102-case CI regression suite passes on actual Python 3.12.15, 3.13.1 and
+3.14.10; scoped three-file typing and five-file compilation on those runtimes
+pass. An expanded check retains one pre-existing Optional ModuleSpec diagnostic
+in the unchanged accepted-main external-completion fixture; no suppression or
+Gate Exception was added. Independent reviews cover subtest failure semantics
+and the 679-definition helper union.
+
+Accepted-main integration preserves history custody, offline recovery, external
+completion and every validation feature. Actual three-runtime help identities
+and correctness smokes completed 72 records/48 profiles without a performance
+claim. The retained component passed 16 isolated commands, 48-file generation
+verification and actual owner signature binding. A new exact-target rollout
+preview preserves its other 47 files and disabled flags after identifying a
+separate accepted-main helper installation; no live apply occurred here.
+
+Original red subtest proof, teardown-skip review failure, native commit-path
+refusal, parser merge conflict and capture refusal remain retained. Gate Commits
+include `b36f9e0a`, `f80507c5`, `8acb9a16` and accepted-main integration
+`72f3f062`. README and retired backlog authority were reviewed. Source-only
+Final Push targets the existing feature branch and draft PR into main; fresh
+complete hosted CI remains mandatory before the authorized guarded merge.
+No controller/policy activation or consumer recovery occurs in this cycle.
+Maintainers requalify the collector/JUnit contract with pytest changes. Rollback
+must preserve complete coverage, required checks and compatible custody guards.
+Actual publication, merge and separate deployment belong to private records.
+
 ## 2026-11-03 — Completion after an external merge
 
 - Add `complete-external` for an explicitly pinned, already merged GitHub PR.
@@ -48,6 +87,112 @@
   Source delivery is a feature-branch draft PR; managed activation follows verified
   merge. Consumer completion remains separately gated. Actual QA, Gate Commits,
   native CI and publication identity belong to the private Cycle Record.
+
+## 2026-11-03 — Preserve managed validation compatibility
+
+Preserved managed checkpoint/opt-out commands, registration feedback input,
+new-task enrollment and post-lock checkpoint routing alongside audited history
+recovery. Missing, disabled and explicit-only policy remains inert. Managed
+delegation selects one real package owner, checks regular package entry files
+before import, rejects foreign cached modules and never switches owners after
+selection. Optional failures preserve formal results; legacy checkpoint routing,
+offline recovery and gate invalidation remain intact.
+
+Fresh affected validation: 2,909 passed and one existing native-V2 binary-selection
+skip; the new compatibility test passes typing, and the helper/test compile on
+Python 3.12.15, 3.13.1 and 3.14.10. Actual native registration, resume, evidence
+and Gate Commit fixtures prove post-lock events and durable-record agreement.
+Independent source review found no blocker; 661 existing definitions are unchanged.
+The retained external component passed 16 actual isolated fixture commands and
+48-file generation verification, with native identity-drift negatives and actual
+API signature binding. This does not qualify enabled execution or feedback.
+
+Three actual-runtime correctness smokes completed 72 records and 48 profiles in
+total; only measured helper/help identities changed, without a performance claim.
+Original missing-feature, malformed-owner and fixture-expectation failures remain
+retained. Gate Commits include `42c861f0`, `0aa9fe41` and `673af415`. No Gate
+Exception applies; README and retired backlog authority were reviewed. This
+source-only Final Push updates the existing feature branch and draft PR into
+main; fresh complete hosted CI remains mandatory before acceptance.
+
+No live installation, validation-policy activation, controller/task execution or
+consumer recovery occurred. The separate accepted-source rollout preserves the
+retained component and uses its existing generation renderer/template; a bounded
+read-only preview changes only helper identity and derived generation. The owner
+maintains external-component compatibility and drift refusal. Rollback after any
+consumer recovery must preserve compatible readers and custody guards. Actual
+delivery and subsequent deployment belong to their private Cycle Records.
+
+## 2026-11-03 — Bounded full-suite CI partitions
+
+Replaced serial full-suite jobs with four independent partitions per selected
+Python/Worktrunk lane, retaining the existing 90-minute worker limit, pinned
+tools, early checks, Swift authority and native required-check names. An
+always-run aggregate rejects incomplete, failed, filtered, stale or inconsistent
+evidence and reconciles exact collection, execution, JUnit and skip outcomes.
+Tracked module inventory prevents pre-collection omissions. Existing large test
+IDs and module-level skips remain represented without truncation or exclusions.
+
+Fresh current-main integration validation: 352 passed and one existing native-V2
+binary-selection skip; affected three-file typing passed, and those files compile
+on Python 3.12.15, 3.13.1 and 3.14.10. Real disposable CLI fixtures cover four
+successful partitions, setup/call/collection skips and xfail, failed collection,
+assertion failure, filtering, ignored modules and exit-zero partial execution.
+Independent review found no remaining source blocker. Original failed boundary
+checks, typing findings and eight temporary-repository signing failures remain
+retained; the successful replacement isolates unsigned synthetic Git fixtures
+without changing native lifecycle signing or global Git configuration.
+
+This follow-on preserves the completed lineage-recovery cycle and its cancelled
+hosted CI history. Native Gate Commits include `7125325c`, `fb48814e`, `03dbcf64`
+and accepted-main integration `63b8f934`. No Gate Exception applies. README and
+retired backlog authority were reviewed. Source-only Final Push updates the
+existing feature branch and draft PR into main; fresh complete hosted workers and
+aggregates remain required before acceptance. No helper installation, validation
+feature retirement, policy activation or consumer recovery occurs. The owner
+maintains partition allocation and pinned action updates; rollback must preserve
+full coverage and native protections. Actual delivery belongs to the Cycle Record.
+
+## 2026-11-03 — Audited historical lineage recovery
+
+Added a closed, one-time recovery transaction for active native registered
+schema-5 GitHub Initiative cycles whose recorded history omitted reviewed
+Markdown documentation commits or one exact accepted-base merge. Exact-plan
+approval, offline bounded Git proofs, disposable merge objects, immutable private
+preimages/outcomes and shared locks preserve audit continuity across interruptions.
+Recovered entries receive no gate credit; Review/Integrate reopens and ordinary
+CI, Graphify, Final Push and protected delivery guards remain unchanged.
+
+Validation before the final accepted-base integration: 60 source-bound behavior
+cases and 363 existing cases had successful observations; original fixture failures
+remain retained. Those results are historical, not reruns at the integrated source.
+Fresh integration validation passes 2,817 cases, including the 2,688-case transition
+matrix, real gate-admission/completion checks, two composed recovery/remediation
+cases, downstream performance contracts and publication/instruction contracts.
+Both composed cases fail against the actual historical result handler and pass
+with the accepted transition policy. Independent critical-risk review accepted the
+combined implementation and evidence boundary.
+
+Frozen helper/help identities were requalified from actual output on Python
+3.12.15, 3.13.1 and 3.14.10. Each correctness smoke retained 24 complete records
+and 16 profiles; no performance comparison is claimed. Five affected Python files
+compile on all three runtimes. The earlier 60-case aggregate identifies its
+qualifier's Python 3.13.16, not independently captured child runtimes; no complete
+Python 3.13 test-population claim is made. Fresh full native CI remains required
+before acceptance or deployment.
+
+Domain and implementation Gate Commits: `e41fedab`, `6ffb4244`; accepted-main
+integration: `5ad5782b`. No Gate Exception is selected. README and retired backlog
+authority were reviewed; retained private evidence stays with the cycle. The owner
+maintains compatibility and vulnerability response. Rollback must preserve readers
+and guards for any recovered record; old helpers must not mutate those records.
+
+Release, Deploy and Operate are not applicable to this source-only draft delivery.
+No helper installation, validation-policy activation or consumer recovery occurred.
+Existing installed capabilities require preservation or an explicit retirement
+before the separate targeted managed rollout. Final Push targets the feature
+branch and draft PR into main; actual push, CI and later deployment outcomes
+belong to the private Cycle Record. No branch, worktree or recovery data is removed.
 
 ## 2026-10-31 — Evidence rerun invalidation (PY-02)
 

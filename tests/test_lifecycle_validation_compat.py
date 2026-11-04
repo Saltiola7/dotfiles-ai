@@ -544,3 +544,23 @@ def managed_action(action, **fields):
     else:
         assert not events_path.exists() and not (package / "imported").exists()
     assert os.environ.get("HOME") == original_home
+
+
+def test_recovery_early_dispatch_never_enters_optional_git_or_telemetry(core, monkeypatch):
+    """Only the dispatcher boundary is isolated; existing recovery tests own admission."""
+    seen = []
+    args = SimpleNamespace(command="lineage-recover", func=lambda value: seen.append(value))
+    monkeypatch.setattr(core, "parser", lambda: SimpleNamespace(parse_args=lambda: args))
+    monkeypatch.setattr(core, "forgejo_internal_main", lambda _: False)
+
+    def forbidden(*arguments, **keywords):
+        pytest.fail("Offline recovery dispatch crossed an unrelated optional/Git/telemetry boundary")
+
+    for name in ("local_dispatch_selection", "local_cli_mutation_guard", "continuation_guard",
+                 "workflow_operation_start", "workflow_operation_finish",
+                 "optional_validation_registration", "optional_shadow_checkpoint",
+                 "managed_validation_action", "managed_validation_enabled"):
+        monkeypatch.setattr(core, name, forbidden)
+    monkeypatch.setattr(core.subprocess, "run", forbidden)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "lineage-recover"])
+    assert core.main() == 0 and seen == [args]

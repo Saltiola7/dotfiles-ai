@@ -208,7 +208,7 @@ def test_public_lifecycle_commands_are_unversioned_and_thin():
 def test_early_publication_and_editorial_remediation_contract():
     workflow = text(".github/workflows/test.yml")
     early = workflow.index("- name: Check publication and instruction contracts")
-    full = workflow.index("- run: uv run --group test pytest --maxfail=1\n")
+    full = workflow.index("- name: Check full-suite partition\n")
     assert early < full
     command = workflow[early:full]
     for authority in ("tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers",
@@ -224,6 +224,27 @@ def test_early_publication_and_editorial_remediation_contract():
         for requirement in ("Editorial corrections", "explicit scope amendment",
                             "Material changes still reopen readiness", "preserve failed evidence"):
             assert requirement in policy
+
+
+def test_full_suite_partitions_keep_native_required_checks_fail_closed():
+    workflow = text(".github/workflows/test.yml")
+    assert "test-shard:" in workflow
+    assert 'shard: [0, 1, 2, 3]' in workflow
+    assert "needs: test-shard" in workflow
+    aggregate = workflow[workflow.index("  test:\n"):]
+    assert "if: ${{ always() }}" in aggregate
+    assert "needs.test-shard.result" in aggregate
+    assert "tests/ci_shard.py verify" in aggregate
+    assert "test ({0})" in aggregate and "test ({0}, {1})" in aggregate
+    assert "tests/ci_shard.py run" in workflow
+    assert "PYTEST_ADDOPTS:" in workflow and "PYTEST_PLUGINS:" in workflow
+    assert "--run-id" in workflow and "--attempt" in workflow
+    assert "--commit" in workflow and "--repository" in workflow
+    assert "retention-days: 7" in workflow
+    assert "if-no-files-found: error" in workflow
+    assert "timeout-minutes: 90" in workflow
+    assert "pull_request_target" not in workflow
+    assert "continue-on-error" not in workflow
 
 
 def test_v3_skills_use_unversioned_names_and_full_lifecycle():
