@@ -227,6 +227,17 @@ def parse_stages(stages: dict, operation: str, *, complete: bool = True) -> None
                     or set(result['archive_sha256'])!={p['archive'] for p in selected['c_toolchain']['packages']}
                     or not all(sha(v) for v in result['archive_sha256'].values())):
                 raise build.Refusal('full_build_compiler_proof')
+            omitted=result.get('omitted_gdb_entries')
+            expected={stem+suffix:('file' if suffix=='.so.0.0.0' else 'symlink')
+                for stem in ('usr/lib/libcc1',
+                    'usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcc1plugin',
+                    'usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcp1plugin')
+                for suffix in ('.so','.so.0','.so.0.0.0')}
+            if (type(omitted) is not dict or set(omitted)!=set(expected)
+                    or any(type(value) is not dict or set(value)!={'kind','sha256'}
+                           or value['kind']!=expected[name] or not sha(value['sha256'])
+                           for name,value in omitted.items())):
+                raise build.Refusal('full_build_compiler_omissions')
         elif stage=='compiler-probe':
             if (result.get('status')!='compiler_probed' or result.get('static_arm64') is not True
                     or result.get('sentinel')!='openshell-private-c-static-checked'

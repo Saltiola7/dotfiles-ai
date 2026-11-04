@@ -202,7 +202,65 @@ def test_probe_refuses_retained_partial_without_execution(compiler,monkeypatch):
 def test_source_size_no_entrypoint(compiler):
     path=Path(__file__).parent/'fixtures/openshell_runtime/guest_full_compiler.py'
     source=path.read_text()
-    assert len(source.encode())<=29*1024 and '__main__' not in source
+    assert len(source.encode())<=30*1024 and '__main__' not in source
+
+
+def gdb_entries():
+    stems=['usr/lib/libcc1',
+        'usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcc1plugin',
+        'usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcp1plugin']
+    entries={}
+    for stem in stems:
+        entries[stem+'.so.0.0.0']=('file',0o500,b'signed plugin '+stem.encode())
+        entries[stem+'.so.0']=('symlink',0o777,Path(stem).name+'.so.0.0.0')
+        entries[stem+'.so']=('symlink',0o777,Path(stem).name+'.so.0')
+    return entries
+
+
+def test_exact_gdb_subset_reports_signed_bytes_and_preserves_compiler(compiler):
+    omitted=gdb_entries()
+    kept={name:('file',0o500,b'required') for name in (
+        'usr/libexec/gcc/aarch64-alpine-linux-musl/14.2.0/cc1',
+        'usr/libexec/gcc/aarch64-alpine-linux-musl/14.2.0/collect2',
+        'usr/lib/libstdc++.so.6','usr/libexec/gcc/aarch64-alpine-linux-musl/14.2.0/liblto_plugin.so')}
+    before=compiler.full_compiler_graph({**omitted,**kept})
+    retained,proof=compiler.full_compiler_omit_gdb(before,omitted)
+    assert set(proof)==set(omitted) and not set(omitted)&set(retained)
+    assert set(omitted)<=set(before)
+    assert all(retained[name]==value for name,value in kept.items())
+    for name,(kind,_,raw) in omitted.items():
+        assert proof[name]=={'kind':kind,'sha256':hashlib.sha256(raw if kind=='file' else raw.encode()).hexdigest()}
+
+
+@pytest.mark.parametrize('failure',['missing','implementation_link','alias_file','cross_family','outside','retained_alias'])
+def test_gdb_omission_refuses_partial_or_wrong_link_family(compiler,failure):
+    selected=gdb_entries();entries=dict(selected)
+    name='usr/lib/libcc1.so'
+    if failure=='missing':selected.pop(name)
+    elif failure=='implementation_link':selected['usr/lib/libcc1.so.0.0.0']=('symlink',0o777,'libcc1.so')
+    elif failure=='alias_file':selected[name]=('file',0o500,b'not a signed alias')
+    elif failure=='cross_family':selected[name]=('symlink',0o777,'gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcp1plugin.so.0.0.0')
+    elif failure=='outside':selected[name]=('symlink',0o777,'../../outside')
+    else:entries['usr/lib/retained.so']=('symlink',0o777,'libcc1.so')
+    entries.update(selected)
+    with pytest.raises(RuntimeError,match='full_compiler_'):
+        compiler.full_compiler_omit_gdb(compiler.full_compiler_graph(entries),selected)
+
+
+def test_retained_needed_dependency_cannot_use_omitted_gdb_library(compiler):
+    gcc='usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0'
+    libexec='usr/libexec/gcc/aarch64-alpine-linux-musl/14.2.0'
+    required=['usr/bin/gcc','usr/bin/as','usr/bin/ar','usr/bin/ld','lib/ld-musl-aarch64.so.1',
+        libexec+'/cc1',libexec+'/collect2',gcc+'/include/stddef.h',gcc+'/libgcc.a',
+        'usr/include/stdio.h','usr/lib/libc.a','usr/lib/crt1.o','usr/lib/crti.o','usr/lib/crtn.o']
+    entries={name:('file',0o400,b'authenticated fixture') for name in required}
+    raw,_=dynamic_elf();raw=bytearray(raw)
+    dependency=b'libcc1.so.0\0';raw[513:513+len(dependency)]=dependency
+    entries['usr/bin/gcc']=('file',0o500,bytes(raw))
+    omitted=gdb_entries()
+    retained,_=compiler.full_compiler_omit_gdb(compiler.full_compiler_graph({**entries,**omitted}),omitted)
+    with pytest.raises(RuntimeError,match='full_compiler_missing_dependency:usr/bin/gcc:libcc1.so.0'):
+        compiler.full_compiler_closure(retained)
 
 
 @pytest.fixture
@@ -221,7 +279,9 @@ def signed_inputs(compiler,monkeypatch):
     monkeypatch.setattr(compiler,'command',command)
     def parse(raw,item,*args):
         assert calls==['bootstrap','signature']
-        return {'usr/'+item['pkgname']:('file',0o400,b'authenticated')},32
+        values={'usr/'+item['pkgname']:('file',0o400,b'authenticated')}
+        if item['pkgname']=='gcc':values.update(gdb_entries())
+        return values,32
     monkeypatch.setattr(compiler,'full_compiler_parse',parse)
     monkeypatch.setattr(compiler,'full_compiler_closure',lambda entries:None)
     return compiler,cfg,calls
@@ -229,9 +289,32 @@ def signed_inputs(compiler,monkeypatch):
 
 def test_all_complete_apks_authenticated_before_any_member_parse(signed_inputs):
     module,cfg,calls=signed_inputs
-    _,entries,hashes,expanded=module.full_compiler_inputs(module.fixture_payload)
+    _,entries,hashes,expanded,omitted=module.full_compiler_inputs(module.fixture_payload)
     assert calls==['bootstrap','signature'] and len(hashes)==15 and expanded==15*32
     assert 'usr/gcc' in entries and all(value==hashlib.sha256(b'apk').hexdigest() for value in hashes.values())
+    assert set(omitted)==set(gdb_entries()) and not set(omitted)&set(entries)
+
+
+def test_gdb_entries_from_any_other_package_refuse(signed_inputs,monkeypatch):
+    module,_,_=signed_inputs
+    parse=module.full_compiler_parse
+    def other_package(raw,item,*args):
+        values,size=parse(raw,item,*args)
+        if item['pkgname']=='musl':values.update(gdb_entries())
+        return values,size
+    monkeypatch.setattr(module,'full_compiler_parse',other_package)
+    with pytest.raises(RuntimeError,match='full_compiler_gdb_package'):
+        module.full_compiler_prepare(module.fixture_payload)
+    assert not (module.WORK/'full-c-toolchain-1').exists()
+
+
+def test_prepare_and_verify_bind_same_omission_report(signed_inputs):
+    module,_,calls=signed_inputs
+    prepared=module.full_compiler_prepare(module.fixture_payload)
+    calls.clear()
+    verified=module.full_compiler_verify(module.fixture_payload)
+    assert set(prepared['omitted_gdb_entries'])==set(gdb_entries())
+    assert prepared['omitted_gdb_entries']==verified['omitted_gdb_entries']
 
 
 def test_signature_failure_blocks_all_package_extraction(signed_inputs,monkeypatch):

@@ -136,7 +136,12 @@ def stage_report(full):
     value=full.manifest();sha='a'*64
     compiler={'status':'compiler_verified','package_count':15,'authenticated_packages':15,
               'compiler_tree_sha256':sha,'expanded_bytes':100,
-              'archive_sha256':{p['archive']:sha for p in value['c_toolchain']['packages']}}
+              'archive_sha256':{p['archive']:sha for p in value['c_toolchain']['packages']},
+              'omitted_gdb_entries':{stem+suffix:{'kind':'file' if suffix=='.so.0.0.0' else 'symlink','sha256':sha}
+                  for stem in ('usr/lib/libcc1',
+                      'usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcc1plugin',
+                      'usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcp1plugin')
+                  for suffix in ('.so','.so.0','.so.0.0.0')}}
     source={'source_verified':True,'changed_files':3,'source_blobs':2196,
             'upstream_commit':value['upstream_commit'],'upstream_tree_sha1':value['upstream_tree_sha1'],
             'experimental_version':value['experimental_version'],'patched_source_sha256':full.build.PATCHED_SHA,
@@ -173,6 +178,17 @@ def test_host_admits_only_verified_prefix_before_next_stage(full,stage_report):
 def test_host_refuses_skipped_prerequisite(full,stage_report):
     stage_report.pop('source-verify')
     with pytest.raises(full.build.Refusal): full.parse_stages(stage_report,'full-test',complete=False)
+
+
+@pytest.mark.parametrize('change',['missing','extra','kind','hash','fields'])
+def test_host_requires_exact_authenticated_gdb_omission(full,stage_report,change):
+    entries=stage_report['compiler-verify']['omitted_gdb_entries']
+    if change=='missing':entries.pop('usr/lib/libcc1.so')
+    elif change=='extra':entries['usr/bin/gcc']={'kind':'file','sha256':'a'*64}
+    elif change=='kind':entries['usr/lib/libcc1.so']['kind']='file'
+    elif change=='hash':entries['usr/lib/libcc1.so']['sha256']='invalid'
+    elif change=='fields':entries['usr/lib/libcc1.so']['target']='unselected'
+    with pytest.raises(full.build.Refusal):full.parse_stages(stage_report,'full-test')
 
 
 @pytest.mark.parametrize('stage,key,value',[

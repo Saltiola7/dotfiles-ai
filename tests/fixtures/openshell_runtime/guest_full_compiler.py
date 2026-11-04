@@ -12,6 +12,10 @@ FULL_COMPILER_MANIFEST_SHA = '930a9840bce91cd99374be33d683b089e03bebfed89dc4cc85
 FULL_COMPILER_TRIPLE = 'aarch64-alpine-linux-musl'
 FULL_COMPILER_GCC = '14.2.0'
 FULL_COMPILER_SENTINEL = 'openshell-private-c-static-checked'
+FULL_COMPILER_GDB_STEMS = ('usr/lib/libcc1',
+    'usr/lib/gcc/'+FULL_COMPILER_TRIPLE+'/'+FULL_COMPILER_GCC+'/plugin/libcc1plugin',
+    'usr/lib/gcc/'+FULL_COMPILER_TRIPLE+'/'+FULL_COMPILER_GCC+'/plugin/libcp1plugin')
+FULL_COMPILER_GDB_NAMES = {stem+suffix for stem in FULL_COMPILER_GDB_STEMS for suffix in ('.so','.so.0','.so.0.0.0')}
 
 
 def full_compiler_fail(reason, detail=''):
@@ -368,6 +372,27 @@ def full_compiler_closure(entries):
             if not entries[target][2].startswith(b'\x7fELF'):full_compiler_fail('dependency_elf',target)
 
 
+def full_compiler_omit_gdb(entries, signed_gcc):
+    if set(signed_gcc)!=FULL_COMPILER_GDB_NAMES:full_compiler_fail('gdb_set')
+    proof={}
+    for stem in FULL_COMPILER_GDB_STEMS:
+        implementation=stem+'.so.0.0.0'
+        family={stem+suffix for suffix in ('.so','.so.0','.so.0.0.0')}
+        for name in sorted(family):
+            kind,_,raw=signed_gcc[name]
+            if entries.get(name)!=signed_gcc[name]:full_compiler_fail('gdb_provenance',name)
+            if name==implementation:
+                if kind!='file':full_compiler_fail('gdb_implementation',name)
+            else:
+                if kind!='symlink':full_compiler_fail('gdb_alias',name)
+                target=full_compiler_posix.normpath(full_compiler_posix.join(full_compiler_posix.dirname(name),raw))
+                if target not in family or full_compiler_resolve(entries,name)!=implementation:
+                    full_compiler_fail('gdb_alias',name)
+            proof[name]={'kind':kind,'sha256':hashlib.sha256(raw if kind=='file' else raw.encode()).hexdigest()}
+    retained={name:value for name,value in entries.items() if name not in FULL_COMPILER_GDB_NAMES}
+    return full_compiler_graph(retained),proof
+
+
 def full_compiler_inputs(payload):
     cfg=full_compiler_config(payload);unwind_verify()
     allowed={item['archive'] for item in cfg['packages']};found=set()
@@ -389,19 +414,23 @@ def full_compiler_inputs(payload):
     env={'PATH':'/usr/bin:/bin','LC_ALL':'C','HOME':str(WORK/'home'),'TMPDIR':str(WORK/'tmp')}
     command([str(binary),'--root',str(root),'--keys-dir','keys','--repositories-file','/dev/null',
              '--no-network','--no-cache','verify',*(str(path) for path in paths)],environment=env,maximum=120)
-    entries={};expanded=0;versions={item['pkgname']:item['pkgver'] for item in cfg['packages']}
+    entries={};signed_gcc={};expanded=0;versions={item['pkgname']:item['pkgver'] for item in cfg['packages']}
     for path,item in zip(paths,cfg['packages']):
         raw=full_compiler_read(path,item['bytes'],item['bytes'])
         if hashlib.sha256(raw).hexdigest()!=hashes[item['archive']]:full_compiler_fail('artifact_changed',path)
         values,size=full_compiler_parse(raw,item,versions,cfg['expanded_limit']-expanded);expanded+=size
         for name,value in values.items():
+            if name in FULL_COMPILER_GDB_NAMES:
+                if item['pkgname']!='gcc':full_compiler_fail('gdb_package',name)
+                signed_gcc[name]=value
             if name in entries and entries[name]!=value:full_compiler_fail('package_collision',name)
             entries[name]=value
     entries=full_compiler_graph(entries)
     if sum(len(raw) for kind,_,raw in entries.values() if kind=='file')>cfg['expanded_limit']:
         full_compiler_fail('expansion','materialized files')
+    entries,omitted=full_compiler_omit_gdb(entries,signed_gcc)
     full_compiler_closure(entries)
-    return cfg,entries,hashes,expanded
+    return cfg,entries,hashes,expanded,omitted
 
 
 def full_compiler_wrappers():
@@ -423,7 +452,7 @@ def full_compiler_wrappers():
 
 
 def full_compiler_ready(payload, create):
-    cfg,entries,hashes,expanded=full_compiler_inputs(payload)
+    cfg,entries,hashes,expanded,omitted=full_compiler_inputs(payload)
     published=sum(len(raw) for kind,_,raw in entries.values() if kind=='file')
     if create and os.statvfs(WORK).f_bavail*os.statvfs(WORK).f_frsize<max(expanded,published)+256*1024**2:
         full_compiler_fail('admission')
@@ -435,6 +464,7 @@ def full_compiler_ready(payload, create):
     remaining()
     return {'status':'compiler_prepared' if create else 'compiler_verified','package_count':15,'authenticated_packages':15,
         'archive_sha256':hashes,'expanded_bytes':expanded,'file_count':sum(value[0]=='file' for value in entries.values()),
+        'omitted_gdb_entries':omitted,
         'prefix':str(prefix),'compiler_tree_sha256':hashlib.sha256(json.dumps(identity,separators=(',',':')).encode()).hexdigest(),
         'wrappers':{name:str(wrapper_root/name) for name in wrappers},
         'wrapper_sha256':{name:hashlib.sha256(raw).hexdigest() for name,raw in wrappers.items()}}
