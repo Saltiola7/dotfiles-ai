@@ -972,11 +972,56 @@ def _retire_resolver(resolver: Resolver) -> None:
         raise Refusal("resolver_retirement_identity") from None
 
 
-def _properties(network: bool, seconds: int, *, resolver: Resolver | None = None,
-                library_tests: bool = False) -> list[str]:
-    if (type(network) is not bool or type(seconds) is not int or not 1 <= seconds <= 1500
-            or type(library_tests) is not bool or (library_tests and network)):
+_AGENT_PROBES = ("codex-version", "codex-help", "codex-empty-login", "codex-stdio",
+                 "opencode-version", "opencode-help", "opencode-rg")
+_AGENT_CASES = frozenset(f"{probe}-{mode}" for probe in _AGENT_PROBES
+                       for mode in ("unfiltered", "upstream", "patched"))
+_AGENT_DIRECTORIES = ("home", "codex", "config", "config/opencode", "data", "state",
+                      "cache", "tmp", "workspace", "logs", "cargo", "rustup", "target")
+
+
+def _agent_case_path(case: str | None) -> Path | None:
+    if case is None:
+        return None
+    if type(case) is not str or case not in _AGENT_CASES:
         raise Refusal("unit_contract")
+    return WORK / "agent-cases-1" / case
+
+
+def _validate_agent_case(case: str) -> None:
+    """Validate the fixed writable subtree without following caller-owned links."""
+    root = _agent_case_path(case)
+    device = WORK.lstat().st_dev
+    for path in (root, *(root / name for name in _AGENT_DIRECTORIES)):
+        fd = os.open(WORK, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            for part in path.relative_to(WORK).parts:
+                _remaining(_work_end)
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                                dir_fd=fd)
+                os.close(fd)
+                fd = child
+                info = os.fstat(fd)
+                if (not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o700
+                        or info.st_uid != 65534 or info.st_gid != 65534 or info.st_dev != device):
+                    raise Refusal("agent_case_identity")
+            if (os.fstat(fd).st_dev, os.fstat(fd).st_ino) != (path.lstat().st_dev, path.lstat().st_ino):
+                raise Refusal("agent_case_identity")
+        except OSError:
+            raise Refusal("agent_case_identity") from None
+        finally:
+            os.close(fd)
+
+
+def _properties(network: bool, seconds: int, *, resolver: Resolver | None = None,
+                library_tests: bool = False, agent_case: str | None = None) -> list[str]:
+    case = _agent_case_path(agent_case)
+    if (type(network) is not bool or type(seconds) is not int or not 1 <= seconds <= 1500
+            or type(library_tests) is not bool or (library_tests and network)
+            or (case is not None and (network or library_tests))):
+        raise Refusal("unit_contract")
+    temporary = case / "tmp" if case is not None else WORK / "tmp"
+    working = case / "workspace" if case is not None else WORK
     properties = ["Type=exec", "User=65534", "Group=65534", "SupplementaryGroups=", "UMask=0077",
             "ProtectSystem=strict", "ProtectHome=yes", "PrivateDevices=yes", "PrivatePIDs=yes", "PrivateTmp=no",
             "BindLogSockets=no", "NoNewPrivileges=yes", "CapabilityBoundingSet=", "AmbientCapabilities=",
@@ -988,8 +1033,10 @@ def _properties(network: bool, seconds: int, *, resolver: Resolver | None = None
                 + (" AF_NETLINK" if library_tests else ""),
             "TemporaryFileSystem=/var:ro" + (" /run:ro" if network else ""),
             "InaccessiblePaths=" + ("" if network else "/run ") + "/dev/shm -/opt -/srv -/mnt -/media -/boot -/efi -/lost+found -/afs",
-            f"BindPaths={WORK}:{WORK}:norbind {WORK}/tmp:/tmp:norbind {WORK}/tmp:/var/tmp:norbind",
-            f"WorkingDirectory={WORK}", "ProtectClock=yes"]
+            f"BindPaths={WORK}:{WORK}:norbind {temporary}:/tmp:norbind {temporary}:/var/tmp:norbind",
+            f"WorkingDirectory={working}", "ProtectClock=yes"]
+    if case is not None:
+        properties.extend((f"ReadOnlyPaths={WORK} {case}/config", f"ReadWritePaths={case}"))
     if resolver is not None:
         if (not network or type(resolver) is not Resolver or resolver.destination not in _RESOLVER_TARGETS
                 or resolver.path.parent != ROOT / "store/runtime-config"
@@ -1037,7 +1084,8 @@ def _unit_stopped(unit: str, deadline: float) -> None:
         raise Refusal("unit_shutdown_unverified") from None
 
 
-def run_unit(script: str, *, network: bool = False, seconds: int = 300, library_tests: bool = False) -> dict:
+def run_unit(script: str, *, network: bool = False, seconds: int = 300,
+             library_tests: bool = False, agent_case: str | None = None) -> dict:
     """Execute a trusted source-defined script within the current verified store.
 
     This internal Python interface is not an authorization boundary or a CLI.
@@ -1045,18 +1093,26 @@ def run_unit(script: str, *, network: bool = False, seconds: int = 300, library_
     """
     if _active is None or _end is None or _work_end is None:
         raise Refusal("store_not_mounted")
-    properties = _properties(network, seconds, library_tests=library_tests)
+    properties = _properties(network, seconds, library_tests=library_tests, agent_case=agent_case)
     if type(script) is not str or not script or len(script.encode("utf-8")) > 65536:
         raise Refusal("unit_script")
     deadline = min(_work_end, time.monotonic() + seconds)
     _verify(_active, deadline)
     _visible_system(deadline)
+    if agent_case is not None:
+        _validate_agent_case(agent_case)
     resolver = _resolver(deadline) if network else None
-    properties = _properties(network, seconds, resolver=resolver, library_tests=library_tests)
+    properties = _properties(network, seconds, resolver=resolver, library_tests=library_tests, agent_case=agent_case)
     unit = "dotfiles-ai-openshell-build-" + uuid.uuid4().hex + ".service"
     environment = {"PATH": "/usr/sbin:/usr/bin", "LC_ALL": "C", "LANG": "C", "HOME": str(WORK / "home"),
                    "CARGO_HOME": str(WORK / "cargo"), "RUSTUP_HOME": str(WORK / "rustup"), "TMPDIR": str(WORK / "tmp"),
                    "XDG_CACHE_HOME": str(WORK / "cache"), "CARGO_TARGET_DIR": str(WORK / "target")}
+    if agent_case is not None:
+        case = _agent_case_path(agent_case)
+        environment.update({key: str(case / name) for key, name in {
+            "HOME": "home", "CODEX_HOME": "codex", "CARGO_HOME": "cargo", "RUSTUP_HOME": "rustup",
+            "TMPDIR": "tmp", "XDG_CACHE_HOME": "cache", "XDG_CONFIG_HOME": "config",
+            "XDG_DATA_HOME": "data", "XDG_STATE_HOME": "state", "CARGO_TARGET_DIR": "target"}.items()})
     argv = ["/usr/bin/systemd-run", "--quiet", "--wait", "--pipe", f"--unit={unit}"]
     argv += [f"--property={item}" for item in properties]
     argv += [f"--setenv={key}={value}" for key, value in environment.items()]
@@ -1102,6 +1158,8 @@ def run_unit(script: str, *, network: bool = False, seconds: int = 300, library_
         raise primary
     _verify(_active, _work_end)
     _visible_system(_work_end)
+    if agent_case is not None:
+        _validate_agent_case(agent_case)
     return result
 
 

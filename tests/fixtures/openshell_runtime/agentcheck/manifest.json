@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "generation": 1,
+  "assets": {
+    "codex": {
+      "version": "0.164.0",
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.164.0/codex-package-aarch64-unknown-linux-musl.tar.gz",
+      "archive": "codex-package-aarch64-unknown-linux-musl.tar.gz",
+      "bytes": 152400557,
+      "sha256": "5918add6c7e9cf1e14a9af1b4c0f4bf1d24a43903faac26df5dc4c019ea91bd5",
+      "expanded_limit": 1073741824
+    },
+    "opencode": {
+      "version": "1.18.25",
+      "url": "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-arm64.tar.gz",
+      "archive": "opencode-linux-arm64.tar.gz",
+      "bytes": 60345335,
+      "sha256": "35ef77897425e41b5183a2c21ac4fb1d4d944d82a94e3c920f57b5490af11ac5",
+      "expanded_limit": 536870912
+    }
+  }
+}

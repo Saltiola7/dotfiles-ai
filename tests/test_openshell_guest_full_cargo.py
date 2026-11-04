@@ -23,7 +23,7 @@ def full(tmp_path, monkeypatch):
     assert helper.is_file(), 'full Cargo helper absent: intended red'
     module = ModuleType('full_cargo_test')
     sys.modules[module.__name__] = module
-    exec(compile((BASE/'guest_harness.py').read_text()+'\n'+helper.read_text(), str(helper), 'exec'), module.__dict__)
+    exec(compile((BASE/'guest_harness.py').read_text()+'\n'+(BASE/'guest_cargo_artifact.py').read_text()+'\n'+helper.read_text(), str(helper), 'exec'), module.__dict__)
     monkeypatch.setattr(module, 'WORK', tmp_path)
     monkeypatch.setattr(module, 'DEADLINE', time.monotonic()+60)
     source = tmp_path/'full-source-2'; source.mkdir()
@@ -100,6 +100,47 @@ def runtime_files(full, links=1):
     companion=release/'deps/openshell_sandbox-0123456789abcdef'
     if links==2:os.link(binary,companion)
     return binary,companion
+
+
+@pytest.mark.parametrize('links', [1, 2])
+def test_agent_probe_selector_holds_only_its_fixed_binary(full, links):
+    module, _, _ = full
+    binary, companion = runtime_files(full)
+    probe = binary.with_name('openshell-agent-filter-probe')
+    probe.write_bytes(elf()); probe.chmod(0o755)
+    alias = companion.with_name('openshell_agent_filter_probe-0123456789abcdef')
+    if links == 2: os.link(probe, alias)
+    with module.full_cargo_runtime_artifact('agent-probe') as (fd, layout):
+        assert os.fstat(fd).st_ino == probe.stat().st_ino
+        assert layout == {'link_count': links, 'companion': alias.name if links == 2 else None}
+        assert module.full_cargo_runtime_digest(fd, 'agent-probe') == hashlib.sha256(elf()).hexdigest()
+    with module.full_cargo_runtime_artifact() as (fd, _):
+        assert os.fstat(fd).st_ino == binary.stat().st_ino
+
+
+@pytest.mark.parametrize('selector', ['', '../openshell-sandbox', 'agent', None, True, []])
+def test_artifact_selector_rejects_unknown_without_open(full, monkeypatch, selector):
+    module, _, _ = full
+    monkeypatch.setattr(module.os, 'open', lambda *a, **kw: pytest.fail('opened before selector validation'))
+    with pytest.raises(RuntimeError, match='full_cargo_artifact_selection'):
+        with module.full_cargo_runtime_artifact(selector): pytest.fail('invalid selector admitted')
+    with pytest.raises(RuntimeError, match='full_cargo_artifact_selection'):
+        module.full_cargo_runtime_digest(-1, selector)
+
+
+def test_agent_probe_rejects_runtime_alias_and_reports_probe_path(full):
+    module, _, _ = full
+    binary, alias = runtime_files(full)
+    probe = binary.with_name('openshell-agent-filter-probe')
+    probe.write_bytes(elf()); probe.chmod(0o755)
+    os.link(probe, alias)
+    with pytest.raises(RuntimeError, match='companion') as error:
+        with module.full_cargo_runtime_artifact('agent-probe'): pytest.fail('wrong alias admitted')
+    assert alias.name in str(error.value)
+    probe.unlink(); alias.unlink(); probe.write_bytes(b''); probe.chmod(0o755)
+    with probe.open('rb') as stream, pytest.raises(RuntimeError) as error:
+        module.full_cargo_runtime_digest(stream.fileno(), 'agent-probe')
+    assert '/openshell-agent-filter-probe' in str(error.value)
 
 
 @pytest.mark.parametrize('links',[1,2])

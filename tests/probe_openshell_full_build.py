@@ -104,7 +104,7 @@ def required_sources(operation: str) -> tuple[str,...]:
 def capture_sources(operation: str) -> dict[str,str]:
     files={'rust':('guest_unwind.py','guest_resume.py'),
            'compiler':('guest_unwind.py','guest_full_compiler.py'),
-           'source':('guest_full_source.py',),'cargo':('guest_full_cargo.py',)}
+           'source':('guest_full_source.py',),'cargo':('guest_cargo_artifact.py','guest_full_cargo.py',)}
     base=build.read_source(build.FIXTURES/'guest_harness.py').decode()
     return {key:base+'\n'+'\n'.join(build.read_source(build.FIXTURES/name).decode() for name in files[key])
             for key in required_sources(operation)}

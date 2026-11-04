@@ -285,6 +285,9 @@ print(json.dumps({{'status':'kernel_tested','runtime':_runtime,'stages':_stages,
 
 
 def qualify(selection: create.CreateSelection, operation: str) -> BuildObservation:
+    if operation in {'agent-prepare','agent-test'}:
+        import probe_openshell_agent_compatibility as agent
+        return agent.qualify(selection,operation)
     if operation in {'full-prepare','full-source-reprepare','full-fetch','full-test'}:
         import probe_openshell_full_build as full
         return full.qualify(selection,operation)
@@ -355,7 +358,8 @@ def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--selection',required=True,type=Path)
     parser.add_argument('--operation',required=True,choices=('prepare','bind-storage','inventory','kernel','kernel-resume',
-                                                           'full-prepare','full-source-reprepare','full-fetch','full-test'))
+                                                           'full-prepare','full-source-reprepare','full-fetch','full-test',
+                                                           'agent-prepare','agent-test'))
     args=parser.parse_args()
     try:
         selected=create.parse_selection(create.private_file(args.selection))

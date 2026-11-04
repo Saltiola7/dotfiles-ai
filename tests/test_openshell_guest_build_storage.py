@@ -30,6 +30,102 @@ def test_fixed_caps_and_paths(storage):
     assert storage.CLEANUP_RESERVE >= 60
 
 
+@pytest.mark.parametrize("probe", ["codex-version", "codex-help", "codex-empty-login", "codex-stdio",
+                                   "opencode-version", "opencode-help", "opencode-rg"])
+@pytest.mark.parametrize("mode", ["unfiltered", "upstream", "patched"])
+def test_agent_profile_has_only_one_writable_case_and_temp_aliases(storage, probe, mode):
+    case = f"{probe}-{mode}"
+    root = storage.WORK / "agent-cases-1" / case
+    properties = storage._properties(False, 60, agent_case=case)
+    assert f"ReadOnlyPaths={storage.WORK} {root}/config" in properties
+    assert f"ReadWritePaths={root}" in properties
+    assert f"BindPaths={storage.WORK}:{storage.WORK}:norbind {root}/tmp:/tmp:norbind {root}/tmp:/var/tmp:norbind" in properties
+    assert f"WorkingDirectory={root}/workspace" in properties
+    assert "PrivateNetwork=yes" in properties and "UMask=0077" in properties
+    assert "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX" in properties
+    assert not any(str(storage.WORK / "tmp") in value for value in properties)
+    ordinary = storage._properties(False, 60)
+    changed = {value.split("=", 1)[0] for value in set(properties) ^ set(ordinary)}
+    assert changed == {"ReadOnlyPaths", "ReadWritePaths", "BindPaths", "WorkingDirectory"}
+
+
+@pytest.mark.parametrize("case", [True, 1, "", "../codex-version-patched", "codex-version", "codex-version-unix", "opencode-rg-patched/child"])
+def test_agent_profile_rejects_unselected_identity_before_native_effects(storage, monkeypatch, case):
+    monkeypatch.setattr(storage, "_active", SimpleNamespace())
+    monkeypatch.setattr(storage, "_end", 200.0)
+    monkeypatch.setattr(storage, "_work_end", 140.0)
+    monkeypatch.setattr(storage, "_verify", lambda *a, **k: pytest.fail("unselected case reached native verification"))
+    with pytest.raises(storage.Refusal, match="unit_contract"):
+        storage.run_unit("print('fixed')", agent_case=case)
+
+
+@pytest.mark.parametrize("network,library_tests", [(True, False), (False, True), (True, True)])
+def test_agent_profile_cannot_enable_network_or_library_exceptions(storage, network, library_tests):
+    with pytest.raises(storage.Refusal, match="unit_contract"):
+        storage._properties(network, 60, library_tests=library_tests, agent_case="codex-version-patched")
+
+
+def test_agent_unit_validates_case_and_relocates_every_write_environment(storage, monkeypatch):
+    case = "opencode-rg-patched"
+    root = storage.WORK / "agent-cases-1" / case
+    monkeypatch.setattr(storage, "_active", SimpleNamespace())
+    monkeypatch.setattr(storage, "_end", 200.0)
+    monkeypatch.setattr(storage, "_work_end", 140.0)
+    monkeypatch.setattr(storage.time, "monotonic", lambda: 1.0)
+    monkeypatch.setattr(storage, "_verify", lambda *a, **k: None)
+    monkeypatch.setattr(storage, "_visible_system", lambda *a: None)
+    checked = []
+    monkeypatch.setattr(storage, "_validate_agent_case", lambda selected: checked.append(selected), raising=False)
+    monkeypatch.setattr(storage, "_unit_stopped", lambda *a: None)
+    calls = []
+    def command(argv, deadline, **kwargs):
+        calls.append(argv)
+        return {"returncode": 0, "stdout": b"fixed", "stderr": b""}
+    monkeypatch.setattr(storage, "_command", command)
+    assert storage.run_unit("print('fixed')", agent_case=case)["stdout"] == b"fixed"
+    assert checked == [case, case]
+    for key, relative in {"HOME": "home", "CODEX_HOME": "codex", "CARGO_HOME": "cargo",
+                          "RUSTUP_HOME": "rustup", "TMPDIR": "tmp", "XDG_CONFIG_HOME": "config",
+                          "XDG_CACHE_HOME": "cache", "XDG_DATA_HOME": "data", "XDG_STATE_HOME": "state",
+                          "CARGO_TARGET_DIR": "target"}.items():
+        assert f"--setenv={key}={root / relative}" in calls[0]
+        assert f"{key}={root / relative}" in calls[0]
+
+
+@pytest.mark.parametrize("corrupt", [None, "symlink", "missing", "mode", "owner"])
+def test_agent_case_validation_uses_real_nofollow_directories(storage, tmp_path, monkeypatch, corrupt):
+    import os
+    work = tmp_path / "work"
+    work.mkdir(mode=0o700)
+    cases = work / "agent-cases-1"
+    cases.mkdir(mode=0o700)
+    root = cases / "opencode-rg-patched"
+    root.mkdir(mode=0o700)
+    for name in ("home", "codex", "config", "config/opencode", "data", "state", "cache",
+                 "tmp", "workspace", "logs", "cargo", "rustup", "target"):
+        (root / name).mkdir(mode=0o700)
+    if corrupt in {"missing", "symlink"}:
+        (root / "tmp").rmdir()
+        if corrupt == "symlink":
+            (root / "tmp").symlink_to(root / "home", target_is_directory=True)
+    elif corrupt == "mode":
+        (root / "config").chmod(0o777)
+    original = os.fstat
+    def fstat(fd):
+        values = list(original(fd))
+        values[4] = 0 if corrupt == "owner" else 65534
+        values[5] = 65534
+        return os.stat_result(values)
+    monkeypatch.setattr(storage.os, "fstat", fstat)
+    monkeypatch.setattr(storage, "WORK", work)
+    monkeypatch.setattr(storage, "_remaining", lambda deadline: 10.0)
+    if corrupt:
+        with pytest.raises(storage.Refusal, match="agent_case_identity"):
+            storage._validate_agent_case("opencode-rg-patched")
+    else:
+        storage._validate_agent_case("opencode-rg-patched")
+
+
 @pytest.fixture
 def binding_env(storage, tmp_path, monkeypatch):
     """Real tiny files; mock Linux root/Btrfs observations, never native effects."""
