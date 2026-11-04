@@ -231,6 +231,9 @@ print(json.dumps({{'status':'kernel_tested','runtime':_runtime,'stages':_stages,
 
 
 def qualify(selection: create.CreateSelection, operation: str) -> BuildObservation:
+    if operation in {'full-prepare','full-fetch','full-test'}:
+        import probe_openshell_full_build as full
+        return full.qualify(selection,operation)
     if operation not in {'prepare','inventory','kernel','kernel-resume'}: raise Refusal('build_operation')
     # Capture reviewed source before any VM start. The body is fixed per
     # operation; neither selection JSON nor CLI accepts commands or scripts.
@@ -291,7 +294,8 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--selection',required=True,type=Path)
-    parser.add_argument('--operation',required=True,choices=('prepare','inventory','kernel','kernel-resume'))
+    parser.add_argument('--operation',required=True,choices=('prepare','inventory','kernel','kernel-resume',
+                                                           'full-prepare','full-fetch','full-test'))
     args=parser.parse_args()
     try:
         selected=create.parse_selection(create.private_file(args.selection))

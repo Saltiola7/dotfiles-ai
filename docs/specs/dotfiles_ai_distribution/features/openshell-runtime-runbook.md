@@ -88,7 +88,7 @@ build, another VM, larger disk or fallback to an older OpenShell generation.
 
 The closed guest build runner is
 `python3 tests/probe_openshell_guest_build.py --selection PRIVATE_JSON --operation OPERATION`.
-Only four operations are accepted:
+Only these closed operations are accepted:
 
 - `prepare` qualifies the root-owned 8 GiB build/cache filesystem and a separate
   64 MiB exhaustion fixture, including outside-write and guest-socket exclusion.
@@ -102,6 +102,23 @@ Only four operations are accepted:
   dependency sources before the reviewed test-only musl portability correction.
   It preserves prior source and outputs and uses one fixed fresh target directory;
   it performs no downloads or reinstallations.
+- `full-prepare` revalidates retained Rust, authenticates the complete pinned
+  v0.1.7 source and private C compiler, and proves static C compilation. It
+  requires at least 4 GiB available inside the existing build filesystem.
+- `full-fetch` revalidates prepared inputs, then fetches locked dependencies into
+  one fresh dedicated Cargo cache. It requires at least 3 GiB available and does
+  not compile project code. Automatic Cargo cache cleanup is disabled.
+- `full-test` revalidates inputs and cache, then builds and tests the selected
+  complete runtime offline. It requires at least 2 GiB available. The resulting
+  static ARM64 binary must carry the exact experimental version and pass the
+  socket-denial sentinel. Runtime launch and agent compatibility remain separate.
+
+Full-build operations retain previous toolchains, extraction trees and evidence.
+They share the same 8 GiB hard filesystem cap and 30-minute lifecycle deadline;
+insufficient space, partial preparation or timeout preserves a failed attempt.
+No automatic cleanup, retry, new target, larger disk or alternative host is part
+of this interface. Review private results before explicitly selecting the next
+operation. Historical v0.1.6 controls must not run a v0.1.7 experimental runtime.
 
 Each operation repeats host storage admission and independently verifies worker
 shutdown. The build service has a 2 CPU quota, 6 GiB memory ceiling, zero swap and

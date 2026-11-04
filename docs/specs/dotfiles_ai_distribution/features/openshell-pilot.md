@@ -1336,6 +1336,9 @@ VM lifecycle and the same overall deadline. Each stage independently verifies
 mount, service shutdown and unmount; host evidence retains every completed stage
 if a later one fails. The existing 256 KiB expanded program, 60 KiB encoded
 transport and 64 KiB service-script ceilings remain unchanged.
+Every prerequisite result is validated before the next dependent stage. A final
+offline whole-source verification after compilation must match its earlier
+identity, including the experimental manifest and lock.
 Preserve exact input identities across stages; retain bounded diagnostics and
 partial artifacts on failure. Successful compilation is not evidence for full
 launch/exec/PTY/descriptor/broker or either agent's compatibility. Those subsequent
