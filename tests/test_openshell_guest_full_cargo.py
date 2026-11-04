@@ -92,10 +92,14 @@ def elf(interpreter=None, needed=None, machine=183):
     return bytes(data)
 
 
-def test_environment_preserves_rust_loader_and_scopes_all_c_compilers(full,monkeypatch):
+@pytest.mark.parametrize('offline',[False,True])
+def test_environment_preserves_rust_loader_and_scopes_all_c_compilers(full,monkeypatch,offline):
     module,_,_=full
     monkeypatch.setenv('OPENAI_API_KEY','must-not-inherit')
-    env=module.full_cargo_environment()
+    monkeypatch.setenv('RUSTFLAGS','-L native=/usr/lib -C linker=/usr/bin/cc')
+    monkeypatch.setenv('LD_LIBRARY_PATH','/usr/lib64:/untrusted/lib')
+    monkeypatch.setenv('LIBRARY_PATH','/usr/lib')
+    env=module.full_cargo_environment(offline=offline)
     assert env['CARGO_HOME']==str(module.WORK/'full-cargo-1')
     assert env['CARGO_TARGET_DIR']==str(module.WORK/'full-target-1')
     assert env['CARGO_CACHE_AUTO_CLEAN_FREQUENCY']=='never'
@@ -105,6 +109,15 @@ def test_environment_preserves_rust_loader_and_scopes_all_c_compilers(full,monke
     assert env['CC']==env['CC_aarch64_unknown_linux_musl']==str(module.WORK/'full-c-wrappers-1/cc')
     assert env['AR']==env['AR_aarch64_unknown_linux_musl']==str(module.WORK/'full-c-wrappers-1/ar')
     assert env['LD_LIBRARY_PATH']==str(module.WORK/'toolchain-unwind-1/lib')
+    rust=module.WORK/'toolchain-unwind-1'
+    private=module.WORK/'full-c-toolchain-1'
+    assert env['RUSTFLAGS']==(
+        f'-C linker={rust}/lib/rustlib/aarch64-unknown-linux-musl/bin/rust-lld '
+        '-C linker-flavor=ld.lld -C link-self-contained=yes '
+        f'-L native={private}/usr/lib '
+        f'-L native={private}/usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0')
+    assert 'LIBRARY_PATH' not in env
+    assert env.get('CARGO_NET_OFFLINE')==('true' if offline else None)
     assert env['GIT_DIR']=='/nonexistent'
     assert 'OPENAI_API_KEY' not in env
 

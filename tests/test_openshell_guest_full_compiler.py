@@ -202,7 +202,7 @@ def test_probe_refuses_retained_partial_without_execution(compiler,monkeypatch):
 def test_source_size_no_entrypoint(compiler):
     path=Path(__file__).parent/'fixtures/openshell_runtime/guest_full_compiler.py'
     source=path.read_text()
-    assert len(source.encode())<=30*1024 and '__main__' not in source
+    assert len(source.encode())<=31*1024 and '__main__' not in source
 
 
 def gdb_entries():
@@ -247,13 +247,25 @@ def test_gdb_omission_refuses_partial_or_wrong_link_family(compiler,failure):
         compiler.full_compiler_omit_gdb(compiler.full_compiler_graph(entries),selected)
 
 
-def test_retained_needed_dependency_cannot_use_omitted_gdb_library(compiler):
+def compiler_closure_entries():
     gcc='usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0'
     libexec='usr/libexec/gcc/aarch64-alpine-linux-musl/14.2.0'
     required=['usr/bin/gcc','usr/bin/as','usr/bin/ar','usr/bin/ld','lib/ld-musl-aarch64.so.1',
         libexec+'/cc1',libexec+'/collect2',gcc+'/include/stddef.h',gcc+'/libgcc.a',
         'usr/include/stdio.h','usr/lib/libc.a','usr/lib/crt1.o','usr/lib/crti.o','usr/lib/crtn.o']
     entries={name:('file',0o400,b'authenticated fixture') for name in required}
+    entries[gcc+'/libgcc.a']=('file',0o400,b'!<arch>\nfixture')
+    entries['usr/lib/libgcc_s.so']=('file',0o400,
+        b'/* GNU ld script\n   Use the shared library, but some functions are only in\n'
+        b'   the static library.  */\nGROUP ( libgcc_s.so.1 -lgcc )\n')
+    entries['usr/lib/libgcc_s.so.1']=('file',0o500,elf(3))
+    entries['lib/ld-musl-aarch64.so.1']=('file',0o500,elf(3))
+    entries['usr/lib/libc.so']=('symlink',0o777,'../../lib/ld-musl-aarch64.so.1')
+    return entries
+
+
+def test_retained_needed_dependency_cannot_use_omitted_gdb_library(compiler):
+    entries=compiler_closure_entries()
     raw,_=dynamic_elf();raw=bytearray(raw)
     dependency=b'libcc1.so.0\0';raw[513:513+len(dependency)]=dependency
     entries['usr/bin/gcc']=('file',0o500,bytes(raw))
@@ -261,6 +273,42 @@ def test_retained_needed_dependency_cannot_use_omitted_gdb_library(compiler):
     retained,_=compiler.full_compiler_omit_gdb(compiler.full_compiler_graph({**entries,**omitted}),omitted)
     with pytest.raises(RuntimeError,match='full_compiler_missing_dependency:usr/bin/gcc:libcc1.so.0'):
         compiler.full_compiler_closure(retained)
+
+
+def test_private_linker_script_requires_exact_authenticated_inputs(compiler):
+    compiler.full_compiler_closure(compiler_closure_entries())
+
+
+@pytest.mark.parametrize('mutation',[
+    'directive','operand','absolute','escape','extra_directive','comment','alias',
+    'missing_script','missing_shared','shared_not_elf','shared_not_dynamic','missing_archive','archive_not_ar',
+    'libc_alias','libc_absolute','libc_regular','missing_libc','loader_not_elf','loader_not_dynamic',
+])
+def test_private_linker_script_refuses_changed_program_or_missing_input(compiler,mutation):
+    entries=compiler_closure_entries()
+    script='usr/lib/libgcc_s.so';shared=script+'.1'
+    archive='usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/libgcc.a'
+    if mutation in {'directive','operand','absolute','escape','extra_directive','comment'}:
+        raw=entries[script][2]
+        changes={'directive':raw.replace(b'GROUP',b'INPUT'),'operand':raw.replace(b'-lgcc',b'-lforeign'),
+            'absolute':raw.replace(b'libgcc_s.so.1',b'/usr/lib/libgcc_s.so.1'),
+            'escape':raw.replace(b'libgcc_s.so.1',b'../../outside/libgcc_s.so.1'),
+            'extra_directive':raw+b'INCLUDE /etc/linker.conf\n','comment':raw.replace(b'GNU',b'other')}
+        entries[script]=('file',0o400,changes[mutation])
+    elif mutation=='alias':entries[script]=('symlink',0o777,'libgcc_s.so.1')
+    elif mutation=='missing_script':entries.pop(script)
+    elif mutation=='missing_shared':entries.pop(shared)
+    elif mutation=='shared_not_elf':entries[shared]=('file',0o500,b'not ELF')
+    elif mutation=='shared_not_dynamic':entries[shared]=('file',0o500,elf(1))
+    elif mutation=='missing_archive':entries.pop(archive)
+    elif mutation=='archive_not_ar':entries[archive]=('file',0o400,b'not an archive')
+    elif mutation=='libc_alias':entries['usr/lib/libc.so']=('symlink',0o777,'../../outside/libc.so')
+    elif mutation=='libc_absolute':entries['usr/lib/libc.so']=('symlink',0o777,'/lib/ld-musl-aarch64.so.1')
+    elif mutation=='libc_regular':entries['usr/lib/libc.so']=('file',0o400,b'GROUP ( /usr/lib64/libc.so )')
+    elif mutation=='missing_libc':entries.pop('usr/lib/libc.so')
+    else:entries['lib/ld-musl-aarch64.so.1']=('file',0o500,b'not ELF' if mutation=='loader_not_elf' else elf(1))
+    with pytest.raises(RuntimeError,match='full_compiler_'):
+        compiler.full_compiler_closure(entries)
 
 
 @pytest.fixture

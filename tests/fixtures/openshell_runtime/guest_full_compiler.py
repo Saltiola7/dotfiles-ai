@@ -362,6 +362,19 @@ def full_compiler_closure(entries):
               libexec+'/cc1',libexec+'/collect2',gcc+'/include/stddef.h',gcc+'/libgcc.a',
               'usr/include/stdio.h','usr/lib/libc.a','usr/lib/crt1.o','usr/lib/crti.o','usr/lib/crtn.o']
     for name in required:full_compiler_resolve(entries,name)
+    script=(b'/* GNU ld script\n   Use the shared library, but some functions are only in\n'
+            b'   the static library.  */\nGROUP ( libgcc_s.so.1 -lgcc )\n')
+    entry=entries.get('usr/lib/libgcc_s.so')
+    if entry is None or entry[0]!='file' or entry[2]!=script:
+        full_compiler_fail('linker_script','usr/lib/libgcc_s.so '+repr(entry[2][:180] if entry and isinstance(entry[2],(bytes,str)) else None))
+    if entries.get('usr/lib/libc.so')!=('symlink',0o777,'../../lib/ld-musl-aarch64.so.1'):
+        full_compiler_fail('libc_link','usr/lib/libc.so')
+    for name in ('usr/lib/libgcc_s.so.1','lib/ld-musl-aarch64.so.1'):
+        entry=entries.get(name)
+        if entry is None or entry[0]!='file' or full_compiler_elf(entry[2],name)['kind']!=3:
+            full_compiler_fail('linker_shared_input',name)
+    archive=full_compiler_resolve(entries,gcc+'/libgcc.a')
+    if not entries[archive][2].startswith(b'!<arch>\n'):full_compiler_fail('linker_archive',archive)
     for name,(kind,_,raw) in entries.items():
         remaining()
         if kind!='file' or not raw.startswith(b'\x7fELF'):continue

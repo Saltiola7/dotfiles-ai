@@ -114,6 +114,11 @@ def full_cargo_configs():
 
 def full_cargo_environment(*, offline=False):
     env=environment()
+    prefix=WORK/'full-c-toolchain-1'
+    # The authenticated libgcc_s linker script needs its shared library and
+    # GCC archive. These are link searches, not Rust runtime loader paths.
+    env['RUSTFLAGS']+=(f' -L native={prefix}/usr/lib'
+                      f' -L native={prefix}/usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0')
     env.update({'HOME':str(WORK/'full-cargo-1'),'CARGO_HOME':str(WORK/'full-cargo-1'),
         'CARGO_TARGET_DIR':str(WORK/'full-target-1'),'CARGO_CACHE_AUTO_CLEAN_FREQUENCY':'never',
         'CARGO_PROFILE_RELEASE_DEBUG':'0','CARGO_PROFILE_TEST_DEBUG':'0','CARGO_NET_RETRY':'0',
