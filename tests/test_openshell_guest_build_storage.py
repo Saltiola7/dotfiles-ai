@@ -220,6 +220,33 @@ def test_probe_has_negative_socket_control_outside_var(storage):
     assert storage.OTHER_SOCKET == Path("/opt/.dotfiles-ai-openshell-build-probe.sock")
 
 
+def test_fedora_afs_root_is_admitted_only_with_explicit_mask(storage, monkeypatch):
+    from contextlib import nullcontext
+    info = SimpleNamespace(st_mode=0o040555, st_uid=0)
+    entry = SimpleNamespace(name="afs", stat=lambda **kwargs: info)
+    monkeypatch.setattr(storage, "_remaining", lambda *args: 1.0)
+    monkeypatch.setattr(storage, "_mounts", lambda: b"")
+    monkeypatch.setattr(storage.os, "scandir", lambda path: nullcontext(iter([entry] if path == "/" else [])))
+    monkeypatch.setattr(storage.os, "open", lambda *args: 11)
+    monkeypatch.setattr(storage.os, "close", lambda *args: None)
+    monkeypatch.setattr(storage.os, "fstat", lambda *args: info)
+    monkeypatch.setattr(Path, "lstat", lambda *args: info)
+    storage._visible_system(100.0)
+    for network in (False, True):
+        hidden = next(item for item in storage._properties(network, 30) if item.startswith("InaccessiblePaths="))
+        assert "-/afs" in hidden.split()
+
+
+def test_visible_system_refusal_retains_only_bounded_entry_metadata(storage):
+    import json
+    info = SimpleNamespace(st_mode=0o100666, st_uid=123, st_gid=456)
+    with pytest.raises(storage.Refusal) as caught:
+        storage._safe_system_entry(info, path=Path("/usr/example"))
+    assert str(caught.value) == "visible_system_mutable_or_socket"
+    assert json.loads(caught.value.stderr) == {"path": "/usr/example", "uid": 123, "gid": 456, "mode": "0o100666"}
+    assert len(caught.value.stderr) <= 4096
+
+
 def test_probe_failed_listener_retires_only_fresh_known_fixture(storage, tmp_path, monkeypatch):
     root = tmp_path / "owned"
     root.mkdir()

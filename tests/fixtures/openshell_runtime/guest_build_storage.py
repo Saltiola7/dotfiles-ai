@@ -438,11 +438,18 @@ def _mounted(image: Path, size: int, filesystem_uuid: str, identity: tuple[int, 
                 raise Refusal("loop_release_unverified")
 
 
-def _safe_system_entry(info) -> None:
+def _system_refusal(reason: str, path: Path | str | None, info=None) -> Refusal:
+    metadata = {"path": str(path)[:512] if path is not None else None,
+                "uid": getattr(info, "st_uid", None), "gid": getattr(info, "st_gid", None),
+                "mode": oct(info.st_mode) if info is not None else None}
+    return Refusal(reason, stderr=json.dumps(metadata, sort_keys=True).encode()[:4096])
+
+
+def _safe_system_entry(info, *, path: Path | None = None) -> None:
     if (info.st_uid != 0 or stat.S_ISSOCK(info.st_mode)
             or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode))
             or (not stat.S_ISLNK(info.st_mode) and info.st_mode & 0o022)):
-        raise Refusal("visible_system_mutable_or_socket")
+        raise _system_refusal("visible_system_mutable_or_socket", path, info)
 
 
 def _visible_system(deadline: float) -> None:
@@ -453,7 +460,7 @@ def _visible_system(deadline: float) -> None:
     Unknown roots, special files, nested mounts, or scan limits fail closed.
     """
     allowed = {"usr", "etc", "dev", "proc", "sys", "run", "var", "tmp", "home", "root",
-               "opt", "srv", "mnt", "media", "boot", "efi", "lost+found"}
+               "opt", "srv", "mnt", "media", "boot", "efi", "lost+found", "afs"}
     aliases = {"bin": "usr/bin", "sbin": "usr/sbin", "lib": "usr/lib", "lib64": "usr/lib64"}
     with os.scandir("/") as entries:
         for number, entry in enumerate(entries):
@@ -461,16 +468,17 @@ def _visible_system(deadline: float) -> None:
             if number >= 64:
                 raise Refusal("system_scan_limit")
             info = entry.stat(follow_symlinks=False)
+            path = Path("/") / entry.name
             if entry.name in aliases:
                 if not stat.S_ISLNK(info.st_mode) or os.readlink(entry.path) not in {aliases[entry.name], "/" + aliases[entry.name]}:
-                    raise Refusal("system_alias")
+                    raise _system_refusal("system_alias", path, info)
             elif stat.S_ISDIR(info.st_mode):
                 if entry.name not in allowed or info.st_uid != 0:
-                    raise Refusal("system_root")
+                    raise _system_refusal("system_root", path, info)
             else:
-                _safe_system_entry(info)
+                _safe_system_entry(info, path=path)
                 if stat.S_ISLNK(info.st_mode):
-                    raise Refusal("system_alias")
+                    raise _system_refusal("system_alias", path, info)
     mounts = [line.split() for line in _mounts().splitlines()]
     if any(len(row) > 4 and (row[4].startswith(b"/usr/") or row[4].startswith(b"/etc/")) for row in mounts):
         raise Refusal("system_mount")
@@ -480,10 +488,10 @@ def _visible_system(deadline: float) -> None:
         _remaining(deadline)
         if depth > 32:
             raise Refusal("system_scan_limit")
-        _safe_system_entry(path.lstat())
+        _safe_system_entry(path.lstat(), path=path)
         fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
         try:
-            _safe_system_entry(os.fstat(fd))
+            _safe_system_entry(os.fstat(fd), path=path)
             with os.scandir(fd) as entries:
                 for entry in entries:
                     _remaining(deadline)
@@ -491,7 +499,7 @@ def _visible_system(deadline: float) -> None:
                     if count > 200000:
                         raise Refusal("system_scan_limit")
                     info = entry.stat(follow_symlinks=False)
-                    _safe_system_entry(info)
+                    _safe_system_entry(info, path=path / entry.name)
                     if stat.S_ISDIR(info.st_mode):
                         walk(path / entry.name, depth + 1)
         finally:
@@ -525,7 +533,7 @@ def _properties(network: bool, seconds: int, *, resolver: Path | None = None) ->
             f"RuntimeMaxSec={seconds}", f"PrivateNetwork={'no' if network else 'yes'}",
             "RestrictAddressFamilies=AF_INET AF_INET6" + ("" if network else " AF_UNIX"),
             "TemporaryFileSystem=/var:ro" + (" /run:ro" if network else ""),
-            "InaccessiblePaths=" + ("" if network else "/run ") + "/dev/shm -/opt -/srv -/mnt -/media -/boot -/efi -/lost+found",
+            "InaccessiblePaths=" + ("" if network else "/run ") + "/dev/shm -/opt -/srv -/mnt -/media -/boot -/efi -/lost+found -/afs",
             f"BindPaths={WORK}:{WORK}:norbind {WORK}/tmp:/tmp:norbind {WORK}/tmp:/var/tmp:norbind",
             f"WorkingDirectory={WORK}", "ProtectClock=yes"]
     if resolver is not None:

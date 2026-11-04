@@ -60,7 +60,7 @@ def test_prepare_report_must_prove_exact_limits(build,change):
 
 
 def test_kernel_script_keeps_four_fixed_stages_and_offline_test(build):
-    script=build.kernel_script('', 'def stage(*args): pass', {'files':{}}, 1000)
+    script=build.kernel_script('', 'def stage(*args): pass', {'files':{}}, 1000,runtime='def install_runtime(): return {}')
     compile(script,'fixed-kernel','exec')
     assert "('download', True" in script and "('fetch', True" in script
     assert "('setup', False" in script and "('test', False" in script
@@ -76,7 +76,7 @@ def test_kernel_script_composes_valid_unprivileged_stage_source(build):
         calls.append(kwargs['network'])
         return {'stdout':b'{}'}
     namespace={'time':time,'sys':sys,'json':json,'mounted_store':mounted_store,'run_unit':run_unit}
-    exec(build.kernel_script('', 'def stage(*args): pass', {}, 1000),namespace)
+    exec(build.kernel_script('', 'def stage(*args): pass', {}, 1000,runtime='def install_runtime(): return {}'),namespace)
     assert calls==[True,False,True,False]
 
 
@@ -100,3 +100,31 @@ def prepare():
     assert 'bounded compiler output' in captured.err
     assert 'bounded compiler error' in captured.err
     assert captured.out==''
+
+
+def test_kernel_admits_runtime_before_unprivileged_stages(build):
+    calls=[]
+    @contextmanager
+    def mounted_store(**kwargs): yield None
+    def run_unit(script,**kwargs):
+        calls.append('stage')
+        return {'stdout':b'{}'}
+    runtime="def install_runtime():\n    calls.append('runtime')\n    return {'status':'runtime_ready','installed_bytes':945234}\n"
+    namespace={'time':time,'sys':sys,'json':json,'calls':calls,'mounted_store':mounted_store,'run_unit':run_unit}
+    exec(build.kernel_script('', 'def stage(*args): pass', {}, 1000,runtime=runtime),namespace)
+    assert calls==['runtime','stage','stage','stage','stage']
+
+
+def test_complete_guest_program_fits_linux_argument_and_unit_limits(build,tmp_path):
+    import shlex
+    bundle=build.load_bundle(tmp_path)
+    controller=build.read_source(build.FIXTURES/'guest_build_storage.py').decode()
+    builder=build.read_source(build.FIXTURES/'guest_harness.py').decode()
+    runtime=build.read_source(build.FIXTURES/'guest_runtime.py').decode()
+    script=build.kernel_script(controller,builder,bundle.payload,1100,runtime=runtime)
+    compile(script,'closed-native-kernel','exec')
+    command=shlex.join(['/usr/bin/sudo','-n','/usr/bin/python3','-I','-c',script])
+    assert len(command.encode())<120*1024
+    unit=builder+'\nstage('+repr('download')+','+repr(bundle.payload)+',420)\n'
+    compile(unit,'closed-unprivileged-stage','exec')
+    assert len(unit.encode())<=65536

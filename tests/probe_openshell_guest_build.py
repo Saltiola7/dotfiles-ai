@@ -115,13 +115,14 @@ def parse_prepared(result: dict) -> dict:
     return result
 
 
-def kernel_script(controller: str, builder: str, payload: dict, seconds: int) -> str:
-    return _observed_script(controller,f'''
+def kernel_script(controller: str, builder: str, payload: dict, seconds: int, *, runtime: str) -> str:
+    return _observed_script(controller+"\n"+runtime,f'''
 _builder_source = {builder!r}
 _payload = {payload!r}
 _operation_end = time.monotonic() + {seconds!r}
 _stages = {{}}
 with mounted_store(deadline=_operation_end):
+    _runtime = install_runtime()
     for _operation, _network, _maximum in [('download', True, 420), ('setup', False, 300), ('fetch', True, 240), ('test', False, 480)]:
         _seconds = min(_maximum, int(_operation_end-time.monotonic()-65))
         if _seconds <= 0:
@@ -130,7 +131,7 @@ with mounted_store(deadline=_operation_end):
         _observed = run_unit(_script, network=_network, seconds=_seconds)
         _stages[_operation] = json.loads(_observed['stdout'])
         print(json.dumps({{'stage':_operation,'finished':True}}),file=sys.stderr,flush=True)
-print(json.dumps({{'status':'kernel_tested','stages':_stages,'session_enabled':False,'full_runtime_qualified':False}}),flush=True)
+print(json.dumps({{'status':'kernel_tested','runtime':_runtime,'stages':_stages,'session_enabled':False,'full_runtime_qualified':False}}),flush=True)
 ''')
 
 
@@ -140,6 +141,7 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
     # operation; neither selection JSON nor CLI accepts commands or scripts.
     controller=read_source(FIXTURES/'guest_build_storage.py').decode()
     builder=read_source(FIXTURES/'guest_harness.py').decode() if operation=='kernel' else ''
+    runtime=read_source(FIXTURES/'guest_runtime.py').decode() if operation=='kernel' else ''
     def inspect(selected, anchor, deadline):
         observed=guest._inspect_guest(selected,anchor,deadline)
         if operation=='prepare' and observed.free_bytes<12*1024**3: raise Refusal('guest_build_reserve')
@@ -148,7 +150,7 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
             bundle=load_bundle(selected.storage.cache_path/'_tmp')
             seconds=int(create._remaining(deadline,1200))-15
             if seconds<120: raise Refusal('build_deadline')
-            script=kernel_script(controller,builder,bundle.payload,seconds)
+            script=kernel_script(controller,builder,bundle.payload,seconds,runtime=runtime)
         argv=[str(anchor.sources[0].identity.path),'shell','--tty=false','--start=false',
               '--workdir','/','q','--','/usr/bin/sudo','-n','/usr/bin/python3','-I','-c',script]
         raw=create._command(selected,argv,deadline,'guest_build',450 if operation=='prepare' else 1250)
@@ -158,12 +160,17 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
             if (result.get('status')!='kernel_tested' or result.get('session_enabled') is not False
                     or result.get('full_runtime_qualified') is not False or set(result.get('stages',{}))!={'download','setup','fetch','test'}):
                 raise Refusal('kernel_report')
+            if (result.get('runtime',{}).get('status')!='runtime_ready'
+                    or result['runtime'].get('installed_bytes')!=945234):
+                raise Refusal('kernel_runtime')
             test=result['stages']['test']['result']
             if (test.get('static_arm64') is not True or test.get('patched_source_sha256')!=PATCHED_SHA
                     or test.get('kernel_only') is not True or test.get('full_runtime_qualified') is not False
                     or 'openshell-child-unix-denial-checked' not in test.get('filtered_stdout','')):
                 raise Refusal('kernel_proof')
             result['source_hashes']=bundle.source_hashes
+            result['builder_sha256']=hashlib.sha256(builder.encode()).hexdigest()
+            result['runtime_sha256']=hashlib.sha256(runtime.encode()).hexdigest()
         result['controller_sha256']=hashlib.sha256(controller.encode()).hexdigest()
         return result
     lifecycle,result=boot._qualify_with_inspection(selection,inspect,qualification_seconds=900 if operation=='prepare' else 1800)
