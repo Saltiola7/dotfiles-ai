@@ -545,20 +545,41 @@ def _properties(network: bool, seconds: int, *, resolver: Path | None = None) ->
 
 
 def _unit_stopped(unit: str, deadline: float) -> None:
-    raw = _command(["/usr/bin/systemctl", "show", unit, "--property=ActiveState,SubState,ControlGroup"], deadline)["stdout"]
+    if re.fullmatch(r"dotfiles-ai-openshell-build-[0-9a-f]{32}\.service", unit) is None:
+        raise Refusal("unit_shutdown_unverified")
+    observed = _command(["/usr/bin/systemctl", "show", "--all", unit,
+                         "--property=LoadState,ActiveState,SubState,ControlGroup"], deadline, check=False)
+    raw = observed["stdout"]
     try:
-        fields = dict(line.split("=", 1) for line in raw.decode("ascii").splitlines())
+        rows = [line.split("=", 1) for line in raw.decode("ascii").splitlines()]
+        fields = dict(rows)
     except (ValueError, UnicodeError):
         raise Refusal("unit_shutdown_unverified") from None
-    if fields.get("ActiveState") not in {"inactive", "failed"} or fields.get("SubState") not in {"dead", "failed"}:
+    # systemd v259 show-properties returns zero even for an absent unit. Do not
+    # treat status(1)'s broader exit-code set as successful show observations.
+    if (type(observed.get("returncode")) is not int or observed["returncode"] != 0
+            or len(rows) != 4 or set(fields) != {"LoadState", "ActiveState", "SubState", "ControlGroup"}):
         raise Refusal("unit_shutdown_unverified")
-    group = fields.get("ControlGroup")
-    if group not in {"", f"/system.slice/{unit}"}:
+    state = (fields["LoadState"], fields["ActiveState"], fields["SubState"])
+    if state not in {("not-found", "inactive", "dead"), ("loaded", "inactive", "dead"), ("loaded", "failed", "failed")}:
         raise Refusal("unit_shutdown_unverified")
-    if group:
-        path = Path("/sys/fs/cgroup") / group.lstrip("/") / "cgroup.procs"
-        if path.exists() and _read(path, 4096).strip():
+    group = fields["ControlGroup"]
+    if group not in {"", f"/system.slice/{unit}"} or (state[0] == "not-found" and group):
+        raise Refusal("unit_shutdown_unverified")
+    path = Path("/sys/fs/cgroup/system.slice") / unit
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError:
+        raise Refusal("unit_shutdown_unverified") from None
+    if state[0] == "not-found" or not stat.S_ISDIR(info.st_mode) or info.st_uid != 0:
+        raise Refusal("unit_shutdown_unverified")
+    try:
+        if _read(path / "cgroup.procs", 4096).strip():
             raise Refusal("unit_shutdown_unverified")
+    except OSError:
+        raise Refusal("unit_shutdown_unverified") from None
 
 
 def run_unit(script: str, *, network: bool = False, seconds: int = 300) -> dict:
@@ -584,15 +605,37 @@ def run_unit(script: str, *, network: bool = False, seconds: int = 300) -> dict:
     argv += [f"--setenv={key}={value}" for key, value in environment.items()]
     argv += ["--", "/usr/bin/env", "-i", *(f"{key}={value}" for key, value in environment.items()),
              "/usr/bin/python3", "-I", "-c", script]
+    primary = None
+    result = None
     try:
-        result = _command(argv, deadline, maximum=seconds, check=False)
+        try:
+            result = _command(argv, deadline, maximum=seconds, check=False)
+            if result["returncode"]:
+                primary = Refusal("unit_failed", **result)
+        except Refusal as error:
+            primary = error
     finally:
-        _command(["/usr/bin/systemctl", "stop", unit], _end, maximum=15)
-        _unit_stopped(unit, _end)
+        stop_error = None
+        try:
+            stopped = _command(["/usr/bin/systemctl", "stop", unit], _end, maximum=15, check=False)
+            if stopped["returncode"]:
+                stop_error = Refusal("unit_stop_failed", **stopped)
+        except Refusal as error:
+            stop_error = error
+        try:
+            _unit_stopped(unit, _end)
+        except Refusal as error:
+            original = primary if primary is not None else Refusal("unit_result", **result) if result is not None else error
+            detail = original.stderr + b"\nshutdown verification failed\n"
+            if stop_error is not None:
+                detail += stop_error.stderr + b"\n"
+            detail += error.stderr
+            raise Refusal("unit_shutdown_unverified", stdout=original.stdout, stderr=detail,
+                          returncode=original.returncode) from None
+    if primary is not None:
+        raise primary
     _verify(_active, _work_end)
     _visible_system(_work_end)
-    if result["returncode"]:
-        raise Refusal("unit_failed", **result)
     return result
 
 

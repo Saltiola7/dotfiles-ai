@@ -309,3 +309,63 @@ def test_full_size_pending_resume_never_formats_or_recreates_image(storage, tmp_
     assert image.read_bytes() == b"preserve exact retained image"
     assert not (root / "pending.json").exists()
     assert storage._parse_receipt((root / "receipt.json").read_bytes())["fixture_verified"] is True
+
+
+UNIT = "dotfiles-ai-openshell-build-" + "a" * 32 + ".service"
+
+
+@pytest.mark.parametrize("load,active,sub", [("not-found", "inactive", "dead"), ("loaded", "inactive", "dead"),
+                                           ("loaded", "failed", "failed")])
+def test_unit_shutdown_accepts_only_proved_stopped_state_with_absent_exact_cgroup(storage, monkeypatch, load, active, sub):
+    calls = []
+    def command(argv, deadline, **kwargs):
+        calls.append((argv, kwargs))
+        return {"returncode": 0, "stdout": f"LoadState={load}\nActiveState={active}\nSubState={sub}\nControlGroup=\n".encode(), "stderr": b""}
+    monkeypatch.setattr(storage, "_command", command)
+    def absent(path):
+        assert str(path) == f"/sys/fs/cgroup/system.slice/{UNIT}"
+        raise FileNotFoundError
+    monkeypatch.setattr(Path, "lstat", absent)
+    storage._unit_stopped(UNIT, 100.0)
+    assert calls[0][1]["check"] is False
+    assert "LoadState" in calls[0][0][-1]
+
+
+@pytest.mark.parametrize("returncode,present", [(1, False), (4, False), (0, True)])
+def test_not_found_unit_never_waives_query_failure_or_retained_cgroup(storage, monkeypatch, returncode, present):
+    monkeypatch.setattr(storage, "_command", lambda *a, **k: {"returncode": returncode, "stdout":
+        b"LoadState=not-found\nActiveState=inactive\nSubState=dead\nControlGroup=\n", "stderr": b""})
+    def observed(path):
+        if present:
+            return SimpleNamespace(st_mode=0o040755, st_uid=0)
+        raise FileNotFoundError
+    monkeypatch.setattr(Path, "lstat", observed)
+    with pytest.raises(storage.Refusal, match="unit_shutdown_unverified"):
+        storage._unit_stopped(UNIT, 100.0)
+
+
+@pytest.mark.parametrize("shutdown_verified", [True, False])
+def test_launch_failure_diagnostics_survive_stop_failure(storage, monkeypatch, shutdown_verified):
+    monkeypatch.setattr(storage, "_active", SimpleNamespace())
+    monkeypatch.setattr(storage, "_end", 200.0)
+    monkeypatch.setattr(storage, "_work_end", 140.0)
+    monkeypatch.setattr(storage.time, "monotonic", lambda: 1.0)
+    monkeypatch.setattr(storage, "_verify", lambda *a, **k: None)
+    monkeypatch.setattr(storage, "_visible_system", lambda *a: None)
+    def command(argv, deadline, **kwargs):
+        if argv[0].endswith("systemd-run"):
+            return {"returncode": 17, "stdout": b"launch output", "stderr": b"original launch failure"}
+        if kwargs.get("check", True):
+            raise storage.Refusal("native_command_failed", stderr=b"unit not loaded")
+        return {"returncode": 5, "stdout": b"", "stderr": b"unit not loaded"}
+    monkeypatch.setattr(storage, "_command", command)
+    def stopped(*args):
+        if not shutdown_verified:
+            raise storage.Refusal("unit_shutdown_unverified", stderr=b"state unavailable")
+    monkeypatch.setattr(storage, "_unit_stopped", stopped)
+    with pytest.raises(storage.Refusal) as caught:
+        storage.run_unit("raise SystemExit(17)")
+    assert str(caught.value) == ("unit_failed" if shutdown_verified else "unit_shutdown_unverified")
+    assert caught.value.stdout == b"launch output"
+    assert b"original launch failure" in caught.value.stderr
+    assert caught.value.returncode == 17
