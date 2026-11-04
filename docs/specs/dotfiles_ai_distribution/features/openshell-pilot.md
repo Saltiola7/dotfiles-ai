@@ -1317,6 +1317,19 @@ from its exact authenticated target
 the target is an authenticated regular file in this prefix. All other absolute
 links refuse. Record authenticated measured hashes.
 
+This C-only prefix omits exactly nine authenticated GCC GDB-integration entries:
+the stems `usr/lib/libcc1`,
+`usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcc1plugin`, and
+`usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcp1plugin`, each with the
+three suffixes `.so`, `.so.0`, and `.so.0.0.0`. Require the complete signed set,
+regular-file implementations and aliases resolving only to their own omitted
+implementation. Record omitted names, types and content/target hashes; preserve
+their original APKs. No wildcard omission, binary modification or ELF search-path
+exception is admitted. Retained dependency closure must not require an omitted
+library. Normal `cc1`, `collect2`, `libstdc++` and the LTO plugin remain present.
+These libraries implement GDB compile/inject integration, outside this selected
+ordinary C compiler route; their absolute library search paths remain refused.
+
 C compiler/assembler/archive wrappers use fixed private executable paths, explicit
 sysroot/search prefixes and a fresh scoped environment. Alpine library lookup must
 not leak into Cargo, Rust, GNU tools or protoc. Qualify actual C compilation,
