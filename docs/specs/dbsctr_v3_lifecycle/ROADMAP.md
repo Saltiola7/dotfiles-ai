@@ -34,6 +34,15 @@
 
 ## Milestones
 
+### External merge completion (implemented; managed rollout pending)
+
+- Add explicit authenticated reconciliation for externally merged GitHub cycles,
+  including exact-tree squashes, while retaining every applicable completion gate.
+- Preserve original source/evidence and record immutable delivery provenance;
+  never create a duplicate draft, publish, synchronize or remove a checkout.
+- Qualify refusal, preview and interrupted-pointer recovery with disposable Git
+  graphs before managed installation and separately gated consumer completion.
+
 ### V3.2 — Protocol Correctness (complete)
 
 - Version Cycle Record schemas independently from Method Revision.

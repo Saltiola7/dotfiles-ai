@@ -95,14 +95,13 @@ PRESENTATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 INCIDENT_KINDS = ("defect", "friction", "behavior_gap", "capability_idea")
 INCIDENT_STATES = ("open", "investigating", "fixing", "resolved", "dismissed")
 INSPECT_RESPONSE_HARD = 128 * 1024
-GIT_REPOSITORY_ENV = {
-    key: value for key, value in os.environ.items()
-    if key not in {
-        "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
-        "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    } and not key.startswith("GIT_CONFIG_")
+GIT_REPOSITORY_REDIRECTS = {
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+    "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
 }
+GIT_REPOSITORY_ENV = {key: value for key, value in os.environ.items()
+                      if key not in GIT_REPOSITORY_REDIRECTS and not key.startswith("GIT_CONFIG_")}
 INSPECT_ENV = {**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
 EVIDENCE_RAW_CAP = 1024 * 1024
 EVIDENCE_SIDECAR_CAP = 256 * 1024
@@ -3180,6 +3179,8 @@ def read_cycle_record(root, path, label="Cycle Record", *, historical=False, max
                 validate_initiative_amendments(root, record)
             except (KeyError, TypeError, ValueError, AttributeError, OSError):
                 fail("invalid Initiative amendment history")
+    if "external_completion" in record:
+        validate_external_completion(record)
     return record
 
 
@@ -5813,6 +5814,8 @@ def command_start(args):
     with registration_lock(root, args):
         record = start_cycle(root, args, plan)
     print(record["cycle_id"])
+    return {"validation_registration": {"worktree": root.resolve(), "cycle": record["cycle_id"],
+        "feedback_target": getattr(args, "validation_feedback_target", None)}}
 
 
 def require_legacy_start_network(root):
@@ -6136,6 +6139,8 @@ def begin_registration(args):
         "worktree": str(worktree), "upstream": target,
         **({"initiative": initiative} if initiative is not None else {}),
     }, sort_keys=True))
+    return {"validation_registration": {"worktree": worktree.resolve(), "cycle": record["cycle_id"],
+        "feedback_target": getattr(args, "validation_feedback_target", None)}}
 
 
 def cycle_runtime_locator(runtime, worktree, source):
@@ -18100,8 +18105,114 @@ def command_gate_commit(args):
     return {"worktree": root.resolve(), "cycle": record["cycle_id"], "head": commit, "gates": list(args.gates)}
 
 
+def managed_validation_enabled(*, automatic: bool = False):
+    """Inspect only the private feature flag before optional imports or Git."""
+    if type(automatic) is not bool:
+        raise RuntimeError("continuous_validation_origin_invalid")
+    policy_path = Path.home() / ".config/dotfiles-ai/continuous-validation-policy.json"
+    if not os.path.lexists(policy_path):
+        return False
+    if (any(parent.is_symlink() for parent in (policy_path, *policy_path.parents))
+            or not policy_path.is_absolute()):
+        raise RuntimeError("continuous_validation_policy_unavailable")
+    descriptor = os.open(policy_path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1
+                or info.st_mode & 0o077 or info.st_size > 1024 * 1024):
+            raise RuntimeError("continuous_validation_policy_unavailable")
+        selected = json.loads(stream.read(1024 * 1024 + 1), object_pairs_hook=no_duplicate_keys)
+    if not isinstance(selected, dict):
+        raise RuntimeError("continuous_validation_policy_unavailable")
+    return selected.get("enabled") is True and not (automatic and selected.get("enrollment") == "explicit-only")
+
+
+
+def managed_validation_action(action, event):
+    """Bind optional delegation to one real managed owner after policy admission."""
+    automatic = action == "enroll" and event.get("automatic", False)
+    if not managed_validation_enabled(automatic=automatic):
+        return {"status": "disabled", "advisory": True}
+    policy_path = Path.home() / ".config/dotfiles-ai/continuous-validation-policy.json"
+    source = Path(__file__).resolve().parents[2] / "private_dot_config/dotfiles-ai"
+    selected = source if (source / "continuous_validation/cli.py").is_file() else Path.home() / ".config/dotfiles-ai"
+    previous_path = sys.path[:]
+    try:
+        selected = selected.resolve(strict=True)
+        package = selected / "continuous_validation"
+        if package.resolve(strict=True) != package or any(
+                not stat.S_ISREG((package / name).lstat().st_mode) for name in ("__init__.py", "cli.py")):
+            raise RuntimeError("continuous_validation_owner_unavailable")
+
+        def validate_cached_owner():
+            for name, module in tuple(sys.modules.items()):
+                if name == "continuous_validation" or name.startswith("continuous_validation."):
+                    location = getattr(module, "__file__", None)
+                    if not isinstance(location, str) or not Path(location).resolve(strict=True).is_relative_to(package):
+                        raise RuntimeError("continuous_validation_owner_unavailable")
+
+        validate_cached_owner()
+        sys.path.insert(0, str(selected))
+        owner = __import__("continuous_validation.cli", fromlist=["managed_action"])
+        validate_cached_owner()
+        if Path(owner.__file__).resolve(strict=True) != package / "cli.py":
+            raise RuntimeError("continuous_validation_owner_unavailable")
+        return owner.managed_action(action, worktree=event["worktree"], cycle=event["cycle"], policy_path=policy_path,
+            feedback_target=event.get("feedback_target"), gate=event.get("gate"), purpose=event.get("purpose"),
+            expected_ids=event.get("expected_ids"), head=event.get("head"), checkpoint_id=event.get("checkpoint_id"),
+            lifecycle_path=Path(__file__), automatic=automatic)
+    except Exception:
+        raise RuntimeError("continuous_validation_owner_unavailable") from None
+    finally:
+        sys.path[:] = previous_path
+
+
+
+def optional_validation_registration(event):
+    """Publish a genuinely new task only after lifecycle locks have closed."""
+    try:
+        managed_validation_action("enroll", {**event, "automatic": True})
+    except Exception:
+        print("continuous_validation_enrollment_unavailable", file=sys.stderr)
+
+
+
+def command_validation_checkpoint(args):
+    if not managed_validation_enabled():
+        print(json.dumps({"status": "disabled", "advisory": True}))
+        return
+    root = root_dir()
+    _, record = load(root)
+    result = managed_validation_action("checkpoint", {"worktree": root.resolve(), "cycle": record["cycle_id"],
+        "gate": args.gate, "purpose": args.purpose, "expected_ids": args.expected_test_id})
+    print(json.dumps(result, sort_keys=True))
+
+
+
+def command_validation_opt_out(args):
+    if not managed_validation_enabled():
+        print(json.dumps({"status": "disabled", "advisory": True}))
+        return
+    root = root_dir()
+    _, record = load(root)
+    print(json.dumps(managed_validation_action("opt-out", {"worktree": root.resolve(), "cycle": record["cycle_id"]}),
+                     sort_keys=True))
+
+
+
 def optional_shadow_checkpoint(checkpoint):
     """Bounded optional enqueue after lifecycle locks; missing binding is inert."""
+    try:
+        gate = max(checkpoint["gates"], key=GATES.index)
+        purpose = ("artifact" if gate in {"domain", "behavior", "spec"} else "regression" if gate == "refactor"
+            else "final-reconcile" if gate in {"review_integrate", "release", "deploy", "operate", "maintain_retire"}
+            else "green-validation")
+        result = managed_validation_action("checkpoint", {**checkpoint, "gate": gate, "purpose": purpose,
+            "checkpoint_id": "gate-" + checkpoint["head"] + "-" + gate})
+        if result.get("status") not in {"disabled", "not_enrolled", "legacy_enrolled"}:
+            return
+    except Exception:
+        print("continuous_validation_checkpoint_unavailable", file=sys.stderr)
     registry = Path.home() / ".local/state/dotfiles-ai/continuous-validation/checkpoint-bindings"
     if not os.path.lexists(registry):
         return
@@ -18940,7 +19051,9 @@ def github_environment(account):
 
 
 def github_json(root, env, *args):
-    result = subprocess.run(["gh", *args], cwd=root, env=env, text=True, capture_output=True)
+    bounds = {"timeout": 30} if args[:3] == ("api", "--hostname", "github.com") else {}
+    result = subprocess.run(["gh", *args], cwd=root, env=env, text=True, capture_output=True,
+                            **bounds)
     if result.returncode:
         fail(result.stderr.strip() or "GitHub CLI command failed")
     try:
@@ -19603,8 +19716,280 @@ def refuse_local_delivery(record):
         fail("local-only cycles cannot use Final Push or target reconciliation; use complete-local")
 
 
+def external_oid(value, width=None):
+    return (isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value) is not None
+            and (width is None or len(value) == width))
+
+
+def external_timestamp(value):
+    if not isinstance(value, str) or len(value) > 64:
+        return False
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).utcoffset() == timedelta(0)
+    except ValueError:
+        return False
+
+
+def validate_external_completion(record):
+    """Validate additive provenance without converting it into cleanup authority."""
+    value = record["external_completion"]
+    fields = {"schema_version", "status", "proof", "cycle_id", "repository", "pull_request",
+              "head", "tree", "merge", "merge_parent", "target_branch", "target_head",
+              "merged_at", "verified_at", "recorded_commits"}
+    delivery = record.get("delivery", {})
+    github = delivery.get("github", {})
+    if (not isinstance(github, dict) or set(github) != {"host", "repository", "account"}
+            or not isinstance(record.get("commits"), list)
+            or not all(isinstance(item, dict) and "id" in item for item in record["commits"])):
+        fail("invalid external completion record identity")
+    if (not isinstance(value, dict) or set(value) != fields
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or record.get("schema_version") not in (3, 4, 5)
+            or record.get("delivery_intent") != "draft_pr" or record.get("state") != "completed"
+            or value["status"] != "delivered_external" or value["proof"] != "exact_tree"
+            or value["cycle_id"] != record.get("cycle_id")
+            or value["repository"] != github or github.get("host") != "github.com"
+            or value["target_branch"] != delivery.get("base_branch")
+            or value["verified_at"] != record.get("completed_at")
+            or not external_timestamp(value["merged_at"]) or not external_timestamp(value["verified_at"])
+            or not isinstance(value["recorded_commits"], list) or not value["recorded_commits"]
+            or value["recorded_commits"] != [item["id"] for item in record.get("commits", [])]):
+        fail("invalid external completion receipt")
+    width = len(value["head"]) if isinstance(value["head"], str) else None
+    if any(not external_oid(value[name], width) for name in ("head", "tree", "merge", "merge_parent", "target_head")):
+        fail("invalid external completion object identity")
+    pull = value["pull_request"]
+    if (not isinstance(pull, dict) or set(pull) != {"number", "url"}
+            or type(pull["number"]) is not int or not 1 <= pull["number"] < 2**53
+            or pull["url"] != f"https://github.com/{github.get('repository')}/pull/{pull['number']}"):
+        fail("invalid external completion pull request")
+
+
+def require_completion_dvc(root, record, changed):
+    """Keep paired data obligations identical across delivery and reconciliation."""
+    relevant = any(name.endswith(".dvc") or name in ("dvc.yaml", "dvc.lock", ".dvc/config", ".dvcignore")
+                   for name in changed)
+    if not relevant:
+        return
+    targets = sorted(name for name in changed if name.endswith(".dvc"))
+    if any(name in changed for name in ("dvc.yaml", "dvc.lock")):
+        targets.append("dvc.yaml")
+    if targets:
+        result = subprocess.run(["dvc", "status", *targets], cwd=root, text=True, capture_output=True)
+        if result.returncode:
+            fail(result.stderr.strip() or "dvc status failed")
+        if "Data and pipelines are up to date." not in result.stdout:
+            fail("dvc status reports changed or missing data")
+    pushed = record.get("dvc_push")
+    if not pushed or pushed["head"] != git(root, "rev-parse", "HEAD").stdout.strip():
+        fail("DVC repository requires separately approved `dvc push` evidence at current HEAD")
+
+
+def external_source(root, record, expected_head):
+    require_completion_source(root, record)
+    if any(gate["applicability"] == "required" and gate["result"] != "passed"
+           and not (gate["result"] in {"failed", "unavailable"} and valid_gate_exception(gate))
+           for gate in record["gates"].values()):
+        fail("required gates have not all passed or received valid approved exceptions")
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    if not external_oid(expected_head, len(head)) or head != expected_head:
+        fail("external completion source does not match expected head")
+    baseline, delivery = record["git"], record["delivery"]
+    if baseline["pre_cycle_ahead_commits"] and delivery.get("published_feature_head") != baseline["head"]:
+        fail("pre-cycle ahead commits are not owned by this cycle")
+    if baseline.get("remote") != remote_destination(root, upstream(root)):
+        fail("remote push destination changed")
+    base = baseline["head"]
+    if git(root, "merge-base", "--is-ancestor", base, head, check=False).returncode:
+        fail("external completion baseline is outside the source lineage")
+    commits = [item["id"] for item in record["commits"]]
+    actual = git(root, "rev-list", "--reverse", "--first-parent", f"{base}..{head}").stdout.splitlines()
+    if not commits or actual != commits:
+        fail("first-parent commits are not exactly the recorded cycle commits")
+    changed = set(git(root, "diff", "--name-only", f"{base}..{head}").stdout.splitlines())
+    if record["artifact_reviews"]["CHANGELOG"]["path"] not in changed:
+        fail("reviewed CHANGELOG path is not committed in this cycle")
+    require_completion_dvc(root, record, changed)
+    return head, git(root, "rev-parse", f"{head}^{{tree}}").stdout.strip(), commits
+
+
+def external_github(root, env, endpoint):
+    try:
+        value = github_json(root, env, "api", "--hostname", "github.com", endpoint)
+        if len(json.dumps(value).encode()) > 1024 * 1024:
+            fail("external merge response exceeds its metadata bound")
+        return value
+    except (RuntimeError, OSError, subprocess.SubprocessError, ValueError):
+        fail("external merge native GitHub verification unavailable")
+
+
+def external_merge_proof(root, record, args, env, head, tree, commits):
+    delivery, github = record["delivery"], record["delivery"]["github"]
+    repository = github["repository"]
+    actor = external_github(root, env, "user")
+    if not isinstance(actor, dict) or str(actor.get("login", "")).casefold() != github["account"].casefold():
+        fail("external merge authenticated GitHub account does not match the cycle")
+    url = f"https://github.com/{repository}/pull/{args.pr_number}"
+    endpoint = f"repos/{repository}/pulls/{args.pr_number}"
+    pull = external_github(root, env, endpoint)
+
+    def identity(value):
+        if not isinstance(value, dict):
+            fail("external merge pull request metadata is invalid")
+        for side, ref in (("head", delivery["branch"]), ("base", delivery["base_branch"])):
+            item = value.get(side)
+            if (not isinstance(item, dict) or item.get("ref") != ref
+                    or not isinstance(item.get("repo"), dict)
+                    or str(item["repo"].get("full_name", "")).casefold() != repository.casefold()):
+                fail("external merge pull request repository or branch does not match")
+        if (type(value.get("number")) is not int or value["number"] != args.pr_number
+                or not isinstance(value.get("html_url"), str) or value["html_url"].casefold() != url.casefold()
+                or value.get("state") != "closed"
+                or value.get("merged") is not True or not external_timestamp(value.get("merged_at"))
+                or value.get("merge_commit_sha") != args.expected_merge
+                or value["head"].get("sha") != head):
+            fail("external merge pull request does not match the pinned merged source")
+        return value["merged_at"]
+
+    merged_at = identity(pull)
+    old_pull = delivery.get("pull_request")
+    if old_pull is not None and (
+            not isinstance(old_pull, dict) or old_pull.get("number") != args.pr_number
+            or not isinstance(old_pull.get("url"), str) or old_pull["url"].casefold() != url.casefold()):
+        fail("external completion conflicts with recorded pull request")
+    remote = delivery["remote"]
+    remote_url = github_remote_url(root, remote, repository)
+    fetch_github_branch(root, remote, remote_url, delivery["base_branch"], env)
+    target = git(root, "rev-parse", f"refs/remotes/{remote}/{delivery['base_branch']}").stdout.strip()
+    merge = args.expected_merge
+    native = external_github(root, env, f"repos/{repository}/git/commits/{merge}")
+    parents = git(root, "show", "-s", "--format=%P", merge).stdout.split()
+    merge_tree = git(root, "rev-parse", f"{merge}^{{tree}}").stdout.strip()
+    native_tree = native.get("tree") if isinstance(native, dict) else None
+    native_parents = native.get("parents") if isinstance(native, dict) else None
+    if (not isinstance(native, dict) or native.get("sha") != merge
+            or not isinstance(native_tree, dict) or native_tree.get("sha") != merge_tree
+            or not isinstance(native_parents, list) or len(native_parents) != len(parents)
+            or not all(isinstance(item, dict) for item in native_parents)
+            or [item.get("sha") for item in native_parents] != parents
+            or len(parents) != 1 or merge_tree != tree):
+        fail("external merge object is not the expected native exact-tree single-parent commit")
+    parent = parents[0]
+    if (git(root, "merge-base", "--is-ancestor", merge, target, check=False).returncode
+            or git(root, "merge-base", "--is-ancestor", record["git"]["head"], parent, check=False).returncode):
+        fail("external merge is outside the protected base lineage")
+    for commit in commits:
+        imported = git(root, "show", "-s", "--format=%P", commit).stdout.split()[1:]
+        if any(git(root, "merge-base", "--is-ancestor", item, parent, check=False).returncode for item in imported):
+            fail("recorded source imports history outside the historical merged base")
+    current = external_github(root, env, f"repos/{repository}/git/ref/heads/{quote(delivery['base_branch'], safe='')}")
+    if (not isinstance(current, dict) or current.get("ref") != f"refs/heads/{delivery['base_branch']}"
+            or not isinstance(current.get("object"), dict)
+            or current["object"].get("type") != "commit" or current["object"].get("sha") != target
+            or identity(external_github(root, env, endpoint)) != merged_at):
+        fail("external merge protected-base or pull-request identity changed during verification")
+    return {"schema_version": 1, "status": "delivered_external", "proof": "exact_tree",
+            "cycle_id": record["cycle_id"], "repository": dict(github),
+            "pull_request": {"number": args.pr_number, "url": url}, "head": head, "tree": tree,
+            "merge": merge, "merge_parent": parent, "target_branch": delivery["base_branch"],
+            "target_head": target, "merged_at": merged_at, "verified_at": now(),
+            "recorded_commits": commits}
+
+
+def command_complete_external(args):
+    root = root_dir()
+    pointer = resolved_active_path(root, bindings=False)
+    explicit = args.cycle_id is not None
+    if explicit:
+        if not OPAQUE_ID.fullmatch(args.cycle_id):
+            fail("invalid external completion cycle ID")
+        path = cycle_dir(root) / "cycles" / f"{args.cycle_id}.json"
+        continuation_private(path)
+        record = read_cycle_record(root, path, historical=True)
+        if record.get("state") != "completed" or "external_completion" not in record:
+            fail("explicit cycle ID requires an already externally completed record")
+    else:
+        path, record = load(root)
+    identifier = record["cycle_id"]
+    github = record.get("delivery", {}).get("github")
+    if (record.get("schema_version") not in (3, 4, 5) or record.get("delivery_intent") != "draft_pr"
+            or not isinstance(github, dict) or set(github) != {"host", "repository", "account"}
+            or github["host"] != "github.com"
+            or not isinstance(github["repository"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", github["repository"])
+            or not isinstance(github["account"], str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", github["account"])):
+        fail("external completion requires a supported GitHub draft_pr cycle")
+    if type(args.pr_number) is not int or not 1 <= args.pr_number < 2**53 or not external_oid(args.expected_merge):
+        fail("invalid external completion PR number or merge pin")
+    with evidence_lock(root, identifier, timeout=1), target_lock(root, record):
+        record = read_cycle_record(root, path, historical=True)
+        admitted = json.dumps(record, sort_keys=True)
+        if not record_worktree_matches(root, record, root, bindings=False):
+            fail("external completion requires its original checkout and task branch")
+        own_pointer = pointer.exists() and active_pointer_id(root, pointer) == identifier
+        if pointer.exists() and not own_pointer or not explicit and not own_pointer:
+            fail("external completion active pointer changed")
+        if record["state"] not in ("active", "finalizing", "completed"):
+            fail("cycle is not available for external completion")
+        if record["state"] == "completed" and "external_completion" not in record:
+            fail("cycle already completed through another delivery route")
+        with local_completion_git_context():
+            head, tree, commits = external_source(root, record, args.expected_head)
+        if not external_oid(args.expected_merge, len(head)):
+            fail("external merge pin has the wrong object format")
+        env = github_environment(record["delivery"]["github"]["account"])
+        env = {key: value for key, value in {**GIT_REPOSITORY_ENV, **env}.items()
+               if key not in GIT_REPOSITORY_REDIRECTS}
+        env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1")
+        token = LOCAL_COMPLETION_GIT.set(env)
+        try:
+            receipt = external_merge_proof(root, record, args, env, head, tree, commits)
+        finally:
+            LOCAL_COMPLETION_GIT.reset(token)
+        previous = record.get("external_completion")
+        if previous is not None:
+            stable = set(receipt) - {"verified_at", "target_head"}
+            if any(previous[key] != receipt[key] for key in stable):
+                fail("completed external delivery receipt changed")
+            receipt = previous
+        with local_completion_git_context():
+            if external_source(root, record, args.expected_head) != (head, tree, commits):
+                fail("external completion source changed during verification")
+        if json.dumps(read_cycle_record(root, path, historical=True), sort_keys=True) != admitted:
+            fail("external completion record changed during verification")
+        if own_pointer != pointer.exists() or own_pointer and active_pointer_id(root, pointer) != identifier:
+            fail("external completion active pointer changed during verification")
+        # The expensive authority can execute DVC status. Reobserve cheap local
+        # facts after it, immediately before persistence, rather than returning
+        # a head/tree cached before an external process changed the checkout.
+        with local_completion_git_context():
+            if (status_paths(root) or branch(root) != record["git"]["branch"]
+                    or upstream(root) != record["git"]["upstream"]
+                    or git(root, "rev-parse", "HEAD").stdout.strip() != head
+                    or git(root, "rev-parse", "HEAD^{tree}").stdout.strip() != tree
+                    or not record_worktree_matches(root, record, root, bindings=False)):
+                fail("external completion source changed immediately before persistence")
+        if not args.preview:
+            if previous is None:
+                record.update(state="completed", completed_at=receipt["verified_at"], external_completion=receipt,
+                              source_sync={"status": "not_applicable", "reason": "external_merge_completion"})
+                record["delivery"].setdefault("pull_request", {
+                    **receipt["pull_request"], "draft": False, "state": "MERGED", "verified_at": receipt["verified_at"]})
+                validate_external_completion(record)
+                save(path, record)
+            if own_pointer:
+                if active_pointer_id(root, pointer) != identifier:
+                    fail("external completion pointer changed; completed receipt retained")
+                pointer.unlink()
+                fsync_directory(pointer.parent)
+        print(json.dumps(receipt, sort_keys=True))
+
+
 def finish_push(root, path, record):
     refuse_local_delivery(record)
+    if "external_completion" in record:
+        fail("cycle was delivered externally; use complete-external to verify its retained receipt")
     pointer = resolved_active_path(root)
     if record["state"] == "completed":
         pointer.unlink(missing_ok=True)
@@ -19688,21 +20073,7 @@ def finish_push(root, path, record):
     changelog_path = record["artifact_reviews"]["CHANGELOG"]["path"]
     if changelog_path not in changed:
         fail("reviewed CHANGELOG path is not committed in this cycle")
-    dvc_relevant = any(name.endswith(".dvc") or name in ("dvc.yaml", "dvc.lock", ".dvc/config", ".dvcignore")
-                       for name in changed)
-    if dvc_relevant:
-        dvc_targets = sorted(name for name in changed if name.endswith(".dvc"))
-        if any(name in changed for name in ("dvc.yaml", "dvc.lock")):
-            dvc_targets.append("dvc.yaml")
-        if dvc_targets:
-            dvc_status = subprocess.run(["dvc", "status", *dvc_targets], cwd=root, text=True, capture_output=True)
-            if dvc_status.returncode:
-                fail(dvc_status.stderr.strip() or "dvc status failed")
-            if "Data and pipelines are up to date." not in dvc_status.stdout:
-                fail("dvc status reports changed or missing data")
-        dvc_push = record.get("dvc_push")
-        if not dvc_push or dvc_push["head"] != git(root, "rev-parse", "HEAD").stdout.strip():
-            fail("DVC repository requires separately approved `dvc push` evidence at current HEAD")
+    require_completion_dvc(root, record, changed)
     record["phase_profile"] = (validate_phase_profile(record["phase_profile"], record["cycle_id"])
                                if "phase_profile" in record
                                else unavailable_phase_report(record["cycle_id"]))
@@ -20339,6 +20710,7 @@ def parser():
     start.add_argument("--github-account")
     start.add_argument("--github-repository")
     start.add_argument("--base-branch", default="main")
+    start.add_argument("--validation-feedback-target", help="private qualified exact-session target JSON")
     start.set_defaults(func=command_start)
     begin = commands.add_parser("begin")
     begin.add_argument("--cycle-id", required=True)
@@ -20346,6 +20718,7 @@ def parser():
     begin.add_argument("--risk", required=True, choices=("routine", "elevated", "critical"))
     begin.add_argument("--delivery-intent", required=True, choices=DELIVERY_INTENTS)
     begin.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
+    begin.add_argument("--validation-feedback-target", help="private qualified exact-session target JSON")
     begin.add_argument("--github-account")
     begin.add_argument("--github-repository")
     begin.add_argument("--forge-provider")
@@ -20393,6 +20766,15 @@ def parser():
     orphan.add_argument("--preview", action="store_true")
     orphan.add_argument("--expected-state")
     orphan.set_defaults(func=command_workspace_recover_orphan)
+    validation = commands.add_parser("validation-checkpoint")
+    validation.add_argument("--gate", required=True, choices=GATES)
+    validation.add_argument("--purpose", required=True,
+        choices=("artifact", "red-proof", "green-validation", "regression", "final-reconcile"))
+    validation.add_argument("--expected-test-id", action="append", default=[])
+    validation.set_defaults(func=command_validation_checkpoint)
+    validation = commands.add_parser("validation-opt-out")
+    validation.add_argument("--on", action="store_true", required=True)
+    validation.set_defaults(func=command_validation_opt_out)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=command_status)
@@ -20835,6 +21217,13 @@ def parser():
     complete_local = commands.add_parser("complete-local")
     complete_local.add_argument("--cycle-id", help="retry an already completed local-only cycle in its native checkout")
     complete_local.set_defaults(func=command_complete_local)
+    complete_external = commands.add_parser("complete-external")
+    complete_external.add_argument("--cycle-id", help="verify/retry an already externally completed cycle")
+    complete_external.add_argument("--pr-number", required=True, type=int)
+    complete_external.add_argument("--expected-head", required=True)
+    complete_external.add_argument("--expected-merge", required=True)
+    complete_external.add_argument("--preview", action="store_true")
+    complete_external.set_defaults(func=command_complete_external)
     final = commands.add_parser("final-push")
     final.set_defaults(func=command_final_push)
     reconcile = commands.add_parser("reconcile-target")
@@ -20953,7 +21342,8 @@ def agent_analytics_output(action):
 def main():
     capture = None
     checkpoint = None
-    quiet_local = sys.argv[1:2] == ["complete-local"]
+    registration = None
+    quiet_local = sys.argv[1:2] in (["complete-local"], ["complete-external"])
     try:
         if forgejo_internal_main(sys.argv[1:]):
             return 0
@@ -20961,6 +21351,9 @@ def main():
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
         args = parser().parse_args()
+        if args.command in {"validation-checkpoint", "validation-opt-out"}:
+            args.func(args)
+            return 0
         if args.command == "initiative-amend":
             # This command owns offline admission, locks and bounded error output.
             # No generic telemetry, continuation transport or credential discovery.
@@ -20986,8 +21379,12 @@ def main():
                 outcome = args.func(args)
                 if args.command == "gate-commit":
                     checkpoint = outcome
+                elif args.command in {"begin", "start"} and isinstance(outcome, dict):
+                    registration = outcome.get("validation_registration")
             if not quiet_local:
                 workflow_operation_finish(capture, True)
+        if registration is not None:
+            optional_validation_registration(registration)
         if checkpoint is not None:
             optional_shadow_checkpoint(checkpoint)
     except SourceIndexUnavailable:
