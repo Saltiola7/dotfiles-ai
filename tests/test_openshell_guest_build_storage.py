@@ -369,3 +369,155 @@ def test_launch_failure_diagnostics_survive_stop_failure(storage, monkeypatch, s
     assert caught.value.stdout == b"launch output"
     assert b"original launch failure" in caught.value.stderr
     assert caught.value.returncode == 17
+
+
+@pytest.mark.parametrize("uid,gid", [(0, 0), (193, 193)])
+def test_resolver_descriptor_accepts_only_known_root_or_resolve_principal(storage, uid, gid):
+    info = SimpleNamespace(st_mode=0o100644, st_uid=uid, st_gid=gid, st_nlink=1, st_size=936)
+    storage._validate_resolver_info(info, {(0, 0), (193, 193)})
+
+
+@pytest.mark.parametrize("change", [{"st_uid": 65534}, {"st_gid": 65534}, {"st_mode": 0o100666},
+                                   {"st_mode": 0o120644}, {"st_nlink": 2}, {"st_size": 65537}, {"st_size": 0}])
+def test_resolver_descriptor_rejects_unsafe_metadata(storage, change):
+    info = dict(st_mode=0o100644, st_uid=193, st_gid=193, st_nlink=1, st_size=936)
+    with pytest.raises(storage.Refusal, match="resolver_identity"):
+        storage._validate_resolver_info(SimpleNamespace(**(info | change)), {(0, 0), (193, 193)})
+
+
+@pytest.mark.parametrize("raw", [b"nameserver 127.0.0.53\noptions edns0 trust-ad\nsearch .\n",
+                                 b"# controlled DNS data\nnameserver 192.168.5.2\n"])
+def test_resolver_snapshot_accepts_bounded_dns_data(storage, raw):
+    storage._validate_resolver_data(raw)
+
+
+@pytest.mark.parametrize("raw", [b"", b"nameserver hostname.example\n", b"nameserver 127.0.0.53\0\n",
+                                 b"include /run/other\n", b"options edns0\n"])
+def test_resolver_snapshot_refuses_non_dns_or_empty_input(storage, raw):
+    with pytest.raises(storage.Refusal, match="resolver_data"):
+        storage._validate_resolver_data(raw)
+
+
+def test_network_unit_binds_only_private_snapshot_to_selected_dns_file(storage):
+    snapshot = storage.ROOT / "store/runtime-config" / ("resolver-" + "a" * 32 + ".conf")
+    target = Path("/run/systemd/resolve/stub-resolv.conf")
+    resolver = storage.Resolver(snapshot, target, (1, 2))
+    properties = storage._properties(True, 30, resolver=resolver)
+    assert f"BindReadOnlyPaths={snapshot}:{target}:norbind" in properties
+    assert "TemporaryFileSystem=/var:ro /run:ro" in properties
+    assert not any(item == f"BindReadOnlyPaths={target}:{target}:norbind" for item in properties)
+    with pytest.raises(storage.Refusal):
+        storage._properties(False, 30, resolver=resolver)
+
+
+@pytest.mark.parametrize("replace_source", [False, True])
+def test_resolver_source_reads_one_bound_descriptor_and_refuses_replacement(storage, tmp_path, monkeypatch, replace_source):
+    import os
+    source = tmp_path / "dns"
+    link = tmp_path / "resolv.conf"
+    raw = b"nameserver 127.0.0.53\n"
+    source.write_bytes(raw)
+    source.chmod(0o644)
+    link.symlink_to(source)
+    original_lstat, original_fstat, original_read = Path.lstat, os.fstat, os.read
+    def root_info(info):
+        values = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+        return SimpleNamespace(**(values | {"st_uid": 0, "st_gid": 0}))
+    monkeypatch.setattr(Path, "lstat", lambda path, *a, **k: root_info(original_lstat(path, *a, **k)))
+    monkeypatch.setattr(storage.os, "fstat", lambda fd: root_info(original_fstat(fd)))
+    monkeypatch.setattr(storage, "Path", lambda value: link if value == "/etc/resolv.conf" else Path(value))
+    monkeypatch.setattr(storage, "_RESOLVER_TARGETS", {source})
+    monkeypatch.setattr(storage, "_remaining", lambda *a: 1.0)
+    descriptors = []
+    def opened(target, principals):
+        assert target == source and principals == {(0, 0)}
+        fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW)
+        descriptors.append(fd)
+        return fd
+    monkeypatch.setattr(storage, "_open_resolver", opened)
+    reads = 0
+    def read(fd, size):
+        nonlocal reads
+        value = original_read(fd, min(size, 3))
+        reads += 1
+        if reads == 1 and replace_source:
+            replacement = source.with_name("replacement")
+            replacement.write_bytes(raw)
+            replacement.chmod(0o644)
+            replacement.replace(source)
+        return value
+    monkeypatch.setattr(storage.os, "read", read)
+    if replace_source:
+        with pytest.raises(storage.Refusal, match="resolver_changed"):
+            storage._resolver_source(100.0)
+    else:
+        assert storage._resolver_source(100.0) == (source, raw)
+        assert reads > 1
+    with pytest.raises(OSError):
+        original_fstat(descriptors[0])
+
+
+@pytest.mark.parametrize("verified", [True, False])
+def test_network_snapshot_retirement_waits_for_independent_unit_shutdown(storage, monkeypatch, verified):
+    resolver = storage.Resolver(storage.ROOT / "store/runtime-config" / ("resolver-" + "a" * 32 + ".conf"),
+                                Path("/run/systemd/resolve/stub-resolv.conf"), (1, 2))
+    monkeypatch.setattr(storage, "_active", SimpleNamespace())
+    monkeypatch.setattr(storage, "_end", 200.0)
+    monkeypatch.setattr(storage, "_work_end", 140.0)
+    monkeypatch.setattr(storage.time, "monotonic", lambda: 1.0)
+    monkeypatch.setattr(storage, "_verify", lambda *a: None)
+    monkeypatch.setattr(storage, "_visible_system", lambda *a: None)
+    monkeypatch.setattr(storage, "_resolver", lambda *a: resolver)
+    monkeypatch.setattr(storage, "_command", lambda *a, **k: {"returncode": 0, "stdout": b"ok", "stderr": b""})
+    retired = []
+    monkeypatch.setattr(storage, "_retire_resolver", lambda value: retired.append(value))
+    def stopped(*args):
+        if not verified:
+            raise storage.Refusal("unit_shutdown_unverified")
+    monkeypatch.setattr(storage, "_unit_stopped", stopped)
+    if verified:
+        assert storage.run_unit("print('fixed download stage')", network=True)["stdout"] == b"ok"
+    else:
+        with pytest.raises(storage.Refusal, match="unit_shutdown_unverified"):
+            storage.run_unit("print('fixed download stage')", network=True)
+    assert retired == ([resolver] if verified else [])
+
+
+def test_resolver_retirement_failure_preserves_original_unit_diagnostics(storage, monkeypatch):
+    resolver = storage.Resolver(storage.ROOT / "store/runtime-config" / ("resolver-" + "a" * 32 + ".conf"),
+                                Path("/run/systemd/resolve/stub-resolv.conf"), (1, 2))
+    monkeypatch.setattr(storage, "_active", SimpleNamespace())
+    monkeypatch.setattr(storage, "_end", 200.0)
+    monkeypatch.setattr(storage, "_work_end", 140.0)
+    monkeypatch.setattr(storage.time, "monotonic", lambda: 1.0)
+    monkeypatch.setattr(storage, "_verify", lambda *a: None)
+    monkeypatch.setattr(storage, "_visible_system", lambda *a: None)
+    monkeypatch.setattr(storage, "_resolver", lambda *a: resolver)
+    monkeypatch.setattr(storage, "_unit_stopped", lambda *a: None)
+    def command(argv, *args, **kwargs):
+        return {"returncode": 17, "stdout": b"original output", "stderr": b"original failure"} if argv[0].endswith("systemd-run") else {"returncode": 0, "stdout": b"", "stderr": b""}
+    monkeypatch.setattr(storage, "_command", command)
+    def retirement(value):
+        raise storage.Refusal("resolver_retirement_identity")
+    monkeypatch.setattr(storage, "_retire_resolver", retirement)
+    with pytest.raises(storage.Refusal, match="resolver_retirement_identity") as caught:
+        storage.run_unit("raise SystemExit(17)", network=True)
+    assert caught.value.stdout == b"original output"
+    assert b"original failure" in caught.value.stderr
+    assert caught.value.returncode == 17
+
+
+@pytest.mark.parametrize("failure", ["lstat", "unlink"])
+def test_resolver_retirement_normalizes_raw_filesystem_errors(storage, monkeypatch, failure):
+    import errno
+    info = SimpleNamespace(st_dev=1, st_ino=2, st_mode=0o100444, st_uid=0, st_gid=0,
+                           st_nlink=1, st_size=20, st_mtime_ns=3, st_ctime_ns=4)
+    resolver = storage.Resolver(Path("/owned/resolver.conf"), Path("/run/systemd/resolve/stub-resolv.conf"),
+                                storage._resolver_identity(info))
+    def unavailable(*args):
+        raise OSError(errno.EIO, "private filesystem details")
+    monkeypatch.setattr(Path, "lstat", unavailable if failure == "lstat" else lambda *a: info)
+    monkeypatch.setattr(Path, "unlink", unavailable)
+    with pytest.raises(storage.Refusal, match="^resolver_retirement_identity$") as caught:
+        storage._retire_resolver(resolver)
+    assert b"private filesystem details" not in caught.value.stderr

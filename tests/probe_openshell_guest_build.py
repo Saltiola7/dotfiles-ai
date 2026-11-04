@@ -123,6 +123,7 @@ _operation_end = time.monotonic() + {seconds!r}
 _stages = {{}}
 with mounted_store(deadline=_operation_end):
     _runtime = install_runtime()
+    print(json.dumps({{'stage':'runtime','result':_runtime}}),file=sys.stderr,flush=True)
     for _operation, _network, _maximum in [('download', True, 420), ('setup', False, 300), ('fetch', True, 240), ('test', False, 480)]:
         _seconds = min(_maximum, int(_operation_end-time.monotonic()-65))
         if _seconds <= 0:

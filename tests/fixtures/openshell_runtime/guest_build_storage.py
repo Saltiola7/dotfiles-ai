@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import errno
 import fcntl
+import ipaddress
 import json
 import math
 import os
@@ -59,6 +60,13 @@ class Store:
     mount_id: int
     image_identity: tuple[int, ...]
     size: int
+
+
+@dataclass(frozen=True)
+class Resolver:
+    path: Path
+    destination: Path
+    identity: tuple[int, ...]
 
 
 def _remaining(deadline: float, maximum: float = 30) -> float:
@@ -508,20 +516,148 @@ def _visible_system(deadline: float) -> None:
         walk(path, 0)
 
 
-def _resolver() -> Path | None:
+_RESOLVER_TARGETS = {Path("/etc/resolv.conf"), Path("/run/systemd/resolve/stub-resolv.conf"),
+                     Path("/run/systemd/resolve/resolv.conf"), Path("/run/NetworkManager/resolv.conf")}
+
+
+def _resolver_identity(info) -> tuple[int, ...]:
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink,
+            info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _resolver_principals() -> set[tuple[int, int]]:
+    # Use bounded local account files, never an unbounded NSS/network lookup.
+    users = [row.split(":") for row in _read(Path("/etc/passwd"), 65536).decode().splitlines()
+             if row.startswith("systemd-resolve:")]
+    groups = [row.split(":") for row in _read(Path("/etc/group"), 65536).decode().splitlines()
+              if row.startswith("systemd-resolve:")]
+    if not users and not groups:
+        return {(0, 0)}
+    try:
+        if len(users) != 1 or len(groups) != 1 or len(users[0]) != 7 or len(groups[0]) != 4:
+            raise Refusal("resolver_identity")
+        uid, gid, group = int(users[0][2]), int(users[0][3]), int(groups[0][2])
+        if gid != group or not 0 < uid < 2**32 - 1 or not 0 < gid < 2**32 - 1 or 65534 in (uid, gid):
+            raise Refusal("resolver_identity")
+    except ValueError:
+        raise Refusal("resolver_identity") from None
+    return {(0, 0), (uid, gid)}
+
+
+def _validate_resolver_info(info, principals: set[tuple[int, int]]) -> None:
+    if (info.st_mode != stat.S_IFREG | 0o644 or (info.st_uid, info.st_gid) not in principals
+            or info.st_nlink != 1 or not 0 < info.st_size <= 65536):
+        raise Refusal("resolver_identity")
+
+
+def _validate_resolver_data(raw: bytes) -> None:
+    if not 0 < len(raw) <= 65536 or b"\0" in raw:
+        raise Refusal("resolver_data")
+    servers = 0
+    try:
+        for line in raw.decode("ascii").splitlines():
+            if len(line) > 1024:
+                raise Refusal("resolver_data")
+            fields = line.split("#", 1)[0].split(";", 1)[0].split()
+            if not fields:
+                continue
+            if fields[0] == "nameserver" and len(fields) == 2:
+                ipaddress.ip_address(fields[1])
+                servers += 1
+            elif fields[0] in {"search", "domain", "options"} and 1 < len(fields) <= 16:
+                if any(re.fullmatch(r"[A-Za-z0-9_.:-]{1,253}", value) is None for value in fields[1:]):
+                    raise Refusal("resolver_data")
+            else:
+                raise Refusal("resolver_data")
+    except (ValueError, UnicodeError):
+        raise Refusal("resolver_data") from None
+    if not 1 <= servers <= 3:
+        raise Refusal("resolver_data")
+
+
+def _open_resolver(target: Path, principals: set[tuple[int, int]]) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    directory = os.open("/", flags)
+    try:
+        for component in target.parts[1:-1]:
+            opened = os.open(component, flags, dir_fd=directory)
+            os.close(directory)
+            directory = opened
+            info = os.fstat(directory)
+            if (not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o022
+                    or (info.st_uid, info.st_gid) not in principals):
+                raise Refusal("resolver_identity")
+        return os.open(target.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, dir_fd=directory)
+    finally:
+        os.close(directory)
+
+
+def _resolver_source(deadline: float) -> tuple[Path, bytes]:
     path = Path("/etc/resolv.conf")
+    selected = _resolver_identity(path.lstat())
+    if selected[3:5] != (0, 0):
+        raise Refusal("resolver_identity")
     target = path.resolve(strict=True)
-    if target not in {path, Path("/run/systemd/resolve/stub-resolv.conf"), Path("/run/systemd/resolve/resolv.conf"),
-                      Path("/run/NetworkManager/resolv.conf")}:
+    if target not in _RESOLVER_TARGETS:
         raise Refusal("resolver_identity")
-    info = target.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022 or info.st_nlink != 1:
-        raise Refusal("resolver_identity")
-    _read(target, 65536)
-    return target if target != path else None
+    principals = _resolver_principals() if str(target).startswith("/run/systemd/resolve/") else {(0, 0)}
+    fd = _open_resolver(target, principals)
+    try:
+        info = os.fstat(fd)
+        _validate_resolver_info(info, principals)
+        identity = _resolver_identity(info)
+        raw = bytearray()
+        while True:
+            _remaining(deadline)
+            block = os.read(fd, min(65536, 65537 - len(raw)))
+            if not block:
+                break
+            raw.extend(block)
+            if len(raw) > 65536:
+                raise Refusal("resolver_data")
+        if (len(raw) != info.st_size or _resolver_identity(os.fstat(fd)) != identity
+                or _resolver_identity(target.lstat()) != identity
+                or _resolver_identity(path.lstat()) != selected or path.resolve(strict=True) != target):
+            raise Refusal("resolver_changed")
+    finally:
+        os.close(fd)
+    _validate_resolver_data(bytes(raw))
+    return target, bytes(raw)
 
 
-def _properties(network: bool, seconds: int, *, resolver: Path | None = None) -> list[str]:
+def _resolver(deadline: float) -> Resolver:
+    if _active is None:
+        raise Refusal("store_not_mounted")
+    target, raw = _resolver_source(deadline)
+    directory = _active.mount / "runtime-config"
+    if not directory.exists():
+        directory.mkdir(mode=0o700)
+    _private(directory, directory=True)
+    if directory.stat().st_dev != _active.mount.stat().st_dev:
+        raise Refusal("resolver_identity")
+    with os.scandir(directory) as entries:
+        if next(entries, None) is not None:
+            raise Refusal("resolver_retained_snapshot")
+    snapshot = directory / ("resolver-" + uuid.uuid4().hex + ".conf")
+    _write_new(snapshot, raw)
+    snapshot.chmod(0o444)
+    info = snapshot.lstat()
+    if (info.st_mode != stat.S_IFREG | 0o444 or info.st_uid or info.st_gid or info.st_nlink != 1
+            or info.st_dev != directory.stat().st_dev or _read(snapshot, 65536) != raw):
+        raise Refusal("resolver_identity")
+    return Resolver(snapshot, target, _resolver_identity(info))
+
+
+def _retire_resolver(resolver: Resolver) -> None:
+    try:
+        if _resolver_identity(resolver.path.lstat()) != resolver.identity:
+            raise Refusal("resolver_retirement_identity")
+        resolver.path.unlink()
+    except OSError:
+        raise Refusal("resolver_retirement_identity") from None
+
+
+def _properties(network: bool, seconds: int, *, resolver: Resolver | None = None) -> list[str]:
     if type(network) is not bool or type(seconds) is not int or not 1 <= seconds <= 1500:
         raise Refusal("unit_contract")
     properties = ["Type=exec", "User=65534", "Group=65534", "SupplementaryGroups=", "UMask=0077",
@@ -537,10 +673,11 @@ def _properties(network: bool, seconds: int, *, resolver: Path | None = None) ->
             f"BindPaths={WORK}:{WORK}:norbind {WORK}/tmp:/tmp:norbind {WORK}/tmp:/var/tmp:norbind",
             f"WorkingDirectory={WORK}", "ProtectClock=yes"]
     if resolver is not None:
-        if not network or resolver not in {Path("/run/systemd/resolve/stub-resolv.conf"), Path("/run/systemd/resolve/resolv.conf"),
-                                          Path("/run/NetworkManager/resolv.conf")}:
+        if (not network or type(resolver) is not Resolver or resolver.destination not in _RESOLVER_TARGETS
+                or resolver.path.parent != ROOT / "store/runtime-config"
+                or re.fullmatch(r"resolver-[0-9a-f]{32}\.conf", resolver.path.name) is None):
             raise Refusal("resolver_identity")
-        properties.append(f"BindReadOnlyPaths={resolver}:{resolver}:norbind")
+        properties.append(f"BindReadOnlyPaths={resolver.path}:{resolver.destination}:norbind")
     return properties
 
 
@@ -590,12 +727,14 @@ def run_unit(script: str, *, network: bool = False, seconds: int = 300) -> dict:
     """
     if _active is None or _end is None or _work_end is None:
         raise Refusal("store_not_mounted")
-    properties = _properties(network, seconds, resolver=_resolver() if network else None)
+    properties = _properties(network, seconds)
     if type(script) is not str or not script or len(script.encode("utf-8")) > 65536:
         raise Refusal("unit_script")
     deadline = min(_work_end, time.monotonic() + seconds)
     _verify(_active, deadline)
     _visible_system(deadline)
+    resolver = _resolver(deadline) if network else None
+    properties = _properties(network, seconds, resolver=resolver)
     unit = "dotfiles-ai-openshell-build-" + uuid.uuid4().hex + ".service"
     environment = {"PATH": "/usr/sbin:/usr/bin", "LC_ALL": "C", "LANG": "C", "HOME": str(WORK / "home"),
                    "CARGO_HOME": str(WORK / "cargo"), "RUSTUP_HOME": str(WORK / "rustup"), "TMPDIR": str(WORK / "tmp"),
@@ -632,6 +771,15 @@ def run_unit(script: str, *, network: bool = False, seconds: int = 300) -> dict:
             detail += error.stderr
             raise Refusal("unit_shutdown_unverified", stdout=original.stdout, stderr=detail,
                           returncode=original.returncode) from None
+        if resolver is not None:
+            try:
+                _retire_resolver(resolver)
+            except Refusal as error:
+                if primary is not None:
+                    raise Refusal(str(error), stdout=primary.stdout,
+                                  stderr=primary.stderr + b"\nresolver retirement failed\n" + error.stderr,
+                                  returncode=primary.returncode) from None
+                raise
     if primary is not None:
         raise primary
     _verify(_active, _work_end)
