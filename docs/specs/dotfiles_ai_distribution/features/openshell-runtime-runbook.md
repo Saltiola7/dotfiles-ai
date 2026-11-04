@@ -122,6 +122,16 @@ Only these closed operations are accepted:
   static ARM64 binary must carry the exact experimental version and pass the
   socket-denial sentinel. Runtime launch and agent compatibility remain separate.
 
+The fixed `full-test/cargo-test` unit alone enables its internal
+`library_tests` flag, allowing `AF_NETLINK` in the private offline network
+namespace for upstream loopback tests. Its service mask stays `0077`; only the
+complete library-test subprocess uses mask `0066`, producing traversable `0711`
+temporary directories and private `0600` regular files. `WORK` and `WORK/tmp`
+remain `0700`. Builds, version checks and the separate filtered sentinel keep
+their inherited mask. These settings are internal stage selections, not CLI
+overrides. Require the full suite to pass; do not skip tests, change source,
+chmod retained paths or relax the workload Unix-socket exclusion.
+
 Full-build operations retain previous toolchains, extraction trees and evidence.
 They share the same 8 GiB hard filesystem cap and 30-minute lifecycle deadline;
 insufficient space, partial preparation or timeout preserves a failed attempt.

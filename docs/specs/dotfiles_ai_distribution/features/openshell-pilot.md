@@ -1528,6 +1528,46 @@ escaping paths. This uses already authenticated packages; it does not add a
 library download, change the Rust prefix or runtime library environment, or
 permit host GNU library substitution. The final OpenShell executable and test
 binary must still pass the static ARM64 checks.
+
+The trusted full-library test unit has one closed environment exception.
+`run_unit(..., library_tests: bool = False)` and its `_properties` helper accept
+only an actual boolean; `library_tests=True` requires `network=False` and adds
+only `AF_NETLINK` to the existing address-family allowance. Host orchestration
+selects it only for operation `full-test`, stage `cargo-test`, so the upstream
+loopback-confinement tests can inspect their private network namespace. All other
+stages retain the default. This does not grant capabilities, external networking,
+namespace creation or any agent/runtime exception to the workload child filter.
+The service remains `UMask=0077`, with the same private paths and resource caps.
+
+The fixed harness `command(..., umask=-1)` accepts only integers `-1` or `0o066`
+(not booleans), validates before spawning and passes the value through the
+subprocess `umask` argument. Only execution of the complete upstream library-test
+binary selects `0o066`; compilation, version checks, the separate socket-denial
+sentinel and agent commands inherit the default. Do not change the controller's
+process-wide mask. Pinned tempfile 3.27.0 uses the default directory mode `0777`,
+so this test-child mask produces `0711` directories while default regular files
+remain `0600`. It lets the existing CA symlink test pass its immediate-parent
+traversal precondition and reach the unchanged symlink assertion. `WORK` and
+`WORK/tmp` remain `0700`; no path, bind, chmod, upstream test or production-source
+change is permitted. See the [pinned creation behavior](https://github.com/Stebalien/tempfile/blob/v3.27.0/src/dir/imp/unix.rs#L11)
+and [CA validation order](https://github.com/NVIDIA/OpenShell/blob/5d25211b25a8fc887e8d5c606d57d6ab22f1d76c/crates/openshell-sandbox/src/boundary_server.rs#L4230).
+
+Required behavior scenarios for this exception:
+
+- Given any ordinary stage, when its unit starts, then it excludes `AF_NETLINK`
+  and retains `UMask=0077`; a non-boolean flag or network-enabled test exception
+  refuses before service creation.
+- Given `full-test/cargo-test`, when the full library-test binary executes, then
+  its unit alone allows `AF_NETLINK` and that subprocess alone uses `0o066`; all
+  other command calls retain the inherited mask, and an unselected mask refuses
+  before process creation.
+- Given the exact retained source and private `0700` parent paths, when the full
+  suite reruns, then every original test and the separate filtered sentinel must
+  pass without adding skips or additional patches. Preserve and report any
+  existing upstream environment-dependent early returns separately; a passing
+  test count does not prove those branches executed. Source identities, storage
+  limits, verified shutdown and disabled-session/runtime results remain required.
+
 Cargo may publish the final runtime as a copy or as a hardlink. Keep generic
 source, cache, tool and test-executable single-link validation unchanged. Only
 `full-target-1/release/openshell-sandbox` may have two links, and only when its
