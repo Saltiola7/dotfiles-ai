@@ -1307,7 +1307,13 @@ install Alpine packages globally, widen trust or accept an unknown signer. Prese
 partial inputs on failure. Missing exact files may be completed only from newly
 reverified inputs; existing different or unknown files refuse rather than overwrite.
 Package symlinks must remain inside the private prefix; omit the unused `usr/bin/ldd`
-entry rather than expose an absolute link. Record authenticated measured hashes.
+entry rather than expose an absolute link. The pinned GCC package's sole selected
+absolute plugin link, `usr/lib/bfd-plugins/liblto_plugin.so`, may be relocated only
+from its exact authenticated target
+`//usr/libexec/gcc/aarch64-alpine-linux-musl/14.2.0/liblto_plugin.so` to
+`../../libexec/gcc/aarch64-alpine-linux-musl/14.2.0/liblto_plugin.so`, after proving
+the target is an authenticated regular file in this prefix. All other absolute
+links refuse. Record authenticated measured hashes.
 
 C compiler/assembler/archive wrappers use fixed private executable paths, explicit
 sysroot/search prefixes and a fresh scoped environment. Alpine library lookup must
@@ -1325,6 +1331,11 @@ Use the original locked registry checksums, target filtering, credentials absent
 It may query the verified Rust compiler but may not run project build scripts.
 Build/test uses `--locked --offline`, the same derived lock, bundled linker,
 release profile with upstream strip behavior, jobs two and incremental disabled.
+Each fixed stage travels in its own bounded guest program, inside one admitted
+VM lifecycle and the same overall deadline. Each stage independently verifies
+mount, service shutdown and unmount; host evidence retains every completed stage
+if a later one fails. The existing 256 KiB expanded program, 60 KiB encoded
+transport and 64 KiB service-script ceilings remain unchanged.
 Preserve exact input identities across stages; retain bounded diagnostics and
 partial artifacts on failure. Successful compilation is not evidence for full
 launch/exec/PTY/descriptor/broker or either agent's compatibility. Those subsequent
