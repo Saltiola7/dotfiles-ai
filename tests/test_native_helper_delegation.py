@@ -96,10 +96,12 @@ def test_deployed_host_helper_configuration_matches_source():
     for name in ("build", "build-rnd", "plan", "general"):
         assert installed["agent"][name]["permission"]["task"] == expected[name]["permission"]["task"]
     assert installed["agent"]["plan"]["model"] == "openai/gpt-6.1-sol-fast"
-    sources = [OC / 'AGENTS.md', *[OC / 'agents' / f'{name}.md' for name in (
+    assert (home / '.config/opencode/AGENTS.md').read_bytes() == (
+        ROOT / '.chezmoitemplates/agent-activation.md').read_bytes()
+    sources = [OC / 'agents' / f'{name}.md' for name in (
         'build-claude', 'build-gpt', 'builder-openai', 'builder-vertex', 'explore-openai', 'explore-vertex',
         'scout-openai', 'scout-vertex', 'discovery-coordinator', 'discovery-writer',
-        'discovery-writer-openai', 'discovery-writer-vertex')]]
+        'discovery-writer-openai', 'discovery-writer-vertex')]
     sources += [OC / 'commands' / f'dbsctr-{family}.md' for family in ('gpt', 'claude')]
     for source in sources:
         assert (home / '.config/opencode' / source.relative_to(OC)).read_bytes() == source.read_bytes()

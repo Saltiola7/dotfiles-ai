@@ -1,5 +1,26 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-04 — Shared global skill activation
+
+- Replaced independent global prompts with one activation-policy template for
+  OpenCode and Codex. Skills require conversation-scoped operator activation;
+  Caveman Commit remains automatic. Activated DBSCTR owns specialist routing,
+  Caveman/Ponytail guidance, lifecycle rules and private-evidence policy.
+- Imported the selected canonical Caveman, Caveman Commit and Ponytail bundles
+  with immutable provenance and original MIT licenses. Removed the managed
+  Ponytail prompt injector while preserving unrelated plugin configuration.
+- Source validation passed 253 affected tests with three opt-in native checks
+  unselected. Changed typing checks pass; seven native-helper fixture diagnostics
+  match the unchanged baseline. Independent activation review passed after
+  clarifying that skill activation grants no publication authority.
+- Fresh Codex and OpenCode native processes discovered the five selected skills
+  and loaded the same global policy. Loopback-only synthetic responses qualify
+  discovery/loading, not universal model compliance or provider behavior.
+- No Gate Exception or review-policy change. Gate Commit `b981e20f` implements
+  the contract from `2bdf3347`. Intended Final Push is the recorded feature branch
+  and draft PR into `main`; authorized local adoption follows merge with private
+  preimages, native qualification and an idempotency check.
+
 ## 2026-11-02 — RRW-002 RHEL remote-user Discovery
 
 - Defined the RHEL 10 x86_64 successor, IAP-only portable client, remote-only

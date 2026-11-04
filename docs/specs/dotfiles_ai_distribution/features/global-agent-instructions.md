@@ -114,6 +114,34 @@ verify bytes and idempotency, and record the rollout result privately. No packag
 or provider update, shared-cache collection, branch deletion or unrelated service
 restart is part of this feature.
 
+## Local adoption and recovery
+
+Use the dedicated dotfiles-ai chezmoi configuration and an explicit merged source
+checkout. Preview only the instruction projections, selected skill bundle files
+and retired Ponytail plugin entry. Exclude scripts during the scoped apply;
+unrelated installers, providers, startup settings and services are not rollout
+targets. Compare the proposed configuration structurally with the live file and
+preserve unrelated settings and plugin entries.
+
+Before writing, retain private preimages, modes, resolved targets and source
+identities. Investigate divergent installed skills instead of replacing unrelated
+work. Project the managed CLI instructions through the existing owner manifest;
+do not bypass its collision checks. Adopt a separately selected Desktop home only
+after checking its existing instruction file, then verify its alias resolves to
+the reviewed rendered source. Keep authentication, sessions and other home files
+unchanged.
+
+Verify projection equality, selected skill file hashes, native skill discovery
+and fresh native instruction loading. A second scoped apply must produce no
+changes. Retain source revisions and private rollback preimages; restore only
+owned rollout targets if verification fails. Do not remove shared caches,
+installed upstream packages, branches or retained cycle evidence as cleanup.
+
+The immutable style inventory records supported imports and licenses. Future
+updates requalify the selected bundles and native discovery rather than silently
+following an upstream default branch. Retirement of the old global prose does
+not retire native safeguards or the existing review process.
+
 ## Visual Evidence
 
 | Concern | Decision and canonical evidence |
