@@ -163,3 +163,21 @@ def test_guest_transport_rejects_trailing_compressed_data(build):
 def test_guest_transport_bounds_expanded_source_before_vm(build):
     with pytest.raises(build.Refusal,match='guest_program_bound'):
         build.encode_program('x'*(256*1024+1))
+
+
+def test_completed_stage_results_survive_later_failure(build, capsys):
+    @contextmanager
+    def mounted_store(**kwargs): yield None
+    count = 0
+    def run_unit(script, **kwargs):
+        nonlocal count
+        count += 1
+        if count == 3: raise RuntimeError('later stage failed')
+        return {'stdout': json.dumps({'proof': count}).encode()}
+    namespace = {'time': time, 'sys': sys, 'json': json,
+                 'mounted_store': mounted_store, 'run_unit': run_unit, 'Refusal': build.Refusal}
+    with pytest.raises(RuntimeError, match='later stage failed'):
+        exec(build.kernel_script('', 'def stage(*args): pass', {}, 1000,
+                                 runtime='def install_runtime(): return {}'), namespace)
+    records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
+    assert records[-1] == {'stage': 'setup', 'finished': True, 'result': {'proof': 2}}

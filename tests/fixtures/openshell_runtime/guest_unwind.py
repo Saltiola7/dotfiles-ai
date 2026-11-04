@@ -28,7 +28,9 @@ unwind_packages = (
      'origin': 'gcc', 'commit': 'fbf60319be3bbaf6dd32ef55cc6fb7189e05c266',
      'depend': ['so:libc.musl-aarch64.so.1']},
 )
-unwind_version = b'apk-tools 2.14.12-r0, compiled for aarch64.\n'
+# Upstream v2.14.12 Make.rules resets FULL_VERSION after config.mk.
+# The binary omits the package revision; signed PKGINFO retains it.
+unwind_version = b'apk-tools 2.14.12, compiled for aarch64.\n'
 unwind_signature = 'sbin/apk.static.SIGN.RSA.sha256.alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub'
 unwind_expansion_limit = 32 * 1024**2
 
@@ -207,7 +209,10 @@ def unwind_install(prefix):
                             environment=env, maximum=30)
     if result != b'Verified OK\n' or error: raise RuntimeError('unwind_signature')
     result, error = command([str(binary), '--version'], environment=env, maximum=10)
-    if result != unwind_version or error: raise RuntimeError('unwind_verifier_version')
+    if result != unwind_version or error:
+        print(json.dumps({'unwind_version_stdout': result[:512].decode(errors='replace'),
+                          'unwind_version_stderr': error[:512].decode(errors='replace')}), flush=True)
+        raise RuntimeError('unwind_verifier_version')
     command([str(binary), '--root', str(root), '--keys-dir', 'keys', '--repositories-file', '/dev/null',
              '--no-network', '--no-cache', 'verify', str(paths[0]), str(paths[1])], environment=env, maximum=60)
     library = unwind_members(paths[1])

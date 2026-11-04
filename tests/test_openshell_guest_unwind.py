@@ -31,7 +31,8 @@ def test_fixed_artifacts_and_no_fabricated_apk_hash(unwind):
         ('alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub', 800)]
     assert all('sha256' not in p for p in unwind.unwind_artifacts[:2])
     assert unwind.unwind_artifacts[2]['sha256'] == 'd11f6b21c61b4274e182eb888883a8ba8acdbf820dcc7a6d82a7d9fc2fd2836d'
-    assert unwind.unwind_version == b'apk-tools 2.14.12-r0, compiled for aarch64.\n'
+    # Make.rules replaces the package revision with the upstream version.
+    assert unwind.unwind_version == b'apk-tools 2.14.12, compiled for aarch64.\n'
     assert 'RSA.sha256.' in unwind.unwind_signature
 
 
@@ -259,4 +260,20 @@ def test_authenticated_archives_cannot_change_before_publication(installable, mo
         return result
     monkeypatch.setattr(unwind, 'command', change_archive)
     with pytest.raises(RuntimeError, match='unwind_artifact_changed'): unwind.unwind_install(prefix)
+    assert not prefix.exists()
+
+
+def test_wrong_native_version_retains_bounded_diagnostic(installable, monkeypatch, capsys):
+    unwind, prefix, calls, _ = installable
+    original = unwind.command
+    def command(argv, **kwargs):
+        if '--version' in argv:
+            return b'wrong native version' + b'x' * 4096, b'y' * 4096
+        return original(argv, **kwargs)
+    monkeypatch.setattr(unwind, 'command', command)
+    with pytest.raises(RuntimeError, match='unwind_verifier_version'):
+        unwind.unwind_install(prefix)
+    captured = capsys.readouterr().out
+    assert 'wrong native version' in captured
+    assert len(captured) < 1400
     assert not prefix.exists()

@@ -153,7 +153,7 @@ with mounted_store(deadline=_operation_end):
         _script = _builder_source + '\\nstage(' + repr(_operation) + ',' + repr(_payload) + ',' + repr(_seconds-5) + ')\\n'
         _observed = run_unit(_script, network=_network, seconds=_seconds)
         _stages[_operation] = json.loads(_observed['stdout'])
-        print(json.dumps({{'stage':_operation,'finished':True}}),file=sys.stderr,flush=True)
+        print(json.dumps({{'stage':_operation,'finished':True,'result':_stages[_operation]}}),file=sys.stderr,flush=True)
 print(json.dumps({{'status':'kernel_tested','runtime':_runtime,'stages':_stages,'session_enabled':False,'full_runtime_qualified':False}}),flush=True)
 ''')
 
