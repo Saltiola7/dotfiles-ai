@@ -1215,6 +1215,32 @@ program SHA256 before executing it. The CLI still accepts only its fixed
 operations, never caller-supplied scripts. Preserve the separate 64 KiB service
 script ceiling and the existing lifecycle/storage limits.
 
+Native compilation exposed a portability defect in an existing upstream test:
+`libc::ioctl` takes a signed request on musl and an unsigned request on GNU libc.
+Permit one reviewed test-only conversion of the fixed `FIOSETOWN_REQUEST` using
+checked target-type inference. Retain the unmodified upstream preimage, unchanged
+socket-denial logic and dependency lock; update patch and resulting-source hashes
+and the experimental revision. This is an explicit test portability correction,
+not permission to substitute runtime code after a failed build.
+
+An explicit closed `kernel-resume` operation may reuse the successfully installed
+`toolchain-unwind-1` and fetched dependencies inside the same 8 GiB store. It must
+verify all pinned archives and compare retained executable/library inputs against
+the authenticated archive members before executing retained tools. Reauthenticate
+the support APKs and compare the installed unwind library without reinstalling it.
+Reject missing, changed, extra loadable or escaped inputs. Do not allocate another
+toolchain generation, reinstall, delete evidence, enlarge storage or fetch network
+data. Verify the existing harness against the exact earlier source identity;
+preserve that source before publishing the sole reviewed test correction. Require
+the unchanged Cargo manifest, lock and module wrapper. Then run the same locked,
+offline compilation and kernel tests under the existing service limits. Failure
+preserves the current state for inspection; it never silently starts over.
+
+The fixed unit may carry its source-bound payload as compressed JSON data, checked
+for exact expanded length, hash, complete decompression and no trailing data before
+use. This does not execute decompressed text. The unit's 64 KiB source ceiling and
+the payload's 128 KiB expanded ceiling remain unchanged.
+
 Kernel qualification requires the new test's sentinel, actual AF_UNIX socket and
 socketpair denials across types/flags and descendants, permitted INET/pipe cases,
 and an unaffected trusted parent. It is preliminary evidence only: it does not
