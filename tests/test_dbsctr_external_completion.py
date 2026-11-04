@@ -1061,3 +1061,160 @@ def test_native_initiative_failure_releases_owned_mutation_lease(ready, capsys, 
     ready.native.actor = ACCOUNT
     assert ready.invoke(*arguments(ready)) == 0
     assert json.loads(capsys.readouterr().out)["status"] == "delivered_external"
+
+
+@pytest.fixture
+def retained_lineage_plan(ready, capsys):
+    """Create actual recovery custody, then restore an otherwise eligible source.
+
+    The retained plan becomes stale after restoration, but an approved transaction
+    still requires reconciliation. Restoring this disposable checkout prevents an
+    unrelated unrecorded-commit error from hiding a missing custody admission check.
+    """
+    core, root = ready.core, ready.root
+    original = snapshot(ready)
+    relative = "docs/specs/test/CHANGELOG.md"
+    core.git(root, "update-ref", "refs/remotes/origin/main", ready.base, ready.merge)
+    with (root / relative).open("a") as stream:
+        stream.write("Synthetic omitted documentation for recovery custody.\n")
+    core.git(root, "add", relative)
+    core.git(root, "commit", "-m", "Synthetic omitted documentation")
+    omitted = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    argv = ["lineage-recover", "--cycle-id", "cycle-1", "--accepted-base", ready.base,
+            "--reason", "PRIVATE_RECOVERY_REASON_SENTINEL", "--json"]
+    assert ready.invoke(*argv, "--preflight") == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "preflight"
+    digest = result["state_digest"]
+    directory = core.lineage_location(root, "cycle-1", digest, "plan.json").parent
+    assert {path.name for path in directory.iterdir()} == {"plan.json"}
+
+    def restore_source():
+        core.git(root, "restore", "--source", ready.head, "--staged", "--worktree", "--", relative)
+        core.git(root, "update-ref", "HEAD", ready.head, omitted)
+        core.git(root, "update-ref", "refs/remotes/origin/main", ready.merge, ready.base)
+        assert snapshot(ready) == original
+
+    ready.lineage = SimpleNamespace(argv=argv, digest=digest, directory=directory,
+                                    restore_source=restore_source)
+    return ready
+
+
+def lineage_custody_snapshot(cycle):
+    directory = cycle.lineage.directory
+    return {str(path.relative_to(directory)): (path.stat().st_mode, path.read_bytes())
+            for path in directory.iterdir()}
+
+
+def assert_lineage_blocks_external(cycle, monkeypatch, capsys, preview, message):
+    """Check actual custody admission under the shared lease, not a mocked guard."""
+    import fcntl
+
+    core, root = cycle.core, cycle.root
+    before = snapshot(cycle)
+    custody = lineage_custody_snapshot(cycle)
+    native_reads = len(cycle.native.calls)
+    lease = core.cycle_dir(root) / "locks/evidence-local-mutation-cycle-1.lock"
+    original_custody = core.lineage_custody
+    original_environment = core.github_environment
+    custody_reads, credential_reads = [], []
+
+    def observe_custody(target, identifier):
+        assert target == root and identifier == "cycle-1"
+        with lease.open("r+") as stream:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        custody_reads.append(identifier)
+        return original_custody(target, identifier)
+
+    def observe_credentials(account):
+        credential_reads.append(account)
+        return original_environment(account)
+
+    monkeypatch.setattr(core, "lineage_custody", observe_custody)
+    monkeypatch.setattr(core, "github_environment", observe_credentials)
+    assert cycle.invoke(*arguments(cycle, *(["--preview"] if preview else []))) == 1
+    output = capsys.readouterr()
+    assert message in output.err
+    assert "PRIVATE_RECOVERY_REASON_SENTINEL" not in output.out + output.err
+    assert "PRIVATE_RECOVERY_INTERRUPTION_SENTINEL" not in output.out + output.err
+    assert "synthetic-token-never-print" not in output.out + output.err
+    assert custody_reads and not credential_reads
+    assert len(cycle.native.calls) == native_reads
+    assert snapshot(cycle) == before
+    assert lineage_custody_snapshot(cycle) == custody
+    with lease.open("r+") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("preview", [False, True], ids=["initial", "preview"])
+def test_native_initiative_pending_lineage_blocks_external_before_native_reads(
+        retained_lineage_plan, monkeypatch, capsys, preview):
+    ready = retained_lineage_plan
+    core = ready.core
+    original = ready.path.read_bytes()
+    replace = core.private_json
+    interrupted = False
+
+    def interrupt_replacement(destination, value, **kwargs):
+        nonlocal interrupted
+        if Path(destination) == ready.path:
+            interrupted = True
+            raise OSError("PRIVATE_RECOVERY_INTERRUPTION_SENTINEL")
+        return replace(destination, value, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(core, "private_json", interrupt_replacement)
+        with pytest.raises(SystemExit) as error:
+            ready.invoke(*ready.lineage.argv, "--expected-launch-digest", ready.lineage.digest,
+                         "--approval", "agent-confirmed")
+        assert error.value.code == 75
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "recovery_required" and interrupted
+    assert ready.path.read_bytes() == original
+    assert {path.name for path in ready.lineage.directory.iterdir()} == {
+        "plan.json", "envelope.json", "before.json", "outcome.json",
+    }
+    assert (ready.lineage.directory / "before.json").read_bytes() == original
+    envelope = json.loads((ready.lineage.directory / "envelope.json").read_text())
+    assert envelope["approval_method"] == "agent_confirmed"
+    assert envelope["plan"]["head"] != ready.head
+    ready.lineage.restore_source()
+
+    assert_lineage_blocks_external(ready, monkeypatch, capsys, preview,
+                                  "prepared lineage recovery requires reconciliation")
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("preview", [False, True], ids=["initial", "preview"])
+def test_native_initiative_unknown_lineage_custody_blocks_external_before_native_reads(
+        retained_lineage_plan, monkeypatch, capsys, preview):
+    ready = retained_lineage_plan
+    unknown = ready.lineage.directory / "unrecognized-retained-evidence"
+    unknown.write_bytes(b"Preserve this unexplained private artifact.\n")
+    unknown.chmod(0o600)
+    ready.lineage.restore_source()
+
+    assert_lineage_blocks_external(ready, monkeypatch, capsys, preview,
+                                  "lineage recovery custody requires reconciliation")
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("preview", [False, True], ids=["initial", "preview"])
+def test_native_initiative_plan_only_lineage_custody_allows_external_completion(
+        retained_lineage_plan, capsys, preview):
+    ready = retained_lineage_plan
+    ready.lineage.restore_source()
+    custody = lineage_custody_snapshot(ready)
+    before = snapshot(ready)
+
+    assert ready.invoke(*arguments(ready, *(["--preview"] if preview else []))) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "delivered_external"
+    assert ready.native.calls
+    assert lineage_custody_snapshot(ready) == custody
+    if preview:
+        assert snapshot(ready) == before
+    else:
+        assert json.loads(ready.path.read_text())["state"] == "completed"

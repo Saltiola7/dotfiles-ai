@@ -20213,6 +20213,7 @@ def command_complete_external(args):
         if (record["cycle_id"] != identifier or record["delivery"] != before["delivery"]
                 or record["worktree"] != before["worktree"] or record.get("execution") != before.get("execution")):
             fail("external completion binding changed during admission")
+        lineage_pending_guard(root, record)
         if native_workspace_execution(record):
             continuation_private(path)
             verify_native_workspace_backup(root, record)
