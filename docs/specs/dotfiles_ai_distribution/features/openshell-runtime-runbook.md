@@ -181,6 +181,10 @@ path, descriptor or environment override.
 
 The cases are version/help for both agents, empty Codex login status and the
 fixed stdio initialization/EOF exchange, and OpenCode's fixed rg sentinel command.
+The complete Codex archive is authenticated, but the probe extraction omits the
+43 exact voice entries pinned in `agentcheck/voice-omissions.json`. Record their
+types, modes, sizes and file hashes; never execute or publish them. This is a
+credential-free CLI subset and does not qualify voice or complete-package use.
 Require unfiltered and upstream controls and valid filter/exec proof before
 interpreting any fixed probe's patched-only native failure as incompatibility.
 Keep native exit/signal separate from forced termination, timeout and malformed

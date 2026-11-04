@@ -1672,9 +1672,23 @@ redirects from the exact release URL to `release-assets.githubusercontent.com`.
 Verify exact length and SHA256; this is release-digest verification, not a
 Sigstore claim. Bound actual stream expansion and reject duplicate/unknown
 members, all symbolic/hard links, special files and escaping paths. Require the
-Codex directories `bin`, `codex-resources`, `codex-path`, and exactly five files:
+retained Codex directories `bin`, `codex-resources`, `codex-path`, and exactly five files:
 `codex-package.json`, `bin/codex`, `bin/codex-code-mode-host`,
 `codex-resources/bwrap`, `codex-path/rg`. OpenCode contains only `opencode`.
+The authenticated Codex archive also has 43 voice entries (five directories and
+38 regular files, 55,864,949 file bytes). For these credential-free CLI probes,
+omit exactly the entries in `agentcheck/voice-omissions.json`; this derives a
+probe-only subset, not a complete functional release. The file has exactly
+`schema_version: 1`, the selected `archive_sha256`, and `entries`, mapping exact
+paths to `kind` (`file` or `directory`), archived `mode` and `bytes`. Its canonical
+JSON SHA256 (sorted keys, compact separators) is
+`478394bae952fff452aa79788abe07f3b2a44b1439c88b91da2919250cde7780`.
+Asset-stage payloads carry it as `voice_omissions`; host and guest verify this
+identity. Require every listed entry's exact type, mode and size, hash every
+omitted regular file while streaming, count all omitted bytes against the same
+archive expansion ceiling, and never publish or execute these entries. No
+prefix-wide omission or ELF loader exception is admitted. Reverification
+repeats these checks; an unfiltered control failure still stops comparison.
 The Codex metadata has exactly `layoutVersion: 1`, `version: "0.164.0"`,
 `target: "aarch64-unknown-linux-musl"`, `variant: "codex"`,
 `entrypoint: "bin/codex"`, `resourcesDir: "codex-resources"`, `pathDir: "codex-path"`.
@@ -1813,7 +1827,12 @@ model or login request is sent. Kill/check the process group on every exit path;
 verified service/cgroup shutdown remains the final descendant authority.
 
 Asset reports bind schema/generation, exact archive and per-file bytes/hashes/
-modes, ELF interpreter/dependency metadata, prefixes and Codex metadata. Download
+modes, ELF interpreter/dependency metadata, prefixes and Codex metadata. Each
+asset additionally reports `package_scope` (`probe_subset_without_voice` for
+Codex, `complete` for OpenCode) and `omitted_entries`. Codex's exact 43-entry
+map adds `sha256` to each selected entry (null for directories); OpenCode's map
+is empty. `expanded_bytes` remains retained file bytes; retained plus omitted
+file bytes must remain within the original expanded ceiling. Download
 status is `agent_assets_downloaded`; prepare/verify status is
 `agent_assets_verified`. Fixture preparation reports `agent_fixture_prepared`
 with schema/generation 1 and `source_sha256` for the exact five source files;
