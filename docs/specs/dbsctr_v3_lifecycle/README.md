@@ -816,12 +816,13 @@ ledger.
 
 ### Feature: OpenCode Entry Points
 
-**Scenario: Route lifecycle work to V3**
-- Given OpenCode reads the managed global routing instructions
-- When a request changes behavior, contracts, schemas, validation, services,
-  pipelines, orchestration, or downstream-visible output
-- Then OpenCode loads the unversioned `dbsctr` skill
-- And it loads `discovery` first when intent or the bounded context is unclear
+**Scenario: Activate lifecycle work explicitly**
+- Given native global instructions follow the
+  [shared activation contract](../dotfiles_ai_distribution/features/global-agent-instructions.md)
+- When a request could benefit from lifecycle orchestration
+- Then the agent suggests DBSCTR and waits for the operator's decision
+- And an explicit `/dbsctr` request activates the unversioned skill for the conversation
+- And activated DBSCTR selects its applicable dependencies and specialists
 
 **Scenario: Invoke public commands**
 - Given the managed commands are deployed
