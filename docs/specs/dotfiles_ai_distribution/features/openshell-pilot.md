@@ -1458,6 +1458,17 @@ Use the original locked registry checksums, target filtering, credentials absent
 It may query the verified Rust compiler but may not run project build scripts.
 Build/test uses `--locked --offline`, the same derived lock, bundled linker,
 release profile with upstream strip behavior, jobs two and incremental disabled.
+Rust procedural macros retain their native dynamic-library behavior. The full-build
+Rust flags may add only the authenticated private prefix's `usr/lib` and
+`usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0` as native library search paths,
+in that order. Before compilation, the existing offline compiler verification
+must require the exact selected `usr/lib/libgcc_s.so` GNU linker script,
+`GROUP ( libgcc_s.so.1 -lgcc )`, and its retained `usr/lib/libgcc_s.so.1` ELF
+and GCC-directory `libgcc.a` inputs. Reject altered directives, operands or
+escaping paths. This uses already authenticated packages; it does not add a
+library download, change the Rust prefix or runtime library environment, or
+permit host GNU library substitution. The final OpenShell executable and test
+binary must still pass the static ARM64 checks.
 Each fixed stage travels in its own bounded guest program, inside one admitted
 VM lifecycle and the same overall deadline. Each stage independently verifies
 mount, service shutdown and unmount; host evidence retains every completed stage
