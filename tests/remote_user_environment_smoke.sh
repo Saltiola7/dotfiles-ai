@@ -59,6 +59,14 @@ test "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezm
 
 "$HOME/.local/bin/starship" --version
 "$HOME/.local/bin/atuin" --version
+python3 - <<'PY'
+import tomllib
+from pathlib import Path
+config = tomllib.loads((Path.home() / ".config/atuin/config.toml").read_text())
+assert config["auto_sync"] is False
+assert config["sync_address"] == ""
+assert config["daemon"]["enabled"] is False
+PY
 "$HOME/.local/bin/op" --version
 "$HOME/.local/bin/gcloud" version --format=json >/dev/null
 "$HOME/.local/bin/codex" --version
