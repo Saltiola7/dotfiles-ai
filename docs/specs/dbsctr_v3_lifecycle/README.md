@@ -1,5 +1,10 @@
 # DBSCTR V3 Lifecycle
 
+Supervised mechanical CI repair accounting is specified in
+[`features/supervised-ci-repairs.md`](features/supervised-ci-repairs.md).
+It is independent of automatic integration policy, grants no merge or gate
+authority and requires separate reviewed managed activation before consumer use.
+
 [Evidence rerun invalidation](features/gate-evidence-invalidation.md) specifies
 the PY-02 repair: replacing a disposed gate with failed or unavailable evidence
 reopens later required passed gates, even when the source HEAD is unchanged.

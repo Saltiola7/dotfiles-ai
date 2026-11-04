@@ -1,5 +1,49 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-03 — CI repair benchmark requalification (CI-REPAIR-002)
+
+- Preserved CI-REPAIR-001's signed source as merge ancestry. Its new `ci-repair`
+  command changed the pinned helper SHA-256 and help output, which that cycle
+  omitted from its validation closure; the hosted `helper_oracle_unavailable`
+  failure is retained.
+- Reconciled accepted external-merge completion, then lineage recovery and
+  partitioned CI. Only this changelog and the benchmark pin fixture conflicted;
+  the helper merged automatically and every validation command is preserved.
+- Requalified the combined helper SHA-256 and exact help-output hashes from actual
+  output on isolated Python 3.12.15, 3.13.1 and 3.14.10; 3.14.9 output is
+  identical. Help changes beyond accepted main are limited to `ci-repair`.
+  Workloads, profile assertions and timeouts are unchanged; no oracle is bypassed.
+- Local full-union runs exceeded their unchanged evidence deadline and remain
+  unavailable; 14 completed synthetic cohorts were partial evidence only. Native
+  hosted CI on the reconciled head and current base, including every full-suite
+  partition, benchmark/profile smoke and security analysis, is the integration
+  qualification.
+- Source-only delivery: no managed installation, consumer qualification, failure
+  waiver or automatic repair. The superseded draft, its branch and private failed
+  evidence remain retained; actual delivery identities belong to this cycle's
+  private record and final report.
+
+## 2026-11-03 — Supervised CI repair reservations (CI-REPAIR-001)
+
+- Added explicit native-failure preflight and digest-approved attempt reservation
+  through `ci-repair`, reusing the bounded authenticated GitHub reader and managed
+  Git-common private state/locks. No patch execution, gate pass, cycle reopening,
+  waiver, push, merge, authentication setup or automatic integration is granted.
+- The three-attempt budget survives head changes, linked worktrees, process
+  restarts and replacement PRs. Negative tests cover stale jobs/bases/approvals,
+  denied APIs, unsafe scope/accounting, lost state, interrupted initialization,
+  replay and concurrent reservation. Original automatic-repair rejection remains.
+- Affected Python/CLI/publication/instruction tests pass; compatibility checks
+  pass on Python 3.12 and 3.13. The original skill validator passes using the
+  existing pre-commit Python environment. Full-helper typing retains 89 verified
+  baseline diagnostics without new messages; this is not a clean full-helper
+  typing claim. Independent helper review was unavailable due native read denial;
+  primary review and validation remain the source evidence.
+- Source-only delivery targets an isolated feature branch/draft PR into `main`.
+  No Gate Exception or managed activation; exact-head merge approval and reviewed
+  post-merge installation/consumer qualification remain separate. Actual Gate
+  Commit and Final Push outcomes belong to the private Cycle Record.
+
 ## 2026-11-03 — Preserve native subtest reporting
 
 Receipt schema 2 separates actual pytest subtest occurrences from unique ordinary
