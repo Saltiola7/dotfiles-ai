@@ -1,5 +1,36 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-03 — Completion after an external merge
+
+- Add `complete-external` for an explicitly pinned, already merged GitHub PR.
+  Native account/repository/PR identity, physical Git history, protected-base
+  inclusion and exact source-tree equality qualify single-parent delivery,
+  including a squash. Existing profile, import/amendment, Graphify, gate,
+  artifact, source and paired DVC obligations remain required. A merged PR never
+  passes outstanding operational gates or manufactures a Gate Exception.
+- Persist an additive, immutable `delivered_external` receipt before removing
+  only its own active pointer. Preview preserves canonical state; completed
+  retries preserve original completion time and recover interrupted removal.
+  Preserve original Gate Commits and draft publication history. No push, PR
+  creation, merge request, checkout synchronization, feedback export or cleanup.
+- Exercise real disposable Git graphs and native-boundary fixtures for source
+  equivalence, reconciliation, later target advances, retained deleted-branch
+  heads, replacement objects, enterprise managed usernames, DVC obligations,
+  exceptions, contention, concurrent edits and crash recovery. Preserve existing
+  advisory-validation registration/checkpoint interfaces and qualify their
+  managed-owner routing without importing unrelated lineage-recovery behavior.
+- Requalify only the frozen helper/help identities on Python 3.12.15, 3.13.1 and
+  3.14.9. All three smoke cohorts produce 24 complete records and 16 retained
+  profiles each with unchanged synthetic source. Workloads, runtime versions and
+  histories are unchanged; no performance improvement is claimed.
+- Publication/instruction checks, source compilation, isolated managed rendering
+  and second-apply equality retain their own evidence. The built-in skill
+  validator still rejects the pre-existing project-required `trigger` metadata;
+  this change preserves that metadata and does not claim a built-in validator pass.
+  Source delivery is a feature-branch draft PR; managed activation follows verified
+  merge. Consumer completion remains separately gated. Actual QA, Gate Commits,
+  native CI and publication identity belong to the private Cycle Record.
+
 ## 2026-11-03 — Preserve managed validation compatibility
 
 Preserved managed checkpoint/opt-out commands, registration feedback input,
