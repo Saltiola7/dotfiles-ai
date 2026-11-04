@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+from pathlib import Path
 import re
+import stat
 
 import probe_openshell_full_build as full
 import probe_openshell_guest_build as build
@@ -12,7 +15,7 @@ import probe_openshell_storage_boot as boot
 import probe_openshell_storage_create as create
 
 
-OPERATIONS = ('agent-prepare', 'agent-test', 'agent-inspect')
+OPERATIONS = ('agent-prepare', 'agent-test', 'agent-inspect', 'agent-test-resume')
 PROBES = ('codex-version', 'codex-help', 'codex-empty-login', 'codex-stdio',
           'opencode-version', 'opencode-help', 'opencode-rg')
 MODES = ('unfiltered', 'upstream', 'patched')
@@ -21,6 +24,8 @@ WORK = '/var/lib/dotfiles-ai-openshell-build/store/work'
 FLAGS = {'session_enabled': False, 'full_runtime_qualified': False, 'compatibility_qualified': False}
 RESERVE = 256 * 1024**2
 VOICE_OMISSIONS_SHA256 = '478394bae952fff452aa79788abe07f3b2a44b1439c88b91da2919250cde7780'
+RESUME_RECEIPT_SHA256 = '2c1e547f02e4e621fff711e3be327b347604896933712cf50e3df22583d1b4cc'
+FIXTURE_FILES = (('Cargo.toml', 'Cargo.toml'), ('Cargo.lock', 'Cargo.lock'), ('src/main.rs', 'main.rs'))
 STAGES = {
     'agent-inspect': (('agent-descriptors', 'cases', False, 30),),
     'agent-prepare': (('agent-download', 'assets', True, 300), ('agent-prepare', 'assets', False, 300)),
@@ -32,6 +37,9 @@ STAGES = {
                    *((case, 'cases', False, 60 if case.startswith('codex-stdio-') else 30) for case in CASES),
                    ('agent-final', 'assets', False, 180), ('source-final', 'source', False, 120)),
 }
+STAGES['agent-test-resume'] = (STAGES['agent-test'][:4]
+    + (('fixture-verify', 'fixture-verify', False, 120), ('cases-verify', 'cases-verify', False, 60))
+    + STAGES['agent-test'][7:])
 ASSETS = {
     'codex': {'version': '0.164.0',
               'url': 'https://github.com/openai/codex/releases/download/rust-v0.164.0/codex-package-aarch64-unknown-linux-musl.tar.gz',
@@ -84,19 +92,133 @@ def voice_omissions(raw=None):
     return value
 
 
-def load_bundle(parent):
-    base = full.load_bundle(parent)
-    files = {}; hashes = dict(base.source_hashes)
-    for name, local in (('Cargo.toml', 'Cargo.toml'), ('Cargo.lock', 'Cargo.lock'), ('src/main.rs', 'main.rs')):
+def fixture_files():
+    files = {}; hashes = {}
+    for name, local in FIXTURE_FILES:
         raw = build.read_source(build.FIXTURES/'agentcheck'/local)
         if not 0 < len(raw) <= (10240 if name == 'src/main.rs' else 4096):
             refuse('fixture_bound')
         files[name] = raw.decode(); hashes['agentcheck/'+local] = hashlib.sha256(raw).hexdigest()
+    return files, hashes
+
+
+def resume_receipt():
+    value = create._json(build.read_source(build.FIXTURES/'agentcheck/resume-receipt.json'))
+    canonical = json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+    if hashlib.sha256(canonical).hexdigest() != RESUME_RECEIPT_SHA256:
+        refuse('resume_receipt')
+    return value
+
+
+def read_resume_files(run_root, receipt):
+    """Hold the selected ancestry and each bounded historical file while reading."""
+    descriptors = []
+    def identity(info, directory=False):
+        fields = ('st_dev', 'st_ino', 'st_mode', 'st_uid', 'st_gid')
+        if not directory: fields += ('st_nlink', 'st_size', 'st_mtime_ns', 'st_ctime_ns')
+        return tuple(getattr(info, name) for name in fields)
+    def check_ancestry():
+        for path, fd, original in descriptors:
+            if identity(os.fstat(fd), True) != original or identity(path.lstat(), True) != original:
+                refuse('resume_ancestry')
+    try:
+        root = Path(run_root)
+        if not root.is_absolute() or root.resolve(strict=True) != root:
+            refuse('resume_ancestry')
+        target = root/'evidence/guest-build-agent-test-1'
+        path = Path('/')
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        descriptors.append((path, fd, identity(os.fstat(fd), True)))
+        root_device = None
+        for name in target.parts[1:]:
+            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                         dir_fd=descriptors[-1][1])
+            path = path/name
+            info = os.fstat(fd)
+            descriptors.append((path, fd, identity(info, True)))
+            if path == root: root_device = info.st_dev
+            if path == root or root in path.parents:
+                if (info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700
+                        or info.st_dev != root_device):
+                    refuse('resume_ancestry')
+        check_ancestry()
+        result = {}
+        for key, item in receipt['files'].items():
+            name, size = item['name'], item['bytes']
+            if (Path(name).name != name or not integer(size, 1, 65536) or not sha(item['sha256'])):
+                refuse('resume_receipt')
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+                         dir_fd=descriptors[-1][1])
+            try:
+                info = os.fstat(fd); original = identity(info)
+                if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600
+                        or info.st_uid != os.getuid() or info.st_nlink != 1
+                        or info.st_dev != root_device or info.st_size != size):
+                    refuse('resume_file')
+                raw = bytearray()
+                while len(raw) <= size:
+                    chunk = os.read(fd, min(65536, size+1-len(raw)))
+                    if not chunk: break
+                    raw.extend(chunk)
+                if (len(raw) != size or hashlib.sha256(raw).hexdigest() != item['sha256']
+                        or identity(os.fstat(fd)) != original
+                        or identity(os.stat(name, dir_fd=descriptors[-1][1], follow_symlinks=False)) != original):
+                    refuse('resume_file')
+                result[key] = bytes(raw)
+                check_ancestry()
+            finally:
+                os.close(fd)
+        check_ancestry()
+        return result
+    except (OSError, ValueError, RuntimeError):
+        refuse('resume_history')
+    finally:
+        for _, fd, _ in reversed(descriptors): os.close(fd)
+
+
+def load_resume_history(run_root, payload):
+    receipt = resume_receipt()
+    raw = read_resume_files(run_root, receipt)
+    experiment = create._json(raw['experiment']); stopped = create._json(raw['stop'])
+    stop_keys = {'schema_version', 'status', 'blockers', 'vm_start_requested', 'stop_requested',
+                'stopped_verified', 'shutdown_uncertain', 'session_enabled', 'elapsed_seconds',
+                'diagnostic_bytes', 'diagnostic_commands_omitted'}
+    if (type(experiment) is not dict or type(experiment.get('schema_version')) is not int
+            or experiment['schema_version'] != 1 or experiment.get('source_commit') != receipt['source_commit']
+            or type(experiment.get('source_sha256')) is not dict
+            or type(stopped) is not dict or set(stopped) != stop_keys
+            or type(stopped['schema_version']) is not int or stopped['schema_version'] != 1
+            or stopped['status'] != 'refused' or stopped['blockers'] != ['guest_agent_failed']
+            or any(stopped[key] is not True for key in ('vm_start_requested', 'stop_requested', 'stopped_verified'))
+            or any(stopped[key] is not False for key in ('shutdown_uncertain', 'session_enabled'))
+            or type(stopped['elapsed_seconds']) not in (int, float) or not 0 <= stopped['elapsed_seconds'] <= 1800
+            or not integer(stopped['diagnostic_bytes'], 1, 4*1024**2)
+            or type(stopped['diagnostic_commands_omitted']) is not int or stopped['diagnostic_commands_omitted'] != 0):
+        refuse('resume_history_proof')
+    for name, local in FIXTURE_FILES:
+        if experiment['source_sha256'].get('tests/fixtures/openshell_runtime/agentcheck/'+local) != hashlib.sha256(payload['fixture_files'][name].encode()).hexdigest():
+            refuse('resume_source')
+    failure = raw['failure']
+    if (b"_result=agent_case(_stage_payload,'codex-version-unfiltered')" not in failure
+            or b'RuntimeError: agent_proof_fd_collision' not in failure or b'Refusal: unit_failed' not in failure):
+        refuse('resume_failure')
+    fixture = parse_stage(create._json(raw['fixture']), 'agent-test', 'fixture-build')['result']
+    cases = parse_stage(create._json(raw['cases']), 'agent-test', 'cases-prepare')['result']
+    parse_fixture(fixture, payload, built=True); parse_cases_prepared(cases)
+    return {'source_commit': receipt['source_commit'], 'files': receipt['files'], 'fixture': fixture, 'cases': cases}
+
+
+def load_bundle(parent):
+    base = full.load_bundle(parent)
+    files, fixture_hashes = fixture_files()
+    hashes = dict(base.source_hashes) | fixture_hashes
     selected = manifest()
     hashes['agentcheck/manifest.json'] = hashlib.sha256(build.read_source(build.FIXTURES/'agentcheck/manifest.json')).hexdigest()
     omission_raw = build.read_source(build.FIXTURES/'agentcheck/voice-omissions.json')
     omissions = voice_omissions(omission_raw)
     hashes['agentcheck/voice-omissions.json'] = hashlib.sha256(omission_raw).hexdigest()
+    resume_receipt()
+    hashes['agentcheck/resume-receipt.json'] = hashlib.sha256(build.read_source(build.FIXTURES/'agentcheck/resume-receipt.json')).hexdigest()
     return build.Bundle(base.payload | {'agent_manifest': selected, 'fixture_files': files,
                                       'voice_omissions': omissions}, hashes)
 
@@ -114,11 +236,16 @@ def capture_sources(operation):
         'fixture-build': joined('guest_cargo_artifact.py', 'guest_full_cargo.py', 'guest_agent_build.py'),
         'cases': joined('guest_cargo_artifact.py', 'guest_agent_runtime.py'),
     }
+    if operation == 'agent-test-resume':
+        sources['fixture-verify'] = joined('guest_cargo_artifact.py', 'guest_agent_build.py', 'guest_agent_resume.py')
+        sources['cases-verify'] = joined('guest_cargo_artifact.py', 'guest_agent_runtime.py', 'guest_agent_resume.py')
     return {key: sources[key] for key in dict.fromkeys(stage[1] for stage in STAGES[operation])}
 
 
 def stage_payload(payload, stage, completed):
     if stage == 'agent-descriptors': return {}
+    if stage == 'fixture-verify': return {'agent_build_report': payload['resume_history']['fixture']}
+    if stage == 'cases-verify': return {}
     if stage in {'rust-verify', 'compiler-verify', 'source-verify', 'source-final'}:
         return full.stage_payload(payload, stage)
     result = {} if stage.startswith('fixture-') else {'agent_manifest': payload.get('agent_manifest', {})}
@@ -131,7 +258,7 @@ def stage_payload(payload, stage, completed):
         else:
             result['fixture_files'] = payload.get('fixture_files', {})
     elif stage == 'cases-prepare' or stage in CASES:
-        result['agent_build_report'] = completed.get('fixture-build', {})
+        result['agent_build_report'] = completed.get('fixture-verify', completed.get('fixture-build', {}))
         result['agent_assets_report'] = completed.get('agent-verify', {})
     elif stage in {'agent-download', 'agent-prepare', 'agent-verify', 'agent-final'}:
         result['voice_omissions'] = payload.get('voice_omissions', {})
@@ -149,12 +276,13 @@ def unit_source(source, payload, stage, seconds, completed):
         functions = {'agent-download': 'agent_assets_download', 'agent-prepare': 'agent_assets_prepare',
                      'agent-verify': 'agent_assets_verify', 'agent-final': 'agent_assets_verify',
                      'fixture-prepare': 'agent_build_prepare', 'fixture-build': 'agent_build_compile',
-                     'cases-prepare': 'agent_cases_prepare'}
+                     'cases-prepare': 'agent_cases_prepare', 'fixture-verify': 'agent_build_verify',
+                     'cases-verify': 'agent_cases_verify'}
         if stage not in functions:
             refuse('stage')
         body = f'_result={functions[stage]}(_stage_payload)\n'
     validation = ("if not all(stat.S_ISFIFO(os.fstat(fd).st_mode) for fd in (1,2)):\n"
-                  "    raise RuntimeError('harness_log_route')\n") if stage in CASES or stage == 'agent-descriptors' else 'validate_context()\n'
+                  "    raise RuntimeError('harness_log_route')\n") if stage in CASES or stage in {'agent-descriptors', 'fixture-verify', 'cases-verify'} else 'validate_context()\n'
     unit = (source+'\n'+build.payload_source(stage_payload(payload, stage, completed))
             +f'\nDEADLINE=time.monotonic()+{seconds!r}\n'+validation+body
             +'\nremaining()\nprint(json.dumps(_result,sort_keys=True),flush=True)\n')
@@ -302,9 +430,10 @@ def parse_assets(value, downloaded=False):
             refuse('asset_expansion')
 
 
-def parse_fixture(value, payload, built=False):
+def parse_fixture(value, payload, built=False, verified=False):
+    if verified and not built: refuse('fixture_status')
     keys = {'source_sha256'} | ({'binary_sha256', 'binary_bytes', 'binary_layout', 'static_arm64'} if built else set())
-    report_header(value, 'agent_fixture_built' if built else 'agent_fixture_prepared', keys)
+    report_header(value, 'agent_fixture_verified' if verified else ('agent_fixture_built' if built else 'agent_fixture_prepared'), keys)
     expected = {name: hashlib.sha256(raw.encode()).hexdigest() for name, raw in payload['fixture_files'].items()}
     expected |= {'src/upstream_child_seccomp.rs': '14c06d0d2c33a56b9a075f469a16436b92cc101186ef19a00a4f1ab84871fa0f',
                  'src/patched_child_seccomp.rs': build.PATCHED_SHA}
@@ -321,8 +450,8 @@ def parse_fixture(value, payload, built=False):
             refuse('fixture_binary')
 
 
-def parse_cases_prepared(value):
-    report_header(value, 'agent_cases_prepared', {'cases', 'initial_sha256', 'case_state_bytes'})
+def parse_cases_prepared(value, verified=False):
+    report_header(value, 'agent_cases_verified' if verified else 'agent_cases_prepared', {'cases', 'initial_sha256', 'case_state_bytes'})
     if (value['cases'] != list(CASES) or type(value['initial_sha256']) is not dict
             or value['initial_sha256'] != {
                 'codex_config': '77b8b75c411e1232f4ddaa8f72551615000541dc3afc68b1614f62974acae68d',
@@ -344,7 +473,9 @@ def parse_case(value, case, stages):
     name = 'codex' if probe.startswith('codex-') else 'opencode'
     files = stages['agent-verify']['assets']
     selected = files[name]['files']['bin/codex' if name == 'codex' else 'opencode']['sha256']
-    if (value['fixture_binary_sha256'] != stages['fixture-build']['binary_sha256']
+    fixture_keys = [key for key in ('fixture-build', 'fixture-verify') if key in stages]
+    if len(fixture_keys) != 1: refuse('fixture_status')
+    if (value['fixture_binary_sha256'] != stages[fixture_keys[0]]['binary_sha256']
             or value['executable_sha256'] != selected or value['rg_sha256'] != files['codex']['files']['codex-path/rg']['sha256']
             or value['python_nondumpable'] is not True or type(value['initialized']) is not bool
             or type(value['expectation_met']) is not bool or type(value['termination_requested']) is not bool
@@ -435,7 +566,7 @@ def parse_stages(stages, operation, payload, *, complete=False):
     if (type(stages) is not dict or not stages or list(stages) != ordered[:len(stages)]
             or (complete and len(stages) != len(ordered))):
         refuse('stage_order')
-    if operation == 'agent-test':
+    if operation in {'agent-test', 'agent-test-resume'}:
         prefix = {key: stages[key] for key in ('rust-verify', 'compiler-verify', 'source-verify') if key in stages}
         if prefix: full.parse_stages(prefix, 'full-test', complete=False)
     for stage, result in stages.items():
@@ -444,8 +575,11 @@ def parse_stages(stages, operation, payload, *, complete=False):
         elif stage in {'agent-prepare', 'agent-verify', 'agent-final'}:
             parse_assets(result)
             if stage == 'agent-final' and result != stages['agent-verify']: refuse('assets_changed')
-        elif stage in {'fixture-prepare', 'fixture-build'}: parse_fixture(result, payload, built=stage=='fixture-build')
-        elif stage == 'cases-prepare': parse_cases_prepared(result)
+        elif stage in {'fixture-prepare', 'fixture-build', 'fixture-verify'}:
+            parse_fixture(result, payload, built=stage!='fixture-prepare', verified=stage=='fixture-verify')
+            if stage == 'fixture-verify' and result != payload['resume_history']['fixture'] | {'status':'agent_fixture_verified'}:
+                refuse('resume_fixture_changed')
+        elif stage in {'cases-prepare', 'cases-verify'}: parse_cases_prepared(result, verified=stage=='cases-verify')
         elif stage in CASES: parse_case(result, stage, stages)
         elif stage == 'source-final' and result != stages['source-verify']: refuse('source_changed')
     comparisons(stages)
@@ -454,6 +588,10 @@ def parse_stages(stages, operation, payload, *, complete=False):
 def qualify(selection, operation):
     if operation not in OPERATIONS:
         refuse('operation')
+    history = None
+    if operation == 'agent-test-resume':
+        files, _ = fixture_files()
+        history = load_resume_history(selection.storage.run_root, {'fixture_files': files})
     controller = build.read_source(build.FIXTURES/'guest_build_storage.py').decode()
     runtime = build.read_source(build.FIXTURES/'guest_runtime.py').decode()
     inventory = build.read_source(build.FIXTURES/'guest_build_inventory.py').decode()
@@ -462,25 +600,30 @@ def qualify(selection, operation):
         guest._inspect_guest(selected, anchor, deadline)
         binding = build.host_binding_sha256(selected, anchor)
         bundle = load_bundle(selected.storage.cache_path/'_tmp')
+        payload = bundle.payload
+        if history is not None:
+            parse_fixture(history['fixture'], payload, built=True)
+            payload = payload | {'resume_history': history}
         stages = {}; programs = {}; before = after = runtime_result = None
         for stage, key, _, maximum in STAGES[operation]:
             seconds = min(maximum+100, 1600, int(create._remaining(deadline, 1700))-15)
-            script = stage_script(controller, runtime, inventory, sources[key], bundle.payload, operation,
+            script = stage_script(controller, runtime, inventory, sources[key], payload, operation,
                                   stage, seconds, host_binding_sha256=binding, completed=stages)
             argv = [str(anchor.sources[0].identity.path), 'shell', '--tty=false', '--start=false',
                     '--workdir', '/', 'q', '--', '/usr/bin/sudo', '-n', '/usr/bin/python3', '-I', '-c', build.encode_program(script)]
             raw = create._command(selected, argv, deadline, 'guest_agent', seconds+30)
             observed = parse_stage(create._json(raw), operation, stage)
             stages[stage] = observed['result']; programs[stage] = hashlib.sha256(script.encode()).hexdigest()
-            parse_stages(stages, operation, bundle.payload)
+            parse_stages(stages, operation, payload)
             if before is None:
                 before = observed['inventory_before']; runtime_result = observed['runtime']
             after = observed['inventory_after']
-        parse_stages(stages, operation, bundle.payload, complete=True)
+        parse_stages(stages, operation, payload, complete=True)
         return {'status': 'agent_operation_completed', 'operation': operation, 'runtime': runtime_result,
                 'stages': stages, 'inventory_before': before, 'inventory_after': after, 'unmounted_verified': True,
                 'comparisons': comparisons(stages),
                 **FLAGS, 'source_hashes': bundle.source_hashes | {key: hashlib.sha256(raw.encode()).hexdigest() for key, raw in sources.items()},
+                **({'resume_history': history} if history is not None else {}),
                 'program_sha256': programs, 'controller_sha256': hashlib.sha256(controller.encode()).hexdigest()}
     lifecycle, result = boot._qualify_with_inspection(selection, inspect, qualification_seconds=1800)
     return build.BuildObservation(operation, lifecycle, result)

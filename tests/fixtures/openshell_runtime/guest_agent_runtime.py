@@ -40,6 +40,28 @@ AGENT_STATE_LIMIT=128*1024**2
 AGENT_RESERVE=256*1024**2
 AGENT_RECORD=struct.Struct('<4sBBH6i')
 
+# Only this fresh child owns FD3. Error exit bypasses Python cleanup after dup2.
+AGENT_BOOTSTRAP=r"""
+import fcntl, os, stat, sys
+try:
+    if len(sys.argv)!=5:raise ValueError()
+    writer,fixture=int(sys.argv[1]),int(sys.argv[2]);probe,mode=sys.argv[3:]
+    if writer<3 or fixture<=3 or writer==fixture:raise ValueError()
+    if probe not in ('codex-version','codex-help','codex-empty-login','codex-stdio',
+                     'opencode-version','opencode-help','opencode-rg'):raise ValueError()
+    if mode not in ('unfiltered','upstream','patched'):raise ValueError()
+    pipe=os.fstat(writer);binary=os.fstat(fixture)
+    if not stat.S_ISFIFO(pipe.st_mode) or fcntl.fcntl(writer,fcntl.F_GETFL)&os.O_ACCMODE!=os.O_WRONLY:
+        raise ValueError()
+    if not stat.S_ISREG(binary.st_mode) or not binary.st_mode&stat.S_IXUSR or binary.st_size<=0:
+        raise ValueError()
+    os.dup2(writer,3,inheritable=True);os.set_inheritable(3,True)
+    if writer!=3:os.close(writer)
+    os.execve('/proc/self/fd/'+str(fixture),['openshell-agent-filter-probe',probe,mode],os.environ)
+except BaseException:
+    os._exit(125)
+"""
+
 
 def agent_platform():
     if sys.platform!='linux' or os.uname().machine!='aarch64' or os.getuid()!=65534 or os.getgid()!=65534:
@@ -322,20 +344,17 @@ def agent_expectation(probe,code,signal_number,output,error,initialized):
 
 @contextmanager
 def agent_proof_pipe():
-    """Reserve fixed FD3 without replacing any descriptor we do not own."""
-    reserved=os.open('/dev/null',os.O_RDONLY|os.O_CLOEXEC)
-    if reserved!=3:
-        os.close(reserved);raise RuntimeError('agent_proof_fd_collision')
-    reader=writer=None;owns_three=True
+    """Own anonymous pipe ends; never reserve or replace the parent's FD3."""
+    reader=writer=None
     def release():
-        nonlocal owns_three
-        if owns_three:os.close(3);owns_three=False
+        nonlocal writer
+        if writer is not None:os.close(writer);writer=None
     try:
-        reader,writer=os.pipe2(os.O_CLOEXEC)
-        os.dup2(writer,3,inheritable=False);os.close(writer);writer=None
-        yield reader,release
+        remaining();reader,writer=os.pipe2(os.O_CLOEXEC)
+        if reader<3 or writer<3 or reader==writer:raise RuntimeError('agent_launch_descriptors')
+        yield reader,writer,release
     finally:
-        for fd in (writer,reader,3 if owns_three else None):
+        for fd in (writer,reader):
             if fd is not None:
                 try:os.close(fd)
                 except OSError as error:
@@ -384,7 +403,10 @@ def agent_tail(raw):
 
 
 def agent_observe(fixture_fd,case,channel):
-    reader,release_writer=channel
+    reader,writer,release_writer=channel
+    if (any(type(fd) is not int or fd<3 for fd in (reader,writer,fixture_fd))
+            or fixture_fd==3 or len({reader,writer,fixture_fd})!=3):
+        raise RuntimeError('agent_launch_descriptors')
     probe,mode=agent_selection(case);base=WORK/'agent-cases-1'/case
     protocol=AgentProtocol(str(base/'codex')) if probe=='codex-stdio' else None
     end=time.monotonic()+remaining(60 if protocol else 30)
@@ -392,10 +414,10 @@ def agent_observe(fixture_fd,case,channel):
     process=None;output=bytearray();error=bytearray();proof=bytearray();reason='exited'
     input_bytes=0;terminated=False;proof_result=None
     try:
-        process=subprocess.Popen(['openshell-agent-filter-probe',probe,mode],
-            executable=f'/proc/self/fd/{fixture_fd}',cwd=base/'workspace',env=agent_environment(base),
+        process=subprocess.Popen(['/usr/bin/python3','-I','-c',AGENT_BOOTSTRAP,str(writer),str(fixture_fd),probe,mode],
+            cwd=base/'workspace',env=agent_environment(base),
             stdin=subprocess.PIPE if protocol else subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-            close_fds=True,pass_fds=(3,fixture_fd),start_new_session=True)
+            close_fds=True,pass_fds=(writer,fixture_fd),start_new_session=True)
         release_writer()
         pending=bytearray(AGENT_INITIALIZE if protocol else b'')
         with selectors.DefaultSelector() as selector:
@@ -482,7 +504,7 @@ def agent_case(payload,case):
     probe,mode=agent_selection(case);agent_platform();agent_capacity();agent_case_view(case)
     agent_nondumpable()
     built=payload['agent_build_report'];assets=payload['agent_assets_report']
-    if (built.get('status')!='agent_fixture_built' or built.get('static_arm64') is not True
+    if (built.get('status') not in ('agent_fixture_built','agent_fixture_verified') or built.get('static_arm64') is not True
             or assets.get('status')!='agent_assets_verified'
             or any(report.get('schema_version')!=1 or report.get('generation')!=1 for report in (built,assets))
             or any(report.get(key) is not False for report in (built,assets) for key in AGENT_FLAGS)):

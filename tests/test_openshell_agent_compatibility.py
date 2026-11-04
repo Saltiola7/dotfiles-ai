@@ -4,6 +4,7 @@ from copy import deepcopy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -32,7 +33,7 @@ def test_unselected_agent_operation_refuses_before_boot(agent, monkeypatch, oper
 
 
 def test_only_asset_download_has_network_and_each_case_has_own_stage(agent):
-    assert agent.OPERATIONS == ("agent-prepare", "agent-test", "agent-inspect")
+    assert agent.OPERATIONS == ("agent-prepare", "agent-test", "agent-inspect", "agent-test-resume")
     stages = agent.STAGES["agent-test"]
     assert len(stages) <= 30
     assert [s[0] for s in stages if s[0] in agent.CASES] == list(agent.CASES)
@@ -57,7 +58,7 @@ def test_agent_capacity_refuses_before_any_unit(agent, operation, threshold):
                                 host_binding_sha256="d" * 64), namespace)
 
 
-@pytest.mark.parametrize("operation", ["agent-prepare", "agent-test", "agent-inspect"])
+@pytest.mark.parametrize("operation", ["agent-prepare", "agent-test", "agent-inspect", "agent-test-resume"])
 def test_public_runner_dispatches_agent_operations_without_legacy_boot(agent, monkeypatch, operation):
     import probe_openshell_agent_compatibility as canonical
     sentinel = object()
@@ -335,20 +336,25 @@ def test_actual_stage_compositions_fit_existing_caps(agent, tmp_path):
     built, _ = fixture_fixture(agent, True)
     built['source_sha256'] = prepared['source_sha256']
     completed = {'fixture-prepare':prepared, 'fixture-build':built, 'agent-verify':assets_fixture(agent)}
+    payload['resume_history'] = {'fixture': built}
     agent.parse_fixture(prepared, payload)
     agent.parse_fixture(built, payload, built=True)
     controller = (agent.build.FIXTURES/'guest_build_storage.py').read_text()
     runtime = (agent.build.FIXTURES/'guest_runtime.py').read_text()
     inventory = (agent.build.FIXTURES/'guest_build_inventory.py').read_text()
     for operation in agent.OPERATIONS:
+        selected = dict(completed)
+        if operation == 'agent-test-resume':
+            selected.pop('fixture-build')
+            selected['fixture-verify'] = built | {'status': 'agent_fixture_verified'}
         sources = agent.capture_sources(operation)
         for stage, key, _, maximum in agent.STAGES[operation]:
-            unit = agent.unit_source(sources[key], payload, stage, maximum-5, completed)
+            unit = agent.unit_source(sources[key], payload, stage, maximum-5, selected)
             compile(unit, '<agent-unit>', 'exec')
             if stage in agent.CASES:
                 assert 'validate_context()\n_result=agent_case' not in unit
             script = agent.stage_script(controller, runtime, inventory, sources[key], payload,
-                operation, stage, maximum+100, host_binding_sha256='d'*64, completed=completed)
+                operation, stage, maximum+100, host_binding_sha256='d'*64, completed=selected)
             compile(script, '<agent-root>', 'exec')
             compile(agent.build.encode_program(script), '<agent-transport>', 'exec')
 
@@ -432,3 +438,131 @@ def test_asset_omission_proof_requires_exact_archive_layout(agent, change):
         codex['files']['bin/codex']['bytes'] = total - 80
         codex['expanded_bytes'] = total
     with pytest.raises(agent.build.Refusal): agent.parse_assets(value)
+
+
+def resume_history_fixture(agent, tmp_path, monkeypatch):
+    from test_openshell_guest_build import inventory_report
+    root = tmp_path.resolve() / 'run'
+    directory = root / 'evidence/guest-build-agent-test-1'
+    directory.mkdir(parents=True, mode=0o700)
+    for path in (root, root/'evidence', directory): path.chmod(0o700)
+    fixture, payload = fixture_fixture(agent, True)
+    inventory = inventory_report(); inventory.pop('unmounted_verified')
+    def outer(stage, result):
+        return {'status':'agent_stage_completed','operation':'agent-test','stage':stage,
+                'result':result,'runtime':None,'inventory_before':inventory,'inventory_after':inventory,
+                'unmounted_verified':True,**agent.FLAGS}
+    receipt = json.loads((agent.build.FIXTURES/'agentcheck/resume-receipt.json').read_bytes())
+    objects = {
+        'fixture': outer('fixture-build', fixture),
+        'cases': outer('cases-prepare', prepared_fixture(agent)),
+        'experiment': {'schema_version':1,'source_commit':receipt['source_commit'],
+                       'source_sha256':{'tests/fixtures/openshell_runtime/agentcheck/'+local:
+                            hashlib.sha256(payload['fixture_files'][name].encode()).hexdigest()
+                            for name,local in [('Cargo.toml','Cargo.toml'),('Cargo.lock','Cargo.lock'),('src/main.rs','main.rs')]}},
+        'stop': {'schema_version':1,'status':'refused','blockers':['guest_agent_failed'],
+                 'vm_start_requested':True,'stop_requested':True,'stopped_verified':True,
+                 'shutdown_uncertain':False,'session_enabled':False,'elapsed_seconds':75.0,
+                 'diagnostic_bytes':1000,'diagnostic_commands_omitted':0},
+        'failure': "_result=agent_case(_stage_payload,'codex-version-unfiltered')\nRuntimeError: agent_proof_fd_collision\nRefusal: unit_failed\n",
+    }
+    def publish():
+        for key, value in objects.items():
+            raw = value.encode() if type(value) is str else json.dumps(value).encode()
+            path = directory/receipt['files'][key]['name']
+            path.write_bytes(raw); path.chmod(0o600)
+            receipt['files'][key].update(bytes=len(raw),sha256=hashlib.sha256(raw).hexdigest())
+    publish()
+    monkeypatch.setattr(agent, 'resume_receipt', lambda: receipt)
+    return root, directory, receipt, objects, payload, publish
+
+
+def test_resume_receipt_is_source_pinned_and_bundle_records_it(agent, tmp_path):
+    value = agent.resume_receipt()
+    canonical = json.dumps(value,sort_keys=True,separators=(',',':')).encode()
+    assert hashlib.sha256(canonical).hexdigest() == '2c1e547f02e4e621fff711e3be327b347604896933712cf50e3df22583d1b4cc'
+    bundle = agent.load_bundle(tmp_path)
+    assert 'agentcheck/resume-receipt.json' in bundle.source_hashes
+
+
+def test_resume_history_admits_only_current_fixture_and_preserves_old_reports(agent, tmp_path, monkeypatch):
+    root, _, receipt, objects, payload, _ = resume_history_fixture(agent,tmp_path,monkeypatch)
+    result = agent.load_resume_history(root,payload)
+    assert result['fixture'] == objects['fixture']['result']
+    assert result['cases'] == objects['cases']['result']
+    assert result['source_commit'] == receipt['source_commit']
+    assert result['files'] == receipt['files']
+
+
+@pytest.mark.parametrize('change',['symlink','hardlink','public_file','public_directory','symlink_directory','hash','oversized','foreign_owner','swapped'])
+def test_resume_history_rejects_path_or_file_admission_failure(agent,tmp_path,monkeypatch,change):
+    root,directory,receipt,_,payload,_ = resume_history_fixture(agent,tmp_path,monkeypatch)
+    path = directory/receipt['files']['fixture']['name']
+    if change == 'symlink':
+        saved=directory/'saved';path.rename(saved);path.symlink_to(saved)
+    elif change == 'hardlink': os.link(path,directory/'alias')
+    elif change == 'public_file': path.chmod(0o644)
+    elif change == 'public_directory': directory.chmod(0o755)
+    elif change == 'symlink_directory':
+        saved=root/'saved';directory.rename(saved);directory.symlink_to(saved,target_is_directory=True)
+    elif change == 'hash': path.write_bytes(b'x'*path.stat().st_size)
+    elif change == 'oversized': path.write_bytes(path.read_bytes()+b'x')
+    elif change == 'foreign_owner':
+        uid=os.getuid();monkeypatch.setattr(agent.os,'getuid',lambda:uid+1)
+    elif change == 'swapped':
+        original=agent.os.read;done=False
+        def swap(fd,count):
+            nonlocal done
+            raw=original(fd,count)
+            if not done and os.fstat(fd).st_ino == path.stat().st_ino:
+                done=True; saved=directory/'swap';saved.write_bytes(path.read_bytes());saved.chmod(0o600);saved.replace(path)
+            return raw
+        monkeypatch.setattr(agent.os,'read',swap)
+    with pytest.raises(agent.build.Refusal): agent.load_resume_history(root,payload)
+
+
+@pytest.mark.parametrize('change',['commit','source','current_source','running','uncertain','omitted','failure','fixture_stage','cases_stage','case_initial','binary','extra_stop'])
+def test_resume_semantics_refuse_even_with_matching_fixture_checksums(agent,tmp_path,monkeypatch,change):
+    root,_,_,objects,payload,publish=resume_history_fixture(agent,tmp_path,monkeypatch)
+    if change=='commit':objects['experiment']['source_commit']='f'*40
+    elif change=='source':objects['experiment']['source_sha256'][next(iter(objects['experiment']['source_sha256']))]='f'*64
+    elif change=='current_source':payload['fixture_files']['src/main.rs']+='changed'
+    elif change=='running':objects['stop']['stopped_verified']=False
+    elif change=='uncertain':objects['stop']['shutdown_uncertain']=True
+    elif change=='omitted':objects['stop']['diagnostic_commands_omitted']=1
+    elif change=='failure':objects['failure']='RuntimeError: other_failure'
+    elif change=='fixture_stage':objects['fixture']['stage']='fixture-prepare'
+    elif change=='cases_stage':objects['cases']['operation']='agent-test-resume'
+    elif change=='case_initial':objects['cases']['result']['initial_sha256']['sentinel']='f'*64
+    elif change=='binary':objects['fixture']['result']['static_arm64']=False
+    else:objects['stop']['unselected']=True
+    publish()
+    with pytest.raises(agent.build.Refusal):agent.load_resume_history(root,payload)
+
+
+def test_resume_refuses_before_boot_or_bundle_side_effects(agent,tmp_path,monkeypatch):
+    monkeypatch.setattr(agent,'load_bundle',lambda *a:pytest.fail('preboot bundle'))
+    monkeypatch.setattr(agent.boot,'_qualify_with_inspection',lambda *a,**k:pytest.fail('boot'))
+    selection=SimpleNamespace(storage=SimpleNamespace(run_root=tmp_path/'missing'))
+    with pytest.raises(agent.build.Refusal):agent.qualify(selection,'agent-test-resume')
+
+
+def test_resume_fixed_stages_verify_without_build_or_reinitialization(agent):
+    stages=agent.STAGES['agent-test-resume']
+    assert len(stages)==29 and all(not row[2] for row in stages)
+    assert [row[0] for row in stages[:6]]==['rust-verify','compiler-verify','source-verify','agent-verify','fixture-verify','cases-verify']
+    assert not {'fixture-prepare','fixture-build','cases-prepare'} & {row[0] for row in stages}
+    built,payload=fixture_fixture(agent,True);payload['resume_history']={'fixture':built}
+    assert agent.stage_payload(payload,'fixture-verify',{})=={'agent_build_report':built}
+    assert agent.stage_payload(payload,'cases-verify',{})=={}
+    for stage,call in [('fixture-verify','agent_build_verify'),('cases-verify','agent_cases_verify')]:
+        unit=agent.unit_source('',payload,stage,50,{})
+        assert f'_result={call}(_stage_payload)' in unit and 'validate_context()' not in unit
+    verified=built|{'status':'agent_fixture_verified'}
+    agent.parse_fixture(verified,payload,built=True,verified=True)
+    agent.parse_cases_prepared(prepared_fixture(agent)|{'status':'agent_cases_verified'},verified=True)
+    value,prior=case_fixture(agent)
+    prior['fixture-verify']=prior.pop('fixture-build')
+    agent.parse_case(value,value['case'],prior)
+    prior['fixture-build']=prior['fixture-verify']
+    with pytest.raises(agent.build.Refusal):agent.parse_case(value,value['case'],prior)

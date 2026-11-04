@@ -130,7 +130,11 @@ def test_runtime_source_and_fixture_fit_existing_caps():
 
 
 FAKE_LAUNCHER=r'''
-import json, os, struct, sys, time
+import fcntl, json, os, stat, struct, sys, time
+assert stat.S_ISFIFO(os.fstat(3).st_mode)
+assert fcntl.fcntl(3, fcntl.F_GETFL)&os.O_ACCMODE == os.O_WRONLY
+assert os.get_inheritable(3)
+os.set_inheritable(3, False); os.closerange(4, 256)
 scenario, probe, mode_name = sys.argv[1:]
 mode = ('unfiltered','upstream','patched').index(mode_name)
 pid = os.getpid()
@@ -167,11 +171,11 @@ record(5,[1 if scenario=='negative' else 0,0,0,0,0,0])
     ('timeout','timeout'),('output','output_limit'),('badproof','proof_error'),
 ])
 def test_real_process_transport_is_bounded_and_retains_negative_results(tmp_path,scenario,expected):
-    # An isolated Python process guarantees FD3 is initially free. Its synthetic
-    # fixture exercises the driver transport; it makes no native filter claim.
-    launcher=tmp_path/'fake-launcher.py';launcher.write_text(FAKE_LAUNCHER)
+    # The isolated parent deliberately holds FD3; the real child bootstrap may
+    # replace only its own FD3. The synthetic fixture makes no filter claim.
+    launcher=tmp_path/'fake-launcher.py';launcher.write_text(FAKE_LAUNCHER);launcher.chmod(0o500)
     driver=r'''
-import json, os, subprocess, sys, time
+import fcntl, json, os, subprocess, sys, time
 from pathlib import Path
 from types import ModuleType
 base, root, launcher, scenario = map(str,sys.argv[1:])
@@ -187,21 +191,36 @@ if not hasattr(os,'pipe2'):
     module.os.pipe2=pipe2
 original=subprocess.Popen
 def popen(argv,**kwargs):
-    assert argv[0]=='openshell-agent-filter-probe'
-    assert kwargs['pass_fds'][0]==3 and len(kwargs['pass_fds'])==2
-    assert kwargs.pop('executable')=='/proc/self/fd/'+str(kwargs['pass_fds'][1])
+    assert argv[:3]==['/usr/bin/python3','-I','-c']
+    assert len(kwargs['pass_fds'])==2 and 3 not in kwargs['pass_fds']
+    assert kwargs['pass_fds']==tuple(map(int,argv[4:6]))
     assert kwargs['close_fds'] is True and kwargs['start_new_session'] is True
-    return original([sys.executable,'-I',launcher,scenario,*argv[1:]],**kwargs)
+    assert 'executable' not in kwargs and 'preexec_fn' not in kwargs and not kwargs.get('shell')
+    # Execute the actual trusted bootstrap, substituting only its final exec
+    # with the synthetic Python fixture; /proc is unavailable on macOS.
+    prefix=("import os,sys\nnative_exec=os.execve\n"
+        "def synthetic_exec(path,args,env):\n"
+        " assert path=='/proc/self/fd/'+sys.argv[2]\n"
+        " assert args==['openshell-agent-filter-probe',*sys.argv[3:]]\n"
+        " return native_exec(sys.executable,[sys.executable,'-I',"+repr(launcher)+","+repr(scenario)+",*args[1:]],env)\n"
+        "os.execve=synthetic_exec\n")
+    return original([sys.executable,'-I','-c',prefix+argv[3],*argv[4:]],**kwargs)
 module.subprocess.Popen=popen
 if scenario=='timeout':
     remaining=module.remaining
     module.remaining=lambda maximum=60:min(remaining(maximum),.2)
 case=('codex-stdio' if scenario in ('handshake','negative','malformed') else 'codex-help')+'-patched'
+preserved=os.open(Path(root)/'parent-descriptor',os.O_RDWR|os.O_CREAT|os.O_CLOEXEC,0o600)
+assert preserved==3
+os.write(preserved,b'parent descriptor must remain untouched');os.lseek(preserved,7,os.SEEK_SET)
+before=(os.fstat(3),fcntl.fcntl(3,fcntl.F_GETFD),fcntl.fcntl(3,fcntl.F_GETFL),os.lseek(3,0,os.SEEK_CUR))
 with module.agent_proof_pipe() as channel:
     fd=os.open(launcher,os.O_RDONLY)
     try:result=module.agent_observe(fd,case,channel)
     finally:os.close(fd)
-assert not os.path.exists('/proc/self/fd/3') if sys.platform=='linux' else True
+after=(os.fstat(3),fcntl.fcntl(3,fcntl.F_GETFD),fcntl.fcntl(3,fcntl.F_GETFL),os.lseek(3,0,os.SEEK_CUR))
+assert before==after
+os.lseek(3,0,os.SEEK_SET);assert os.read(3,128)==b'parent descriptor must remain untouched';os.close(3)
 print(json.dumps(result))
 '''
     result=subprocess.run([sys.executable,'-I','-c',driver,str(BASE),str(tmp_path),str(launcher),scenario],
@@ -224,13 +243,40 @@ def test_invalid_utf8_diagnostics_stay_within_encoded_report_bound(runtime):
     assert len(runtime.agent_tail(b'\xff'*20000).encode())<=8192
 
 
-def test_proof_pipe_collision_preserves_existing_descriptor(runtime,monkeypatch):
-    closed=[]
-    monkeypatch.setattr(runtime.os,'open',lambda *a,**k:17)
-    monkeypatch.setattr(runtime.os,'close',closed.append)
-    with pytest.raises(RuntimeError,match='agent_proof_fd_collision'):
-        with runtime.agent_proof_pipe():pytest.fail('overwrote occupied FD3')
-    assert closed==[17]
+def test_proof_pipe_closes_only_owned_ends_and_preserves_parent_three(runtime,monkeypatch):
+    closed=[];fake=SimpleNamespace(**vars(os))
+    fake.pipe2=lambda flags:(7,8)
+    fake.open=lambda *a,**kw:pytest.fail('opened descriptor to reserve FD3')
+    fake.dup2=lambda *a,**kw:pytest.fail('replaced a parent descriptor')
+    fake.close=closed.append
+    monkeypatch.setattr(runtime,'os',fake)
+    with runtime.agent_proof_pipe() as (reader,writer,release):
+        assert (reader,writer)==(7,8)
+        release();release()
+    assert closed==[8,7]
+
+
+@pytest.mark.parametrize('fixture,channel',[(3,(4,5)),(0,(4,5)),(5,(4,5)),(8,(0,5)),(8,(4,4))])
+def test_launch_descriptor_numbers_refuse_before_process(runtime,monkeypatch,fixture,channel):
+    monkeypatch.setattr(runtime.subprocess,'Popen',lambda *a,**kw:pytest.fail('invalid descriptor launch'))
+    with pytest.raises(RuntimeError,match='agent_launch_descriptors'):
+        runtime.agent_observe(fixture,'codex-version-unfiltered',(*channel,lambda:None))
+
+
+@pytest.mark.parametrize('status',['agent_fixture_built','agent_fixture_verified','other'])
+def test_case_accepts_only_fresh_build_or_verification(runtime,monkeypatch,status):
+    for name in ('agent_platform','agent_capacity','agent_nondumpable'):
+        monkeypatch.setattr(runtime,name,lambda:None)
+    monkeypatch.setattr(runtime,'agent_case_view',lambda case:None)
+    def reached():raise RuntimeError('reached_owned_pipe')
+    monkeypatch.setattr(runtime,'agent_proof_pipe',reached)
+    built={'status':status,'static_arm64':True,'schema_version':1,'generation':1,**runtime.AGENT_FLAGS,
+           'binary_layout':{'link_count':1,'companion':None},'binary_bytes':1,'binary_sha256':'a'*64}
+    assets={'status':'agent_assets_verified','schema_version':1,'generation':1,**runtime.AGENT_FLAGS,
+            'assets':{'codex':{'files':{'bin/codex':{},'codex-path/rg':{}}}}}
+    expected='agent_prior_proof' if status=='other' else 'reached_owned_pipe'
+    with pytest.raises(RuntimeError,match=expected):
+        runtime.agent_case({'agent_build_report':built,'agent_assets_report':assets},'codex-version-unfiltered')
 
 
 @pytest.mark.parametrize('failure',[None,'shared_temp','writable_asset','false_readonly','readonly_case'])
@@ -358,3 +404,24 @@ def test_descriptor_inspection_fails_without_touching_unowned_descriptors(descri
     with pytest.raises((RuntimeError, OSError)): module.agent_descriptor_inspect()
     assert closed == ([0] if failure == 'null' else [])
     assert state[1] is state[2] is state[3] is True
+
+
+@pytest.mark.parametrize('failure',['read_pipe','regular_writer','non_executable','fd_collision','fixture_three','probe','mode'])
+def test_child_bootstrap_refuses_wrong_descriptors_or_selection(runtime,tmp_path,failure):
+    fixture=tmp_path/'not-executed';fixture.write_bytes(b'not an executable image');fixture.chmod(0o500)
+    reader,writer=os.pipe();held=os.open(fixture,os.O_RDONLY)
+    try:
+        selected_writer=reader if failure=='read_pipe' else held if failure=='regular_writer' else writer
+        selected_fixture=writer if failure=='fd_collision' else 3 if failure=='fixture_three' else held
+        if failure=='non_executable':fixture.chmod(0o400)
+        probe='arbitrary-command' if failure=='probe' else 'codex-version'
+        mode='other' if failure=='mode' else 'unfiltered'
+        result=subprocess.run([sys.executable,'-I','-c',runtime.AGENT_BOOTSTRAP,str(selected_writer),
+                               str(selected_fixture),probe,mode],pass_fds=(reader,writer,held),
+                              capture_output=True,timeout=5)
+        assert result.returncode==125 and result.stdout==result.stderr==b''
+        assert os.fstat(held).st_size==len(b'not an executable image')
+        os.set_blocking(reader,False)
+        with pytest.raises(BlockingIOError):os.read(reader,1)
+    finally:
+        for fd in (reader,writer,held):os.close(fd)
