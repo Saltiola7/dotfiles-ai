@@ -158,6 +158,48 @@ def _private(path: Path, *, directory: bool = False, size: int | None = None) ->
     return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink, info.st_size)
 
 
+def _image_changed(recorded: tuple[int, ...], observed: tuple[int, ...]) -> Refusal:
+    """Bounded metadata diagnostics only; never rebind or repair a receipt."""
+    report = {"reason": "image_changed",
+              "fields": ["device", "inode", "mode", "uid", "gid", "links", "size"],
+              "recorded": list(recorded), "observed": list(observed), "paths": [],
+              "mounts": [], "mount_status": "unavailable"}
+    for path in (Path("/"), ROOT.parent, ROOT):
+        entry = {"path": str(path)[:256]}
+        try:
+            if _end is not None:
+                _remaining(_end)
+            info = path.lstat()
+            entry["identity"] = [info.st_dev, info.st_ino, info.st_mode, info.st_uid,
+                                 info.st_gid, info.st_nlink, info.st_size]
+        except (OSError, Refusal):
+            entry["status"] = "unavailable"
+        report["paths"].append(entry)
+    try:
+        selected = {str(path) for path in (ROOT / "image.raw", ROOT, *ROOT.parents)}
+        mounts = []
+        for line in _mounts().decode("ascii").splitlines():
+            if _end is not None:
+                _remaining(_end)
+            row = line.split()
+            if len(row) <= 6 or row[4] not in selected:
+                continue
+            split = row.index("-")
+            if len(mounts) == 4:
+                raise Refusal("diagnostic_limit")
+            mounts.append({key: value[:128] for key, value in zip(
+                ("mount_id", "parent_id", "device", "root", "mount_point", "options", "filesystem_type", "source"),
+                (*row[:6], row[split + 1], row[split + 2]))})
+        report["mounts"], report["mount_status"] = mounts, "observed"
+    except (OSError, Refusal, ValueError, UnicodeError, IndexError):
+        pass
+    raw = json.dumps(report, sort_keys=True, separators=(",", ":")).encode()
+    if len(raw) > 8192:
+        report.update(paths=[], mounts=[], mount_status="output_limit")
+        raw = json.dumps(report, sort_keys=True, separators=(",", ":")).encode()
+    return Refusal("image_changed", stderr=raw)
+
+
 def _write_new(path: Path, data: bytes) -> None:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
@@ -999,7 +1041,7 @@ def mounted_store(*, deadline: float | None = None):
         image = ROOT / "image.raw"
         identity = _private(image, size=IMAGE_BYTES)
         if identity != tuple(receipt["image_identity"]):
-            raise Refusal("image_changed")
+            raise _image_changed(tuple(receipt["image_identity"]), identity)
         with _mounted(image, IMAGE_BYTES, receipt["uuid"], identity, _work_end, initialize=False) as store:
             yield store
     finally:

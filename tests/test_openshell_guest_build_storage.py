@@ -30,6 +30,51 @@ def test_fixed_caps_and_paths(storage):
     assert storage.CLEANUP_RESERVE >= 60
 
 
+@pytest.mark.parametrize("mount_failure", [None, "read", "limit"])
+def test_retained_image_mismatch_reports_identity_without_mounting(storage, tmp_path, monkeypatch, mount_failure):
+    import json
+    import os
+    root = tmp_path / "retained"
+    root.mkdir()
+    (root / "store").mkdir()
+    (root / "image.raw").write_bytes(b"retained image")
+    recorded = (54, 413, 0o100600, 0, 0, 1, storage.IMAGE_BYTES)
+    observed = (52, *recorded[1:])
+    receipt = {"schema_version": 1, "uuid": "01234567-1234-1234-1234-0123456789ab",
+               "image_identity": list(recorded), "fixture_verified": True}
+    receipt_bytes = json.dumps(receipt).encode()
+    (root / "receipt.json").write_bytes(receipt_bytes)
+    monkeypatch.setattr(storage, "ROOT", root)
+    monkeypatch.setattr(storage, "_root", lambda: os.open(root, os.O_RDONLY | os.O_DIRECTORY))
+    monkeypatch.setattr(storage, "_private", lambda *args, **kwargs: observed)
+    monkeypatch.setattr(storage, "_mounted", lambda *args, **kwargs: pytest.fail("mounted changed image"))
+    def mounts():
+        if mount_failure == "read": raise OSError("private arbitrary native text")
+        if mount_failure == "limit": raise storage.Refusal("metadata_limit")
+        return (f"72 1 0:35 /root / rw - btrfs /dev/vda3 rw\n"
+                f"53 72 0:35 /var {root.parent} rw - btrfs /dev/vda3 rw\n"
+                "99 72 0:99 / /unrelated rw - tmpfs tmpfs rw\n").encode()
+    monkeypatch.setattr(storage, "_mounts", mounts)
+    with pytest.raises(storage.Refusal, match="^image_changed$") as error:
+        with storage.mounted_store():
+            pytest.fail("admitted changed image")
+    report = json.loads(error.value.stderr)
+    assert report["reason"] == "image_changed"
+    assert report["fields"] == ["device", "inode", "mode", "uid", "gid", "links", "size"]
+    assert report["recorded"] == list(recorded) and report["observed"] == list(observed)
+    assert len(error.value.stderr) <= 8192
+    assert b"private arbitrary native text" not in error.value.stderr
+    if mount_failure:
+        assert report["mount_status"] == "unavailable" and report["mounts"] == []
+    else:
+        assert report["mount_status"] == "observed"
+        assert {row["mount_point"] for row in report["mounts"]} == {"/", str(root.parent)}
+        assert all(row["filesystem_type"] == "btrfs" for row in report["mounts"])
+    assert (root / "receipt.json").read_bytes() == receipt_bytes
+    assert (root / "image.raw").read_bytes() == b"retained image"
+    assert storage._end is None and storage._work_end is None
+
+
 @pytest.mark.parametrize("network", [False, True])
 def test_unit_properties_confine_writes_and_do_not_use_journal(storage, network):
     properties = storage._properties(network, 120)
