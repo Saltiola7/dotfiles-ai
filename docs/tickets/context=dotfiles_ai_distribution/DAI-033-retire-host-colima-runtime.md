@@ -44,7 +44,7 @@ local container runtime, and the host Colima VM and Docker toolchain are removed
 ## Context
 
 The completed Podman migration retained Colima as a temporary rollback path. A
-stale host LaunchAgent restarted that VM, and an idle Camplan database and Redis
+stale host LaunchAgent restarted that VM, and an idle example workload database and Redis
 stack subsequently used its Docker socket. The managed guest Compose shim also
 resolved only by absolute path because its profile rendered the macOS home.
 
@@ -53,7 +53,7 @@ resolved only by absolute path because its profile rendered the macOS home.
 - Derive portable user paths from runtime `$HOME`.
 - Remove host-runtime fallback guidance from current distribution contracts.
 - Preserve truthful completed tickets and changelog history.
-- Verify no active Camplan consumer before stopping its idle services.
+- Verify no active example workload consumer before stopping its idle services.
 - Delete all Colima runtime data without backup, as explicitly approved.
 - Remove the Colima LaunchAgent, context, state, package, and host Docker tools.
 
@@ -79,7 +79,7 @@ managed workspace state are outside deletion scope.
   whitespace checks passed. Independent review found no remaining issue.
 - Both configured guests resolved `docker compose` through runtime `$HOME`,
   reported Docker Compose v2.40.3 and rootless Podman `true`, and remained running.
-- Immediately before teardown, only the expected Camplan database and Redis
+- Immediately before teardown, only the expected example workload database and Redis
   containers ran; PostgreSQL had zero client backends, Redis had only the probe
   client, and no process, scheduler, cron, or established port connection existed.
 - The restart agent was disabled before the probes were repeated. The exact
@@ -96,6 +96,9 @@ managed workspace state are outside deletion scope.
   Podman 6.1.0 and QEMU 11.1.0 remained installed.
 
 ## Execution Safety
+
+The consumer names and database below are synthetic examples; select actual
+values from private inventory before use.
 
 Run the following as one strict-mode shell after setting the four workspace
 variables from machine-local configuration. Any failed assertion stops the
@@ -118,13 +121,13 @@ replacement_probes() {
 }
 consumer_probes() {
     test "$(docker context show)" = colima
-    expected=$(printf '%s\n' camplan-consumer-001-db-1 camplan-consumer-001-redis-1 | sort)
+    expected=$(printf '%s\n' example-consumer-001-db-1 example-consumer-001-redis-1 | sort)
     test "$(docker ps --format '{{.Names}}' | sort)" = "$expected"
-    clients=$(docker exec camplan-consumer-001-db-1 psql -U postgres \
-        -d enterprise_seo_tools -Atc \
+    clients=$(docker exec example-consumer-001-db-1 psql -U postgres \
+        -d example_app -Atc \
         "select count(*) from pg_stat_activity where pid <> pg_backend_pid() and backend_type = 'client backend'")
     test "$clients" = 0
-    test "$(docker exec camplan-consumer-001-redis-1 redis-cli --raw client list | wc -l | tr -d ' ')" = 1
+    test "$(docker exec example-consumer-001-redis-1 redis-cli --raw client list | wc -l | tr -d ' ')" = 1
     ! lsof -nP -iTCP:5433 -iTCP:6380 -sTCP:ESTABLISHED
 }
 
@@ -145,20 +148,20 @@ done
 
 replacement_probes
 consumer_probes
-pgrep -af '[C]AMPLAN-CONSUMER-001|[c]amplan-consumer-001' && abort "Camplan process found"
-launchctl list | grep -qi camplan && abort "Camplan LaunchAgent found"
-crontab -l 2>/dev/null | grep -qi camplan && abort "Camplan cron found"
+pgrep -af '[E]XAMPLE-CONSUMER-001|[e]xample-consumer-001' && abort "example workload process found"
+launchctl list | grep -qi example && abort "example workload LaunchAgent found"
+crontab -l 2>/dev/null | grep -qi example && abort "example workload cron found"
 
 launchctl disable "gui/$(id -u)/dev.dotfiles.colima-atuin"
 launchctl print-disabled "gui/$(id -u)" | grep -q '"dev.dotfiles.colima-atuin" => true'
 consumer_probes
-pgrep -af '[C]AMPLAN-CONSUMER-001|[c]amplan-consumer-001' && abort "Camplan process found"
-launchctl list | grep -qi camplan && abort "Camplan LaunchAgent found"
-crontab -l 2>/dev/null | grep -qi camplan && abort "Camplan cron found"
-camplan_compose=$(docker inspect camplan-consumer-001-db-1 \
+pgrep -af '[E]XAMPLE-CONSUMER-001|[e]xample-consumer-001' && abort "example workload process found"
+launchctl list | grep -qi example && abort "example workload LaunchAgent found"
+crontab -l 2>/dev/null | grep -qi example && abort "example workload cron found"
+example_compose=$(docker inspect example-consumer-001-db-1 \
     --format '{{ index .Config.Labels "com.docker.compose.project.config_files" }}')
-test -f "$camplan_compose"
-docker compose -f "$camplan_compose" -p camplan-consumer-001 down --remove-orphans
+test -f "$example_compose"
+docker compose -f "$example_compose" -p example-consumer-001 down --remove-orphans
 test -z "$(docker ps -q)"
 if launchctl print "gui/$(id -u)/dev.dotfiles.colima-atuin" >/dev/null 2>&1; then
     launchctl bootout "gui/$(id -u)/dev.dotfiles.colima-atuin"
@@ -200,5 +203,5 @@ either managed workspace.
 ## Review
 
 Review must reject deletion before consumer and guest-runtime proof, removal of
-historical evidence, changes to `enterprise-seo-tools`, or deletion of managed
+historical evidence, changes to designated protected projects, or deletion of managed
 Fedora workspace state.
