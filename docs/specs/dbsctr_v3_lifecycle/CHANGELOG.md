@@ -1,5 +1,28 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-03 — Preserve recovery custody during external completion
+
+- Reconcile the external-completion correction with accepted Lineage Recovery,
+  validation compatibility and CI partitioning. Preserve accepted helper code
+  outside the two completion admission functions; retain both source histories.
+- Check pending recovery custody under the completion handler's shared writer
+  lease before credentials or native GitHub reads. Approved but unapplied and
+  unknown custody block completion and preview; plan-only preflights remain
+  nonblocking. Rejection preserves the record, pointer and custody and releases
+  owned locks. No new command, schema or recovery authority is introduced.
+- Authentic interrupted-recovery fixtures reproduced four failures while two
+  plan-only controls passed. All six cases pass after repair; the full completion
+  suite passes 83 tests. Local compatibility passes 30 cases; publication, CI and
+  measurement contracts pass 303 with one existing optional skip. Fresh Python
+  3.12.15, 3.13.1 and 3.14.10 correctness cohorts retain 72 complete records and
+  48 profiles without a performance comparison. Isolated exact-helper apply,
+  repeat and scoped preimage rollback pass. Full recovery and independent review
+  evidence remain separately owned by the private Cycle Record.
+- Source delivery updates the existing draft PR. Fresh native CI and exact-head
+  approval remain required before ordinary merge and guarded helper installation.
+  Preserve original Gate Commits, failed evidence and accepted runtime history;
+  source integration does not repeat deployment or change consumer gate results.
+
 ## 2026-11-03 — Native Initiative external-completion recovery
 
 - Route initial completion and explicit completed retries through the dedicated
