@@ -1,0 +1,102 @@
+"""Closed host orchestration must never turn build metadata into command authority."""
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import sys
+import time
+from contextlib import contextmanager
+from types import SimpleNamespace
+
+import pytest
+
+
+@pytest.fixture(scope='module')
+def build():
+    path=Path(__file__).with_name('probe_openshell_guest_build.py')
+    assert path.exists(), 'closed guest build runner absent: intended red evidence'
+    sys.path.insert(0,str(path.parent))
+    spec=importlib.util.spec_from_file_location('guest_build_under_test',path)
+    module=importlib.util.module_from_spec(spec);sys.modules[spec.name]=module;spec.loader.exec_module(module)
+    yield module
+    sys.path.remove(str(path.parent))
+
+
+def test_bundle_is_exact_source_and_toolchain(build,tmp_path):
+    bundle=build.load_bundle(tmp_path)
+    assert bundle.payload['toolchain']['host']=='aarch64-unknown-linux-musl'
+    assert set(bundle.payload['files'])=={'Cargo.toml','Cargo.lock','src/lib.rs','src/linux/child_seccomp.rs'}
+    assert len(bundle.payload['toolchain']['artifacts'])==3
+    assert bundle.payload['patched_sha256']=='259e77596f3f70ee28bdd8672f4747f3462f4c727b609e92d782cf749782ccb3'
+
+
+@pytest.mark.parametrize('operation',['command','build-all','activate','start',''])
+def test_unknown_operation_cannot_start_worker(build,monkeypatch,operation):
+    monkeypatch.setattr(build.boot,'_qualify_with_inspection',lambda *a,**k:pytest.fail('started'))
+    with pytest.raises(build.Refusal): build.qualify(None,operation)
+
+
+def test_fixed_script_has_no_arbitrary_root_cli(build):
+    script=build.prepare_script('def prepare(): return {"prepared": True}\n')
+    assert 'sudo' not in script and 'sys.argv' not in script
+    compile(script,'fixed-prepare','exec')
+
+
+@pytest.mark.parametrize('change',['none','size','fixture','written','boolean','enabled','unknown'])
+def test_prepare_report_must_prove_exact_limits(build,change):
+    value={'schema_version':1,'status':'prepared','image_bytes':8*1024**3,'fixture_bytes':64*1024**2,
+           'fixture_written_bytes':60*1024**2,'escape_verified':True,'enospc_verified':True,
+           'unmounted_verified':True,'work':'/var/lib/dotfiles-ai-openshell-build/store/work','allocation_enabled':False}
+    if change=='size': value['image_bytes']+=1
+    elif change=='fixture': value['fixture_bytes']=128*1024**2
+    elif change=='written': value['fixture_written_bytes']=66*1024**2
+    elif change=='boolean': value['enospc_verified']=1
+    elif change=='enabled': value['allocation_enabled']=True
+    elif change=='unknown': value['command']='x'
+    if change=='none': assert build.parse_prepared(value)==value
+    else:
+        with pytest.raises(build.Refusal): build.parse_prepared(value)
+
+
+def test_kernel_script_keeps_four_fixed_stages_and_offline_test(build):
+    script=build.kernel_script('', 'def stage(*args): pass', {'files':{}}, 1000)
+    compile(script,'fixed-kernel','exec')
+    assert "('download', True" in script and "('fetch', True" in script
+    assert "('setup', False" in script and "('test', False" in script
+    assert 'mounted_store' in script
+
+
+def test_kernel_script_composes_valid_unprivileged_stage_source(build):
+    calls=[]
+    @contextmanager
+    def mounted_store(**kwargs): yield None
+    def run_unit(script,**kwargs):
+        compile(script,'generated-unprivileged-stage','exec')
+        calls.append(kwargs['network'])
+        return {'stdout':b'{}'}
+    namespace={'time':time,'sys':sys,'json':json,'mounted_store':mounted_store,'run_unit':run_unit}
+    exec(build.kernel_script('', 'def stage(*args): pass', {}, 1000),namespace)
+    assert calls==[True,False,True,False]
+
+
+def test_cli_rejects_command_override(build,monkeypatch):
+    monkeypatch.setattr(sys,'argv',['runner','--selection','unused','--command','x'])
+    with pytest.raises(SystemExit) as caught: build.main()
+    assert caught.value.code==2
+
+
+def test_prepare_failure_retains_bounded_private_diagnostics(build, capsys):
+    controller='''
+class Refusal(Exception):
+    stdout = b"bounded compiler output"
+    stderr = b"bounded compiler error"
+def prepare():
+    raise Refusal("unit_failed")
+'''
+    with pytest.raises(Exception,match='unit_failed'):
+        exec(build.prepare_script(controller),{'sys':sys,'json':json})
+    captured=capsys.readouterr()
+    assert 'bounded compiler output' in captured.err
+    assert 'bounded compiler error' in captured.err
+    assert captured.out==''

@@ -347,3 +347,22 @@ def test_slow_cleanup_identity_checks_cannot_consume_stop_reserve(booter, stoppe
     with pytest.raises(booter.BootRefusal) as caught: booter.qualify_boot(selection)
     assert caught.value.shutdown_uncertain and not caught.value.stop_requested
     assert effects(calls) == ["start"] and state["live"]
+
+
+@pytest.mark.parametrize("seconds", [True, 0, 901, 1801, 3600])
+def test_private_qualification_refuses_unselected_budget(booter, stopped, seconds):
+    selection, *_ = stopped
+    with pytest.raises(booter.BootRefusal, match="qualification_budget") as error:
+        booter._qualify_with_inspection(selection, qualification_seconds=seconds)
+    assert not error.value.start_requested
+
+
+def test_build_qualification_keeps_shutdown_reserve(booter, stopped, monkeypatch):
+    selection, *_ = stopped
+    def admit(selection, fd, deadline):
+        assert 1490 < deadline - booter.time.monotonic() <= 1500
+        raise booter.Refusal("admission_probe_only")
+    monkeypatch.setattr(booter, "_admit", admit)
+    with pytest.raises(booter.BootRefusal, match="admission_probe_only") as error:
+        booter._qualify_with_inspection(selection, qualification_seconds=1800)
+    assert not error.value.start_requested

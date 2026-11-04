@@ -1,0 +1,888 @@
+"""Closed root controller for the optional Linux guest build storage experiment.
+
+Only source-defined callers may use run_unit; there is no command, path, or script
+CLI. Native errors preserve partial state. Receipts are comparisons, not authority.
+"""
+from __future__ import annotations
+
+from contextlib import contextmanager
+from dataclasses import dataclass
+import errno
+import fcntl
+import json
+import math
+import os
+from pathlib import Path
+import re
+import selectors
+import signal
+import socket
+import stat
+import struct
+import subprocess
+import sys
+import time
+import uuid
+
+ROOT = Path("/var/lib/dotfiles-ai-openshell-build")
+WORK = ROOT / "store/work"
+OTHER_SOCKET = Path("/opt/.dotfiles-ai-openshell-build-probe.sock")
+IMAGE_BYTES = 8 * 1024**3
+FIXTURE_BYTES = 64 * 1024**2
+REQUIRED_FREE = 12 * 1024**3
+PREPARE_SECONDS = 420
+CLEANUP_RESERVE = 60
+MAX_OUTPUT = 512 * 1024
+ENV = {"PATH": "/usr/sbin:/usr/bin", "LC_ALL": "C", "LANG": "C"}
+_active = None
+_end = _work_end = None
+
+
+class Refusal(Exception):
+    """A fixed reason; native output and arbitrary exception messages stay private."""
+
+    def __init__(self, reason: str, *, stdout: bytes = b"", stderr: bytes = b"", returncode: int | None = None):
+        super().__init__(reason)
+        self.stdout = stdout[:MAX_OUTPUT]
+        self.stderr = stderr[:MAX_OUTPUT - len(self.stdout)]
+        self.returncode = returncode
+
+
+@dataclass(frozen=True)
+class Store:
+    root: Path
+    image: Path
+    mount: Path
+    work: Path
+    uuid: str
+    device: str
+    mount_id: int
+    image_identity: tuple[int, ...]
+    size: int
+
+
+def _remaining(deadline: float, maximum: float = 30) -> float:
+    if type(deadline) is not float or not math.isfinite(deadline):
+        raise Refusal("deadline")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise Refusal("deadline")
+    return min(remaining, maximum)
+
+
+def _command(argv: list[str], deadline: float, *, maximum: float = 30, check: bool = True) -> dict:
+    """Bound both streams and the child process group; never invoke a shell."""
+    end = min(deadline, time.monotonic() + _remaining(deadline, maximum))
+    process = None
+    streams = [bytearray(), bytearray()]
+    try:
+        process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, env=ENV, start_new_session=True, close_fds=True)
+        with selectors.DefaultSelector() as poll:
+            for index, stream in enumerate((process.stdout, process.stderr)):
+                os.set_blocking(stream.fileno(), False)
+                poll.register(stream, selectors.EVENT_READ, index)
+            while poll.get_map():
+                for key, _ in poll.select(_remaining(end, 0.2)):
+                    block = os.read(key.fileobj.fileno(), 65536)
+                    if not block:
+                        poll.unregister(key.fileobj)
+                    else:
+                        streams[key.data].extend(block)
+                        if sum(map(len, streams)) > MAX_OUTPUT:
+                            raise Refusal("command_output_limit")
+            process.wait(timeout=_remaining(end))
+        _remaining(end)
+        if check and process.returncode:
+            raise Refusal("native_command_failed", stdout=bytes(streams[0]), stderr=bytes(streams[1]),
+                          returncode=process.returncode)
+        return {"returncode": process.returncode, "stdout": bytes(streams[0]), "stderr": bytes(streams[1])}
+    except (OSError, subprocess.TimeoutExpired):
+        raise Refusal("native_command_unavailable", stdout=bytes(streams[0]), stderr=bytes(streams[1])) from None
+    except Refusal as error:
+        if not error.stdout and not error.stderr:
+            error.stdout = bytes(streams[0])[:MAX_OUTPUT]
+            error.stderr = bytes(streams[1])[:MAX_OUTPUT - len(error.stdout)]
+        raise
+    finally:
+        if process is not None:
+            if process.poll() is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+
+
+def _read(path: Path, limit: int = 65536) -> bytes:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise Refusal("metadata_type")
+        result = bytearray()
+        while True:
+            if _end is not None:
+                _remaining(_end)
+            block = os.read(fd, min(65536, limit + 1 - len(result)))
+            if not block:
+                return bytes(result)
+            result.extend(block)
+            if len(result) > limit:
+                raise Refusal("metadata_limit")
+    finally:
+        os.close(fd)
+
+
+def _private(path: Path, *, directory: bool = False, size: int | None = None) -> tuple[int, ...]:
+    info = path.lstat()
+    expected_mode = 0o711 if path == ROOT else 0o700 if directory else 0o600
+    if (path.resolve(strict=True) != path or info.st_uid != 0 or info.st_gid != 0
+            or stat.S_IMODE(info.st_mode) != expected_mode
+            or not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))
+            or (not directory and (info.st_nlink != 1 or (size is not None and info.st_size != size)))):
+        raise Refusal("resource_identity")
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink, info.st_size)
+
+
+def _write_new(path: Path, data: bytes) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view):]
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _root() -> int:
+    if sys.platform != "linux" or os.geteuid() != 0:
+        raise Refusal("linux_root_required")
+    _private(ROOT, directory=True)
+    fd = os.open(ROOT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if (os.fstat(fd).st_dev, os.fstat(fd).st_ino) != (ROOT.stat().st_dev, ROOT.stat().st_ino):
+            raise Refusal("resource_identity")
+    except (OSError, Refusal):
+        os.close(fd)
+        raise Refusal("storage_busy") from None
+    return fd
+
+
+def _parse_receipt(raw: bytes) -> dict:
+    def unique(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise Refusal("receipt")
+            result[key] = value
+        return result
+    try:
+        value = json.loads(raw, object_pairs_hook=unique)
+    except (ValueError, UnicodeError):
+        raise Refusal("receipt") from None
+    if (type(value) is not dict or set(value) != {"schema_version", "uuid", "image_identity", "fixture_verified"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or value["fixture_verified"] is not True
+            or type(value["image_identity"]) is not list or len(value["image_identity"]) != 7
+            or any(type(number) is not int or number < 0 for number in value["image_identity"])
+            or not isinstance(value["uuid"], str)
+            or re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", value["uuid"]) is None):
+        raise Refusal("receipt")
+    return value
+
+
+def _parse_pending(raw: bytes) -> dict:
+    def unique(items):
+        value = {}
+        for key, item in items:
+            if key in value:
+                raise Refusal("pending_record")
+            value[key] = item
+        return value
+    try:
+        value = json.loads(raw, object_pairs_hook=unique)
+    except (ValueError, UnicodeError):
+        raise Refusal("pending_record") from None
+    if (type(value) is not dict or set(value) != {"schema_version", "phase", "uuid", "image_identity", "fill_inode", "fixture_written_bytes"}
+            or type(value["phase"]) is not str or value["phase"] not in {"fixture", "image"}
+            or type(value["fill_inode"]) is not int or value["fill_inode"] < 0
+            or type(value["fixture_written_bytes"]) is not int or value["fixture_written_bytes"] < 0):
+        raise Refusal("pending_record")
+    _parse_receipt(json.dumps({key: value[key] for key in ("schema_version", "uuid", "image_identity")}
+                             | {"fixture_verified": True}).encode())
+    identity = value["image_identity"]
+    expected = FIXTURE_BYTES if value["phase"] == "fixture" else IMAGE_BYTES
+    if (identity[0] == 0 or identity[1] == 0 or identity[2:] != [stat.S_IFREG | 0o600, 0, 0, 1, expected]
+            or (value["phase"] == "fixture" and value["fixture_written_bytes"] != 0)
+            or (value["phase"] == "image" and (value["fill_inode"] != 0
+                or not 0 < value["fixture_written_bytes"] <= 65 * 1024**2))):
+        raise Refusal("pending_record")
+    return value
+
+
+def _save_pending(value: dict) -> None:
+    raw = json.dumps(value, sort_keys=True).encode()
+    _parse_pending(raw)
+    temporary = ROOT / "pending.next"
+    target = ROOT / "pending.json"
+    if target.exists():
+        _private(target)
+        _parse_pending(_read(target, 4096))
+    _write_new(temporary, raw)
+    temporary.replace(target)
+
+
+def _validate_fill(info, inode: int, device: int) -> None:
+    if (info.st_ino != inode or info.st_dev != device or info.st_uid != 65534 or info.st_gid != 65534
+            or info.st_mode != stat.S_IFREG | 0o600 or info.st_nlink != 1 or not 0 <= info.st_size <= FIXTURE_BYTES):
+        raise Refusal("fixture_fill_identity")
+
+
+def _reset_fill(pending: dict) -> None:
+    """Reset only the receipt-bound synthetic fixture file, never its image."""
+    if _active is None or _active.size != FIXTURE_BYTES or pending["phase"] != "fixture":
+        raise Refusal("fixture_fill_identity")
+    path = WORK / "fill"
+    if pending["fill_inode"] == 0:
+        _write_new(path, b"")
+        os.chown(path, 65534, 65534)
+        pending["fill_inode"] = path.lstat().st_ino
+        _save_pending(pending)
+    fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    try:
+        _validate_fill(os.fstat(fd), pending["fill_inode"], WORK.stat().st_dev)
+        os.ftruncate(fd, 0)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _root_names() -> set[str]:
+    names = set()
+    with os.scandir(ROOT) as entries:
+        for entry in entries:
+            if len(names) >= 4:
+                raise Refusal("retained_state")
+            names.add(entry.name)
+    return names
+
+
+def _mount_record(raw: bytes, mount: Path, device: str, mount_id: int, major: int, minor: int) -> dict:
+    try:
+        rows = [line.split() for line in raw.decode("ascii").splitlines()]
+        rows = [row for row in rows if len(row) > 6 and row[4] == str(mount)]
+        if len(rows) != 1:
+            raise Refusal("mount_identity")
+        row = rows[0]
+        split = row.index("-")
+        if (int(row[0]) != mount_id or row[2] != f"{major}:{minor}" or row[3] != "/"
+                or not {"rw", "nosuid", "nodev"} <= set(row[5].split(","))
+                or row[split + 1:split + 3] != ["ext4", device]):
+            raise Refusal("mount_identity")
+        return {"mount_id": mount_id}
+    except (ValueError, UnicodeError, IndexError):
+        raise Refusal("mount_identity") from None
+
+
+def _mounts() -> bytes:
+    return _read(Path("/proc/self/mountinfo"), 1024 * 1024)
+
+
+def _is_mounted(mount: Path) -> bool:
+    return any(len(row) > 4 and row[4] == str(mount).encode() for row in (line.split() for line in _mounts().splitlines()))
+
+
+def _associated(image: Path, deadline: float) -> list[str]:
+    raw = _command(["/usr/sbin/losetup", "--associated", str(image), "--output", "NAME", "--noheadings"], deadline)["stdout"]
+    try:
+        devices = raw.decode("ascii").split()
+    except UnicodeError:
+        raise Refusal("loop_identity") from None
+    if len(devices) > 1 or any(re.fullmatch(r"/dev/loop[0-9]+", device) is None for device in devices):
+        raise Refusal("loop_identity")
+    return devices
+
+
+def _loop_identity(image: Path, identity: tuple[int, ...], device: str, size: int, deadline: float) -> None:
+    if (_private(image, size=size) != identity or re.fullmatch(r"/dev/loop[0-9]+", device) is None
+            or _associated(image, deadline) != [device]):
+        raise Refusal("loop_identity")
+    fd = os.open(device, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISBLK(info.st_mode) or os.major(info.st_rdev) != 7:
+            raise Refusal("loop_identity")
+        native = struct.unpack("=QQQQQIIII64s64s32sQQ", fcntl.ioctl(fd, 0x4C05, bytes(232)))
+        if (native[1] != identity[1] or native[3] != 0 or native[4] != size
+                or native[5] != int(device.removeprefix("/dev/loop")) or native[6] != 0 or native[8] & 1
+                or native[9].split(b"\0", 1)[0] != os.fsencode(image)):
+            raise Refusal("loop_identity")
+    finally:
+        os.close(fd)
+    raw = _command(["/usr/sbin/blockdev", "--getsize64", device], deadline)["stdout"]
+    if raw.strip() != str(size).encode():
+        raise Refusal("loop_capacity")
+
+
+def _verify(store: Store, deadline: float, *, work: bool = True) -> None:
+    _remaining(deadline)
+    _private(ROOT, directory=True)
+    _loop_identity(store.image, store.image_identity, store.device, store.size, deadline)
+    for field, expected in (("TYPE", "ext4"), ("UUID", store.uuid)):
+        raw = _command(["/usr/sbin/blkid", "-p", "-s", field, "-o", "value", store.device], deadline)["stdout"]
+        if raw.strip() != expected.encode():
+            raise Refusal("filesystem_identity")
+    fd = os.open(store.mount, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        fields = dict(line.split(":", 1) for line in _read(Path(f"/proc/self/fdinfo/{fd}"), 4096).decode("ascii").splitlines())
+        mount_id = int(fields["mnt_id"].strip())
+        if int(fields["ino"].strip()) != info.st_ino or (store.mount_id and mount_id != store.mount_id):
+            raise Refusal("mount_identity")
+        _mount_record(_mounts(), store.mount, store.device, mount_id, os.major(info.st_dev), os.minor(info.st_dev))
+        capacity = os.fstatvfs(fd)
+        if (not store.size * 3 // 4 < capacity.f_blocks * capacity.f_frsize <= store.size
+                or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o755
+                or (store.mount.stat().st_dev, store.mount.stat().st_ino) != (info.st_dev, info.st_ino)):
+            raise Refusal("filesystem_capacity")
+        if work:
+            for path in (store.work, *(store.work / name for name in ("home", "tmp", "cargo", "rustup", "cache", "target"))):
+                child = path.lstat()
+                if (not stat.S_ISDIR(child.st_mode) or child.st_uid != 65534 or child.st_gid != 65534
+                        or stat.S_IMODE(child.st_mode) != 0o700 or child.st_dev != info.st_dev
+                        or path.resolve(strict=True) != path):
+                    raise Refusal("work_identity")
+    except (ValueError, KeyError, UnicodeError):
+        raise Refusal("mount_identity") from None
+    finally:
+        os.close(fd)
+    _remaining(deadline)
+
+
+def _mount_id(mount: Path) -> int:
+    rows = [line.split() for line in _mounts().decode("ascii").splitlines()]
+    found = [int(row[0]) for row in rows if len(row) > 4 and row[4] == str(mount)]
+    if len(found) != 1:
+        raise Refusal("mount_identity")
+    return found[0]
+
+
+def _make_image(image: Path, size: int, filesystem_uuid: str, deadline: float) -> tuple[int, ...]:
+    _remaining(deadline)
+    fd = os.open(image, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    try:
+        os.ftruncate(fd, size)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    identity = _private(image, size=size)
+    _command(["/usr/sbin/mkfs.ext4", "-q", "-F", "-m", "0", "-U", filesystem_uuid, str(image)], deadline)
+    if _private(image, size=size) != identity:
+        raise Refusal("image_changed")
+    return identity
+
+
+@contextmanager
+def _mounted(image: Path, size: int, filesystem_uuid: str, identity: tuple[int, ...], deadline: float, *, initialize: bool):
+    global _active
+    mount = ROOT / "store"
+    _private(mount, directory=True)
+    if _active is not None or _is_mounted(mount) or _associated(image, deadline):
+        raise Refusal("retained_mount")
+    mount_identity = mount.stat()
+    device = None
+    store = None
+    try:
+        raw = _command(["/usr/sbin/losetup", "--find", "--show", "--nooverlap", "--sizelimit", str(size), str(image)], deadline)["stdout"]
+        try:
+            device = raw.decode("ascii").strip()
+        except UnicodeError:
+            raise Refusal("loop_identity") from None
+        _loop_identity(image, identity, device, size, deadline)
+        _command(["/usr/bin/mount", "-t", "ext4", "-o", "rw,nosuid,nodev", device, str(mount)], deadline)
+        store = Store(ROOT, image, mount, WORK, filesystem_uuid, device, _mount_id(mount), identity, size)
+        _verify(store, deadline, work=False)
+        if initialize and not WORK.exists():
+            for path in (WORK, *(WORK / name for name in ("home", "tmp", "cargo", "rustup", "cache", "target"))):
+                path.mkdir(mode=0o700)
+                os.chown(path, 65534, 65534)
+        _verify(store, deadline)
+        _active = store
+        yield store
+        _verify(store, deadline)
+    finally:
+        _active = None
+        cleanup_deadline = _end if _end is not None else deadline
+        # Reobserve exact backing and mount identities before either cleanup effect.
+        # Unknown or changed resources remain in place, including timed-out attaches.
+        if device is not None:
+            _loop_identity(image, identity, device, size, cleanup_deadline)
+            if _is_mounted(mount):
+                if store is None:
+                    store = Store(ROOT, image, mount, WORK, filesystem_uuid, device, _mount_id(mount), identity, size)
+                _verify(store, cleanup_deadline, work=False)
+                _command(["/usr/bin/umount", str(mount)], cleanup_deadline)
+            if _is_mounted(mount) or (mount.stat().st_dev, mount.stat().st_ino) != (mount_identity.st_dev, mount_identity.st_ino):
+                raise Refusal("unmount_unverified")
+            _loop_identity(image, identity, device, size, cleanup_deadline)
+            _command(["/usr/sbin/losetup", "--detach", device], cleanup_deadline)
+            if _associated(image, cleanup_deadline):
+                raise Refusal("loop_release_unverified")
+
+
+def _safe_system_entry(info) -> None:
+    if (info.st_uid != 0 or stat.S_ISSOCK(info.st_mode)
+            or not (stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode))
+            or (not stat.S_ISLNK(info.st_mode) and info.st_mode & 0o022)):
+        raise Refusal("visible_system_mutable_or_socket")
+
+
+def _visible_system(deadline: float) -> None:
+    """Admit immutable visible guest trees; guest root is the trusted controller.
+
+    No privileged concurrent system-tree mutation is permitted during this closed
+    experiment. The unprivileged build cannot create sockets in admitted trees.
+    Unknown roots, special files, nested mounts, or scan limits fail closed.
+    """
+    allowed = {"usr", "etc", "dev", "proc", "sys", "run", "var", "tmp", "home", "root",
+               "opt", "srv", "mnt", "media", "boot", "efi", "lost+found"}
+    aliases = {"bin": "usr/bin", "sbin": "usr/sbin", "lib": "usr/lib", "lib64": "usr/lib64"}
+    with os.scandir("/") as entries:
+        for number, entry in enumerate(entries):
+            _remaining(deadline)
+            if number >= 64:
+                raise Refusal("system_scan_limit")
+            info = entry.stat(follow_symlinks=False)
+            if entry.name in aliases:
+                if not stat.S_ISLNK(info.st_mode) or os.readlink(entry.path) not in {aliases[entry.name], "/" + aliases[entry.name]}:
+                    raise Refusal("system_alias")
+            elif stat.S_ISDIR(info.st_mode):
+                if entry.name not in allowed or info.st_uid != 0:
+                    raise Refusal("system_root")
+            else:
+                _safe_system_entry(info)
+                if stat.S_ISLNK(info.st_mode):
+                    raise Refusal("system_alias")
+    mounts = [line.split() for line in _mounts().splitlines()]
+    if any(len(row) > 4 and (row[4].startswith(b"/usr/") or row[4].startswith(b"/etc/")) for row in mounts):
+        raise Refusal("system_mount")
+    count = 0
+    def walk(path: Path, depth: int) -> None:
+        nonlocal count
+        _remaining(deadline)
+        if depth > 32:
+            raise Refusal("system_scan_limit")
+        _safe_system_entry(path.lstat())
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            _safe_system_entry(os.fstat(fd))
+            with os.scandir(fd) as entries:
+                for entry in entries:
+                    _remaining(deadline)
+                    count += 1
+                    if count > 200000:
+                        raise Refusal("system_scan_limit")
+                    info = entry.stat(follow_symlinks=False)
+                    _safe_system_entry(info)
+                    if stat.S_ISDIR(info.st_mode):
+                        walk(path / entry.name, depth + 1)
+        finally:
+            os.close(fd)
+    for path in (Path("/usr"), Path("/etc")):
+        walk(path, 0)
+
+
+def _resolver() -> Path | None:
+    path = Path("/etc/resolv.conf")
+    target = path.resolve(strict=True)
+    if target not in {path, Path("/run/systemd/resolve/stub-resolv.conf"), Path("/run/systemd/resolve/resolv.conf"),
+                      Path("/run/NetworkManager/resolv.conf")}:
+        raise Refusal("resolver_identity")
+    info = target.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022 or info.st_nlink != 1:
+        raise Refusal("resolver_identity")
+    _read(target, 65536)
+    return target if target != path else None
+
+
+def _properties(network: bool, seconds: int, *, resolver: Path | None = None) -> list[str]:
+    if type(network) is not bool or type(seconds) is not int or not 1 <= seconds <= 1500:
+        raise Refusal("unit_contract")
+    properties = ["Type=exec", "User=65534", "Group=65534", "SupplementaryGroups=", "UMask=0077",
+            "ProtectSystem=strict", "ProtectHome=yes", "PrivateDevices=yes", "PrivatePIDs=yes", "PrivateTmp=no",
+            "BindLogSockets=no", "NoNewPrivileges=yes", "CapabilityBoundingSet=", "AmbientCapabilities=",
+            "RestrictNamespaces=yes", "ProtectKernelTunables=yes", "ProtectControlGroups=yes",
+            "CPUQuota=200%", "MemoryMax=6G", "MemorySwapMax=0", "TasksMax=512", "LimitCORE=0",
+            "KillMode=control-group", "Restart=no", "TimeoutStartSec=20", "TimeoutStopSec=10",
+            f"RuntimeMaxSec={seconds}", f"PrivateNetwork={'no' if network else 'yes'}",
+            "RestrictAddressFamilies=AF_INET AF_INET6" + ("" if network else " AF_UNIX"),
+            "TemporaryFileSystem=/var:ro" + (" /run:ro" if network else ""),
+            "InaccessiblePaths=" + ("" if network else "/run ") + "/dev/shm -/opt -/srv -/mnt -/media -/boot -/efi -/lost+found",
+            f"BindPaths={WORK}:{WORK}:norbind {WORK}/tmp:/tmp:norbind {WORK}/tmp:/var/tmp:norbind",
+            f"WorkingDirectory={WORK}", "ProtectClock=yes"]
+    if resolver is not None:
+        if not network or resolver not in {Path("/run/systemd/resolve/stub-resolv.conf"), Path("/run/systemd/resolve/resolv.conf"),
+                                          Path("/run/NetworkManager/resolv.conf")}:
+            raise Refusal("resolver_identity")
+        properties.append(f"BindReadOnlyPaths={resolver}:{resolver}:norbind")
+    return properties
+
+
+def _unit_stopped(unit: str, deadline: float) -> None:
+    raw = _command(["/usr/bin/systemctl", "show", unit, "--property=ActiveState,SubState,ControlGroup"], deadline)["stdout"]
+    try:
+        fields = dict(line.split("=", 1) for line in raw.decode("ascii").splitlines())
+    except (ValueError, UnicodeError):
+        raise Refusal("unit_shutdown_unverified") from None
+    if fields.get("ActiveState") not in {"inactive", "failed"} or fields.get("SubState") not in {"dead", "failed"}:
+        raise Refusal("unit_shutdown_unverified")
+    group = fields.get("ControlGroup")
+    if group not in {"", f"/system.slice/{unit}"}:
+        raise Refusal("unit_shutdown_unverified")
+    if group:
+        path = Path("/sys/fs/cgroup") / group.lstrip("/") / "cgroup.procs"
+        if path.exists() and _read(path, 4096).strip():
+            raise Refusal("unit_shutdown_unverified")
+
+
+def run_unit(script: str, *, network: bool = False, seconds: int = 300) -> dict:
+    """Execute a trusted source-defined script within the current verified store.
+
+    This internal Python interface is not an authorization boundary or a CLI.
+    Callers must never pass user, downloaded, environment, or JSON-supplied code.
+    """
+    if _active is None or _end is None or _work_end is None:
+        raise Refusal("store_not_mounted")
+    properties = _properties(network, seconds, resolver=_resolver() if network else None)
+    if type(script) is not str or not script or len(script.encode("utf-8")) > 65536:
+        raise Refusal("unit_script")
+    deadline = min(_work_end, time.monotonic() + seconds)
+    _verify(_active, deadline)
+    _visible_system(deadline)
+    unit = "dotfiles-ai-openshell-build-" + uuid.uuid4().hex + ".service"
+    environment = {"PATH": "/usr/sbin:/usr/bin", "LC_ALL": "C", "LANG": "C", "HOME": str(WORK / "home"),
+                   "CARGO_HOME": str(WORK / "cargo"), "RUSTUP_HOME": str(WORK / "rustup"), "TMPDIR": str(WORK / "tmp"),
+                   "XDG_CACHE_HOME": str(WORK / "cache"), "CARGO_TARGET_DIR": str(WORK / "target")}
+    argv = ["/usr/bin/systemd-run", "--quiet", "--wait", "--pipe", f"--unit={unit}"]
+    argv += [f"--property={item}" for item in properties]
+    argv += [f"--setenv={key}={value}" for key, value in environment.items()]
+    argv += ["--", "/usr/bin/env", "-i", *(f"{key}={value}" for key, value in environment.items()),
+             "/usr/bin/python3", "-I", "-c", script]
+    try:
+        result = _command(argv, deadline, maximum=seconds, check=False)
+    finally:
+        _command(["/usr/bin/systemctl", "stop", unit], _end, maximum=15)
+        _unit_stopped(unit, _end)
+    _verify(_active, _work_end)
+    _visible_system(_work_end)
+    if result["returncode"]:
+        raise Refusal("unit_failed", **result)
+    return result
+
+
+_PROBE = r'''
+import errno,json,os,resource,socket,stat
+p=PARAMETERS
+w=p["work"]
+assert os.getuid()==os.getgid()==65534 and set(os.getgroups()) <= {65534}
+assert stat.S_ISFIFO(os.fstat(1).st_mode) and stat.S_ISFIFO(os.fstat(2).st_mode)
+assert resource.getrlimit(resource.RLIMIT_CORE)==(0,0)
+status=dict(line.split(":",1) for line in open("/proc/self/status") if ":" in line)
+assert status["NoNewPrivs"].strip()=="1"
+assert all(int(status[key].strip(),16)==0 for key in ("CapEff","CapPrm","CapBnd","CapAmb"))
+assert all(os.stat("/proc/self/ns/"+name).st_ino != p[name] for name in ("pid","mnt","net"))
+for entry in os.listdir("/proc/self/fd"):
+    if int(entry)>2:
+        try: os.fstat(int(entry))
+        except OSError as error: assert error.errno==errno.EBADF
+        else: raise AssertionError("inherited descriptor")
+cgroup=open("/proc/self/cgroup").read().strip()
+assert cgroup.startswith("0::/system.slice/dotfiles-ai-openshell-build-") and "\n" not in cgroup
+cgroup="/sys/fs/cgroup"+cgroup[3:]
+quota,period=map(int,open(cgroup+"/cpu.max").read().split())
+assert quota==2*period and period>0
+for name,expected in (("memory.max",6*1024**3),("memory.swap.max",0),("pids.max",512)):
+    assert int(open(cgroup+"/"+name).read())==expected
+device=os.stat(w).st_dev
+for path in (w,"/tmp","/var/tmp",os.environ["HOME"],os.environ["CARGO_HOME"],os.environ["RUSTUP_HOME"],os.environ["TMPDIR"],os.environ["XDG_CACHE_HOME"],os.environ["CARGO_TARGET_DIR"]):
+    assert os.stat(path).st_dev==device
+    target=path+"/positive-"+str(os.getpid())
+    with open(target,"xb") as stream: stream.write(b"inside")
+    os.unlink(target)
+for path in (p["outside"],"/run/openshell-escape","/dev/shm/openshell-escape","/etc/openshell-escape","/var/cache/openshell-escape","/var/log/openshell-escape","/openshell-escape"):
+    try: fd=os.open(path,os.O_WRONLY|os.O_CREAT,0o600)
+    except OSError as error: assert error.errno in (errno.EACCES,errno.EROFS,errno.ENOENT)
+    else: os.close(fd); raise AssertionError("outside write")
+try: os.stat("/proc/"+str(p["outside_pid"])+"/root")
+except OSError as error: assert error.errno in (errno.EACCES,errno.ENOENT,errno.ESRCH)
+else: raise AssertionError("outside process")
+for address in (p["pathname"],p["other_pathname"],"\0"+p["abstract"]):
+    with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
+        client.settimeout(1)
+        try: client.connect(address)
+        except OSError as error: assert error.errno in (errno.EACCES,errno.ENOENT,errno.ECONNREFUSED)
+        else: raise AssertionError("outside socket")
+for address in (w+"/tmp/positive.sock","\0openshell-positive-"+str(os.getpid())):
+    with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as server, socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
+        server.bind(address); server.listen(1); client.connect(address)
+        connection,_=server.accept(); connection.close()
+    if not address.startswith("\0"): os.unlink(address)
+for endpoint in socket.socketpair(): endpoint.close()
+with socket.socket(socket.AF_INET,socket.SOCK_STREAM): pass
+written=0
+if p["fill"]:
+    fd=os.open(w+"/fill",os.O_WRONLY|os.O_NOFOLLOW)
+    info=os.fstat(fd)
+    assert info.st_ino==p["fill_inode"] and info.st_dev==device and info.st_nlink==1 and info.st_size==0
+    block=os.urandom(1024*1024)
+    try:
+        while written < 65*1024*1024:
+            written += os.write(fd,block[:min(len(block),65*1024*1024-written)])
+        os.fsync(fd)
+    except OSError as error: assert error.errno==errno.ENOSPC
+    else: raise AssertionError("missing ENOSPC")
+    finally: os.close(fd)
+assert (0 < written <= 65*1024*1024) if p["fill"] else written==0
+print(json.dumps({"schema_version":1,"escape_verified":True,"enospc_verified":p["fill"],"written_bytes":written}))
+'''
+
+
+def _probe(*, fill: bool, deadline: float, fill_inode: int = 0) -> dict:
+    pathname = ROOT / "outside.sock"
+    outside = ROOT / "outside-writable"
+    abstract = "dotfiles-openshell-outside-" + uuid.uuid4().hex
+    servers = []
+    owned = {}
+    pid = None
+    ready_read = ready_write = None
+    def remember(path):
+        info = path.lstat()
+        owned[path] = (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink)
+    try:
+        if OTHER_SOCKET.exists() or OTHER_SOCKET.is_symlink() or not OTHER_SOCKET.parent.is_dir():
+            raise Refusal("probe_listener_unavailable")
+        _write_new(outside, b"unchanged")
+        remember(outside)
+        os.chown(outside, 65534, 65534)
+        remember(outside)
+        for address in (str(pathname), str(OTHER_SOCKET), "\0" + abstract):
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            servers.append(server)
+            server.bind(address)
+            if not address.startswith("\0"):
+                remember(Path(address))
+                os.chmod(address, 0o777)
+                remember(Path(address))
+            server.listen(4)
+            server.setblocking(False)
+        def positive_listeners():
+            for address, server in zip((str(pathname), str(OTHER_SOCKET), "\0" + abstract), servers, strict=True):
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.settimeout(_remaining(deadline, 1))
+                    client.connect(address)
+                    connection, _ = server.accept()
+                    connection.close()
+        positive_listeners()
+        # This trusted child owns no writable external descriptors. Its UID makes
+        # the proc-namespace negative control distinct from ordinary UID denial.
+        ready_read, ready_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                os.close(ready_read)
+                for server in servers:
+                    server.close()
+                os.setgroups([])
+                os.setgid(65534)
+                os.setuid(65534)
+                import ctypes
+                if ctypes.CDLL(None).prctl(4, 1, 0, 0, 0) != 0:
+                    os._exit(2)
+                # Prove the same-UID fixture is writable outside the unit before
+                # treating the confined failure as a namespace/readonly proof.
+                with outside.open("r+b") as stream:
+                    if stream.read() != b"unchanged":
+                        os._exit(2)
+                    stream.seek(0)
+                    stream.write(b"unchanged")
+                os.write(ready_write, b"ready")
+                os.close(ready_write)
+                time.sleep(120)
+            finally:
+                os._exit(0)
+        os.close(ready_write)
+        ready_write = None
+        with selectors.DefaultSelector() as poll:
+            poll.register(ready_read, selectors.EVENT_READ)
+            if not poll.select(_remaining(deadline, 5)) or os.read(ready_read, 6) != b"ready":
+                raise Refusal("probe_listener_unavailable")
+        os.close(ready_read)
+        ready_read = None
+        parameters = {"work": str(WORK), "outside": str(outside), "outside_pid": pid,
+                      "pathname": str(pathname), "other_pathname": str(OTHER_SOCKET), "abstract": abstract,
+                      "fill": fill, "fill_inode": fill_inode,
+                      **{name: os.stat(f"/proc/self/ns/{name}").st_ino for name in ("pid", "mnt", "net")}}
+        result = run_unit(_PROBE.replace("PARAMETERS", repr(parameters), 1), seconds=min(100, int(_remaining(deadline, 100))))
+        for server in servers:
+            try:
+                connection, _ = server.accept()
+            except BlockingIOError:
+                pass
+            else:
+                connection.close()
+                raise Refusal("socket_escape")
+        if _read(outside, 32) != b"unchanged":
+            raise Refusal("write_escape")
+        positive_listeners()
+        try:
+            report = json.loads(result["stdout"])
+        except (ValueError, UnicodeError):
+            raise Refusal("probe_report") from None
+        if (type(report) is not dict or set(report) != {"schema_version", "escape_verified", "enospc_verified", "written_bytes"}
+                or type(report["schema_version"]) is not int or report["schema_version"] != 1
+                or report["escape_verified"] is not True or report["enospc_verified"] is not fill
+                or type(report["written_bytes"]) is not int
+                or not (0 < report["written_bytes"] <= 65 * 1024**2 if fill else report["written_bytes"] == 0)):
+            raise Refusal("probe_report")
+        return report
+    finally:
+        for fd in (ready_read, ready_write):
+            if fd is not None:
+                os.close(fd)
+        if pid is not None:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            stop_end = min(_end, time.monotonic() + 2)
+            while os.waitpid(pid, os.WNOHANG) == (0, 0):
+                if time.monotonic() >= stop_end:
+                    os.kill(pid, signal.SIGKILL)
+                    if os.waitpid(pid, os.WNOHANG) == (0, 0):
+                        raise Refusal("probe_process_shutdown_unverified")
+                    break
+                time.sleep(0.01)
+        for server in servers:
+            server.close()
+        # Only exact freshly created synthetic fixtures are retired.
+        for path, identity in owned.items():
+            info = path.lstat()
+            if identity != (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink):
+                raise Refusal("probe_retirement_identity")
+            path.unlink()
+
+
+@contextmanager
+def mounted_store(*, deadline: float | None = None):
+    """Rebind the retained area and always release its exact mount and loop."""
+    global _end, _work_end
+    if _end is not None:
+        raise Refusal("nested_operation")
+    end = time.monotonic() + PREPARE_SECONDS if deadline is None else deadline
+    _remaining(end)
+    fd = _root()
+    _end, _work_end = end, end - CLEANUP_RESERVE
+    try:
+        _remaining(_work_end)
+        if _root_names() != {"image.raw", "store", "receipt.json"}:
+            raise Refusal("retained_state")
+        receipt_path = ROOT / "receipt.json"
+        _private(receipt_path)
+        receipt = _parse_receipt(_read(receipt_path, 4096))
+        image = ROOT / "image.raw"
+        identity = _private(image, size=IMAGE_BYTES)
+        if identity != tuple(receipt["image_identity"]):
+            raise Refusal("image_changed")
+        with _mounted(image, IMAGE_BYTES, receipt["uuid"], identity, _work_end, initialize=False) as store:
+            yield store
+    finally:
+        _end = _work_end = None
+        os.close(fd)
+
+
+def prepare() -> dict:
+    """Prepare once, or explicitly resume an exactly recorded formatted image.
+
+    A new invocation is required after failure. Resume never formats, enlarges,
+    or recreates retained images; unknown partial state remains untouched.
+    """
+    global _end, _work_end
+    if sys.platform != "linux" or os.geteuid() != 0:
+        raise Refusal("linux_root_required")
+    retained = ROOT.exists()
+    if ROOT.is_symlink() or (retained and not (ROOT / "pending.json").is_file()):
+        raise Refusal("retained_state")
+    if _end is not None:
+        raise Refusal("nested_operation")
+    end = time.monotonic() + PREPARE_SECONDS
+    parent = ROOT.parent
+    if parent.resolve(strict=True) != parent or parent.stat().st_uid != 0:
+        raise Refusal("parent_identity")
+    capacity = os.statvfs(parent)
+    if capacity.f_bavail * capacity.f_frsize < (4 * 1024**3 if retained else REQUIRED_FREE):
+        raise Refusal("guest_free_space")
+    if not retained:
+        ROOT.mkdir(mode=0o711)
+        ROOT.chmod(0o711)
+        (ROOT / "store").mkdir(mode=0o700)
+    fd = _root()
+    _end, _work_end = end, end - CLEANUP_RESERVE
+    try:
+        fixture = ROOT / "fixture.raw"
+        image = ROOT / "image.raw"
+        if retained:
+            _private(ROOT / "pending.json")
+            pending = _parse_pending(_read(ROOT / "pending.json", 4096))
+            expected_file = "fixture.raw" if pending["phase"] == "fixture" else "image.raw"
+            if _root_names() != {"pending.json", "store", expected_file}:
+                raise Refusal("retained_state")
+        else:
+            fixture_uuid = str(uuid.uuid4())
+            identity = _make_image(fixture, FIXTURE_BYTES, fixture_uuid, _work_end)
+            pending = {"schema_version": 1, "phase": "fixture", "uuid": fixture_uuid,
+                       "image_identity": list(identity), "fill_inode": 0, "fixture_written_bytes": 0}
+            _save_pending(pending)
+        if pending["phase"] == "fixture":
+            identity = tuple(pending["image_identity"])
+            with _mounted(fixture, FIXTURE_BYTES, pending["uuid"], identity, _work_end, initialize=True):
+                _reset_fill(pending)
+                proof = _probe(fill=True, deadline=_work_end, fill_inode=pending["fill_inode"])
+            if _private(fixture, size=FIXTURE_BYTES) != identity or _associated(fixture, _work_end):
+                raise Refusal("fixture_retirement")
+            fixture.unlink()
+            (ROOT / "pending.json").unlink()
+            marker = ROOT / "parent-writable"
+            _write_new(marker, b"parent remains writable after fixture ENOSPC")
+            marker.unlink()
+            capacity = os.statvfs(parent)
+            if capacity.f_bavail * capacity.f_frsize < REQUIRED_FREE:
+                raise Refusal("guest_free_space")
+            filesystem_uuid = str(uuid.uuid4())
+            identity = _make_image(image, IMAGE_BYTES, filesystem_uuid, _work_end)
+            pending = {"schema_version": 1, "phase": "image", "uuid": filesystem_uuid,
+                       "image_identity": list(identity), "fill_inode": 0, "fixture_written_bytes": proof["written_bytes"]}
+            _save_pending(pending)
+        identity = tuple(pending["image_identity"])
+        with _mounted(image, IMAGE_BYTES, pending["uuid"], identity, _work_end, initialize=True):
+            _probe(fill=False, deadline=_work_end)
+        receipt = {"schema_version": 1, "uuid": pending["uuid"], "image_identity": list(identity), "fixture_verified": True}
+        _write_new(ROOT / "receipt.json", json.dumps(receipt, sort_keys=True).encode())
+        (ROOT / "pending.json").unlink()
+        _remaining(end)
+        return {"schema_version": 1, "status": "prepared", "image_bytes": IMAGE_BYTES,
+                "fixture_bytes": FIXTURE_BYTES, "fixture_written_bytes": pending["fixture_written_bytes"],
+                "escape_verified": True, "enospc_verified": True, "unmounted_verified": True,
+                "work": str(WORK), "allocation_enabled": False}
+    except (OSError, ValueError, UnicodeError):
+        raise Refusal("guest_storage_unavailable") from None
+    finally:
+        _end = _work_end = None
+        os.close(fd)

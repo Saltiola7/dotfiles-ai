@@ -290,9 +290,12 @@ def _admit(selection: create.CreateSelection, fd: int, deadline: float) -> _Anch
 def _qualify_with_inspection(
     selection: create.CreateSelection,
     inspector: Callable[[create.CreateSelection, _Anchors, float], object] | None = None,
+    *, qualification_seconds: int = QUALIFICATION_SECONDS,
 ) -> tuple[BootObservation, object]:
     """Private composition for source-defined checks, never a caller command API."""
-    deadline = time.monotonic() + QUALIFICATION_SECONDS
+    if type(qualification_seconds) is not int or qualification_seconds not in {900, 1800}:
+        raise BootRefusal("qualification_budget")
+    deadline = time.monotonic() + qualification_seconds
     work_deadline = deadline - SHUTDOWN_RESERVE
     start_requested = stop_requested = stopped_verified = running_observed = False
     reason = None
