@@ -293,7 +293,7 @@ def full_compiler_publish(root, entries, create=False):
     if set(full_compiler_tree(root))!=set(entries):full_compiler_fail('tree_changed',root)
 
 
-def full_compiler_elf(raw):
+def full_compiler_elf(raw, member=''):
     if len(raw)<64 or raw[:7]!=b'\x7fELF\x02\x01\x01':full_compiler_fail('elf')
     kind,machine,version,_,offset,_,_,size,phsize,count,_,_,_=struct.unpack_from('<HHIQQQIHHHHHH',raw,16)
     if kind not in (1,2,3) or machine!=183 or version!=1 or size!=64:full_compiler_fail('elf')
@@ -324,7 +324,8 @@ def full_compiler_elf(raw):
         if len(tags.get(5,[]))!=1 or len(tags.get(10,[]))!=1 or len(tags[1])>64:full_compiler_fail('elf')
         address,length=tags[5][0],tags[10][0]
         matches=[start+address-virtual for start,virtual,size in loads if virtual<=address and address+length<=virtual+size]
-        if len(matches)!=1 or not 0<length<=1024**2:full_compiler_fail('elf')
+        if len(matches)!=1 or not 0<length<=len(raw):
+            full_compiler_fail('elf_string_table',f'{str(member)[:256]} mappings={len(matches)} bytes={length} file_bytes={len(raw)}')
         strings=raw[matches[0]:matches[0]+length]
         for at in tags[1]:
             if at>=len(strings) or b'\0' not in strings[at:]:full_compiler_fail('elf')
@@ -353,7 +354,7 @@ def full_compiler_closure(entries):
     for name,(kind,_,raw) in entries.items():
         remaining()
         if kind!='file' or not raw.startswith(b'\x7fELF'):continue
-        for needed in full_compiler_elf(raw)['needed']:
+        for needed in full_compiler_elf(raw,name)['needed']:
             found=[directory+'/'+needed for directory in ('lib','usr/lib',gcc) if directory+'/'+needed in entries]
             if not found:full_compiler_fail('missing_dependency',name+':'+needed)
             target=full_compiler_resolve(entries,found[0])

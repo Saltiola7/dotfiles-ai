@@ -290,6 +290,44 @@ def test_elf_requires_arm64_even_for_objects(compiler,kind):
     with pytest.raises(RuntimeError,match='full_compiler_elf'):compiler.full_compiler_elf(elf(kind,machine=62))
 
 
+def dynamic_elf(*, failure=None):
+    table_size=1024**2+64
+    table_at=512
+    data=bytearray(table_at+table_size)
+    data[:16]=b'\x7fELF\x02\x01\x01'+b'\0'*9
+    count=3 if failure=='ambiguous' else 2
+    struct.pack_into('<HHIQQQIHHHHHH',data,16,3,183,1,0,64,0,0,64,56,count,0,0,0)
+    filesz=len(data)-1 if failure=='memory_only_tail' else len(data)
+    struct.pack_into('<IIQQQQQQ',data,64,1,4,0,0,0,filesz,len(data),4096)
+    struct.pack_into('<IIQQQQQQ',data,120,2,4,256,256,256,64,64,8)
+    if failure=='ambiguous':
+        struct.pack_into('<IIQQQQQQ',data,176,1,4,0,0,0,len(data),len(data),4096)
+    declared_size=len(data)+1 if failure=='file_overflow' else table_size
+    for index,(tag,value) in enumerate(((5,table_at),(10,declared_size),(1,1),(0,0))):
+        struct.pack_into('<qQ',data,256+index*16,tag,value)
+    dependency=b'\0libc.musl-aarch64.so.1\0'
+    data[table_at:table_at+len(dependency)]=dependency
+    return bytes(data),declared_size
+
+
+def test_elf_large_string_table_uses_file_backed_load_extent(compiler):
+    raw,_=dynamic_elf()
+    assert compiler.full_compiler_elf(raw)['needed']==['libc.musl-aarch64.so.1']
+
+
+@pytest.mark.parametrize('failure,mappings',[
+    ('file_overflow',0),('memory_only_tail',0),('ambiguous',2),
+])
+def test_elf_string_table_requires_one_complete_file_mapping(compiler,failure,mappings):
+    raw,length=dynamic_elf(failure=failure)
+    member='usr/libexec/gcc/aarch64-alpine-linux-musl/14.2.0/cc1'
+    with pytest.raises(RuntimeError,match='full_compiler_elf') as error:
+        compiler.full_compiler_elf(raw,member=member)
+    assert member in str(error.value)
+    assert f'mappings={mappings}' in str(error.value)
+    assert f'bytes={length}' in str(error.value)
+
+
 @pytest.mark.parametrize('failure',[None,'query_escape','include_escape','link_escape','sentinel'])
 def test_probe_requires_real_workflow_results_and_preserves_failure(compiler,monkeypatch,failure):
     prefix=compiler.WORK/'full-c-toolchain-1';(prefix/'usr/include').mkdir(parents=True)
