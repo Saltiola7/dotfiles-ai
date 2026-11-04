@@ -83,9 +83,12 @@ install-00-remote-herdr.sh
 install-01-remote-opencode.sh
 {{ end }}
 
-{{ if not .dotfiles_ai.atuin.server_enabled }}
+{{ if or .dotfiles_ai.remote_user_environment.enabled (not .dotfiles_ai.atuin.server_enabled) }}
 .config/containers/systemd/atuin.container
 .config/containers/systemd/atuin-data.volume
+{{ end }}
+{{ if .dotfiles_ai.remote_user_environment.enabled }}
+enable-atuin-server.sh
 {{ end }}
 {{ if not .dotfiles_ai.remote_workspace.enabled }}
 .config/dotfiles-ai/remote-workspace.env

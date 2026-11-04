@@ -1,5 +1,40 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-04 — RRW-002R runtime reconciliation with accepted main
+
+- Imported RRW-002's completed signed source unchanged as merge ancestry onto
+  accepted main (external-merge completion, lineage recovery, partitioned CI and
+  supervised CI repairs). The merge was conflict-free; no runtime behavior, test
+  assertion or timeout changed.
+- Requalified the RHEL runtime and portable-distribution checks on the combined
+  tree. Native hosted CI on the reconciled head, including the UBI runtime smoke,
+  supplies integration and deployment qualification; results belong to the cycle
+  record.
+- PR #279's compatibility job failed in the pre-existing, load-sensitive Herdr
+  resume-spacing test, which this slice does not touch; that failure is retained,
+  not waived. This delivery supersedes #279, which remains retained.
+- RHEL-host, owner/colleague acceptance and INT-021's merged revision remain
+  unclaimed until merge and a separately approved rollout.
+
+## 2026-11-03 — RRW-002 portable RHEL successor source
+
+- Replaced CentOS userland CI with UBI 10, removed remote-client alternate-host
+  settings and Tailscale prerequisites, and kept remote Atuin local-only without
+  enrolling its server. Unrelated macOS/Fedora behavior and private history/auth
+  state retain their owners.
+- Preserved the stronger PY-01 first-clone admission repair merged on `main`,
+  including retry-safe cleanup and negative tests, while adding remote migration
+  and preservation regressions. Gate Commits include `16bc409a`, `fe729a8a`, and
+  reconciliation `76c8f631`.
+- Native x86_64 UBI run `41705268407` passed 22 offline bootstrap checks and full
+  install/readiness/reapply/retry/update/rollback smoke. Focused post-conflict
+  bootstrap/publication checks passed (58); runtime/portable/instruction checks
+  also passed. Earlier failed/unavailable attempts are retained, not waived.
+- Operator-approved early qualification draft is PR #279, not Final Push or a
+  live deployment. Full hosted CI and final cycle delivery remain separately
+  recorded; RHEL-host, owner/colleague acceptance and INT-021's merged revision
+  are not claimed. No Gate Exception or provider login was performed.
+
 ## 2026-11-02 — RRW-002 RHEL remote-user Discovery
 
 - Defined the RHEL 10 x86_64 successor, IAP-only portable client, remote-only

@@ -157,7 +157,6 @@ project = "example-project"
 zone = "example-region-a"
 instance = "example-workspace"
 account = "user@example.com" # blank uses the selected gcloud account
-tailscale_host = "" # optional FQDN for the alternate SSH path
 
 [data.dotfiles_ai.remote_user_environment]
 # Distinct from the local remote_workspace client above. Enable only inside a
