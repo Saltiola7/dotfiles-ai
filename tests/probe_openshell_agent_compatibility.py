@@ -12,7 +12,7 @@ import probe_openshell_storage_boot as boot
 import probe_openshell_storage_create as create
 
 
-OPERATIONS = ('agent-prepare', 'agent-test')
+OPERATIONS = ('agent-prepare', 'agent-test', 'agent-inspect')
 PROBES = ('codex-version', 'codex-help', 'codex-empty-login', 'codex-stdio',
           'opencode-version', 'opencode-help', 'opencode-rg')
 MODES = ('unfiltered', 'upstream', 'patched')
@@ -22,6 +22,7 @@ FLAGS = {'session_enabled': False, 'full_runtime_qualified': False, 'compatibili
 RESERVE = 256 * 1024**2
 VOICE_OMISSIONS_SHA256 = '478394bae952fff452aa79788abe07f3b2a44b1439c88b91da2919250cde7780'
 STAGES = {
+    'agent-inspect': (('agent-descriptors', 'cases', False, 30),),
     'agent-prepare': (('agent-download', 'assets', True, 300), ('agent-prepare', 'assets', False, 300)),
     'agent-test': (('rust-verify', 'rust', False, 240), ('compiler-verify', 'compiler', False, 240),
                    ('source-verify', 'source', False, 120), ('agent-verify', 'assets', False, 180),
@@ -117,6 +118,7 @@ def capture_sources(operation):
 
 
 def stage_payload(payload, stage, completed):
+    if stage == 'agent-descriptors': return {}
     if stage in {'rust-verify', 'compiler-verify', 'source-verify', 'source-final'}:
         return full.stage_payload(payload, stage)
     result = {} if stage.startswith('fixture-') else {'agent_manifest': payload.get('agent_manifest', {})}
@@ -137,7 +139,9 @@ def stage_payload(payload, stage, completed):
 
 
 def unit_source(source, payload, stage, seconds, completed):
-    if stage in full.STAGE_BODIES:
+    if stage == 'agent-descriptors':
+        body = '_result=agent_descriptor_inspect()\n'
+    elif stage in full.STAGE_BODIES:
         body = full.STAGE_BODIES[stage]
     elif stage in CASES:
         body = f'_result=agent_case(_stage_payload,{stage!r})\n'
@@ -150,7 +154,7 @@ def unit_source(source, payload, stage, seconds, completed):
             refuse('stage')
         body = f'_result={functions[stage]}(_stage_payload)\n'
     validation = ("if not all(stat.S_ISFIFO(os.fstat(fd).st_mode) for fd in (1,2)):\n"
-                  "    raise RuntimeError('harness_log_route')\n") if stage in CASES else 'validate_context()\n'
+                  "    raise RuntimeError('harness_log_route')\n") if stage in CASES or stage == 'agent-descriptors' else 'validate_context()\n'
     unit = (source+'\n'+build.payload_source(stage_payload(payload, stage, completed))
             +f'\nDEADLINE=time.monotonic()+{seconds!r}\n'+validation+body
             +'\nremaining()\nprint(json.dumps(_result,sort_keys=True),flush=True)\n')
@@ -169,7 +173,7 @@ def stage_script(controller, runtime, inventory, source, payload, operation, sta
     first = stage == STAGES[operation][0][0]
     threshold = (2*1024**3 if operation == 'agent-prepare' else 512*1024**2) if first else RESERVE
     unit = unit_source(source, payload, stage, min(maximum, seconds-70)-5, completed or {})
-    case = stage if stage in CASES else None
+    case = stage if stage in CASES else ('codex-version-unfiltered' if stage == 'agent-descriptors' else None)
     body = f'''
 _operation_end=time.monotonic()+{seconds!r}
 with mounted_store(deadline=_operation_end,host_binding_sha256={host_binding_sha256!r}):
@@ -218,6 +222,26 @@ def report_header(value, status, keys):
             or type(value['generation']) is not int or value['generation'] != 1 or value['status'] != status
             or any(value[key] is not False for key in FLAGS)):
         refuse('proof_header')
+
+
+def parse_descriptors(value):
+    report_header(value, 'agent_descriptors_observed',
+                  {'before', 'after_validation', 'after_close', 'reserved_fd', 'reserved_null'})
+    if not integer(value['reserved_fd'], 0, 4095) or value['reserved_null'] is not True:
+        refuse('descriptor_report')
+    for key in ('before', 'after_validation', 'after_close'):
+        rows = value[key]
+        if type(rows) is not list or len(rows) != 4: refuse('descriptor_report')
+        for fd, row in enumerate(rows):
+            if (type(row) is not dict or set(row) != {'fd','errno','mode','rdev','fd_flags','status_flags'}
+                    or type(row['fd']) is not int or row['fd'] != fd
+                    or type(row['errno']) is not int or row['errno'] not in (0,9)):
+                refuse('descriptor_report')
+            fields = ('mode','rdev','fd_flags','status_flags')
+            if (any(row[field] is not None for field in fields) if row['errno'] == 9 else
+                    any(not integer(row[field]) for field in fields)):
+                refuse('descriptor_report')
+    if value['after_close'] != value['after_validation']: refuse('descriptor_changed')
 
 
 def parse_assets(value, downloaded=False):
@@ -415,7 +439,8 @@ def parse_stages(stages, operation, payload, *, complete=False):
         prefix = {key: stages[key] for key in ('rust-verify', 'compiler-verify', 'source-verify') if key in stages}
         if prefix: full.parse_stages(prefix, 'full-test', complete=False)
     for stage, result in stages.items():
-        if stage == 'agent-download': parse_assets(result, downloaded=True)
+        if stage == 'agent-descriptors': parse_descriptors(result)
+        elif stage == 'agent-download': parse_assets(result, downloaded=True)
         elif stage in {'agent-prepare', 'agent-verify', 'agent-final'}:
             parse_assets(result)
             if stage == 'agent-final' and result != stages['agent-verify']: refuse('assets_changed')

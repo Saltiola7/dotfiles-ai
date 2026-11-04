@@ -32,7 +32,7 @@ def test_unselected_agent_operation_refuses_before_boot(agent, monkeypatch, oper
 
 
 def test_only_asset_download_has_network_and_each_case_has_own_stage(agent):
-    assert agent.OPERATIONS == ("agent-prepare", "agent-test")
+    assert agent.OPERATIONS == ("agent-prepare", "agent-test", "agent-inspect")
     stages = agent.STAGES["agent-test"]
     assert len(stages) <= 30
     assert [s[0] for s in stages if s[0] in agent.CASES] == list(agent.CASES)
@@ -57,7 +57,7 @@ def test_agent_capacity_refuses_before_any_unit(agent, operation, threshold):
                                 host_binding_sha256="d" * 64), namespace)
 
 
-@pytest.mark.parametrize("operation", ["agent-prepare", "agent-test"])
+@pytest.mark.parametrize("operation", ["agent-prepare", "agent-test", "agent-inspect"])
 def test_public_runner_dispatches_agent_operations_without_legacy_boot(agent, monkeypatch, operation):
     import probe_openshell_agent_compatibility as canonical
     sentinel = object()
@@ -351,6 +351,28 @@ def test_actual_stage_compositions_fit_existing_caps(agent, tmp_path):
                 operation, stage, maximum+100, host_binding_sha256='d'*64, completed=completed)
             compile(script, '<agent-root>', 'exec')
             compile(agent.build.encode_program(script), '<agent-transport>', 'exec')
+
+
+def test_descriptor_inspection_is_one_offline_fixed_case_without_agent_execution(agent):
+    assert agent.STAGES['agent-inspect'] == (('agent-descriptors','cases',False,30),)
+    source = agent.unit_source('', {}, 'agent-descriptors', 25, {})
+    assert '_result=agent_descriptor_inspect()' in source
+    assert 'agent_case(' not in source and 'validate_context()' not in source
+    script = agent.stage_script('', '', '', '', {}, 'agent-inspect', 'agent-descriptors', 130,
+                                host_binding_sha256='d'*64)
+    assert "agent_case='codex-version-unfiltered'" in script
+
+
+def test_descriptor_metadata_never_enables_a_session_or_accepts_changed_fd_state(agent):
+    rows=[{'fd':fd,'errno':9,'mode':None,'rdev':None,'fd_flags':None,'status_flags':None} for fd in range(4)]
+    value={'schema_version':1,'generation':1,'status':'agent_descriptors_observed',
+           'before':rows,'after_validation':rows,'after_close':rows,'reserved_fd':0,
+           'reserved_null':True,**agent.FLAGS}
+    agent.parse_descriptors(value)
+    value['reserved_null']=False
+    with pytest.raises(agent.build.Refusal):agent.parse_descriptors(value)
+    value['reserved_null']=True;value['after_close']=rows[:-1]
+    with pytest.raises(agent.build.Refusal):agent.parse_descriptors(value)
 
 
 def test_bundle_and_asset_stages_bind_exact_omission_source(agent, tmp_path):

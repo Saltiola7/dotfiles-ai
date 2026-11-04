@@ -5,6 +5,7 @@ Successful observations never authorize a normal agent session or activation.
 """
 import ctypes
 import errno
+import fcntl
 import re
 import sys
 from contextlib import contextmanager
@@ -167,6 +168,47 @@ def agent_case_view(case):
         try:os.write(fd,b'case-only')
         finally:os.close(fd);probe.unlink()
     return base
+
+
+
+def agent_descriptor_snapshot():
+    """Observe fixed descriptor metadata without opening or reading a file."""
+    records=[]
+    for fd in range(4):
+        remaining()
+        try:
+            info=os.fstat(fd)
+            fd_flags=fcntl.fcntl(fd,fcntl.F_GETFD)
+            status_flags=fcntl.fcntl(fd,fcntl.F_GETFL)
+        except OSError as error:
+            if error.errno!=errno.EBADF:raise RuntimeError('agent_descriptor_metadata') from error
+            records.append({'fd':fd,'errno':errno.EBADF,'mode':None,'rdev':None,
+                            'fd_flags':None,'status_flags':None})
+        else:
+            records.append({'fd':fd,'errno':0,'mode':info.st_mode,'rdev':info.st_rdev,
+                            'fd_flags':fd_flags,'status_flags':status_flags})
+    return records
+
+
+def agent_descriptor_inspect():
+    """Diagnose reservation only; never repair a descriptor or execute an agent."""
+    before=agent_descriptor_snapshot()
+    agent_platform();agent_capacity();agent_case_view('codex-version-unfiltered')
+    validated=agent_descriptor_snapshot()
+    remaining()
+    try:
+        reserved=os.open('/dev/null',os.O_RDONLY|os.O_CLOEXEC)
+        try:
+            remaining();info=os.fstat(reserved)
+            if not stat.S_ISCHR(info.st_mode) or (os.major(info.st_rdev),os.minor(info.st_rdev))!=(1,3):
+                raise RuntimeError('agent_descriptor_null')
+        finally:os.close(reserved)
+    except OSError as error:
+        raise RuntimeError('agent_descriptor_reservation') from error
+    after=agent_descriptor_snapshot()
+    return {'schema_version':1,'generation':1,'status':'agent_descriptors_observed',
+            'before':before,'after_validation':validated,'after_close':after,
+            'reserved_fd':reserved,'reserved_null':True,**AGENT_FLAGS}
 
 
 def agent_nondumpable():

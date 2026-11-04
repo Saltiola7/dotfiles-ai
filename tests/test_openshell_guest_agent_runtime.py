@@ -285,3 +285,76 @@ def test_state_budget_counts_other_cases_without_following_links(runtime,monkeyp
     (root/runtime.AGENT_CASES[-1]/'cache/retained').write_bytes(b'x'*8192)
     monkeypatch.setattr(runtime,'AGENT_STATE_LIMIT',100)
     with pytest.raises(RuntimeError,match='agent_state_bound'):runtime.agent_state_bytes()
+
+
+@pytest.fixture
+def descriptors(runtime, monkeypatch):
+    import fcntl
+    import stat
+    events = []; closed = []; state = {0: False, 1: True, 2: True, 3: True}; owned = 0
+    def fstat(fd):
+        events.append(('stat', fd))
+        if not state.get(fd, False): raise OSError(9, 'closed')
+        return SimpleNamespace(st_mode=stat.S_IFCHR|0o666 if fd == owned else stat.S_IFIFO|0o600,
+                               st_rdev=os.makedev(1, 3) if fd == owned else 0)
+    def control(fd, operation):
+        events.append(('fcntl', fd, operation))
+        if not state.get(fd, False): raise OSError(9, 'closed')
+        return fcntl.FD_CLOEXEC if operation == fcntl.F_GETFD else os.O_RDONLY
+    def opened(path, flags):
+        events.append(('open', path, flags)); state[owned] = True
+        return owned
+    def close(fd):
+        events.append(('close', fd)); closed.append(fd); state[fd] = False
+    fake_os = SimpleNamespace(**vars(os)); fake_os.fstat=fstat; fake_os.open=opened; fake_os.close=close
+    fake_fcntl = SimpleNamespace(**vars(fcntl)); fake_fcntl.fcntl=control
+    monkeypatch.setattr(runtime, 'os', fake_os)
+    monkeypatch.setattr(runtime, 'fcntl', fake_fcntl, raising=False)
+    monkeypatch.setattr(runtime, 'agent_platform', lambda: events.append(('platform',)))
+    monkeypatch.setattr(runtime, 'agent_capacity', lambda: events.append(('capacity',)))
+    monkeypatch.setattr(runtime, 'agent_case_view', lambda case: events.append(('view', case)))
+    monkeypatch.setattr(runtime, 'agent_proof_pipe', lambda: pytest.fail('proof pipe opened'))
+    monkeypatch.setattr(runtime, 'command', lambda *a, **kw: pytest.fail('process executed'))
+    return runtime, events, closed, state
+
+
+def test_descriptor_inspection_records_without_repair_or_launch(descriptors):
+    module, events, closed, state = descriptors
+    result = module.agent_descriptor_inspect()
+    assert set(result) == {'schema_version', 'generation', 'status', 'before', 'after_validation',
+                          'after_close', 'reserved_fd', 'reserved_null', *module.AGENT_FLAGS}
+    assert result['schema_version'] == result['generation'] == 1
+    assert result['status'] == 'agent_descriptors_observed'
+    assert result['reserved_fd'] == 0 and result['reserved_null'] is True
+    assert all(result[key] is False for key in module.AGENT_FLAGS)
+    assert result['before'] == result['after_validation'] == result['after_close']
+    assert result['before'][0] == {'fd':0, 'errno':9, 'mode':None, 'rdev':None, 'fd_flags':None, 'status_flags':None}
+    for fd, item in enumerate(result['before'][1:], 1):
+        assert item == {'fd':fd, 'errno':0, 'mode':0o10600, 'rdev':0, 'fd_flags':1, 'status_flags':0}
+    platform = events.index(('platform',)); view = events.index(('view', 'codex-version-unfiltered'))
+    opening = events.index(('open', '/dev/null', os.O_RDONLY|os.O_CLOEXEC))
+    assert events[:platform][-1][0] == 'fcntl' and platform < view < opening
+    assert sum(event[0] == 'open' for event in events) == 1
+    assert closed == [0] and state == {0:False, 1:True, 2:True, 3:True}
+
+
+@pytest.mark.parametrize('failure', ['metadata', 'flags', 'platform', 'capacity', 'view', 'open', 'null', 'deadline'])
+def test_descriptor_inspection_fails_without_touching_unowned_descriptors(descriptors, monkeypatch, failure):
+    module, events, closed, state = descriptors
+    def refused(*args): raise OSError(5, 'synthetic error')
+    if failure == 'metadata': monkeypatch.setattr(module.os, 'fstat', refused)
+    elif failure == 'flags': monkeypatch.setattr(module.fcntl, 'fcntl', refused)
+    elif failure in ('platform', 'capacity', 'view'):
+        monkeypatch.setattr(module, 'agent_'+('case_view' if failure == 'view' else failure), refused)
+    elif failure == 'open': monkeypatch.setattr(module.os, 'open', refused)
+    elif failure == 'null':
+        original = module.os.fstat
+        def wrong(fd):
+            result = original(fd)
+            if fd == 0: result.st_rdev = os.makedev(1, 5)
+            return result
+        monkeypatch.setattr(module.os, 'fstat', wrong)
+    else: monkeypatch.setattr(module, 'DEADLINE', 0)
+    with pytest.raises((RuntimeError, OSError)): module.agent_descriptor_inspect()
+    assert closed == ([0] if failure == 'null' else [])
+    assert state[1] is state[2] is state[3] is True
