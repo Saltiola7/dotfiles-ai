@@ -20,6 +20,7 @@ import urllib.request
 
 
 WORK = Path('/var/lib/dotfiles-ai-openshell-build/store/work')
+TOOLCHAIN = 'toolchain-unwind-1'
 HOST = 'aarch64-unknown-linux-musl'
 DEADLINE = 0.0
 OUTPUT_LIMIT = 1024 * 1024
@@ -144,15 +145,18 @@ def verify_static_arm64(path):
     return digest(path)
 
 
-def environment():
-    prefix=WORK/'toolchain'
-    return {'PATH':str(prefix/'bin')+':/usr/bin:/bin','LC_ALL':'C',
+def environment(*, rust=True):
+    prefix=WORK/TOOLCHAIN
+    result = {'PATH':str(prefix/'bin')+':/usr/bin:/bin','LC_ALL':'C',
             'HOME':str(WORK/'home'),'CARGO_HOME':str(WORK/'cargo'),
             'RUSTUP_HOME':str(WORK/'rustup'),'XDG_CACHE_HOME':str(WORK/'cache'),
             'TMPDIR':str(WORK/'tmp'),'CARGO_TARGET_DIR':str(WORK/'target'),
             'CARGO_INCREMENTAL':'0','CARGO_BUILD_JOBS':'2','CARGO_TERM_COLOR':'never',
             'RUSTC':str(prefix/'bin/rustc'),'RUSTDOC':str(prefix/'bin/rustdoc'),
             'RUSTFLAGS':f'-C linker={prefix}/lib/rustlib/{HOST}/bin/rust-lld -C linker-flavor=ld.lld -C link-self-contained=yes'}
+    if rust:
+        result['LD_LIBRARY_PATH']=str(prefix/'lib')
+    return result
 
 
 def validate_context():
@@ -210,16 +214,17 @@ def setup(payload):
             total+=size
     if total>2*1024**3 or os.statvfs(WORK).f_bavail*os.statvfs(WORK).f_frsize<2*total+512*1024**2:
         raise RuntimeError('harness_expansion_admission')
-    prefix=WORK/'toolchain'
+    prefix=WORK/TOOLCHAIN
     if prefix.exists(): raise RuntimeError('harness_toolchain_already_present')
+    unwind=unwind_install(prefix)
     for index,item in enumerate(artifacts):
         root=item['archive'].removesuffix('.tar.xz')
-        unpack=WORK/f'unpack-{index}'
+        unpack=WORK/f'unpack-unwind-1-{index}'
         extract_archive(WORK/'downloads'/item['archive'],unpack,root,maximum=2*1024**3)
         command(['/usr/bin/bash',str(unpack/root/'install.sh'),f'--prefix={prefix}',
                  f'--sysconfdir={prefix}/etc',f'--datadir={prefix}/share',f'--docdir={prefix}/share/doc/rust',
                  f'--bindir={prefix}/bin',f'--libdir={prefix}/lib',f'--mandir={prefix}/share/man','--disable-ldconfig'],
-                cwd=unpack/root,maximum=120,environment=environment())
+                cwd=unpack/root,maximum=120,environment=environment(rust=False))
     env=environment()
     output,_=command([str(prefix/'bin/rustc'),'-vV'],environment=env)
     if (b'release: 1.95.0\n' not in output or ('host: '+HOST+'\n').encode() not in output
@@ -234,11 +239,11 @@ def setup(payload):
         with path.open('x') as stream: stream.write(content)
     if digest(source/'src/linux/child_seccomp.rs')!=payload['patched_sha256']:
         raise RuntimeError('harness_patch_identity')
-    return {'expanded_archive_bytes':total,'rustc':output.decode(),'linker_sha256':digest(linker)}
+    return {'expanded_archive_bytes':total,'rustc':output.decode(),'linker_sha256':digest(linker),'unwind':unwind}
 
 
 def execute_tests(payload):
-    source=WORK/'harness';env=environment();cargo=str(WORK/'toolchain/bin/cargo')
+    source=WORK/'harness';env=environment();cargo=str(WORK/TOOLCHAIN/'bin/cargo')
     for name,content in payload['files'].items():
         if (source/name).read_text()!=content: raise RuntimeError('harness_source_changed')
     lock_before=digest(source/'Cargo.lock')
@@ -283,11 +288,11 @@ def stage(operation, payload, seconds):
         raise RuntimeError('harness_toolchain_selection')
     if operation=='download':
         for item in payload['toolchain']['artifacts']: download(item)
-        result={'verified_archives':len(payload['toolchain']['artifacts'])}
+        result={'verified_archives':len(payload['toolchain']['artifacts']),'unwind':unwind_download()}
     elif operation=='setup': result=setup(payload)
     elif operation=='fetch':
         source=WORK/'harness';before=digest(source/'Cargo.lock')
-        command([str(WORK/'toolchain/bin/cargo'),'fetch','--locked'],cwd=source,maximum=300,environment=environment())
+        command([str(WORK/TOOLCHAIN/'bin/cargo'),'fetch','--locked'],cwd=source,maximum=300,environment=environment())
         if digest(source/'Cargo.lock')!=before: raise RuntimeError('harness_lock_changed')
         result={'locked_fetch':True}
     else: result=execute_tests(payload)

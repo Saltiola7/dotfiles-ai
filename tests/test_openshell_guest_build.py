@@ -119,12 +119,47 @@ def test_complete_guest_program_fits_linux_argument_and_unit_limits(build,tmp_pa
     import shlex
     bundle=build.load_bundle(tmp_path)
     controller=build.read_source(build.FIXTURES/'guest_build_storage.py').decode()
-    builder=build.read_source(build.FIXTURES/'guest_harness.py').decode()
+    builder=build.read_source(build.FIXTURES/'guest_harness.py').decode()+'\n'+build.read_source(build.FIXTURES/'guest_unwind.py').decode()
     runtime=build.read_source(build.FIXTURES/'guest_runtime.py').decode()
     script=build.kernel_script(controller,builder,bundle.payload,1100,runtime=runtime)
     compile(script,'closed-native-kernel','exec')
-    command=shlex.join(['/usr/bin/sudo','-n','/usr/bin/python3','-I','-c',script])
-    assert len(command.encode())<120*1024
+    command=shlex.join(['/usr/bin/sudo','-n','/usr/bin/python3','-I','-c',build.encode_program(script)])
+    assert len(command.encode())<64*1024
     unit=builder+'\nstage('+repr('download')+','+repr(bundle.payload)+',420)\n'
     compile(unit,'closed-unprivileged-stage','exec')
     assert len(unit.encode())<=65536
+
+
+def test_guest_transport_roundtrips_reviewed_source_before_execution(build):
+    source="proof = 'exact source'\n"
+    wire=build.encode_program(source)
+    namespace={}
+    exec(wire,namespace)
+    assert namespace['proof']=='exact source'
+    assert len(wire.encode())<65536
+
+
+def test_guest_transport_rejects_modified_identity_before_execution(build):
+    import hashlib
+    source="proof = 'must not execute'\n"
+    wire=build.encode_program(source).replace(hashlib.sha256(source.encode()).hexdigest(),'0'*64)
+    namespace={}
+    with pytest.raises(RuntimeError,match='guest_program_identity'):
+        exec(wire,namespace)
+    assert 'proof' not in namespace
+
+
+def test_guest_transport_rejects_trailing_compressed_data(build):
+    import base64,re
+    wire=build.encode_program("proof = 'must not execute'\n")
+    encoded=re.search(r"b64decode\('([^']+)'\)",wire).group(1)
+    changed=base64.b64encode(base64.b64decode(encoded)+b'trailing').decode()
+    namespace={}
+    with pytest.raises(RuntimeError,match='guest_program_identity'):
+        exec(wire.replace(encoded,changed),namespace)
+    assert 'proof' not in namespace
+
+
+def test_guest_transport_bounds_expanded_source_before_vm(build):
+    with pytest.raises(build.Refusal,match='guest_program_bound'):
+        build.encode_program('x'*(256*1024+1))

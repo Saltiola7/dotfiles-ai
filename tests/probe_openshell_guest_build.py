@@ -6,12 +6,14 @@ Every native operation reuses the qualified exact-worker admission and shutdown.
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
 import tempfile
 import textwrap
+import zlib
 
 import probe_openshell_guest_inventory as guest
 import probe_openshell_storage_boot as boot
@@ -96,6 +98,26 @@ except Refusal as _failure:
 """
 
 
+def encode_program(script: str) -> str:
+    """Transport only the fixed assembled program within Linux argument limits."""
+    if type(script) is not str:
+        raise Refusal('guest_program_bound')
+    raw=script.encode()
+    if not 0<len(raw)<=256*1024:
+        raise Refusal('guest_program_bound')
+    encoded=base64.b64encode(zlib.compress(raw,9)).decode('ascii')
+    if len(encoded)>60*1024:
+        raise Refusal('guest_transport_bound')
+    expected=hashlib.sha256(raw).hexdigest()
+    return f"""import base64 as _guest_b64, zlib as _guest_zlib, hashlib as _guest_hash
+_guest_decoder=_guest_zlib.decompressobj()
+_guest_program=_guest_decoder.decompress(_guest_b64.b64decode('{encoded}'),{len(raw)+1})
+if (len(_guest_program)!={len(raw)} or not _guest_decoder.eof or _guest_decoder.unused_data or _guest_decoder.unconsumed_tail or _guest_hash.sha256(_guest_program).hexdigest()!='{expected}'):
+    raise RuntimeError('guest_program_identity')
+exec(compile(_guest_program,'<closed-openshell-guest-program>','exec'))
+"""
+
+
 def prepare_script(controller: str) -> str:
     return _observed_script(controller,'print(json.dumps(prepare(),sort_keys=True),flush=True)\n')
 
@@ -143,6 +165,8 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
     controller=read_source(FIXTURES/'guest_build_storage.py').decode()
     builder=read_source(FIXTURES/'guest_harness.py').decode() if operation=='kernel' else ''
     runtime=read_source(FIXTURES/'guest_runtime.py').decode() if operation=='kernel' else ''
+    unwind=read_source(FIXTURES/'guest_unwind.py').decode() if operation=='kernel' else ''
+    if operation=='kernel': builder+='\n'+unwind
     def inspect(selected, anchor, deadline):
         observed=guest._inspect_guest(selected,anchor,deadline)
         if operation=='prepare' and observed.free_bytes<12*1024**3: raise Refusal('guest_build_reserve')
@@ -152,8 +176,10 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
             seconds=int(create._remaining(deadline,1200))-15
             if seconds<120: raise Refusal('build_deadline')
             script=kernel_script(controller,builder,bundle.payload,seconds,runtime=runtime)
+        program_sha256=hashlib.sha256(script.encode()).hexdigest()
+        wire=encode_program(script)
         argv=[str(anchor.sources[0].identity.path),'shell','--tty=false','--start=false',
-              '--workdir','/','q','--','/usr/bin/sudo','-n','/usr/bin/python3','-I','-c',script]
+              '--workdir','/','q','--','/usr/bin/sudo','-n','/usr/bin/python3','-I','-c',wire]
         raw=create._command(selected,argv,deadline,'guest_build',450 if operation=='prepare' else 1250)
         result=create._json(raw)
         if operation=='prepare': parse_prepared(result)
@@ -172,6 +198,8 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
             result['source_hashes']=bundle.source_hashes
             result['builder_sha256']=hashlib.sha256(builder.encode()).hexdigest()
             result['runtime_sha256']=hashlib.sha256(runtime.encode()).hexdigest()
+            result['unwind_sha256']=hashlib.sha256(unwind.encode()).hexdigest()
+        result['program_sha256']=program_sha256
         result['controller_sha256']=hashlib.sha256(controller.encode()).hexdigest()
         return result
     lifecycle,result=boot._qualify_with_inspection(selection,inspect,qualification_seconds=900 if operation=='prepare' else 1800)

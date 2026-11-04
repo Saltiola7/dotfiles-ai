@@ -55,6 +55,17 @@ Fedora musl runtime. The guest runner pins and verifies that runtime's package
 versions, hashes and signatures before executing the compiler; this does not add
 GCC or authorize a different toolchain.
 
+The compiler also requires a musl-compatible `libgcc_s.so.1`. The guest runner
+selects Alpine 3.22 aarch64 `libgcc` 14.2.0-r6, authenticates its package using
+`apk-tools-static` 2.14.12-r0, and checks exact package identity and library ELF
+metadata. The existing guest OpenSSL first verifies the static verifier's detached
+RSA/SHA256 signature against a digest-pinned public key. Both complete packages
+are then verified offline before extracting the library. No Alpine package is
+installed into the guest OS. The fixed `toolchain-unwind-1` prefix and all
+bootstrap files remain inside the same capped filesystem; the earlier failed
+prefix remains preserved. Only Rust process environments receive the private
+library path. See `../guest_unwind.py` for immutable provenance and bounds.
+
 `build.rustflags` is an argument array; replace only `{toolchain_prefix}` with the
 verified private toolchain prefix. Use the selected musl-host Cargo without
 `--target` or a configured `build.target`, so linker flags apply to both Rust build

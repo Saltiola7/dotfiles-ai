@@ -142,3 +142,29 @@ def test_static_elf_rejects_shared_dependencies_even_without_interpreter(builder
             builder.verify_static_arm64(path)
     else:
         assert builder.verify_static_arm64(path)==hashlib.sha256(data).hexdigest()
+
+
+def test_unwind_generation_scopes_library_path_and_preserves_failed_prefix(builder,tmp_path,monkeypatch):
+    failed=tmp_path/'toolchain';failed.mkdir();(failed/'evidence').write_text('retained')
+    monkeypatch.setattr(builder,'WORK',tmp_path)
+    env=builder.environment()
+    assert env['RUSTC']==str(tmp_path/'toolchain-unwind-1/bin/rustc')
+    assert env['LD_LIBRARY_PATH']==str(tmp_path/'toolchain-unwind-1/lib')
+    assert 'LD_LIBRARY_PATH' not in builder.environment(rust=False)
+    assert (failed/'evidence').read_text()=='retained'
+
+
+def test_unwind_authentication_failure_precedes_rust_install(builder,tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    failed=tmp_path/'toolchain';failed.mkdir();(failed/'evidence').write_text('retained')
+    monkeypatch.setattr(builder,'WORK',tmp_path)
+    monkeypatch.setattr(builder.os,'statvfs',lambda *a:SimpleNamespace(f_bavail=8*1024**3,f_frsize=1))
+    def reject(prefix):
+        assert prefix==tmp_path/'toolchain-unwind-1'
+        raise RuntimeError('unwind_auth_failed')
+    monkeypatch.setattr(builder,'unwind_install',reject,raising=False)
+    monkeypatch.setattr(builder,'command',lambda *a,**k:pytest.fail('execute before library authentication'))
+    with pytest.raises(RuntimeError,match='unwind_auth_failed'):
+        builder.setup({'toolchain':{'artifacts':[]}})
+    assert (failed/'evidence').read_text()=='retained'
+    assert not (tmp_path/'toolchain-unwind-1').exists()
