@@ -1115,6 +1115,15 @@ Retire only that exact temporary fixture after verified unmount and loop release
 Preserve partial or uncertain state; no forced unmount, resize or automatic retry.
 The retained 8 GiB area is unmounted after each operation and revalidated before
 reuse. A root-owned receipt records identity for comparison, never sole admission.
+Before probing a formatted image, write an exclusive root-owned pending record
+with its fixed phase, file identity and ext4 UUID. A later explicitly selected
+operation may resume that exact pending image after fresh file, mount and loop
+checks; it must not format, resize, recreate or adopt retained data. Unknown
+partials refuse admission. After a source fix, a resumed capacity probe truncates
+only its recorded synthetic fill file after verifying its inode, ownership, mode,
+single-link identity, mount device and bounded size. It then makes a new bounded
+write. Promotion to the final receipt requires successful proof and verified
+unmount; failures retain the pending record and image.
 
 | Resource | Enforced ceiling or boundary | Native proof |
 |---|---|---|
@@ -1136,7 +1145,12 @@ Use a transient systemd service with a read-only system, hidden normal homes,
 private devices, disabled namespace creation, empty capability set and
 `NoNewPrivileges`. Hide guest `/run` and `/dev/shm`, disable journal socket binds,
 and route standard streams explicitly. Read-only mounts alone do not exclude Unix
-socket connections. Compilation/tests use `PrivateNetwork=yes`; retain `AF_UNIX`
+socket connections. Hide unused guest root directories and refuse unknown root
+entries. Visible `/usr` and `/etc` trees must be root-controlled, not writable by
+the builder, and contain no sockets; revalidate before each service. A negative
+socket control outside `/var` verifies that exclusion. Network preparation may
+expose only a verified read-only resolver file in an otherwise empty `/run`.
+Compilation/tests use `PrivateNetwork=yes`; retain `AF_UNIX`
 inside that private namespace so the trusted-parent positive control remains
 meaningful. Fixed, verified artifact downloads and `cargo fetch --locked` may use
 a separate network-enabled preparation service under the same file/resource
@@ -1152,8 +1166,14 @@ minimal harness, retaining module path `linux::child_seccomp`, its tests, and th
 exact dependency/checksum subset from the pinned OpenShell lockfile. The reviewed
 no-GCC candidate uses official Rust 1.95.0 aarch64-musl host components and bundled
 `rust-lld`; verify archive hashes, bounded extraction and static-link behavior
-before using it. Build scripts and tests must use the selected linker and cached
-dependencies. A failed candidate does not authorize a different toolchain.
+before using it. The musl-host compiler is dynamically linked; admit its minimal
+Fedora musl runtime separately before execution. Use exact package versions,
+SHA256 values, Fedora signatures and a dependency-checked transaction without
+package scripts or triggers. Keep downloaded packages and frozen transaction
+inputs inside the 8 GiB filesystem. Account installed runtime bytes against the
+4 GiB guest reserve and refuse a changed package set or unavailable signature.
+Build scripts and tests must use the selected linker and cached dependencies.
+A failed candidate does not authorize a different toolchain.
 
 Kernel qualification requires the new test's sentinel, actual AF_UNIX socket and
 socketpair denials across types/flags and descendants, permitted INET/pipe cases,
