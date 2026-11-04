@@ -1254,6 +1254,82 @@ for exact expanded length, hash, complete decompression and no trailing data bef
 use. This does not execute decompressed text. The unit's 64 KiB source ceiling and
 the payload's 128 KiB expanded ceiling remain unchanged.
 
+### Bounded full runtime build
+
+The next build remains in this credential-free runtime slice. Use the exact
+v0.1.7 source commit and the tested `.2` child patch. The selected immutable inputs
+and bounds are recorded in `tests/fixtures/openshell_runtime/fullbuild/manifest.json`.
+Do not consume the historical v0.1.6 gateway/image fixtures with the resulting
+runtime. Matching v0.1.7 controls and an independently identified experimental
+runtime image must be qualified before full-runtime or agent execution.
+
+| Closed operation | Preconditions and permitted work | Required result |
+|---|---|---|
+| `full-prepare` | Fresh mounted-store inventory; at least 4 GiB available; reverify retained Rust inputs; download only selected source/compiler inputs in the capped store | Exact source/tree and signed compiler inputs, isolated static C compile/archive/link/run proof; no full Cargo build |
+| `full-fetch` | Verified prepared source/compiler; at least 3 GiB available; fresh dedicated Cargo home | Locked workspace dependency fetch for aarch64-musl with automatic cache cleanup disabled; no project compilation; derived lock unchanged |
+| `full-test` | Reverified inputs/cache and at least 2 GiB available; stopped network preparation | Offline release build of `openshell-sandbox`, selected crate tests and socket-denial sentinel, static ARM64 runtime binary and exact experimental version; no agent activation |
+
+**Text Equivalent:** Inventory and input admission precede preparation. The
+network-enabled fetch stage ends before a separate network-private build stage.
+Every operation retains the same host/storage admission and independently
+verified worker shutdown. These are explicit operations, not automatic retries.
+Their owner is Distribution; input, resource, stage or recovery changes update
+this table and its tests together.
+
+All source, compiler downloads, extracted files, new `full-cargo-1` cache and one
+`full-target-1` target share the existing 8 GiB filesystem. Keep previous toolchains,
+extraction trees, kernel-proof binary and evidence. No pruning, additional target,
+larger disk, alternate host, crypto backend, Rust version or automatic retry is
+implied. The measured headroom is admission evidence, not a forecast that the full
+build fits. Fixed input ceilings must fit current available bytes with a 256 MiB
+planned margin; native ENOSPC or the unchanged overall 30-minute deadline produces
+a failed retained attempt. Checks/estimates do not replace the filesystem hard cap.
+The existing two-CPU, 6 GiB memory, zero-swap, 512-task service limits remain.
+
+Source preparation admits at most 1 MiB recursive metadata, 32 MiB compressed
+archive, 64 MiB decompressed tar stream and 4,096 members. Reconstruct the complete
+Git tree `053850cd069ba0f770d8296eae6be36d6cf52da7`; verify each source blob, mode and
+path against the pinned commit before applying the exact reviewed patch. Reject
+unknown/missing entries, submodules, special files, hardlinks or escaping paths.
+Create the sole source-bound internal symlink last and never follow it during
+verification. Normalize regular file modes to 0644/0755 after checking Git mode
+classification. Record measured archive hashes; do not invent an unavailable
+upstream archive checksum. Apply only the child patch, one workspace version line
+and the 39 local lock-record version lines for the experimental identity. Preserve
+all 830 external lock records byte-for-byte and verify declared derived hashes.
+
+The selected C prerequisite is a private Alpine v3.22 aarch64 prefix: 15 exact APKs,
+59,383,318 compressed bytes, with a 256 MiB decompressed limit. Reauthenticate the
+existing static verifier before use. Verify every complete APK offline with the
+pinned key, exact package/version/architecture/origin/source/dependency metadata,
+and bounded path/type checks before publishing files. Do not run package scripts,
+install Alpine packages globally, widen trust or accept an unknown signer. Preserve
+partial inputs on failure. Missing exact files may be completed only from newly
+reverified inputs; existing different or unknown files refuse rather than overwrite.
+Package symlinks must remain inside the private prefix; omit the unused `usr/bin/ldd`
+entry rather than expose an absolute link. Record authenticated measured hashes.
+
+C compiler/assembler/archive wrappers use fixed private executable paths, explicit
+sysroot/search prefixes and a fresh scoped environment. Alpine library lookup must
+not leak into Cargo, Rust, GNU tools or protoc. Qualify actual C compilation,
+archiving, static linking, ELF identity and execution before full compilation;
+reject host header/library substitution. Preserve the default AWS-LC backend and
+force its source C builder with `AWS_LC_SYS_USE_SYSTEM=0` and
+`AWS_LC_SYS_CMAKE_BUILDER=0`; no CMake/backend fallback is admitted. The locked
+vendored protoc 3.2.0 must pass checksum, ELF/dependency and version qualification;
+an explicit wrapper may clear the Rust library path for that exact compiler.
+
+Cargo fetch is explicitly a whole-workspace dependency fetch, not package-only.
+Use the original locked registry checksums, target filtering, credentials absent,
+`CARGO_CACHE_AUTO_CLEAN_FREQUENCY=never` and isolated cache/config locations.
+It may query the verified Rust compiler but may not run project build scripts.
+Build/test uses `--locked --offline`, the same derived lock, bundled linker,
+release profile with upstream strip behavior, jobs two and incremental disabled.
+Preserve exact input identities across stages; retain bounded diagnostics and
+partial artifacts on failure. Successful compilation is not evidence for full
+launch/exec/PTY/descriptor/broker or either agent's compatibility. Those subsequent
+native tests remain required before provider/account or real-checkout admission.
+
 Kernel qualification requires the new test's sentinel, actual AF_UNIX socket and
 socketpair denials across types/flags and descendants, permitted INET/pipe cases,
 and an unaffected trusted parent. It is preliminary evidence only: it does not
