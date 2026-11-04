@@ -184,6 +184,25 @@ applicability; actual gate results and delivery evidence remain in the Cycle Rec
 
 ## Approved RHEL Successor: RRW-002
 
+### Source Qualification Evidence
+
+The successor contracts below are implemented in RRW-002: IAP-only rendered
+client settings and doctor, remote-only empty Atuin endpoint with automatic sync
+disabled, and no remote enrollment of the Atuin server even when its old enable
+flag is inherited. Other platforms retain their existing configuration. Current
+`main`'s PY-01 clone admission, retry-safe cleanup and negative tests are preserved.
+
+Native x86_64 GitHub UBI 10 qualification passed at source commit
+`76c8f631a897ced2ec56c95ddd3f2a7971f57c0b`:
+[run 41705268407](https://github.com/Saltiola7/dotfiles-ai/actions/runs/41705268407).
+The job passed 22 offline bootstrap tests and the full installation, local/synthetic
+readiness, reapply, damage/retry, update and rollback smoke, including OpenCode
+`v2.2.5`. This proves disposable UBI userland, not live RHEL or online provider
+authentication. Earlier failed attempts remain in private cycle evidence. No
+Gate Exception is inferred, and a merged INT-021 implementation SHA is reported
+only after actual merge. This evidence supersedes the historical Discovery-only
+implementation status below, not its requirements or live-platform boundaries.
+
 **Discovery only:** `rhel-remote-workspace` / `rrw-002-rhel-user-runtime`
 defines the RHEL 10 x86_64 successor to the historical RWUE runtime below.
 This document does not establish implementation, container qualification, live

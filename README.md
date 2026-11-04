@@ -287,10 +287,10 @@ native identity, complete capture and permission routes before re-enabling dispa
 ## RHEL 10 Remote User Foundation
 
 The approved successor remote user role targets a standalone RHEL 10 x86_64
-home without changing the Fedora Lima profile. **RRW-002 is Discovery only:**
-the following bootstrap interfaces already exist, but RHEL support, the UBI 10
-CI replacement, IAP-only client and local-only Atuin migration still require
-implementation and qualification. Prior CentOS proof is historical, not a RHEL
+home without changing the Fedora Lima profile. RRW-002 implements the UBI 10
+CI replacement, IAP-only client and local-only Atuin configuration. Native x86_64
+UBI install/retry/reapply/update/rollback smoke passed; full RHEL-host and actual
+user qualification remain separate. Prior CentOS proof is historical, not a RHEL
 acceptance claim. See the
 [successor contract](docs/specs/dotfiles_ai_distribution/features/remote-user-rollout-runtime.md#approved-rhel-successor-rrw-002).
 Host bootstrap supplies system

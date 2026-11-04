@@ -322,7 +322,7 @@ def test_remote_workspace_config_stays_machine_local() -> None:
     assert 'REMOTE_DEV_ZONE="example-zone-a"' in env
     assert 'REMOTE_DEV_INSTANCE="example-workspace"' in env
     assert 'REMOTE_DEV_ACCOUNT="user@example.com"' in env
-    assert 'REMOTE_DEV_TAILSCALE_HOST="example-workspace.example.ts.net"' in env
+    assert 'REMOTE_DEV_TAILSCALE_HOST' not in env
     assert ".local/bin/remote-workspace" in managed
     assert ".local/bin/remote-workspace-doctor" in managed
 
@@ -330,10 +330,12 @@ def test_remote_workspace_config_stays_machine_local() -> None:
     example = (ROOT / "config.example.toml").read_text()
     assert "[dotfiles_ai.remote_workspace]" in defaults
     assert "[data.dotfiles_ai.remote_workspace]" in example
+    assert "tailscale_host" not in defaults
+    assert "tailscale_host" not in example
 
 
 def test_remote_workspace_doctor_checks_local_prerequisites(tmp_path: Path) -> None:
-    for command in ("mise", "herdr", "tailscale"):
+    for command in ("mise", "herdr", "ssh"):
         path = tmp_path / command
         path.write_text("#!/bin/sh\nexit 0\n")
         path.chmod(0o755)
@@ -360,6 +362,33 @@ def test_remote_workspace_doctor_checks_local_prerequisites(tmp_path: Path) -> N
         check=True,
     )
     assert result.stdout.strip() == "remote workspace prerequisites ready"
+
+
+@pytest.mark.parametrize("remote", [False, True])
+def test_remote_atuin_is_local_only_without_changing_host_sync(remote: bool) -> None:
+    rendered = chezmoi(
+        "execute-template", remote_user_environment=remote,
+        template=(ROOT / "private_dot_config/atuin/private_config.toml.tmpl").read_text(),
+    ).stdout
+    config = tomllib.loads(rendered)
+    assert config["auto_sync"] is (not remote)
+    assert config["sync_address"] == ("" if remote else "https://atuin.example.com")
+    assert config["daemon"]["enabled"] is False
+    assert config["secrets_filter"] is True
+
+
+def test_remote_atuin_ignores_inherited_server_enablement() -> None:
+    configured = data(remote_user_environment=True)
+    configured["chezmoi"] = {"os": "linux", "arch": "amd64"}
+    configured["dotfiles_ai"]["atuin"]["server_enabled"] = True
+    result = subprocess.run([
+        "chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
+        "--override-data", json.dumps(configured), "managed",
+    ], text=True, capture_output=True, check=True)
+    managed = set(result.stdout.splitlines())
+    assert "enable-atuin-server.sh" not in managed
+    assert ".config/containers/systemd/atuin.container" not in managed
+    assert ".config/containers/systemd/atuin-data.volume" not in managed
 
 
 def test_remote_workspace_doctor_rejects_missing_root_mise_before_gcloud(tmp_path: Path) -> None:

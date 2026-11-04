@@ -34,11 +34,4 @@ account=${REMOTE_DEV_ACCOUNT:-$(gcloud config get account 2>/dev/null)}
     exit 1
 }
 
-if [ -n "${REMOTE_DEV_TAILSCALE_HOST:-}" ]; then
-    command -v tailscale >/dev/null || {
-        echo "alternate workspace access requires tailscale" >&2
-        exit 1
-    }
-fi
-
 echo "remote workspace prerequisites ready"

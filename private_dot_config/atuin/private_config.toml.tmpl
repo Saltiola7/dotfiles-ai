@@ -1,5 +1,10 @@
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+auto_sync = false
+sync_address = ""
+{{ else -}}
 auto_sync = true
 sync_address = {{ .dotfiles_ai.atuin.sync_address | quote }}
+{{ end -}}
 sync_frequency = "10m"
 filter_mode = "global"
 workspaces = true
