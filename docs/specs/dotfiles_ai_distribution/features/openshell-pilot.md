@@ -1306,6 +1306,8 @@ and bounded path/type checks before publishing files. Do not run package scripts
 install Alpine packages globally, widen trust or accept an unknown signer. Preserve
 partial inputs on failure. Missing exact files may be completed only from newly
 reverified inputs; existing different or unknown files refuse rather than overwrite.
+Byte-identical repeated dependency declarations have one meaning; conflicting
+constraints or different declarations for the same normalized name still refuse.
 Package symlinks must remain inside the private prefix; omit the unused `usr/bin/ldd`
 entry rather than expose an absolute link. The pinned GCC package's sole selected
 absolute plugin link, `usr/lib/bfd-plugins/liblto_plugin.so`, may be relocated only

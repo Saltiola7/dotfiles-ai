@@ -109,6 +109,32 @@ def test_normalized_dependency_requires_exact_selected_version(compiler):
         compiler.full_compiler_metadata(fields,item,{'musl':'1.2.5-r13'})
 
 
+def gcc_dependency_fields(compiler):
+    item=compiler.fixture_payload['full_manifest']['c_toolchain']['packages'][0]
+    fields={key:[item[key]] for key in ('pkgname','pkgver','arch','origin')}
+    fields.update(commit=[item['source_commit']],datahash=['a'*64],depend=[
+        'binutils','libgomp=14.2.0-r6','libatomic=14.2.0-r6','libgomp=14.2.0-r6',
+        *item['dependencies_expected'][3:]])
+    versions={record['pkgname']:record['pkgver'] for record in compiler.fixture_payload['full_manifest']['c_toolchain']['packages']}
+    return item,fields,versions
+
+
+def test_actual_gcc_identical_libgomp_declaration_has_one_dependency_meaning(compiler):
+    item,fields,versions=gcc_dependency_fields(compiler)
+    assert fields['depend'].count('libgomp=14.2.0-r6')==2
+    compiler.full_compiler_metadata(fields,item,versions)
+
+
+@pytest.mark.parametrize('conflict',['libgomp','libgomp=14.2.0-r5','libgomp>=14.2.0-r6'])
+def test_conflicting_same_name_dependency_refuses_with_bounded_diagnostic(compiler,conflict):
+    item,fields,versions=gcc_dependency_fields(compiler)
+    fields['depend'][3]=conflict
+    with pytest.raises(RuntimeError,match='full_compiler_metadata') as error:
+        compiler.full_compiler_metadata(fields,item,versions)
+    assert item['archive'] in str(error.value) and conflict in str(error.value)
+    assert len(str(error.value))<600
+
+
 def test_graph_resolves_internal_hardlinks_as_regular_copies(compiler):
     entries={'usr/bin/gcc':('file',0o500,b'body'),'usr/bin/cc':('hardlink',0o500,'usr/bin/gcc')}
     result=compiler.full_compiler_graph(entries)

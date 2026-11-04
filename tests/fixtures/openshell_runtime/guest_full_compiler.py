@@ -142,15 +142,18 @@ def full_compiler_metadata(fields, item, versions):
     if any(fields.get(key) != [value] for key,value in expected.items()): full_compiler_fail('metadata', item['archive'])
     if len(fields.get('datahash',[])) != 1 or unwind_re.fullmatch('[a-f0-9]{64}',fields['datahash'][0]) is None:
         full_compiler_fail('metadata', 'datahash')
-    deps = []
+    deps = {}
     for value in fields.get('depend',[]):
         name = value
         if '=' in value:
             name,version = value.split('=',1)
-            if name not in versions or version != versions[name]: full_compiler_fail('metadata','dependency version')
-        if any(token in name for token in '<>~!') or name in deps: full_compiler_fail('metadata','dependency')
-        deps.append(name)
-    if sorted(deps) != sorted(item['dependencies_expected']): full_compiler_fail('metadata','dependencies')
+            if name not in versions or version != versions[name]:
+                full_compiler_fail('metadata',item['archive']+': dependency '+value)
+        if any(token in name for token in '<>~!') or (name in deps and deps[name] != value):
+            full_compiler_fail('metadata',item['archive']+': conflicting dependency '+value)
+        deps[name] = value
+    if sorted(deps) != sorted(item['dependencies_expected']):
+        full_compiler_fail('metadata',item['archive']+': dependency set '+repr(sorted(deps)))
 
 
 def full_compiler_parse(compressed, item, versions, limit):
