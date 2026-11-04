@@ -1150,6 +1150,12 @@ entries. Visible `/usr` and `/etc` trees must be root-controlled, not writable b
 the builder, and contain no sockets; revalidate before each service. A negative
 socket control outside `/var` verifies that exclusion. Network preparation may
 expose only a verified read-only resolver file in an otherwise empty `/run`.
+Read that exact regular file through a bounded no-follow descriptor, accepting
+only root ownership or the named systemd-resolve service identity. Verify stable
+identity and content bounds, then create a root-owned read-only snapshot inside
+the capped filesystem. Bind only that snapshot into the preparation unit; never
+expose the service-owned original or its directory. Retire the exact snapshot
+only after independently verified unit shutdown; preserve it on uncertainty.
 Compilation/tests use `PrivateNetwork=yes`; retain `AF_UNIX`
 inside that private namespace so the trusted-parent positive control remains
 meaningful. Fixed, verified artifact downloads and `cargo fetch --locked` may use
