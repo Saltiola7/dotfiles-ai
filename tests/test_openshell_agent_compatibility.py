@@ -144,8 +144,13 @@ def assets_fixture(agent,downloaded=False):
             files[path]={"bytes":20,"sha256":hashlib.sha256(path.encode()).hexdigest(),
                          "mode":0o400 if metadata else 0o500,
                          "elf":None if metadata else {"machine":183,"kind":3,"interpreter":None,"needed":[]}}
+        omitted = json.loads((agent.build.FIXTURES/'agentcheck/voice-omissions.json').read_text())['entries'] if name == 'codex' else {}
+        omitted = {path: {**entry, 'sha256': hashlib.sha256(path.encode()).hexdigest() if entry['kind'] == 'file' else None}
+                   for path, entry in omitted.items()}
         assets[name]={"version":selected["version"],"archive_bytes":selected["bytes"],
-                      "archive_sha256":selected["sha256"],"expanded_bytes":20*len(files),"files":files}
+                      "archive_sha256":selected["sha256"],"expanded_bytes":20*len(files),"files":files,
+                      "package_scope": "probe_subset_without_voice" if name == 'codex' else 'complete',
+                      "omitted_entries": omitted}
     return header|{"status":"agent_assets_verified","prefixes":{
         name:agent.WORK+"/agent-assets-1/"+name for name in agent.ASSETS},
         "assets":assets,"codex_metadata":dict(agent.CODEX_METADATA)}
@@ -346,3 +351,62 @@ def test_actual_stage_compositions_fit_existing_caps(agent, tmp_path):
                 operation, stage, maximum+100, host_binding_sha256='d'*64, completed=completed)
             compile(script, '<agent-root>', 'exec')
             compile(agent.build.encode_program(script), '<agent-transport>', 'exec')
+
+
+def test_bundle_and_asset_stages_bind_exact_omission_source(agent, tmp_path):
+    bundle = agent.load_bundle(tmp_path)
+    raw = (agent.build.FIXTURES/'agentcheck/voice-omissions.json').read_bytes()
+    expected = json.loads(raw)
+    assert bundle.payload['voice_omissions'] == expected
+    assert bundle.source_hashes['agentcheck/voice-omissions.json'] == hashlib.sha256(raw).hexdigest()
+    assert hashlib.sha256(json.dumps(expected, sort_keys=True, separators=(',', ':')).encode()).hexdigest() == '478394bae952fff452aa79788abe07f3b2a44b1439c88b91da2919250cde7780'
+    for stage in ('agent-download', 'agent-prepare', 'agent-verify', 'agent-final'):
+        assert agent.stage_payload(bundle.payload, stage, {}) == {
+            'agent_manifest': bundle.payload['agent_manifest'], 'voice_omissions': expected}
+    for stage in ('fixture-prepare', 'fixture-build', 'cases-prepare', *agent.CASES):
+        assert 'voice_omissions' not in agent.stage_payload(bundle.payload, stage, {})
+
+
+@pytest.mark.parametrize('change', ['archive', 'path', 'bytes', 'mode', 'kind', 'boolean_schema', 'extra'])
+def test_changed_omission_source_refuses_before_bundle_return(agent, monkeypatch, change):
+    original = agent.build.read_source
+    value = json.loads(original(agent.build.FIXTURES/'agentcheck/voice-omissions.json'))
+    selected = next(name for name, entry in value['entries'].items() if entry['kind'] == 'file')
+    if change == 'archive': value['archive_sha256'] = '0'*64
+    elif change == 'path': value['entries']['../escape'] = value['entries'].pop(selected)
+    elif change in ('bytes', 'mode'): value['entries'][selected][change] += 1
+    elif change == 'kind': value['entries'][selected]['kind'] = 'link'
+    elif change == 'boolean_schema': value['schema_version'] = True
+    else: value['trusted'] = True
+    def altered(path):
+        return json.dumps(value).encode() if path.name == 'voice-omissions.json' else original(path)
+    monkeypatch.setattr(agent.build, 'read_source', altered)
+    with pytest.raises(agent.build.Refusal, match='agent_voice_omissions'): agent.voice_omissions()
+
+
+@pytest.mark.parametrize('change', ['missing', 'extra', 'mode', 'bytes', 'kind', 'hash', 'file_null',
+    'directory_hash', 'directory_false', 'boolean_mode', 'boolean_bytes', 'extra_field', 'scope',
+    'opencode_omission', 'opencode_scope', 'combined_expansion'])
+def test_asset_omission_proof_requires_exact_archive_layout(agent, change):
+    value = assets_fixture(agent); codex = value['assets']['codex']; entries = codex['omitted_entries']
+    selected = next(name for name, entry in entries.items() if entry['kind'] == 'file')
+    directory = next(name for name, entry in entries.items() if entry['kind'] == 'directory')
+    if change == 'missing': entries.pop(selected)
+    elif change == 'extra': entries['codex-resources/voice/unknown'] = dict(entries[selected])
+    elif change in ('mode', 'bytes'): entries[selected][change] += 1
+    elif change == 'kind': entries[selected]['kind'] = 'link'
+    elif change == 'hash': entries[selected]['sha256'] = 'unverified'
+    elif change == 'file_null': entries[selected]['sha256'] = None
+    elif change == 'directory_hash': entries[directory]['sha256'] = 'a'*64
+    elif change == 'directory_false': entries[directory]['sha256'] = False
+    elif change == 'boolean_mode': entries[selected]['mode'] = True
+    elif change == 'boolean_bytes': entries[directory]['bytes'] = False
+    elif change == 'extra_field': entries[selected]['trusted'] = True
+    elif change == 'scope': codex['package_scope'] = 'complete'
+    elif change == 'opencode_omission': value['assets']['opencode']['omitted_entries'] = {selected: entries[selected]}
+    elif change == 'opencode_scope': value['assets']['opencode']['package_scope'] = 'probe_subset_without_voice'
+    else:
+        total = agent.ASSETS['codex']['expanded_limit']
+        codex['files']['bin/codex']['bytes'] = total - 80
+        codex['expanded_bytes'] = total
+    with pytest.raises(agent.build.Refusal): agent.parse_assets(value)

@@ -30,6 +30,7 @@ agent_assets_files = {
     'opencode': {'opencode': 0o500},
 }
 agent_assets_directories = {'codex': {'bin', 'codex-resources', 'codex-path'}, 'opencode': set()}
+agent_assets_voice_sha256 = '478394bae952fff452aa79788abe07f3b2a44b1439c88b91da2919250cde7780'
 
 
 def agent_assets_fail(reason):
@@ -47,7 +48,30 @@ def agent_assets_selection(payload):
             agent_assets_fail('selection')
     except (KeyError, TypeError, AttributeError):
         agent_assets_fail('selection')
+    agent_assets_voice_selection(payload, value)
     return value
+
+
+def agent_assets_voice_selection(payload, selected):
+    try:
+        value = payload['voice_omissions']
+        if (type(value) is not dict or set(value) != {'schema_version', 'archive_sha256', 'entries'}
+                or type(value['schema_version']) is not int or value['schema_version'] != 1
+                or value['archive_sha256'] != selected['assets']['codex']['sha256']
+                or type(value['entries']) is not dict or len(value['entries']) != 43):
+            agent_assets_fail('voice_selection')
+        for path, item in value['entries'].items():
+            if (type(path) is not str or len(path) > 200 or type(item) is not dict
+                    or set(item) != {'kind', 'bytes', 'mode'} or item['kind'] not in ('file', 'directory')
+                    or type(item['bytes']) is not int or not 0 <= item['bytes'] <= selected['assets']['codex']['expanded_limit']
+                    or type(item['mode']) is not int or not 0 <= item['mode'] <= 0o777):
+                agent_assets_fail('voice_selection')
+        raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+        if hashlib.sha256(raw).hexdigest() != agent_assets_voice_sha256:
+            agent_assets_fail('voice_selection')
+    except (KeyError, TypeError, ValueError, UnicodeError):
+        agent_assets_fail('voice_selection')
+    return value['entries']
 
 
 def agent_assets_identity(info):
@@ -340,9 +364,12 @@ def agent_assets_header_inventory(fd, item):
     return result
 
 
-def agent_assets_scan(fd, name, item, *, write=None, expected=None):
-    stream = agent_assets_Gzip(fd, item['expanded_limit']); seen = set(); files = {}; total = 0
-    required = set(agent_assets_files[name]) | agent_assets_directories[name]
+def agent_assets_scan(fd, name, item, *, omissions=None, write=None, expected=None):
+    if omissions is None:
+        if name == 'codex': agent_assets_fail('voice_selection')
+        omissions = {}
+    stream = agent_assets_Gzip(fd, item['expanded_limit']); seen = set(); files = {}; total = omitted_total = 0
+    omitted = {}; required = set(agent_assets_files[name]) | agent_assets_directories[name] | set(omissions)
     try:
         with tarfile.open(fileobj=stream, mode='r|') as archive:
             for count, member in enumerate(archive):
@@ -354,6 +381,29 @@ def agent_assets_scan(fd, name, item, *, write=None, expected=None):
                     detail['inventory'] = agent_assets_header_inventory(fd, item)
                     agent_assets_fail('archive_member:'+json.dumps(detail, sort_keys=True, separators=(',', ':')))
                 seen.add(path)
+                if path in omissions:
+                    chosen = omissions[path]
+                    if member.mode != chosen['mode'] or member.size != chosen['bytes']:
+                        agent_assets_fail('voice_header')
+                    digest = None
+                    if chosen['kind'] == 'directory':
+                        if not member.isdir() or member.size: agent_assets_fail('voice_directory')
+                    else:
+                        if member.type not in (tarfile.REGTYPE, tarfile.AREGTYPE) or member.sparse is not None:
+                            agent_assets_fail('voice_file')
+                        omitted_total += member.size
+                        if total+omitted_total > item['expanded_limit']: agent_assets_fail('expanded_limit')
+                        hashed = hashlib.sha256(); left = member.size
+                        with archive.extractfile(member) as source:
+                            while left:
+                                remaining(); block = source.read(min(65536, left))
+                                if not block or len(block) > left: agent_assets_fail('archive_short')
+                                hashed.update(block); left -= len(block)
+                        digest = hashed.hexdigest()
+                    omitted[path] = dict(chosen, sha256=digest)
+                    if expected is not None and omitted[path] != expected['omitted_entries'][path]:
+                        agent_assets_fail('archive_changed')
+                    continue
                 if path in agent_assets_directories[name]:
                     if not member.isdir() or member.size: agent_assets_fail('archive_directory')
                     continue
@@ -364,7 +414,7 @@ def agent_assets_scan(fd, name, item, *, write=None, expected=None):
                     agent_assets_fail('archive_file')
                 if path == 'codex-package.json' and member.size > 8192: agent_assets_fail('metadata_size')
                 total += member.size
-                if total > item['expanded_limit']: agent_assets_fail('expanded_limit')
+                if total+omitted_total > item['expanded_limit']: agent_assets_fail('expanded_limit')
                 with archive.extractfile(member) as source:
                     raw = source.read(member.size+1)
                 remaining()
@@ -372,7 +422,7 @@ def agent_assets_scan(fd, name, item, *, write=None, expected=None):
                 record = {'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest(), 'mode': mode,
                           'elf': agent_assets_elf(raw) if mode == 0o500 else None}
                 if mode == 0o400: agent_assets_json(raw)
-                if expected is not None and record != expected[path]: agent_assets_fail('archive_changed')
+                if expected is not None and record != expected['files'][path]: agent_assets_fail('archive_changed')
                 files[path] = record
                 if write is not None: write(path, raw, mode)
                 del raw
@@ -385,7 +435,9 @@ def agent_assets_scan(fd, name, item, *, write=None, expected=None):
     except (OSError, ValueError, tarfile.TarError, agent_assets_zlib.error, EOFError):
         agent_assets_fail('archive_parse')
     return {'version': item['version'], 'archive_bytes': item['bytes'], 'archive_sha256': item['sha256'],
-            'expanded_bytes': total, 'files': files}
+            'expanded_bytes': total, 'files': files,
+            'package_scope': 'probe_subset_without_voice' if name == 'codex' else 'complete',
+            'omitted_entries': omitted}
 
 
 def agent_assets_write(path, raw, mode):
@@ -459,7 +511,8 @@ def agent_assets_admit(payload, *, prepare):
             descriptors[name] = fd
             identities[name] = agent_assets_identity(os.fstat(fd))
             if agent_assets_hash(fd, item['bytes']) != item['sha256']: agent_assets_fail('digest')
-            observed[name] = agent_assets_scan(fd, name, item)
+            observed[name] = agent_assets_scan(fd, name, item,
+                omissions=payload['voice_omissions']['entries'] if name == 'codex' else {})
         report = agent_assets_flags('agent_assets_verified') | {
             'prefixes': {name: str(WORK/'agent-assets-1'/name) for name in observed},
             'assets': observed, 'codex_metadata': dict(agent_assets_codex_metadata)}
@@ -476,7 +529,8 @@ def agent_assets_admit(payload, *, prepare):
                 for path in sorted(agent_assets_directories[name]): agent_assets_mkdir(prefix/path)
                 agent_assets_scan(descriptors[name], name, selected['assets'][name],
                                   write=lambda path, raw, mode: agent_assets_write(prefix/path, raw, mode),
-                                  expected=observed[name]['files'])
+                                  omissions=payload['voice_omissions']['entries'] if name == 'codex' else {},
+                                  expected=observed[name])
         agent_assets_tree(report)
     remaining()
     return report

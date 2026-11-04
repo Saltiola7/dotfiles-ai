@@ -73,12 +73,19 @@ def assets(tmp_path, monkeypatch):
             + [(name, 'file', elf()+name.encode(), 0o755) for name in ('bin/codex', 'bin/codex-code-mode-host', 'codex-resources/bwrap', 'codex-path/rg')],
         'opencode': [('opencode', 'file', elf(interpreter='/lib/ld-linux-aarch64.so.1', needed='libc.so.6'), 0o755)],
     }
+    omissions = json.loads((BASE/'agentcheck/voice-omissions.json').read_text())
+    for name, item in omissions['entries'].items():
+        raw = b'' if item['kind'] == 'directory' else ('omitted '+name).encode()
+        item['bytes'] = len(raw)
+        records['codex'].append((name, item['kind'], raw, item['mode']))
     inputs = tmp_path/'agent-assets-inputs-1'; inputs.mkdir(mode=0o700)
     for name, rows in records.items():
         raw = archive(rows); item = contract['assets'][name]
-        item.update(bytes=len(raw), sha256=sha(raw), expanded_limit=32768)
+        item.update(bytes=len(raw), sha256=sha(raw), expanded_limit=65536 if name == 'codex' else 32768)
         (inputs/item['archive']).write_bytes(raw); (inputs/item['archive']).chmod(0o600)
-    payload = {'agent_manifest': copy.deepcopy(contract)}
+    omissions['archive_sha256'] = contract['assets']['codex']['sha256']
+    monkeypatch.setattr(module, 'agent_assets_voice_sha256', sha(json.dumps(omissions, sort_keys=True, separators=(',', ':')).encode()), raising=False)
+    payload = {'agent_manifest': copy.deepcopy(contract), 'voice_omissions': omissions}
     monkeypatch.setattr(module.urllib.request, 'build_opener', lambda *args: pytest.fail('unexpected network'))
     return module, payload, records
 
@@ -89,6 +96,9 @@ def replace_archive(assets, name, records, *, tail=b'', extra=b''):
     item = module.agent_assets_contract['assets'][name]
     item.update(bytes=len(raw), sha256=sha(raw))
     payload['agent_manifest'] = copy.deepcopy(module.agent_assets_contract)
+    if name == 'codex':
+        payload['voice_omissions']['archive_sha256'] = item['sha256']
+        module.agent_assets_voice_sha256 = sha(json.dumps(payload['voice_omissions'], sort_keys=True, separators=(',', ':')).encode())
     path = module.WORK/'agent-assets-inputs-1'/item['archive']; path.write_bytes(raw)
     return path
 
@@ -354,3 +364,106 @@ def test_header_inventory_failure_preserves_original_refusal_without_exception_t
 def test_source_module_bound_and_no_automatic_entrypoint():
     raw = (BASE/'guest_agent_assets.py').read_text()
     assert len(raw.encode()) <= 32*1024 and '__main__' not in raw
+
+
+def test_voice_manifest_has_exact_authenticated_native_header_inventory():
+    value = json.loads((BASE/'agentcheck/voice-omissions.json').read_text())
+    assert sha(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()) == '478394bae952fff452aa79788abe07f3b2a44b1439c88b91da2919250cde7780'
+    assert len(value['entries']) == 43
+    assert sum(item['kind'] == 'directory' for item in value['entries'].values()) == 5
+    assert sum(item['bytes'] for item in value['entries'].values()) == 55864949
+
+
+def test_voice_subset_hashes_every_omission_and_never_publishes_it(assets, monkeypatch):
+    module, payload, records = assets
+    name = 'codex-resources/voice/NOTICE.md'
+    records['codex'] = [(path, kind, b'x'*150000 if path == name else raw, mode)
+                       for path, kind, raw, mode in records['codex']]
+    payload['voice_omissions']['entries'][name]['bytes'] = 150000
+    module.agent_assets_contract['assets']['codex']['expanded_limit'] = 256*1024
+    replace_archive(assets, 'codex', records['codex'])
+    original = module.tarfile.TarFile.extractfile; reads = []
+    class BoundedReader:
+        def __init__(self, stream): self.stream = stream
+        def __enter__(self): return self
+        def __exit__(self, *args): self.stream.close()
+        def read(self, size=-1):
+            assert 0 < size <= 65536
+            reads.append(size)
+            return self.stream.read(size)
+    def extract(archive, member):
+        stream = original(archive, member)
+        return BoundedReader(stream) if member.name in payload['voice_omissions']['entries'] else stream
+    monkeypatch.setattr(module.tarfile.TarFile, 'extractfile', extract)
+    result = module.agent_assets_prepare(payload)
+    assert reads and result == module.agent_assets_verify(payload)
+    codex = result['assets']['codex']; opencode = result['assets']['opencode']
+    assert codex['package_scope'] == 'probe_subset_without_voice'
+    assert opencode['package_scope'] == 'complete' and opencode['omitted_entries'] == {}
+    raw = {name: value for name, _, value, _ in records['codex']}
+    assert codex['omitted_entries'] == {name: item | {'sha256': sha(raw[name]) if item['kind'] == 'file' else None}
+        for name, item in payload['voice_omissions']['entries'].items()}
+    assert codex['expanded_bytes'] == sum(item['bytes'] for item in codex['files'].values())
+    assert not (module.WORK/'agent-assets-1/codex/codex-resources/voice').exists()
+
+
+@pytest.mark.parametrize('operation', ['download', 'prepare', 'verify'])
+@pytest.mark.parametrize('kind', ['missing', 'digest', 'schema_bool', 'archive', 'unknown'])
+def test_voice_selection_refuses_before_any_effect(assets, monkeypatch, operation, kind):
+    module, payload, _ = assets
+    if kind == 'missing': del payload['voice_omissions']
+    elif kind == 'digest': payload['voice_omissions']['entries']['codex-resources/voice']['mode'] = 0o700
+    elif kind == 'schema_bool': payload['voice_omissions']['schema_version'] = True
+    elif kind == 'archive': payload['voice_omissions']['archive_sha256'] = '0'*64
+    else: payload['voice_omissions']['extra'] = True
+    monkeypatch.setattr(module, 'agent_assets_inputs', lambda **kw: pytest.fail('input access before omission selection'))
+    with pytest.raises(RuntimeError, match='agent_assets_voice_selection'):
+        getattr(module, 'agent_assets_'+operation)(payload)
+
+
+@pytest.mark.parametrize('kind', ['missing', 'unknown', 'mode', 'size', 'symlink', 'hardlink', 'fifo', 'contiguous', 'directory_file', 'duplicate'])
+def test_voice_headers_are_exact_and_not_a_prefix_allowance(assets, kind):
+    module, payload, records = assets; rows = list(records['codex'])
+    name = 'codex-resources/voice/NOTICE.md'
+    at = next(index for index, row in enumerate(rows) if row[0] == name)
+    path, _, raw, mode = rows[at]
+    if kind == 'missing': rows.pop(at)
+    elif kind == 'unknown': rows.append(('codex-resources/voice/unselected', 'file', b'ignored?', 0o644))
+    elif kind == 'mode': rows[at] = (path, 'file', raw, 0o600)
+    elif kind == 'size': rows[at] = (path, 'file', raw+b'x', mode)
+    elif kind == 'duplicate': rows.append(rows[at])
+    elif kind == 'directory_file':
+        at = next(index for index, row in enumerate(rows) if row[0] == 'codex-resources/voice')
+        rows[at] = ('codex-resources/voice', 'file', b'', 0o755)
+    else: rows[at] = (path, kind, raw, mode)
+    replace_archive(assets, 'codex', rows)
+    with pytest.raises(RuntimeError, match='agent_assets_'): module.agent_assets_prepare(payload)
+    assert not (module.WORK/'agent-assets-1').exists()
+
+
+def test_voice_bytes_share_the_original_expansion_limit(assets):
+    module, payload, records = assets
+    rows = [(name, kind, b'x'*70000 if name == 'codex-resources/voice/NOTICE.md' else raw, mode)
+            for name, kind, raw, mode in records['codex']]
+    payload['voice_omissions']['entries']['codex-resources/voice/NOTICE.md']['bytes'] = 70000
+    replace_archive(assets, 'codex', rows)
+    with pytest.raises(RuntimeError, match='agent_assets_'): module.agent_assets_prepare(payload)
+    assert not (module.WORK/'agent-assets-1').exists()
+
+
+def test_voice_second_pass_compares_hashes_before_success(assets, monkeypatch):
+    module, payload, _ = assets
+    original = module.tarfile.TarFile.extractfile; visits = []
+    def extract(archive, member):
+        stream = original(archive, member)
+        if member.name == 'codex-resources/voice/NOTICE.md':
+            visits.append(True)
+            if len(visits) == 2:
+                raw = stream.read(); stream.close()
+                return io.BytesIO(b'!' + raw[1:])
+        return stream
+    monkeypatch.setattr(module.tarfile.TarFile, 'extractfile', extract)
+    with pytest.raises(RuntimeError, match='agent_assets_archive_changed'):
+        module.agent_assets_prepare(payload)
+    assert len(visits) == 2
+    assert not (module.WORK/'agent-assets-1/codex/codex-resources/voice').exists()

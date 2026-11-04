@@ -20,6 +20,7 @@ CASES = tuple(f'{probe}-{mode}' for probe in PROBES for mode in MODES)
 WORK = '/var/lib/dotfiles-ai-openshell-build/store/work'
 FLAGS = {'session_enabled': False, 'full_runtime_qualified': False, 'compatibility_qualified': False}
 RESERVE = 256 * 1024**2
+VOICE_OMISSIONS_SHA256 = '478394bae952fff452aa79788abe07f3b2a44b1439c88b91da2919250cde7780'
 STAGES = {
     'agent-prepare': (('agent-download', 'assets', True, 300), ('agent-prepare', 'assets', False, 300)),
     'agent-test': (('rust-verify', 'rust', False, 240), ('compiler-verify', 'compiler', False, 240),
@@ -68,6 +69,20 @@ def manifest():
     return value
 
 
+def voice_omissions(raw=None):
+    if raw is None:
+        raw = build.read_source(build.FIXTURES/'agentcheck/voice-omissions.json')
+    value = create._json(raw)
+    canonical = json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+    if (hashlib.sha256(canonical).hexdigest() != VOICE_OMISSIONS_SHA256
+            or type(value) is not dict or set(value) != {'schema_version', 'archive_sha256', 'entries'}
+            or type(value['schema_version']) is not int or value['schema_version'] != 1
+            or value['archive_sha256'] != ASSETS['codex']['sha256']
+            or type(value['entries']) is not dict or len(value['entries']) != 43):
+        refuse('voice_omissions')
+    return value
+
+
 def load_bundle(parent):
     base = full.load_bundle(parent)
     files = {}; hashes = dict(base.source_hashes)
@@ -78,7 +93,11 @@ def load_bundle(parent):
         files[name] = raw.decode(); hashes['agentcheck/'+local] = hashlib.sha256(raw).hexdigest()
     selected = manifest()
     hashes['agentcheck/manifest.json'] = hashlib.sha256(build.read_source(build.FIXTURES/'agentcheck/manifest.json')).hexdigest()
-    return build.Bundle(base.payload | {'agent_manifest': selected, 'fixture_files': files}, hashes)
+    omission_raw = build.read_source(build.FIXTURES/'agentcheck/voice-omissions.json')
+    omissions = voice_omissions(omission_raw)
+    hashes['agentcheck/voice-omissions.json'] = hashlib.sha256(omission_raw).hexdigest()
+    return build.Bundle(base.payload | {'agent_manifest': selected, 'fixture_files': files,
+                                      'voice_omissions': omissions}, hashes)
 
 
 def capture_sources(operation):
@@ -112,6 +131,8 @@ def stage_payload(payload, stage, completed):
     elif stage == 'cases-prepare' or stage in CASES:
         result['agent_build_report'] = completed.get('fixture-build', {})
         result['agent_assets_report'] = completed.get('agent-verify', {})
+    elif stage in {'agent-download', 'agent-prepare', 'agent-verify', 'agent-final'}:
+        result['voice_omissions'] = payload.get('voice_omissions', {})
     return result
 
 
@@ -211,14 +232,30 @@ def parse_assets(value, downloaded=False):
             or type(value['codex_metadata'].get('layoutVersion')) is not int or type(value['assets']) is not dict
             or set(value['assets']) != set(ASSETS)):
         refuse('assets_proof')
+    omission_layout = voice_omissions()['entries']
     for name, selected in ASSETS.items():
         item = value['assets'][name]
-        if (type(item) is not dict or set(item) != {'version', 'archive_bytes', 'archive_sha256', 'expanded_bytes', 'files'}
+        if (type(item) is not dict or set(item) != {'version', 'archive_bytes', 'archive_sha256', 'expanded_bytes', 'files',
+                                                  'package_scope', 'omitted_entries'}
                 or item['version'] != selected['version'] or type(item['archive_bytes']) is not int
                 or item['archive_bytes'] != selected['bytes']
                 or item['archive_sha256'] != selected['sha256'] or not integer(item['expanded_bytes'], 1, selected['expanded_limit'])
                 or type(item['files']) is not dict or set(item['files']) != FILE_SETS[name]):
             refuse('asset_identity')
+        expected = omission_layout if name == 'codex' else {}
+        scope = 'probe_subset_without_voice' if name == 'codex' else 'complete'
+        omitted = item['omitted_entries']
+        if item['package_scope'] != scope or type(omitted) is not dict or set(omitted) != set(expected):
+            refuse('asset_omissions')
+        for path, original in expected.items():
+            entry = omitted[path]
+            if (type(entry) is not dict or set(entry) != {'kind', 'bytes', 'mode', 'sha256'}
+                    or type(entry['bytes']) is not int or type(entry['mode']) is not int
+                    or any(entry[key] != original[key] for key in ('kind', 'bytes', 'mode'))
+                    or (entry['sha256'] is not None if original['kind'] == 'directory' else not sha(entry['sha256']))):
+                refuse('asset_omissions')
+        if item['expanded_bytes'] + sum(entry['bytes'] for entry in omitted.values()) > selected['expanded_limit']:
+            refuse('asset_expansion')
         for path, entry in item['files'].items():
             metadata = path == 'codex-package.json'
             if (type(entry) is not dict or set(entry) != {'bytes', 'sha256', 'mode', 'elf'}
