@@ -9326,8 +9326,8 @@ def continuation_guard(args):
 
 def local_dispatch_selection(args):
     """Find an existing new-mode binding using local Git metadata only."""
-    if args.command == "complete-local":
-        return None  # The completion handler owns admission, including explicit retries.
+    if args.command in {"complete-local", "complete-external"}:
+        return None  # Each completion handler owns admission, including explicit retries.
     found = subprocess.run(["git", "rev-parse", "--show-toplevel"], env=INSPECT_ENV,
                            text=True, capture_output=True)
     if found.returncode:
@@ -19750,79 +19750,91 @@ def command_complete_external(args):
     else:
         path, record = load(root)
     identifier = record["cycle_id"]
-    github = record.get("delivery", {}).get("github")
-    if (record.get("schema_version") not in (3, 4, 5) or record.get("delivery_intent") != "draft_pr"
-            or not isinstance(github, dict) or set(github) != {"host", "repository", "account"}
-            or github["host"] != "github.com"
-            or not isinstance(github["repository"], str)
-            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", github["repository"])
-            or not isinstance(github["account"], str)
-            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", github["account"])):
-        fail("external completion requires a supported GitHub draft_pr cycle")
-    if type(args.pr_number) is not int or not 1 <= args.pr_number < 2**53 or not external_oid(args.expected_merge):
-        fail("invalid external completion PR number or merge pin")
-    with evidence_lock(root, identifier, timeout=1), target_lock(root, record):
+    if identifier != path.stem or explicit and identifier != args.cycle_id:
+        fail("external completion cycle identity changed")
+    before = record
+    with evidence_lock(root, "local-mutation-" + identifier, timeout=1), evidence_lock(root, identifier, timeout=1):
         record = read_cycle_record(root, path, historical=True)
-        admitted = json.dumps(record, sort_keys=True)
-        if not record_worktree_matches(root, record, root, bindings=False):
-            fail("external completion requires its original checkout and task branch")
-        own_pointer = pointer.exists() and active_pointer_id(root, pointer) == identifier
-        if pointer.exists() and not own_pointer or not explicit and not own_pointer:
-            fail("external completion active pointer changed")
-        if record["state"] not in ("active", "finalizing", "completed"):
-            fail("cycle is not available for external completion")
-        if record["state"] == "completed" and "external_completion" not in record:
-            fail("cycle already completed through another delivery route")
-        with local_completion_git_context():
-            head, tree, commits = external_source(root, record, args.expected_head)
-        if not external_oid(args.expected_merge, len(head)):
-            fail("external merge pin has the wrong object format")
-        env = github_environment(record["delivery"]["github"]["account"])
-        env = {key: value for key, value in {**GIT_REPOSITORY_ENV, **env}.items()
-               if key not in GIT_REPOSITORY_REDIRECTS}
-        env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1")
-        token = LOCAL_COMPLETION_GIT.set(env)
-        try:
-            receipt = external_merge_proof(root, record, args, env, head, tree, commits)
-        finally:
-            LOCAL_COMPLETION_GIT.reset(token)
-        previous = record.get("external_completion")
-        if previous is not None:
-            stable = set(receipt) - {"verified_at", "target_head"}
-            if any(previous[key] != receipt[key] for key in stable):
-                fail("completed external delivery receipt changed")
-            receipt = previous
-        with local_completion_git_context():
-            if external_source(root, record, args.expected_head) != (head, tree, commits):
-                fail("external completion source changed during verification")
-        if json.dumps(read_cycle_record(root, path, historical=True), sort_keys=True) != admitted:
-            fail("external completion record changed during verification")
-        if own_pointer != pointer.exists() or own_pointer and active_pointer_id(root, pointer) != identifier:
-            fail("external completion active pointer changed during verification")
-        # The expensive authority can execute DVC status. Reobserve cheap local
-        # facts after it, immediately before persistence, rather than returning
-        # a head/tree cached before an external process changed the checkout.
-        with local_completion_git_context():
-            if (status_paths(root) or branch(root) != record["git"]["branch"]
-                    or upstream(root) != record["git"]["upstream"]
-                    or git(root, "rev-parse", "HEAD").stdout.strip() != head
-                    or git(root, "rev-parse", "HEAD^{tree}").stdout.strip() != tree
-                    or not record_worktree_matches(root, record, root, bindings=False)):
-                fail("external completion source changed immediately before persistence")
-        if not args.preview:
-            if previous is None:
-                record.update(state="completed", completed_at=receipt["verified_at"], external_completion=receipt,
-                              source_sync={"status": "not_applicable", "reason": "external_merge_completion"})
-                record["delivery"].setdefault("pull_request", {
-                    **receipt["pull_request"], "draft": False, "state": "MERGED", "verified_at": receipt["verified_at"]})
-                validate_external_completion(record)
-                save(path, record)
-            if own_pointer:
-                if active_pointer_id(root, pointer) != identifier:
-                    fail("external completion pointer changed; completed receipt retained")
-                pointer.unlink()
-                fsync_directory(pointer.parent)
-        print(json.dumps(receipt, sort_keys=True))
+        if (record["cycle_id"] != identifier or record["delivery"] != before["delivery"]
+                or record["worktree"] != before["worktree"] or record.get("execution") != before.get("execution")):
+            fail("external completion binding changed during admission")
+        if native_workspace_execution(record):
+            continuation_private(path)
+            verify_native_workspace_backup(root, record)
+        if explicit and (record.get("state") != "completed" or "external_completion" not in record):
+            fail("explicit cycle ID requires an already externally completed record")
+        github = record.get("delivery", {}).get("github")
+        if (record.get("schema_version") not in (3, 4, 5) or record.get("delivery_intent") != "draft_pr"
+                or not isinstance(github, dict) or set(github) != {"host", "repository", "account"}
+                or github["host"] != "github.com"
+                or not isinstance(github["repository"], str)
+                or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", github["repository"])
+                or not isinstance(github["account"], str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", github["account"])):
+            fail("external completion requires a supported GitHub draft_pr cycle")
+        if type(args.pr_number) is not int or not 1 <= args.pr_number < 2**53 or not external_oid(args.expected_merge):
+            fail("invalid external completion PR number or merge pin")
+        with target_lock(root, record):
+            admitted = json.dumps(record, sort_keys=True)
+            if not record_worktree_matches(root, record, root, bindings=False):
+                fail("external completion requires its original checkout and task branch")
+            own_pointer = pointer.exists() and active_pointer_id(root, pointer) == identifier
+            if pointer.exists() and not own_pointer or not explicit and not own_pointer:
+                fail("external completion active pointer changed")
+            if record["state"] not in ("active", "finalizing", "completed"):
+                fail("cycle is not available for external completion")
+            if record["state"] == "completed" and "external_completion" not in record:
+                fail("cycle already completed through another delivery route")
+            with local_completion_git_context():
+                head, tree, commits = external_source(root, record, args.expected_head)
+            if not external_oid(args.expected_merge, len(head)):
+                fail("external merge pin has the wrong object format")
+            env = github_environment(record["delivery"]["github"]["account"])
+            env = {key: value for key, value in {**GIT_REPOSITORY_ENV, **env}.items()
+                   if key not in GIT_REPOSITORY_REDIRECTS}
+            env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1")
+            token = LOCAL_COMPLETION_GIT.set(env)
+            try:
+                receipt = external_merge_proof(root, record, args, env, head, tree, commits)
+            finally:
+                LOCAL_COMPLETION_GIT.reset(token)
+            previous = record.get("external_completion")
+            if previous is not None:
+                stable = set(receipt) - {"verified_at", "target_head"}
+                if any(previous[key] != receipt[key] for key in stable):
+                    fail("completed external delivery receipt changed")
+                receipt = previous
+            with local_completion_git_context():
+                if external_source(root, record, args.expected_head) != (head, tree, commits):
+                    fail("external completion source changed during verification")
+            if json.dumps(read_cycle_record(root, path, historical=True), sort_keys=True) != admitted:
+                fail("external completion record changed during verification")
+            if own_pointer != pointer.exists() or own_pointer and active_pointer_id(root, pointer) != identifier:
+                fail("external completion active pointer changed during verification")
+            # The expensive authority can execute DVC status. Reobserve cheap local
+            # facts after it, immediately before persistence, rather than returning
+            # a head/tree cached before an external process changed the checkout.
+            with local_completion_git_context():
+                if (status_paths(root) or branch(root) != record["git"]["branch"]
+                        or upstream(root) != record["git"]["upstream"]
+                        or git(root, "rev-parse", "HEAD").stdout.strip() != head
+                        or git(root, "rev-parse", "HEAD^{tree}").stdout.strip() != tree
+                        or not record_worktree_matches(root, record, root, bindings=False)):
+                    fail("external completion source changed immediately before persistence")
+            if not args.preview:
+                if previous is None:
+                    record.update(state="completed", completed_at=receipt["verified_at"], external_completion=receipt,
+                                  source_sync={"status": "not_applicable", "reason": "external_merge_completion"})
+                    record["delivery"].setdefault("pull_request", {
+                        **receipt["pull_request"], "draft": False, "state": "MERGED", "verified_at": receipt["verified_at"]})
+                    validate_external_completion(record)
+                    save(path, record)
+                if own_pointer:
+                    if active_pointer_id(root, pointer) != identifier:
+                        fail("external completion pointer changed; completed receipt retained")
+                    pointer.unlink()
+                    fsync_directory(pointer.parent)
+            print(json.dumps(receipt, sort_keys=True))
 
 
 def finish_push(root, path, record):
