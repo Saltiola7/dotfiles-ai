@@ -972,8 +972,10 @@ def _retire_resolver(resolver: Resolver) -> None:
         raise Refusal("resolver_retirement_identity") from None
 
 
-def _properties(network: bool, seconds: int, *, resolver: Resolver | None = None) -> list[str]:
-    if type(network) is not bool or type(seconds) is not int or not 1 <= seconds <= 1500:
+def _properties(network: bool, seconds: int, *, resolver: Resolver | None = None,
+                library_tests: bool = False) -> list[str]:
+    if (type(network) is not bool or type(seconds) is not int or not 1 <= seconds <= 1500
+            or type(library_tests) is not bool or (library_tests and network)):
         raise Refusal("unit_contract")
     properties = ["Type=exec", "User=65534", "Group=65534", "SupplementaryGroups=", "UMask=0077",
             "ProtectSystem=strict", "ProtectHome=yes", "PrivateDevices=yes", "PrivatePIDs=yes", "PrivateTmp=no",
@@ -982,7 +984,8 @@ def _properties(network: bool, seconds: int, *, resolver: Resolver | None = None
             "CPUQuota=200%", "MemoryMax=6G", "MemorySwapMax=0", "TasksMax=512", "LimitCORE=0",
             "KillMode=control-group", "Restart=no", "TimeoutStartSec=20", "TimeoutStopSec=10",
             f"RuntimeMaxSec={seconds}", f"PrivateNetwork={'no' if network else 'yes'}",
-            "RestrictAddressFamilies=AF_INET AF_INET6" + ("" if network else " AF_UNIX"),
+            "RestrictAddressFamilies=AF_INET AF_INET6" + ("" if network else " AF_UNIX")
+                + (" AF_NETLINK" if library_tests else ""),
             "TemporaryFileSystem=/var:ro" + (" /run:ro" if network else ""),
             "InaccessiblePaths=" + ("" if network else "/run ") + "/dev/shm -/opt -/srv -/mnt -/media -/boot -/efi -/lost+found -/afs",
             f"BindPaths={WORK}:{WORK}:norbind {WORK}/tmp:/tmp:norbind {WORK}/tmp:/var/tmp:norbind",
@@ -1034,7 +1037,7 @@ def _unit_stopped(unit: str, deadline: float) -> None:
         raise Refusal("unit_shutdown_unverified") from None
 
 
-def run_unit(script: str, *, network: bool = False, seconds: int = 300) -> dict:
+def run_unit(script: str, *, network: bool = False, seconds: int = 300, library_tests: bool = False) -> dict:
     """Execute a trusted source-defined script within the current verified store.
 
     This internal Python interface is not an authorization boundary or a CLI.
@@ -1042,14 +1045,14 @@ def run_unit(script: str, *, network: bool = False, seconds: int = 300) -> dict:
     """
     if _active is None or _end is None or _work_end is None:
         raise Refusal("store_not_mounted")
-    properties = _properties(network, seconds)
+    properties = _properties(network, seconds, library_tests=library_tests)
     if type(script) is not str or not script or len(script.encode("utf-8")) > 65536:
         raise Refusal("unit_script")
     deadline = min(_work_end, time.monotonic() + seconds)
     _verify(_active, deadline)
     _visible_system(deadline)
     resolver = _resolver(deadline) if network else None
-    properties = _properties(network, seconds, resolver=resolver)
+    properties = _properties(network, seconds, resolver=resolver, library_tests=library_tests)
     unit = "dotfiles-ai-openshell-build-" + uuid.uuid4().hex + ".service"
     environment = {"PATH": "/usr/sbin:/usr/bin", "LC_ALL": "C", "LANG": "C", "HOME": str(WORK / "home"),
                    "CARGO_HOME": str(WORK / "cargo"), "RUSTUP_HOME": str(WORK / "rustup"), "TMPDIR": str(WORK / "tmp"),

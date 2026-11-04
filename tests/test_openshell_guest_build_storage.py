@@ -385,6 +385,30 @@ def test_unit_properties_confine_writes_and_do_not_use_journal(storage, network)
     families = next(item for item in properties if item.startswith("RestrictAddressFamilies="))
     assert ("AF_UNIX" in families) is (not network)
     assert "AF_INET" in families
+    assert "AF_NETLINK" not in families and "UMask=0077" in properties
+
+
+def test_library_context_adds_only_private_netlink_family(storage):
+    ordinary = storage._properties(False, 120)
+    tests = storage._properties(False, 120, library_tests=True)
+    assert len(tests) == len(ordinary)
+    differences = [(before, after) for before, after in zip(ordinary, tests) if before != after]
+    assert differences == [("RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
+                            "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK")]
+    assert "UMask=0077" in tests and "PrivateNetwork=yes" in tests
+
+
+@pytest.mark.parametrize("network,library_tests", [(True, True), (False, None), (False, 1), (False, "true"), (False, [])])
+def test_invalid_library_context_refuses_before_any_effect(storage, monkeypatch, network, library_tests):
+    monkeypatch.setattr(storage, "_active", SimpleNamespace())
+    monkeypatch.setattr(storage, "_end", 200.0)
+    monkeypatch.setattr(storage, "_work_end", 140.0)
+    for name in ("_verify", "_visible_system", "_resolver", "_command"):
+        monkeypatch.setattr(storage, name, lambda *a, **k: pytest.fail("effect before contract refusal"))
+    with pytest.raises(storage.Refusal, match="unit_contract"):
+        storage._properties(network, 120, library_tests=library_tests)
+    with pytest.raises(storage.Refusal, match="unit_contract"):
+        storage.run_unit("print('fixed source')", network=network, library_tests=library_tests)
 
 
 @pytest.mark.parametrize("seconds", [True, 0, -1, 1501, 1.5])
@@ -444,7 +468,8 @@ def test_fixed_probe_independently_checks_cgroup_caps_and_inherited_descriptors(
 
 
 @pytest.mark.parametrize("failed", [False, True])
-def test_unit_always_stops_exact_service_and_preserves_byte_streams(storage, monkeypatch, failed):
+@pytest.mark.parametrize("library_tests", [False, True])
+def test_unit_always_stops_exact_service_and_preserves_byte_streams(storage, monkeypatch, failed, library_tests):
     monkeypatch.setattr(storage, "_active", SimpleNamespace())
     monkeypatch.setattr(storage, "_end", 200.0)
     monkeypatch.setattr(storage, "_work_end", 140.0)
@@ -462,12 +487,15 @@ def test_unit_always_stops_exact_service_and_preserves_byte_streams(storage, mon
     monkeypatch.setattr(storage, "_unit_stopped", lambda *args: stopped.append(args))
     if failed:
         with pytest.raises(storage.Refusal, match="command_output_limit"):
-            storage.run_unit("print('source defined')", seconds=20)
+            storage.run_unit("print('source defined')", seconds=20, library_tests=library_tests)
     else:
-        assert storage.run_unit("print('source defined')", seconds=20)["stdout"] == b"result"
+        assert storage.run_unit("print('source defined')", seconds=20, library_tests=library_tests)["stdout"] == b"result"
     started = calls[0][0]
     unit = next(item.removeprefix("--unit=") for item in started if item.startswith("--unit="))
     assert "--pipe" in started and "--wait" in started
+    families = next(item for item in started if item.startswith("--property=RestrictAddressFamilies="))
+    assert ("AF_NETLINK" in families) is library_tests
+    assert "--property=UMask=0077" in started and "--property=PrivateNetwork=yes" in started
     assert calls[-1] == (["/usr/bin/systemctl", "stop", unit], 200.0)
     assert stopped == [(unit, 200.0)]
     assert started[started.index("--") + 1:started.index("--") + 3] == ["/usr/bin/env", "-i"]

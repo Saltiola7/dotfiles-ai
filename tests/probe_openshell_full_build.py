@@ -162,7 +162,7 @@ with mounted_store(deadline=_operation_end,host_binding_sha256={host_binding_sha
     _seconds=min({maximum!r},int(_operation_end-time.monotonic()-65))
     if _seconds<10:
         raise RuntimeError('full_build_deadline')
-    _observed=run_unit({unit!r},network={network!r},seconds=_seconds)
+    _observed=run_unit({unit!r},network={network!r},seconds=_seconds,library_tests={stage=='cargo-test'!r})
     _result=json.loads(_observed['stdout'])
     _after=build_inventory()
 print(json.dumps({{'status':'full_stage_completed','operation':{operation!r},'stage':{stage!r},

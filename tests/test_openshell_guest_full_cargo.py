@@ -391,6 +391,8 @@ def test_full_build_is_offline_and_requires_native_identity_and_sentinel(full,mo
     def command(argv,**kwargs):
         calls.append((argv,kwargs))
         assert kwargs['cwd']==source==module.WORK/'full-source-2'
+        expected_umask=0o066 if argv==[str(test),'--test-threads=1','--nocapture'] else -1
+        assert kwargs.get('umask',-1)==expected_umask
         assert kwargs['environment']['CARGO_NET_OFFLINE']=='true'
         assert kwargs['environment']['PROTOC']==str(module.WORK/'full-protoc-1')
         if argv[1:2]==['build']:

@@ -59,19 +59,19 @@ def test_unknown_full_operation_refuses_before_boot(full,monkeypatch,operation):
     with pytest.raises(full.build.Refusal): full.qualify(None,operation)
 
 
-@pytest.mark.parametrize('operation,networks',[
-    ('full-prepare',[False,True,False,False,True]),
-    ('full-source-reprepare',[False,False,False]),
-    ('full-fetch',[False,False,False,True]),
-    ('full-test',[False,False,False,False,False,False]),
+@pytest.mark.parametrize('operation,networks,library_tests',[
+    ('full-prepare',[False,True,False,False,True],[False,False,False,False,False]),
+    ('full-source-reprepare',[False,False,False],[False,False,False]),
+    ('full-fetch',[False,False,False,True],[False,False,False,False]),
+    ('full-test',[False,False,False,False,False,False],[False,False,False,False,True,False]),
 ])
-def test_full_operations_separate_network_and_execution(full,operation,networks,capsys):
+def test_full_operations_separate_network_and_execution(full,operation,networks,library_tests,capsys):
     calls=[]
     @contextmanager
     def mounted_store(**kwargs): yield None
     def run_unit(script,**kwargs):
         compile(script,'bounded-full-stage','exec')
-        calls.append(kwargs['network'])
+        calls.append((kwargs['network'],kwargs['library_tests']))
         return {'stdout':json.dumps({'status':'verified'}).encode()}
     namespace={'time':time,'sys':sys,'json':json,'mounted_store':mounted_store,
                'run_unit':run_unit,'Refusal':full.build.Refusal,
@@ -80,7 +80,7 @@ def test_full_operations_separate_network_and_execution(full,operation,networks,
     for stage,_,_,maximum in full.STAGES[operation]:
         script=full.stage_script('', '', '', '', dummy_payload(full),operation,stage,maximum+100,host_binding_sha256=HOST_BINDING)
         exec(script,namespace)
-    assert calls==networks
+    assert calls==list(zip(networks,library_tests,strict=True))
     report=json.loads(capsys.readouterr().out.splitlines()[-1])
     assert report['unmounted_verified'] is True
     assert report['session_enabled'] is False

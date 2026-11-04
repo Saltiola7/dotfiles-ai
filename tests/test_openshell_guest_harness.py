@@ -88,6 +88,35 @@ def test_expired_command_never_spawns(builder, monkeypatch):
         builder.command(["/unused"])
 
 
+@pytest.mark.parametrize('umask',[-2,0,0o022,0o077,True,False,None,'0066',0o066*1.0,-1.0])
+def test_command_refuses_unselected_umask_before_spawn(builder,monkeypatch,umask):
+    monkeypatch.setattr(builder,'DEADLINE',time.monotonic()+10)
+    monkeypatch.setattr(builder.subprocess,'Popen',lambda *a,**k:pytest.fail('spawn with unselected umask'))
+    with pytest.raises(RuntimeError,match='harness_command_umask'):
+        builder.command(['/unused'],umask=umask)
+
+
+def test_command_test_mask_changes_only_child_directory_traversal(builder,tmp_path,monkeypatch):
+    monkeypatch.setattr(builder,'DEADLINE',time.monotonic()+30)
+    script='''import json, stat, sys
+from pathlib import Path
+directory = Path(sys.argv[1])
+directory.mkdir(mode=0o777)
+file = directory / 'private-file'
+file.write_bytes(b'permission probe')
+print(json.dumps({'directory': stat.S_IMODE(directory.stat().st_mode),
+                  'file': stat.S_IMODE(file.stat().st_mode)}))
+'''
+    def observe(name,**kwargs):
+        output,error=builder.command([sys.executable,'-I','-c',script,str(tmp_path/name)],**kwargs)
+        assert error==b''
+        return json.loads(output)
+    inherited=observe('before')
+    assert observe('library-test',umask=0o066)=={'directory':0o711,'file':0o600}
+    assert observe('after')==inherited
+    assert observe('explicit-inherit',umask=-1)==inherited
+
+
 def test_kernel_proof_requires_explicit_filtered_sentinel(builder, tmp_path, monkeypatch):
     source=tmp_path/'harness';source.mkdir()
     (source/'src/linux').mkdir(parents=True)

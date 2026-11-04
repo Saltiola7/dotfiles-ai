@@ -523,7 +523,8 @@ def full_cargo_test(payload):
         if version.decode().strip()!='openshell-sandbox '+FULL_VERSION:raise RuntimeError('full_cargo_binary_version')
         out,err=command([cargo,'test',*flags,'--lib','--no-run'],cwd=source,maximum=1200,environment=env)
         test=full_test_executable(out+b'\n'+err);test_hash=verify_static_arm64(test)
-        output,error=command([str(test),'--test-threads=1','--nocapture'],cwd=source,maximum=180,environment=env)
+        output,error=command([str(test),'--test-threads=1','--nocapture'],cwd=source,maximum=180,
+                             environment=env,umask=0o066)
         if re.search(rb'test result: ok\. [1-9][0-9]* passed; 0 failed;',output) is None:
             raise RuntimeError('full_cargo_test_proof')
         filtered,filtered_error=command([str(test),'--exact',

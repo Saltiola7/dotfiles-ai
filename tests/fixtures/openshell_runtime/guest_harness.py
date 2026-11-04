@@ -43,11 +43,14 @@ def digest(path):
     return value.hexdigest()
 
 
-def command(argv, *, cwd=None, maximum=120, environment=None):
+def command(argv, *, cwd=None, maximum=120, environment=None, umask=-1):
+    if type(umask) is not int or umask not in (-1,0o066):
+        raise RuntimeError('harness_command_umask')
     end = time.monotonic() + remaining(maximum)
     output, error = bytearray(), bytearray()
     process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True,
+                               umask=umask)
     try:
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ, output)
