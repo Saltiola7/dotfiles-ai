@@ -15,6 +15,29 @@ full_source_version = '0.1.7+dotfiles-ai.child-unix-deny.2'
 full_source_child = 'crates/openshell-sandbox/src/linux/child_seccomp.rs'
 full_source_child_before = '14c06d0d2c33a56b9a075f469a16436b92cc101186ef19a00a4f1ab84871fa0f'
 full_source_child_after = '57a91bdc412ceb124da0b409f841420de35b692b07db0e806cd888c3ab7a3bb1'
+full_source_network = 'crates/openshell-sandbox/src/network_broker.rs'
+full_source_network_old = b'''                let header = libc::msghdr {
+                    msg_name: native.as_ptr().cast_mut().cast(),
+                    msg_namelen: native.len(),
+                    msg_iov: &raw mut iov,
+                    msg_iovlen: 1,
+                    msg_control: control.as_mut_ptr().cast(),
+                    msg_controllen: control.len(),
+                    msg_flags: 0,
+                };'''
+full_source_network_new = b'''                // SAFETY: msghdr contains only integer and pointer fields;
+                // zero initialization also initializes target-specific padding.
+                let mut header: libc::msghdr = unsafe { std::mem::zeroed() };
+                header.msg_name = native.as_ptr().cast_mut().cast();
+                header.msg_namelen = native.len();
+                header.msg_iov = &raw mut iov;
+                header.msg_iovlen = 1;
+                header.msg_control = control.as_mut_ptr().cast();
+                header.msg_controllen = control
+                    .len()
+                    .try_into()
+                    .expect("control length fits target ABI");
+                header.msg_flags = 0;'''
 full_source_link = '.claude/skills'
 full_source_link_target = '../.agents/skills/'
 full_source_end = 0.0
@@ -33,7 +56,9 @@ full_source_contract = {
     "original_lock_sha256": "819e04aa814edfa23da5fbafa85d3000f58f981a3fcd94162c3f7af128809e7f",
     "derived_lock_sha256": "90fd65d3e8220fc912b27d29c3943aaf23d8ce4fd37810dc6c3fc34e686552ae",
     "local_packages": 39,
-    "external_packages": 830
+    "external_packages": 830,
+    "network_test_original_sha256": "4de840d02dc34a63102e9deece321d0f4253f67fe226475778c7f71292d9c899",
+    "network_test_sha256": "3a3112b39af2499bc30603f5655d7425b6b265a3a69af9234ccf24805645ea84"
 }
 full_source_local_names = (
     'openshell-binary-identity',
@@ -103,7 +128,7 @@ def full_source_start(payload, seconds):
                 or manifest['upstream_tree_sha1'] != full_source_tree_sha1
                 or manifest['experimental_version'] != full_source_version
                 or manifest['source'] != full_source_contract
-                or manifest['cargo']['source'] != 'full-source-1'
+                or manifest['cargo']['source'] != 'full-source-2'
                 or type(patched) is not str or len(patched.encode()) > 128*1024
                 or payload['patched_sha256'] != full_source_child_after
                 or hashlib.sha256(patched.encode()).hexdigest() != full_source_child_after):
@@ -465,6 +490,23 @@ def full_source_scan(root, entries, files, *, partial=False):
     return found
 
 
+def full_source_network_transform(files):
+    """Change only the pinned ancillary-message test's portable initialization."""
+    full_source_remaining()
+    raw = files[full_source_network]
+    boundary = b'#[cfg(test)]\nmod tests {'
+    if hashlib.sha256(raw).hexdigest() != full_source_contract['network_test_original_sha256']:
+        full_source_fail('network_preimage')
+    if (raw.count(boundary) != 1 or raw.count(full_source_network_old) != 1
+            or raw.index(full_source_network_old) < raw.index(boundary)+len(boundary)):
+        full_source_fail('network_test_scope')
+    changed = raw.replace(full_source_network_old, full_source_network_new, 1)
+    if (changed.split(boundary)[0] != raw.split(boundary)[0]
+            or hashlib.sha256(changed).hexdigest() != full_source_contract['network_test_sha256']):
+        full_source_fail('network_derived')
+    return dict(files, **{full_source_network: changed})
+
+
 def full_source_inputs(payload, seconds, *, prepare):
     patched = full_source_start(payload, seconds)
     inputs = WORK/'full-source-inputs-1'
@@ -492,22 +534,33 @@ def full_source_inputs(payload, seconds, *, prepare):
 
 
 def full_source_report(report):
-    return dict(report, source_verified=True, changed_files=3, source=str(WORK/'full-source-1'),
+    return dict(report, source_verified=True, source_generation=2, changed_files=4, source=str(WORK/'full-source-2'),
                 upstream_commit=full_source_commit, session_enabled=False, full_runtime_qualified=False,
                 upstream_tree_sha1=full_source_tree_sha1, experimental_version=full_source_version,
                 source_blobs=full_source_contract['blobs'], patched_source_sha256=full_source_child_after,
                 derived_manifest_sha256=full_source_contract['derived_manifest_sha256'],
-                derived_lock_sha256=full_source_contract['derived_lock_sha256'])
+                derived_lock_sha256=full_source_contract['derived_lock_sha256'],
+                network_test_original_sha256=full_source_contract['network_test_original_sha256'],
+                network_test_sha256=full_source_contract['network_test_sha256'])
 
 
-def full_source_prepare(payload, seconds):
-    entries, files, report = full_source_inputs(payload, seconds, prepare=True)
-    root = WORK/'full-source-1'
-    if os.path.lexists(root):
+def full_source_publish(entries, files, *, exclusive=False):
+    root = WORK/'full-source-2'
+    if exclusive:
+        parent = full_source_open(WORK, directory=True)
+        try:
+            os.mkdir(root.name, 0o700, dir_fd=parent); os.fsync(parent)
+        except OSError:
+            full_source_fail('generation_exists_or_publish_failed')
+        finally:
+            os.close(parent)
+        found = set()
+    elif os.path.lexists(root):
         found = full_source_scan(root, entries, files, partial=True)
     else:
         found = set()
-    full_source_mkdir(root)
+    if not exclusive:
+        full_source_mkdir(root)
     for name in sorted((n for n, v in entries.items() if v['type']=='tree'), key=lambda n: (n.count('/'), n)):
         full_source_mkdir(root/name)
     for name, raw in files.items():
@@ -524,10 +577,27 @@ def full_source_prepare(payload, seconds):
         finally:
             os.close(parent)
     full_source_scan(root, entries, files)
+
+
+def full_source_prepare(payload, seconds):
+    entries, files, report = full_source_inputs(payload, seconds, prepare=True)
+    full_source_publish(entries, full_source_network_transform(files))
+    return full_source_report(report)
+
+
+def full_source_reprepare(payload, seconds):
+    entries, legacy, report = full_source_inputs(payload, seconds, prepare=False)
+    if os.path.lexists(WORK/'full-source-2'):
+        full_source_fail('generation_exists')
+    full_source_scan(WORK/'full-source-1', entries, legacy)
+    files = full_source_network_transform(legacy)
+    full_source_publish(entries, files, exclusive=True)
+    full_source_scan(WORK/'full-source-1', entries, legacy)
+    full_source_scan(WORK/'full-source-2', entries, files)
     return full_source_report(report)
 
 
 def full_source_verify(payload, seconds):
     entries, files, report = full_source_inputs(payload, seconds, prepare=False)
-    full_source_scan(WORK/'full-source-1', entries, files)
+    full_source_scan(WORK/'full-source-2', entries, full_source_network_transform(files))
     return full_source_report(report)

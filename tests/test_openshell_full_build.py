@@ -40,15 +40,17 @@ def test_selected_manifest_preserves_native_limits(full,tmp_path):
     assert value['limits']['lifecycle_seconds']==1800
     assert value['experimental_version']=='0.1.7+dotfiles-ai.child-unix-deny.2'
     assert len(value['c_toolchain']['packages'])==15
+    assert value['cargo']['source']=='full-source-2'
 
 
-def test_public_runner_dispatches_full_operation_without_legacy_boot(full,monkeypatch):
+@pytest.mark.parametrize('operation',['full-prepare','full-source-reprepare'])
+def test_public_runner_dispatches_full_operation_without_legacy_boot(full,monkeypatch,operation):
     sentinel=object()
     # Import the runner's canonical lazy import target, preserving existing
     # module tests that load it under an isolated fixture identity.
     import probe_openshell_full_build as canonical
     monkeypatch.setattr(canonical,'qualify',lambda selected,operation:sentinel)
-    assert full.build.qualify(None,'full-prepare') is sentinel
+    assert full.build.qualify(None,operation) is sentinel
 
 
 @pytest.mark.parametrize('operation',['activate','start','full','full-prune','full-resume',''])
@@ -59,6 +61,7 @@ def test_unknown_full_operation_refuses_before_boot(full,monkeypatch,operation):
 
 @pytest.mark.parametrize('operation,networks',[
     ('full-prepare',[False,True,False,False,True]),
+    ('full-source-reprepare',[False,False,False]),
     ('full-fetch',[False,False,False,True]),
     ('full-test',[False,False,False,False,False,False]),
 ])
@@ -85,7 +88,8 @@ def test_full_operations_separate_network_and_execution(full,operation,networks,
 
 
 @pytest.mark.parametrize('operation,threshold',[
-    ('full-prepare',4*1024**3),('full-fetch',3*1024**3),('full-test',2*1024**3)])
+    ('full-prepare',4*1024**3),('full-source-reprepare',2*1024**3),
+    ('full-fetch',3*1024**3),('full-test',2*1024**3)])
 def test_low_capacity_stops_before_inputs_or_service(full,operation,threshold):
     @contextmanager
     def mounted_store(**kwargs): yield None
@@ -146,7 +150,10 @@ def stage_report(full):
                       'usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcc1plugin',
                       'usr/lib/gcc/aarch64-alpine-linux-musl/14.2.0/plugin/libcp1plugin')
                   for suffix in ('.so','.so.0','.so.0.0.0')}}
-    source={'source_verified':True,'changed_files':3,'source_blobs':2196,
+    source={'source_verified':True,'changed_files':4,'source_blobs':2196,'source_generation':2,
+            'source':'/var/lib/dotfiles-ai-openshell-build/store/work/full-source-2',
+            'network_test_original_sha256':'4de840d02dc34a63102e9deece321d0f4253f67fe226475778c7f71292d9c899',
+            'network_test_sha256':'3a3112b39af2499bc30603f5655d7425b6b265a3a69af9234ccf24805645ea84',
             'upstream_commit':value['upstream_commit'],'upstream_tree_sha1':value['upstream_tree_sha1'],
             'experimental_version':value['experimental_version'],'patched_source_sha256':full.build.PATCHED_SHA,
             'derived_manifest_sha256':value['source']['derived_manifest_sha256'],
@@ -170,6 +177,34 @@ def stage_report(full):
 
 def test_host_accepts_complete_selected_build_proof(full,stage_report):
     full.parse_stages(stage_report,'full-test')
+
+
+def test_offline_reprepare_requires_rust_compiler_and_source_proof(full,stage_report):
+    assert full.STAGES['full-source-reprepare']==(
+        ('rust-verify','rust',False,240),('compiler-verify','compiler',False,240),
+        ('source-reprepare','source',False,300))
+    report={name:stage_report[name] for name in ('rust-verify','compiler-verify')}
+    report['source-reprepare']=stage_report['source-verify']
+    full.parse_stages(report,'full-source-reprepare')
+    report['source-reprepare']['source_generation']=1
+    with pytest.raises(full.build.Refusal,match='full_build_source_proof'):
+        full.parse_stages(report,'full-source-reprepare')
+
+
+@pytest.mark.parametrize('key,value',[
+    ('source_generation',None),('source_generation',1),('source_generation',2.0),
+    ('source_generation',True),('changed_files',3),('changed_files',4.0),
+    ('source',None),('source','/var/lib/dotfiles-ai-openshell-build/store/work/full-source-1'),
+    ('source','/foreign/full-source-2'),
+    ('network_test_original_sha256',None),('network_test_original_sha256','a'*64),
+    ('network_test_sha256',None),('network_test_sha256','a'*64),
+])
+def test_host_requires_exact_source_generation_and_fourth_file(full,stage_report,key,value):
+    # Keep initial and final reports equal so equality alone cannot validate
+    # the generation, source location, or reviewed fourth-file identities.
+    for name in ('source-verify','source-final'):stage_report[name][key]=value
+    with pytest.raises(full.build.Refusal,match='full_build_source_proof'):
+        full.parse_stages(stage_report,'full-test')
 
 
 @pytest.mark.parametrize('layout',[
@@ -252,7 +287,7 @@ def test_host_rejects_incomplete_or_wrong_proof(full,stage_report,stage,key,valu
     with pytest.raises(full.build.Refusal): full.parse_stages(stage_report,'full-test')
 
 
-@pytest.mark.parametrize('operation',['full-prepare','full-fetch','full-test'])
+@pytest.mark.parametrize('operation',['full-prepare','full-source-reprepare','full-fetch','full-test'])
 def test_every_full_stage_receives_same_fresh_host_binding(full,operation,capsys):
     bindings=[]
     @contextmanager
@@ -270,7 +305,7 @@ def test_every_full_stage_receives_same_fresh_host_binding(full,operation,capsys
     assert bindings==[HOST_BINDING]*len(full.STAGES[operation])
 
 
-@pytest.mark.parametrize('operation',['full-prepare','full-fetch','full-test'])
+@pytest.mark.parametrize('operation',['full-prepare','full-source-reprepare','full-fetch','full-test'])
 def test_full_lifecycle_computes_binding_after_admission_before_each_stage(full,monkeypatch,operation):
     selected=SimpleNamespace(storage=SimpleNamespace(cache_path=Path('/private/controller-cache')))
     anchor=SimpleNamespace(sources=(SimpleNamespace(identity=SimpleNamespace(path=Path('/fixed/limactl'))),))

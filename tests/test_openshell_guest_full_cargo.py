@@ -26,7 +26,7 @@ def full(tmp_path, monkeypatch):
     exec(compile((BASE/'guest_harness.py').read_text()+'\n'+helper.read_text(), str(helper), 'exec'), module.__dict__)
     monkeypatch.setattr(module, 'WORK', tmp_path)
     monkeypatch.setattr(module, 'DEADLINE', time.monotonic()+60)
-    source = tmp_path/'full-source-1'; source.mkdir()
+    source = tmp_path/'full-source-2'; source.mkdir()
     (source/'.cargo').mkdir()
     (source/'.cargo/config.toml').write_bytes(module.FULL_SOURCE_CONFIG)
     (source/'Cargo.toml').write_text('[workspace]\nmembers = []\n')
@@ -37,6 +37,7 @@ def full(tmp_path, monkeypatch):
     for name in ('cc','as','ar'):
         target=tmp_path/'full-c-wrappers-1'/name; target.write_text('wrapper'); target.chmod(0o500)
     manifest=json.loads((BASE/'fullbuild/manifest.json').read_text())
+    manifest['cargo']['source']='full-source-2'
     manifest['source']['external_packages']=1
     manifest['source']['local_packages']=1
     payload={'full_manifest':manifest,'patched_sha256':hashlib.sha256(b'patch').hexdigest()}
@@ -233,6 +234,19 @@ def test_lock_records_bound_to_selected_hash_and_registry(full):
     with pytest.raises(RuntimeError,match='full_cargo_lock'):module.full_cargo_lock(payload)
 
 
+def test_cargo_uses_generation_two_and_preserves_retained_generation(full):
+    module,payload,source=full;locked(full)
+    legacy=module.WORK/'full-source-1';legacy.mkdir()
+    (legacy/'Cargo.lock').write_bytes(b'legacy source must stay untouched')
+    (legacy/'.cargo').mkdir();(legacy/'.cargo/config.toml').write_bytes(b'legacy config')
+    assert module.full_cargo_lock(payload)=={'example-1.0.0':'1'*64}
+    module.full_cargo_configs()
+    assert (legacy/'Cargo.lock').read_bytes()==b'legacy source must stay untouched'
+    assert (legacy/'.cargo/config.toml').read_bytes()==b'legacy config'
+    payload['full_manifest']['cargo']['source']='full-source-1'
+    with pytest.raises(RuntimeError,match='full_cargo_selection'):module.full_cargo_settings(payload)
+
+
 def test_valid_cache_matches_archive_and_extracted_files(full):
     module,payload,_=full
     archive,extracted=crate(full)
@@ -280,6 +294,7 @@ def test_fetch_fresh_home_locked_target_and_no_retry(full,monkeypatch):
     result=module.full_cargo_fetch(payload)
     assert result['status']=='full_cargo_fetched' and len(calls)==1
     assert calls[0][0][1:]==['fetch','--locked','--target',module.HOST]
+    assert calls[0][1]['cwd']==source==module.WORK/'full-source-2'
     assert calls[0][1]['environment']['CARGO_NET_RETRY']=='0'
     assert result['session_enabled'] is False and result['full_runtime_qualified'] is False
     with pytest.raises(RuntimeError,match='full_cargo_retained'):module.full_cargo_fetch(payload)
@@ -375,6 +390,7 @@ def test_full_build_is_offline_and_requires_native_identity_and_sentinel(full,mo
     calls=[]
     def command(argv,**kwargs):
         calls.append((argv,kwargs))
+        assert kwargs['cwd']==source==module.WORK/'full-source-2'
         assert kwargs['environment']['CARGO_NET_OFFLINE']=='true'
         assert kwargs['environment']['PROTOC']==str(module.WORK/'full-protoc-1')
         if argv[1:2]==['build']:

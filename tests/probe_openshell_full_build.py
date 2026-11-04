@@ -15,13 +15,18 @@ import probe_openshell_storage_boot as boot
 import probe_openshell_storage_create as create
 
 
-OPERATIONS=('full-prepare','full-fetch','full-test')
+OPERATIONS=('full-prepare','full-source-reprepare','full-fetch','full-test')
+NETWORK_TEST_ORIGINAL_SHA256='4de840d02dc34a63102e9deece321d0f4253f67fe226475778c7f71292d9c899'
+NETWORK_TEST_SHA256='3a3112b39af2499bc30603f5655d7425b6b265a3a69af9234ccf24805645ea84'
 STAGES={
     'full-prepare':(('rust-verify','rust',False,240),
                     ('compiler-download','compiler',True,300),
                     ('compiler-prepare','compiler',False,300),
                     ('compiler-probe','compiler',False,120),
                     ('source-prepare','source',True,300)),
+    'full-source-reprepare':(('rust-verify','rust',False,240),
+                             ('compiler-verify','compiler',False,240),
+                             ('source-reprepare','source',False,300)),
     'full-fetch':(('rust-verify','rust',False,240),
                   ('compiler-verify','compiler',False,240),
                   ('source-verify','source',False,120),
@@ -50,6 +55,7 @@ _result={'status':'rust_verified','files':_files,'unwind':_unwind,'rustc':_versi
     'compiler-verify': '_result=full_compiler_verify(_stage_payload)\n',
     'compiler-probe': '_result=full_compiler_probe(_stage_payload)\n',
     'source-prepare': '_result=full_source_prepare(_stage_payload,int(remaining(1200)))\n',
+    'source-reprepare': '_result=full_source_reprepare(_stage_payload,int(remaining(1200)))\n',
     'source-verify': '_result=full_source_verify(_stage_payload,int(remaining(1200)))\n',
     'source-final': '_result=full_source_verify(_stage_payload,int(remaining(1200)))\n',
     'cargo-fetch': '_result=full_cargo_fetch(_stage_payload)\n',
@@ -70,7 +76,9 @@ def manifest() -> dict:
             or value.get('upstream_tree_sha1')!='053850cd069ba0f770d8296eae6be36d6cf52da7'
             or value.get('experimental_version')!='0.1.7+dotfiles-ai.child-unix-deny.2'
             or value.get('limits')!=limits
-            or value.get('cargo')!={'home':'full-cargo-1','target':'full-target-1','source':'full-source-1',
+            or value.get('source',{}).get('network_test_original_sha256')!=NETWORK_TEST_ORIGINAL_SHA256
+            or value.get('source',{}).get('network_test_sha256')!=NETWORK_TEST_SHA256
+            or value.get('cargo')!={'home':'full-cargo-1','target':'full-target-1','source':'full-source-2',
                 'auto_clean_frequency':'never','incremental':'0','release_debug':'0',
                 'aws_lc_sys_use_system':'0','aws_lc_sys_cmake_builder':'0','locked':True,'offline_compile':True}
             or len(value.get('c_toolchain',{}).get('packages',[]))!=15
@@ -142,6 +150,7 @@ def stage_script(controller: str, runtime: str, inventory: str, source: str,
     unit=unit_source(source,payload,stage,min(maximum,seconds-70)-5)
     threshold=payload['full_manifest']['limits'][{
         'full-prepare':'required_free_before_prepare','full-fetch':'required_free_before_fetch',
+        'full-source-reprepare':'required_free_before_build',
         'full-test':'required_free_before_build'}[operation]] if first else 0
     body=f'''
 _operation_end=time.monotonic()+{seconds!r}
@@ -245,8 +254,13 @@ def parse_stages(stages: dict, operation: str, *, complete: bool = True) -> None
                     or result.get('search_paths_verified') is not True or result.get('link_inputs_verified') is not True
                     or result.get('compiler_tree_sha256')!=stages['compiler-prepare']['compiler_tree_sha256']):
                 raise build.Refusal('full_build_c_probe')
-        elif stage in {'source-prepare','source-verify','source-final'}:
-            if (result.get('source_verified') is not True or result.get('changed_files')!=3
+        elif stage in {'source-prepare','source-reprepare','source-verify','source-final'}:
+            if (result.get('source_verified') is not True
+                    or type(result.get('changed_files')) is not int or result['changed_files']!=4
+                    or type(result.get('source_generation')) is not int or result['source_generation']!=2
+                    or result.get('source')!='/var/lib/dotfiles-ai-openshell-build/store/work/full-source-2'
+                    or result.get('network_test_original_sha256')!=NETWORK_TEST_ORIGINAL_SHA256
+                    or result.get('network_test_sha256')!=NETWORK_TEST_SHA256
                     or result.get('source_blobs')!=2196 or result.get('upstream_commit')!=build.UPSTREAM
                     or result.get('upstream_tree_sha1')!=selected['upstream_tree_sha1']
                     or result.get('experimental_version')!=selected['experimental_version']

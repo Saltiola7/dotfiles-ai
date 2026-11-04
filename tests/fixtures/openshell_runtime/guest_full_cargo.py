@@ -33,7 +33,7 @@ FULL_LIBRARIES = frozenset(('libc.so.6','libm.so.6','libpthread.so.0','libdl.so.
 def full_cargo_settings(payload):
     remaining()
     value=payload['full_manifest']
-    expected={'home':'full-cargo-1','target':'full-target-1','source':'full-source-1',
+    expected={'home':'full-cargo-1','target':'full-target-1','source':'full-source-2',
         'auto_clean_frequency':'never','incremental':'0','release_debug':'0',
         'aws_lc_sys_use_system':'0','aws_lc_sys_cmake_builder':'0','locked':True,'offline_compile':True}
     if (value['schema_version']!=1 or value['experimental_version']!=FULL_VERSION
@@ -200,7 +200,7 @@ def full_cargo_digest(path, maximum):
 
 def full_cargo_configs():
     """Only the authenticated upstream config may affect Cargo resolution."""
-    source=WORK/'full-source-1'
+    source=WORK/'full-source-2'
     allowed=source/'.cargo/config.toml'
     if full_cargo_read(allowed,16384)!=FULL_SOURCE_CONFIG:
         raise RuntimeError('full_cargo_config')
@@ -237,7 +237,7 @@ def full_cargo_environment(*, offline=False):
 
 def full_cargo_lock(payload):
     manifest=full_cargo_settings(payload)
-    raw=full_cargo_read(WORK/'full-source-1/Cargo.lock',1024*1024)
+    raw=full_cargo_read(WORK/'full-source-2/Cargo.lock',1024*1024)
     if hashlib.sha256(raw).hexdigest()!=manifest['source']['derived_lock_sha256']:
         raise RuntimeError('full_cargo_lock')
     try: packages=tomllib.loads(raw.decode())['package']
@@ -383,7 +383,7 @@ def full_cargo_fetch(payload):
     if os.path.lexists(home):raise RuntimeError('full_cargo_retained')
     home.mkdir(mode=0o700)
     command([str(WORK/TOOLCHAIN/'bin/cargo'),'fetch','--locked','--target',HOST],
-            cwd=WORK/'full-source-1',maximum=900,environment=full_cargo_environment())
+            cwd=WORK/'full-source-2',maximum=900,environment=full_cargo_environment())
     result=full_cargo_cache(payload)
     return {'status':'full_cargo_fetched','locked_fetch':True,**result,
             'session_enabled':False,'full_runtime_qualified':False}
@@ -491,7 +491,7 @@ def full_test_executable(raw):
         match=re.fullmatch(r'\s*Executable unittests src/lib\.rs \(([^\n]+)\)',line)
         if not match:raise RuntimeError('full_cargo_test_binary')
         path=Path(match[1])
-        if not path.is_absolute():path=WORK/'full-source-1'/path
+        if not path.is_absolute():path=WORK/'full-source-2'/path
         if (path.parent!=WORK/'full-target-1/release/deps'
                 or re.fullmatch(r'openshell_sandbox-[0-9a-f]{8,64}',path.name) is None):
             raise RuntimeError('full_cargo_test_binary')
@@ -502,7 +502,7 @@ def full_test_executable(raw):
 
 def full_cargo_test(payload):
     manifest=full_cargo_settings(payload);full_cargo_lock(payload);full_cargo_configs()
-    source=WORK/'full-source-1';lock=manifest['source']['derived_lock_sha256']
+    source=WORK/'full-source-2';lock=manifest['source']['derived_lock_sha256']
     patched=source/'crates/openshell-sandbox/src/linux/child_seccomp.rs'
     if full_cargo_digest(patched,128*1024)!=payload['patched_sha256']:raise RuntimeError('full_cargo_source_changed')
     protoc=full_protoc(payload);env=full_cargo_environment(offline=True)

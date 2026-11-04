@@ -413,6 +413,21 @@ def test_bind_cli_accepts_only_selection_and_closed_operation(build,monkeypatch,
     assert json.loads(capsys.readouterr().out)['operation']=='bind-storage'
 
 
+def test_source_reprepare_cli_routes_only_explicit_closed_operation(build,monkeypatch,capsys):
+    monkeypatch.setattr(sys,'argv',['runner','--selection','unused','--operation','full-source-reprepare'])
+    monkeypatch.setattr(build.create,'private_file',lambda path:b'')
+    monkeypatch.setattr(build.create,'parse_selection',lambda raw:None)
+    calls=[]
+    def qualify(selected,operation):
+        calls.append((selected,operation))
+        return SimpleNamespace(result={},lifecycle=SimpleNamespace(stopped_verified=True))
+    monkeypatch.setattr(build,'qualify',qualify)
+    assert build.main()==0
+    assert calls==[(None,'full-source-reprepare')]
+    report=json.loads(capsys.readouterr().out)
+    assert report['operation']=='full-source-reprepare' and report['session_enabled'] is False
+
+
 @pytest.mark.parametrize('override',['--host-binding-sha256','--guest-path','--uuid','--receipt'])
 def test_bind_cli_refuses_identity_overrides_before_admission(build,monkeypatch,override):
     monkeypatch.setattr(sys,'argv',['runner','--selection','unused','--operation','bind-storage',override,'untrusted'])

@@ -18,7 +18,9 @@
     "original_lock_sha256": "819e04aa814edfa23da5fbafa85d3000f58f981a3fcd94162c3f7af128809e7f",
     "derived_lock_sha256": "90fd65d3e8220fc912b27d29c3943aaf23d8ce4fd37810dc6c3fc34e686552ae",
     "local_packages": 39,
-    "external_packages": 830
+    "external_packages": 830,
+    "network_test_original_sha256": "4de840d02dc34a63102e9deece321d0f4253f67fe226475778c7f71292d9c899",
+    "network_test_sha256": "3a3112b39af2499bc30603f5655d7425b6b265a3a69af9234ccf24805645ea84"
   },
   "c_toolchain": {
     "packages": [
@@ -266,7 +268,7 @@
   "cargo": {
     "home": "full-cargo-1",
     "target": "full-target-1",
-    "source": "full-source-1",
+    "source": "full-source-2",
     "auto_clean_frequency": "never",
     "incremental": "0",
     "release_debug": "0",
