@@ -1634,7 +1634,7 @@ to every further VM experiment.
 
 #### Credential-free agent filter comparison
 
-After a successful full build/test and fresh capacity inventory, two closed
+After a successful full build/test and fresh capacity inventory, closed
 operations may characterize the selected native agents without credentials,
 provider requests, a real checkout or a gateway. The existing guest-build runner
 dispatches through `tests/probe_openshell_agent_compatibility.py`. Normal launchers,
@@ -1644,17 +1644,32 @@ approvals, configuration, histories, logins and shared services remain unchanged
 |---|---|---|
 | `agent-prepare` | At least 2 GiB available; exact network asset acquisition, then offline exclusive extraction and verification | Pinned archives and exact package contents; no extracted executable runs |
 | `agent-test` | At least 512 MiB available; offline input verification, fixture source preparation/build, fresh case preparation, then at most 21 isolated cases | Source/artifact identities and bounded three-arm observations; a classified incompatibility is not a pilot pass |
+| `agent-inspect` | At least 512 MiB available; one offline `agent-descriptors` unit using the existing `codex-version-unfiltered` case profile | Bounded descriptor metadata only; no fixture or agent execution |
 
 **Text Equivalent:** Acquire only the two pinned assets, verify them, build the
 small source-bound fixture offline, and compare each fixed command in three
 separate units. Prove each unit stopped with an empty cgroup before the next.
 Distribution owns this table and updates its source/tests with any stage change.
-Both operations retain the 256 MiB reserve, 8 GiB store, existing host/cache caps,
+All operations retain the 256 MiB reserve, 8 GiB store, existing host/cache caps,
 2 CPU/6 GiB/zero-swap/512-task limits and the same 1,800-second lifecycle and
 cleanup budgets. No new target directory, pruning, automatic retry or quota
 increase is admitted. Fixture output growth is bounded to 64 MiB and aggregate
 new case state/logs to 128 MiB; these rejection limits are not native quotas.
 Recheck remaining space before allocations and retain partial evidence on refusal.
+
+`agent-inspect` diagnoses a refused proof-pipe reservation without changing its
+policy. `agent_descriptor_inspect()` validates platform, capacity and the exact
+fresh case view, then uses `fstat` and `fcntl` on FDs 0 through 3 before and after
+one fixed `/dev/null` reservation. Capture snapshots `before`,
+`after_validation`, and `after_close`; each is four records with `fd`, `errno`,
+`mode`, `rdev`, `fd_flags`, `status_flags` (all integer values, null metadata for
+closed descriptors). Report `reserved_fd` and `reserved_null: true`; close only
+the descriptor returned by this diagnostic open. No descriptor replacement,
+arbitrary path, directory listing, file-content inspection or process launch is
+allowed. The result is `schema_version: 1`, `generation: 1`,
+`status: agent_descriptors_observed`, those five fields and the three false
+qualification/session flags. This distinguishes closed stdin from occupied FD3;
+neither outcome changes socket policy or resumes cases automatically.
 
 | Asset | Official fixed release URL | Compressed bytes / SHA256 | Expanded ceiling |
 |---|---|---|---|
