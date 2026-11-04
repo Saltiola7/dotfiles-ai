@@ -278,6 +278,79 @@ def test_download_report_rechecks_both_completed_archives(assets, monkeypatch):
     with pytest.raises(RuntimeError, match='agent_assets_'): module.agent_assets_download(payload)
 
 
+@pytest.mark.parametrize('kind', ['unknown', 'duplicate', 'special_mode', 'long_name'])
+def test_member_refusal_reports_only_bounded_archive_metadata(assets, kind):
+    module, payload, records = assets
+    rows = list(records['opencode']); index = 0
+    if kind == 'unknown': rows = [('unexpected', 'file', b'private payload is never logged', 0o755)]
+    elif kind == 'duplicate': rows += rows; index = 1
+    elif kind == 'special_mode': rows = [('opencode', 'file', elf(), 0o4755)]
+    else: rows = [('🌕'*300+'\n', 'file', b'private payload is never logged', 0o755)]
+    replace_archive(assets, 'opencode', rows)
+    with pytest.raises(RuntimeError, match='agent_assets_archive_member') as caught:
+        module.agent_assets_prepare(payload)
+    message = str(caught.value)
+    detail = json.loads(message.split(':', 1)[1])
+    assert set(detail) == {'asset', 'index', 'name_repr', 'type_repr', 'mode', 'duplicate', 'unknown', 'inventory'}
+    assert detail['asset'] == 'opencode' and detail['index'] == index
+    assert detail['name_repr'] == repr(rows[index][0])[:160]
+    assert detail['type_repr'] == "b'0'" and detail['mode'] == oct(rows[index][3])
+    assert detail['duplicate'] is (kind == 'duplicate')
+    assert detail['unknown'] is (kind in ('unknown', 'long_name'))
+    assert detail['inventory']['status'] == 'complete'
+    assert len(detail['inventory']['entries']) == len(rows)
+    assert len(detail['name_repr']) <= 160 and len(message.encode()) <= 24576
+    assert '\n' not in message and 'private payload' not in message
+    assert not (module.WORK/'agent-assets-1').exists()
+
+
+@pytest.mark.parametrize('kind', ['complete', 'entry_limit', 'byte_limit'])
+def test_refusal_header_inventory_is_bounded_and_never_extracts(assets, monkeypatch, kind):
+    module, payload, _ = assets
+    count = 162 if kind == 'entry_limit' else 30 if kind == 'byte_limit' else 5
+    rows = [('unexpected-'+('🌕'*160 if kind == 'byte_limit' else '')+str(index), 'file', b'not extracted', 0o644)
+            for index in range(count)]
+    module.agent_assets_contract['assets']['opencode']['expanded_limit'] = 512*1024
+    path = replace_archive(assets, 'opencode', rows)
+    monkeypatch.setattr(module.tarfile.TarFile, 'extractfile', lambda *a, **k: pytest.fail('diagnostic extracted a member'))
+    with module.agent_assets_hold(path, mode=0o600) as fd:
+        with pytest.raises(RuntimeError, match='agent_assets_archive_member:') as caught:
+            module.agent_assets_scan(fd, 'opencode', payload['agent_manifest']['assets']['opencode'])
+    message = str(caught.value); detail = json.loads(message.split(':', 1)[1]); inventory = detail['inventory']
+    assert detail['unknown'] is True and detail['index'] == 0 and detail['asset'] == 'opencode'
+    assert len(message.encode()) <= 24576 and len(inventory['entries']) <= 160
+    for index, item in enumerate(inventory['entries']):
+        assert item == {'index': index, 'name_repr': repr(rows[index][0])[:160],
+                        'type_repr': "b'0'", 'mode': '0o644', 'bytes': len(b'not extracted')}
+    if kind == 'complete': assert inventory['status'] == 'complete' and len(inventory['entries']) == count
+    else:
+        assert inventory['status'] == 'limited' and inventory['error'] == kind
+        assert len(inventory['entries']) < count
+    assert not (module.WORK/'agent-assets-1').exists()
+
+
+@pytest.mark.parametrize('kind', ['io', 'deadline'])
+def test_header_inventory_failure_preserves_original_refusal_without_exception_text(assets, monkeypatch, kind):
+    module, payload, _ = assets
+    path = replace_archive(assets, 'opencode', [('unexpected', 'file', b'body', 0o644)])
+    gzip_reader = module.agent_assets_Gzip; calls = []
+    def fail_second(fd, limit):
+        calls.append(True)
+        if len(calls) == 2:
+            if kind == 'deadline': raise RuntimeError('harness_deadline')
+            raise OSError('private exception contents must not be included')
+        return gzip_reader(fd, limit)
+    monkeypatch.setattr(module, 'agent_assets_Gzip', fail_second)
+    with module.agent_assets_hold(path, mode=0o600) as fd:
+        with pytest.raises(RuntimeError, match='agent_assets_archive_member:') as caught:
+            module.agent_assets_scan(fd, 'opencode', payload['agent_manifest']['assets']['opencode'])
+    message = str(caught.value); detail = json.loads(message.split(':', 1)[1])
+    assert detail['unknown'] is True and detail['name_repr'] == "'unexpected'"
+    assert detail['inventory']['status'] == 'incomplete'
+    assert detail['inventory']['error'] == ('deadline' if kind == 'deadline' else 'io')
+    assert 'private exception' not in message and not (module.WORK/'agent-assets-1').exists()
+
+
 def test_source_module_bound_and_no_automatic_entrypoint():
     raw = (BASE/'guest_agent_assets.py').read_text()
     assert len(raw.encode()) <= 32*1024 and '__main__' not in raw

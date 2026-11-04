@@ -307,6 +307,39 @@ def agent_assets_elf(raw):
     return {'machine': machine, 'kind': kind, 'interpreter': interpreter, 'needed': names}
 
 
+def agent_assets_header_inventory(fd, item):
+    """Diagnostic metadata only; no member extraction or admission fallback."""
+    result = {'status': 'complete', 'entries': []}
+    try:
+        stream = agent_assets_Gzip(fd, item['expanded_limit'])
+        with tarfile.open(fileobj=stream, mode='r|') as archive:
+            for index, member in enumerate(archive):
+                remaining()
+                if index >= 160:
+                    result.update(status='limited', error='entry_limit'); break
+                row = {'index': index, 'name_repr': repr(member.name)[:160],
+                       'type_repr': repr(member.type)[:32], 'mode': oct(member.mode)[:32], 'bytes': member.size}
+                candidate = dict(result, entries=result['entries']+[row])
+                if len(json.dumps(candidate, sort_keys=True, separators=(',', ':')).encode()) > 20*1024:
+                    result.update(status='limited', error='byte_limit'); break
+                result['entries'].append(row)
+            else:
+                while True:
+                    remaining(); tail = archive.fileobj.read(65536)
+                    if not tail: break
+                    if any(tail): agent_assets_fail('tar_trailing')
+                if not stream.done: agent_assets_fail('gzip_truncated')
+    except RuntimeError as error:
+        category = 'deadline' if str(error) == 'harness_deadline' else (
+            'expansion_limit' if str(error) == 'agent_assets_expanded_limit' else 'scan_refused')
+        result.update(status='incomplete', error=category)
+    except OSError:
+        result.update(status='incomplete', error='io')
+    except (ValueError, tarfile.TarError, agent_assets_zlib.error, EOFError):
+        result.update(status='incomplete', error='archive')
+    return result
+
+
 def agent_assets_scan(fd, name, item, *, write=None, expected=None):
     stream = agent_assets_Gzip(fd, item['expanded_limit']); seen = set(); files = {}; total = 0
     required = set(agent_assets_files[name]) | agent_assets_directories[name]
@@ -315,7 +348,11 @@ def agent_assets_scan(fd, name, item, *, write=None, expected=None):
             for count, member in enumerate(archive):
                 remaining(); path = member.name
                 if count >= 10000 or path in seen or path not in required or member.mode & 0o7000:
-                    agent_assets_fail('archive_member')
+                    detail = {'asset': name, 'index': count, 'name_repr': repr(path)[:160],
+                              'type_repr': repr(member.type)[:32], 'mode': oct(member.mode)[:32],
+                              'duplicate': path in seen, 'unknown': path not in required}
+                    detail['inventory'] = agent_assets_header_inventory(fd, item)
+                    agent_assets_fail('archive_member:'+json.dumps(detail, sort_keys=True, separators=(',', ':')))
                 seen.add(path)
                 if path in agent_assets_directories[name]:
                     if not member.isdir() or member.size: agent_assets_fail('archive_directory')
