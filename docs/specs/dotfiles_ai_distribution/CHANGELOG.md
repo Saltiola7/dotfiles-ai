@@ -9,9 +9,9 @@
 - Imported the selected canonical Caveman, Caveman Commit and Ponytail bundles
   with immutable provenance and original MIT licenses. Removed the managed
   Ponytail prompt injector while preserving unrelated plugin configuration.
-- Source validation passed 253 affected tests with three opt-in native checks
-  unselected. Changed typing checks pass; seven native-helper fixture diagnostics
-  match the unchanged baseline. Independent activation review passed after
+- Source validation passed 259 affected tests with five opt-in native checks
+  unselected. Changed typing checks pass; 22 diagnostics in two existing native
+  fixtures match their unchanged baselines. Independent activation review passed after
   clarifying that skill activation grants no publication authority.
 - Fresh Codex and OpenCode native processes discovered the five selected skills
   and loaded the same global policy. Loopback-only synthetic responses qualify
