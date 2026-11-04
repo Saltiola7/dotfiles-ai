@@ -1,5 +1,23 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-04 — Exact-tree two-parent external completion (EXT-MERGE-001)
+
+- `complete-external` now also admits an ordinary two-parent native merge object
+  under the same `exact_tree` proof, when the retained head is the literal second
+  parent, the pre-merge base tip was already contained in it, and the merge tree
+  equals the retained head tree. Such a merge contributed no content and rewrote
+  no history, so exact-tree delivery is provable without a squash.
+- Imported secondary parents are anchored to the delivered history: the
+  single-parent shape keeps the historical first-parent anchor; the two-parent
+  shape anchors them to the merge object, where the retained head already carries
+  them into the protected base. Recorded commits, gates, evidence and the receipt
+  schema are unchanged; any other two-parent shape, including reconciliation
+  merges whose tree differs, remains refused.
+- Motivated by a completed-gates cycle whose ordinary protected merge could not be
+  recorded: `final-push` miscounts imported merge ancestry when the base has not
+  advanced. No fabricated completion was made; the record stayed active until
+  this reviewed fix. Managed helper activation follows the update runbook.
+
 ## 2026-11-03 — CI repair benchmark requalification (CI-REPAIR-002)
 
 - Preserved CI-REPAIR-001's signed source as merge ancestry. Its new `ci-repair`

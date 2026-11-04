@@ -43,8 +43,14 @@ only for verification/recovery of an already externally completed record in its
 original checkout. Supported records are GitHub `draft_pr` schemas 3, 4 and 5;
 Forgejo/local-only and unversioned historical delivery are outside this interface.
 Commit pins are full lowercase object IDs, with the repository's object width.
-Initial admission supports single-parent native merge objects; it does not infer
-whether GitHub produced that object through squash, rebase or fast-forward.
+Admission supports two native merge shapes, both under the `exact_tree` proof: a
+single-parent object (GitHub squash, rebase or fast-forward production is not
+inferred), and an ordinary two-parent merge object accepted only as an exact-tree
+merge of the retained source — the retained head must be the literal second
+parent, the pre-merge base tip must already be contained in that head, and the
+merge tree must equal the retained head tree, so the merge contributed no content
+and rewrote no history. Any other two-parent shape, including a reconciliation
+merge whose tree differs, stays outside this interface.
 
 Admission reuses current profile, amendment, import, Graphify, gate-envelope,
 artifact, clean checkout, original branch/upstream and DVC checks. Pending gates
@@ -52,8 +58,11 @@ never receive exceptions. Failed/unavailable exceptions must have the existing
 validated approval shape. The reviewed CHANGELOG must be committed. The complete
 ordered first-parent range from the original cycle baseline to the retained head
 must equal all recorded cycle commits, including imports with no gate labels.
-Every imported secondary parent must be within the merge's historical first
-parent; unrecorded protected-base history is not mistaken for cycle-owned work.
+Every imported secondary parent must be within the delivered history: the
+single-parent shape anchors them to the merge's first parent, the exact-tree
+two-parent shape anchors them to the merge object itself, where the retained
+head already carries them into the protected base. Unrecorded protected-base
+history is not mistaken for cycle-owned work.
 
 Use the record's selected native GitHub account, verify the authenticated principal,
 pin `github.com`, and validate both configured fetch and push repository identities.
@@ -96,9 +105,10 @@ Existing destructive-retirement ancestry and ownership checks remain unchanged.
 ## Validation and maintenance
 
 Use real disposable Git graphs and mocked native GitHub boundaries for exact-tree
-squash delivery, imported protected-base history, later base advances and deleted
-feature refs. Refusal coverage includes wrong identities, nonmerged/native failure,
-tree/parent mismatch, replacement objects, unrecorded commits, stale evidence,
+squash delivery, exact-tree two-parent merge delivery, imported protected-base
+history, later base advances and deleted feature refs. Refusal coverage includes
+wrong identities, nonmerged/native failure, tree/parent mismatch, two-parent
+merges that are not exact-tree merges of the retained head, replacement objects, unrecorded commits, stale evidence,
 pending gates, dirty checkout, DVC obligations, changed source/record/pointer and
 lock contention. Verify preview and rejection preserve canonical bytes, completed
 retry is idempotent, and no publishing command is invoked. Existing Final Push and
