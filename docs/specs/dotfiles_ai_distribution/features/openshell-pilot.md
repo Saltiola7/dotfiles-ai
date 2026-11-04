@@ -1645,6 +1645,7 @@ approvals, configuration, histories, logins and shared services remain unchanged
 | `agent-prepare` | At least 2 GiB available; exact network asset acquisition, then offline exclusive extraction and verification | Pinned archives and exact package contents; no extracted executable runs |
 | `agent-test` | At least 512 MiB available; offline input verification, fixture source preparation/build, fresh case preparation, then at most 21 isolated cases | Source/artifact identities and bounded three-arm observations; a classified incompatibility is not a pilot pass |
 | `agent-inspect` | At least 512 MiB available; one offline `agent-descriptors` unit using the existing `codex-version-unfiltered` case profile | Bounded descriptor metadata only; no fixture or agent execution |
+| `agent-test-resume` | At least 512 MiB available; verify pinned prior receipts before boot, four input verification stages, retained fixture verification, all-case freshness verification, the existing 21 cases, then final asset/source verification | Reuse only the unchanged compiled fixture and logically fresh case state; no preparation, compilation, reset, or automatic fallback |
 
 **Text Equivalent:** Acquire only the two pinned assets, verify them, build the
 small source-bound fixture offline, and compare each fixed command in three
@@ -1670,6 +1671,32 @@ allowed. The result is `schema_version: 1`, `generation: 1`,
 `status: agent_descriptors_observed`, those five fields and the three false
 qualification/session flags. This distinguishes closed stdin from occupied FD3;
 neither outcome changes socket policy or resumes cases automatically.
+
+`agent-test-resume` has 29 fixed stages. Its only accepted historical input is
+`evidence/guest-build-agent-test-1` under the selected existing run root. The five
+exact receipt names, byte lengths and SHA256 values are pinned in
+`agentcheck/resume-receipt.json`, whose canonical JSON SHA256 is
+`2c1e547f02e4e621fff711e3be327b347604896933712cf50e3df22583d1b4cc`.
+Before boot, use bounded no-follow reads of owned, private, single-link regular
+files; reject changed ancestry, identity, lengths or hashes. Verify the recorded
+source commit, the refused/stopped result without shutdown uncertainty, the
+pre-agent descriptor-reservation failure, and the original fixture/case stage
+schemas. Compare all five fixture source hashes against current selected source.
+Historical receipts remain separate from new stage results and never authorize
+reusing a changed binary or resetting case data.
+
+`guest_agent_resume.py` exposes `agent_build_verify(payload)` and
+`agent_cases_verify(payload)`. The former receives `agent_build_report`, the
+host-validated historical built report, derives its preparation-only proof for
+the existing retained-source checks, and verifies the held artifact's identical
+size, SHA256, static ARM64 type and exact alias layout. It returns the same
+identity fields with status `agent_fixture_verified`; it runs no compiler or
+artifact. The latter requires the immediate case-root entries to be exactly the
+21 selected directories, checks every case's exact initial files and directories,
+and returns the existing initial hashes/current bounded state with status
+`agent_cases_verified`. Do not require historical allocated-byte equality.
+Any extra entry, modified initial data, source drift, artifact drift or incomplete
+cleanup refuses. Subsequent case payloads use these newly verified reports.
 
 | Asset | Official fixed release URL | Compressed bytes / SHA256 | Expanded ceiling |
 |---|---|---|---|
@@ -1762,14 +1789,22 @@ NNP, private networking, hidden guest sockets and namespace restrictions.
 enums, never arbitrary argv, paths, environment, PID or user text. Prepare the
 selected filter with the live trusted Rust parent's TGID; install only in the
 post-fork child before exec. All modes use the same prelude and descriptor sweep.
-Only pipes/null reach agent descriptors 0–2. Reserve proof-pipe FD3 before opening
-artifact FDs or selectors. Both trusted Python and Rust parents must set
+Only pipes/null reach agent descriptors 0–2. Create the anonymous proof pipe
+before opening artifact FDs or selectors. Preserve every existing descriptor in
+the trusted Python parent, including occupied FD3. Both trusted Python and Rust parents must set
 `PR_SET_DUMPABLE=0` and verify it with `PR_GET_DUMPABLE` before any agent fork;
 CLOEXEC alone does not prevent a same-UID agent from reopening a parent's proof
-pipe through `/proc/PID/fd`. There is one launch-only descriptor exception:
-Python executes the internally selected, held fixture FD using
-`Popen(executable="/proc/self/fd/N", pass_fds=(3, N))`, while remaining
-nondumpable. No caller selects N or supplies a descriptor/path. Rust's first
+pipe through `/proc/PID/fd`. A fixed, short `/usr/bin/python3 -I -c` child
+bootstrap receives only the internally selected pipe writer and held fixture FD
+through `pass_fds`. It verifies a write-only FIFO and the held regular executable,
+maps that pipe to its own FD3, marks FD3 inheritable, and immediately execs the
+held fixture through `/proc/self/fd/N` with the fixed probe/mode arguments and
+clean environment. It uses no `preexec_fn`, shell, provider, socket or arbitrary
+command. On any bootstrap error, exit without running the fixture or Python
+cleanup that could act on the replaced child descriptor. The parent's FD3 is
+never closed, replaced or passed through merely because it exists. The child
+bootstrap is trusted; no agent exists before the Rust parent sets and verifies
+its own nondumpable state. No caller selects N or supplies a descriptor/path. Rust's first
 main action is `close_range(4, UINT_MAX, 0)`, verified successful, dropping that
 regular binary FD and any higher inherited descriptors before it creates an
 agent child. Rust independently establishes and reads back its nondumpable state

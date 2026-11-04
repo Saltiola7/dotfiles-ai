@@ -185,6 +185,11 @@ If proof-pipe reservation refuses before a client starts, `agent-inspect` may
 inspect FDs 0 through 3 and one temporary `/dev/null` reservation in the same
 fresh case profile. It starts no fixture or client and changes no descriptor
 policy; retain its bounded metadata and verified worker stop.
+The fixed child bootstrap maps the proof pipe only in its own process before
+exec, preserving the Python parent's existing FD3. `agent-test-resume` requires
+the exact pinned receipts from the first pre-agent failure, an unchanged held
+fixture, and all 21 cases still logically fresh. It verifies rather than
+recreating or compiling anything; no reset or automatic retry is admitted.
 The complete Codex archive is authenticated, but the probe extraction omits the
 43 exact voice entries pinned in `agentcheck/voice-omissions.json`. Record their
 types, modes, sizes and file hashes; never execute or publish them. This is a

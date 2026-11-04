@@ -1,0 +1,33 @@
+{
+  "attempt": 1,
+  "files": {
+    "cases": {
+      "bytes": 25281,
+      "name": "command-21.stdout",
+      "sha256": "76d4cb298956bfca2eb0966ba0e8c6d947b2b75b2fbabe81c78cda8b614f9829"
+    },
+    "experiment": {
+      "bytes": 3092,
+      "name": "experiment.json",
+      "sha256": "dd99b3690d4396280a7e7611776deff91b49d58bb3742be9b8b3149aaa5fcc4b"
+    },
+    "failure": {
+      "bytes": 956,
+      "name": "command-22.stderr",
+      "sha256": "939e3439ba8871beef3a8005cb40b2989b3f80f714d61da27570ee7f4ec3d67b"
+    },
+    "fixture": {
+      "bytes": 24746,
+      "name": "command-20.stdout",
+      "sha256": "e31eea5f304e3227cc88f8074488e13e78b2a4f39989fb0b11e961eda726a029"
+    },
+    "stop": {
+      "bytes": 343,
+      "name": "result.json",
+      "sha256": "c58919de994838f00736a70209ab8b5ef55d3c7613d4103de9d9958ee6f558dc"
+    }
+  },
+  "operation": "agent-test",
+  "schema_version": 1,
+  "source_commit": "1ad664223e0c1787fd2258df0e73814c35b22c4e"
+}
