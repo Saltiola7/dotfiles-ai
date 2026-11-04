@@ -173,13 +173,17 @@ parent setup and complete ordinary call/teardown, including a legitimate parent
 call skip after earlier children. No child enlarges the selected population.
 
 JUnit remains independent evidence. Its one native suite must report
-`tests = selected parents + subtest occurrences + skipped collectors`, zero
+`tests = ordinary passed calls + ordinary skipped phases + subtest occurrences
++ skipped collectors`, zero
 failures/errors and matching skip counters. Each parent testcase keeps its exact
 item identity; its skipped-element count equals its ordinary skipped reports plus
 its skipped child occurrences. The suite skip counter includes those occurrences
 and skipped collectors. These counters expose omitted passing children as well
 as lost or invented child skips. Parent selected/passed/skipped totals remain
 separate from `subtests_passed` and `subtests_skipped` aggregate totals.
+An ordinary teardown skip can add a JUnit event after a passed call; a setup
+skip followed by a teardown skip can also produce two skipped events for one
+parent. Preserve those actual phase counts without inflating the parent totals.
 
 Actual native fixture validation covers passing, repeated, nested, skipped and
 failing subtests, a failed child with a passing parent, and child skips followed
