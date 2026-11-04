@@ -1373,7 +1373,9 @@ v0.1.7 source commit and the tested `.2` child patch. The selected immutable inp
 and bounds are recorded in `tests/fixtures/openshell_runtime/fullbuild/manifest.json`.
 Do not consume the historical v0.1.6 gateway/image fixtures with the resulting
 runtime. Matching v0.1.7 controls and an independently identified experimental
-runtime image must be qualified before full-runtime or agent execution.
+runtime image must be qualified before full-runtime or provider-connected agent
+execution. The separate credential-free filter comparison below may characterize
+the exact agent binaries before those controls are provisioned.
 
 | Closed operation | Preconditions and permitted work | Required result |
 |---|---|---|
@@ -1629,6 +1631,205 @@ These alternatives remain research; the selected experiment uses the workload
 patch, with no kernel upgrade or relaxed policy. Keep the experimental runtime
 separate from normal session launchers. Storage admission remains a prerequisite
 to every further VM experiment.
+
+#### Credential-free agent filter comparison
+
+After a successful full build/test and fresh capacity inventory, two closed
+operations may characterize the selected native agents without credentials,
+provider requests, a real checkout or a gateway. The existing guest-build runner
+dispatches through `tests/probe_openshell_agent_compatibility.py`. Normal launchers,
+approvals, configuration, histories, logins and shared services remain unchanged.
+
+| Operation | Admission and fixed stages | Required result |
+|---|---|---|
+| `agent-prepare` | At least 2 GiB available; exact network asset acquisition, then offline exclusive extraction and verification | Pinned archives and exact package contents; no extracted executable runs |
+| `agent-test` | At least 512 MiB available; offline input verification, fixture source preparation/build, fresh case preparation, then at most 21 isolated cases | Source/artifact identities and bounded three-arm observations; a classified incompatibility is not a pilot pass |
+
+**Text Equivalent:** Acquire only the two pinned assets, verify them, build the
+small source-bound fixture offline, and compare each fixed command in three
+separate units. Prove each unit stopped with an empty cgroup before the next.
+Distribution owns this table and updates its source/tests with any stage change.
+Both operations retain the 256 MiB reserve, 8 GiB store, existing host/cache caps,
+2 CPU/6 GiB/zero-swap/512-task limits and the same 1,800-second lifecycle and
+cleanup budgets. No new target directory, pruning, automatic retry or quota
+increase is admitted. Fixture output growth is bounded to 64 MiB and aggregate
+new case state/logs to 128 MiB; these rejection limits are not native quotas.
+Recheck remaining space before allocations and retain partial evidence on refusal.
+
+| Asset | Official fixed release URL | Compressed bytes / SHA256 | Expanded ceiling |
+|---|---|---|---|
+| Codex 0.164.0 complete ARM64 musl package | `https://github.com/openai/codex/releases/download/rust-v0.164.0/codex-package-aarch64-unknown-linux-musl.tar.gz` | `152400557` / `5918add6c7e9cf1e14a9af1b4c0f4bf1d24a43903faac26df5dc4c019ea91bd5` | 1 GiB |
+| OpenCode 1.18.25 ARM64 glibc | `https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-arm64.tar.gz` | `60345335` / `35ef77897425e41b5183a2c21ac4fb1d4d944d82a94e3c920f57b5490af11ac5` | 512 MiB |
+
+`tests/fixtures/openshell_runtime/agentcheck/manifest.json` has exactly
+`schema_version: 1`, `generation: 1`, and `assets`, keyed by `codex` and `opencode`;
+each asset records `version`, `url`, `archive`, `bytes`, `sha256`, `expanded_limit`.
+`guest_agent_assets.py` exposes `agent_assets_download(payload)`,
+`agent_assets_prepare(payload)` and `agent_assets_verify(payload)`. Admit only
+`WORK/agent-assets-inputs-1` and `WORK/agent-assets-1/{codex,opencode}`. Downloads
+use no inherited proxy/authentication/cookies and allow at most two HTTPS
+redirects from the exact release URL to `release-assets.githubusercontent.com`.
+Verify exact length and SHA256; this is release-digest verification, not a
+Sigstore claim. Bound actual stream expansion and reject duplicate/unknown
+members, all symbolic/hard links, special files and escaping paths. Require the
+Codex directories `bin`, `codex-resources`, `codex-path`, and exactly five files:
+`codex-package.json`, `bin/codex`, `bin/codex-code-mode-host`,
+`codex-resources/bwrap`, `codex-path/rg`. OpenCode contains only `opencode`.
+The Codex metadata has exactly `layoutVersion: 1`, `version: "0.164.0"`,
+`target: "aarch64-unknown-linux-musl"`, `variant: "codex"`,
+`entrypoint: "bin/codex"`, `resourcesDir: "codex-resources"`, `pathDir: "codex-path"`.
+Publish only an exclusive fresh extraction; retained complete assets require
+full revalidation, while partial/different contents refuse without repair.
+Stream decompression without a retained expanded tar; preflight both exact
+archives before publishing either prefix. Normalize directories to `0700`,
+executables to `0500` and metadata to `0400`, after checking archived type and
+executable classification and rejecting special mode bits. At most one bounded
+member may be buffered for ELF/JSON inspection under the existing memory limit.
+
+`guest_agent_build.py` exposes `agent_build_prepare(payload)` for source assembly
+with the existing full-source verifier, and `agent_build_compile(payload)` for
+the separate offline build with the existing full-Cargo helper. The payload's
+`fixture_files` contains exactly `Cargo.toml`, `Cargo.lock`, `src/main.rs`, from
+`agentcheck/`. Assemble `WORK/agent-fixture-1` with those files plus
+`src/upstream_child_seccomp.rs` and `src/patched_child_seccomp.rs`. Reauthenticate
+the original member from the retained source archive and the patched member in
+verified `full-source-2`; require SHA256
+`14c06d0d2c33a56b9a075f469a16436b92cc101186ef19a00a4f1ab84871fa0f` and
+`57a91bdc412ceb124da0b409f841420de35b692b07db0e806cd888c3ab7a3bb1`, respectively.
+Do not transport duplicate full modules or edit existing source generations.
+The normal binary build excludes module test code and uses only std plus cached
+`libc=0.2.189`, checksum `3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2`.
+Use the same verified Rust, bundled linker, `full-cargo-1` and `full-target-1`,
+with a closed local-plus-libc lock and `--release --locked --offline`.
+The binary is `full-target-1/release/openshell-agent-filter-probe`. The existing
+held-FD artifact guard may add only selector `agent-probe` alongside default
+`runtime`, with companion `deps/openshell_agent_filter_probe-[0-9a-f]{16}` under
+the same copy/exact-two-hardlink checks. Require a static ARM64 binary and bound
+its source/hash identity. Helpers remain at most 32 KiB, main at most 10 KiB,
+service scripts 64 KiB, encoded transport 60 KiB and expanded root programs 256 KiB.
+
+Case preparation runs in an ordinary offline builder and creates fresh
+`WORK/agent-cases-1/{probe}-{mode}` directories. The internal
+`run_unit(..., agent_case=None)` accepts only that fixed seven-by-three enum,
+requires `network=False` and `library_tests=False`, and rejects invalid choices
+before effects. Defaults remain unchanged. For a selected case, keep `WORK`
+read-only, allow writes only to that exact case directory, and mount its `config`
+read-only. Remap both `/tmp` and `/var/tmp` to `CASE/tmp`; the old shared temp
+aliases must not remain writable. HOME, CODEX_HOME, XDG roots, state, logs,
+WorkingDirectory and TMPDIR all resolve inside this case. This uses
+[systemd's nested path rules](https://github.com/systemd/systemd/blob/v259/man/systemd.exec.xml#L1763).
+Before executing an agent, prove writes succeed only in the case and its temp
+aliases, and fail in protected configuration, shared assets/source/cache/target
+and other cases. No chmod-only approximation or new host mount is sufficient.
+The case has no NETLINK allowance and retains `UMask=0077`, zero capabilities,
+NNP, private networking, hidden guest sockets and namespace restrictions.
+
+`guest_agent_runtime.py` and `agentcheck/main.rs` accept only fixed probe/mode
+enums, never arbitrary argv, paths, environment, PID or user text. Prepare the
+selected filter with the live trusted Rust parent's TGID; install only in the
+post-fork child before exec. All modes use the same prelude and descriptor sweep.
+Only pipes/null reach agent descriptors 0–2. Reserve proof-pipe FD3 before opening
+artifact FDs or selectors. Both trusted Python and Rust parents must set
+`PR_SET_DUMPABLE=0` and verify it with `PR_GET_DUMPABLE` before any agent fork;
+CLOEXEC alone does not prevent a same-UID agent from reopening a parent's proof
+pipe through `/proc/PID/fd`. There is one launch-only descriptor exception:
+Python executes the internally selected, held fixture FD using
+`Popen(executable="/proc/self/fd/N", pass_fds=(3, N))`, while remaining
+nondumpable. No caller selects N or supplies a descriptor/path. Rust's first
+main action is `close_range(4, UINT_MAX, 0)`, verified successful, dropping that
+regular binary FD and any higher inherited descriptors before it creates an
+agent child. Rust independently establishes and reads back its nondumpable state
+after exec; the Python setting is not assumed to survive exec. The trusted pre-exec path
+writes fixed 32-byte, versioned, allocation-free install/kernel-probe records there;
+the parent records spawn/exec/wait results. FD3 is close-on-exec, cannot reach the
+agent and carries at most 4 KiB. Reject missing, extra, malformed, reordered or
+mode-mismatched proof records; a supplied mode label alone is not filter proof.
+Never use an AF_UNIX proof channel. Each case gets its own offline transient unit
+and verified empty cgroup before the next case, within the existing 64-command
+diagnostic budget. Separate observed exits/signals from controller termination.
+
+| Probe | Fixed argv after the selected executable | Expected positive control |
+|---|---|---|
+| `codex-version` | `--version` | Exact 0.164.0 version |
+| `codex-help` | `--help` | Successful bounded help |
+| `codex-empty-login` | `login status` | Exit 1 and `Not logged in` |
+| `codex-stdio` | `app-server --stdio` | Fixed initialize/initialized exchange, EOF and bounded exit |
+| `opencode-version` | `--version` | Exact 1.18.25 version |
+| `opencode-help` | `--help` | Successful bounded help |
+| `opencode-rg` | `--pure debug rg files --limit 1 --glob sentinel.txt` | Exactly `sentinel.txt\n` from the verified bundled rg child |
+
+The three modes are `unfiltered`, `upstream`, `patched`, in that order, with
+equivalent fresh case state. Unfiltered is only an isolated synthetic control,
+not an agent runtime option. Any fixed probe's patched-only native agent failure
+may be classified `patch_incompatible` only after both controls meet expectations
+and kernel/exec proof is valid; the known Codex-stdio and OpenCode-rg risks are
+examples, not an exclusive list. Distinguish native exit/signal from controller-
+forced termination, timeout and output limits. A socket-specific causal claim
+also requires native diagnostics, not merely a failed comparison. Identity,
+filter/exec proof, boundary, malformed-protocol and cleanup failures remain
+unexpected failures. Continue independent cases after a classified negative,
+stop dependent comparisons after a failed control and stop on unexpected
+failures. No bypass, alternate provider or synthetic inference is admitted.
+Help/version success cannot qualify either complete agent.
+
+Build the environment from a fixed allowlist with no inherited credentials,
+proxies, MCP or runtime injection settings. Use an empty synthetic workspace and
+private Codex file credential store; disable updates, analytics, feedback and
+telemetry in its private configuration: `cli_auth_credentials_store="file"`,
+`check_for_update_on_startup=false`, `analytics.enabled=false`,
+`feedback.enabled=false`, and `otel.exporter`, `otel.trace_exporter` and
+`otel.metrics_exporter` set to `"none"`.
+OpenCode uses its verified bundled rg and these fixed controls:
+
+| OpenCode setting | Exact value |
+|---|---|
+| `OPENCODE_PURE`, `OPENCODE_DISABLE_DEFAULT_PLUGINS`, `OPENCODE_DISABLE_PROJECT_CONFIG`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_DISABLE_MODELS_FETCH`, `OPENCODE_DISABLE_EXTERNAL_SKILLS`, `OPENCODE_DISABLE_CLAUDE_CODE`, `OPENCODE_DISABLE_LSP_DOWNLOAD`, `OPENCODE_DISABLE_FFF`, `OPENCODE_DISABLE_TERMINAL_TITLE` | `1` |
+| `OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER` | `true` |
+| `OPENCODE_CONFIG_CONTENT` | `{"autoupdate":false,"plugin":[]}` |
+
+Preseed read-only `config/opencode/.gitignore` with `node_modules`, `package.json`,
+`package-lock.json`, `bun.lock`, `.gitignore`, each followed by a newline. Keep
+HOME/.opencode absent and OPENCODE_CONFIG_DIR unset. No fallback package or rg
+download is allowed. These are source-selected values, not caller configuration.
+Any loaded account is an isolation failure.
+
+For stdio, send one newline-delimited initialize request with id 1, fixed
+clientInfo (`name: "dotfiles_ai_openshell_probe"`,
+`title: "dotfiles-ai OpenShell probe"`, `version: "1"`), and capabilities
+`explicitGatewayOauth: true`, `experimentalApi: false`,
+`requestAttestation: false`. Require one nonerror id-1 response with nonempty
+bounded userAgent, this case's exact codexHome, platformFamily `unix` and
+platformOs `linux`; then send only `{"method":"initialized"}` and EOF. Reject
+duplicate/unknown responses, malformed output or server requests requiring a
+reply. Bound stdin to 1 KiB, each JSON line to 64 KiB, combined output to 1 MiB,
+and retain at most 8 KiB per output stream. Cases have 30 seconds, except 60
+seconds for stdio, including its upstream 45-second EOF watchdog. No turn, tool,
+model or login request is sent. Kill/check the process group on every exit path;
+verified service/cgroup shutdown remains the final descendant authority.
+
+Asset reports bind schema/generation, exact archive and per-file bytes/hashes/
+modes, ELF interpreter/dependency metadata, prefixes and Codex metadata. Download
+status is `agent_assets_downloaded`; prepare/verify status is
+`agent_assets_verified`. Fixture preparation reports `agent_fixture_prepared`
+with schema/generation 1 and `source_sha256` for the exact five source files;
+compilation reports `agent_fixture_built` with those fields plus `binary_sha256`,
+`binary_bytes`, `binary_layout` and `static_arm64: true`. Runtime receives only
+host-validated `agent_build_report` and `agent_assets_report` from the completed
+stages of the same operation; reported paths do not grant execution authority.
+Case reports bind source and executable hashes,
+fixed case/mode, proof records, observed exit/signal, reason, expectation and
+comparison classification. Every report keeps `session_enabled`,
+`full_runtime_qualified` and `compatibility_qualified` false. Reject forged or
+incomplete positive evidence, and retain completed stages if a later stage fails.
+Required scenarios cover wrong asset hashes/layouts, stale/shared case state,
+write attempts outside the selected case, invalid enum/profile combinations,
+FD3 leakage/spoofing, failed controls, classified negatives, malformed/oversized
+stdio and descendant cleanup failure. Prove both parent dumpability transitions
+and readbacks, same-UID denial of proof-pipe reopening through each parent's
+proc-FD path, launch-FD closure before agent fork, and absence of descriptors
+above 2 after agent exec. A failed protection/readback/close or unexpected
+inherited descriptor refuses before accepting agent evidence. No result from this comparison proves
+full launcher/PTY/broker/FD/provider compatibility or optional activation.
 
 #### Bounded recovery observations
 

@@ -121,6 +121,17 @@ Only these closed operations are accepted:
   complete runtime offline. It requires at least 2 GiB available. The resulting
   static ARM64 binary must carry the exact experimental version and pass the
   socket-denial sentinel. Runtime launch and agent compatibility remain separate.
+- `agent-prepare`, after full-build success and fresh inventory, admits only the
+  pinned complete Codex 0.164.0 ARM64 musl package and OpenCode 1.18.25 ARM64 glibc
+  asset. It requires 2 GiB available, preserves the 256 MiB reserve and verifies
+  exact archive/package identities with 1 GiB/512 MiB extraction ceilings. It
+  executes no extracted agent.
+- `agent-test` requires 512 MiB available and the same reserve. It revalidates
+  inputs, builds the small libc-only filter fixture offline in the existing
+  target, and runs seven fixed probes across unfiltered/upstream/patched modes.
+  Every case runs in a separate offline unit with fresh private state; the unit
+  must stop with an empty cgroup before the next. No login, model request,
+  provider, real checkout or gateway is involved.
 
 The fixed `full-test/cargo-test` unit alone enables its internal
 `library_tests` flag, allowing `AF_NETLINK` in the private offline network
@@ -154,6 +165,32 @@ the source result's exact generation/path, `changed_files: 4` and
 `network_test_sha256: 3a3112b39af2499bc30603f5655d7425b6b265a3a69af9234ccf24805645ea84`
 before proceeding. The source repair alone proves neither test compilation nor
 runtime compatibility; those remain separate results.
+
+Agent comparison uses `tests/probe_openshell_agent_compatibility.py` behind the
+existing runner and the feature's closed `agentcheck/manifest.json`. The exact
+eight-record Codex package and single-file OpenCode layout reject all links or
+extra members. Assets, source, caches and build output are read-only during each
+agent case; only its fresh directory and temp aliases are writable, with config
+read-only. A reserved close-on-exec FD3 pipe proves the selected filter before
+agent exec and never reaches the agent. Both trusted parents must independently
+become nondumpable and verify that state before agent fork, preventing same-UID
+proc-FD reopening. The trusted Rust launch alone may inherit its internally held
+binary FD; Rust closes every FD above 3 as its first main action and proves the
+agent receives only descriptors 0–2 after exec. No caller may supply a command,
+path, descriptor or environment override.
+
+The cases are version/help for both agents, empty Codex login status and the
+fixed stdio initialization/EOF exchange, and OpenCode's fixed rg sentinel command.
+Require unfiltered and upstream controls and valid filter/exec proof before
+interpreting any fixed probe's patched-only native failure as incompatibility.
+Keep native exit/signal separate from forced termination, timeout and malformed
+protocol; a socket-specific cause requires native diagnostics. Codex stdio and
+OpenCode child spawning have known source-level Unix
+socket dependencies; actual results remain required. An expected negative is
+useful evidence, not a pilot pass or permission to weaken socket exclusion.
+Keep all qualification/session flags false, retain bounded results and stop on
+unexpected failures. Complete provider and gateway trials remain deferred until
+this compatibility question is resolved.
 
 Each operation repeats host storage admission and independently verifies worker
 shutdown. The build service has a 2 CPU quota, 6 GiB memory ceiling, zero swap and
