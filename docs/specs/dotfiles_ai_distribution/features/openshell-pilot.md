@@ -1377,11 +1377,14 @@ runtime image must be qualified before full-runtime or agent execution.
 
 | Closed operation | Preconditions and permitted work | Required result |
 |---|---|---|
-| `full-prepare` | Fresh mounted-store inventory; at least 4 GiB available; reverify retained Rust inputs; download only selected source/compiler inputs in the capped store | Exact source/tree and signed compiler inputs, isolated static C compile/archive/link/run proof; no full Cargo build |
+| `full-prepare` | Fresh mounted-store inventory; at least 4 GiB available; reverify retained Rust inputs; download only selected source/compiler inputs in the capped store | Exact source/tree in `full-source-2` with four reviewed changed files, signed compiler inputs, isolated static C compile/archive/link/run proof; no full Cargo build |
+| `full-source-reprepare` | Fresh mounted-store inventory; at least 2 GiB available under the existing build-admission threshold; offline Rust and compiler verification, then retained source-input and `full-source-1` verification | Preserve generation 1; publish and verify `full-source-2` from retained authenticated inputs with the exact fourth test-only change; no downloads or compilation |
 | `full-fetch` | Verified prepared source/compiler; at least 3 GiB available; fresh dedicated Cargo home | Locked workspace dependency fetch for aarch64-musl with automatic cache cleanup disabled; no project compilation; derived lock unchanged |
 | `full-test` | Reverified inputs/cache and at least 2 GiB available; stopped network preparation | Offline release build of `openshell-sandbox`, selected crate tests and socket-denial sentinel, static ARM64 runtime binary and exact experimental version; no agent activation |
 
-**Text Equivalent:** Inventory and input admission precede preparation. The
+**Text Equivalent:** Inventory and input admission precede preparation. Fresh
+preparation produces source generation 2 directly; the explicit offline repair
+verifies and preserves generation 1 before producing generation 2. The
 network-enabled fetch stage ends before a separate network-private build stage.
 Every operation retains the same host/storage admission and independently
 verified worker shutdown. These are explicit operations, not automatic retries.
@@ -1406,9 +1409,65 @@ unknown/missing entries, submodules, special files, hardlinks or escaping paths.
 Create the sole source-bound internal symlink last and never follow it during
 verification. Normalize regular file modes to 0644/0755 after checking Git mode
 classification. Record measured archive hashes; do not invent an unavailable
-upstream archive checksum. Apply only the child patch, one workspace version line
-and the 39 local lock-record version lines for the experimental identity. Preserve
-all 830 external lock records byte-for-byte and verify declared derived hashes.
+upstream archive checksum. Source generation 2 changes exactly four files: the
+child patch, one workspace version line, the 39 local lock-record version lines,
+and the test-only `network_broker.rs` portability correction below. Preserve all
+830 external lock records byte-for-byte and verify declared derived hashes.
+
+Native library-test compilation exposed a second musl portability defect in
+`crates/openshell-sandbox/src/network_broker.rs`, inside the existing
+`dns_send_with_ancillary_data_is_refused` test. Replace only its `libc::msghdr`
+literal with a zero-initialized `libc::msghdr`, then assign the same public fields.
+Use `control.len().try_into().expect("control length fits target ABI")` for
+`msg_controllen`; retain `msg_iovlen = 1`, zero flags, the same buffers and
+`sendmsg` call, and the `EOPNOTSUPP` assertion. The safety comment explains that
+the fields are integers/pointers and zero initialization covers target-specific
+padding. The complete prefix before `#[cfg(test)] mod tests` must remain
+byte-identical. This corrects the test's construction of musl's private-padding
+type; it does not change production networking or weaken its assertion. See the
+[pinned test](https://github.com/NVIDIA/OpenShell/blob/5d25211b25a8fc887e8d5c606d57d6ab22f1d76c/crates/openshell-sandbox/src/network_broker.rs#L3159)
+and [pinned libc definition](https://github.com/rust-lang/libc/blob/0.2.189/src/new/musl/sys/socket.rs#L8).
+
+| Network test source identity | Exact value |
+|---|---|
+| Upstream Git blob | `70e9b444a1d012effbef8c73f0e2f18af0e9c668` |
+| Upstream bytes / SHA256 | `138550` / `4de840d02dc34a63102e9deece321d0f4253f67fe226475778c7f71292d9c899` |
+| Derived bytes / SHA256 | `138865` / `3a3112b39af2499bc30603f5655d7425b6b265a3a69af9234ccf24805645ea84` |
+
+`full-source-reprepare` consists only of offline Rust verification, compiler
+verification and source re-preparation. Reauthenticate the retained
+`full-source-inputs-1/tree.json` and `source.tar.gz` by the same pinned tree/blob,
+mode and archive rules, with no fetch fallback. First verify the complete retained
+`full-source-1` against the original three-file derivation. Create the new
+`full-source-2` from those authenticated archive bytes, not by copying the old
+working tree, and apply exactly the fourth-file correction. Never edit generation
+1. Missing or changed inputs or generation 1 refuse before publication. The
+explicit repair requires generation 2 to be absent, including dangling symlinks,
+and creates its root exclusively. Any failed partial generation is retained; a
+repeat repair refuses instead of adopting or overwriting it. Verify both complete
+generations again before reporting. Fresh `full-prepare` creates generation 2
+directly and does not require generation 1; its existing exact partial-input
+completion rules remain unchanged.
+
+The repair retains `0.1.7+dotfiles-ai.child-unix-deny.2`, the child patch hash and
+derived root manifest/lock hashes, `full-cargo-1` and `full-target-1`. All subsequent
+source checks and Cargo operations select only generation 2. Source results bind
+`source_generation: 2`, the exact `source` path under the selected work directory,
+`network_test_original_sha256` and `network_test_sha256` above, and
+`changed_files: 4`, alongside existing source
+identities and disabled-session/runtime flags. Host validation rejects a wrong
+generation, path, fourth-file hash or changed-file count. The new source allocation
+is below 64 MiB and uses the existing 2 GiB build-admission threshold; original
+operation thresholds, reserve, hard caps and deadlines remain unchanged. This
+repair grants no download, cleanup, backend change or agent-execution authority.
+
+Given an authenticated generation 1 and absent generation 2, when explicit offline
+source re-preparation succeeds, then generation 1 remains byte-identical and
+generation 2 differs from upstream in exactly the four admitted files. Given
+changed inputs, a changed generation 1, or any existing generation 2, when the
+repair is requested, then it refuses before writing generation 2. Given a valid
+generation 2, subsequent verification and builds use only that generation and
+reject any unreviewed source delta.
 
 The selected C prerequisite is a private Alpine v3.22 aarch64 prefix: 15 exact APKs,
 59,383,318 compressed bytes, with a 256 MiB decompressed limit. Reauthenticate the

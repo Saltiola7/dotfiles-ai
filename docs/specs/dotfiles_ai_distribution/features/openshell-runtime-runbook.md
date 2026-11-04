@@ -107,8 +107,13 @@ Only these closed operations are accepted:
   It preserves prior source and outputs and uses one fixed fresh target directory;
   it performs no downloads or reinstallations.
 - `full-prepare` revalidates retained Rust, authenticates the complete pinned
-  v0.1.7 source and private C compiler, and proves static C compilation. It
-  requires at least 4 GiB available inside the existing build filesystem.
+  v0.1.7 source and private C compiler, and proves static C compilation. It creates
+  `full-source-2` directly with the four reviewed changed files and requires at
+  least 4 GiB available inside the existing build filesystem.
+- `full-source-reprepare` verifies retained Rust and the private compiler offline,
+  then verifies the retained source archive/index and complete `full-source-1`
+  before preparing `full-source-2`. It uses the existing 2 GiB build-admission
+  threshold, preserves generation 1 and performs no downloads or compilation.
 - `full-fetch` revalidates prepared inputs, then fetches locked dependencies into
   one fresh dedicated Cargo cache. It requires at least 3 GiB available and does
   not compile project code. Automatic Cargo cache cleanup is disabled.
@@ -123,6 +128,22 @@ insufficient space, partial preparation or timeout preserves a failed attempt.
 No automatic cleanup, retry, new target, larger disk or alternative host is part
 of this interface. Review private results before explicitly selecting the next
 operation. Historical v0.1.6 controls must not run a v0.1.7 experimental runtime.
+
+Select `full-source-reprepare` explicitly for the library-test musl `msghdr`
+compile defect. Generation 2 adds only the feature's hash-pinned test correction
+in `network_broker.rs`: zero initialization, the same public-field assignments
+and a checked control-length conversion; the `EOPNOTSUPP` assertion and production
+code remain unchanged. Reuse only authenticated `full-source-inputs-1` archive/index
+bytes; changed or missing inputs refuse without a fetch fallback. Preserve a
+partial generation 2 on failure; the explicit repair requires generation 2 to be
+absent and refuses a repeat instead of adopting or overwriting it. Verify both
+complete generations before reporting.
+Keep the `.2` experimental version, child patch, root manifest/lock, Cargo cache
+and target identities. Subsequent `full-fetch`/`full-test` use generation 2. Check
+the source result's exact generation/path, `changed_files: 4` and
+`network_test_sha256: 3a3112b39af2499bc30603f5655d7425b6b265a3a69af9234ccf24805645ea84`
+before proceeding. The source repair alone proves neither test compilation nor
+runtime compatibility; those remain separate results.
 
 Each operation repeats host storage admission and independently verifies worker
 shutdown. The build service has a 2 CPU quota, 6 GiB memory ceiling, zero swap and
