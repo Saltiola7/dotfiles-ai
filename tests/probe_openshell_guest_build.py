@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import re
 import tempfile
 import textwrap
 import zlib
@@ -38,6 +39,30 @@ class BuildObservation:
     lifecycle: boot.BootObservation
     result: dict
     session_enabled: bool = False
+
+
+def host_binding_sha256(selection: create.CreateSelection, anchor: boot._Anchors) -> str:
+    """Project persistent identities from fresh admission; never admit an operation."""
+    if type(selection) is not create.CreateSelection or type(anchor) is not boot._Anchors:
+        raise Refusal('build_host_binding')
+    storage=selection.storage
+    storage_record={name:getattr(storage,name) for name in (
+        'profile','pilot_root','run_root','image_path','image_device','image_inode',
+        'container_uuid','runtime_uuid','cache_uuid')}
+    for name in ('pilot_root','run_root','image_path'):
+        storage_record[name]=str(storage_record[name])
+    worker=anchor.worker;disk=anchor.disk.identity
+    record={'schema_version':1,'storage':storage_record,
+        'worker':{'run_id':worker.run_id,'name':worker.name,'path':str(storage.runtime_path/worker.name),
+                  'volume_uuid':storage.runtime_uuid,'inode':worker.inode},
+        'disk':{'path':str(disk.path),'volume_uuid':storage.runtime_uuid,
+                **{name:getattr(disk,name) for name in ('inode','mode','uid','links')}}}
+    canonical=json.dumps(record,sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False).encode('ascii')
+    return hashlib.sha256(b'dotfiles-ai.openshell.build-store-host-binding.v1\0'+canonical).hexdigest()
+
+
+def _binding_digest(value: str) -> bool:
+    return type(value) is str and re.fullmatch(r'[a-f0-9]{64}',value) is not None
 
 
 def read_source(path: Path) -> bytes:
@@ -122,9 +147,36 @@ def prepare_script(controller: str) -> str:
     return _observed_script(controller,'print(json.dumps(prepare(),sort_keys=True),flush=True)\n')
 
 
-def inventory_script(controller: str, inventory: str, seconds: int) -> str:
+def binding_script(controller: str, seconds: int, *, host_binding_sha256: str) -> str:
+    if not _binding_digest(host_binding_sha256) or type(seconds) is not int or not 1<=seconds<=300:
+        raise Refusal('build_binding_input')
+    return _observed_script(controller,f'''
+_binding = record_stable_binding(host_binding_sha256={host_binding_sha256!r},
+                                 deadline=time.monotonic()+{seconds!r})
+print(json.dumps(_binding,sort_keys=True),flush=True)
+''')
+
+
+def parse_bound(result: dict, expected_host_binding: str) -> dict:
+    keys={'schema_version','status','host_binding_sha256','legacy_receipt_sha256','binding_sha256',
+          'image_bytes','unmounted_verified','session_enabled','historical_outer_identity_verified'}
+    if (type(result) is not dict or set(result)!=keys
+            or type(result['schema_version']) is not int or result['schema_version']!=1
+            or result['status']!='storage_bound' or not _binding_digest(expected_host_binding)
+            or result['host_binding_sha256']!=expected_host_binding
+            or not all(_binding_digest(result[name]) for name in
+                       ('host_binding_sha256','legacy_receipt_sha256','binding_sha256'))
+            or type(result['image_bytes']) is not int or result['image_bytes']!=8*1024**3
+            or result['unmounted_verified'] is not True or result['session_enabled'] is not False
+            or result['historical_outer_identity_verified'] is not False):
+        raise Refusal('build_binding_report')
+    return result
+
+
+def inventory_script(controller: str, inventory: str, seconds: int, *, host_binding_sha256: str) -> str:
+    if not _binding_digest(host_binding_sha256): raise Refusal('build_binding_input')
     return _observed_script(controller+'\n'+inventory,f'''
-with mounted_store(deadline=time.monotonic()+{seconds!r}):
+with mounted_store(deadline=time.monotonic()+{seconds!r},host_binding_sha256={host_binding_sha256!r}):
     _inventory = build_inventory()
 _inventory['unmounted_verified'] = True
 print(json.dumps(_inventory,sort_keys=True),flush=True)
@@ -207,7 +259,9 @@ _stage_payload=json.loads(_payload_raw)
 """
 
 
-def kernel_script(controller: str, builder: str, payload: dict, seconds: int, *, runtime: str, resume: bool = False) -> str:
+def kernel_script(controller: str, builder: str, payload: dict, seconds: int, *, runtime: str,
+                  host_binding_sha256: str, resume: bool = False) -> str:
+    if not _binding_digest(host_binding_sha256): raise Refusal('build_binding_input')
     builder+='\n'+payload_source(payload)
     stages=[('resume',False,300),('test',False,480)] if resume else [
         ('download',True,420),('setup',False,300),('fetch',True,240),('test',False,480)]
@@ -215,7 +269,7 @@ def kernel_script(controller: str, builder: str, payload: dict, seconds: int, *,
 _builder_source = {builder!r}
 _operation_end = time.monotonic() + {seconds!r}
 _stages = {{}}
-with mounted_store(deadline=_operation_end):
+with mounted_store(deadline=_operation_end,host_binding_sha256={host_binding_sha256!r}):
     _runtime = install_runtime(existing_only=True) if {resume!r} else install_runtime()
     print(json.dumps({{'stage':'runtime','result':_runtime}}),file=sys.stderr,flush=True)
     for _operation, _network, _maximum in {stages!r}:
@@ -234,7 +288,7 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
     if operation in {'full-prepare','full-fetch','full-test'}:
         import probe_openshell_full_build as full
         return full.qualify(selection,operation)
-    if operation not in {'prepare','inventory','kernel','kernel-resume'}: raise Refusal('build_operation')
+    if operation not in {'prepare','bind-storage','inventory','kernel','kernel-resume'}: raise Refusal('build_operation')
     # Capture reviewed source before any VM start. The body is fixed per
     # operation; neither selection JSON nor CLI accepts commands or scripts.
     controller=read_source(FIXTURES/'guest_build_storage.py').decode()
@@ -248,14 +302,19 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
     def inspect(selected, anchor, deadline):
         observed=guest._inspect_guest(selected,anchor,deadline)
         if operation=='prepare' and observed.free_bytes<12*1024**3: raise Refusal('guest_build_reserve')
+        binding=host_binding_sha256(selected,anchor) if operation!='prepare' else None
         if operation=='prepare': script=prepare_script(controller)
+        elif operation=='bind-storage':
+            script=binding_script(controller,min(300,int(create._remaining(deadline,360))-15),host_binding_sha256=binding)
         elif operation=='inventory':
-            script=inventory_script(controller,inventory,min(300,int(create._remaining(deadline,360))-15))
+            script=inventory_script(controller,inventory,min(300,int(create._remaining(deadline,360))-15),
+                                    host_binding_sha256=binding)
         else:
             bundle=load_bundle(selected.storage.cache_path/'_tmp')
             seconds=int(create._remaining(deadline,1200))-15
             if seconds<120: raise Refusal('build_deadline')
-            script=kernel_script(controller,builder,bundle.payload,seconds,runtime=runtime,resume=operation=='kernel-resume')
+            script=kernel_script(controller,builder,bundle.payload,seconds,runtime=runtime,
+                                 host_binding_sha256=binding,resume=operation=='kernel-resume')
         program_sha256=hashlib.sha256(script.encode()).hexdigest()
         wire=encode_program(script)
         argv=[str(anchor.sources[0].identity.path),'shell','--tty=false','--start=false',
@@ -263,6 +322,7 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
         raw=create._command(selected,argv,deadline,'guest_build',1250 if kernel else 450)
         result=create._json(raw)
         if operation=='prepare': parse_prepared(result)
+        elif operation=='bind-storage': parse_bound(result,binding)
         elif operation=='inventory':
             parse_inventory(result)
             result['inventory_sha256']=hashlib.sha256(inventory.encode()).hexdigest()
@@ -294,7 +354,7 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--selection',required=True,type=Path)
-    parser.add_argument('--operation',required=True,choices=('prepare','inventory','kernel','kernel-resume',
+    parser.add_argument('--operation',required=True,choices=('prepare','bind-storage','inventory','kernel','kernel-resume',
                                                            'full-prepare','full-fetch','full-test'))
     args=parser.parse_args()
     try:

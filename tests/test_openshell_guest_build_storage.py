@@ -30,6 +30,293 @@ def test_fixed_caps_and_paths(storage):
     assert storage.CLEANUP_RESERVE >= 60
 
 
+@pytest.fixture
+def binding_env(storage, tmp_path, monkeypatch):
+    """Real tiny files; mock Linux root/Btrfs observations, never native effects."""
+    import json
+    import os
+    root = tmp_path.resolve() / "retained"
+    root.mkdir(mode=0o711)
+    (root / "store").mkdir(mode=0o700)
+    image = root / "image.raw"
+    image.write_bytes(b"unchanged capped image fixture")
+    image.chmod(0o600)
+    info = image.lstat()
+    identity = [54, info.st_ino, info.st_mode, 0, 0, 1, storage.IMAGE_BYTES]
+    receipt = {"schema_version": 1, "uuid": "01234567-1234-4234-8234-0123456789ab",
+               "image_identity": identity, "fixture_verified": True}
+    receipt_raw = json.dumps(receipt).encode()
+    (root / "receipt.json").write_bytes(receipt_raw)
+    (root / "receipt.json").chmod(0o600)
+    state = {"device": 52, "mount_id": 53, "tree_id": 256,
+             "fsid": bytes.fromhex("11" * 16), "subvolume_uuid": bytes.fromhex("22" * 16),
+             "inner_uuid": receipt["uuid"], "fds": {}, "commands": [], "mount_calls": []}
+    original_open, original_close, original_fstat = os.open, os.close, os.fstat
+    original_stat, original_lstat = Path.stat, Path.lstat
+    original_read = storage._read
+    def adjusted(info, path):
+        if path is not None and (path == root.parent or path.is_relative_to(root)):
+            fields = list(info)
+            fields[2], fields[4], fields[5] = state["device"], 0, 0
+            if storage.stat.S_ISDIR(info.st_mode):
+                fields[3] = 1  # Linux Btrfs directories do not count regular child files as links.
+            if path == image:
+                fields[6] = storage.IMAGE_BYTES
+            return os.stat_result(fields)
+        return info
+    def opened(path, flags, *args, **kwargs):
+        fd = original_open(path, flags, *args, **kwargs)
+        selected = Path(os.fsdecode(path))
+        if selected.is_absolute() and (selected == root.parent or selected.is_relative_to(root)):
+            state["fds"][fd] = selected
+        return fd
+    def closed(fd):
+        state["fds"].pop(fd, None)
+        original_close(fd)
+    monkeypatch.setattr(storage.os, "open", opened)
+    monkeypatch.setattr(storage.os, "close", closed)
+    monkeypatch.setattr(storage.os, "fstat", lambda fd: adjusted(original_fstat(fd), state["fds"].get(fd)))
+    monkeypatch.setattr(Path, "stat", lambda path, *a, **k: adjusted(original_stat(path, *a, **k), path))
+    monkeypatch.setattr(Path, "lstat", lambda path, *a, **k: adjusted(original_lstat(path, *a, **k), path))
+    monkeypatch.setattr(storage, "ROOT", root)
+    monkeypatch.setattr(storage.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(storage.sys, "platform", "linux")
+    def read(path, limit=65536):
+        if str(path).startswith("/proc/self/fdinfo/"):
+            fd = int(path.name)
+            return f"mnt_id: {state['mount_id']}\nino: {os.fstat(fd).st_ino}\n".encode()
+        return original_read(path, limit)
+    monkeypatch.setattr(storage, "_read", read)
+    monkeypatch.setattr(storage, "_mounts", lambda: f"{state['mount_id']} 1 0:35 /var / rw - btrfs /dev/vda3 rw\n".encode())
+    monkeypatch.setattr(storage, "_is_mounted", lambda mount: state.get("mounted", False))
+    monkeypatch.setattr(storage, "_associated", lambda image, deadline: state.get("loops", []))
+    def ioctl(fd, request, buffer):
+        assert fd in state["fds"] and not any(buffer)
+        if state.get("ioctl_error"):
+            raise OSError("unsupported native ioctl")
+        size = {0x8400941f: 1024, 0x81f8943c: 504}[request]
+        assert len(buffer) == size
+        result = bytearray(size)
+        if request == 0x8400941f:
+            result[16:32] = state["fsid"]
+        else:
+            storage.struct.pack_into("=Q", result, 0, state["tree_id"])
+            result[296:312] = state["subvolume_uuid"]
+            if state.get("conflict") and state["fds"][fd].name == "receipt.json":
+                result[296] ^= 1
+        return bytes(result[:-1] if state.get("short_ioctl") else result)
+    monkeypatch.setattr(storage.fcntl, "ioctl", ioctl)
+    def command(argv, deadline, **kwargs):
+        assert argv[:4] == ["/usr/sbin/blkid", "-p", "-s", argv[3]]
+        assert argv[3] in {"TYPE", "UUID"} and argv[4:6] == ["-o", "value"]
+        assert argv[6].startswith(f"/proc/{os.getpid()}/fd/")
+        fd = int(argv[6].rsplit("/", 1)[1])
+        assert state["fds"][fd] == image
+        state["commands"].append(argv)
+        value = "ext4" if argv[3] == "TYPE" else state["inner_uuid"]
+        if argv[3] == "UUID" and state.get("after_blkid"):
+            state["after_blkid"]()
+        return {"returncode": 0, "stdout": (value + "\n").encode(), "stderr": b""}
+    monkeypatch.setattr(storage, "_command", command)
+    from contextlib import contextmanager
+    @contextmanager
+    def mounted(*args, **kwargs):
+        state["mount_calls"].append(args)
+        yield "verified store"
+    monkeypatch.setattr(storage, "_mounted", mounted)
+    state.update(root=root, image=image, receipt=receipt, receipt_raw=receipt_raw, host="a" * 64)
+    yield state
+    assert not state["fds"], "owned binding descriptors leaked"
+
+
+def bind(storage, env):
+    return storage.record_stable_binding(host_binding_sha256=env["host"], deadline=storage.time.monotonic() + 180.0)
+
+
+def test_explicit_binding_preserves_legacy_and_reuses_after_device_renumber(storage, binding_env):
+    import hashlib
+    import json
+    env = binding_env
+    result = bind(storage, env)
+    raw = (env["root"] / "binding.json").read_bytes()
+    saved = json.loads(raw)
+    assert result == {"schema_version": 1, "status": "storage_bound", "host_binding_sha256": env["host"],
+        "legacy_receipt_sha256": hashlib.sha256(env["receipt_raw"]).hexdigest(),
+        "binding_sha256": hashlib.sha256(raw).hexdigest(), "image_bytes": storage.IMAGE_BYTES,
+        "unmounted_verified": True, "session_enabled": False, "historical_outer_identity_verified": False}
+    assert saved["image_identity"] == env["receipt"]["image_identity"][1:]
+    assert saved["btrfs"]["tree_id"] == 256 and len(raw) <= 8192
+    assert env["mount_calls"] == []
+    assert (env["root"] / "receipt.json").read_bytes() == env["receipt_raw"]
+    env["device"], env["mount_id"] = 61, 91
+    with storage.mounted_store(host_binding_sha256=env["host"]) as value:
+        assert value == "verified store"
+    assert env["mount_calls"][0][3][0] == 61
+    assert (env["root"] / "binding.json").read_bytes() == raw
+    assert env["image"].read_bytes() == b"unchanged capped image fixture"
+
+
+@pytest.mark.parametrize("index", range(1, 7))
+def test_binding_rejects_every_changed_non_device_legacy_field(storage, binding_env, index):
+    import json
+    env = binding_env
+    env["receipt"]["image_identity"][index] += 1
+    (env["root"] / "receipt.json").write_text(json.dumps(env["receipt"]))
+    with pytest.raises(storage.Refusal):
+        bind(storage, env)
+    assert not (env["root"] / "binding.json").exists() and not env["mount_calls"]
+
+
+@pytest.mark.parametrize("failure", ["host", "receipt", "fsid", "subvolume", "tree", "inner", "zero_fsid",
+    "zero_subvolume", "zero_tree", "ioctl", "short_ioctl", "conflict", "loop", "mounted"])
+def test_binding_native_and_stable_mismatches_refuse(storage, binding_env, failure):
+    env = binding_env
+    if failure in {"host", "receipt", "fsid", "subvolume", "tree"}:
+        bind(storage, env)
+    if failure == "host": env["host"] = "b" * 64
+    elif failure == "receipt": (env["root"] / "receipt.json").write_bytes(env["receipt_raw"] + b" ")
+    elif failure == "fsid": env["fsid"] = b"3" * 16
+    elif failure == "subvolume": env["subvolume_uuid"] = b"4" * 16
+    elif failure == "tree": env["tree_id"] += 1
+    elif failure == "inner": env["inner_uuid"] = "11111111-1111-4111-8111-111111111111"
+    elif failure == "zero_fsid": env["fsid"] = bytes(16)
+    elif failure == "zero_subvolume": env["subvolume_uuid"] = bytes(16)
+    elif failure == "zero_tree": env["tree_id"] = 0
+    elif failure == "ioctl": env["ioctl_error"] = True
+    elif failure == "short_ioctl": env["short_ioctl"] = True
+    elif failure == "conflict": env["conflict"] = True
+    elif failure == "loop": env["loops"] = ["/dev/loop7"]
+    else: env["mounted"] = True
+    with pytest.raises(storage.Refusal):
+        if failure in {"host", "receipt", "fsid", "subvolume", "tree"}:
+            with storage.mounted_store(host_binding_sha256=env["host"]):
+                pytest.fail("accepted changed stable binding")
+        else:
+            bind(storage, env)
+    assert not env["mount_calls"]
+
+
+@pytest.mark.parametrize("mutation", ["partial", "duplicate", "unknown", "boolean", "missing_host", "oversize"])
+def test_present_sidecar_never_falls_back_to_matching_legacy(storage, binding_env, mutation):
+    import json
+    env = binding_env
+    bind(storage, env)
+    path = env["root"] / "binding.json"
+    raw = path.read_bytes()
+    env["device"] = env["receipt"]["image_identity"][0]
+    if mutation == "partial": path.write_bytes(b'{"schema_version":')
+    elif mutation == "duplicate": path.write_bytes(b'{"schema_version":1,' + raw[1:])
+    elif mutation == "unknown": path.write_text(json.dumps(json.loads(raw) | {"unexpected": 1}))
+    elif mutation == "boolean": path.write_text(json.dumps(json.loads(raw) | {"schema_version": True}))
+    elif mutation == "oversize": path.write_bytes(b" " * 8193)
+    retained = path.read_bytes()
+    with pytest.raises(storage.Refusal):
+        with storage.mounted_store(host_binding_sha256=None if mutation == "missing_host" else env["host"]):
+            pytest.fail("legacy fallback with sidecar present")
+    assert path.read_bytes() == retained and not env["mount_calls"]
+
+
+@pytest.mark.parametrize("change", ["device", "mount", "path"])
+def test_binding_rechecks_descriptors_and_mounts_before_publication(storage, binding_env, change):
+    env = binding_env
+    def changed():
+        if change == "device": env["device"] += 1
+        elif change == "mount": env["mount_id"] += 1
+        else:
+            env["image"].rename(env["root"] / "original-image")
+            env["image"].write_bytes(b"replacement")
+            env["image"].chmod(0o600)
+    env["after_blkid"] = changed
+    with pytest.raises(storage.Refusal):
+        bind(storage, env)
+    assert not (env["root"] / "binding.json").exists()
+
+
+def test_binding_existing_or_sync_failure_preserves_sidecar(storage, binding_env, monkeypatch):
+    env = binding_env
+    original_sync = storage.os.fsync
+    def sync(fd):
+        if env["fds"].get(fd) == env["root"] / "binding.json":
+            raise OSError("injected fsync failure")
+        original_sync(fd)
+    monkeypatch.setattr(storage.os, "fsync", sync)
+    with pytest.raises(storage.Refusal):
+        bind(storage, env)
+    path = env["root"] / "binding.json"
+    assert path.exists()
+    raw = path.read_bytes()
+    monkeypatch.setattr(storage.os, "fsync", original_sync)
+    with pytest.raises(storage.Refusal):
+        bind(storage, env)
+    assert path.read_bytes() == raw
+
+
+def test_binding_partial_descriptor_acquisition_closes_owned_fds(storage, binding_env, monkeypatch):
+    env = binding_env
+    original = storage.os.open
+    def opened(path, *args, **kwargs):
+        if Path(path) == env["image"]:
+            raise OSError("injected open failure")
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(storage.os, "open", opened)
+    with pytest.raises(storage.Refusal):
+        bind(storage, env)
+    assert not env["fds"] and not (env["root"] / "binding.json").exists()
+
+
+@pytest.mark.parametrize("mutation", ["extra_entry", "replace_sidecar"])
+def test_binding_publication_checks_exact_created_file_and_root_entries(storage, binding_env, monkeypatch, mutation):
+    env = binding_env
+    original = storage.os.fsync
+    def sync(fd):
+        original(fd)
+        if env["fds"].get(fd) == env["root"]:
+            path = env["root"] / "binding.json"
+            if mutation == "extra_entry":
+                (env["root"] / "unexpected").write_bytes(b"retain")
+            else:
+                data = path.read_bytes()
+                path.unlink()
+                path.write_bytes(data)
+                path.chmod(0o600)
+    monkeypatch.setattr(storage.os, "fsync", sync)
+    with pytest.raises(storage.Refusal):
+        bind(storage, env)
+    assert (env["root"] / "binding.json").exists()
+    assert (env["root"] / "receipt.json").read_bytes() == env["receipt_raw"]
+
+
+def test_dangling_sidecar_refuses_both_binding_and_legacy_fallback(storage, binding_env):
+    env = binding_env
+    (env["root"] / "binding.json").symlink_to("missing")
+    env["device"] = 54
+    with pytest.raises(storage.Refusal):
+        bind(storage, env)
+    with pytest.raises(storage.Refusal):
+        with storage.mounted_store(host_binding_sha256=env["host"]):
+            pytest.fail("followed dangling sidecar")
+    assert (env["root"] / "binding.json").is_symlink() and not env["mount_calls"]
+
+
+def test_bound_body_failure_preserves_diagnostics_and_releases_descriptors(storage, binding_env, monkeypatch):
+    from contextlib import contextmanager
+    env = binding_env
+    bind(storage, env)
+    cleanup = []
+    @contextmanager
+    def mounted(*args, **kwargs):
+        try:
+            yield "store"
+        finally:
+            cleanup.append("exact mounted helper cleanup")
+    monkeypatch.setattr(storage, "_mounted", mounted)
+    with pytest.raises(storage.Refusal, match="^body_failed$") as caught:
+        with storage.mounted_store(host_binding_sha256=env["host"]):
+            raise storage.Refusal("body_failed", stderr=b"bounded original diagnostics")
+    assert caught.value.stderr == b"bounded original diagnostics"
+    assert cleanup == ["exact mounted helper cleanup"] and not env["fds"]
+
+
 @pytest.mark.parametrize("mount_failure", [None, "read", "limit"])
 def test_retained_image_mismatch_reports_identity_without_mounting(storage, tmp_path, monkeypatch, mount_failure):
     import json

@@ -7,8 +7,12 @@ import json
 from pathlib import Path
 import sys
 import time
+from types import SimpleNamespace
 
 import pytest
+
+
+HOST_BINDING='d'*64
 
 
 @pytest.fixture(scope='module')
@@ -71,7 +75,7 @@ def test_full_operations_separate_network_and_execution(full,operation,networks,
                'build_inventory':lambda:{'store_available_bytes':5*1024**3},
                'install_runtime':lambda **k:{'status':'runtime_ready','installed_bytes':945234}}
     for stage,_,_,maximum in full.STAGES[operation]:
-        script=full.stage_script('', '', '', '', dummy_payload(full),operation,stage,maximum+100)
+        script=full.stage_script('', '', '', '', dummy_payload(full),operation,stage,maximum+100,host_binding_sha256=HOST_BINDING)
         exec(script,namespace)
     assert calls==networks
     report=json.loads(capsys.readouterr().out.splitlines()[-1])
@@ -91,7 +95,7 @@ def test_low_capacity_stops_before_inputs_or_service(full,operation,threshold):
                'Refusal':full.build.Refusal,
                'build_inventory':lambda:{'store_available_bytes':threshold-1}}
     with pytest.raises(RuntimeError,match='full_build_capacity'):
-        exec(full.stage_script('','','','',dummy_payload(full),operation,'rust-verify',340),namespace)
+        exec(full.stage_script('','','','',dummy_payload(full),operation,'rust-verify',340,host_binding_sha256=HOST_BINDING),namespace)
 
 
 def test_every_full_program_fits_existing_transport_and_service_bounds(full,tmp_path):
@@ -102,7 +106,7 @@ def test_every_full_program_fits_existing_transport_and_service_bounds(full,tmp_
         runtime=full.build.read_source(full.build.FIXTURES/'guest_runtime.py').decode()
         inventory=full.build.read_source(full.build.FIXTURES/'guest_build_inventory.py').decode()
         for stage,key,_,maximum in full.STAGES[operation]:
-            script=full.stage_script(controller,runtime,inventory,sources[key],bundle.payload,operation,stage,maximum+100)
+            script=full.stage_script(controller,runtime,inventory,sources[key],bundle.payload,operation,stage,maximum+100,host_binding_sha256=HOST_BINDING)
             compile(script,'full-native-operation','exec')
             full.build.encode_program(script)
             unit=full.unit_source(sources[key],bundle.payload,stage,maximum-5)
@@ -126,7 +130,7 @@ def test_failed_stage_retains_prior_diagnostics_and_exits_mount(full,capsys):
                'install_runtime':lambda **k:{'status':'runtime_ready'}}
     with pytest.raises(RuntimeError,match='input refused'):
         for stage,_,_,maximum in full.STAGES['full-prepare']:
-            exec(full.stage_script('','','','',dummy_payload(full),'full-prepare',stage,maximum+100),namespace)
+            exec(full.stage_script('','','','',dummy_payload(full),'full-prepare',stage,maximum+100,host_binding_sha256=HOST_BINDING),namespace)
     captured=capsys.readouterr()
     assert ended==[True,True] and 'rust-verify' in captured.out and 'compiler-download' not in captured.out
 
@@ -205,3 +209,56 @@ def test_host_requires_exact_authenticated_gdb_omission(full,stage_report,change
 def test_host_rejects_incomplete_or_wrong_proof(full,stage_report,stage,key,value):
     stage_report[stage][key]=value
     with pytest.raises(full.build.Refusal): full.parse_stages(stage_report,'full-test')
+
+
+@pytest.mark.parametrize('operation',['full-prepare','full-fetch','full-test'])
+def test_every_full_stage_receives_same_fresh_host_binding(full,operation,capsys):
+    bindings=[]
+    @contextmanager
+    def mounted_store(**kwargs):
+        bindings.append(kwargs['host_binding_sha256'])
+        yield None
+    namespace={'time':time,'sys':sys,'json':json,'mounted_store':mounted_store,
+               'run_unit':lambda *a,**k:{'stdout':b'{"status":"verified"}'},'Refusal':full.build.Refusal,
+               'build_inventory':lambda:{'store_available_bytes':5*1024**3},
+               'install_runtime':lambda **k:{'status':'runtime_ready'}}
+    for stage,_,_,maximum in full.STAGES[operation]:
+        script=full.stage_script('','','','',dummy_payload(full),operation,stage,maximum+100,
+                                 host_binding_sha256=HOST_BINDING)
+        exec(script,namespace)
+    assert bindings==[HOST_BINDING]*len(full.STAGES[operation])
+
+
+@pytest.mark.parametrize('operation',['full-prepare','full-fetch','full-test'])
+def test_full_lifecycle_computes_binding_after_admission_before_each_stage(full,monkeypatch,operation):
+    selected=SimpleNamespace(storage=SimpleNamespace(cache_path=Path('/private/controller-cache')))
+    anchor=SimpleNamespace(sources=(SimpleNamespace(identity=SimpleNamespace(path=Path('/fixed/limactl'))),))
+    admitted=[];digests=[];scripts=[]
+    def lifecycle(selection,inspect,**kwargs):
+        assert selection is selected and kwargs['qualification_seconds']==1800
+        admitted.append(True)
+        return SimpleNamespace(stopped_verified=True),inspect(selected,anchor,time.monotonic()+1700)
+    def digest(selection,observed):
+        assert admitted==[True] and selection is selected and observed is anchor
+        digests.append(True)
+        return HOST_BINDING
+    def script(controller,runtime,inventory,source,payload,op,stage,seconds,**kwargs):
+        assert digests==[True] and op==operation and kwargs=={'host_binding_sha256':HOST_BINDING}
+        scripts.append(stage)
+        return 'pass\n'
+    monkeypatch.setattr(full.boot,'_qualify_with_inspection',lifecycle)
+    monkeypatch.setattr(full.guest,'_inspect_guest',lambda *a:None)
+    monkeypatch.setattr(full.build,'host_binding_sha256',digest)
+    monkeypatch.setattr(full.build,'read_source',lambda path:b'')
+    monkeypatch.setattr(full,'capture_sources',lambda op:{key:'' for key in full.required_sources(op)})
+    monkeypatch.setattr(full,'load_bundle',lambda parent:full.build.Bundle({},{}))
+    monkeypatch.setattr(full,'stage_script',script)
+    monkeypatch.setattr(full.create,'_command',lambda *a:b'{}')
+    monkeypatch.setattr(full,'parse_stage',lambda result,op,stage:{
+        'result':{'status':'verified'},'inventory_before':{},'inventory_after':{},'runtime':{}})
+    monkeypatch.setattr(full,'parse_stages',lambda *a,**k:None)
+    monkeypatch.setattr(full,'parse_result',lambda result,op:result)
+    observed=full.qualify(selected,operation)
+    assert digests==[True] and scripts==[item[0] for item in full.STAGES[operation]]
+    assert observed.lifecycle.stopped_verified is True
+    assert observed.session_enabled is False

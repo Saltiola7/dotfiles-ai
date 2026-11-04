@@ -129,10 +129,11 @@ def stage_payload(payload: dict, stage: str) -> dict:
 
 
 def stage_script(controller: str, runtime: str, inventory: str, source: str,
-                 payload: dict, operation: str, stage: str, seconds: int) -> str:
+                 payload: dict, operation: str, stage: str, seconds: int, *, host_binding_sha256: str) -> str:
     """One fixed stage per bounded transport, within the same worker lifecycle."""
     if operation not in OPERATIONS:
         raise build.Refusal('full_build_operation')
+    if not build._binding_digest(host_binding_sha256): raise build.Refusal('build_binding_input')
     selected=[item for item in STAGES[operation] if item[0]==stage]
     if len(selected)!=1 or type(seconds) is not int or not 90<=seconds<=1600:
         raise build.Refusal('full_build_stage')
@@ -144,7 +145,7 @@ def stage_script(controller: str, runtime: str, inventory: str, source: str,
         'full-test':'required_free_before_build'}[operation]] if first else 0
     body=f'''
 _operation_end=time.monotonic()+{seconds!r}
-with mounted_store(deadline=_operation_end):
+with mounted_store(deadline=_operation_end,host_binding_sha256={host_binding_sha256!r}):
     _before=build_inventory()
     if _before['store_available_bytes'] < {threshold!r}:
         raise RuntimeError('full_build_capacity')
@@ -292,11 +293,13 @@ def qualify(selection: create.CreateSelection, operation: str) -> build.BuildObs
     # temporary application remains in the already admitted controller cache.
     def inspect(selected,anchor,deadline):
         guest._inspect_guest(selected,anchor,deadline)
+        binding=build.host_binding_sha256(selected,anchor)
         bundle=load_bundle(selected.storage.cache_path/'_tmp')
         stages={};programs={};before=after=runtime_result=None
         for stage,key,network,maximum in STAGES[operation]:
             seconds=min(maximum+100,1600,int(create._remaining(deadline,1700))-15)
-            script=stage_script(controller,runtime,inventory,sources[key],bundle.payload,operation,stage,seconds)
+            script=stage_script(controller,runtime,inventory,sources[key],bundle.payload,operation,stage,seconds,
+                                host_binding_sha256=binding)
             wire=build.encode_program(script)
             argv=[str(anchor.sources[0].identity.path),'shell','--tty=false','--start=false',
                   '--workdir','/','q','--','/usr/bin/sudo','-n','/usr/bin/python3','-I','-c',wire]

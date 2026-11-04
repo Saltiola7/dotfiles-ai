@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import errno
 import fcntl
+import hashlib
 import ipaddress
 import json
 import math
@@ -247,6 +248,278 @@ def _parse_receipt(raw: bytes) -> dict:
             or re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", value["uuid"]) is None):
         raise Refusal("receipt")
     return value
+
+
+def _binding_host(value: str) -> None:
+    if type(value) is not str or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise Refusal("binding_host")
+
+
+def _binding_uuid(value) -> bool:
+    try:
+        parsed = uuid.UUID(value) if type(value) is str else None
+        return parsed is not None and parsed.int != 0 and str(parsed) == value
+    except ValueError:
+        return False
+
+
+def _binding_parse(raw: bytes) -> dict:
+    def unique(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise Refusal("binding_record")
+            result[key] = value
+        return result
+    if not 0 < len(raw) <= 8192:
+        raise Refusal("binding_record")
+    try:
+        value = json.loads(raw, object_pairs_hook=unique)
+    except (ValueError, UnicodeError):
+        raise Refusal("binding_record") from None
+    expected = {"schema_version", "host_binding_sha256", "legacy_receipt_sha256", "inner_uuid", "btrfs",
+                "image_identity", "receipt_identity", "root_identity", "parent_identity"}
+    if (type(value) is not dict or set(value) != expected or type(value["schema_version"]) is not int
+            or value["schema_version"] != 1 or not _binding_uuid(value["inner_uuid"])):
+        raise Refusal("binding_record")
+    for field in ("host_binding_sha256", "legacy_receipt_sha256"):
+        _binding_host(value[field])
+    native = value["btrfs"]
+    if (type(native) is not dict or set(native) != {"fsid", "tree_id", "subvolume_uuid"}
+            or not _binding_uuid(native["fsid"]) or not _binding_uuid(native["subvolume_uuid"])
+            or type(native["tree_id"]) is not int or not 0 < native["tree_id"] < 2**64):
+        raise Refusal("binding_record")
+    for field, length in (("image_identity", 6), ("receipt_identity", 6), ("root_identity", 4), ("parent_identity", 4)):
+        identity = value[field]
+        if (type(identity) is not list or len(identity) != length
+                or any(type(number) is not int or not 0 <= number < 2**64 for number in identity)
+                or identity[0] == 0 or identity[1] > 0xffff or identity[2:4] != [0, 0]):
+            raise Refusal("binding_record")
+    if (value["image_identity"][1:] != [stat.S_IFREG | 0o600, 0, 0, 1, IMAGE_BYTES]
+            or value["receipt_identity"][1:5] != [stat.S_IFREG | 0o600, 0, 0, 1]
+            or not 0 < value["receipt_identity"][5] <= 4096
+            or value["root_identity"][1] != stat.S_IFDIR | 0o711
+            or not stat.S_ISDIR(value["parent_identity"][1]) or value["parent_identity"][1] & 0o022):
+        raise Refusal("binding_record")
+    return value
+
+
+def _binding_btrfs(fd: int) -> dict:
+    if sys.byteorder != "little":
+        raise Refusal("binding_platform")
+    try:
+        filesystem = fcntl.ioctl(fd, 0x8400941f, bytes(1024))
+        subvolume = fcntl.ioctl(fd, 0x81f8943c, bytes(504))
+    except OSError:
+        raise Refusal("binding_ioctl") from None
+    if type(filesystem) is not bytes or len(filesystem) != 1024 or type(subvolume) is not bytes or len(subvolume) != 504:
+        raise Refusal("binding_ioctl")
+    result = {"fsid": str(uuid.UUID(bytes=filesystem[16:32])),
+              "tree_id": struct.unpack_from("=Q", subvolume)[0],
+              "subvolume_uuid": str(uuid.UUID(bytes=subvolume[296:312]))}
+    if not _binding_uuid(result["fsid"]) or not _binding_uuid(result["subvolume_uuid"]) or result["tree_id"] == 0:
+        raise Refusal("binding_ioctl")
+    return result
+
+
+@contextmanager
+def _binding_fds(root_fd: int, *, sidecar: bool):
+    fds = {"root": root_fd}
+    try:
+        for role, path in (("parent", ROOT.parent), ("receipt", ROOT / "receipt.json"), ("image", ROOT / "image.raw"),
+                           *((("binding", ROOT / "binding.json"),) if sidecar else ())):
+            _remaining(_work_end)
+            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+            fds[role] = os.open(path, flags | (os.O_DIRECTORY if role == "parent" else 0))
+        yield fds
+    except OSError:
+        raise Refusal("binding_io") from None
+    finally:
+        primary = sys.exc_info()[1]
+        close_failed = False
+        for role, fd in fds.items():
+            if role != "root":
+                try:
+                    os.close(fd)
+                except OSError:
+                    close_failed = True
+        if close_failed:
+            if primary is None:
+                raise Refusal("binding_close")
+            if isinstance(primary, Refusal):
+                primary.stderr = (primary.stderr + b"\nbinding_fd_close_failed")[:MAX_OUTPUT - len(primary.stdout)]
+
+
+def _binding_read(fd: int, limit: int, deadline: float) -> bytes:
+    result = bytearray()
+    while True:
+        _remaining(deadline)
+        block = os.pread(fd, min(4096, limit + 1 - len(result)), len(result))
+        if not block:
+            return bytes(result)
+        result.extend(block)
+        if len(result) > limit:
+            raise Refusal("binding_record_limit")
+
+
+def _binding_observe(fds: dict, deadline: float) -> dict:
+    paths = {"root": ROOT, "parent": ROOT.parent, "image": ROOT / "image.raw",
+             "receipt": ROOT / "receipt.json", "binding": ROOT / "binding.json"}
+    try:
+        rows = [line.split() for line in _mounts().decode("ascii").splitlines()]
+        result = {}
+        for role, fd in fds.items():
+            _remaining(deadline)
+            info = os.fstat(fd)
+            identity = (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink, info.st_size)
+            path = paths[role]
+            native = path.lstat()
+            path_identity = (native.st_dev, native.st_ino, native.st_mode, native.st_uid, native.st_gid, native.st_nlink, native.st_size)
+            directory = role in {"root", "parent"}
+            if (path.resolve(strict=True) != path or identity != path_identity or info.st_uid != 0 or info.st_gid != 0
+                    or not (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))
+                    or (directory and info.st_mode & 0o022)
+                    or (role == "root" and stat.S_IMODE(info.st_mode) != 0o711)
+                    or (not directory and (stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1))
+                    or (role == "image" and info.st_size != IMAGE_BYTES)
+                    or (role in {"receipt", "binding"} and not 0 < info.st_size <= (4096 if role == "receipt" else 8192))):
+                raise Refusal("binding_path")
+            raw = _read(Path(f"/proc/self/fdinfo/{fd}"), 4096).decode("ascii")
+            mount_ids = re.findall(r"^mnt_id:\s*([0-9]+)$", raw, re.MULTILINE)
+            inodes = re.findall(r"^ino:\s*([0-9]+)$", raw, re.MULTILINE)
+            if len(mount_ids) != 1 or len(inodes) != 1 or int(inodes[0]) != info.st_ino:
+                raise Refusal("binding_mount")
+            matches = [row for row in rows if len(row) > 6 and row[0] == mount_ids[0]]
+            if len(matches) != 1:
+                raise Refusal("binding_mount")
+            row = matches[0]
+            if row[row.index("-") + 1] != "btrfs" or not path.is_relative_to(Path(row[4])):
+                raise Refusal("binding_mount")
+            result[role] = {"identity": identity, "mount": tuple(row), "btrfs": _binding_btrfs(fd)}
+        if any(value["btrfs"] != result["root"]["btrfs"] for value in result.values()):
+            raise Refusal("binding_filesystem")
+        return result
+    except (OSError, ValueError, UnicodeError, IndexError):
+        raise Refusal("binding_observation") from None
+
+
+def _binding_check(before: dict, after: dict, *, publication: bool = False) -> None:
+    for role, initial in before.items():
+        current = after[role]
+        left, right = initial["identity"], current["identity"]
+        if publication and role == "root":
+            left, right = left[:-1], right[:-1]
+        if left != right or initial["mount"] != current["mount"] or initial["btrfs"] != current["btrfs"]:
+            raise Refusal("binding_changed")
+
+
+def _binding_unmounted(deadline: float) -> None:
+    _remaining(deadline)
+    _private(ROOT / "store", directory=True)
+    if _active is not None or _is_mounted(ROOT / "store") or _associated(ROOT / "image.raw", deadline):
+        raise Refusal("binding_attached")
+
+
+def _binding_value(fds: dict, observed: dict, host: str, deadline: float) -> tuple[dict, bytes]:
+    raw = _binding_read(fds["receipt"], 4096, deadline)
+    receipt = _parse_receipt(raw)
+    if observed["image"]["identity"][1:] != tuple(receipt["image_identity"][1:]):
+        raise Refusal("binding_legacy_image")
+    procfd = f"/proc/{os.getpid()}/fd/{fds['image']}"
+    for field, expected in (("TYPE", "ext4"), ("UUID", receipt["uuid"])):
+        answer = _command(["/usr/sbin/blkid", "-p", "-s", field, "-o", "value", procfd], deadline)["stdout"]
+        if answer.strip() != expected.encode():
+            raise Refusal("binding_inner_filesystem")
+    value = {"schema_version": 1, "host_binding_sha256": host,
+             "legacy_receipt_sha256": hashlib.sha256(raw).hexdigest(), "inner_uuid": receipt["uuid"],
+             "btrfs": observed["root"]["btrfs"],
+             "image_identity": list(observed["image"]["identity"][1:]),
+             "receipt_identity": list(observed["receipt"]["identity"][1:]),
+             "root_identity": list(observed["root"]["identity"][1:5]),
+             "parent_identity": list(observed["parent"]["identity"][1:5])}
+    _binding_parse(json.dumps(value).encode())
+    return value, raw
+
+
+def record_stable_binding(*, host_binding_sha256: str, deadline: float) -> dict:
+    """Explicitly record current identity; preserve the historical receipt."""
+    global _end, _work_end
+    _binding_host(host_binding_sha256)
+    _remaining(deadline)
+    if _end is not None:
+        raise Refusal("nested_operation")
+    root_fd = _root()
+    _end, _work_end = deadline, deadline - CLEANUP_RESERVE
+    try:
+        if _root_names() != {"image.raw", "store", "receipt.json"}:
+            raise Refusal("binding_retained_state")
+        _binding_unmounted(_work_end)
+        with _binding_fds(root_fd, sidecar=False) as fds:
+            before = _binding_observe(fds, _work_end)
+            value, receipt_raw = _binding_value(fds, before, host_binding_sha256, _work_end)
+            raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+            _binding_check(before, _binding_observe(fds, _work_end))
+            if _binding_read(fds["receipt"], 4096, _work_end) != receipt_raw:
+                raise Refusal("binding_receipt_changed")
+            _binding_unmounted(_work_end)
+            if _root_names() != {"image.raw", "store", "receipt.json"}:
+                raise Refusal("binding_retained_state")
+            fds["binding"] = os.open(ROOT / "binding.json",
+                os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK, 0o600)
+            pending = memoryview(raw)
+            while pending:
+                _remaining(_work_end)
+                written = os.write(fds["binding"], pending)
+                if written <= 0:
+                    raise Refusal("binding_write")
+                pending = pending[written:]
+            os.fsync(fds["binding"])
+            os.fsync(root_fd)
+            if _root_names() != {"image.raw", "store", "receipt.json", "binding.json"}:
+                raise Refusal("binding_retained_state")
+            after = _binding_observe(fds, _work_end)
+            _binding_check(before, after, publication=True)
+            if (_binding_read(fds["binding"], 8192, _work_end) != raw
+                    or _binding_read(fds["receipt"], 4096, _work_end) != receipt_raw):
+                raise Refusal("binding_record_changed")
+            _binding_unmounted(_work_end)
+            _binding_check(after, _binding_observe(fds, _work_end))
+            return {"schema_version": 1, "status": "storage_bound", "host_binding_sha256": host_binding_sha256,
+                    "legacy_receipt_sha256": value["legacy_receipt_sha256"], "binding_sha256": hashlib.sha256(raw).hexdigest(),
+                    "image_bytes": IMAGE_BYTES, "unmounted_verified": True, "session_enabled": False,
+                    "historical_outer_identity_verified": False}
+    finally:
+        _end = _work_end = None
+        os.close(root_fd)
+
+
+@contextmanager
+def _bound_store(root_fd: int, host: str, deadline: float):
+    _binding_host(host)
+    _binding_unmounted(deadline)
+    with _binding_fds(root_fd, sidecar=True) as fds:
+        before = _binding_observe(fds, deadline)
+        raw = _binding_read(fds["binding"], 8192, deadline)
+        saved = _binding_parse(raw)
+        current, receipt_raw = _binding_value(fds, before, host, deadline)
+        if saved != current:
+            raise Refusal("binding_mismatch")
+        _binding_check(before, _binding_observe(fds, deadline))
+        if (_binding_read(fds["receipt"], 4096, deadline) != receipt_raw
+                or _binding_read(fds["binding"], 8192, deadline) != raw):
+            raise Refusal("binding_record_changed")
+        if _root_names() != {"image.raw", "store", "receipt.json", "binding.json"}:
+            raise Refusal("binding_retained_state")
+        with _mounted(ROOT / "image.raw", IMAGE_BYTES, current["inner_uuid"], before["image"]["identity"],
+                      deadline, initialize=False) as store:
+            yield store
+        _binding_check(before, _binding_observe(fds, deadline))
+        if (_binding_read(fds["receipt"], 4096, deadline) != receipt_raw
+                or _binding_read(fds["binding"], 8192, deadline) != raw):
+            raise Refusal("binding_record_changed")
+        if _root_names() != {"image.raw", "store", "receipt.json", "binding.json"}:
+            raise Refusal("binding_retained_state")
+        _binding_unmounted(deadline)
 
 
 def _parse_pending(raw: bytes) -> dict:
@@ -1022,7 +1295,7 @@ def _probe(*, fill: bool, deadline: float, fill_inode: int = 0) -> dict:
 
 
 @contextmanager
-def mounted_store(*, deadline: float | None = None):
+def mounted_store(*, deadline: float | None = None, host_binding_sha256: str | None = None):
     """Rebind the retained area and always release its exact mount and loop."""
     global _end, _work_end
     if _end is not None:
@@ -1033,7 +1306,12 @@ def mounted_store(*, deadline: float | None = None):
     _end, _work_end = end, end - CLEANUP_RESERVE
     try:
         _remaining(_work_end)
-        if _root_names() != {"image.raw", "store", "receipt.json"}:
+        names = _root_names()
+        if names == {"image.raw", "store", "receipt.json", "binding.json"}:
+            with _bound_store(fd, host_binding_sha256, _work_end) as store:
+                yield store
+            return
+        if names != {"image.raw", "store", "receipt.json"}:
             raise Refusal("retained_state")
         receipt_path = ROOT / "receipt.json"
         _private(receipt_path)

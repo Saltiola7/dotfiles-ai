@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 import sys
 import time
@@ -10,6 +12,9 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
+
+
+HOST_BINDING='d'*64
 
 
 @pytest.fixture(scope='module')
@@ -60,7 +65,7 @@ def test_prepare_report_must_prove_exact_limits(build,change):
 
 
 def test_kernel_script_keeps_four_fixed_stages_and_offline_test(build):
-    script=build.kernel_script('', 'def stage(*args): pass', {'files':{}}, 1000,runtime='def install_runtime(): return {}')
+    script=build.kernel_script('', 'def stage(*args): pass', {'files':{}}, 1000,runtime='def install_runtime(): return {}',host_binding_sha256=HOST_BINDING)
     compile(script,'fixed-kernel','exec')
     assert "('download', True" in script and "('fetch', True" in script
     assert "('setup', False" in script and "('test', False" in script
@@ -76,7 +81,7 @@ def test_kernel_script_composes_valid_unprivileged_stage_source(build):
         calls.append(kwargs['network'])
         return {'stdout':b'{}'}
     namespace={'time':time,'sys':sys,'json':json,'mounted_store':mounted_store,'run_unit':run_unit}
-    exec(build.kernel_script('', 'def stage(*args): pass', {}, 1000,runtime='def install_runtime(): return {}'),namespace)
+    exec(build.kernel_script('', 'def stage(*args): pass', {}, 1000,runtime='def install_runtime(): return {}',host_binding_sha256=HOST_BINDING),namespace)
     assert calls==[True,False,True,False]
 
 
@@ -111,7 +116,7 @@ def test_kernel_admits_runtime_before_unprivileged_stages(build):
         return {'stdout':b'{}'}
     runtime="def install_runtime():\n    calls.append('runtime')\n    return {'status':'runtime_ready','installed_bytes':945234}\n"
     namespace={'time':time,'sys':sys,'json':json,'calls':calls,'mounted_store':mounted_store,'run_unit':run_unit}
-    exec(build.kernel_script('', 'def stage(*args): pass', {}, 1000,runtime=runtime),namespace)
+    exec(build.kernel_script('', 'def stage(*args): pass', {}, 1000,runtime=runtime,host_binding_sha256=HOST_BINDING),namespace)
     assert calls==['runtime','stage','stage','stage','stage']
 
 
@@ -123,7 +128,7 @@ def test_complete_guest_program_fits_linux_argument_and_unit_limits(build,tmp_pa
     builder=build.read_source(build.FIXTURES/'guest_harness.py').decode()+'\n'+build.read_source(build.FIXTURES/'guest_unwind.py').decode()
     if resume: builder+='\n'+build.read_source(build.FIXTURES/'guest_resume.py').decode()
     runtime=build.read_source(build.FIXTURES/'guest_runtime.py').decode()
-    script=build.kernel_script(controller,builder,bundle.payload,1100,runtime=runtime,resume=resume)
+    script=build.kernel_script(controller,builder,bundle.payload,1100,runtime=runtime,resume=resume,host_binding_sha256=HOST_BINDING)
     compile(script,'closed-native-kernel','exec')
     command=shlex.join(['/usr/bin/sudo','-n','/usr/bin/python3','-I','-c',build.encode_program(script)])
     assert len(command.encode())<64*1024
@@ -180,14 +185,14 @@ def test_completed_stage_results_survive_later_failure(build, capsys):
                  'mounted_store': mounted_store, 'run_unit': run_unit, 'Refusal': build.Refusal}
     with pytest.raises(RuntimeError, match='later stage failed'):
         exec(build.kernel_script('', 'def stage(*args): pass', {}, 1000,
-                                 runtime='def install_runtime(): return {}'), namespace)
+                                 runtime='def install_runtime(): return {}',host_binding_sha256=HOST_BINDING), namespace)
     records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
     assert records[-1] == {'stage': 'setup', 'finished': True, 'result': {'proof': 2}}
 
 
 def test_resume_has_only_offline_stages(build):
     script=build.kernel_script('', 'def stage(*args): pass', {}, 1000,
-                               runtime='def install_runtime(): return {}', resume=True)
+                               runtime='def install_runtime(): return {}', resume=True,host_binding_sha256=HOST_BINDING)
     assert "('resume', False" in script and "('test', False" in script
     assert "('download', True" not in script and "('fetch', True" not in script
 
@@ -240,7 +245,7 @@ def test_inventory_always_unmounts_and_never_invokes_builder(build,capsys):
         finally: calls.append('unmount')
     ns={'json':json,'time':time,'sys':sys,'mounted_store':mounted_store,'Refusal':build.Refusal,
         'build_inventory':lambda:inventory_report()}
-    exec(build.inventory_script('', '',300),ns)
+    exec(build.inventory_script('', '',300,host_binding_sha256=HOST_BINDING),ns)
     assert calls==['mount','unmount']
     assert json.loads(capsys.readouterr().out)['unmounted_verified'] is True
     calls.clear()
@@ -248,12 +253,170 @@ def test_inventory_always_unmounts_and_never_invokes_builder(build,capsys):
         error=build.Refusal('inventory_failed');error.stdout=error.stderr=b''
         raise error
     ns['build_inventory']=fail
-    with pytest.raises(build.Refusal): exec(build.inventory_script('', '',300),ns)
+    with pytest.raises(build.Refusal): exec(build.inventory_script('', '',300,host_binding_sha256=HOST_BINDING),ns)
     assert calls==['mount','unmount']
 
 
 def test_complete_inventory_program_is_bounded_and_valid(build):
     program=build.inventory_script(build.read_source(build.FIXTURES/'guest_build_storage.py').decode(),
-                                   build.read_source(build.FIXTURES/'guest_build_inventory.py').decode(),300)
+                                   build.read_source(build.FIXTURES/'guest_build_inventory.py').decode(),300,host_binding_sha256=HOST_BINDING)
     compile(program,'closed-inventory','exec')
     assert len(build.encode_program(program).encode())<64*1024
+
+
+@pytest.fixture
+def admitted_host(build):
+    native=build.create.native
+    pilot=Path('/Volumes/ext/state/openshell')
+    run=pilot/'qualification/openshell-q-123456abcdef'
+    storage=native.NativeStorageSelection('pilot',pilot,run,run/'runtime.raw',11,101,
+        '11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222',
+        '33333333-3333-3333-3333-333333333333')
+    selected=build.create.CreateSelection(storage,'a'*64,'b'*64,build.create.RECIPE_SHA256)
+    disk=native.FileIdentity(storage.runtime_path/'q/disk',22,301,0o100600,501,1,20*1024**3,4096)
+    worker=build.create.inventory.RetainedWorker(run.name,'q',22,201,True,(disk,))
+    config=build.create.FileEvidence(replace(disk,path=storage.runtime_path/'q/lima.yaml',inode=302),1,2,'c'*64)
+    anchor=build.boot._Anchors(None,worker,config,build.create.FileEvidence(disk,3,4,None),())
+    return selected,anchor
+
+
+def test_host_binding_has_exact_canonical_domain_and_identity_record(build,admitted_host):
+    selected,anchor=admitted_host
+    storage=selected.storage
+    record={'schema_version':1,'storage':{
+        'profile':'pilot','pilot_root':str(storage.pilot_root),'run_root':str(storage.run_root),
+        'image_path':str(storage.image_path),'image_device':11,'image_inode':101,
+        'container_uuid':storage.container_uuid,'runtime_uuid':storage.runtime_uuid,'cache_uuid':storage.cache_uuid},
+        'worker':{'run_id':storage.run_root.name,'name':'q','path':str(storage.runtime_path/'q'),
+                  'volume_uuid':storage.runtime_uuid,'inode':201},
+        'disk':{'path':str(storage.runtime_path/'q/disk'),'volume_uuid':storage.runtime_uuid,
+                'inode':301,'mode':0o100600,'uid':501,'links':1}}
+    canonical=json.dumps(record,sort_keys=True,separators=(',',':'),ensure_ascii=True,allow_nan=False).encode('ascii')
+    expected=hashlib.sha256(b'dotfiles-ai.openshell.build-store-host-binding.v1\0'+canonical).hexdigest()
+    assert build.host_binding_sha256(selected,anchor)==expected
+
+
+def test_host_binding_ignores_usage_transient_devices_and_source_evidence(build,admitted_host):
+    selected,anchor=admitted_host
+    original=build.host_binding_sha256(selected,anchor)
+    disk=replace(anchor.disk,identity=replace(anchor.disk.identity,device=900,size=123,allocated=8192),
+                 modified_ns=700,changed_ns=800,sha256='e'*64)
+    changed=replace(anchor,disk=disk,worker=replace(anchor.worker,device=900,disks=(disk.identity,)),
+                    config=replace(anchor.config,sha256='f'*64),sources=(object(),),inventory=object())
+    assert build.host_binding_sha256(replace(selected,lima_sha256='1'*64,qemu_sha256='2'*64),changed)==original
+
+
+@pytest.mark.parametrize('field', ['image_device','image_inode','container_uuid','runtime_uuid','cache_uuid',
+                                  'worker_inode','disk_inode','disk_mode','disk_uid','disk_links'])
+def test_host_binding_changes_with_each_persistent_identity(build,admitted_host,field):
+    selected,anchor=admitted_host
+    original=build.host_binding_sha256(selected,anchor)
+    if field in {'image_device','image_inode'}:
+        selected=replace(selected,storage=replace(selected.storage,**{field:getattr(selected.storage,field)+1}))
+    elif field.endswith('_uuid'):
+        selected=replace(selected,storage=replace(selected.storage,**{field:'44444444-4444-4444-4444-444444444444'}))
+    elif field=='worker_inode':anchor=replace(anchor,worker=replace(anchor.worker,inode=202))
+    else:
+        name=field.removeprefix('disk_')
+        disk=replace(anchor.disk.identity,**{name:getattr(anchor.disk.identity,name)+1})
+        anchor=replace(anchor,disk=replace(anchor.disk,identity=disk),worker=replace(anchor.worker,disks=(disk,)))
+    assert build.host_binding_sha256(selected,anchor)!=original
+
+
+def bound_report():
+    return {'schema_version':1,'status':'storage_bound','host_binding_sha256':HOST_BINDING,
+            'legacy_receipt_sha256':'e'*64,'binding_sha256':'f'*64,'image_bytes':8*1024**3,
+            'unmounted_verified':True,'session_enabled':False,'historical_outer_identity_verified':False}
+
+
+@pytest.mark.parametrize('change',['none','unknown','missing','schema_bool','host','legacy_hash','binding_hash',
+                                  'size','unmounted','enabled','historical'])
+def test_binding_report_is_closed_and_matches_fresh_host(build,change):
+    report=bound_report()
+    if change=='unknown':report['override']=True
+    elif change=='missing':report.pop('binding_sha256')
+    elif change=='schema_bool':report['schema_version']=True
+    elif change=='host':report['host_binding_sha256']='a'*64
+    elif change=='legacy_hash':report['legacy_receipt_sha256']='F'*64
+    elif change=='binding_hash':report['binding_sha256']=''
+    elif change=='size':report['image_bytes']+=1
+    elif change=='unmounted':report['unmounted_verified']=False
+    elif change=='enabled':report['session_enabled']=True
+    elif change=='historical':report['historical_outer_identity_verified']=True
+    if change=='none':assert build.parse_bound(report,HOST_BINDING)==report
+    else:
+        with pytest.raises(build.Refusal):build.parse_bound(report,HOST_BINDING)
+
+
+def test_binding_script_calls_only_fixed_unmounted_binding(build,capsys):
+    calls=[]
+    def record_stable_binding(**kwargs):
+        calls.append(kwargs)
+        return bound_report()
+    namespace={'json':json,'sys':sys,'time':time,'Refusal':build.Refusal,
+        'record_stable_binding':record_stable_binding,
+        'mounted_store':lambda **k:pytest.fail('mounted'),'run_unit':lambda *a,**k:pytest.fail('service')}
+    exec(build.binding_script('',300,host_binding_sha256=HOST_BINDING),namespace)
+    assert len(calls)==1 and calls[0]['host_binding_sha256']==HOST_BINDING
+    assert time.monotonic()<calls[0]['deadline']<=time.monotonic()+300
+    assert json.loads(capsys.readouterr().out)==bound_report()
+
+
+@pytest.mark.parametrize('operation',['inventory','kernel','kernel-resume'])
+def test_mounted_operations_receive_fresh_binding(build,operation,capsys):
+    calls=[]
+    @contextmanager
+    def mounted_store(**kwargs):
+        calls.append(kwargs)
+        yield None
+    namespace={'json':json,'sys':sys,'time':time,'mounted_store':mounted_store,'Refusal':build.Refusal,
+        'build_inventory':inventory_report,'run_unit':lambda *a,**k:{'stdout':b'{}'}}
+    if operation=='inventory':script=build.inventory_script('','',300,host_binding_sha256=HOST_BINDING)
+    else:script=build.kernel_script('','',{},1000,runtime='def install_runtime(**kwargs): return {}',
+                                   resume=operation=='kernel-resume',host_binding_sha256=HOST_BINDING)
+    exec(script,namespace)
+    assert len(calls)==1 and calls[0]['host_binding_sha256']==HOST_BINDING
+
+
+@pytest.mark.parametrize('operation',['inventory','bind-storage'])
+def test_binding_computed_only_inside_admitted_inspection(build,admitted_host,monkeypatch,operation):
+    selected,anchor=admitted_host;entered=[];commands=[]
+    def digest(selection,observed):
+        assert entered==['admitted'] and selection is selected and observed is anchor
+        return HOST_BINDING
+    monkeypatch.setattr(build,'host_binding_sha256',digest)
+    monkeypatch.setattr(build.guest,'_inspect_guest',lambda *a:SimpleNamespace(free_bytes=16*1024**3))
+    monkeypatch.setattr(build,'read_source',lambda path:b'')
+    anchor=replace(anchor,sources=(SimpleNamespace(identity=SimpleNamespace(path=Path('/fixed/limactl'))),))
+    def lifecycle(selection,inspect,**kwargs):
+        entered.append('admitted')
+        assert kwargs['qualification_seconds']==900
+        return SimpleNamespace(stopped_verified=True),inspect(selected,anchor,time.monotonic()+500)
+    def command(selection,argv,deadline,phase,maximum):
+        commands.append(argv)
+        assert '--start=false' in argv and '--' in argv
+        return json.dumps(bound_report() if operation=='bind-storage' else inventory_report()).encode()
+    monkeypatch.setattr(build.boot,'_qualify_with_inspection',lifecycle)
+    monkeypatch.setattr(build.create,'_command',command)
+    observed=build.qualify(selected,operation)
+    assert len(commands)==1 and observed.lifecycle.stopped_verified is True
+    assert observed.result['session_enabled'] is False
+
+
+def test_bind_cli_accepts_only_selection_and_closed_operation(build,monkeypatch,capsys):
+    monkeypatch.setattr(sys,'argv',['runner','--selection','unused','--operation','bind-storage'])
+    monkeypatch.setattr(build.create,'private_file',lambda path:b'')
+    monkeypatch.setattr(build.create,'parse_selection',lambda raw:None)
+    monkeypatch.setattr(build,'qualify',lambda selected,op:SimpleNamespace(
+        result=bound_report(),lifecycle=SimpleNamespace(stopped_verified=True)))
+    assert build.main()==0
+    assert json.loads(capsys.readouterr().out)['operation']=='bind-storage'
+
+
+@pytest.mark.parametrize('override',['--host-binding-sha256','--guest-path','--uuid','--receipt'])
+def test_bind_cli_refuses_identity_overrides_before_admission(build,monkeypatch,override):
+    monkeypatch.setattr(sys,'argv',['runner','--selection','unused','--operation','bind-storage',override,'untrusted'])
+    monkeypatch.setattr(build.create,'private_file',lambda path:pytest.fail('selection read'))
+    monkeypatch.setattr(build,'qualify',lambda *a:pytest.fail('boot'))
+    with pytest.raises(SystemExit) as caught:build.main()
+    assert caught.value.code==2
