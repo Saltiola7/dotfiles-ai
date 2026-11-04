@@ -1,5 +1,23 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-03 — Native Initiative external-completion recovery
+
+- Route initial completion and explicit completed retries through the dedicated
+  `complete-external` admission path. Hold the shared local-mutation lease, cycle
+  evidence lock and delivery-target lock, in that order. Revalidate the cycle,
+  delivery, checkout and execution identity under the owned locks before native
+  account selection. Keep generic completed-cycle writers blocked.
+- Bind an explicit retry to its canonical filename and recorded cycle ID.
+  Preserve immutable completion receipts and completion time, reject foreign
+  pointers and competing writers, and recover interrupted removal of the cycle's
+  own pointer. Preview and failures preserve canonical state; acquired locks are
+  released when verification or later lock acquisition fails.
+- Reproduce the previously missed top-level path using real schema-5 native
+  Initiative registration. Validation results and exact source identities remain
+  in the private Cycle Record. Source delivery is a draft PR; installation and
+  consumer retry require separately approved, verified merged source. No runtime
+  redeployment, gate exception or canonical-record repair is introduced.
+
 ## 2026-11-03 — Completion after an external merge
 
 - Add `complete-external` for an explicitly pinned, already merged GitHub PR.
