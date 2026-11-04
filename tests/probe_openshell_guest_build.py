@@ -122,6 +122,60 @@ def prepare_script(controller: str) -> str:
     return _observed_script(controller,'print(json.dumps(prepare(),sort_keys=True),flush=True)\n')
 
 
+def inventory_script(controller: str, inventory: str, seconds: int) -> str:
+    return _observed_script(controller+'\n'+inventory,f'''
+with mounted_store(deadline=time.monotonic()+{seconds!r}):
+    _inventory = build_inventory()
+_inventory['unmounted_verified'] = True
+print(json.dumps(_inventory,sort_keys=True),flush=True)
+''')
+
+
+def parse_inventory(result: dict) -> dict:
+    counts={'entry_count','unique_inode_count','logical_bytes','allocated_bytes',
+            'shared_allocated_bytes','hardlink_entries','symlink_entries'}
+    keys={'schema_version','status','image_bytes','store_capacity_bytes','store_free_bytes',
+          'store_available_bytes','root_free_bytes','work','entries','totals','build_enabled',
+          'session_enabled','unmounted_verified'}
+    def numbers(value,names):
+        return all(type(value.get(key)) is int and 0<=value[key]<2**63 for key in names)
+    if (type(result) is not dict or set(result)!=keys
+            or type(result['schema_version']) is not int or result['schema_version']!=1
+            or result['status']!='inventoried' or result['image_bytes']!=8*1024**3
+            or not numbers(result,{'image_bytes','store_capacity_bytes','store_free_bytes','store_available_bytes','root_free_bytes'})
+            or not 6*1024**3<result['store_capacity_bytes']<=result['image_bytes']
+            or not 0<=result['store_available_bytes']<=result['store_free_bytes']<=result['store_capacity_bytes']
+            or result['work']!='/var/lib/dotfiles-ai-openshell-build/store/work'
+            or result['build_enabled'] is not False or result['session_enabled'] is not False
+            or result['unmounted_verified'] is not True):
+        raise Refusal('build_inventory_report')
+    totals=result['totals'];entries=result['entries']
+    if (type(totals) is not dict or set(totals)!=counts|{'work_root_allocated_bytes'}
+            or not numbers(totals,set(totals)) or not 1<=totals['unique_inode_count']<=totals['entry_count']<=200000
+            or not totals['work_root_allocated_bytes']<=totals['allocated_bytes']<=result['image_bytes']
+            or totals['shared_allocated_bytes']>totals['allocated_bytes']
+            or type(entries) is not list or len(entries)>128):
+        raise Refusal('build_inventory_report')
+    names=set();entry_count=1
+    fields=counts|{'name','kind','known','device','inode','uid','gid','mode','nlink','exclusive_allocated_bytes'}
+    for entry in entries:
+        if (type(entry) is not dict or set(entry)!=fields
+                or not numbers(entry,fields-{'name','kind','known'})
+                or type(entry['name']) is not str or not 0<len(entry['name'])<=255
+                or entry['name'] in {'.','..'} or '/' in entry['name'] or '\0' in entry['name']
+                or entry['name'] in names or entry['kind'] not in {'directory','file','symlink'}
+                or type(entry['known']) is not bool or entry['nlink']<1 or entry['inode']<1
+                or entry['mode']&0o170000!={'directory':0o040000,'file':0o100000,'symlink':0o120000}[entry['kind']]
+                or not 1<=entry['unique_inode_count']<=entry['entry_count']<=200000
+                or entry['allocated_bytes']>result['image_bytes']
+                or entry['exclusive_allocated_bytes']+entry['shared_allocated_bytes']!=entry['allocated_bytes']):
+            raise Refusal('build_inventory_report')
+        names.add(entry['name']);entry_count+=entry['entry_count']
+    if entry_count!=totals['entry_count']:
+        raise Refusal('build_inventory_report')
+    return result
+
+
 def parse_prepared(result: dict) -> dict:
     keys={'schema_version','status','image_bytes','fixture_bytes','fixture_written_bytes',
           'escape_verified','enospc_verified','unmounted_verified','work','allocation_enabled'}
@@ -177,11 +231,12 @@ print(json.dumps({{'status':'kernel_tested','runtime':_runtime,'stages':_stages,
 
 
 def qualify(selection: create.CreateSelection, operation: str) -> BuildObservation:
-    if operation not in {'prepare','kernel','kernel-resume'}: raise Refusal('build_operation')
+    if operation not in {'prepare','inventory','kernel','kernel-resume'}: raise Refusal('build_operation')
     # Capture reviewed source before any VM start. The body is fixed per
     # operation; neither selection JSON nor CLI accepts commands or scripts.
     controller=read_source(FIXTURES/'guest_build_storage.py').decode()
-    kernel=operation!='prepare'
+    kernel=operation in {'kernel','kernel-resume'}
+    inventory=read_source(FIXTURES/'guest_build_inventory.py').decode() if operation=='inventory' else ''
     builder=read_source(FIXTURES/'guest_harness.py').decode() if kernel else ''
     runtime=read_source(FIXTURES/'guest_runtime.py').decode() if kernel else ''
     unwind=read_source(FIXTURES/'guest_unwind.py').decode() if kernel else ''
@@ -191,6 +246,8 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
         observed=guest._inspect_guest(selected,anchor,deadline)
         if operation=='prepare' and observed.free_bytes<12*1024**3: raise Refusal('guest_build_reserve')
         if operation=='prepare': script=prepare_script(controller)
+        elif operation=='inventory':
+            script=inventory_script(controller,inventory,min(300,int(create._remaining(deadline,360))-15))
         else:
             bundle=load_bundle(selected.storage.cache_path/'_tmp')
             seconds=int(create._remaining(deadline,1200))-15
@@ -200,9 +257,12 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
         wire=encode_program(script)
         argv=[str(anchor.sources[0].identity.path),'shell','--tty=false','--start=false',
               '--workdir','/','q','--','/usr/bin/sudo','-n','/usr/bin/python3','-I','-c',wire]
-        raw=create._command(selected,argv,deadline,'guest_build',450 if operation=='prepare' else 1250)
+        raw=create._command(selected,argv,deadline,'guest_build',1250 if kernel else 450)
         result=create._json(raw)
         if operation=='prepare': parse_prepared(result)
+        elif operation=='inventory':
+            parse_inventory(result)
+            result['inventory_sha256']=hashlib.sha256(inventory.encode()).hexdigest()
         if kernel:
             expected_stages={'resume','test'} if operation=='kernel-resume' else {'download','setup','fetch','test'}
             if (result.get('status')!='kernel_tested' or result.get('session_enabled') is not False
@@ -224,14 +284,14 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
         result['program_sha256']=program_sha256
         result['controller_sha256']=hashlib.sha256(controller.encode()).hexdigest()
         return result
-    lifecycle,result=boot._qualify_with_inspection(selection,inspect,qualification_seconds=900 if operation=='prepare' else 1800)
+    lifecycle,result=boot._qualify_with_inspection(selection,inspect,qualification_seconds=1800 if kernel else 900)
     return BuildObservation(operation,lifecycle,result)
 
 
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--selection',required=True,type=Path)
-    parser.add_argument('--operation',required=True,choices=('prepare','kernel','kernel-resume'))
+    parser.add_argument('--operation',required=True,choices=('prepare','inventory','kernel','kernel-resume'))
     args=parser.parse_args()
     try:
         selected=create.parse_selection(create.private_file(args.selection))

@@ -88,10 +88,13 @@ build, another VM, larger disk or fallback to an older OpenShell generation.
 
 The closed guest build runner is
 `python3 tests/probe_openshell_guest_build.py --selection PRIVATE_JSON --operation OPERATION`.
-Only three operations are accepted:
+Only four operations are accepted:
 
 - `prepare` qualifies the root-owned 8 GiB build/cache filesystem and a separate
   64 MiB exhaustion fixture, including outside-write and guest-socket exclusion.
+- `inventory` reports actual free space and metadata-only retained-directory
+  usage inside the already qualified build filesystem. It starts no build service
+  and deletes nothing; usage estimates do not authorize cleanup.
 - `kernel` prepares the pinned compiler and dependencies, then compiles and tests
   the exact patched child-filter module offline. Downloads, extraction, Cargo
   cache and outputs share the 8 GiB filesystem.

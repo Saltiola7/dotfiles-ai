@@ -203,3 +203,57 @@ def test_payload_transport_is_bounded_authenticated_data(build):
     with pytest.raises(RuntimeError,match='build_payload_identity'):
         exec(tampered,{'json':json,'hashlib':__import__('hashlib')})
     with pytest.raises(build.Refusal): build.payload_source({'oversized':'x'*(128*1024)})
+
+
+def inventory_report():
+    return {'schema_version':1,'status':'inventoried','image_bytes':8*1024**3,
+            'store_capacity_bytes':7*1024**3,'store_free_bytes':4*1024**3,
+            'store_available_bytes':4*1024**3,'root_free_bytes':12*1024**3,
+            'work':'/var/lib/dotfiles-ai-openshell-build/store/work',
+            'totals':{'entry_count':1,'unique_inode_count':1,
+            'logical_bytes':0,'allocated_bytes':4096,'shared_allocated_bytes':0,
+            'hardlink_entries':0,'symlink_entries':0,'work_root_allocated_bytes':4096},
+            'entries':[],'build_enabled':False,'session_enabled':False,'unmounted_verified':True}
+
+
+@pytest.mark.parametrize('change',['none','cap','available','used','enabled','unknown','unmounted','count'])
+def test_build_inventory_report_cannot_grant_build_or_hide_missing_proof(build,change):
+    report=inventory_report()
+    if change=='cap': report['image_bytes']+=1
+    elif change=='available': report['store_available_bytes']=report['store_free_bytes']+1
+    elif change=='used': report['totals']['shared_allocated_bytes']=4097
+    elif change=='enabled': report['build_enabled']=True
+    elif change=='unknown': report['extra']='ignored'
+    elif change=='unmounted': report['unmounted_verified']=False
+    elif change=='count': report['totals']['entry_count']=200001
+    if change=='none': assert build.parse_inventory(report)==report
+    else:
+        with pytest.raises(build.Refusal): build.parse_inventory(report)
+
+
+def test_inventory_always_unmounts_and_never_invokes_builder(build,capsys):
+    calls=[]
+    @contextmanager
+    def mounted_store(**kwargs):
+        calls.append('mount')
+        try: yield None
+        finally: calls.append('unmount')
+    ns={'json':json,'time':time,'sys':sys,'mounted_store':mounted_store,'Refusal':build.Refusal,
+        'build_inventory':lambda:inventory_report()}
+    exec(build.inventory_script('', '',300),ns)
+    assert calls==['mount','unmount']
+    assert json.loads(capsys.readouterr().out)['unmounted_verified'] is True
+    calls.clear()
+    def fail():
+        error=build.Refusal('inventory_failed');error.stdout=error.stderr=b''
+        raise error
+    ns['build_inventory']=fail
+    with pytest.raises(build.Refusal): exec(build.inventory_script('', '',300),ns)
+    assert calls==['mount','unmount']
+
+
+def test_complete_inventory_program_is_bounded_and_valid(build):
+    program=build.inventory_script(build.read_source(build.FIXTURES/'guest_build_storage.py').decode(),
+                                   build.read_source(build.FIXTURES/'guest_build_inventory.py').decode(),300)
+    compile(program,'closed-inventory','exec')
+    assert len(build.encode_program(program).encode())<64*1024
