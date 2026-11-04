@@ -1172,6 +1172,12 @@ SHA256 values, Fedora signatures and a dependency-checked transaction without
 package scripts or triggers. Keep downloaded packages and frozen transaction
 inputs inside the 8 GiB filesystem. Account installed runtime bytes against the
 4 GiB guest reserve and refuse a changed package set or unavailable signature.
+If the image's package keyring is empty, admit only its root-owned Fedora 44
+primary key file, pinned by full fingerprint and SHA256. Initialize a private RPM
+filesystem keyring inside the 8 GiB volume and use it for signature verification
+and the fixed transaction. Do not import into or change the system keyring;
+compare the global key listing before and after. Unknown keys or unavailable
+private-keyring support refuse execution.
 Build scripts and tests must use the selected linker and cached dependencies.
 A failed candidate does not authorize a different toolchain.
 
