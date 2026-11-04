@@ -2812,7 +2812,7 @@ tool and provider examples and load only when useful.
 | `dbsctrctl graphify-check` | Run a selected adapter in a disposable worktree and retain a private receipt | Feature-cycle graph evidence without canonical output mutation |
 | `dbsctrctl batch-finalize` | Close source admission and commit canonical graph output once | Integration-owned Graph Promotion |
 | `dbsctrctl batch-record-dvc-push` | Bind separately approved DVC evidence to the graph commit | Publication readiness for DVC-relevant promotion |
-| `private_dot_config/opencode/AGENTS.md` | Default V3 routing and execution policy | Route lifecycle work to V3 |
+| `.chezmoitemplates/agent-activation.md` | Shared operator-controlled skill activation | Keep lifecycle methods with their skill owners |
 | `docs/_archive/opencode/skills/v2/**` | Non-deployed V2 source history | Preserve V2 as source history only |
 | `.chezmoiremove` | Remove deployed V2 skills and commands | Version migration |
 | `tests/test_dbsctr_lifecycle.py` | Deterministic lifecycle and migration contracts | All static contracts |

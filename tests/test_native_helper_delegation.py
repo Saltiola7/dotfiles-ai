@@ -70,7 +70,7 @@ def test_discovery_delegates_docs_not_implementation():
 
 
 def test_shared_instructions_allow_helpers_but_keep_primary_cycle_ownership():
-    for path in ("private_dot_config/opencode/AGENTS.md", "dot_agents/skills/discovery/SKILL.md",
+    for path in ("dot_agents/skills/discovery/SKILL.md",
                  "dot_agents/skills/dbsctr/SKILL.md"):
         body = (ROOT / path).read_text()
         assert "without Task or child sessions" not in body
