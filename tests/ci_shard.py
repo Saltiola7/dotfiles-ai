@@ -12,6 +12,7 @@ import re
 import stat
 import subprocess
 import sys
+from typing import NamedTuple
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -20,6 +21,7 @@ import pytest
 PARTITIONS = 4
 MAX_BYTES = 32 * 1024 * 1024
 MAX_NODEID = 4 * 1024 * 1024
+MAX_SUBTESTS = 100_000
 AUTHORITIES = ("tests/ci_shard.py", ".github/workflows/test.yml")
 IDENTITY_FIELDS = {
     "repository", "commit", "tree", "run_id", "attempt", "python_version",
@@ -27,8 +29,17 @@ IDENTITY_FIELDS = {
 }
 RECEIPT_FIELDS = {
     "schema_version", "identity", "shard", "collected", "selected", "reports",
-    "collection_complete", "collection_reports", "exit_code", "python_full",
+    "collection_complete", "collection_reports", "exit_code", "python_full", "subtests",
 }
+
+
+class ExecutionCounts(NamedTuple):
+    passed: int
+    skipped: set[str]
+    junit_skips: dict[str, int]
+    junit_tests: int
+    subtests_passed: int
+    subtests_skipped: int
 
 
 def partition(nodeid: str) -> int:
@@ -102,7 +113,7 @@ def check_identity(value: dict) -> None:
         raise ValueError("invalid source authority")
 
 
-def execution_counts(receipt: dict, selected: list[str]) -> tuple[int, set[str]]:
+def execution_counts(receipt: dict, selected: list[str]) -> ExecutionCounts:
     reports = receipt["reports"]
     if not isinstance(reports, list) or len(reports) > 3 * len(selected):
         raise ValueError("invalid execution reports")
@@ -126,7 +137,32 @@ def execution_counts(receipt: dict, selected: list[str]) -> tuple[int, set[str]]
             raise ValueError("incomplete test execution")
         if "skipped" in node.values():
             skipped.add(nodeid)
-    return len(selected) - len(skipped), skipped
+    children = receipt["subtests"]
+    if not isinstance(children, list) or len(children) > MAX_SUBTESTS:
+        raise ValueError("invalid subtest population")
+    occurrences: dict[str, int] = {}
+    junit_skips = {nodeid: sum(value == "skipped" for value in node.values())
+                   for nodeid, node in phases.items()}
+    children_passed = children_skipped = 0
+    for child in children:
+        if (not isinstance(child, dict) or set(child) != {"nodeid", "index", "outcome"}
+                or not isinstance(child["nodeid"], str) or child["nodeid"] not in phases
+                or type(child["index"]) is not int
+                or child["index"] != occurrences.get(child["nodeid"], 0) + 1
+                or child["outcome"] not in ("passed", "skipped")
+                or phases[child["nodeid"]].get("setup") != "passed"):
+            raise ValueError("failed or invalid subtest occurrence")
+        nodeid = child["nodeid"]
+        occurrences[nodeid] = child["index"]
+        if child["outcome"] == "skipped":
+            children_skipped += 1
+            junit_skips[nodeid] += 1
+        else:
+            children_passed += 1
+    junit_tests = (sum(node.get("call") == "passed" for node in phases.values())
+                   + sum(junit_skips.values()) + children_passed)
+    return ExecutionCounts(len(selected) - len(skipped), skipped, junit_skips, junit_tests,
+                           children_passed, children_skipped)
 
 
 def collection_skips(value: object) -> list[str]:
@@ -146,7 +182,8 @@ def collection_skips(value: object) -> list[str]:
     return skipped
 
 
-def check_junit(path: Path, selected: list[str], skipped: set[str], collectors: list[str]) -> None:
+def check_junit(path: Path, selected: list[str], skip_counts: dict[str, int],
+                collectors: list[str], test_count: int) -> None:
     content = read_bounded(path)
     if b"<!DOCTYPE" in content.upper() or b"<!ENTITY" in content.upper():
         raise ValueError("unsafe JUnit declaration")
@@ -156,6 +193,18 @@ def check_junit(path: Path, selected: list[str], skipped: set[str], collectors: 
         raise ValueError("invalid JUnit") from error
     if tree.tag != "testsuites" or tree.findall(".//failure") or tree.findall(".//error"):
         raise ValueError("failed JUnit")
+    suites = tree.findall("testsuite")
+    if len(suites) != 1 or list(tree) != suites or suites[0].findall(".//testsuite"):
+        raise ValueError("unexpected JUnit suite structure")
+    expected_counts = {
+        "tests": test_count + len(collectors),
+        "skipped": sum(skip_counts.values()) + len(collectors), "errors": 0, "failures": 0,
+    }
+    for name, expected in expected_counts.items():
+        value = suites[0].get(name)
+        if (not isinstance(value, str) or not re.fullmatch(r"0|[1-9][0-9]{0,5}", value)
+                or int(value) != expected):
+            raise ValueError("JUnit event counter mismatch")
     nodeids = []
     collector_ids = []
     for case in tree.findall(".//testcase"):
@@ -172,9 +221,9 @@ def check_junit(path: Path, selected: list[str], skipped: set[str], collectors: 
                 raise ValueError("unidentified JUnit collection outcome")
             collector_ids.extend(matches)
             continue
-        if len(properties) != 1:
+        if len(properties) != 1 or not isinstance(properties[0], str):
             raise ValueError("JUnit lacks exact item identity")
-        if len(case.findall("skipped")) != int(properties[0] in skipped):
+        if len(case.findall("skipped")) != skip_counts.get(properties[0], 0):
             raise ValueError("JUnit skip outcome mismatch")
         nodeids.extend(properties)
     if len(nodeids) != len(selected) or set(nodeids) != set(selected):
@@ -196,7 +245,7 @@ def verify(root: Path, expected: dict, workers_result: str) -> dict:
     full_runtime = None
     skipped_collectors = None
     covered: set[str] = set()
-    passed = skipped = 0
+    passed = skipped = subtests_passed = subtests_skipped = 0
     for shard in range(PARTITIONS):
         directory = root / f"pytest-{expected['python_version']}-{expected['worktrunk_version']}-{shard}"
         if (directory.is_symlink() or not directory.is_dir()
@@ -204,7 +253,7 @@ def verify(root: Path, expected: dict, workers_result: str) -> dict:
             raise ValueError("unsafe or unexpected partition files")
         receipt = json.loads(read_bounded(directory / "manifest.json"), object_pairs_hook=unique_object)
         if (not isinstance(receipt, dict) or set(receipt) != RECEIPT_FIELDS
-                or type(receipt["schema_version"]) is not int or receipt["schema_version"] != 1
+                or type(receipt["schema_version"]) is not int or receipt["schema_version"] != 2
                 or type(receipt["shard"]) is not int or receipt["shard"] != shard
                 or receipt["identity"] != expected or receipt["collection_complete"] is not True
                 or type(receipt["exit_code"]) is not int or receipt["exit_code"] != 0
@@ -228,16 +277,20 @@ def verify(root: Path, expected: dict, workers_result: str) -> dict:
         if covered.intersection(selected):
             raise ValueError("overlapping partition execution")
         covered.update(selected)
-        p, s = execution_counts(receipt, selected)
+        counts = execution_counts(receipt, selected)
         if set(collectors).intersection(node.split("::", 1)[0] for node in collected):
             raise ValueError("skipped collector also contains executable items")
-        check_junit(directory / "junit.xml", selected, s, collectors)
-        passed += p
-        skipped += len(s)
+        check_junit(directory / "junit.xml", selected, counts.junit_skips, collectors,
+                    counts.junit_tests)
+        passed += counts.passed
+        skipped += len(counts.skipped)
+        subtests_passed += counts.subtests_passed
+        subtests_skipped += counts.subtests_skipped
     if covered != set(universe or []):
         raise ValueError("incomplete full-suite coverage")
     return {"selected": len(covered), "passed": passed, "skipped": skipped,
-            "collection_skipped": len(skipped_collectors or [])}
+            "collection_skipped": len(skipped_collectors or []),
+            "subtests_passed": subtests_passed, "subtests_skipped": subtests_skipped}
 
 
 class PartitionPlugin:
@@ -249,6 +302,8 @@ class PartitionPlugin:
         self.collected: list[str] = []
         self.selected: list[str] = []
         self.reports: list[dict[str, str]] = []
+        self.subtests: list[dict[str, str | int]] = []
+        self.subtest_counts: dict[str, int] = {}
         self.complete = False
 
     def pytest_configure(self, config):
@@ -290,6 +345,14 @@ class PartitionPlugin:
         self.complete = True
 
     def pytest_runtest_logreport(self, report):
+        if isinstance(report, pytest.SubtestReport):
+            if report.when != "call" or len(self.subtests) >= MAX_SUBTESTS:
+                raise pytest.UsageError("invalid or oversized native subtest population")
+            index = self.subtest_counts.get(report.nodeid, 0) + 1
+            self.subtest_counts[report.nodeid] = index
+            self.subtests.append({"nodeid": report.nodeid, "index": index,
+                                  "outcome": report.outcome})
+            return
         self.reports.append({"nodeid": report.nodeid, "when": report.when, "outcome": report.outcome})
 
 
@@ -331,10 +394,11 @@ def run(args: argparse.Namespace, identity: dict) -> int:
     if checkout_identity(args) != identity:
         raise ValueError("source identity changed during execution")
     receipt = {
-        "schema_version": 1, "identity": identity, "shard": args.shard,
+        "schema_version": 2, "identity": identity, "shard": args.shard,
         "collected": plugin.collected, "selected": plugin.selected, "reports": plugin.reports,
         "collection_complete": plugin.complete, "exit_code": result,
         "collection_reports": plugin.collection_reports,
+        "subtests": plugin.subtests,
         "python_full": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
     }
     payload = json.dumps(receipt, sort_keys=True).encode()

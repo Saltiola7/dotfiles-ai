@@ -15,6 +15,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 import pytest
+from hypothesis import given, strategies as st
 
 
 ROOT = Path(__file__).parents[1]
@@ -40,17 +41,21 @@ def write_manifest(root, identity, manifest):
 
 
 def write_junit(root, identity, manifest):
-    skipped = {
-        report["nodeid"] for report in manifest["reports"] if report["outcome"] == "skipped"
-    }
+    skip_counts = {node: 0 for node in manifest["selected"]}
+    for report in [*manifest["reports"], *manifest["subtests"]]:
+        if report["outcome"] == "skipped":
+            skip_counts[report["nodeid"]] += 1
     suites = ET.Element("testsuites")
-    suite = ET.SubElement(suites, "testsuite", name="pytest", tests=str(len(manifest["selected"])),
-                          errors="0", failures="0", skipped=str(len(skipped)))
+    suite = ET.SubElement(
+        suites, "testsuite", name="pytest",
+        tests=str(len(manifest["selected"]) + len(manifest["subtests"])),
+        errors="0", failures="0", skipped=str(sum(skip_counts.values())),
+    )
     for nodeid in manifest["selected"]:
         case = ET.SubElement(suite, "testcase", classname="synthetic", name=nodeid)
         properties = ET.SubElement(case, "properties")
         ET.SubElement(properties, "property", name="ci_nodeid", value=nodeid)
-        if nodeid in skipped:
+        for _ in range(skip_counts[nodeid]):
             ET.SubElement(case, "skipped", message="Existing synthetic skip")
     ET.ElementTree(suites).write(artifact(root, identity, manifest["shard"]) / "junit.xml",
                                 encoding="utf-8", xml_declaration=True)
@@ -81,8 +86,8 @@ def receipts(tmp_path, core):
                 reports.append({"nodeid": node, "when": "call", "outcome": "skipped" if node == nodes[1] else "passed"})
             reports.append({"nodeid": node, "when": "teardown", "outcome": "passed"})
         manifest = {
-            "schema_version": 1, "identity": copy.deepcopy(identity), "shard": shard,
-            "collected": list(nodes), "selected": selected, "reports": reports,
+            "schema_version": 2, "identity": copy.deepcopy(identity), "shard": shard,
+            "collected": list(nodes), "selected": selected, "reports": reports, "subtests": [],
             "collection_reports": [], "collection_complete": True,
             "exit_code": 0, "python_full": "3.14.10",
         }
@@ -155,7 +160,7 @@ def test_incomplete_or_unsafe_artifact_set_refuses(core, receipts, tmp_path, cha
         (directory / "manifest.json").write_text("{broken")
     elif change == "duplicate_json_key":
         path = directory / "manifest.json"
-        path.write_text(path.read_text().replace('"schema_version": 1', '"schema_version": 0, "schema_version": 1'))
+        path.write_text(path.read_text().replace('"schema_version": 2', '"schema_version": 0, "schema_version": 2'))
     else:
         path = directory / ("manifest.json" if change == "manifest_link" else "junit.xml")
         outside = tmp_path.parent / (tmp_path.name + "-retained-preimage")
@@ -167,7 +172,7 @@ def test_incomplete_or_unsafe_artifact_set_refuses(core, receipts, tmp_path, cha
 
 
 @pytest.mark.parametrize("field,value", [
-    ("schema_version", 2), ("schema_version", True), ("shard", True),
+    ("schema_version", 1), ("schema_version", True), ("shard", True),
     ("collection_complete", False), ("collection_complete", 1),
     ("exit_code", 1), ("exit_code", True), ("python_full", "3.13.16"),
     ("python_full", "3.14.11"),
@@ -284,7 +289,7 @@ def test_collection_skip_is_preserved_separately_from_executed_items(core, recei
     root, expected, manifests, nodes = receipts
     collection_skip_evidence(root, expected, manifests)
     assert core.verify(root, expected, "success") == {
-        "selected": len(nodes), "passed": len(nodes) - 2, "skipped": 2, "collection_skipped": 1,
+        "selected": len(nodes), "passed": len(nodes) - 2, "skipped": 2, "collection_skipped": 1, "subtests_passed": 0, "subtests_skipped": 0,
     }
 
 
@@ -419,7 +424,7 @@ def test_native_execution_all_partitions_and_cli_verification(native_checkout):
     verified, _ = invoke("verify", workers_result="success")
     assert verified.returncode == 0, verified.stdout + verified.stderr
     assert json.loads(verified.stdout) == {
-        "selected": 13, "passed": 10, "skipped": 3, "collection_skipped": 1,
+        "selected": 13, "passed": 10, "skipped": 3, "collection_skipped": 1, "subtests_passed": 0, "subtests_skipped": 0,
     }
     assert (repository / "tests/test_lineage_recovery.py").is_file()
 
@@ -503,3 +508,239 @@ def test_native_zero_exit_with_partial_execution_is_rejected(native_checkout):
             assert len({report["nodeid"] for report in receipt["reports"]}) == 1
     verified, _ = invoke("verify", workers_result="success")
     assert verified.returncode != 0
+
+
+@pytest.mark.parametrize("outcomes", [[], ["passed"], ["passed"] * 16,
+                                    ["skipped"] * 2, ["passed", "skipped", "passed"]])
+def test_explicit_subtest_occurrences_preserve_parent_and_child_totals(core, receipts, outcomes):
+    root, expected, manifests, nodes = receipts
+    manifest = manifests[1]
+    parent = manifest["selected"][-1]
+    manifest["subtests"] = [
+        {"nodeid": parent, "index": i, "outcome": outcome}
+        for i, outcome in enumerate(outcomes, 1)
+    ]
+    write_manifest(root, expected, manifest)
+    write_junit(root, expected, manifest)
+    assert core.verify(root, expected, "success") == {
+        "selected": len(nodes), "passed": len(nodes) - 2, "skipped": 2,
+        "collection_skipped": 0, "subtests_passed": outcomes.count("passed"),
+        "subtests_skipped": outcomes.count("skipped"),
+    }
+
+
+@pytest.mark.parametrize("change", [
+    "failed", "unknown_outcome", "unknown_field", "bool_index", "zero_index",
+    "gap", "duplicate", "foreign_parent", "setup_skipped_parent", "missing_parent",
+    "duplicate_parent_call", "missing_child", "missing_child_list", "nonlist_children",
+    "wrong_junit_total", "lost_junit_skip", "invented_junit_skip", "wrong_junit_skip_total",
+    "missing_junit_counter", "noninteger_junit_counter", "nested_junit_suite",
+])
+def test_subtest_corruption_never_qualifies_a_successful_parent(core, receipts, change):
+    root, expected, manifests, nodes = receipts
+    manifest = manifests[1]
+    parent = manifest["selected"][-1]
+    manifest["subtests"] = [
+        {"nodeid": parent, "index": 1, "outcome": "passed"},
+        {"nodeid": parent, "index": 2, "outcome": "skipped"},
+    ]
+    write_junit(root, expected, manifest)
+    child = manifest["subtests"][0]
+    if change == "failed":
+        child["outcome"] = "failed"
+    elif change == "unknown_outcome":
+        child["outcome"] = "unknown"
+    elif change == "unknown_field":
+        child["context"] = "Arbitrary object representations are not evidence"
+    elif change == "bool_index":
+        child["index"] = True
+    elif change == "zero_index":
+        child["index"] = 0
+    elif change == "gap":
+        manifest["subtests"][1]["index"] = 3
+    elif change == "duplicate":
+        manifest["subtests"][1]["index"] = 1
+    elif change == "foreign_parent":
+        child["nodeid"] = nodes[0]
+    elif change == "setup_skipped_parent":
+        manifest = manifests[0]
+        manifest["subtests"] = [{"nodeid": nodes[0], "index": 1, "outcome": "passed"}]
+        write_junit(root, expected, manifest)
+    elif change == "missing_parent":
+        manifest["reports"] = [r for r in manifest["reports"] if not (r["nodeid"] == parent and r["when"] == "call")]
+    elif change == "duplicate_parent_call":
+        manifest["reports"].append(next(r.copy() for r in manifest["reports"] if r["nodeid"] == parent and r["when"] == "call"))
+    elif change == "missing_child":
+        manifest["subtests"].pop(0)
+        manifest["subtests"][0]["index"] = 1
+    elif change == "missing_child_list":
+        manifest.pop("subtests")
+    elif change == "nonlist_children":
+        manifest["subtests"] = {}
+    else:
+        path = artifact(root, expected, manifest["shard"]) / "junit.xml"
+        document = ET.parse(path)
+        suite = document.find("testsuite")
+        assert suite is not None
+        cases = {prop.get("value"): candidate for candidate in suite.findall("testcase")
+                 for prop in candidate.findall("./properties/property")}
+        case = cases[parent]
+        if change == "wrong_junit_total":
+            suite.set("tests", str(len(manifest["selected"])))
+        elif change == "lost_junit_skip":
+            skipped_child = case.find("skipped")
+            assert skipped_child is not None
+            case.remove(skipped_child)
+        elif change == "invented_junit_skip":
+            ET.SubElement(case, "skipped", message="Unobserved child")
+        elif change == "wrong_junit_skip_total":
+            suite.set("skipped", "0")
+        elif change == "missing_junit_counter":
+            del suite.attrib["tests"]
+        elif change == "noninteger_junit_counter":
+            suite.set("tests", "True")
+        else:
+            ET.SubElement(suite, "testsuite", tests="0", skipped="0", errors="0", failures="0")
+        document.write(path, encoding="utf-8", xml_declaration=True)
+    write_manifest(root, expected, manifest)
+    with pytest.raises(ValueError):
+        core.verify(root, expected, "success")
+
+
+def test_subtest_population_is_bounded_independently(core, receipts):
+    _, _, manifests, _ = receipts
+    manifest = manifests[1]
+    manifest["subtests"] = [{"nodeid": manifest["selected"][-1], "index": 1, "outcome": "passed"}] * 100_001
+    with pytest.raises(ValueError):
+        core.execution_counts(manifest, manifest["selected"])
+
+
+def test_native_subtests_preserve_repeated_nested_and_skipped_occurrences(native_checkout):
+    repository, commit, invoke, output = native_checkout
+    (repository / "tests/test_initiative_authority_amendment.py").write_text(
+        'import unittest\nimport pytest\n\n'
+        'class TestChildren(unittest.TestCase):\n'
+        '    def test_repeated(self):\n'
+        '        for _ in range(2):\n'
+        '            with self.subTest(value=1):\n                self.assertTrue(True)\n'
+        '    def test_nested(self):\n'
+        '        with self.subTest(value=1):\n'
+        '            for _ in range(2):\n'
+        '                with self.subTest(value=1):\n                    self.assertTrue(True)\n'
+        '    def test_child_skips(self):\n'
+        '        for _ in range(2):\n'
+        '            with self.subTest(value=1):\n                self.skipTest("Existing child skip")\n'
+        '    def test_child_then_parent_skip(self):\n'
+        '        with self.subTest(value=1):\n            self.skipTest("Existing child skip")\n'
+        '        self.skipTest("Existing parent skip")\n\n'
+        'def test_fixture_children(subtests):\n'
+        '    with subtests.test(msg="same"):\n        assert True\n'
+        '    with subtests.test(msg="same"):\n        pytest.skip("Existing fixture child skip")\n'
+    )
+    commit()
+    for shard in range(4):
+        result, _ = invoke("run", shard=shard)
+        assert result.returncode == 0, result.stdout + result.stderr
+    # This real aggregate rejected duplicate ordinary call phases before the repair.
+    verified, _ = invoke("verify", workers_result="success")
+    assert verified.returncode == 0, verified.stdout + verified.stderr
+    assert json.loads(verified.stdout) == {
+        "selected": 16, "passed": 13, "skipped": 3, "collection_skipped": 1,
+        "subtests_passed": 6, "subtests_skipped": 4,
+    }
+    receipts = [json.loads(p.read_text()) for p in output.glob("*/manifest.json")]
+    assert all(r["schema_version"] == 2 for r in receipts)
+    children = [c for r in receipts for c in r["subtests"]]
+    assert len(children) == 10
+    assert all(set(c) == {"nodeid", "index", "outcome"} for c in children)
+
+
+@pytest.mark.parametrize("kind", ["unittest", "fixture"])
+def test_native_failed_subtest_never_qualifies_even_when_parent_passes(native_checkout, core, kind):
+    repository, commit, invoke, evidence = native_checkout
+    if kind == "unittest":
+        content = ('import unittest\nclass TestChild(unittest.TestCase):\n'
+                   '    def test_child(self):\n'
+                   '        with self.subTest(value=1):\n            self.assertTrue(False)\n')
+    else:
+        content = ('def test_child(subtests):\n'
+                   '    with subtests.test(msg="failure"):\n        assert False\n')
+    (repository / "tests/test_initiative_authority_amendment.py").write_text(content)
+    commit()
+    result, output = invoke("run", shard=0)
+    assert result.returncode != 0
+    receipt = json.loads((output / "manifest.json").read_text())
+    assert any(c["outcome"] == "failed" for c in receipt["subtests"])
+    if kind == "unittest":
+        assert next(r for r in receipt["reports"] if r["when"] == "call")["outcome"] == "passed"
+    for shard in range(1, 4):
+        other, _ = invoke("run", shard=shard)
+        assert other.returncode == 0, other.stdout + other.stderr
+    # No native result can be manufactured from these failed worker receipts.
+    verified, _ = invoke("verify", workers_result="success")
+    assert verified.returncode != 0
+    # A forged successful exit and ordinary parent cannot conceal the failed child.
+    receipt["exit_code"] = 0
+    for report in receipt["reports"]:
+        report["outcome"] = "passed"
+    (output / "manifest.json").write_text(json.dumps(receipt))
+    with pytest.raises(ValueError, match="failed or invalid subtest occurrence"):
+        core.verify(evidence, receipt["identity"], "success")
+
+
+def test_context_looking_ordinary_report_never_gains_subtest_privileges(core):
+    parent = "tests/test_sample.py::test_parent"
+    plugin = core.PartitionPlugin(core.partition(parent), {"tests/test_sample.py"})
+    for when in ["setup", "call", "call", "teardown"]:
+        report = pytest.TestReport(parent, ("tests/test_sample.py", 0, "test_parent"),
+                                   {}, "passed", None, when)
+        setattr(report, "context", {"not": "a native SubtestReport"})
+        plugin.pytest_runtest_logreport(report)
+    assert plugin.subtests == []
+    with pytest.raises(ValueError):
+        core.execution_counts({"reports": plugin.reports, "subtests": []}, [parent])
+
+
+@given(st.lists(st.sampled_from(["passed", "skipped"]), max_size=64))
+def test_child_outcomes_cannot_replace_parent_coverage(core, outcomes):
+    parent = "tests/test_sample.py::test_parent"
+    receipt = {
+        "reports": [{"nodeid": parent, "when": when, "outcome": "passed"}
+                    for when in ["setup", "call", "teardown"]],
+        "subtests": [{"nodeid": parent, "index": index, "outcome": outcome}
+                     for index, outcome in enumerate(outcomes, 1)],
+    }
+    counts = core.execution_counts(receipt, [parent])
+    assert counts.passed == 1 and counts.skipped == set()
+    assert counts.subtests_passed + counts.subtests_skipped == len(outcomes)
+    assert counts.junit_skips[parent] == outcomes.count("skipped")
+    receipt["reports"].pop()
+    with pytest.raises(ValueError, match="incomplete test execution"):
+        core.execution_counts(receipt, [parent])
+
+
+def test_native_teardown_skips_preserve_event_counts_and_parent_totals(native_checkout):
+    repository, commit, invoke, _ = native_checkout
+    (repository / "tests/test_initiative_authority_amendment.py").write_text(
+        'import pytest\n\n'
+        '@pytest.fixture\n'
+        'def skipped_teardown():\n'
+        '    yield\n    pytest.skip("Existing teardown skip")\n\n'
+        'def test_pass_then_teardown_skip(skipped_teardown):\n    assert True\n\n'
+        '@pytest.fixture\n'
+        'def skipped_setup_and_teardown(request):\n'
+        '    request.addfinalizer(lambda: pytest.skip("Existing teardown skip"))\n'
+        '    pytest.skip("Existing setup skip")\n\n'
+        'def test_two_skipped_phases(skipped_setup_and_teardown):\n'
+        '    raise AssertionError("Skipped setup must not execute call")\n'
+    )
+    commit()
+    for shard in range(4):
+        result, _ = invoke("run", shard=shard)
+        assert result.returncode == 0, result.stdout + result.stderr
+    verified, _ = invoke("verify", workers_result="success")
+    assert verified.returncode == 0, verified.stdout + verified.stderr
+    assert json.loads(verified.stdout) == {
+        "selected": 13, "passed": 9, "skipped": 4, "collection_skipped": 1,
+        "subtests_passed": 0, "subtests_skipped": 0,
+    }
