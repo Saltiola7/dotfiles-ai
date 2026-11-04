@@ -14,6 +14,7 @@ PATCHES = ROOT.parent / "patches"
 COMMIT = "5d25211b25a8fc887e8d5c606d57d6ab22f1d76c"
 PACKAGE = "dotfiles-ai-openshell-child-seccomp-proof"
 VERSION = "0.1.7+dotfiles-ai.child-unix-deny.1"
+ARTIFACT_VERSION = "0.1.7+dotfiles-ai.child-unix-deny.2"
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 CRATES = {
     "bitflags": ("2.13.2", "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"),
@@ -40,8 +41,9 @@ def test_source_identity_reuses_existing_patch_without_second_module():
     record = manifest()
     patch = json.loads((PATCHES / "source.json").read_text(encoding="utf-8"))
     assert record["schema_version"] == 1
-    assert record["identity"] == PACKAGE + "-" + VERSION
-    assert record["evidence_scope"] == "source-only; Linux kernel and full runtime unqualified"
+    assert record["identity"] == PACKAGE + "-" + ARTIFACT_VERSION
+    assert patch["experimental_identity"]["name"] == "openshell-v" + ARTIFACT_VERSION
+    assert record["evidence_scope"] == "source-only; native evidence recorded separately"
     source = record["generated_source"]
     assert source["metadata"] == "../patches/source.json"
     assert source["upstream_commit"] == COMMIT == patch["upstream"]["commit"]
@@ -166,7 +168,7 @@ def test_build_contract_preserves_host_linking_and_isolated_test_sentinel():
     assert 'pub mod linux {\n    pub mod child_seccomp;\n}' in wrapper
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "not a full OpenShell runtime qualification" in readme
-    assert "Cargo --locked validation remains pending" in readme
+    assert "Cargo --locked validation and Linux execution require separate native evidence" in readme
 
 
 def test_offline_assembly_produces_exact_patched_module(tmp_path):

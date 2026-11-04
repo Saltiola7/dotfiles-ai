@@ -30,7 +30,18 @@ diff --git a/crates/openshell-sandbox/src/linux/child_seccomp.rs b/crates/opensh
      // Modern launchers fall back from clone3 and pidfd_open only for ENOSYS.
      // Returning EPERM here breaks otherwise portable process creation. The
      // fallback paths remain constrained: namespace creation is denied from
-@@ -533,6 +544,118 @@
+@@ -514,7 +525,9 @@
+             if unsafe {
+                 libc::ioctl(
+                     libc::STDIN_FILENO,
+-                    libc::c_ulong::from(FIOSETOWN_REQUEST),
++                    FIOSETOWN_REQUEST
++                        .try_into()
++                        .expect("ioctl request fits target ABI"),
+                     &raw mut owner,
+                 )
+             } != -1
+@@ -533,6 +546,118 @@
      }
 
      #[test]

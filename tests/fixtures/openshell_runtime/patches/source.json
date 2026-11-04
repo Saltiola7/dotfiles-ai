@@ -24,12 +24,12 @@
   },
   "patch": {
     "path": "child-unix-sockets.patch",
-    "sha256": "27d68bf08dc74a87d28e55e636f54a3541d38c733499fd81f953fa009a03463d",
+    "sha256": "56cc2503a00285834bd04f22f0776ad768cdbcebce561611fcca6ec8c8106d57",
     "target": "crates/openshell-sandbox/src/linux/child_seccomp.rs",
-    "patched_sha256": "259e77596f3f70ee28bdd8672f4747f3462f4c727b609e92d782cf749782ccb3"
+    "patched_sha256": "57a91bdc412ceb124da0b409f841420de35b692b07db0e806cd888c3ab7a3bb1"
   },
   "experimental_identity": {
-    "name": "openshell-v0.1.7+dotfiles-ai.child-unix-deny.1",
+    "name": "openshell-v0.1.7+dotfiles-ai.child-unix-deny.2",
     "artifact_kind": "source-only-patch",
     "unchanged_upstream_release": false
   }

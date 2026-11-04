@@ -10,13 +10,14 @@ the [GitHub tag reference](https://api.github.com/repos/NVIDIA/OpenShell/git/ref
 then the exact commit's file and blob identities were checked. `source.json`
 records the repository, immutable source URLs, Git blob IDs, byte counts, SHA256
 hashes, patch hash, expected patched-source hash, and distinct experimental
-identity `openshell-v0.1.7+dotfiles-ai.child-unix-deny.1`.
+identity `openshell-v0.1.7+dotfiles-ai.child-unix-deny.2`.
 
 The historical comparison used `v0.1.6`, commit
 `ac7f615cd12d5cc49cb16eb1f5f10ffeb1e90f47`. The selected v0.1.7 commit has the
-same child-filter and license Git blobs, so the vendored preimage, license,
-patch bytes and expected patched-source hash are unchanged. This provenance
-update does not replace any earlier native result or establish a new one.
+same child-filter and license Git blobs. The original v0.1.7 selection preserved
+the patch bytes and expected patched-source hash. Revision 2 keeps those upstream
+inputs unchanged and adds the test-only ABI correction described below. Earlier
+native results retain their original source identity.
 
 `upstream/child_seccomp.rs` is the complete, unchanged 21,098-byte preimage.
 `upstream/LICENSE` is the unchanged 11,431-byte upstream Apache-2.0 license.
@@ -34,6 +35,18 @@ creation flags. It updates the module contract and adds one isolated Rust test.
 Existing process, signal, capability, namespace, descriptor, and Internet socket
 hardening remain in place.
 
+Revision 2 changes one existing test's `ioctl` request argument from
+`libc::c_ulong::from(FIOSETOWN_REQUEST)` to an inferred checked conversion,
+`FIOSETOWN_REQUEST.try_into().expect("ioctl request fits target ABI")`.
+The pinned libc 0.2.189 declares the request type as
+[`c_int` on musl](https://github.com/rust-lang/libc/blob/0.2.189/src/unix/linux_like/linux/musl/mod.rs#L48-L51)
+and [`c_ulong` on GNU](https://github.com/rust-lang/libc/blob/0.2.189/src/unix/linux_like/linux/gnu/mod.rs#L15-L18).
+The constant `0x8901` fits both. This corrects the observed ARM64-musl test
+compilation failure without changing the production filter, upstream preimage,
+dependency lock, or toolchain. Reversing only this expression reproduces the
+entire revision 1 patched module with SHA256
+`259e77596f3f70ee28bdd8672f4747f3462f4c727b609e92d782cf749782ccb3`.
+
 The filter is installed only in workload children. The trusted runtime must keep
 its own Unix transport outside this filter. Socket creation denial does not
 revoke an existing descriptor: the existing close-on-exec sweep for descriptors
@@ -47,8 +60,9 @@ the isolated child's test thread installs the irreversible filter; a second
 child inherits it without reinstalling it. Both children test STREAM, DGRAM and
 SEQPACKET against all CLOEXEC/NONBLOCK flag combinations for both syscalls, plus
 nonzero upper domain bits. Internet socket creation and pipe IPC are positive
-controls. Existing thread/process creation tests remain applicable. These tests
-are source additions; they have not been compiled or run on Linux here.
+controls. Existing thread/process creation tests remain applicable. These test
+sources require separate Linux execution evidence from the capped guest runner.
+Their presence in the patch alone does not prove compilation or enforcement.
 
 ## Offline checks and limits
 
@@ -61,6 +75,8 @@ From the dotfiles-ai checkout, use its already provisioned test environment:
 These checks validate attribution, size bounds, pinned Git/SHA256 provenance,
 single-file patch scope, exact application, expected output hash, reversal,
 duplicate application refusal, and refusal of missing or changed hunk context.
+They also prove that revision 2 changes only that test expression relative to
+revision 1; the production section remains byte-identical.
 They require local Git and perform no downloads. The tests apply the patch only
 to a disposable copy of the vendored preimage. A successful `git apply` alone is
 not a source-identity check; source hashes must also match `source.json`.

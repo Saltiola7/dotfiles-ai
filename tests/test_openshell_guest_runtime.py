@@ -359,3 +359,17 @@ def test_failed_install_preserves_state_and_never_erases(admitted, monkeypatch):
     assert len(transactions) == 2
     assert all("--install" in c and "--erase" not in c for c in transactions)
     assert "installed_verified" not in calls
+
+
+def test_offline_resume_refuses_missing_package_without_download(runtime, tmp_path, monkeypatch):
+    monkeypatch.setattr(runtime, 'runtime_download', lambda *a: pytest.fail('network on resume'))
+    with pytest.raises(runtime.Refusal, match='runtime_resume_package_missing'):
+        runtime.runtime_package(runtime.runtime_packages[0], tmp_path, existing_only=True)
+
+
+def test_offline_resume_never_installs_missing_runtime(admitted, monkeypatch):
+    runtime, calls = admitted
+    monkeypatch.setattr(runtime, 'runtime_package', lambda *a, **k: pytest.fail('package after absent runtime'))
+    with pytest.raises(runtime.Refusal, match='runtime_resume_install_missing'):
+        runtime.install_runtime(existing_only=True)
+    assert not any(isinstance(c, list) for c in calls)

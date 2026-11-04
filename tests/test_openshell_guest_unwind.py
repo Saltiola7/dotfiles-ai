@@ -277,3 +277,13 @@ def test_wrong_native_version_retains_bounded_diagnostic(installable, monkeypatc
     assert 'wrong native version' in captured
     assert len(captured) < 1400
     assert not prefix.exists()
+
+
+def test_authentication_only_preserves_installed_prefix(installable):
+    unwind, prefix, calls, raw = installable
+    (prefix / 'lib').mkdir(parents=True)
+    installed = prefix / 'lib/libgcc_s.so.1'
+    installed.write_bytes(b'existing bytes are checked by resume caller')
+    report, checked = unwind.unwind_verify()
+    assert checked == raw and report['authenticated_archives'] == 2
+    assert installed.read_bytes() == b'existing bytes are checked by resume caller'

@@ -267,9 +267,11 @@ def runtime_download(package, path):
     partial.unlink()
 
 
-def runtime_package(package, directory):
+def runtime_package(package, directory, *, existing_only=False):
     path = directory / package["url"].rsplit("/", 1)[1]
     if not path.exists() and not path.is_symlink():
+        if existing_only:
+            raise Refusal("runtime_resume_package_missing")
         runtime_download(package, path)
     identity = _private(path, size=package["bytes"])
     if path.stat().st_dev != directory.stat().st_dev:
@@ -334,7 +336,7 @@ def runtime_free():
     return info.f_bavail * info.f_frsize
 
 
-def install_runtime():
+def install_runtime(*, existing_only=False):
     """Install or verify only the reviewed two RPMs, under the active work deadline."""
     if _active is None or _work_end is None:
         raise Refusal("store_not_mounted")
@@ -348,7 +350,10 @@ def install_runtime():
     directory = runtime_cache()
     runtime_key()
     resumed = runtime_installed()
-    paths = [runtime_package(package, directory) for package in runtime_packages]
+    if existing_only and not resumed:
+        raise Refusal("runtime_resume_install_missing")
+    paths = [runtime_package(package, directory, existing_only=True) if existing_only
+             else runtime_package(package, directory) for package in runtime_packages]
     _verify(_active, _work_end)
     if not resumed:
         runtime_preexisting()

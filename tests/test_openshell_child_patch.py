@@ -65,7 +65,7 @@ def test_patch_metadata_matches_pinned_source():
     assert patch["target"] == TARGET
     assert patch["sha256"] == hashlib.sha256((ROOT / patch["path"]).read_bytes()).hexdigest()
     assert record["experimental_identity"] == {
-        "name": "openshell-v0.1.7+dotfiles-ai.child-unix-deny.1",
+        "name": "openshell-v0.1.7+dotfiles-ai.child-unix-deny.2",
         "artifact_kind": "source-only-patch",
         "unchanged_upstream_release": False,
     }
@@ -113,6 +113,24 @@ def test_patch_applies_exact_preimage_and_reverses_without_drift(tmp_path):
     reversed_patch = git_apply(tmp_path, patch, "--reverse")
     assert reversed_patch.returncode == 0, reversed_patch.stderr.decode()
     assert target.read_bytes() == original
+
+
+def test_revision_two_changes_only_the_existing_test_ioctl_conversion(tmp_path):
+    target = stage_preimage(tmp_path)
+    result = git_apply(tmp_path, (ROOT / "child-unix-sockets.patch").read_bytes(), "--whitespace=error-all")
+    assert result.returncode == 0, result.stderr.decode()
+    patched = target.read_bytes()
+    checked = (b'FIOSETOWN_REQUEST\n'
+               b'                        .try_into()\n'
+               b'                        .expect("ioctl request fits target ABI")')
+    original = b'libc::c_ulong::from(FIOSETOWN_REQUEST)'
+    production, tests = patched.split(b'#[cfg(test)]', 1)
+    assert checked not in production and tests.count(checked) == 1
+    assert original not in tests
+    # Reversing only that test expression must reproduce every byte of the
+    # preceding reviewed module, including its unchanged production filter.
+    preceding = patched.replace(checked, original, 1)
+    assert hashlib.sha256(preceding).hexdigest() == '259e77596f3f70ee28bdd8672f4747f3462f4c727b609e92d782cf749782ccb3'
 
 
 @pytest.mark.parametrize("missing", [False, True])

@@ -86,6 +86,27 @@ package transaction, toolchain extraction and retained output inside existing
 20 GiB guest and 24 GiB host-image ceilings. Missing tools never authorize a host
 build, another VM, larger disk or fallback to an older OpenShell generation.
 
+The closed guest build runner is
+`python3 tests/probe_openshell_guest_build.py --selection PRIVATE_JSON --operation OPERATION`.
+Only three operations are accepted:
+
+- `prepare` qualifies the root-owned 8 GiB build/cache filesystem and a separate
+  64 MiB exhaustion fixture, including outside-write and guest-socket exclusion.
+- `kernel` prepares the pinned compiler and dependencies, then compiles and tests
+  the exact patched child-filter module offline. Downloads, extraction, Cargo
+  cache and outputs share the 8 GiB filesystem.
+- `kernel-resume` revalidates retained signed packages, compiler/library inputs and
+  dependency sources before the reviewed test-only musl portability correction.
+  It preserves prior source and outputs and uses one fixed fresh target directory;
+  it performs no downloads or reinstallations.
+
+Each operation repeats host storage admission and independently verifies worker
+shutdown. The build service has a 2 CPU quota, 6 GiB memory ceiling, zero swap and
+512-task ceiling. Ordinary sessions never invoke this runner. A passing module
+kernel test does not enable OpenShell or qualify its complete launch, descriptor,
+PTY, broker or agent compatibility matrix. Keep run results in private evidence,
+and keep optional activation disabled until those separate gates pass.
+
 After capacity is available, the next native storage proof uses an owned tiny
 image before any VM: verify its attachment and physical-store chain, establish
 a separate cache quota, demonstrate bounded quota exhaustion while the runtime

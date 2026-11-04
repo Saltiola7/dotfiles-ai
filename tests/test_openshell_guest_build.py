@@ -28,7 +28,7 @@ def test_bundle_is_exact_source_and_toolchain(build,tmp_path):
     assert bundle.payload['toolchain']['host']=='aarch64-unknown-linux-musl'
     assert set(bundle.payload['files'])=={'Cargo.toml','Cargo.lock','src/lib.rs','src/linux/child_seccomp.rs'}
     assert len(bundle.payload['toolchain']['artifacts'])==3
-    assert bundle.payload['patched_sha256']=='259e77596f3f70ee28bdd8672f4747f3462f4c727b609e92d782cf749782ccb3'
+    assert bundle.payload['patched_sha256']=='57a91bdc412ceb124da0b409f841420de35b692b07db0e806cd888c3ab7a3bb1'
 
 
 @pytest.mark.parametrize('operation',['command','build-all','activate','start',''])
@@ -115,17 +115,19 @@ def test_kernel_admits_runtime_before_unprivileged_stages(build):
     assert calls==['runtime','stage','stage','stage','stage']
 
 
-def test_complete_guest_program_fits_linux_argument_and_unit_limits(build,tmp_path):
+@pytest.mark.parametrize('resume', [False, True])
+def test_complete_guest_program_fits_linux_argument_and_unit_limits(build,tmp_path,resume):
     import shlex
     bundle=build.load_bundle(tmp_path)
     controller=build.read_source(build.FIXTURES/'guest_build_storage.py').decode()
     builder=build.read_source(build.FIXTURES/'guest_harness.py').decode()+'\n'+build.read_source(build.FIXTURES/'guest_unwind.py').decode()
+    if resume: builder+='\n'+build.read_source(build.FIXTURES/'guest_resume.py').decode()
     runtime=build.read_source(build.FIXTURES/'guest_runtime.py').decode()
-    script=build.kernel_script(controller,builder,bundle.payload,1100,runtime=runtime)
+    script=build.kernel_script(controller,builder,bundle.payload,1100,runtime=runtime,resume=resume)
     compile(script,'closed-native-kernel','exec')
     command=shlex.join(['/usr/bin/sudo','-n','/usr/bin/python3','-I','-c',build.encode_program(script)])
     assert len(command.encode())<64*1024
-    unit=builder+'\nstage('+repr('download')+','+repr(bundle.payload)+',420)\n'
+    unit=builder+'\n'+build.payload_source(bundle.payload)+'\nstage("download",_stage_payload,420)\n'
     compile(unit,'closed-unprivileged-stage','exec')
     assert len(unit.encode())<=65536
 
@@ -181,3 +183,23 @@ def test_completed_stage_results_survive_later_failure(build, capsys):
                                  runtime='def install_runtime(): return {}'), namespace)
     records = [json.loads(line) for line in capsys.readouterr().err.splitlines()]
     assert records[-1] == {'stage': 'setup', 'finished': True, 'result': {'proof': 2}}
+
+
+def test_resume_has_only_offline_stages(build):
+    script=build.kernel_script('', 'def stage(*args): pass', {}, 1000,
+                               runtime='def install_runtime(): return {}', resume=True)
+    assert "('resume', False" in script and "('test', False" in script
+    assert "('download', True" not in script and "('fetch', True" not in script
+
+
+def test_payload_transport_is_bounded_authenticated_data(build):
+    payload={'example':'value', 'code':'raise RuntimeError("not executed")'}
+    namespace={'json':json,'hashlib':__import__('hashlib')}
+    exec(build.payload_source(payload),namespace)
+    assert namespace['_stage_payload']==payload
+    source=build.payload_source(payload)
+    import re
+    tampered=re.sub(r"hexdigest\(\)!='[a-f0-9]{64}'", "hexdigest()!='"+'0'*64+"'",source)
+    with pytest.raises(RuntimeError,match='build_payload_identity'):
+        exec(tampered,{'json':json,'hashlib':__import__('hashlib')})
+    with pytest.raises(build.Refusal): build.payload_source({'oversized':'x'*(128*1024)})

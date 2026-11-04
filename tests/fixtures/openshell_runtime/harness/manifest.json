@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "identity": "dotfiles-ai-openshell-child-seccomp-proof-0.1.7+dotfiles-ai.child-unix-deny.1",
-  "evidence_scope": "source-only; Linux kernel and full runtime unqualified",
+  "identity": "dotfiles-ai-openshell-child-seccomp-proof-0.1.7+dotfiles-ai.child-unix-deny.2",
+  "evidence_scope": "source-only; native evidence recorded separately",
   "fixture_files": [
     {
       "path": "Cargo.toml",
@@ -25,9 +25,9 @@
     "preimage": "../patches/upstream/child_seccomp.rs",
     "preimage_sha256": "14c06d0d2c33a56b9a075f469a16436b92cc101186ef19a00a4f1ab84871fa0f",
     "patch": "../patches/child-unix-sockets.patch",
-    "patch_sha256": "27d68bf08dc74a87d28e55e636f54a3541d38c733499fd81f953fa009a03463d",
+    "patch_sha256": "56cc2503a00285834bd04f22f0776ad768cdbcebce561611fcca6ec8c8106d57",
     "patch_target": "crates/openshell-sandbox/src/linux/child_seccomp.rs",
-    "patched_sha256": "259e77596f3f70ee28bdd8672f4747f3462f4c727b609e92d782cf749782ccb3",
+    "patched_sha256": "57a91bdc412ceb124da0b409f841420de35b692b07db0e806cd888c3ab7a3bb1",
     "destination": "src/linux/child_seccomp.rs",
     "module": "linux::child_seccomp",
     "license": "../patches/upstream/LICENSE"

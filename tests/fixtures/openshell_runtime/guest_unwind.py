@@ -189,9 +189,8 @@ def unwind_openssl():
         raise RuntimeError('unwind_openssl_identity')
 
 
-def unwind_install(prefix):
-    if prefix != WORK / 'toolchain-unwind-1' or prefix.exists() or prefix.is_symlink():
-        raise RuntimeError('unwind_prefix')
+def unwind_verify():
+    """Authenticate retained support without changing an installed prefix."""
     paths = [unwind_checked(item) for item in unwind_artifacts]
     hashes = [digest(path) for path in paths]
     parts = unwind_members(paths[0])
@@ -219,9 +218,17 @@ def unwind_install(prefix):
     unwind_metadata(parts['.PKGINFO'], unwind_packages[0]); unwind_metadata(library['.PKGINFO'], unwind_packages[1])
     raw = library['usr/lib/libgcc_s.so.1']; unwind_library(raw)
     if [digest(path) for path in paths] != hashes: raise RuntimeError('unwind_artifact_changed')
-    remaining(); prefix.mkdir(mode=0o700); (prefix / 'lib').mkdir(mode=0o700)
-    unwind_save(prefix / 'lib/libgcc_s.so.1', raw, 0o444)
+    remaining()
     return {'authenticated_archives': 2, 'library_sha256': hashlib.sha256(raw).hexdigest(),
-            'library_bytes': len(raw), 'library': str(prefix / 'lib/libgcc_s.so.1'),
+            'library_bytes': len(raw), 'library': str(WORK / 'toolchain-unwind-1/lib/libgcc_s.so.1'),
             'archive_sha256': dict(zip((item['name'] for item in unwind_artifacts), hashes)),
-            'verifier_sha256': hashlib.sha256(executable).hexdigest()}
+            'verifier_sha256': hashlib.sha256(executable).hexdigest()}, raw
+
+
+def unwind_install(prefix):
+    if prefix != WORK / 'toolchain-unwind-1' or prefix.exists() or prefix.is_symlink():
+        raise RuntimeError('unwind_prefix')
+    report, raw = unwind_verify()
+    prefix.mkdir(mode=0o700); (prefix / 'lib').mkdir(mode=0o700)
+    unwind_save(prefix / 'lib/libgcc_s.so.1', raw, 0o444)
+    return report

@@ -3,10 +3,18 @@
 This is a source-only experimental harness for OpenShell v0.1.7 commit
 `5d25211b25a8fc887e8d5c606d57d6ab22f1d76c` with the existing reviewed
 `child-unix-sockets.patch`. Its identity is
-`dotfiles-ai-openshell-child-seccomp-proof-0.1.7+dotfiles-ai.child-unix-deny.1`.
+`dotfiles-ai-openshell-child-seccomp-proof-0.1.7+dotfiles-ai.child-unix-deny.2`.
 It is not a full OpenShell runtime qualification. Offline tests verify fixture
 identity and assembly, not compilation, Linux seccomp behavior or compatibility.
-For this offline artifact, Cargo --locked validation remains pending.
+Cargo --locked validation and Linux execution require separate native evidence
+from the capped guest runner; this source manifest does not record a run result.
+
+The manifest's revision 2 identity selects the test-only checked `ioctl` argument
+conversion in the patch. The production filter is byte-identical to revision 1.
+The minimal Cargo harness package deliberately retains version
+`0.1.7+dotfiles-ai.child-unix-deny.1`: its `Cargo.toml`, `Cargo.lock` and `src/lib.rs`
+bytes are unchanged. The manifest identity and exact generated-source hashes
+distinguish this revised experiment; the package version is not runtime evidence.
 
 ## Preparation interface
 
@@ -44,7 +52,8 @@ dependency is introduced by this harness.
 GNU host with an added musl target. The channel manifest was read in memory and
 its SHA256 checked against the official checksum. Archive hashes come from that
 manifest; compressed byte sizes were checked with HTTP HEAD. Archive payloads,
-expanded sizes, installers and native execution remain unverified here.
+expanded sizes, installers and native execution must be verified by the guest
+runner; metadata checks alone do not establish those results.
 
 The three selected archives total 142,021,008 compressed bytes. Native preparation
 must verify those hashes and sizes, bound archive extraction, and verify the

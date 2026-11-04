@@ -22,7 +22,7 @@ from probe_openshell_storage import Refusal
 
 
 FIXTURES=Path(__file__).parent/'fixtures/openshell_runtime'
-PATCHED_SHA='259e77596f3f70ee28bdd8672f4747f3462f4c727b609e92d782cf749782ccb3'
+PATCHED_SHA='57a91bdc412ceb124da0b409f841420de35b692b07db0e806cd888c3ab7a3bb1'
 UPSTREAM='5d25211b25a8fc887e8d5c606d57d6ab22f1d76c'
 
 
@@ -137,20 +137,38 @@ def parse_prepared(result: dict) -> dict:
     return result
 
 
-def kernel_script(controller: str, builder: str, payload: dict, seconds: int, *, runtime: str) -> str:
+def payload_source(payload: dict) -> str:
+    """Carry bounded reviewed JSON as data, preserving the unit source ceiling."""
+    raw=json.dumps(payload,sort_keys=True,separators=(',',':')).encode()
+    if not 0<len(raw)<=128*1024:
+        raise Refusal('build_payload_limit')
+    encoded=base64.b64encode(zlib.compress(raw,9)).decode('ascii')
+    expected=hashlib.sha256(raw).hexdigest()
+    return f"""import base64 as _payload_b64, zlib as _payload_zlib
+_payload_decoder=_payload_zlib.decompressobj()
+_payload_raw=_payload_decoder.decompress(_payload_b64.b64decode('{encoded}'),{len(raw)+1})
+if (len(_payload_raw)!={len(raw)} or not _payload_decoder.eof or _payload_decoder.unused_data or _payload_decoder.unconsumed_tail or hashlib.sha256(_payload_raw).hexdigest()!='{expected}'):
+    raise RuntimeError('build_payload_identity')
+_stage_payload=json.loads(_payload_raw)
+"""
+
+
+def kernel_script(controller: str, builder: str, payload: dict, seconds: int, *, runtime: str, resume: bool = False) -> str:
+    builder+='\n'+payload_source(payload)
+    stages=[('resume',False,300),('test',False,480)] if resume else [
+        ('download',True,420),('setup',False,300),('fetch',True,240),('test',False,480)]
     return _observed_script(controller+"\n"+runtime,f'''
 _builder_source = {builder!r}
-_payload = {payload!r}
 _operation_end = time.monotonic() + {seconds!r}
 _stages = {{}}
 with mounted_store(deadline=_operation_end):
-    _runtime = install_runtime()
+    _runtime = install_runtime(existing_only=True) if {resume!r} else install_runtime()
     print(json.dumps({{'stage':'runtime','result':_runtime}}),file=sys.stderr,flush=True)
-    for _operation, _network, _maximum in [('download', True, 420), ('setup', False, 300), ('fetch', True, 240), ('test', False, 480)]:
+    for _operation, _network, _maximum in {stages!r}:
         _seconds = min(_maximum, int(_operation_end-time.monotonic()-65))
         if _seconds <= 0:
             raise RuntimeError('kernel_preparation_deadline')
-        _script = _builder_source + '\\nstage(' + repr(_operation) + ',' + repr(_payload) + ',' + repr(_seconds-5) + ')\\n'
+        _script = _builder_source + '\\nstage(' + repr(_operation) + ',_stage_payload,' + repr(_seconds-5) + ',resume_run={resume!r})\\n'
         _observed = run_unit(_script, network=_network, seconds=_seconds)
         _stages[_operation] = json.loads(_observed['stdout'])
         print(json.dumps({{'stage':_operation,'finished':True,'result':_stages[_operation]}}),file=sys.stderr,flush=True)
@@ -159,14 +177,16 @@ print(json.dumps({{'status':'kernel_tested','runtime':_runtime,'stages':_stages,
 
 
 def qualify(selection: create.CreateSelection, operation: str) -> BuildObservation:
-    if operation not in {'prepare','kernel'}: raise Refusal('build_operation')
+    if operation not in {'prepare','kernel','kernel-resume'}: raise Refusal('build_operation')
     # Capture reviewed source before any VM start. The body is fixed per
     # operation; neither selection JSON nor CLI accepts commands or scripts.
     controller=read_source(FIXTURES/'guest_build_storage.py').decode()
-    builder=read_source(FIXTURES/'guest_harness.py').decode() if operation=='kernel' else ''
-    runtime=read_source(FIXTURES/'guest_runtime.py').decode() if operation=='kernel' else ''
-    unwind=read_source(FIXTURES/'guest_unwind.py').decode() if operation=='kernel' else ''
-    if operation=='kernel': builder+='\n'+unwind
+    kernel=operation!='prepare'
+    builder=read_source(FIXTURES/'guest_harness.py').decode() if kernel else ''
+    runtime=read_source(FIXTURES/'guest_runtime.py').decode() if kernel else ''
+    unwind=read_source(FIXTURES/'guest_unwind.py').decode() if kernel else ''
+    resume_source=read_source(FIXTURES/'guest_resume.py').decode() if operation=='kernel-resume' else ''
+    if kernel: builder+='\n'+unwind+'\n'+resume_source
     def inspect(selected, anchor, deadline):
         observed=guest._inspect_guest(selected,anchor,deadline)
         if operation=='prepare' and observed.free_bytes<12*1024**3: raise Refusal('guest_build_reserve')
@@ -175,7 +195,7 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
             bundle=load_bundle(selected.storage.cache_path/'_tmp')
             seconds=int(create._remaining(deadline,1200))-15
             if seconds<120: raise Refusal('build_deadline')
-            script=kernel_script(controller,builder,bundle.payload,seconds,runtime=runtime)
+            script=kernel_script(controller,builder,bundle.payload,seconds,runtime=runtime,resume=operation=='kernel-resume')
         program_sha256=hashlib.sha256(script.encode()).hexdigest()
         wire=encode_program(script)
         argv=[str(anchor.sources[0].identity.path),'shell','--tty=false','--start=false',
@@ -183,9 +203,10 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
         raw=create._command(selected,argv,deadline,'guest_build',450 if operation=='prepare' else 1250)
         result=create._json(raw)
         if operation=='prepare': parse_prepared(result)
-        if operation=='kernel':
+        if kernel:
+            expected_stages={'resume','test'} if operation=='kernel-resume' else {'download','setup','fetch','test'}
             if (result.get('status')!='kernel_tested' or result.get('session_enabled') is not False
-                    or result.get('full_runtime_qualified') is not False or set(result.get('stages',{}))!={'download','setup','fetch','test'}):
+                    or result.get('full_runtime_qualified') is not False or set(result.get('stages',{}))!=expected_stages):
                 raise Refusal('kernel_report')
             if (result.get('runtime',{}).get('status')!='runtime_ready'
                     or result['runtime'].get('installed_bytes')!=945234):
@@ -199,6 +220,7 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
             result['builder_sha256']=hashlib.sha256(builder.encode()).hexdigest()
             result['runtime_sha256']=hashlib.sha256(runtime.encode()).hexdigest()
             result['unwind_sha256']=hashlib.sha256(unwind.encode()).hexdigest()
+            if resume_source: result['resume_sha256']=hashlib.sha256(resume_source.encode()).hexdigest()
         result['program_sha256']=program_sha256
         result['controller_sha256']=hashlib.sha256(controller.encode()).hexdigest()
         return result
@@ -209,7 +231,7 @@ def qualify(selection: create.CreateSelection, operation: str) -> BuildObservati
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--selection',required=True,type=Path)
-    parser.add_argument('--operation',required=True,choices=('prepare','kernel'))
+    parser.add_argument('--operation',required=True,choices=('prepare','kernel','kernel-resume'))
     args=parser.parse_args()
     try:
         selected=create.parse_selection(create.private_file(args.selection))

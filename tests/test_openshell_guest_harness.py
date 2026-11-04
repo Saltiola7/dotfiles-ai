@@ -168,3 +168,16 @@ def test_unwind_authentication_failure_precedes_rust_install(builder,tmp_path,mo
         builder.setup({'toolchain':{'artifacts':[]}})
     assert (failed/'evidence').read_text()=='retained'
     assert not (tmp_path/'toolchain-unwind-1').exists()
+
+
+def test_explicit_resume_uses_fixed_fresh_target_and_no_network_steps(builder, monkeypatch, capsys):
+    monkeypatch.setattr(builder,'validate_context',lambda:None)
+    monkeypatch.setattr(builder,'resume',lambda payload:{'verified':True},raising=False)
+    monkeypatch.setattr(builder,'download',lambda *a:pytest.fail('download on resume'))
+    monkeypatch.setattr(builder,'setup',lambda *a:pytest.fail('install on resume'))
+    monkeypatch.setattr(builder,'TARGET','target',raising=False)
+    builder.stage('resume',{'toolchain':{'host':builder.HOST,'version':'1.95.0'}},60,resume_run=True)
+    assert builder.environment()['CARGO_TARGET_DIR']==str(builder.WORK/'target/resume-1')
+    assert json.loads(capsys.readouterr().out)['result']['verified'] is True
+    with pytest.raises(RuntimeError):
+        builder.stage('download',{},60,resume_run=True)

@@ -21,6 +21,7 @@ import urllib.request
 
 WORK = Path('/var/lib/dotfiles-ai-openshell-build/store/work')
 TOOLCHAIN = 'toolchain-unwind-1'
+TARGET = 'target'
 HOST = 'aarch64-unknown-linux-musl'
 DEADLINE = 0.0
 OUTPUT_LIMIT = 1024 * 1024
@@ -150,7 +151,7 @@ def environment(*, rust=True):
     result = {'PATH':str(prefix/'bin')+':/usr/bin:/bin','LC_ALL':'C',
             'HOME':str(WORK/'home'),'CARGO_HOME':str(WORK/'cargo'),
             'RUSTUP_HOME':str(WORK/'rustup'),'XDG_CACHE_HOME':str(WORK/'cache'),
-            'TMPDIR':str(WORK/'tmp'),'CARGO_TARGET_DIR':str(WORK/'target'),
+            'TMPDIR':str(WORK/'tmp'),'CARGO_TARGET_DIR':str(WORK/TARGET),
             'CARGO_INCREMENTAL':'0','CARGO_BUILD_JOBS':'2','CARGO_TERM_COLOR':'never',
             'RUSTC':str(prefix/'bin/rustc'),'RUSTDOC':str(prefix/'bin/rustdoc'),
             'RUSTFLAGS':f'-C linker={prefix}/lib/rustlib/{HOST}/bin/rust-lld -C linker-flavor=ld.lld -C link-self-contained=yes'}
@@ -254,7 +255,7 @@ def execute_tests(payload):
         item=json.loads(line)
         if item.get('reason')=='compiler-artifact' and item.get('executable'):
             executables.append(Path(item['executable']))
-    if len(executables)!=1 or not executables[0].resolve().is_relative_to((WORK/'target').resolve()):
+    if len(executables)!=1 or not executables[0].resolve().is_relative_to((WORK/TARGET).resolve()):
         raise RuntimeError('harness_test_binary')
     binary=executables[0];binary_hash=verify_static_arm64(binary)
     output,error=command([str(binary),'--test-threads=1','--nocapture'],cwd=source,maximum=180,environment=env)
@@ -278,11 +279,13 @@ def execute_tests(payload):
             'kernel_only':True,'full_runtime_qualified':False,'session_enabled':False}
 
 
-def stage(operation, payload, seconds):
-    global DEADLINE
-    if operation not in {'download','setup','fetch','test'} or not 0<seconds<=1200:
+def stage(operation, payload, seconds, *, resume_run=False):
+    global DEADLINE, TARGET
+    allowed = {'resume','test'} if resume_run is True else {'download','setup','fetch','test'}
+    if type(resume_run) is not bool or operation not in allowed or not 0<seconds<=1200:
         raise RuntimeError('harness_operation')
     DEADLINE=time.monotonic()+seconds
+    TARGET='target/resume-1' if resume_run else 'target'
     validate_context()
     if payload['toolchain']['host']!=HOST or payload['toolchain']['version']!='1.95.0':
         raise RuntimeError('harness_toolchain_selection')
@@ -290,6 +293,7 @@ def stage(operation, payload, seconds):
         for item in payload['toolchain']['artifacts']: download(item)
         result={'verified_archives':len(payload['toolchain']['artifacts']),'unwind':unwind_download()}
     elif operation=='setup': result=setup(payload)
+    elif operation=='resume': result=resume(payload)
     elif operation=='fetch':
         source=WORK/'harness';before=digest(source/'Cargo.lock')
         command([str(WORK/TOOLCHAIN/'bin/cargo'),'fetch','--locked'],cwd=source,maximum=300,environment=environment())
