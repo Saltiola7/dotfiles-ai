@@ -274,8 +274,10 @@ class AgentProtocol:
                     raise RuntimeError('agent_protocol_identity')
                 self.initialized=True
                 self.result=result
-            elif (not set(value)<={'method','params'} or type(value.get('method')) is not str
-                    or not value['method'] or len(value['method'])>256):
+            elif (not set(value)<={'method','params','emittedAtMs'} or type(value.get('method')) is not str
+                    or not value['method'] or len(value['method'])>256
+                    or ('emittedAtMs' in value and (type(value['emittedAtMs']) is not int
+                                                    or not 0<=value['emittedAtMs']<=2**53))):
                 raise RuntimeError('agent_protocol_notification')
         if len(self.buffer)>65536:raise RuntimeError('agent_protocol_line')
         return self.initialized and not previous

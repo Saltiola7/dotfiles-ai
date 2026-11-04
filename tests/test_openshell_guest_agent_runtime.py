@@ -80,6 +80,34 @@ def test_stdio_rejects_responses_or_requests_without_authorizing(runtime,respons
     with pytest.raises(RuntimeError,match='agent_protocol'):protocol.feed(json.dumps(response).encode()+b'\n')
 
 
+IDENTITY={'userAgent':'x','codexHome':'/private/codex','platformFamily':'unix','platformOs':'linux'}
+
+
+def test_stdio_accepts_observed_notification_timestamp_after_initialize(runtime):
+    protocol=runtime.AgentProtocol('/private/codex')
+    lines=[{'id':1,'result':IDENTITY},
+           {'method':'configWarning','params':{'summary':'x','details':None},'emittedAtMs':1793771401861},
+           {'method':'bare'}]
+    assert protocol.feed(b''.join(json.dumps(line).encode()+b'\n' for line in lines)) is True
+    protocol.finish()
+
+
+@pytest.mark.parametrize('extra',[
+    {'emittedAtMs':True},{'emittedAtMs':-1},{'emittedAtMs':2**53+1},{'emittedAtMs':1.5},
+    {'emittedAtMs':'1'},{'emittedAtMs':None},{'unknown':1},{'jsonrpc':'2.0'},
+])
+def test_stdio_rejects_bad_notification_timestamp_or_unknown_fields(runtime,extra):
+    protocol=runtime.AgentProtocol('/private/codex')
+    with pytest.raises(RuntimeError,match='agent_protocol_notification'):
+        protocol.feed(json.dumps({'method':'configWarning',**extra}).encode()+b'\n')
+
+
+def test_stdio_timestamp_never_turns_a_request_or_response_into_a_notification(runtime):
+    for value in ({'id':1,'method':'x','emittedAtMs':1},{'id':1,'result':IDENTITY,'emittedAtMs':1}):
+        with pytest.raises(RuntimeError,match='agent_protocol_response'):
+            runtime.AgentProtocol('/private/codex').feed(json.dumps(value).encode()+b'\n')
+
+
 @pytest.mark.parametrize('raw',[b'not json\n',b'{}\n',b'x'*65537])
 def test_stdio_rejects_malformed_or_overlong_lines(runtime,raw):
     with pytest.raises(RuntimeError,match='agent_protocol'):runtime.AgentProtocol('/x').feed(raw)
