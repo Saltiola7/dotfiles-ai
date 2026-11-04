@@ -139,6 +139,17 @@ configuration supplies these defaults; this reference adds no lifecycle policy,
 record schema, or runtime identity checks. Inspect the effective settings in the
 actual checkout before committing.
 
+## Completion after an external merge
+
+The [external completion contract](features/external-merge-completion.md) adds
+`complete-external --pr-number NUMBER --expected-head OID --expected-merge OID`.
+It reconciles an already merged GitHub PR with the retained cycle source, including
+an identical-tree squash, without pushing or creating another draft. Existing
+completion gates, evidence and source ownership remain required. `--preview`
+verifies without completing; `--cycle-id` verifies/retries an already externally
+completed record. This proof grants no merge, deployment or checkout-removal
+authority and does not change automatic delivery's merge-only execution contract.
+
 ## Forgejo local-only source interface
 
 The [bounded Forgejo contract](features/forgejo-local-registration.md) adds typed

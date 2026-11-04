@@ -464,6 +464,14 @@ branch; direct cycle delivery to `main` is prohibited. Verify synchronization an
 report pushed commit IDs plus the draft pull-request URL. Draft delivery leaves
 the recorded original checkout untouched.
 
+If the operator already merged a GitHub PR externally, use
+`dbsctrctl complete-external --pr-number NUMBER --expected-head OID --expected-merge OID`
+after the existing completion gates pass. `--preview` verifies without completing;
+`--cycle-id ID` verifies/retries an already externally completed record. The helper
+checks authenticated PR identity and exact-tree delivery, including a squash,
+while retaining source/evidence and granting no cleanup authority. Never rerun
+Final Push to recreate an already merged PR or hand-edit its cycle to completed.
+
 Stop before push when HEAD is detached, no upstream exists, the destination
 changed, pre-cycle ahead commits would be included, required evidence failed,
 force would be needed, or repository policy requires another approval.

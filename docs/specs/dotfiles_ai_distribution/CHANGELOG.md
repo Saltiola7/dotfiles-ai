@@ -1,5 +1,18 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-03 — Preserve external completion during runtime qualification
+
+- Combined protected-main external-completion and lifecycle-validation changes
+  with the bounded Forgejo cleanup. Preserved the Codex fixture correction,
+  approved thirteen requirements, root metadata, support floor and runtime pins.
+- Qualified the combined helper with actual CLI smoke/profile workloads on
+  Python 3.12–3.15: 96 complete records and 64 profiles. Preserved upstream
+  3.12–3.14 help oracles and observed the new 3.15.0 help output before updating
+  its oracle. This establishes output compatibility, with no performance claim.
+- Earlier hosted results remain historical evidence. Fresh kernel evidence and
+  exact-source full hosted qualification remain required before ordinary guarded
+  merge; no gate exception or live activation is introduced.
+
 ## 2026-11-03 — Keep Codex lock fixture contended
 
 - Replaced the fixture's early parent-side lock release with ownership through
