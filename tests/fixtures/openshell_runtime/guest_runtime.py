@@ -9,8 +9,9 @@ Provenance: Fedora release primary metadata SHA256
 1f1fdf58f26864c869884f854e92bc502d6fdf1769be2b2804783c243edf36a0,
 under https://dl.fedoraproject.org/pub/fedora/linux/releases/44/Everything/aarch64/os/repodata/.
 File/dependency records came from the same signed RPM headers. The fingerprint is
-published at https://fedoraproject.org/security/. Header inspection is not signature
-verification: the guest's existing trusted key must verify each complete archive.
+published at https://fedoraproject.org/security/. The existing public key file is
+pinned against Fedora's official source below; a private filesystem keyring
+verifies each complete archive without changing the global trust store.
 Offline tests qualify source behavior only, not native installation or execution.
 """
 
@@ -19,6 +20,11 @@ import urllib.request as runtime_request
 import urllib.error as runtime_error
 
 runtime_fingerprint = "36F612DCF27F7D1A48A835E4DBFCF71C6D9F90A6"
+runtime_key_source = "/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-44-primary"
+runtime_key_size = 1672
+runtime_key_sha256 = "93642aec521a1e5e96dd715f7ae0ec0850ebc9de09a94ce03cae5263f26cc18a"
+# https://src.fedoraproject.org/rpms/fedora-repos/raw/f44/f/RPM-GPG-KEY-fedora-44-primary
+# https://github.com/rpm-software-management/rpm/blob/rpm-6.0.0-release/lib/keystore.cc
 runtime_reserve = 4 * 1024**3
 runtime_install_margin = 64 * 1024**2
 runtime_engine_requires = (
@@ -59,6 +65,11 @@ runtime_file_format = "[%{FILENAMES}\t%{FILESIZES}\t%{FILEMODES:octal}\t%{FILEUS
 
 
 def runtime_command(argv, *, check=True):
+    if _active is None or argv[0] not in ("/usr/bin/rpm", "/usr/bin/rpmkeys"):
+        raise Refusal("runtime_command_scope")
+    argv = [argv[0], "--define", "_keyring fs", "--define",
+            f"_keyringpath {_active.mount}/runtime-rpms/keyring", "--define",
+            "_pkgverify_level all", *argv[1:]]
     return _command(argv, _work_end, maximum=60, check=check)
 
 
@@ -128,9 +139,52 @@ def runtime_system():
         raise Refusal("runtime_database")
 
 
+def runtime_global_keys():
+    result = _command(["/usr/bin/rpmkeys", "--list"], _work_end, maximum=30)
+    if result["stderr"]:
+        raise Refusal("runtime_signing_key")
+    return result["stdout"]
+
+
+def runtime_read_key():
+    path = Path(runtime_key_source)
+    info = path.lstat()
+    if (path.resolve(strict=True) != path or not stat.S_ISREG(info.st_mode)
+            or info.st_uid or info.st_gid or info.st_nlink != 1
+            or stat.S_IMODE(info.st_mode) != 0o644 or info.st_size != runtime_key_size):
+        raise Refusal("runtime_signing_key")
+    raw = _read(path, runtime_key_size)
+    if len(raw) != runtime_key_size or runtime_hashlib.sha256(raw).hexdigest() != runtime_key_sha256:
+        raise Refusal("runtime_signing_key")
+    return raw
+
+
+def runtime_key_copy():
+    raw = runtime_read_key()
+    directory = _active.mount / "runtime-rpms/keyring"
+    if not directory.exists() and not directory.is_symlink():
+        directory.mkdir(mode=0o700)
+    _private(directory, directory=True)
+    if directory.stat().st_dev != _active.mount.stat().st_dev:
+        raise Refusal("runtime_signing_key")
+    with os.scandir(directory) as entries:
+        for count, entry in enumerate(entries, 1):
+            if count > 1 or entry.name != "fedora44.key":
+                raise Refusal("runtime_signing_key")
+    path = directory / "fedora44.key"
+    if not path.exists() and not path.is_symlink():
+        _write_new(path, raw)
+    _private(path, size=runtime_key_size)
+    if path.stat().st_dev != directory.stat().st_dev or _read(path, runtime_key_size) != raw:
+        raise Refusal("runtime_signing_key")
+
+
 def runtime_key():
-    raw = runtime_stdout(["/usr/bin/rpmkeys", "--list", runtime_fingerprint])
-    if raw.upper().split().count(runtime_fingerprint.encode()) != 1:
+    runtime_key_copy()
+    raw = runtime_stdout(["/usr/bin/rpmkeys", "--list"])
+    if (len(raw.splitlines()) != 1 or not raw.split()
+            or raw.split()[0].upper() != runtime_fingerprint.encode()
+            or not raw.endswith(b" public key\n")):
         raise Refusal("runtime_signing_key")
 
 
@@ -147,7 +201,7 @@ def runtime_cache():
     _private(directory, directory=True)
     if directory.stat().st_dev != _active.mount.stat().st_dev:
         raise Refusal("runtime_cache_identity")
-    allowed = {package["url"].rsplit("/", 1)[1] for package in runtime_packages}
+    allowed = {package["url"].rsplit("/", 1)[1] for package in runtime_packages} | {"keyring"}
     with os.scandir(directory) as entries:
         for count, entry in enumerate(entries, 1):
             if count > len(allowed) or entry.name not in allowed:
@@ -287,12 +341,13 @@ def install_runtime():
     _remaining(_work_end)
     _verify(_active, _work_end)
     runtime_system()
-    runtime_key()
-    resumed = runtime_installed()
+    global_keys = runtime_global_keys()
     before = runtime_free()
     if before < runtime_reserve + runtime_install_margin:
         raise Refusal("runtime_root_reserve")
     directory = runtime_cache()
+    runtime_key()
+    resumed = runtime_installed()
     paths = [runtime_package(package, directory) for package in runtime_packages]
     _verify(_active, _work_end)
     if not resumed:
@@ -303,6 +358,8 @@ def install_runtime():
         _verify(_active, _work_end)
         runtime_command(transaction + list(map(str, paths)))
     runtime_verify_installed()
+    if runtime_global_keys() != global_keys:
+        raise Refusal("runtime_global_key_drift")
     after = runtime_free()
     if after < runtime_reserve or before - after > runtime_install_margin:
         raise Refusal("runtime_root_reserve")

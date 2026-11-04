@@ -89,9 +89,10 @@ def test_key_check_never_imports_key(runtime, monkeypatch):
         calls.append(argv)
         return {"stdout": b"", "stderr": b"", "returncode": 0}
     monkeypatch.setattr(runtime, "runtime_command", command)
+    monkeypatch.setattr(runtime, "runtime_key_copy", lambda: None)
     with pytest.raises(runtime.Refusal, match="runtime_signing_key"):
         runtime.runtime_key()
-    assert calls == [["/usr/bin/rpmkeys", "--list", runtime.runtime_fingerprint]]
+    assert calls == [["/usr/bin/rpmkeys", "--list"]]
 
 
 def test_partial_installed_set_refuses(runtime, monkeypatch):
@@ -141,6 +142,7 @@ def admitted(runtime, monkeypatch, tmp_path):
     monkeypatch.setattr(runtime, "_remaining", lambda *a: 30)
     monkeypatch.setattr(runtime, "_verify", lambda *a: calls.append("verify"))
     monkeypatch.setattr(runtime, "runtime_key", lambda: calls.append("key"))
+    monkeypatch.setattr(runtime, "runtime_global_keys", lambda: b"unchanged global keys")
     monkeypatch.setattr(runtime, "runtime_system", lambda: calls.append("system"))
     monkeypatch.setattr(runtime, "runtime_cache", lambda: tmp_path)
     monkeypatch.setattr(runtime, "runtime_package", lambda p, d: d / (p["name"] + ".rpm"))
@@ -201,10 +203,109 @@ def test_insufficient_root_reserve_refuses_before_install(admitted, monkeypatch)
 
 def test_native_commands_share_work_deadline(runtime, monkeypatch):
     runtime._work_end = 42.0
+    runtime._active = SimpleNamespace(mount=Path("/private/store"))
     calls = []
     monkeypatch.setattr(runtime, "_command", lambda argv, deadline, **kw: calls.append((argv, deadline, kw)) or {"returncode": 0, "stdout": b"", "stderr": b""})
     runtime.runtime_command(["/usr/bin/rpm", "--version"])
     assert calls[0][1] == 42.0 and calls[0][2]["maximum"] <= 60
+
+
+def test_existing_fedora_key_identity_is_pinned(runtime):
+    assert runtime.runtime_key_sha256 == "93642aec521a1e5e96dd715f7ae0ec0850ebc9de09a94ce03cae5263f26cc18a"
+    assert runtime.runtime_key_size == 1672
+    assert runtime.runtime_key_source == "/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-44-primary"
+
+
+@pytest.mark.parametrize("executable", ["/usr/bin/rpm", "/usr/bin/rpmkeys"])
+def test_every_private_rpm_call_enforces_one_fs_keyring(runtime, monkeypatch, executable):
+    runtime._active = SimpleNamespace(mount=Path("/private/store"))
+    runtime._work_end = 42.0
+    calls = []
+    monkeypatch.setattr(runtime, "_command", lambda argv, deadline, **kw: calls.append(argv))
+    runtime.runtime_command([executable, "--version"])
+    assert calls == [[executable, "--define", "_keyring fs", "--define",
+                      "_keyringpath /private/store/runtime-rpms/keyring", "--define",
+                      "_pkgverify_level all", "--version"]]
+
+
+def test_global_key_observation_uses_no_private_overrides(runtime, monkeypatch):
+    runtime._work_end = 42.0
+    calls = []
+    monkeypatch.setattr(runtime, "_command", lambda argv, deadline, **kw: calls.append(argv) or {"stdout": b"old keys", "stderr": b"", "returncode": 0})
+    assert runtime.runtime_global_keys() == b"old keys"
+    assert calls == [["/usr/bin/rpmkeys", "--list"]]
+
+
+def test_global_key_change_refuses_readiness(admitted, monkeypatch):
+    runtime, calls = admitted
+    values = iter([b"before", b"after"])
+    monkeypatch.setattr(runtime, "runtime_global_keys", lambda: next(values))
+    with pytest.raises(runtime.Refusal, match="runtime_global_key_drift"):
+        runtime.install_runtime()
+
+
+def test_private_key_copy_reuses_exact_bytes_and_rejects_other_entries(runtime, tmp_path, monkeypatch):
+    import hashlib
+    runtime._active = SimpleNamespace(mount=tmp_path)
+    cache = tmp_path / "runtime-rpms"
+    cache.mkdir()
+    raw = b"reviewed public key"
+    monkeypatch.setattr(runtime, "runtime_read_key", lambda: raw)
+    monkeypatch.setattr(runtime, "runtime_key_sha256", hashlib.sha256(raw).hexdigest())
+    monkeypatch.setattr(runtime, "runtime_key_size", len(raw))
+    monkeypatch.setattr(runtime, "_private", lambda *a, **k: None)
+    runtime.runtime_key_copy()
+    key = cache / "keyring/fedora44.key"
+    assert key.read_bytes() == raw
+    identity = key.stat().st_ino
+    runtime.runtime_key_copy()
+    assert key.stat().st_ino == identity
+    key.write_bytes(b"changed")
+    with pytest.raises(runtime.Refusal, match="runtime_signing_key"):
+        runtime.runtime_key_copy()
+    key.write_bytes(raw)
+    (key.parent / "extra.key").write_bytes(raw)
+    with pytest.raises(runtime.Refusal, match="runtime_signing_key"):
+        runtime.runtime_key_copy()
+
+
+def test_private_key_listing_rejects_additional_key(runtime, monkeypatch):
+    monkeypatch.setattr(runtime, "runtime_key_copy", lambda: None)
+    line = runtime.runtime_fingerprint.lower().encode() + b" Fedora (44) public key\n"
+    monkeypatch.setattr(runtime, "runtime_stdout", lambda *a: line)
+    runtime.runtime_key()
+    monkeypatch.setattr(runtime, "runtime_stdout", lambda *a: line + b"another key\n")
+    with pytest.raises(runtime.Refusal, match="runtime_signing_key"):
+        runtime.runtime_key()
+
+
+@pytest.mark.parametrize("change", [{"st_uid": 65534}, {"st_mode": 0o100666},
+                                    {"st_nlink": 2}, {"st_size": 1673}])
+def test_source_key_requires_fixed_root_owned_metadata(runtime, monkeypatch, change):
+    values = {"st_mode": 0o100644, "st_uid": 0, "st_gid": 0, "st_nlink": 1, "st_size": 1672} | change
+    class KeyPath:
+        def lstat(self):
+            return SimpleNamespace(**values)
+        def resolve(self, **kwargs):
+            return self
+    path = KeyPath()
+    monkeypatch.setattr(runtime, "Path", lambda value: path)
+    monkeypatch.setattr(runtime, "_read", lambda *a: pytest.fail("unsafe key read"))
+    with pytest.raises(runtime.Refusal, match="runtime_signing_key"):
+        runtime.runtime_read_key()
+
+
+def test_source_key_digest_mismatch_refuses(runtime, monkeypatch):
+    class KeyPath:
+        def lstat(self):
+            return SimpleNamespace(st_mode=0o100644, st_uid=0, st_gid=0, st_nlink=1, st_size=1672)
+        def resolve(self, **kwargs):
+            return self
+    path = KeyPath()
+    monkeypatch.setattr(runtime, "Path", lambda value: path)
+    monkeypatch.setattr(runtime, "_read", lambda *args: b"x" * 1672)
+    with pytest.raises(runtime.Refusal, match="runtime_signing_key"):
+        runtime.runtime_read_key()
 
 
 def test_download_total_deadline_handler_and_timer_collision(runtime, monkeypatch, tmp_path):
