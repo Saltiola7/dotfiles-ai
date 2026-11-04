@@ -1469,6 +1469,24 @@ escaping paths. This uses already authenticated packages; it does not add a
 library download, change the Rust prefix or runtime library environment, or
 permit host GNU library substitution. The final OpenShell executable and test
 binary must still pass the static ARM64 checks.
+Cargo may publish the final runtime as a copy or as a hardlink. Keep generic
+source, cache, tool and test-executable single-link validation unchanged. Only
+`full-target-1/release/openshell-sandbox` may have two links, and only when its
+other link is exactly one regular non-symlink
+`full-target-1/release/deps/openshell_sandbox-[0-9a-f]{16}` with the same complete
+file identity. Require both link counts to be two, admitted owner/group/mode,
+the same build filesystem and a nonempty executable no larger than 256 MiB.
+A single-link final copy remains valid. Bound the held-directory scan to 8,192
+entries; reject missing, malformed, extra or foreign aliases and changed
+ancestor, descriptor or path identities. Hold the admitted binary and companion
+FDs through ELF/hash verification and the version probe; use only internally
+constructed proc-FD paths for same-object reads and execution. Recheck the
+retained runtime identity and hash after library tests. Record the observed link
+count and companion name, and bounded stat metadata on refusal; do not infer a
+native hardlink solely from Cargo's source behavior. Never copy, unlink, chmod
+or relax another input to repair a refused artifact. This follows the pinned
+[Cargo publication](https://github.com/rust-lang/cargo/blob/f2d3ce0bd7f24a49f8f72d9000448f8838c4e850/src/cargo/core/compiler/mod.rs#L632)
+contract without changing the source or output storage caps.
 Each fixed stage travels in its own bounded guest program, inside one admitted
 VM lifecycle and the same overall deadline. Each stage independently verifies
 mount, service shutdown and unmount; host evidence retains every completed stage
