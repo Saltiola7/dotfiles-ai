@@ -12,6 +12,7 @@ change the merge-only execution contract in [automatic delivery](automatic-deliv
 | GitHub | Authenticated repository, account, pull-request identity and merged outcome |
 | Git | Original checkout, source content, recorded first-parent history and protected-base inclusion |
 | Cycle Record | Existing gates, evidence, artifact reviews, original source identity and immutable completion receipt |
+| Completion handler | Dedicated completion admission and per-cycle writer serialization, including completed native Initiative records |
 
 A squash can preserve the complete source tree while replacing every Gate Commit
 ID. Exact tree equivalence proves delivered content; it does not establish that
@@ -30,6 +31,10 @@ a particular merge strategy. The proof is named `exact_tree`.
 | A different repository, base, head, merge, tree or recorded lineage is observed | Verification runs | Refuse; do not create another draft or reinterpret another PR as this cycle |
 | Source, record or active pointer changes during verification | Persistence is about to occur | Refuse rather than completing changed work |
 | Completion was saved but active-pointer removal was interrupted | The identical completed cycle is retried | Verify the same receipt/source and finish pointer removal without republishing or changing completion time |
+| A native Initiative cycle is completed and its pointer is absent | Its explicit completed-cycle verification is retried | Reach completion-specific admission, reverify native delivery and return the unchanged receipt |
+| Another writer owns the cycle's mutation lease | Initial completion, preview or completed retry is attempted | Refuse before native verification; preserve the record and pointer |
+| Approved lineage recovery has durable custody but its replacement is unapplied | Initial completion, preview or completed retry holds the shared writer lease | Refuse before native reads; preserve recovery custody, record and pointer, and release acquired locks |
+| A generic writer selects a completed native Initiative cycle | An ordinary artifact or evidence mutation is attempted | Preserve the existing completed-cycle refusal; completion recovery grants no general mutation authority |
 
 ## Interface and contracts
 
@@ -87,10 +92,21 @@ none was recorded. Completed retries require identical pins and receipt identity
 retain the original completion time, and never remove a different active cycle.
 Final Push cannot republish an externally completed record.
 
-Serialize through the existing cycle-evidence and delivery-target locks. Reobserve
-source, record digest and pointer immediately before persistence. Rejection retains
-canonical state; crashes leave either the original record or an immutable completed
-record that can be retried. No checkout, branch or evidence cleanup is implied.
+Use dedicated completion dispatch admission rather than applying the generic
+active-pointer mutation guard to completed retries. The completion handler owns
+the existing `local-mutation-ID` writer lease, followed by the cycle-evidence and
+delivery-target locks, for initial completion, preview and explicit recovery.
+Acquire that shared writer lease exactly once; preserve serialization with native
+Initiative amendment and ordinary writers without requiring a removed pointer.
+While holding the shared writer lease, call `lineage_pending_guard` before native
+reads. Approved-but-unapplied lineage recovery blocks completion, preview and
+completed retry; retain its custody and the original record and pointer unchanged.
+Acquisition failure and verification exceptions release acquired resources through
+their existing contexts. Other commands retain their active-state/pointer guards.
+Reobserve source, record digest and pointer immediately before persistence.
+Rejection retains canonical state; crashes leave either the original record or an
+immutable completed record that can be retried. No checkout, branch or evidence
+cleanup is implied.
 Existing destructive-retirement ancestry and ownership checks remain unchanged.
 
 ## Validation and maintenance
@@ -103,6 +119,15 @@ pending gates, dirty checkout, DVC obligations, changed source/record/pointer an
 lock contention. Verify preview and rejection preserve canonical bytes, completed
 retry is idempotent, and no publishing command is invoked. Existing Final Push and
 local-only completion regressions remain required.
+
+Register a real native schema-5 Initiative through `begin` in disposable fixtures
+and invoke the top-level CLI. Synthetic fixture consent is not operator approval.
+An unscoped `start` fixture alone does not qualify Initiative dispatch. Cover an
+absent pointer after completion, interrupted own-pointer removal, a foreign
+pointer, mutation-lease contention before native reads, concurrent generic writers
+and continued refusal of ordinary mutations against completed records. Verify that
+approved-but-unapplied lineage recovery rejects completion before native reads,
+preserves custody, record and pointer bytes, and releases acquired locks.
 
 The lifecycle maintainer owns compatibility and recovery. Deploy only a verified
 merged helper revision through the managed installer. Consumer qualification uses
@@ -128,11 +153,19 @@ and evidence; it does not undo the external merge or delete completed work.
 | Verified candidate | Preview requested | Return proof; original cycle remains unchanged |
 | Verified candidate | Locks held; source, record and pointer unchanged | Atomically completed record with immutable external receipt |
 | Completed record; pointer remains | Same receipt/source verified | Remove only its own pointer |
+| Completed native Initiative; pointer absent | Dedicated handler owns writer lease and verifies unchanged delivery | Return original immutable receipt without restoring an active pointer |
+| Initial completion or retry; writer lease unavailable | Refuse before native proof | Original record and pointer retained |
+| Initial completion, preview or retry; approved recovery unapplied | Shared writer lease held; pending-lineage guard refuses before native reads | Recovery custody, original record and pointer retained; acquired locks released |
 | Any rejected check | Retain source, canonical record and evidence | Blocked invocation; no invented pass |
 
 **Text Equivalent:** The operator selects immutable remote identities. Existing
 local evidence and authenticated GitHub/Git facts must all pass before completion.
 Preview retains the original cycle. Mutation saves one completed receipt before
-removing its pointer; an interrupted removal can be retried. Rejection grants no
-delivery or cleanup authority. Canonical source: this feature; owner: lifecycle
-maintainer. Update these tables when authority, ordering or receipt shape changes.
+removing its pointer; an interrupted removal can be retried. Completion-specific
+admission owns the shared writer lease before evidence/target locks, including
+verification of completed Initiative records without a pointer. Under that lease,
+the pending-lineage guard blocks approved-but-unapplied recovery before native
+reads, preserving custody, record and pointer and releasing acquired locks.
+Rejection grants no delivery or cleanup authority. Canonical source: this feature;
+owner: lifecycle maintainer. Update these tables when authority, ordering or receipt
+shape changes.
