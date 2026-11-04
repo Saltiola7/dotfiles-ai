@@ -316,18 +316,25 @@ def full_compiler_elf(raw, member=''):
         for at in range(start,start+length,16):
             tag,value=struct.unpack_from('<qQ',raw,at)
             if tag==0:break
-            if tag in (15,29,0x6ffffefb,0x6ffffefc):full_compiler_fail('elf_search_path')
             tags.setdefault(tag,[]).append(value)
         else:full_compiler_fail('elf')
     needed=[]
-    if tags.get(1):
-        if len(tags.get(5,[]))!=1 or len(tags.get(10,[]))!=1 or len(tags[1])>64:full_compiler_fail('elf')
+    blocked=next((tag for tag in (15,29,0x6ffffefb,0x6ffffefc) if tag in tags),None)
+    label=str(member)[:192]+(f' tag={blocked:#x}' if blocked else '')
+    if tags.get(1) or blocked:
+        if len(tags.get(5,[]))!=1 or len(tags.get(10,[]))!=1 or len(tags.get(1,[]))>64:
+            full_compiler_fail('elf',label+' invalid string table')
         address,length=tags[5][0],tags[10][0]
         matches=[start+address-virtual for start,virtual,size in loads if virtual<=address and address+length<=virtual+size]
         if len(matches)!=1 or not 0<length<=len(raw):
-            full_compiler_fail('elf_string_table',f'{str(member)[:256]} mappings={len(matches)} bytes={length} file_bytes={len(raw)}')
+            full_compiler_fail('elf_string_table',f'{label} mappings={len(matches)} bytes={length} file_bytes={len(raw)}')
         strings=raw[matches[0]:matches[0]+length]
-        for at in tags[1]:
+        if blocked:
+            at=tags[blocked][0]
+            end=strings.find(b'\0',at,min(at+257,len(strings))) if at<len(strings) else -1
+            value=repr(strings[at:end]) if end>=0 else f'<invalid offset={at} or unterminated>'
+            full_compiler_fail('elf_search_path',f'{label} value={value}')
+        for at in tags.get(1,[]):
             if at>=len(strings) or b'\0' not in strings[at:]:full_compiler_fail('elf')
             name=strings[at:].split(b'\0',1)[0].decode('ascii')
             if not name or '/' in name or name in needed:full_compiler_fail('elf_needed')

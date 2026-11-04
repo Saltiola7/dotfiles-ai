@@ -202,7 +202,7 @@ def test_probe_refuses_retained_partial_without_execution(compiler,monkeypatch):
 def test_source_size_no_entrypoint(compiler):
     path=Path(__file__).parent/'fixtures/openshell_runtime/guest_full_compiler.py'
     source=path.read_text()
-    assert len(source.encode())<=28*1024 and '__main__' not in source
+    assert len(source.encode())<=29*1024 and '__main__' not in source
 
 
 @pytest.fixture
@@ -326,6 +326,35 @@ def test_elf_string_table_requires_one_complete_file_mapping(compiler,failure,ma
     assert member in str(error.value)
     assert f'mappings={mappings}' in str(error.value)
     assert f'bytes={length}' in str(error.value)
+
+
+@pytest.mark.parametrize('tag',[15,29,0x6ffffefb,0x6ffffefc])
+def test_elf_search_tags_report_value_but_never_allow_it(compiler,tag):
+    raw,_=dynamic_elf()
+    raw=bytearray(raw)
+    struct.pack_into('<qQ',raw,288,tag,1)
+    value=b'$ORIGIN/../lib'
+    raw[513:513+len(value)+1]=value+b'\0'
+    member='usr/libexec/gcc/aarch64-alpine-linux-musl/14.2.0/cc1'
+    with pytest.raises(RuntimeError,match='full_compiler_elf_search_path') as error:
+        compiler.full_compiler_elf(bytes(raw),member)
+    assert member in str(error.value)
+    assert f'tag={tag:#x}' in str(error.value)
+    assert repr(value) in str(error.value)
+
+
+@pytest.mark.parametrize('failure',['offset','unterminated','table'])
+def test_elf_search_tag_invalid_string_remains_bounded_refusal(compiler,failure):
+    raw,length=dynamic_elf(failure='file_overflow' if failure=='table' else None)
+    raw=bytearray(raw)
+    struct.pack_into('<qQ',raw,288,29,length+1 if failure=='offset' else 1)
+    if failure=='unterminated':raw[513:513+300]=b'x'*300
+    with pytest.raises(RuntimeError,match='full_compiler_elf') as error:
+        compiler.full_compiler_elf(bytes(raw),'usr/bin/gcc')
+    diagnostic=str(error.value)
+    assert 'usr/bin/gcc' in diagnostic and 'tag=0x1d' in diagnostic
+    assert 'invalid' in diagnostic or 'mappings=0' in diagnostic
+    assert len(diagnostic)<550
 
 
 @pytest.mark.parametrize('failure',[None,'query_escape','include_escape','link_escape','sentinel'])
