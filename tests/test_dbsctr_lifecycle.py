@@ -1,4 +1,5 @@
 import hashlib
+from collections import Counter
 import json
 import re
 import subprocess
@@ -18,6 +19,12 @@ def text(path: Path | str) -> str:
 
 def workflow_steps(workflow: str) -> list[str]:
     return re.split(r"(?m)^      - ", workflow.split("    steps:\n", 1)[1])[1:]
+
+
+def workflow_job(workflow: str, name: str) -> str:
+    match = re.search(rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)", workflow)
+    assert match, f"workflow must retain the {name} job"
+    return match.group(1)
 
 
 def test_discovery_records_the_full_python_typing_contract():
@@ -213,27 +220,37 @@ def test_public_lifecycle_commands_are_unversioned_and_thin():
 
 def test_early_publication_and_editorial_remediation_contract():
     workflow = text(".github/workflows/test.yml")
-    early = workflow.index("- name: Check publication and instruction contracts")
-    full_command = re.search(r"(?m)^      - run: uv run [^\n]*\bpytest\s+--maxfail=1\s*$", workflow)
-    assert full_command, "full pytest authority must retain --maxfail=1"
-    full = full_command.start()
-    assert early < full
-    command = workflow[early:full]
+    worker = workflow_job(workflow, "test-shard")
+    aggregate = workflow_job(workflow, "test")
+    early = worker.index("- name: Check publication and instruction contracts")
+    swift = worker.index("- name: Check native Swift compilation")
+    full = worker.index("- name: Check full-suite partition\n")
+    assert early < swift < full
+    command = worker[early:full]
     for authority in ("tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers",
                       "tests/test_opencode_control_plane.py", "tests/test_dbsctr_lifecycle.py"):
         assert authority in command
-    pytest_steps = [step for step in workflow_steps(workflow) if re.search(r"\bpytest\b", step)]
-    assert len(pytest_steps) == 3
-    for step in pytest_steps:
-        invocation = re.search(r"\buv run\s+(.*?)\bpytest\b", " ".join(step.split()))
-        assert invocation, "each pytest authority must use the root uv environment"
+    pytest_steps = [step for step in workflow_steps(worker)
+                    if re.search(r"\buv run\s+[^\n]*\bpytest\b", " ".join(step.split()))]
+    assert len(pytest_steps) == 2
+    partition_step = next(step for step in workflow_steps(worker)
+                          if step.startswith("name: Check full-suite partition\n"))
+    aggregate_step = next(step for step in workflow_steps(aggregate)
+                          if step.startswith("name: Verify complete lane coverage\n"))
+    invocations = [(step, "pytest") for step in pytest_steps]
+    invocations += [(partition_step, "python tests/ci_shard.py run"),
+                    (aggregate_step, "python tests/ci_shard.py verify")]
+    for step, program in invocations:
+        invocation = re.search(r"\buv run\s+(.*?)\b" + re.escape(program) + r"\b", " ".join(step.split()))
+        assert invocation, "each root authority must use the selected uv environment"
         options = invocation.group(1)
         assert re.search(r"(?:^|\s)--frozen(?:\s|$)", options)
         assert re.search(r'--python\s+[\"\']?\$\{\{\s*matrix\.python-version\s*\}\}[\"\']?', options)
         assert re.search(r"--group\s+test(?:\s|$)", options)
     assert any("tests/test_herdr_launchagent.py::test_herdr_host_swift_source_compiles_with_warnings_as_errors"
                in step for step in pytest_steps)
-    assert workflow.index("- name: Verify selected Python runtime") < early
+    assert worker.index("- name: Verify selected Python runtime") < early
+    assert '"--maxfail=1"' in text("tests/ci_shard.py")
     discovery = text(SKILLS / "discovery/SKILL.md")
     assert "publication checks before receipt, preflight, or push" in discovery
     assert "exact candidate artifact set" in discovery
@@ -244,6 +261,27 @@ def test_early_publication_and_editorial_remediation_contract():
         for requirement in ("Editorial corrections", "explicit scope amendment",
                             "Material changes still reopen readiness", "preserve failed evidence"):
             assert requirement in policy
+
+
+def test_full_suite_partitions_keep_native_required_checks_fail_closed():
+    workflow = text(".github/workflows/test.yml")
+    assert "test-shard:" in workflow
+    assert 'shard: [0, 1, 2, 3]' in workflow
+    assert "needs: test-shard" in workflow
+    aggregate = workflow[workflow.index("  test:\n"):]
+    assert "if: ${{ always() }}" in aggregate
+    assert "needs.test-shard.result" in aggregate
+    assert "tests/ci_shard.py verify" in aggregate
+    assert "test ({0})" in aggregate and "test ({0}, {1})" in aggregate
+    assert "tests/ci_shard.py run" in workflow
+    assert "PYTEST_ADDOPTS:" in workflow and "PYTEST_PLUGINS:" in workflow
+    assert "--run-id" in workflow and "--attempt" in workflow
+    assert "--commit" in workflow and "--repository" in workflow
+    assert "retention-days: 7" in workflow
+    assert "if-no-files-found: error" in workflow
+    assert "timeout-minutes: 90" in workflow
+    assert "pull_request_target" not in workflow
+    assert "continue-on-error" not in workflow
 
 
 def test_v3_skills_use_unversioned_names_and_full_lifecycle():
@@ -836,33 +874,47 @@ def test_global_routing_defaults_to_unversioned_v3():
 
 def test_ci_and_specs_cover_lifecycle_sources():
     workflow = text(".github/workflows/test.yml")
-    selection = re.search(
-        r"(?m)^        python-version:\s*\$\{\{\s*fromJSON\(\((.*?)\)\s*"
-        r"&&\s*'([^']+)'\s*\|\|\s*'([^']+)'\)\s*\}\}\s*$", workflow)
-    assert selection, "runtime matrix must retain distinct compatibility and ordinary-event branches"
-    condition = re.fullmatch(
-        r"\s*github\.event_name\s*==\s*'([^']+)'\s*\|\|\s*"
-        r"github\.event_name\s*==\s*'([^']+)'\s*", selection.group(1))
-    assert condition
-    compatibility_events = set(condition.groups())
-    assert compatibility_events == {"schedule", "workflow_dispatch"}
-    compatibility = json.loads(selection.group(2))
-    ordinary = json.loads(selection.group(3))
-    worktrunk = re.search(r"(?m)^        worktrunk-version:\s*(\[[^\n]+\])\s*$", workflow)
-    assert worktrunk
-    worktrunk_versions = json.loads(worktrunk.group(1))
-    included = re.search(r"(?m)^        include:\n((?: {10,}[^\n]*\n)+)", workflow)
-    assert included
-    included_jobs = re.findall(
-        r'(?m)^          - python-version:\s*"([^"]+)"\n'
-        r'            worktrunk-version:\s*"([^"]+)"\s*$', included.group(1))
-    assert included_jobs == [("3.14", "0.80.0")]
-    ordinary_jobs = {("3.14", "0.81.0"), ("3.14", "0.80.0")}
-    compatibility_jobs = ordinary_jobs | {(version, "0.81.0") for version in ("3.12", "3.13", "3.15")}
-    for event in ("push", "pull_request", "schedule", "workflow_dispatch"):
-        versions = compatibility if event in compatibility_events else ordinary
-        actual_jobs = {(version, tool) for version in versions for tool in worktrunk_versions} | set(included_jobs)
-        assert actual_jobs == (compatibility_jobs if event in compatibility_events else ordinary_jobs), event
+    ordinary_lanes = {("3.14", "0.81.0"), ("3.14", "0.80.0")}
+    compatibility_lanes = ordinary_lanes | {(version, "0.81.0") for version in ("3.12", "3.13", "3.15")}
+    for name in ("test-shard", "test"):
+        job = workflow_job(workflow, name)
+        selection = re.search(
+            r"(?m)^        python-version:\s*\$\{\{\s*fromJSON\(\((.*?)\)\s*"
+            r"&&\s*'([^']+)'\s*\|\|\s*'([^']+)'\)\s*\}\}\s*$", job)
+        assert selection, "both matrices must retain distinct compatibility and ordinary-event branches"
+        condition = re.fullmatch(
+            r"\s*github\.event_name\s*==\s*'([^']+)'\s*\|\|\s*"
+            r"github\.event_name\s*==\s*'([^']+)'\s*", selection.group(1))
+        assert condition
+        compatibility_events = set(condition.groups())
+        assert compatibility_events == {"schedule", "workflow_dispatch"}
+        compatibility = json.loads(selection.group(2))
+        ordinary = json.loads(selection.group(3))
+        worktrunk = re.search(r"(?m)^        worktrunk-version:\s*(\[[^\n]+\])\s*$", job)
+        assert worktrunk
+        worktrunk_versions = json.loads(worktrunk.group(1))
+        shard = re.search(r"(?m)^        shard:\s*(\[[^\n]+\])\s*$", job)
+        if name == "test-shard":
+            assert shard and json.loads(shard.group(1)) == [0, 1, 2, 3]
+            partitions = ["0", "1", "2", "3"]
+        else:
+            assert shard is None, "aggregate jobs must represent whole lanes"
+            partitions = [""]
+        included = re.search(r"(?m)^        include:\n((?: {10,}[^\n]*\n)+)", job)
+        assert included
+        included_jobs = re.findall(
+            r'(?m)^          - python-version:[ \t]*"([^"]+)"\n'
+            r'            worktrunk-version:[ \t]*"([^"]+)"'
+            r'(?:\n            shard: ([0-3]))?', included.group(1))
+        assert included_jobs == [("3.14", "0.80.0", partition) for partition in partitions]
+        for event in ("push", "pull_request", "schedule", "workflow_dispatch"):
+            versions = compatibility if event in compatibility_events else ordinary
+            actual_jobs = [(version, tool, partition) for version in versions
+                           for tool in worktrunk_versions for partition in partitions] + included_jobs
+            lanes = compatibility_lanes if event in compatibility_events else ordinary_lanes
+            expected_jobs = [(version, tool, partition) for version, tool in lanes for partition in partitions]
+            assert Counter(actual_jobs) == Counter(expected_jobs), (name, event)
+        assert "fail-fast: false" in job
     assert "push:\n    branches: [main]" in workflow
     assert "pull_request:\n\n" in workflow
     assert "fail-fast: false" in workflow
