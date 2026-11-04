@@ -1870,7 +1870,11 @@ clientInfo (`name: "dotfiles_ai_openshell_probe"`,
 bounded userAgent, this case's exact codexHome, platformFamily `unix` and
 platformOs `linux`; then send only `{"method":"initialized"}` and EOF. Reject
 duplicate/unknown responses, malformed output or server requests requiring a
-reply. Bound stdin to 1 KiB, each JSON line to 64 KiB, combined output to 1 MiB,
+reply. A server notification has no `id` and exactly a nonempty `method` string
+of at most 256 characters, optional `params`, and an optional `emittedAtMs` timestamp
+(observed on Codex 0.164.0 `configWarning`) that must be a non-boolean integer
+from 0 through 2^53; any other key or type is a protocol error. Notifications are
+ignored for the exchange outcome and never authorize anything. Bound stdin to 1 KiB, each JSON line to 64 KiB, combined output to 1 MiB,
 and retain at most 8 KiB per output stream. Cases have 30 seconds, except 60
 seconds for stdio, including its upstream 45-second EOF watchdog. No turn, tool,
 model or login request is sent. Kill/check the process group on every exit path;
