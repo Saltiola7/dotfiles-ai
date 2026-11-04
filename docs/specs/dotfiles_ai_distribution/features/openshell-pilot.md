@@ -1187,6 +1187,34 @@ private-keyring support refuse execution.
 Build scripts and tests must use the selected linker and cached dependencies.
 A failed candidate does not authorize a different toolchain.
 
+The selected compiler's native startup confirmed a missing musl-compatible
+`libgcc_s.so.1`. Retain the same pinned Rust components and qualify only Alpine
+v3.22 aarch64 `libgcc-14.2.0-r6.apk` (67,013 bytes) inside the unprivileged build
+volume. Authenticate with `apk-tools-static-2.14.12-r0.apk` (2,436,399 bytes) and
+the 800-byte `alpine-devel@lists.alpinelinux.org-616ae350.rsa.pub` pinned by its
+published SHA512. Existing trusted guest OpenSSL must verify the detached
+RSA/SHA256 signature over `apk.static` before executing it. Require its exact
+version, then use its private key directory, private root and offline verification
+to authenticate both complete APKs, including signed control metadata and payload
+hashes. Check exact names, versions, aarch64 architecture, origin, source commit
+and dependencies. Record measured SHA256 values after authentication; no unknown
+archive checksum is invented. Bound downloads and decompressed APK data; never
+extract package paths wholesale or execute package scripts.
+
+Extract only the authenticated regular `usr/lib/libgcc_s.so.1`, requiring ARM64
+ELF and only the expected musl libc dependency, into the fixed new
+`toolchain-unwind-1` prefix. Scope library lookup to the build processes. Preserve
+the failed original prefix and extraction directories; the new fixed generation
+shares the same 8 GiB ceiling and must pass expansion admission. This installs no
+Alpine package into the guest system and changes no global loader configuration.
+
+The closed host runner may transport its fixed reviewed root program as bounded
+compressed data to fit Linux's single-argument limit. Validate compressed and
+expanded sizes, complete decompression, no trailing data, and the exact original
+program SHA256 before executing it. The CLI still accepts only its fixed
+operations, never caller-supplied scripts. Preserve the separate 64 KiB service
+script ceiling and the existing lifecycle/storage limits.
+
 Kernel qualification requires the new test's sentinel, actual AF_UNIX socket and
 socketpair denials across types/flags and descendants, permitted INET/pipe cases,
 and an unaffected trusted parent. It is preliminary evidence only: it does not
