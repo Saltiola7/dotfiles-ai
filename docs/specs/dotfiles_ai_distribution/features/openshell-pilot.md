@@ -1167,6 +1167,19 @@ probe or unavailable confinement property, refuse downloads and compilation and
 verify worker shutdown. Given exhaustion or timeout, retain bounded diagnostics
 and partial artifacts without enlarging storage or moving work elsewhere.
 
+Before the full runtime build, a closed `inventory` operation on the guest build
+runner may mount only the already qualified 8 GiB store. It reports actual store
+capacity/free bytes and bounded, no-follow per-directory logical and allocated
+usage, with unique-inode totals and hardlink observations. It accepts no path or
+command input. Entries must remain on the selected filesystem; special files,
+changed identities, unknown traversal or entry/depth/deadline exhaustion refuse.
+It reads no file contents, downloads nothing, starts no build service, deletes
+nothing and never treats a usage estimate as permission to grow storage. The
+existing mount/loop verification, unmount and independently observed worker stop
+remain mandatory. Record this mounted-store evidence before selecting C/build
+prerequisites or admitting a full target; host image or root free space is not a
+substitute for available space inside the capped build filesystem.
+
 An initial kernel test may compile the exact patched `child_seccomp.rs` in a
 minimal harness, retaining module path `linux::child_seccomp`, its tests, and the
 exact dependency/checksum subset from the pinned OpenShell lockfile. The reviewed
