@@ -405,7 +405,7 @@ def full_cargo_test(payload):
     # Native musl host and target are identical. With an explicit --target,
     # Cargo withholds RUSTFLAGS from host build scripts, losing the bundled
     # linker. Keep the native build so host and target both receive these flags.
-    flags=['--release','--locked','--offline','-p','openshell-sandbox','--message-format=short']
+    flags=['--release','--locked','--offline','-p','openshell-sandbox','--message-format=human']
     command([cargo,'build',*flags,'--bin','openshell-sandbox'],cwd=source,maximum=1200,environment=env)
     binary=WORK/'full-target-1/release/openshell-sandbox'
     full_cargo_meta(binary);binary_hash=verify_static_arm64(binary)

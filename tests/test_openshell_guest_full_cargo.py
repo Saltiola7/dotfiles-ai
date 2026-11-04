@@ -262,7 +262,7 @@ def test_full_build_is_offline_and_requires_native_identity_and_sentinel(full,mo
         assert kwargs['environment']['CARGO_NET_OFFLINE']=='true'
         assert kwargs['environment']['PROTOC']==str(module.WORK/'full-protoc-1')
         if argv[1:2]==['build']:
-            assert '--locked' in argv and '--offline' in argv and '--message-format=short' in argv
+            assert '--locked' in argv and '--offline' in argv and '--message-format=human' in argv
             assert '--target' not in argv
             return b'',b''
         if argv[1:2]==['--version']:
