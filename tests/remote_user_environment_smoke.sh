@@ -46,7 +46,18 @@ path.chmod(0o600)
 PY
 
 revision=$(git -C "$source_root" rev-parse HEAD)
-"$source_root/dot_local/bin/executable_remote-user-bootstrap" bootstrap "$revision"
+bootstrap_with_fixture_diagnostics() {
+  if "$source_root/dot_local/bin/executable_remote-user-bootstrap" bootstrap "$revision"; then
+    return 0
+  fi
+  # This fixture starts credential-free with public config only. Replay here,
+  # never in the production bootstrap, to expose the hidden apply failure.
+  echo 'UBI fixture bootstrap failed; replaying apply for diagnostics' >&2
+  "$HOME/.local/bin/chezmoi" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" \
+    -S "$source_root" apply --verbose || true
+  return 1
+}
+bootstrap_with_fixture_diagnostics
 native_before=$(sha256sum "$HOME/.opencode/bin/opencode")
 config_before=$(sha256sum "$HOME/.config/opencode/opencode.json")
 remote-user-bootstrap bootstrap "$revision"

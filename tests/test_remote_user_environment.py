@@ -157,6 +157,29 @@ def test_opencode_bootstrap_ignores_legacy_lock_and_preserves_native_binary(tmp_
     assert not (home / '.local/state/opencode').exists()
 
 
+@pytest.mark.parametrize('replay_status', [0, 1])
+def test_ubi_fixture_diagnostics_cannot_turn_bootstrap_failure_green(tmp_path, replay_status):
+    smoke = (ROOT / 'tests/remote_user_environment_smoke.sh').read_text()
+    start = smoke.index('bootstrap_with_fixture_diagnostics() {')
+    end = smoke.index('\n}', start) + 2
+    home = tmp_path / 'home'
+    binary = home / '.local/bin'
+    binary.mkdir(parents=True)
+    source = tmp_path / 'source'
+    (source / 'dot_local/bin').mkdir(parents=True)
+    bootstrap = source / 'dot_local/bin/executable_remote-user-bootstrap'
+    bootstrap.write_text('#!/bin/sh\nexit 1\n')
+    bootstrap.chmod(0o755)
+    chezmoi = binary / 'chezmoi'
+    chezmoi.write_text(f'#!/bin/sh\necho fixture-apply-diagnostic\nexit {replay_status}\n')
+    chezmoi.chmod(0o755)
+    result = subprocess.run(['/bin/bash', '-c', smoke[start:end] + '\nbootstrap_with_fixture_diagnostics'],
+        env={**os.environ, 'HOME': str(home), 'source_root': str(source), 'revision': 'a' * 40},
+        text=True, capture_output=True)
+    assert result.returncode != 0
+    assert 'fixture-apply-diagnostic' in result.stdout
+
+
 def test_remote_smoke_expects_both_always_run_updaters() -> None:
     smoke = (ROOT / "tests/remote_user_environment_smoke.sh").read_text()
     foundation = (ROOT / "dot_local/bin/executable_remote-user-foundation").read_text()
