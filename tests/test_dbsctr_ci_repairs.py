@@ -98,6 +98,28 @@ def test_real_cli_requires_explicit_supervised_inputs():
     assert args.func is core.command_ci_repair
 
 
+@pytest.mark.parametrize("account", ["fixture", "123456_example", "a" * 39])
+def test_account_selector_accepts_managed_users_without_changing_authority(case, capsys, account):
+    case.args.github_account = account
+    plan = preview(case, capsys)
+    assert plan["plan"]["github_account"] == account
+    assert all(call[0] == account for call in case.calls)
+    reserve(case, plan["repair_digest"])
+    result = json.loads(capsys.readouterr().out)
+    assert result["attempt"] == 1 and result["merge_authority"] is False
+    with pytest.raises(RuntimeError, match="plan_changed"):
+        reserve(case, plan["repair_digest"])
+
+
+@pytest.mark.parametrize("account", ["", "_managed", "-option", "a" * 40,
+                                      "user name", "user\nname", "user/name", "usér", None])
+def test_invalid_account_selector_refuses_before_native_reads(case, account):
+    case.args.github_account = account
+    with pytest.raises(RuntimeError, match="ci_repair_account_invalid"):
+        case.core.ci_repair_plan(case.repo, case.args, request=case.request)
+    assert not case.calls
+
+
 def test_preflight_does_not_consume_and_exact_approval_consumes(case, capsys):
     first = preview(case, capsys)
     assert first == preview(case, capsys)

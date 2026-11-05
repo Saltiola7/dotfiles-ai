@@ -25,6 +25,10 @@ assertion of explicit chat consent, not authenticated operator identity.
   the exact same-repository open PR and current local branch/HEAD. A foreign fork,
   missing/unknown status or changed head/base is rejected. GitHub reads use the
   explicitly selected existing account and bounded timeouts, never new login.
+  Account selectors accept ASCII letters/digits followed by letters, digits,
+  hyphens or underscores, at most 39 characters, including Enterprise Managed
+  User names. Selection still uses that account's existing native credentials;
+  accepting its spelling grants no new authentication or repair authority.
 - **Repair scope:** exact repository-relative, non-secret, non-ignored paths plus
   a reviewed committed specification. Missing tracked paths may represent a
   deletion; symlinks and escapes never become writable authority.
