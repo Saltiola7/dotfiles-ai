@@ -1,5 +1,10 @@
 # DBSCTR V3 Lifecycle
 
+[Retained cross-repository Initiative authority](features/cross-repository-initiative-amendment.md)
+extends the amendment route for a separate coordinator checkout without importing
+its documents into the Build repository. Exact approval, retained native custody,
+fresh gates and a local Engineering Profile checkpoint remain required.
+
 Supervised mechanical CI repair accounting is specified in
 [`features/supervised-ci-repairs.md`](features/supervised-ci-repairs.md).
 It is independent of automatic integration policy, grants no merge or gate
