@@ -4941,6 +4941,45 @@ def amendment_receipt(root, receipt):
         fail("Initiative amendment receipt disagrees with committed manifest")
 
 
+def amendment_external_authority(directory, receipt):
+    """Retain native coordinator custody; never fetch or import foreign documents."""
+    if repository_equal(receipt["coordinator_repository"], receipt["repository"]):
+        fail("same-repository clones cannot select cross-repository amendments")
+    path = Path(directory)
+    if (not path.is_absolute() or path.is_symlink() or not path.is_dir()
+            or any(parent.is_symlink() for parent in path.parents)):
+        fail("unsafe Initiative amendment authority checkout")
+    authority = repo_root(path)
+    if authority != path or authority.resolve() != path:
+        fail("Initiative amendment authority checkout changed")
+    require_local_read_filters(authority)
+    require_repository_home(authority, receipt["coordinator_repository"])
+    if git(authority, "rev-parse", "HEAD").stdout.strip() != receipt["manifest_commit"]:
+        fail("Initiative amendment authority HEAD changed")
+    amendment_receipt(authority, receipt)
+    # The coordinator owns normative documents, not the consumer's profile.
+    closure = amendment_closure(authority, receipt, {"profile": receipt["manifest_path"]})
+    amendment_clean_documents(authority, closure)
+    custody = []
+    for directory in (authority, common_git_dir(authority).resolve(), git_dir(authority).resolve()):
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            fail("unsafe Initiative amendment native authority custody")
+        custody.append([str(directory), info.st_dev, info.st_ino, info.st_uid])
+    identity = continuation_digest(custody)
+    return {"directory": str(authority), "identity_digest": identity,
+            "repository": receipt["coordinator_repository"],
+            "commit": receipt["manifest_commit"], "closure": closure}
+
+
+def amendment_local_profile(root, profile, blob):
+    closure = amendment_closure(root, {"artifacts": [], "manifest_path": profile,
+                                       "manifest_commit": "HEAD"}, {"profile": profile})
+    if len(closure) != 1 or closure[0]["blob"] != blob:
+        fail("Initiative amendment source profile changed")
+    return closure
+
+
 def amendment_replacement(before, entry):
     replacement = json.loads(json.dumps(before))
     replacement.setdefault("initiative_amendments", []).append(entry)
@@ -5028,7 +5067,7 @@ def validate_initiative_amendments(root, record):
               "envelope_sha256", "envelope_locator"}
     for index, entry in enumerate(entries):
         if (not isinstance(entry, dict) or set(entry) != fields or type(entry["schema_version"]) is not int
-                or entry["schema_version"] != 1 or entry["launch_digest"] in digests
+                or entry["schema_version"] not in (1, 2) or entry["launch_digest"] in digests
                 or entry["previous_effective_receipt_digest"] != continuation_digest(prior)
                 or entry["approval_method"] not in {"interactive_cli", "agent_confirmed"}
                 or not isinstance(entry["reason"], str) or not entry["reason"].strip()
@@ -5070,10 +5109,23 @@ def validate_initiative_amendments(root, record):
             fail("invalid Initiative amendment receipt")
         if receipt["schema_version"] == 2:
             validate_local_initiative_receipt(receipt)
-        amendment_receipt(root, receipt)
-        if (plan["closure"] != amendment_closure(root, receipt, before["applicability_plan"])
-                or not amendment_tree(root, receipt["manifest_commit"], plan["closure"])):
-            fail("Initiative amendment approved document closure changed")
+        if entry["schema_version"] == 2:
+            if (type(plan.get("schema_version")) is not int or plan["schema_version"] != 2
+                    or not isinstance(plan.get("authority"), dict)):
+                fail("invalid cross-repository Initiative amendment")
+            authority = plan["authority"]
+            if (amendment_external_authority(authority["directory"], receipt) != authority
+                    or common_git_dir(Path(authority["directory"])).resolve() == common_git_dir(root).resolve()
+                    or plan["closure"] != amendment_local_profile(root, before["engineering_profile"]["path"],
+                                                                 before["engineering_profile"]["blob"])):
+                fail("Initiative amendment retained authority changed")
+        else:
+            if plan.get("schema_version") != 1 or "authority" in plan:
+                fail("invalid same-repository Initiative amendment")
+            amendment_receipt(root, receipt)
+            if (plan["closure"] != amendment_closure(root, receipt, before["applicability_plan"])
+                    or not amendment_tree(root, receipt["manifest_commit"], plan["closure"])):
+                fail("Initiative amendment approved document closure changed")
         replacement = amendment_replacement(before, entry)
         expected = amendment_bytes(replacement)
         outcome = amendment_json(root, paths["outcome.json"])
@@ -5188,8 +5240,7 @@ def amendment_selection(root, args):
     if not re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]*/MANIFEST\.json", args.initiative_manifest):
         fail("unsafe Initiative amendment manifest")
     authority = repo_root(args.initiative_source) if args.initiative_source else root
-    if common_git_dir(authority).resolve() != common_git_dir(root).resolve():
-        fail("Initiative amendment requires native same-repository authority")
+    external = common_git_dir(authority).resolve() != common_git_dir(root).resolve()
     require_local_read_filters(authority)
     receipt = initiative_receipt(authority / args.initiative_manifest, args.initiative_slice, authority)
     receipt["manifest_path"] = args.initiative_manifest
@@ -5220,10 +5271,14 @@ def amendment_selection(root, args):
     if (normalized != record["applicability_plan"]
             or record["engineering_profile"] != {"path": profile, "blob": blob}):
         fail("Initiative amendment applicability changed")
-    closure = amendment_closure(authority, receipt, plan)
-    if next(c["blob"] for c in closure if c["path"] == profile) != blob:
-        fail("Initiative amendment source profile changed")
-    amendment_clean_documents(authority, closure)
+    retained = amendment_external_authority(str(authority), receipt) if external else None
+    if external:
+        closure = amendment_local_profile(root, profile, blob)
+    else:
+        closure = amendment_closure(authority, receipt, plan)
+        if next(c["blob"] for c in closure if c["path"] == profile) != blob:
+            fail("Initiative amendment source profile changed")
+        amendment_clean_documents(authority, closure)
     # Selected checkout documents must match their current HEAD, not new authority.
     if git(root, "status", "--porcelain=v1", "--", *[c["path"] for c in closure]).stdout:
         fail("Initiative amendment selected documents are dirty")
@@ -5231,13 +5286,15 @@ def amendment_selection(root, args):
     reason = args.reason
     if not isinstance(reason, str) or not reason.strip() or len(reason.encode()) > 4096 or "\0" in reason:
         fail("invalid Initiative amendment reason")
-    launch = {"schema_version": 1, "cycle_id": args.cycle_id, "receipt": receipt,
+    launch = {"schema_version": 2 if external else 1, "cycle_id": args.cycle_id, "receipt": receipt,
               "previous_effective_receipt_digest": continuation_digest(effective_initiative(record)),
               "before_record_sha256": amendment_hash(raw), "plan_digest": args.expected_plan_digest,
               "applicability_plan": normalized, "risk": record["risk"], "delivery": record["delivery"],
               "reason": reason, "source_commit": receipt["manifest_commit"], "closure": closure,
               "destination": destination,
               "checkout": amendment_checkout(root, [c["path"] for c in closure])}
+    if external:
+        launch["authority"] = retained
     return path, record, raw, launch
 
 
@@ -5335,7 +5392,7 @@ def initiative_amend_offline(args):
                 durable = True
                 amendment_write_once(root, envelope_path, amendment_bytes(envelope))
             amendment_write_once(root, before_path, raw)
-            entry = {"schema_version": 1, "previous_effective_receipt_digest": launch["previous_effective_receipt_digest"],
+            entry = {"schema_version": launch["schema_version"], "previous_effective_receipt_digest": launch["previous_effective_receipt_digest"],
                      "receipt": launch["receipt"], "before_record_sha256": amendment_hash(raw),
                      "preimage_locator": str(before_path.relative_to(common_git_dir(root))),
                      "launch_digest": digest, "reason": args.reason, "approval_method": method,
@@ -19249,7 +19306,7 @@ def ci_repair_plan(root, args, *, request=None):
     if any(type(number) is not int or not 0 < number <= 2**53 - 1
            for number in (args.pull_request, args.job_id)):
         fail("ci_repair_native_identity_invalid")
-    if not isinstance(args.github_account, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}", args.github_account):
+    if not isinstance(args.github_account, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,38}", args.github_account):
         fail("ci_repair_account_invalid")
     remote, separator, target = (upstream(root) or "").partition("/")
     if not separator:
