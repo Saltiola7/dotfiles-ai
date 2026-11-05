@@ -20327,15 +20327,24 @@ def external_merge_proof(root, record, args, env, head, tree, commits):
             or not isinstance(native_parents, list) or len(native_parents) != len(parents)
             or not all(isinstance(item, dict) for item in native_parents)
             or [item.get("sha") for item in native_parents] != parents
-            or len(parents) != 1 or merge_tree != tree):
-        fail("external merge object is not the expected native exact-tree single-parent commit")
+            or merge_tree != tree or len(parents) not in (1, 2)):
+        fail("external merge object is not the expected native exact-tree commit")
+    if len(parents) == 2:
+        # An ordinary two-parent merge is admitted only as an exact-tree merge of
+        # the retained source: the retained head is the literal second parent and
+        # the pre-merge base tip was already contained in it, so the merge
+        # contributed no content and rewrote no history.
+        if (parents[1] != head
+                or git(root, "merge-base", "--is-ancestor", parents[0], head, check=False).returncode):
+            fail("external two-parent merge is not an exact-tree merge of the retained head")
     parent = parents[0]
     if (git(root, "merge-base", "--is-ancestor", merge, target, check=False).returncode
             or git(root, "merge-base", "--is-ancestor", record["git"]["head"], parent, check=False).returncode):
         fail("external merge is outside the protected base lineage")
+    imported_anchor = merge if len(parents) == 2 else parent
     for commit in commits:
         imported = git(root, "show", "-s", "--format=%P", commit).stdout.split()[1:]
-        if any(git(root, "merge-base", "--is-ancestor", item, parent, check=False).returncode for item in imported):
+        if any(git(root, "merge-base", "--is-ancestor", item, imported_anchor, check=False).returncode for item in imported):
             fail("recorded source imports history outside the historical merged base")
     current = external_github(root, env, f"repos/{repository}/git/ref/heads/{quote(delivery['base_branch'], safe='')}")
     if (not isinstance(current, dict) or current.get("ref") != f"refs/heads/{delivery['base_branch']}"
