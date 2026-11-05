@@ -6,6 +6,26 @@ persistentState = "/home/you/.local/state/dotfiles-ai/chezmoi.boltdb"
 [data.dotfiles_ai.remote_user_environment]
 enabled = true
 
+# Setup creates these user-owned roots before rendering; activation remains
+# workflow-policy owned. Keep its repo-path-hash and branch sanitizing policy.
+[data.dotfiles_ai.workspaces]
+schema_version = 1
+root = "/home/you/.local/state/worktrees"
+
+[data.dotfiles_ai.onepassword]
+enabled = false
+
+[data.dotfiles_ai.prefect_mcp]
+# Enabling installs pinned user-local uv; host setup must first provide Python 3.13.
+# Runtime installation retains its frozen lock and --no-python-downloads policy.
+enabled = false
+
+[data.dotfiles_ai.jfrog_cli]
+enabled = false
+
+[data.dotfiles_ai.history_projection]
+enabled = false
+
 [data.dotfiles_ai.codex]
 channel = "stable"
 
