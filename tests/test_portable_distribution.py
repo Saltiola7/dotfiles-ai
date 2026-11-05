@@ -93,7 +93,7 @@ def data(
                 "linux_amd64_asset_sha256": "976150a14d490c94b243ea2e1a7eb2dfb67f12e36b182db90936f6728e6aecf4",
             },
             "hermes": {
-                "enabled": True, "executable": "~/.local/bin/hermes", "profile": "system",
+                "enabled": not remote_user_environment, "executable": "~/.local/bin/hermes", "profile": "system",
                 "provider": "openai-codex", "backlog_roots": ["/workspace/projects"],
                 "project_profiles": False,
             },

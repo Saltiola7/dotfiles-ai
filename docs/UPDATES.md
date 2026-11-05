@@ -17,6 +17,66 @@ dependency checks and explicit updates. It resolves this selected source even
 when invoked from another project. It reads this runbook rather than maintaining
 a second inventory. Source preparation does not install the skill automatically.
 
+## Remote-user setup inputs
+
+RRW-007A keeps the user-owned remote source independent of the personal overlay.
+Start from `config.remote-user.example.toml`; keep it mode 0600. The setup owner
+supplies these non-secret settings before foundation apply:
+
+| TOML key | Type / value | Ownership |
+|---|---|---|
+| `sourceDir` | absolute path to the pinned shared clone | Setup |
+| `persistentState` | absolute user-owned chezmoi state file | Setup |
+| `data.dotfiles_ai.remote_user_environment.enabled` | boolean `true` | Remote role selection |
+| `data.dotfiles_ai.workspaces.schema_version` | integer `1` | Existing Worktrunk policy |
+| `data.dotfiles_ai.workspaces.root` | absolute `HOME/.local/state/worktrees` | Setup creates the root; policy retains `<repo>-<path-hash>/<branch>` |
+| `data.dotfiles_ai.herdr.launchagent` | boolean `false` | macOS host machinery remains unavailable |
+| `data.dotfiles_ai.herdr.host_enabled` | boolean `false` | No GUI host app |
+
+`remote-user-foundation supported-flags` prints the canonical flag-to-data-key
+mapping as JSON, without reading credentials or starting services. Fork A's
+`pins.toml` `supported_flags` uses the names in the first column below; the setup
+script writes the TOML key in the second column.
+
+| Supported flag | TOML key | Type / default |
+|---|---|---|
+| `onepassword` | `data.dotfiles_ai.onepassword.enabled` | boolean / `false` |
+| `prefect_mcp` | `data.dotfiles_ai.prefect_mcp.enabled` | boolean / `false` |
+| `pm_kernel` | `data.dotfiles_ai.pm_kernel.enabled` | boolean / `false` |
+| `jfrog_cli` | `data.dotfiles_ai.jfrog_cli.enabled` | boolean / `false` |
+| `history_projection` | `data.dotfiles_ai.history_projection.enabled` | boolean / `false` |
+| `opencode.vertex_project` | `data.dotfiles_ai.opencode.vertex_project` | string / empty |
+
+Keep `data.dotfiles_ai.knowledge_store.enabled`,
+`data.dotfiles_ai.hermes.enabled` and `data.dotfiles_ai.rnd.enabled` false. Remote
+render and foundation configuration reject enabling them. Existing per-user
+options retain their owners: Vertex location/account, 1Password account selection,
+and Prefect profile/API URL plus credential **environment-variable names** may be
+supplied through their existing documented tables. Never put tokens or copied
+provider state in setup config. Enabling a feature does not log the user in or
+grant permission to copy another user's data. PM Kernel's local CLI does not imply
+PostgreSQL activation; history projection does not imply a Linux refresh daemon.
+
+The foundation installs checksum-pinned user-local `mise` and `gh`. Enabling
+`prefect_mcp` additionally installs pinned user-local `uv`; **Fork A must provision
+qualified Python 3.13 first**. The existing adapter retains its frozen lock,
+`--system` interpreter selection and `--no-python-downloads`; no Python download
+or lock migration is implied. Remote integrity checks effective local data and
+the installed tool bytes. The source owns pins; local config cannot override them.
+The bounded tool check runs on every apply without redownloading matching bytes;
+same-revision retry repairs damaged tools before foundation success is recorded.
+
+Worktrunk root qualification/activation remains separately governed by
+`workflow-policy`; creating the root or setting a data key does not bypass its
+storage checks. Existing checkouts do not move. The foundation owns `.bashrc` and
+sources readable `.bashrc.d/*.sh` snippets in shell glob order; another source may
+own disjoint snippets, not `.bashrc` itself. Remote Herdr receives its release's
+generated skill, native OpenCode integration, and enabled agent-session restore.
+
+This is a source contract, not a live RHEL acceptance receipt. Record the actual
+merged foundation SHA and bootstrap checksum only after protected delivery; live
+setup, authentication, owner overlay and colleague acceptance remain separate.
+
 ## Check after a package-manager upgrade
 
 A check is read-only. Use the owner table and bounded version/health probes below;

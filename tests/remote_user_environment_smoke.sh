@@ -54,11 +54,46 @@ remote-user-bootstrap bootstrap "$revision"
 remote-user-foundation apply "$revision"
 test "$(sha256sum "$HOME/.opencode/bin/opencode")" = "$native_before"
 test "$(sha256sum "$HOME/.config/opencode/opencode.json")" = "$config_before"
-expected_status=$(printf ' R update-codex.sh\n R update-opencode.sh')
+expected_status=$(printf ' R install-02-remote-tools.sh\n R update-codex.sh\n R update-opencode.sh')
 test "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" status)" = "$expected_status"
 
 "$HOME/.local/bin/starship" --version
 "$HOME/.local/bin/atuin" --version
+"$HOME/.local/bin/mise" --version
+"$HOME/.local/bin/gh" --version
+test -s "$HOME/.agents/skills/herdr/SKILL.md"
+grep -q '^name: herdr$' "$HOME/.agents/skills/herdr/SKILL.md"
+herdr integration status | grep -E '^opencode: current'
+python3 - <<'PY'
+import hashlib, os, tomllib
+from pathlib import Path
+home = Path.home()
+source = Path(os.environ['DOTFILES_AI_SOURCE'])
+pins = tomllib.loads((source / '.chezmoidata.toml').read_text())['dotfiles_ai']['remote_user_environment']
+for name, key in [('mise', 'mise_sha256'), ('gh', 'gh_binary_sha256')]:
+    assert hashlib.sha256((home / '.local/bin' / name).read_bytes()).hexdigest() == pins[key]
+herdr = tomllib.loads((home / '.config/herdr/config.toml').read_text())
+assert herdr['session']['resume_agents_on_restore'] is True
+worktrunk = tomllib.loads((home / '.config/worktrunk/config.toml').read_text())
+assert worktrunk['worktree-path'].startswith(str(home / '.local/state/worktrees') + '/')
+assert '{{ repo_path | hash }}' in worktrunk['worktree-path']
+assert worktrunk['pre-switch'] and worktrunk['pre-remove']
+PY
+# A tampered foundation tool must fail integrity before any auth observation.
+printf '#!/bin/sh\nexit 42\n' >"$HOME/.local/bin/mise"
+if remote-user-foundation refresh-auth; then
+  echo 'tampered mise unexpectedly passed integrity' >&2
+  exit 1
+fi
+remote-user-foundation retry
+python3 - <<'PY'
+import hashlib, os, tomllib
+from pathlib import Path
+pins = tomllib.loads((Path(os.environ['DOTFILES_AI_SOURCE']) / '.chezmoidata.toml').read_text())['dotfiles_ai']['remote_user_environment']
+assert hashlib.sha256((Path.home() / '.local/bin/mise').read_bytes()).hexdigest() == pins['mise_sha256']
+PY
+remote-user-foundation supported-flags | python3 -c \
+  'import json,sys;v=json.load(sys.stdin);assert set(v)=={"onepassword","prefect_mcp","pm_kernel","jfrog_cli","history_projection","opencode.vertex_project"}'
 python3 - <<'PY'
 import tomllib
 from pathlib import Path

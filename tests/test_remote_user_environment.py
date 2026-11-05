@@ -161,7 +161,8 @@ def test_remote_smoke_expects_both_always_run_updaters() -> None:
     smoke = (ROOT / "tests/remote_user_environment_smoke.sh").read_text()
     foundation = (ROOT / "dot_local/bin/executable_remote-user-foundation").read_text()
     assert "R update-codex.sh\\n R update-opencode.sh" in smoke
-    assert 'sorted(status) != [" R update-codex.sh", " R update-opencode.sh"]' in foundation
+    assert 'expected_status = [" R update-codex.sh", " R update-opencode.sh"]' in foundation
+    assert 'expected_status.insert(0, " R install-02-remote-tools.sh")' in foundation
     assert 'binaries / "opencode"), "--version"' in foundation
     assert 'data["opencode"]["version"]' not in foundation
 
@@ -905,6 +906,8 @@ def test_foundation_apply_retry_and_rollback_preserve_unrelated_state(tmp_path: 
     subprocess.run(["git", "init", "-q"], cwd=source, check=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=source, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=source, check=True)
+    (source / ".chezmoidata.toml").write_text("[dotfiles_ai]\n")
+    subprocess.run(["git", "add", ".chezmoidata.toml"], cwd=source, check=True)
     first = _commit(source, "first")
     second = _commit(source, "second")
     unrelated = home / "unrelated"

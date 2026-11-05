@@ -22,6 +22,14 @@ graphify-out/
 .agents/.skill-lock.json
 Brewfile
 
+{{ if not .dotfiles_ai.remote_user_environment.enabled }}
+install-02-remote-tools.sh
+{{ end }}
+
+{{ if and .dotfiles_ai.remote_user_environment.enabled (or .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.hermes.enabled .dotfiles_ai.rnd.enabled) }}
+{{ fail "knowledge_store, hermes and rnd are unavailable on the remote-user profile" }}
+{{ end }}
+
 {{ $clineDesktop := eq .dotfiles_ai.cline_desktop.enabled true }}
 {{ $clineCLI := eq .dotfiles_ai.cline_cli.enabled true }}
 {{ $clineVertex := eq .dotfiles_ai.cline_vertex.enabled true }}
@@ -212,6 +220,13 @@ load-dbsctr-reranker.sh
 !.config/dotfiles-ai/codex-managed/**
 {{ if and $clineVertex $clineCLI }}
 !.config/dotfiles-ai/cline-vertex.json
+{{ end }}
+{{ if and .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.prefect_mcp.enabled }}
+!.config/dotfiles-ai/prefect-mcp.toml
+!.config/dotfiles-ai/runtime
+.config/dotfiles-ai/runtime/*
+!.config/dotfiles-ai/runtime/prefect-mcp
+!.config/dotfiles-ai/runtime/prefect-mcp/**
 {{ end }}
 {{ end }}
 

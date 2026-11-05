@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-05 — RRW-007A foundation personalisation
+
+- Added pinned checksum-verified user-local mise and GitHub CLI, with installed
+  binary integrity checks. Enabled Prefect MCP adds pinned uv; the host setup
+  owner supplies Python 3.13 and the existing frozen/no-download runtime remains.
+- Foundation apply/integrity use effective per-user data for supported opt-ins;
+  remote source rendering rejects knowledge_store, Hermes and R&D enablement.
+  Documented machine-readable supported flags and the exact setup TOML keys.
+- Exposed the existing Worktrunk root setting without changing hashed layout or
+  storage checks. Added shared Bash drop-ins and remote Herdr skill, native
+  OpenCode integration and agent restore. No GUI applications or provider login.
+- Local checks, UBI qualification and delivery identities belong to the cycle
+  record; no live RHEL, owner-overlay or colleague acceptance is claimed here.
+
 ## 2026-11-04 — Global activation integration
 
 - Reconciled the published activation change with the accepted RHEL runtime.
