@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution
 
+## Shared global instructions
+
+The [global activation contract](features/global-agent-instructions.md) owns one
+portable source for OpenCode and Codex CLI/Desktop instructions. Global prompts
+govern skill activation; explicitly activated skills own their methods. Caveman
+Commit is the automatic formatting exception. Source delivery and authorized
+local rollout retain separate qualification evidence.
+
 The [PY-09 retained-CI precursor](features/validation-execution-performance.md#py-09-retained-ci-baseline-precursor)
 defines opt-in analysis of existing job metadata/logs through the shared evidence
 contract. It starts no CI jobs and changes no workflow, runtime or required-check

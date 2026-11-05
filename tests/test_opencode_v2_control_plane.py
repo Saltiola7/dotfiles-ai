@@ -176,18 +176,21 @@ def test_native_disabled_browser_startup(tmp_path):
 
 
 @pytest.mark.skipif(not os.environ.get("OPENCODE_V2_BINARY"), reason="exact V2 candidate not selected")
-def test_exact_v2_roles_plugins_instructions_and_permissions(tmp_path, monkeypatch):
+def test_exact_v2_roles_skills_instructions_and_permissions(tmp_path, monkeypatch):
     binary = Path(os.environ["OPENCODE_V2_BINARY"])
     original = probe.identity(binary)
     assert original[-1] == "af29b0b1b0291dbf2471c66c89d2e055b6afa9c41a950e052fa609c3295e2a75"
-    package = Path(os.environ["OPENCODE_PONYTAIL_PACKAGE"]).resolve(strict=True)
-    assert json.loads((package / "package.json").read_text())["version"] == "4.10.3"
     config = project(tmp_path, "opencode.json")
-    assert config["plugin"] == ["@dietrichgebert/ponytail@4.10.3"]
+    assert not any("@dietrichgebert/ponytail" in item for item in config.get("plugin", []))
     config_dir = tmp_path / ".config/opencode"
     shutil.copytree(OC / "agents", config_dir / "agents")
     shutil.copytree(OC / "commands", config_dir / "commands")
-    shutil.copyfile(OC / "AGENTS.md", config_dir / "AGENTS.md")
+    instructions = (ROOT / ".chezmoitemplates/agent-activation.md").read_text()
+    (config_dir / "AGENTS.md").write_text(instructions)
+    selected_skills = {"caveman", "caveman-commit", "ponytail", "dbsctr", "discovery"}
+    for name in selected_skills:
+        shutil.copytree(ROOT / "dot_agents/skills" / name,
+                        tmp_path / "home/.agents/skills" / name)
     env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin", "SHELL": "/bin/bash",
            "TERM": "dumb", "NO_COLOR": "1"}
     for key, name in {"HOME": "home", "OPENCODE_TEST_HOME": "home", "XDG_CONFIG_HOME": ".config",
@@ -199,19 +202,13 @@ def test_exact_v2_roles_plugins_instructions_and_permissions(tmp_path, monkeypat
     server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     server.steps, server.requests = [], []
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    # Native local directories resolve index/server, whereas npm resolves exports.
-    # Exercise the verified package entrypoint without installing into native cache.
-    plugin = tmp_path / "staged-plugin"
-    plugin.mkdir()
-    (plugin / "index.js").write_text("export { default } from " +
-        json.dumps(str(package / ".opencode/plugins/ponytail.mjs")) + ";\n")
     config.pop("references", None)
     # Preserve server identities and managed permissions, replace transports only.
     config["mcp"] = {"servers": {name: {"type": "local", "disabled": server["disabled"],
         "command": [sys.executable, str(ROOT / "tests/fixtures/opencode_v2_mcp.py"),
                     str(tmp_path / f"{name}-calls")]}
         for name, server in config["mcp"]["servers"].items()}}
-    config.update({"plugin": [str(plugin)], "update": "disable", "model": "probe/mock",
+    config.update({"plugin": [], "update": "disable", "model": "probe/mock",
         "small_model": "probe/mock", "enabled_providers": ["probe"], "provider": {"probe": {
             "npm": "@ai-sdk/openai-compatible", "options": {"baseURL": f"http://127.0.0.1:{server.server_port}/v1"},
             "models": {"mock": {"limit": {"context": 32000, "output": 1000}}}}}})
@@ -257,10 +254,10 @@ def test_exact_v2_roles_plugins_instructions_and_permissions(tmp_path, monkeypat
                     if time.monotonic() >= deadline:
                         raise
                     time.sleep(.25)
-        for namespace in ("skill", "command"):
+        for namespace, expected in (("skill", selected_skills), ("command", {"dbsctr", "discovery"})):
             entries = json.loads(run("api", f"{namespace}.list", "--param",
                                      f"location[directory]={tmp_path}"))["data"]
-            assert any(item.get("id", item.get("name")) == "ponytail" for item in entries)
+            assert expected <= {item.get("id", item.get("name")) for item in entries}
         for role in ("plan", "build"):
             target = tmp_path / f"{role}-fixture.txt"
             server.steps = [("write", {"path": str(target), "content": "synthetic fixture"})]
@@ -268,9 +265,9 @@ def test_exact_v2_roles_plugins_instructions_and_permissions(tmp_path, monkeypat
             assert target.exists() == (role == "build")
             if role == "build":
                 assert target.read_text() == "synthetic fixture"
-        prompt = json.dumps(server.requests[-1]["messages"])
-        assert "PONYTAIL MODE ACTIVE" in prompt
-        assert "Re-read and validate" in prompt and "initiative-receipt" in prompt
+        prompt = json.dumps(server.requests[-1]["messages"]).replace("\\n", "\n")
+        assert instructions in prompt
+        assert "PONYTAIL MODE ACTIVE" not in prompt
         for role, tool, allowed in (("scout-openai", "context7_guarded", True),
                                     ("build", "context7_guarded", False),
                                     ("plan", "1password_guarded", False),

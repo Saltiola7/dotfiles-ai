@@ -1,5 +1,21 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-04 — Operator-controlled skill activation
+
+- Moved portable lifecycle, scope, compaction and privacy obligations out of
+  global prompts and into their existing Discovery/DBSCTR owners. Removed the
+  mandatory session-move handoff protocol and obsolete global routing assertions.
+- Explicit DBSCTR activation lasts for the conversation, loads canonical Caveman
+  and Ponytail once, and enables its existing specialist router. Stable artifacts
+  and guidance are reused; applicable gates and evidence remain required.
+- Final Push requires publication authority from the operator's goal or approved
+  delivery plan. Caveman Commit formats Gate Commits without granting mutation
+  authority. Review skills and Review/Integrate policy remain unchanged; PR-Agent
+  integration is deferred to separate work.
+- Source checks and independent activation review pass; private Cycle Record
+  retains original red evidence and exact gates. No Gate Exception. Source
+  delivery targets a draft feature PR into `main`; live adoption follows merge.
+
 ## 2026-11-04 — Exact-tree two-parent external completion (EXT-MERGE-001)
 
 - `complete-external` now also admits an ordinary two-parent native merge object

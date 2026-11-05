@@ -1,5 +1,34 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-04 — Global activation integration
+
+- Reconciled the published activation change with the accepted RHEL runtime.
+  Preserved both change histories and their owners; activation policy and review
+  protections remain unchanged. Combined affected-scope evidence is retained in
+  the successor integration Cycle Record. Intended Final Push updates the same
+  feature branch and PR #286; local adoption follows the guarded main merge.
+
+## 2026-11-04 — Shared global skill activation
+
+- Replaced independent global prompts with one activation-policy template for
+  OpenCode and Codex. Skills require conversation-scoped operator activation;
+  Caveman Commit remains automatic. Activated DBSCTR owns specialist routing,
+  Caveman/Ponytail guidance, lifecycle rules and private-evidence policy.
+- Imported the selected canonical Caveman, Caveman Commit and Ponytail bundles
+  with immutable provenance and original MIT licenses. Removed the managed
+  Ponytail prompt injector while preserving unrelated plugin configuration.
+- Source validation passed 259 affected tests with five opt-in native checks
+  unselected. Changed typing checks pass; 22 diagnostics in two existing native
+  fixtures match their unchanged baselines. Independent activation review passed after
+  clarifying that skill activation grants no publication authority.
+- Fresh Codex and OpenCode native processes discovered the five selected skills
+  and loaded the same global policy. Loopback-only synthetic responses qualify
+  discovery/loading, not universal model compliance or provider behavior.
+- No Gate Exception or review-policy change. Gate Commit `b981e20f` implements
+  the contract from `2bdf3347`. Intended Final Push is the recorded feature branch
+  and draft PR into `main`; authorized local adoption follows merge with private
+  preimages, native qualification and an idempotency check.
+
 ## 2026-11-04 — RRW-002R runtime reconciliation with accepted main
 
 - Imported RRW-002's completed signed source unchanged as merge ancestry onto
