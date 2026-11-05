@@ -19249,7 +19249,7 @@ def ci_repair_plan(root, args, *, request=None):
     if any(type(number) is not int or not 0 < number <= 2**53 - 1
            for number in (args.pull_request, args.job_id)):
         fail("ci_repair_native_identity_invalid")
-    if not isinstance(args.github_account, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}", args.github_account):
+    if not isinstance(args.github_account, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,38}", args.github_account):
         fail("ci_repair_account_invalid")
     remote, separator, target = (upstream(root) or "").partition("/")
     if not separator:

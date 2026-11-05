@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-05 — Managed-account CI repair selection (CI-REPAIR-EMU-001)
+
+- Accepted underscores in `ci-repair --github-account` so Enterprise Managed
+  Users can select their existing native credentials. The 39-character bound,
+  leading alphanumeric rule and other input rejection remain unchanged.
+- Reproduced the original underscore rejection, then covered accepted account
+  propagation, invalid input before native reads, reservation and replay refusal.
+  Authentication transport, plan binding, durable budgets and merge prohibitions
+  are unchanged. Managed helper activation remains separate from source delivery.
+
 ## 2026-11-04 — Operator-controlled skill activation
 
 - Moved portable lifecycle, scope, compaction and privacy obligations out of
