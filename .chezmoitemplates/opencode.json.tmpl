@@ -260,7 +260,6 @@
   "default_agent": "plan",
   "model": {{ .dotfiles_ai.opencode.default_model | toJson }},
   "small_model": {{ .dotfiles_ai.opencode.small_model | toJson }},
-  "plugin": ["@dietrichgebert/ponytail@4.10.3"],
   "permission": {
     "dks_context": {{ if .dotfiles_ai.knowledge_store.enabled }}"allow"{{ else }}"deny"{{ end }},
     "context7_*": "deny",

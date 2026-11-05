@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "skills": {
+    "caveman": {
+      "upstream": {
+        "repository": "https://github.com/JuliusBrussee/caveman",
+        "commit": "e2c09c9a7e66d6bb30cadb5f955bd8a36b0e8d9a",
+        "root": "skills/caveman",
+        "license": "MIT"
+      },
+      "original_skill_sha256": "5e30bb56afbd0b01bd736f2da84180e76f18db4a64de8e124525d5c8dc2e8605",
+      "frontmatter_patch": "--- upstream/SKILL.md\n+++ packaged/SKILL.md\n@@ -1,11 +1,8 @@\n ---\n name: caveman\n+license: MIT\n description: >\n-  Ultra-compressed communication mode. Cuts output tokens 65% (measured) by speaking like caveman\n-  while keeping full technical accuracy. Supports intensity levels: lite, full (default), ultra,\n-  wenyan-lite, wenyan-full, wenyan-ultra.\n-  Use when user says \"caveman mode\", \"talk like caveman\", \"use caveman\", \"less tokens\",\n-  \"be brief\", or invokes /caveman. Also auto-triggers when token efficiency is requested.\n+  Write concise conversation responses while preserving technical facts and clarity. Supports full, lite, ultra and Wenyan styles.\n ---\n \n Respond terse like smart caveman. All technical substance stay. Only fluff die.\n",
+      "files": {
+        "LICENSE.upstream": "5eb826cd03151bcc7cce3f80d40e87733237fedfc6c36d6908aca5fd650a0bdb",
+        "README.md": "9369b69197e5d07e0c56679f9fc346f3539f58537c17f4e804a44612f086dc73",
+        "SKILL.md": "9b48803787dfa3bb4517930bfc8d97bc9cb33adc79011f0f9b46e73b46672bf0",
+        "UPSTREAM.md": "f4e0c3e25246b5389c01f317df8cb2168b8bcf4c2e5a0fd329be977dab5cf5c7"
+      }
+    },
+    "caveman-commit": {
+      "upstream": {
+        "repository": "https://github.com/JuliusBrussee/caveman",
+        "commit": "f06348cbd36e16b5c142a930b87878c7868a499a",
+        "root": "skills/caveman-commit",
+        "license": "MIT"
+      },
+      "original_skill_sha256": "58db7b8efab911a629c26e7132517d9076e4e3645009eb604cb8c25663477841",
+      "frontmatter_patch": "--- upstream/SKILL.md\n+++ packaged/SKILL.md\n@@ -1,10 +1,8 @@\n ---\n name: caveman-commit\n+license: MIT\n description: >\n-  Ultra-compressed commit message generator. Cuts noise from commit messages while preserving\n-  intent and reasoning. Conventional Commits format. Subject \u226450 chars, body only when \"why\"\n-  isn't obvious. Use when user says \"write a commit\", \"commit message\", \"generate commit\",\n-  \"/commit\", or invokes /caveman-commit. Auto-triggers when staging changes.\n+  Format concise Conventional Commit messages with the rationale and migration details needed by future maintainers.\n ---\n \n Write commit messages terse and exact. Conventional Commits format. No fluff. Why over what.\n",
+      "files": {
+        "LICENSE.upstream": "5eb826cd03151bcc7cce3f80d40e87733237fedfc6c36d6908aca5fd650a0bdb",
+        "README.md": "a2e82924b487fc1845114c247b47c2d3c2d1bd60f90bbfa60e9831319eb964fa",
+        "SKILL.md": "dd00df022b050c0e40dbdd1590d590e169101897989d9ce3bd6cc9541e66cc88",
+        "UPSTREAM.md": "a1c3ced1f9b6dc753e35cc16a85b5ef17a4af73bf2fa96445972045aa8388756"
+      }
+    },
+    "ponytail": {
+      "upstream": {
+        "repository": "https://github.com/DietrichGebert/ponytail",
+        "commit": "ef8ca48fed2321ab6668b2a954f23b1af97d7f6d",
+        "root": "skills/ponytail",
+        "license": "MIT"
+      },
+      "original_skill_sha256": "1316a2f3f95741d2300b116fe0c2d81ce4a9568656ed0a62643f54aaf09957f2",
+      "frontmatter_patch": "--- upstream/SKILL.md\n+++ packaged/SKILL.md\n@@ -1,20 +1,8 @@\n ---\n name: ponytail\n+license: MIT\n description: >\n-  Forces the laziest solution that actually works, simplest, shortest, most\n-  minimal. Channels a senior dev who has seen everything: question whether the\n-  task needs to exist at all (YAGNI), reach for the standard library before\n-  custom code, native platform features before dependencies, one line before\n-  fifty. Supports intensity levels: lite, full (default), ultra. Use on ANY\n-  coding task: writing, adding, refactoring, fixing, reviewing, or designing\n-  code, and choosing libraries or dependencies. Also use whenever the user\n-  says \"ponytail\", \"be lazy\", \"lazy mode\", \"simplest solution\", \"minimal\n-  solution\", \"yagni\", \"do less\", or \"shortest path\", or complains about\n-  over-engineering, bloat, boilerplate, or unnecessary dependencies. Do NOT\n-  use for non-coding requests (general knowledge, prose, translation,\n-  summaries, recipes).\n-argument-hint: \"[lite|full|ultra]\"\n-license: MIT\n+  Choose the smallest correct implementation by reusing existing code, standard libraries and native features. Preserve necessary validation and safety.\n ---\n \n # Ponytail\n",
+      "files": {
+        "LICENSE.upstream": "fb1bc6909ac3ef82d5c22106e32ef682b0cff66788fa915fb9b53b15c9d2f3ab",
+        "SKILL.md": "d1a4b287a1368438bc74d726d66779a81e752f270f7089a57cff79372caade16",
+        "UPSTREAM.md": "b4c5073c4702275a96a5c0da0782df8f74fdd45588cdcea4f6459903a5ac965d"
+      }
+    }
+  }
+}

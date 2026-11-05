@@ -70,7 +70,7 @@ def test_discovery_delegates_docs_not_implementation():
 
 
 def test_shared_instructions_allow_helpers_but_keep_primary_cycle_ownership():
-    for path in ("private_dot_config/opencode/AGENTS.md", "dot_agents/skills/discovery/SKILL.md",
+    for path in ("dot_agents/skills/discovery/SKILL.md",
                  "dot_agents/skills/dbsctr/SKILL.md"):
         body = (ROOT / path).read_text()
         assert "without Task or child sessions" not in body
@@ -96,10 +96,12 @@ def test_deployed_host_helper_configuration_matches_source():
     for name in ("build", "build-rnd", "plan", "general"):
         assert installed["agent"][name]["permission"]["task"] == expected[name]["permission"]["task"]
     assert installed["agent"]["plan"]["model"] == "openai/gpt-6.1-sol-fast"
-    sources = [OC / 'AGENTS.md', *[OC / 'agents' / f'{name}.md' for name in (
+    assert (home / '.config/opencode/AGENTS.md').read_bytes() == (
+        ROOT / '.chezmoitemplates/agent-activation.md').read_bytes()
+    sources = [OC / 'agents' / f'{name}.md' for name in (
         'build-claude', 'build-gpt', 'builder-openai', 'builder-vertex', 'explore-openai', 'explore-vertex',
         'scout-openai', 'scout-vertex', 'discovery-coordinator', 'discovery-writer',
-        'discovery-writer-openai', 'discovery-writer-vertex')]]
+        'discovery-writer-openai', 'discovery-writer-vertex')]
     sources += [OC / 'commands' / f'dbsctr-{family}.md' for family in ('gpt', 'claude')]
     for source in sources:
         assert (home / '.config/opencode' / source.relative_to(OC)).read_bytes() == source.read_bytes()
