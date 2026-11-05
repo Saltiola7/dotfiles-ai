@@ -73,6 +73,14 @@ def test_remote_tools_are_pinned_and_checksum_verified():
     assert result.returncode == 0
 
 
+def test_remote_archive_extraction_preserves_installing_user_ownership():
+    script = render('run_after_install-02-remote-tools.sh.tmpl',
+                    options={'prefect_mcp': {'enabled': True}})
+    extracts = [line.strip() for line in script.splitlines() if line.strip().startswith('tar ')]
+    assert len(extracts) == 2
+    assert all('--no-same-owner' in line for line in extracts)
+
+
 @pytest.mark.parametrize('fault', ['', 'mise', 'gh', 'uv', 'python'])
 def test_remote_installer_checksums_and_no_download_reapply(tmp_path, fault):
     home = tmp_path / 'home'
@@ -92,6 +100,10 @@ def test_remote_installer_checksums_and_no_download_reapply(tmp_path, fault):
         item = tarfile.TarInfo('gh_2.103.3_linux_amd64/bin/gh')
         item.size = len(tools['gh'])
         item.mode = 0o755
+        item.uid = 12345
+        item.gid = 12345
+        item.uname = 'upstream-runner'
+        item.gname = 'upstream-runner'
         stream.addfile(item, io.BytesIO(tools['gh']))
     mise = tmp_path / 'mise'
     mise.write_bytes(tools['mise'])
@@ -100,6 +112,10 @@ def test_remote_installer_checksums_and_no_download_reapply(tmp_path, fault):
         item = tarfile.TarInfo('uv-x86_64-unknown-linux-musl/uv')
         item.size = len(tools['uv'])
         item.mode = 0o755
+        item.uid = 12345
+        item.gid = 12345
+        item.uname = 'upstream-runner'
+        item.gname = 'upstream-runner'
         stream.addfile(item, io.BytesIO(tools['uv']))
     options = {'remote_user_environment': {
         'mise_sha256': hashlib.sha256(tools['mise']).hexdigest(),
@@ -146,6 +162,7 @@ def test_remote_installer_checksums_and_no_download_reapply(tmp_path, fault):
         assert result.returncode == 0, result.stderr
         for name, content in tools.items():
             assert (binary / name).read_bytes() == content
+            assert (binary / name).stat().st_uid == os.getuid()
         calls.unlink()
         repeated = subprocess.run(['/bin/bash', str(script)], env=environment, capture_output=True)
         assert repeated.returncode == 0, repeated.stderr
