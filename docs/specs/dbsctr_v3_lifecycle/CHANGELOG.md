@@ -1,5 +1,19 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-05 — Retained coordinator amendments (CROSS-REPO-AMEND-001)
+
+- Added version-2 Initiative amendments for an existing Build cycle whose
+  committed Discovery authority lives in a retained coordinator checkout. Bind
+  its native identity, repository, exact HEAD and document closure; require that
+  custody on subsequent reads and completion. No network, source fallback or
+  foreign-document import is granted.
+- Keep the Build Engineering Profile/checkpoint local. Preserve original
+  registration, approvals, evidence and commit history; exact fresh approval
+  reopens required gates. Version-1 same-repository behavior is unchanged.
+- Source-only qualification covers independent Git authority, apply/replay,
+  checkpoints and fail-closed drift/loss. Managed activation and real consumer
+  amendment remain separately approved; no consumer readiness is claimed here.
+
 ## 2026-11-05 — Managed-account CI repair selection (CI-REPAIR-EMU-001)
 
 - Accepted underscores in `ci-repair --github-account` so Enterprise Managed
