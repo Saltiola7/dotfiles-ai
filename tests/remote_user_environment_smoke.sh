@@ -237,6 +237,70 @@ test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
 test "$(cat "$HOME/.local/share/atuin/history.db")" = keep-history
 printf 'remote user environment smoke passed\n'
 
+# Owner actions below exist only in this disposable qualification home. Applying
+# the foundation must never create or replace workflow-policy activation itself.
+python3 - <<'PY'
+from pathlib import Path
+import tomllib
+home = Path.home()
+config = tomllib.loads((home / '.config/dotfiles-ai/chezmoi.toml').read_text())
+assert config['data']['dotfiles_ai']['workspaces'] == {
+    'schema_version': 1, 'root': str(home / '.local/state/worktrees')}
+PY
+remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
+test -f "$HOME/.config/dotfiles-ai/workflow-policy.json"
+test ! -e "$HOME/.config/dotfiles-ai/workflow-policy.activation.json"
+# Explicit owner provisioning for the existing default cache, not hydration.
+install -d -m 0700 "$HOME/.cache/dotfiles-ai/dvc" "$HOME/src/fixture-worktree"
+git init -q "$HOME/src/fixture-worktree"
+git -C "$HOME/src/fixture-worktree" -c user.name=Fixture -c user.email=fixture@example.invalid \
+  -c commit.gpgsign=false commit --allow-empty -qm baseline
+git init --bare -q "$HOME/fixture-remote.git"
+git -C "$HOME/src/fixture-worktree" remote add origin "$HOME/fixture-remote.git"
+git -C "$HOME/src/fixture-worktree" push -q origin HEAD:refs/heads/fixture/remote-work
+git -C "$HOME/src/fixture-worktree" fetch -q origin
+(
+  cd "$HOME/src/fixture-worktree"
+  before=$(git worktree list --porcelain)
+  if wt switch fixture/remote-work --no-cd --yes; then
+    echo 'unactivated Worktrunk allocation unexpectedly succeeded' >&2
+    exit 1
+  fi
+  test "$(git worktree list --porcelain)" = "$before"
+  proposal=$(mktemp "$HOME/.config/dotfiles-ai/workflow-policy.proposal.XXXXXX")
+  workflow-policy snapshot >"$proposal"
+  python3 - "$proposal" <<'PY'
+import json, os, stat, sys
+from pathlib import Path
+home = Path.home()
+proposal = json.loads(Path(sys.argv[1]).read_text())
+policy = home / '.config/dotfiles-ai/workflow-policy.json'
+assert stat.S_IMODE(policy.stat().st_mode) == 0o600
+assert proposal['policy_digest'] == json.loads(policy.read_text())['policy_digest']
+root = next(item for item in proposal['roots'] if item['canonical_path'] == str(home / '.local/state/worktrees'))
+assert root['kind'] == 'owned_home' and Path(root['mountpoint']).is_absolute()
+PY
+  # Fixture owner has reviewed this exact proposal; no assistant live activation.
+  install -m 0600 "$proposal" "$HOME/.config/dotfiles-ai/workflow-policy.activation.json"
+  workflow-policy check
+  wt switch fixture/remote-work --no-cd --yes
+  python3 - <<'PY'
+import re, subprocess
+from pathlib import Path
+blocks = subprocess.check_output(['git', 'worktree', 'list', '--porcelain'], text=True).split('\n\n')
+selected = next(block for block in blocks if 'branch refs/heads/fixture/remote-work' in block.splitlines())
+path = Path(selected.splitlines()[0].removeprefix('worktree '))
+root = Path.home() / '.local/state/worktrees'
+assert path.is_dir() and path.parent.parent == root
+assert re.fullmatch(r'fixture-worktree-[a-z0-9]{3}', path.parent.name)
+assert path.name == 'fixture-remote-work'
+PY
+)
+activation_before=$(sha256sum "$HOME/.config/dotfiles-ai/workflow-policy.activation.json")
+remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
+test "$(sha256sum "$HOME/.config/dotfiles-ai/workflow-policy.activation.json")" = "$activation_before"
+printf 'remote Worktrunk policy and owner activation qualification passed\n'
+
 # Enable the optional toolchain using only public fixture configuration. The
 # frozen adapter is qualified locally without an API URL, credentials or calls.
 python3 - <<'PY'

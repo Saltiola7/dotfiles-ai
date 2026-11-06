@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import tomllib
+from typing import NoReturn
 
 
 LAYOUT = "/{{ repo }}-{{ repo_path | hash }}/{{ branch | sanitize }}"
@@ -23,7 +24,7 @@ ENV.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1",
            WORKTRUNK_CONFIG_PATH="/dev/null", WORKTRUNK_SYSTEM_CONFIG_PATH="/dev/null")
 
 
-def refuse():
+def refuse() -> NoReturn:
     raise ValueError("workflow_policy_invalid_or_unavailable")
 
 
@@ -316,7 +317,7 @@ def native_config(value, home, previous):
     return native
 
 
-def parse_mount(system, raw):
+def parse_mount(system, raw, *, owned_home=False):
     if system == "darwin":
         data = plistlib.loads(raw)
         if not isinstance(data, dict):
@@ -332,12 +333,14 @@ def parse_mount(system, raw):
         result = entries[0].get("uuid"), entries[0].get("target")
     else:
         refuse()
-    if any(not isinstance(v, str) or not v for v in result) or not Path(result[1]).is_absolute():
+    uuid, mountpoint = result
+    if (not isinstance(mountpoint, str) or not mountpoint or not Path(mountpoint).is_absolute()
+            or not (isinstance(uuid, str) and uuid or system == "linux" and owned_home and uuid is None)):
         refuse()
     return result
 
 
-def mount_identity(path):
+def mount_identity(path, *, owned_home=False):
     system = platform.system().lower()
     if system == "darwin":
         # diskutil accepts a mount point, not an arbitrary directory below it.
@@ -358,7 +361,7 @@ def mount_identity(path):
         raw = run("findmnt", "--json", "--output", "UUID,TARGET", "--target", str(path))
     else:
         refuse()
-    return parse_mount(system, raw)
+    return parse_mount(system, raw, owned_home=owned_home)
 
 
 def validate_document(value, home):
@@ -380,8 +383,12 @@ def snapshot(value, home):
     identities = []
     for path in sorted(roots | caches):
         path_value(str(path), home)  # Qualification is read-only; setup is separately authorized.
-        owned = path in defaults
-        uuid, mountpoint = (None, None) if owned else mount_identity(path)
+        remote_home = platform.system() == "Linux" and path == Path(home) / ".local/state/worktrees"
+        owned = path in defaults or remote_home
+        if remote_home:
+            uuid, mountpoint = mount_identity(path, owned_home=True)
+        else:
+            uuid, mountpoint = (None, None) if owned else mount_identity(path)
         identities.append(dict(canonical_path=str(path), kind="owned_home" if owned else "external",
                                filesystem_uuid=uuid, mountpoint=mountpoint))
     return dict(schema_version=1, policy_digest=value["policy_digest"], roots=identities,

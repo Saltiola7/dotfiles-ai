@@ -18,6 +18,16 @@
   isolated foundation Python 3.13.18/lock. Global pins and project trust do not
   change. Delivered with RRW-F04; live rollout stays separately approved.
 
+## 2026-11-06 — Remote Worktrunk policy (RRW-F03)
+
+- Include private remote workflow-policy rendering from workspace data without
+  managing activation. Recognize the exact Linux home worktree root and bind
+  native findmnt identity; null UUID is permitted only for that owned-home root,
+  never for configured external roots.
+- Document separate owner snapshot review/0600 activation and add native UBI
+  refusal/allocation/reapply qualification. Preserve hooks, namespace and existing
+  work; no live activation, pane migration or bootstrap change is performed.
+
 ## 2026-11-06 — Shared remote mise toolchain (RRW-007C)
 
 - Added remote-only global mise config/lock and pinned Python 3.13.18 when

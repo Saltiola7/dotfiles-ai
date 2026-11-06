@@ -35,6 +35,16 @@ the global Prefect baseline. Install the requested interpreter with mise in that
 repository; uv still never downloads interpreters. Foundation calls remain
 isolated from project/HOME version files and keep their pinned adapter Python.
 
+### Remote Worktrunk activation (RRW-F03)
+
+The remote profile renders private workflow-policy.json from the workspace data
+alongside native Worktrunk config. Apply does not activate it. The owner must
+review `workflow-policy snapshot` and separately install that exact proposal as
+mode-0600 workflow-policy.activation.json; see the
+[owner activation steps](specs/dotfiles_ai_distribution/features/remote-worktrunk-policy.md).
+Fork A may document this step, but neither fork writes the owner's activation.
+Without it new allocation still refuses; existing work remains retained.
+
 ### Existing Codex users upgrading the foundation
 
 `codex-project` preserves native top-level `tui` and `notice` tables, including

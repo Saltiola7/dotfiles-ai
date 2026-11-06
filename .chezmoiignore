@@ -221,6 +221,9 @@ load-dbsctr-reranker.sh
 .local/bin/pm-postgres-backup
 .local/bin/pm-jira
 .config/dotfiles-ai/*
+{{ if .dotfiles_ai.remote_user_environment.enabled }}
+!.config/dotfiles-ai/workflow-policy.json
+{{ end }}
 !.config/dotfiles-ai/codex-managed
 !.config/dotfiles-ai/codex-managed/**
 {{ if and $clineVertex $clineCLI }}
