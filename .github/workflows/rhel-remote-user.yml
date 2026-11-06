@@ -36,6 +36,7 @@ on:
       - "tests/test_remote_personalisation.py"
       - "tests/test_codex_runtime_state.py"
       - "tests/test_remote_mise.py"
+      - "tests/fixtures/remote-mise-native.lock"
       - "tests/test_remote_workflow_policy.py"
       - "dot_local/bin/executable_workflow-policy"
       - "private_dot_config/dotfiles-ai/private_workflow-policy.json.tmpl"

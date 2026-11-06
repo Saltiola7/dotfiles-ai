@@ -12,6 +12,14 @@ When `prefect_mcp` is enabled, the global config declares exact Python 3.13.18.
 The reviewed mise-generated lock pins its python-build-standalone 20261026 asset
 URL, SHA-256 and GitHub-attestation provenance. mise's built-in Python backend
 installs it; no source build fallback or independent Python downloader is added.
+RRW-F04 makes the managed lock byte-identical to native mise serialization:
+the exact `@generated` header, blank lines, and one terminating newline are part
+of the compatibility contract, not merely the parsed pins. Native lock rewriting
+must leave managed bytes unchanged. Preserve Python/version, artifact URL,
+checksum, backend, specifier and provenance values; this is not a pin upgrade.
+For a previously native-rewritten lock with only this known formatting drift,
+the matching desired bytes allow ordinary chezmoi apply without resetting the
+live file or passing `--force`. Unrelated local edits remain protected.
 With the flag disabled the global tool table is empty, and no interpreter is
 installed or removed. Disabling never deletes existing environments or Python.
 
@@ -48,6 +56,13 @@ installed or removed. Disabling never deletes existing environments or Python.
   reject extra global `miserc.toml`/`miserc.local.toml` files before native parsing.
   Unsupported global rc customization is retained and reported, never deleted.
   This adapter adds no installer state, downloader or project-trust mutation.
+- RRW-F05 explicitly sets `idiomatic_version_file_enable_tools = ["python"]`
+  under global `[settings]`. A repository's `.python-version` overrides the
+  optional global 3.13.18 baseline for ordinary mise/shim discovery, including
+  a requested Python 3.14. The repository/user installs that interpreter through
+  mise, not uv; this setting alone does not preinstall every repository version
+  or automatically trust repository hooks. Foundation's isolated context still
+  ignores HOME/project version files and retains the exact global adapter pin.
 - Failure, unsafe config/lock paths and a missing or wrong interpreter remain
   visible. No provider login, model request, live host change, virtualenv deletion,
   broad cache cleanup, credential copying or application restart is authorized.
@@ -78,6 +93,14 @@ failure propagation, unsafe paths, shell/adapter PATH, disabled no-effects,
 ordering and no-download policy. Disposable UBI proves actual pinned installation,
 cached reapply, and the existing frozen Prefect installation/check-runtime path
 without credentials or API calls. UBI is not live RHEL or owner acceptance.
+UBI also runs the pinned native lock serializer after enabled Prefect installation,
+asserts the exact lock digest remains unchanged, then performs another ordinary
+foundation apply and asserts that digest again. Offline tests reproduce the
+old chezmoi conflict and two non-forced convergences in a disposable home.
+UBI further installs Python 3.14 through mise for a disposable repository with
+`.python-version`, verifies its user-shell selection, and proves the foundation
+still selects Python 3.13.18 with an unchanged global lock despite project/HOME
+idiomatic pins. Repository test installs do not expand the production global pin.
 
 ## Visual Evidence
 

@@ -19,6 +19,8 @@ def test_remote_global_mise_declares_only_optional_pinned_python():
     assert enabled['tools'] == {'python': '3.13.18'}
     assert enabled['env']['UV_PYTHON_DOWNLOADS'] == 'never'
     assert enabled['settings']['python']['compile'] is False
+    assert enabled['settings']['idiomatic_version_file_enable_tools'] == ['python']
+    assert disabled['settings']['idiomatic_version_file_enable_tools'] == ['python']
 
 
 def test_remote_global_mise_lock_matches_official_release_and_config():
@@ -32,6 +34,65 @@ def test_remote_global_mise_lock_matches_official_release_and_config():
     assert asset['checksum'] == 'sha256:df15fe60d3ff55bf9dcf25824b5572756bb8816ff93865a273d3301d7066a8b7'
     assert '/20261026/cpython-3.13.18+20261026-x86_64-unknown-linux-gnu-' in asset['url']
     assert asset['provenance'] == 'github-attestations'
+
+
+def test_remote_lock_is_byte_identical_to_native_mise_output():
+    expected = (ROOT / 'tests/fixtures/remote-mise-native.lock').read_bytes()
+    rendered = render('private_dot_config/mise/mise.lock.tmpl',
+                      options={'prefect_mcp': {'enabled': True}}).encode()
+    assert rendered == expected
+    disabled = render('private_dot_config/mise/mise.lock.tmpl').encode()
+    assert disabled == expected.split(b'\n\n[[tools.python]]', 1)[0] + b'\n'
+
+
+def test_native_lock_rewrite_converges_without_reset_or_force(tmp_path):
+    home = tmp_path / 'home'
+    home.mkdir()
+    source = tmp_path / 'source'
+    managed = source / 'private_dot_config/mise/mise.lock'
+    managed.parent.mkdir(parents=True)
+    canonical = (ROOT / 'tests/fixtures/remote-mise-native.lock').read_bytes()
+    old = (b'# Generated with mise lock --global --platform linux-x64; source-reviewed pins.\n'
+           + canonical.split(b'\n\n', 1)[1] + b'\n')
+    managed.write_bytes(old)
+    config = tmp_path / 'chezmoi.toml'
+    config.write_text('')
+    command = ['chezmoi', '-S', str(source), '-D', str(home), '-c', str(config),
+               '--persistent-state', str(tmp_path / 'chezmoi-state.boltdb'), '--no-tty', 'apply']
+    subprocess.run(command, check=True, capture_output=True)
+    destination = home / '.config/mise/mise.lock'
+    assert destination.read_bytes() == old
+    # Simulate native serialization, not a source edit or owner-file reset.
+    destination.write_bytes(canonical)
+    failed = subprocess.run(command, capture_output=True, text=True)
+    assert failed.returncode != 0
+    assert 'has changed since chezmoi last wrote it' in failed.stdout + failed.stderr
+    assert destination.read_bytes() == canonical
+    managed.write_text(render('private_dot_config/mise/mise.lock.tmpl',
+                              options={'prefect_mcp': {'enabled': True}}))
+    for _ in range(2):
+        subprocess.run(command, check=True, capture_output=True)
+        assert destination.read_bytes() == canonical
+
+
+def test_native_lock_ubi_reapply_gate_is_explicit():
+    smoke = (ROOT / 'tests/remote_user_environment_smoke.sh').read_text()
+    assert 'mise" lock --global --platform linux-x64' in smoke
+    assert 'remote native mise lock and enabled Prefect reapply passed' in smoke
+    feature = (ROOT / 'docs/specs/dotfiles_ai_distribution/features/remote-mise-toolchain.md').read_text()
+    assert 'RRW-F04' in feature and 'byte-identical' in feature
+    assert 'without resetting the' in feature
+    assert 'Native mise lock formatting (RRW-F04)' in (ROOT / 'docs/UPDATES.md').read_text()
+
+
+def test_idiomatic_project_pin_qualification_keeps_foundation_boundary():
+    smoke = (ROOT / 'tests/remote_user_environment_smoke.sh').read_text()
+    assert 'printf \'3.14\\n\' >"$idiomatic_project/.python-version"' in smoke
+    assert 'install python@3.14' in smoke
+    assert '$(python3 --version) == Python\\ 3.14.*' in smoke
+    assert 'remote-mise" exec -- python --version' in smoke
+    assert 'remote idiomatic Python version file qualification passed' in smoke
+    assert 'Repository Python version files (RRW-F05)' in (ROOT / 'docs/UPDATES.md').read_text()
 
 
 @pytest.mark.parametrize('remote', [False, True])

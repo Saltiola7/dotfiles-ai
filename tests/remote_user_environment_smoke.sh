@@ -341,6 +341,28 @@ module['main']()
 # END optional-apply diagnostics
 PY
 bash -lc 'cd "$HOME"; . "$HOME/.common_profile"; command -v python3.13; [[ $(python3.13 --version) == "Python 3.13.18" ]]'
+# Native mise may serialize its lock again during normal use. Its exact bytes
+# must already match chezmoi's template, not merely contain the same pin values.
+lock_before=$(sha256sum "$HOME/.config/mise/mise.lock")
+"$HOME/.local/bin/remote-mise" exec -- "$HOME/.local/bin/mise" lock --global --platform linux-x64
+test "$(sha256sum "$HOME/.config/mise/mise.lock")" = "$lock_before"
+remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
+test "$(sha256sum "$HOME/.config/mise/mise.lock")" = "$lock_before"
+printf 'remote native mise lock and enabled Prefect reapply passed\n'
+# Project idiomatic pins override the global baseline for normal shells only.
+idiomatic_project="$HOME/fixture-python-project"
+install -d -m 0700 "$idiomatic_project"
+printf '3.14\n' >"$idiomatic_project/.python-version"
+"$HOME/.local/bin/mise" --cd "$idiomatic_project" install python@3.14
+bash -lc 'cd "$1"; . "$HOME/.common_profile"; [[ $(python3 --version) == Python\ 3.14.* ]]' bash "$idiomatic_project"
+# Even a HOME-level idiomatic pin cannot redirect foundation installation/checks.
+printf '3.14\n' >"$HOME/.python-version"
+(
+  cd "$idiomatic_project"
+  test "$("$HOME/.local/bin/remote-mise" exec -- python --version)" = 'Python 3.13.18'
+)
+test "$(sha256sum "$HOME/.config/mise/mise.lock")" = "$lock_before"
+printf 'remote idiomatic Python version file qualification passed\n'
 python3 - <<'PY'
 from pathlib import Path
 # Deliberately invalid extra configs must not enter foundation tool installation.

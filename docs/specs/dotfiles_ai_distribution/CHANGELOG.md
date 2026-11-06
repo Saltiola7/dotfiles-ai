@@ -1,5 +1,23 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-06 — Native mise lock bytes (RRW-F04)
+
+- Match native mise's generated header and terminating-newline format without
+  changing any Python pin or artifact identity. Native serialization no longer
+  introduces known formatting-only drift against chezmoi's managed bytes.
+- Add disposable non-forced chezmoi convergence regressions and explicit UBI
+  native-lock/second-apply checks after enabled Prefect installation. No live
+  lock reset, force-apply, provider access or bootstrap change is performed.
+
+## 2026-11-06 — Repository Python version files (RRW-F05)
+
+- Enable Python idiomatic version-file discovery in remote global mise settings.
+  Repository `.python-version` selections override the global baseline in normal
+  shells; mise still installs interpreters and uv never downloads them.
+- Extend UBI qualification with a repository Python 3.14 selection and unchanged
+  isolated foundation Python 3.13.18/lock. Global pins and project trust do not
+  change. Delivered with RRW-F04; live rollout stays separately approved.
+
 ## 2026-11-06 — Remote Worktrunk policy (RRW-F03)
 
 - Include private remote workflow-policy rendering from workspace data without

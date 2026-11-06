@@ -19,6 +19,22 @@ a second inventory. Source preparation does not install the skill automatically.
 
 ## Remote-user setup inputs
 
+### Native mise lock formatting (RRW-F04)
+
+The managed remote lock matches native mise's exact generated header, blank lines
+and final newline. Interpreter pins and artifact hashes are unchanged. If native
+mise has rewritten only that known formatting, the updated desired bytes match
+the existing file and ordinary apply converges without a reset or `--force`.
+Do not overwrite a live lock to conceal other drift; investigate it separately.
+
+### Repository Python version files (RRW-F05)
+
+Remote mise enables `idiomatic_version_file_enable_tools = ["python"]`.
+Repository `.python-version` files now select project Python instead of inheriting
+the global Prefect baseline. Install the requested interpreter with mise in that
+repository; uv still never downloads interpreters. Foundation calls remain
+isolated from project/HOME version files and keep their pinned adapter Python.
+
 ### Remote Worktrunk activation (RRW-F03)
 
 The remote profile renders private workflow-policy.json from the workspace data
