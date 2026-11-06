@@ -19,6 +19,27 @@ a second inventory. Source preparation does not install the skill automatically.
 
 ## Remote-user setup inputs
 
+### Existing Codex users upgrading the foundation
+
+`codex-project` preserves native top-level `tui` and `notice` tables, including
+first-launch screen-reader detection, without accepting edits to managed models,
+hooks, approval/sandbox controls or arbitrary project-trust entries. Automatic
+legacy migration requires a verifiable managed baseline; unknown drift remains
+blocked. Do not reset `CODEX_HOME/config.toml` or delete its ownership manifest.
+The version-2 private manifest separates managed-setting fingerprints from full
+file digests; exact private preimages and transaction recovery remain in place.
+Old projectors cannot read version 2, so downgrading to one needs separately
+reviewed metadata migration, not an unconditional rollback/reset.
+
+Fork A owns the subsequent immutable source pin, revision fetch through
+`remote-user-bootstrap`, convergence observer, and authorized rollout. This repair
+does not touch the owner's live config, sessions, history or authentication.
+Keep native config writers quiescent for a guaranteed upgrade snapshot; projector
+locks coordinate projectors, not an independently writing Codex process. Observed
+intervening writes cause refusal with the journal retained, not an automatic reset.
+
+### Setup keys and supported flags
+
 RRW-007A keeps the user-owned remote source independent of the personal overlay.
 Start from `config.remote-user.example.toml`; keep it mode 0600. The setup owner
 supplies these non-secret settings before foundation apply:

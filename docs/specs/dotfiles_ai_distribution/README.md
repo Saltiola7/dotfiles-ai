@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution
 
+The [Codex runtime-state projection contract](features/codex-projection-runtime-state.md)
+preserves native UI/notice state during verified managed upgrades while rejecting
+edits to owned settings. Legacy migration remains conservative; live rollout and
+backward metadata migration are separately governed.
+
 ## Shared global instructions
 
 The [global activation contract](features/global-agent-instructions.md) owns one

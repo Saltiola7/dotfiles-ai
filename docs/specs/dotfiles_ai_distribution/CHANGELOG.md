@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-06 — Preserve Codex first-launch state (RRW-007A-R1)
+
+- Preserve native `tui` and `notice` tables during verified Codex projection
+  upgrades, including first-launch screen-reader detection. Version-2 private
+  manifests separate managed-setting fingerprints from complete file digests;
+  ambiguous legacy state and edits to owned settings still refuse.
+- Keep exact config/manifest preimages, validate complete journal metadata before
+  publication, and recover both legacy and new transactions. Existing explicit
+  hooks-only reconciliation remains opt-in. Older projectors cannot consume the
+  new manifest; backward migration needs separate review rather than reset.
+- Added disposable legacy-upgrade, native-state, managed-edit, preimage and
+  interrupted-recovery regressions, including UBI qualification. Actual gate and
+  hosted results remain in the cycle; no owner config or live rollout is changed.
+
 ## 2026-11-05 — RRW-007A foundation personalisation
 
 - Added pinned checksum-verified user-local mise and GitHub CLI, with installed

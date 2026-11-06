@@ -11,6 +11,9 @@ on:
       - "private_dot_config/herdr/config.toml.tmpl"
       - "dot_bashrc"
       - "dot_local/bin/executable_codex-install.tmpl"
+      - "dot_local/bin/executable_codex-project"
+      - "run_onchange_after_project-codex.sh.tmpl"
+      - "private_dot_config/dotfiles-ai/codex-managed/**"
       - "dot_local/bin/executable_agent-worktree"
       - "dot_local/bin/executable_worktree-dvc-setup"
       - "dot_local/bin/executable_dbsctrctl"
@@ -24,6 +27,7 @@ on:
       - "run_after_install-02-remote-tools.sh.tmpl"
       - "tests/test_remote_user_environment.py"
       - "tests/test_remote_personalisation.py"
+      - "tests/test_codex_runtime_state.py"
       - "pyproject.toml"
       - "uv.lock"
       - "tests/remote_user_environment_smoke.sh"
@@ -44,6 +48,10 @@ jobs:
           uv run --frozen --group test pytest
           tests/test_remote_user_environment.py
           -k remote_user_bootstrap -q
+      - name: Check legacy Codex projection upgrades
+        run: >-
+          uv run --frozen --group test pytest
+          tests/test_codex_runtime_state.py -q
       - name: Run smoke
         run: |
           unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
