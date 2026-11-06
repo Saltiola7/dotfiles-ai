@@ -110,6 +110,7 @@ gh_binary_sha256 = "b768184570b12536be4ac1528893f6340d1c6a7b40b56ad45bca9cd0e87a
 uv_version = "0.13.6"
 uv_archive_sha256 = "5d61f26b6c7213779eda90edc6971ea6b0b796bfb8d49a574c8ad69b59838548"
 uv_binary_sha256 = "f56ca7e29e708e20ed6b96f9a8cb89ac45129239c6166481cc3ae3cbab286a0f"
+prefect_python_version = "3.13.18"
 
 [dotfiles_ai.rnd]
 enabled = false

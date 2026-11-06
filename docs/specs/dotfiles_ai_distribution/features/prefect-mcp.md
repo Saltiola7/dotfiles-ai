@@ -129,7 +129,13 @@ Installation and serving are separate commands. Serving never resolves packages,
 downloads an interpreter, creates a generation or starts a Prefect backend. All
 subprocess arguments are structured data. Installation uses an existing Python
 3.13, frozen dependency/build inputs and private, owner-controlled directories.
-The runtime digest covers the project, lock and bootstrap. A completion marker is
+The runtime digest covers the project, lock and bootstrap. On the remote profile,
+RRW-007C adds a source-owned `.python-version` to that digest and generation
+snapshot. Installation and reuse require the exact pinned patch and mise install
+path; adding/changing the pin selects a new generation and retains the old one.
+The [global mise baseline](remote-mise-toolchain.md), not uv or the adapter,
+supplies that interpreter through an isolated reviewed-config context. Non-remote
+adapters without the optional pin retain their existing behavior. A completion marker is
 written only after offline qualification and an unchanged input digest. Partial
 or mismatched generations are retained and refused; concurrent installation must
 not reuse partial state. Paths, files and markers reject unsafe ownership, links
@@ -141,7 +147,7 @@ and write permissions where they control executable code or credentials.
 | Missing generation / explicit install | Create a new private generation, frozen-sync and qualify |
 | Incomplete generation / retry | Refuse and retain for explicit operator recovery |
 | Qualified generation / unchanged install or serve | Reuse only after marker, input and interpreter qualification |
-| Changed source/lock/bootstrap | Select a new digest; retain previous generation for rollback |
+| Changed source/lock/bootstrap or remote interpreter pin | Select a new digest; retain previous generation for rollback |
 | Qualified generation / missing or invalid selection | Fail before Prefect import or MCP startup |
 | Selected target / stdio initialization | Publish only the twelve inspection tools; no backend-health claim |
 | Selected target / API failure | Return failure; preserve selection and backend state |

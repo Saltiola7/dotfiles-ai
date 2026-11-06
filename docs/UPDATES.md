@@ -79,10 +79,12 @@ grant permission to copy another user's data. PM Kernel's local CLI does not imp
 PostgreSQL activation; history projection does not imply a Linux refresh daemon.
 
 The foundation installs checksum-pinned user-local `mise` and `gh`. Enabling
-`prefect_mcp` additionally installs pinned user-local `uv`; **Fork A must provision
-qualified Python 3.13 first**. The existing adapter retains its frozen lock,
+`prefect_mcp` additionally installs pinned user-local `uv` and **mise-managed
+Python 3.13.18** through the reviewed global config/lock. RRW-007C supersedes the
+earlier host-provisioned Python prerequisite; Fork A only verifies enabled Prefect
+on the next setup run. The existing adapter retains its frozen lock,
 `--system` interpreter selection and `--no-python-downloads`; no Python download
-or lock migration is implied. Remote integrity checks effective local data and
+by uv or lock migration is implied. Remote integrity checks effective local data and
 the installed tool bytes. The source owns pins; local config cannot override them.
 The bounded tool check runs on every apply without redownloading matching bytes;
 same-revision retry repairs damaged tools before foundation success is recorded.
@@ -93,6 +95,21 @@ storage checks. Existing checkouts do not move. The foundation owns `.bashrc` an
 sources readable `.bashrc.d/*.sh` snippets in shell glob order; another source may
 own disjoint snippets, not `.bashrc` itself. Remote Herdr receives its release's
 generated skill, native OpenCode integration, and enabled agent-session restore.
+
+The remote shared source owns `.config/mise/config.toml`, its Linux-x64
+`mise.lock`, and `.bashrc.d/00-dotfiles-ai-mise.sh`. Its locked native installer
+runs after the mise/gh/uv bootstrap and before the frozen Prefect installer. A
+cached reapply does not upgrade interpreters; source changes and missing installs
+use the same mise owner. Disabling Prefect leaves installed Python/environments
+intact. mise shims are available noninteractively; interactive activation retains
+each repository's own version selection. uv never downloads interpreters, and a
+global `UV_PYTHON` value does not override project toolchains. See the
+[remote mise contract](specs/dotfiles_ai_distribution/features/remote-mise-toolchain.md).
+Foundation/adapter installation uses the thin `remote-mise` context to isolate
+that reviewed global config from HOME/project configs and global fragments.
+Remote Prefect's source-owned `.python-version` participates in its immutable
+generation digest: a pin update creates a new qualified generation and retains
+the older environment, rather than silently reusing a different interpreter.
 
 This is a source contract, not a live RHEL acceptance receipt. Record the actual
 merged foundation SHA and bootstrap checksum only after protected delivery; live
