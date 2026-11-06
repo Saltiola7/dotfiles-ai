@@ -235,6 +235,37 @@ def install_context(binary):
     path.chmod(0o755)
 
 
+@pytest.mark.parametrize('status', [0, 23])
+def test_optional_smoke_diagnostics_preserve_failure(tmp_path, status):
+    smoke = (ROOT / 'tests/remote_user_environment_smoke.sh').read_text()
+    diagnostic = smoke.split('# BEGIN optional-apply diagnostics\n', 1)[1].split(
+        '# END optional-apply diagnostics', 1)[0]
+    helper = tmp_path / 'foundation'
+    helper.write_text('import subprocess\n'
+        'def command(*args, **kwargs):\n'
+        f'    return subprocess.run(["/bin/sh", "-c", "echo fixture-out; echo fixture-error >&2; exit {status}"],'
+        ' check=True, text=True, capture_output=True)\n'
+        'def main():\n'
+        '    try: command()\n'
+        '    except subprocess.CalledProcessError: raise SystemExit(1)\n')
+    result = subprocess.run([sys.executable, '-', '0' * 40, str(helper)], input=diagnostic,
+                            text=True, capture_output=True)
+    assert result.returncode == (0 if status == 0 else 1)
+    if status:
+        assert 'fixture-out' in result.stderr
+        assert 'fixture-error' in result.stderr
+    else:
+        assert result.stderr == ''
+
+
+def test_optional_smoke_checks_python_in_user_shell_before_interference():
+    smoke = (ROOT / 'tests/remote_user_environment_smoke.sh').read_text()
+    assert 'command -v python3.13' in smoke
+    assert '$(python3.13 --version)' in smoke
+    assert 'Python 3.13.18' in smoke
+    assert smoke.index('command -v python3.13') < smoke.index('# Deliberately invalid extra configs')
+
+
 @pytest.mark.parametrize('operation', ['install', 'exec'])
 def test_remote_context_isolates_project_fragments_and_ambient_overrides(tmp_path, operation):
     home = tmp_path / 'home'

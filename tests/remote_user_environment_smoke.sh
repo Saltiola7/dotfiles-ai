@@ -249,6 +249,36 @@ updated, count = re.subn(r'(\[data\.dotfiles_ai\.prefect_mcp\]\n(?:#[^\n]*\n)*)e
                          r'\1enabled = true', previous, count=1)
 assert count == 1
 path.write_text(updated)
+PY
+# Only this disposable public fixture exposes captured subprocess diagnostics.
+# Keep the production command, locking, failure status and logging unchanged.
+python3 - "$(git -C "$source_root" rev-parse HEAD)" "$HOME/.local/bin/remote-user-foundation" <<'PY'
+# BEGIN optional-apply diagnostics
+import runpy
+import subprocess
+import sys
+
+revision, helper = sys.argv[1:]
+module = runpy.run_path(helper, run_name='smoke_diagnostics')
+original = module['command']
+
+def diagnostic_command(*args, **kwargs):
+    try:
+        return original(*args, **kwargs)
+    except subprocess.CalledProcessError as error:
+        for output in (error.stdout, error.stderr):
+            if output:
+                print(output, file=sys.stderr)
+        raise
+
+module['main'].__globals__['command'] = diagnostic_command
+sys.argv = [helper, 'apply', revision]
+module['main']()
+# END optional-apply diagnostics
+PY
+bash -lc 'cd "$HOME"; . "$HOME/.common_profile"; command -v python3.13; [[ $(python3.13 --version) == "Python 3.13.18" ]]'
+python3 - <<'PY'
+from pathlib import Path
 # Deliberately invalid extra configs must not enter foundation tool installation.
 home = Path.home()
 extras = home / '.config/mise/conf.d'
