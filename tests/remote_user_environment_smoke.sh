@@ -277,6 +277,14 @@ module['main']()
 # END optional-apply diagnostics
 PY
 bash -lc 'cd "$HOME"; . "$HOME/.common_profile"; command -v python3.13; [[ $(python3.13 --version) == "Python 3.13.18" ]]'
+# Native mise may serialize its lock again during normal use. Its exact bytes
+# must already match chezmoi's template, not merely contain the same pin values.
+lock_before=$(sha256sum "$HOME/.config/mise/mise.lock")
+"$HOME/.local/bin/remote-mise" exec -- "$HOME/.local/bin/mise" lock --global --platform linux-x64
+test "$(sha256sum "$HOME/.config/mise/mise.lock")" = "$lock_before"
+remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
+test "$(sha256sum "$HOME/.config/mise/mise.lock")" = "$lock_before"
+printf 'remote native mise lock and enabled Prefect reapply passed\n'
 python3 - <<'PY'
 from pathlib import Path
 # Deliberately invalid extra configs must not enter foundation tool installation.

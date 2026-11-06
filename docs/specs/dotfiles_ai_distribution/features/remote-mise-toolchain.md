@@ -12,6 +12,14 @@ When `prefect_mcp` is enabled, the global config declares exact Python 3.13.18.
 The reviewed mise-generated lock pins its python-build-standalone 20261026 asset
 URL, SHA-256 and GitHub-attestation provenance. mise's built-in Python backend
 installs it; no source build fallback or independent Python downloader is added.
+RRW-F04 makes the managed lock byte-identical to native mise serialization:
+the exact `@generated` header, blank lines, and one terminating newline are part
+of the compatibility contract, not merely the parsed pins. Native lock rewriting
+must leave managed bytes unchanged. Preserve Python/version, artifact URL,
+checksum, backend, specifier and provenance values; this is not a pin upgrade.
+For a previously native-rewritten lock with only this known formatting drift,
+the matching desired bytes allow ordinary chezmoi apply without resetting the
+live file or passing `--force`. Unrelated local edits remain protected.
 With the flag disabled the global tool table is empty, and no interpreter is
 installed or removed. Disabling never deletes existing environments or Python.
 
@@ -78,6 +86,10 @@ failure propagation, unsafe paths, shell/adapter PATH, disabled no-effects,
 ordering and no-download policy. Disposable UBI proves actual pinned installation,
 cached reapply, and the existing frozen Prefect installation/check-runtime path
 without credentials or API calls. UBI is not live RHEL or owner acceptance.
+UBI also runs the pinned native lock serializer after enabled Prefect installation,
+asserts the exact lock digest remains unchanged, then performs another ordinary
+foundation apply and asserts that digest again. Offline tests reproduce the
+old chezmoi conflict and two non-forced convergences in a disposable home.
 
 ## Visual Evidence
 

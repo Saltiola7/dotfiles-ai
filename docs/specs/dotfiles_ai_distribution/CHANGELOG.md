@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-06 — Native mise lock bytes (RRW-F04)
+
+- Match native mise's generated header and terminating-newline format without
+  changing any Python pin or artifact identity. Native serialization no longer
+  introduces known formatting-only drift against chezmoi's managed bytes.
+- Add disposable non-forced chezmoi convergence regressions and explicit UBI
+  native-lock/second-apply checks after enabled Prefect installation. No live
+  lock reset, force-apply, provider access or bootstrap change is performed.
+
 ## 2026-11-06 — Shared remote mise toolchain (RRW-007C)
 
 - Added remote-only global mise config/lock and pinned Python 3.13.18 when

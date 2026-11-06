@@ -36,6 +36,7 @@ on:
       - "tests/test_remote_personalisation.py"
       - "tests/test_codex_runtime_state.py"
       - "tests/test_remote_mise.py"
+      - "tests/fixtures/remote-mise-native.lock"
       - "pyproject.toml"
       - "uv.lock"
       - "tests/remote_user_environment_smoke.sh"

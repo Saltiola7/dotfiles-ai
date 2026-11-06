@@ -19,6 +19,14 @@ a second inventory. Source preparation does not install the skill automatically.
 
 ## Remote-user setup inputs
 
+### Native mise lock formatting (RRW-F04)
+
+The managed remote lock matches native mise's exact generated header, blank lines
+and final newline. Interpreter pins and artifact hashes are unchanged. If native
+mise has rewritten only that known formatting, the updated desired bytes match
+the existing file and ordinary apply converges without a reset or `--force`.
+Do not overwrite a live lock to conceal other drift; investigate it separately.
+
 ### Existing Codex users upgrading the foundation
 
 `codex-project` preserves native top-level `tui` and `notice` tables, including
