@@ -47,7 +47,7 @@ if ! { [[ -x "$bin/gh" ]] && printf '%s  %s\n' "$gh_binary_sha256" "$bin/gh" | s
     mv -f "$candidate" "$bin/gh"
 fi
 {{ if .dotfiles_ai.prefect_mcp.enabled -}}
-# The Prefect adapter owns its frozen environment; Fork A owns Python 3.13.
+# The Prefect adapter owns its frozen environment; the next mise hook owns Python.
 uv_version={{ .dotfiles_ai.remote_user_environment.uv_version | quote }}
 uv_archive_sha256={{ .dotfiles_ai.remote_user_environment.uv_archive_sha256 | quote }}
 uv_binary_sha256={{ .dotfiles_ai.remote_user_environment.uv_binary_sha256 | quote }}
@@ -63,8 +63,4 @@ if ! { [[ -x "$bin/uv" ]] && printf '%s  %s\n' "$uv_binary_sha256" "$bin/uv" | s
     "$candidate" --version >/dev/null
     mv -f "$candidate" "$bin/uv"
 fi
-"$bin/uv" python find --system --no-python-downloads 3.13 >/dev/null || {
-    echo 'remote Prefect MCP requires Python 3.13 provisioned by host setup' >&2
-    exit 1
-}
 {{ end -}}

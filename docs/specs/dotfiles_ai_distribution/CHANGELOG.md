@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-06 — Shared remote mise toolchain (RRW-007C)
+
+- Added remote-only global mise config/lock and pinned Python 3.13.18 when
+  Prefect MCP is enabled, using the native mise owner with a reviewed artifact
+  checksum. The host no longer provisions this optional interpreter.
+- Put mise shims on shell/install/integrity paths without overriding repository
+  Python selection. Keep the adapter's frozen uv lock and no-interpreter-download
+  policy; disabling preserves installed interpreters and environments.
+- Order locked mise installation after bootstrap tools and before Prefect;
+  reapply uses native cached installs. Local and UBI evidence belongs to the
+  cycle, not a claim of live RHEL acceptance or provider authentication.
+
 ## 2026-11-06 — Preserve Codex first-launch state (RRW-007A-R1)
 
 - Preserve native `tui` and `notice` tables during verified Codex projection

@@ -16,7 +16,7 @@ root = "/home/you/.local/state/worktrees"
 enabled = false
 
 [data.dotfiles_ai.prefect_mcp]
-# Enabling installs pinned user-local uv; host setup must first provide Python 3.13.
+# Enabling installs pinned user-local uv and mise-managed Python 3.13.
 # Runtime installation retains its frozen lock and --no-python-downloads policy.
 enabled = false
 

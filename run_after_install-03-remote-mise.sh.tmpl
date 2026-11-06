@@ -1,0 +1,90 @@
+#!/bin/bash
+# config: {{ includeTemplate "private_dot_config/mise/config.toml.tmpl" . | sha256sum }}
+# lock: {{ includeTemplate "private_dot_config/mise/mise.lock.tmpl" . | sha256sum }}
+set -euo pipefail
+{{ if not .dotfiles_ai.remote_user_environment.enabled -}}
+exit 0
+{{ end -}}
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
+export XDG_STATE_HOME="$HOME/.local/state"
+export XDG_CACHE_HOME="$HOME/.cache"
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
+export UV_PYTHON_DOWNLOADS=never
+mise="$HOME/.local/bin/remote-mise"
+"$mise" install --locked
+{{ if .dotfiles_ai.prefect_mcp.enabled -}}
+/usr/bin/python3 - "$HOME" "$HOME/.local/share/mise/installs/python/{{ .dotfiles_ai.remote_user_environment.prefect_python_version }}" <<'PY'
+# BEGIN Python install permissions
+import os
+from pathlib import Path
+import stat
+import sys
+
+home, install = map(Path, sys.argv[1:])
+expected = home / '.local/share/mise/installs/python' / {{ .dotfiles_ai.remote_user_environment.prefect_python_version | quote }}
+if not home.is_absolute() or install != expected or '..' in home.parts:
+    raise SystemExit('unsafe Python install path')
+
+def checked(item, *, directory=False):
+    kind = stat.S_ISDIR if directory else stat.S_ISREG
+    if (item.st_uid != os.getuid() or not kind(item.st_mode) or item.st_mode & 0o7000
+            or not directory and item.st_nlink != 1):
+        raise SystemExit('unsafe Python install entry')
+
+def walk_error(error):
+    raise error
+
+flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+root = os.open(install.anchor, flags)
+try:
+    # Open every component, including ancestors above HOME, without following
+    # symlinks. Descriptor-relative traversal stays anchored during renames.
+    for index, name in enumerate(install.parts[1:], 1):
+        child = os.open(name, flags, dir_fd=root)
+        os.close(root)
+        root = child
+        metadata = os.fstat(root)
+        if index >= len(home.parts) - 1:
+            checked(metadata, directory=True)
+            if index < len(install.parts) - 1 and metadata.st_mode & 0o022:
+                raise SystemExit('unsafe Python install ancestor')
+        elif metadata.st_uid not in {0, os.getuid()}:
+            raise SystemExit('unsafe Python install ancestor owner')
+    # Preflight the whole tree before changing any permissions. Walk descriptors
+    # never follow symlinks; chmod only the selected real directory/file handle.
+    for normalize in (False, True):
+        count = 0
+        for _, directories, files, descriptor in os.fwalk('.', dir_fd=root, follow_symlinks=False, onerror=walk_error):
+            metadata = os.fstat(descriptor)
+            checked(metadata, directory=True)
+            if normalize:
+                os.fchmod(descriptor, stat.S_IMODE(metadata.st_mode) & ~0o022)
+            for name in directories + files:
+                count += 1
+                if count > 50000:
+                    raise SystemExit('Python install exceeds entry bound')
+                metadata = os.stat(name, dir_fd=descriptor, follow_symlinks=False)
+                if metadata.st_uid != os.getuid():
+                    raise SystemExit('unsafe Python install owner')
+                if stat.S_ISLNK(metadata.st_mode):
+                    continue
+                checked(metadata, directory=stat.S_ISDIR(metadata.st_mode))
+                if normalize and stat.S_ISREG(metadata.st_mode):
+                    file = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
+                    try:
+                        metadata = os.fstat(file)
+                        checked(metadata)
+                        os.fchmod(file, stat.S_IMODE(metadata.st_mode) & ~0o022)
+                    finally:
+                        os.close(file)
+finally:
+    os.close(root)
+# END Python install permissions
+PY
+version=$("$mise" exec -- python -I -c 'import sys; print(".".join(map(str, sys.version_info[:3])))')
+[[ $version == {{ .dotfiles_ai.remote_user_environment.prefect_python_version | quote }} ]] || {
+    echo 'remote mise Python pin is unavailable' >&2
+    exit 1
+}
+{{ end -}}

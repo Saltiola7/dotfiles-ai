@@ -291,7 +291,21 @@ def validate_tool_integrity(data: dict) -> None:
             if hashlib.sha256(path.read_bytes()).hexdigest() != pins[key]:
                 raise RuntimeError("foundation remote tool integrity changed")
     if data.get("prefect_mcp", {}).get("enabled", False):
-        command(str(binaries / "uv"), "python", "find", "--system", "--no-python-downloads", "3.13", capture=True)
+        safe_path(binaries / "remote-mise", "executable")
+        selected = command(str(binaries / "remote-mise"), "exec", "--", str(binaries / "uv"), "python", "find", "--system",
+                           "--no-python-downloads", "3.13", capture=True).stdout.strip()
+        if "prefect_python_version" in pins:
+            version = pins["prefect_python_version"]
+            install = HOME / ".local/share/mise/installs/python" / version
+            safe_path(install, "directory")
+            interpreter = Path(selected).resolve(strict=True)
+            if not interpreter.is_relative_to(install):
+                raise RuntimeError("foundation Python is not the mise-selected pin")
+            safe_path(interpreter, "executable")
+            observed = command(str(interpreter), "-I", "-c",
+                'import sys; print(".".join(map(str, sys.version_info[:3])))', capture=True).stdout.strip()
+            if observed != version:
+                raise RuntimeError("foundation Python pin changed")
 
 
 def validate_integrity(state: dict) -> Path:
@@ -313,6 +327,8 @@ def validate_integrity(state: dict) -> Path:
     expected_status = [" R update-codex.sh", " R update-opencode.sh"]
     if "mise_sha256" in data.get("remote_user_environment", {}):
         expected_status.insert(0, " R install-02-remote-tools.sh")
+    if "prefect_python_version" in data.get("remote_user_environment", {}):
+        expected_status.insert(1, " R install-03-remote-mise.sh")
     if sorted(status) != expected_status:
         raise RuntimeError("foundation managed targets changed")
     for target in state["managed_targets"]:

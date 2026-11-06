@@ -65,7 +65,7 @@ remote-user-bootstrap bootstrap "$revision"
 remote-user-foundation apply "$revision"
 test "$(sha256sum "$HOME/.opencode/bin/opencode")" = "$native_before"
 test "$(sha256sum "$HOME/.config/opencode/opencode.json")" = "$config_before"
-expected_status=$(printf ' R install-02-remote-tools.sh\n R update-codex.sh\n R update-opencode.sh')
+expected_status=$(printf ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R update-codex.sh\n R update-opencode.sh')
 test "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" status)" = "$expected_status"
 
 "$HOME/.local/bin/starship" --version
@@ -236,3 +236,96 @@ remote-user-foundation rollback
 test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
 test "$(cat "$HOME/.local/share/atuin/history.db")" = keep-history
 printf 'remote user environment smoke passed\n'
+
+# Enable the optional toolchain using only public fixture configuration. The
+# frozen adapter is qualified locally without an API URL, credentials or calls.
+python3 - <<'PY'
+import re
+from pathlib import Path
+path = Path.home() / '.config/dotfiles-ai/chezmoi.toml'
+assert not (Path.home() / '.local/share/mise/installs/python').exists()
+previous = path.read_text()
+updated, count = re.subn(r'(\[data\.dotfiles_ai\.prefect_mcp\]\n(?:#[^\n]*\n)*)enabled = false',
+                         r'\1enabled = true', previous, count=1)
+assert count == 1
+path.write_text(updated)
+PY
+# Only this disposable public fixture exposes captured subprocess diagnostics.
+# Keep the production command, locking, failure status and logging unchanged.
+python3 - "$(git -C "$source_root" rev-parse HEAD)" "$HOME/.local/bin/remote-user-foundation" <<'PY'
+# BEGIN optional-apply diagnostics
+import runpy
+import subprocess
+import sys
+
+revision, helper = sys.argv[1:]
+module = runpy.run_path(helper, run_name='smoke_diagnostics')
+original = module['command']
+
+def diagnostic_command(*args, **kwargs):
+    try:
+        return original(*args, **kwargs)
+    except subprocess.CalledProcessError as error:
+        for output in (error.stdout, error.stderr):
+            if output:
+                print(output, file=sys.stderr)
+        raise
+
+module['main'].__globals__['command'] = diagnostic_command
+sys.argv = [helper, 'apply', revision]
+module['main']()
+# END optional-apply diagnostics
+PY
+bash -lc 'cd "$HOME"; . "$HOME/.common_profile"; command -v python3.13; [[ $(python3.13 --version) == "Python 3.13.18" ]]'
+python3 - <<'PY'
+from pathlib import Path
+# Deliberately invalid extra configs must not enter foundation tool installation.
+home = Path.home()
+extras = home / '.config/mise/conf.d'
+extras.mkdir(parents=True, exist_ok=True)
+for candidate in (home / 'mise.toml', home / '.config/mise/config.local.toml',
+                  home / '.config/mise/config.override.toml', extras / 'unreviewed.toml',
+                  home / '.miserc.toml', home / '.miserc.local.toml'):
+    candidate.write_text('unreviewed = [\n')
+PY
+remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
+"$HOME/.local/bin/prefect-mcp" check-runtime | python3 -c \
+  'import json,sys;v=json.load(sys.stdin);assert v=={"qualified":True,"backend_health":"not_checked"}'
+python3 - <<'PY'
+import hashlib, json, os, subprocess, tomllib
+from pathlib import Path
+home = Path.home()
+pins = tomllib.loads((Path(os.environ['DOTFILES_AI_SOURCE']) / '.chezmoidata.toml').read_text())['dotfiles_ai']['remote_user_environment']
+environment = {**os.environ, 'PATH': str(home / '.local/share/mise/shims') + ':' + os.environ['PATH'],
+               'UV_PYTHON_DOWNLOADS': 'never'}
+project = home / 'fixture-project'
+project.mkdir(exist_ok=True)
+(project / 'mise.toml').write_text('[tools]\npython = "3.13.17"\n')
+(project / '.miserc.toml').write_text('unreviewed = [\n')
+selected = Path(subprocess.check_output([str(home / '.local/bin/remote-mise'), 'exec', '--',
+    str(home / '.local/bin/uv'), 'python', 'find',
+    '--system', '--no-python-downloads', '3.13'], cwd=project, env=environment, text=True).strip()).resolve()
+assert selected.is_relative_to(home / '.local/share/mise/installs/python' / pins['prefect_python_version'])
+version = subprocess.check_output([str(selected), '-I', '-c',
+    'import sys;print(".".join(map(str,sys.version_info[:3])))'], text=True).strip()
+assert version == pins['prefect_python_version']
+runtime = home / '.config/dotfiles-ai/runtime/prefect-mcp'
+records = [json.loads(path.read_text()) for path in (runtime / 'generations').glob('*/.complete.json')]
+assert any(record['python']['path'] == str(selected) and record['python']['version'] == [3, 13, 18]
+           for record in records)
+before = hashlib.sha256(selected.read_bytes()).hexdigest()
+subprocess.run(['remote-user-foundation', 'apply', subprocess.check_output(
+    ['git', '-C', os.environ['DOTFILES_AI_SOURCE'], 'rev-parse', 'HEAD'], text=True).strip()], check=True)
+assert hashlib.sha256(selected.read_bytes()).hexdigest() == before
+config = home / '.config/dotfiles-ai/chezmoi.toml'
+contents = config.read_text()
+disabled, count = __import__('re').subn(r'(\[data\.dotfiles_ai\.prefect_mcp\]\n(?:#[^\n]*\n)*)enabled = true',
+                                      r'\1enabled = false', contents, count=1)
+assert count == 1
+config.write_text(disabled)
+subprocess.run(['remote-user-foundation', 'apply', subprocess.check_output(
+    ['git', '-C', os.environ['DOTFILES_AI_SOURCE'], 'rev-parse', 'HEAD'], text=True).strip()], check=True)
+assert selected.exists() and hashlib.sha256(selected.read_bytes()).hexdigest() == before
+assert tomllib.loads((home / '.config/mise/config.toml').read_text())['tools'] == {}
+PY
+printf 'remote mise and frozen Prefect qualification passed\n'

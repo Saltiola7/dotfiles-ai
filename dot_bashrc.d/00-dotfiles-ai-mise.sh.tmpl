@@ -1,0 +1,4 @@
+# Interactive shells retain normal per-project mise selection.
+if [[ -x "$HOME/.local/bin/mise" ]]; then
+    eval "$("$HOME/.local/bin/mise" activate bash)"
+fi

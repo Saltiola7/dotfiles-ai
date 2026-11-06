@@ -23,7 +23,12 @@ graphify-out/
 Brewfile
 
 {{ if not .dotfiles_ai.remote_user_environment.enabled }}
+.config/dotfiles-ai/runtime/prefect-mcp/.python-version
 install-02-remote-tools.sh
+install-03-remote-mise.sh
+.local/bin/remote-mise
+.config/mise/
+.bashrc.d/00-dotfiles-ai-mise.sh
 {{ end }}
 
 {{ if and .dotfiles_ai.remote_user_environment.enabled (or .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.hermes.enabled .dotfiles_ai.rnd.enabled) }}

@@ -1,5 +1,9 @@
 # dotfiles-ai Distribution
 
+The [remote global mise baseline](features/remote-mise-toolchain.md) owns optional
+pinned Python for the frozen Prefect adapter. Project toolchains keep their own
+mise/uv selections; host Python remains for OS/host scripts.
+
 The [Codex runtime-state projection contract](features/codex-projection-runtime-state.md)
 preserves native UI/notice state during verified managed upgrades while rejecting
 edits to owned settings. Legacy migration remains conservative; live rollout and

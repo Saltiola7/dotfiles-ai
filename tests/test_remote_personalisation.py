@@ -81,7 +81,7 @@ def test_remote_archive_extraction_preserves_installing_user_ownership():
     assert all('--no-same-owner' in line for line in extracts)
 
 
-@pytest.mark.parametrize('fault', ['', 'mise', 'gh', 'uv', 'python'])
+@pytest.mark.parametrize('fault', ['', 'mise', 'gh', 'uv'])
 def test_remote_installer_checksums_and_no_download_reapply(tmp_path, fault):
     home = tmp_path / 'home'
     binary = home / '.local/bin'
@@ -89,8 +89,6 @@ def test_remote_installer_checksums_and_no_download_reapply(tmp_path, fault):
     tools = {'mise': b'#!/bin/sh\necho mise-2026.11.2\n',
              'gh': b'#!/bin/sh\necho gh-2.103.3\n',
              'uv': b'#!/bin/sh\necho uv-0.13.6\n'}
-    if fault == 'python':
-        tools['uv'] = b'#!/bin/sh\n[ "$1" != python ]\n'
     for name in tools:
         path = binary / name
         path.write_bytes(b'#!/bin/sh\necho previous\n')
@@ -152,10 +150,7 @@ def test_remote_installer_checksums_and_no_download_reapply(tmp_path, fault):
     environment = {**os.environ, 'HOME': str(home), 'PATH': f'{fake}:/usr/bin:/bin'}
     before = (binary / fault).read_bytes() if fault in tools else None
     result = subprocess.run(['/bin/bash', str(script)], env=environment, capture_output=True)
-    if fault == 'python':
-        assert result.returncode != 0
-        assert b'requires Python 3.13' in result.stderr
-    elif fault:
+    if fault:
         assert result.returncode != 0
         assert (binary / fault).read_bytes() == before
     else:
@@ -216,7 +211,9 @@ def test_prefect_dependency_keeps_existing_runtime_owner():
     script = render('run_after_install-02-remote-tools.sh.tmpl',
                     options={'prefect_mcp': {'enabled': True}})
     assert 'uv_version="0.13.6"' in script
-    assert 'python find --system --no-python-downloads 3.13' in script
+    assert 'python find' not in script
+    assert 'install --locked' in render('run_after_install-03-remote-mise.sh.tmpl',
+                                      options={'prefect_mcp': {'enabled': True}})
     assert 'uv sync' not in script
     disabled = render('run_after_install-02-remote-tools.sh.tmpl')
     assert 'uv_version=' not in disabled
@@ -345,7 +342,7 @@ def test_integrity_detects_remote_tool_tampering(tmp_path, monkeypatch, tool):
     config.parent.mkdir(parents=True)
     config.write_text('{}')
     def command(*args, **kwargs):
-        output = ' R install-02-remote-tools.sh\n R update-codex.sh\n R update-opencode.sh\n'
+        output = ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R update-codex.sh\n R update-opencode.sh\n'
         if '--version' in args:
             output = {'codex': 'codex-cli 0.151.0', 'herdr': 'herdr 0.9.5',
                       'wt': 'wt v0.80.0', 'opencode': 'opencode v2.2.5'}[Path(args[0]).name]

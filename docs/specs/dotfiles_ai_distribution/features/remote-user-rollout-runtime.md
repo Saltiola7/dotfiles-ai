@@ -418,7 +418,8 @@ the existing remote role, not its host/desktop counterpart or the personal
 overlay. The public foundation owns checksum-pinned user-local `mise` and `gh`,
 and verifies their installed executable bytes during integrity admission. When
 Prefect MCP is enabled it also owns checksum-pinned user-local `uv`; Fork A's
-host setup supplies qualified Python 3.13. The adapter retains its existing
+global mise baseline supplies pinned Python 3.13 under RRW-007C (superseding the
+original host prerequisite). The adapter retains its existing
 frozen runtime and `--no-python-downloads` contract.
 
 The canonical setup input and supported-flag table is
@@ -475,7 +476,7 @@ flowchart LR
     I[Private first-login trigger] -->|full public revision| B[Portable user bootstrap]
     B -->|structural failure| F[failed_retryable]
     B -->|foundation valid| R[Content-free auth refresh]
-    H[Host setup owner] -->|Python 3.13 when Prefect enabled| B
+    B -->|native locked install when Prefect enabled| H[Global mise Python 3.13]
     B -->|verify pinned tools| T[User-local mise, gh and optional uv]
     R -->|login incomplete| P[auth_pending]
     R -->|all local evidence present| D[ready]
@@ -487,8 +488,9 @@ flowchart LR
 ```
 
 **Text Equivalent:** Private infrastructure supplies one immutable public
-revision to a user-owned bootstrap. Host setup provides Python 3.13 when Prefect
-is enabled; the foundation owns and verifies mise, gh and conditional uv.
+revision to a user-owned bootstrap. The shared global mise baseline provides
+Python 3.13 when Prefect is enabled; the foundation owns and verifies mise, gh
+and conditional uv.
 Structural failure is retryable. A valid
 foundation runs content-free authentication checks: incomplete login waits in
 `auth_pending`, while complete local checks reach `ready`, without proving online
