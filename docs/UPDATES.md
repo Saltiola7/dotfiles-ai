@@ -27,6 +27,14 @@ mise has rewritten only that known formatting, the updated desired bytes match
 the existing file and ordinary apply converges without a reset or `--force`.
 Do not overwrite a live lock to conceal other drift; investigate it separately.
 
+### Repository Python version files (RRW-F05)
+
+Remote mise enables `idiomatic_version_file_enable_tools = ["python"]`.
+Repository `.python-version` files now select project Python instead of inheriting
+the global Prefect baseline. Install the requested interpreter with mise in that
+repository; uv still never downloads interpreters. Foundation calls remain
+isolated from project/HOME version files and keep their pinned adapter Python.
+
 ### Existing Codex users upgrading the foundation
 
 `codex-project` preserves native top-level `tui` and `notice` tables, including

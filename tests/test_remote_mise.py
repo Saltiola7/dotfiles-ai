@@ -19,6 +19,8 @@ def test_remote_global_mise_declares_only_optional_pinned_python():
     assert enabled['tools'] == {'python': '3.13.18'}
     assert enabled['env']['UV_PYTHON_DOWNLOADS'] == 'never'
     assert enabled['settings']['python']['compile'] is False
+    assert enabled['settings']['idiomatic_version_file_enable_tools'] == ['python']
+    assert disabled['settings']['idiomatic_version_file_enable_tools'] == ['python']
 
 
 def test_remote_global_mise_lock_matches_official_release_and_config():
@@ -81,6 +83,16 @@ def test_native_lock_ubi_reapply_gate_is_explicit():
     assert 'RRW-F04' in feature and 'byte-identical' in feature
     assert 'without resetting the' in feature
     assert 'Native mise lock formatting (RRW-F04)' in (ROOT / 'docs/UPDATES.md').read_text()
+
+
+def test_idiomatic_project_pin_qualification_keeps_foundation_boundary():
+    smoke = (ROOT / 'tests/remote_user_environment_smoke.sh').read_text()
+    assert 'printf \'3.14\\n\' >"$idiomatic_project/.python-version"' in smoke
+    assert 'install python@3.14' in smoke
+    assert '$(python3 --version) == Python\\ 3.14.*' in smoke
+    assert 'remote-mise" exec -- python --version' in smoke
+    assert 'remote idiomatic Python version file qualification passed' in smoke
+    assert 'Repository Python version files (RRW-F05)' in (ROOT / 'docs/UPDATES.md').read_text()
 
 
 @pytest.mark.parametrize('remote', [False, True])

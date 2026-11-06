@@ -9,6 +9,15 @@
   native-lock/second-apply checks after enabled Prefect installation. No live
   lock reset, force-apply, provider access or bootstrap change is performed.
 
+## 2026-11-06 — Repository Python version files (RRW-F05)
+
+- Enable Python idiomatic version-file discovery in remote global mise settings.
+  Repository `.python-version` selections override the global baseline in normal
+  shells; mise still installs interpreters and uv never downloads them.
+- Extend UBI qualification with a repository Python 3.14 selection and unchanged
+  isolated foundation Python 3.13.18/lock. Global pins and project trust do not
+  change. Delivered with RRW-F04; live rollout stays separately approved.
+
 ## 2026-11-06 — Shared remote mise toolchain (RRW-007C)
 
 - Added remote-only global mise config/lock and pinned Python 3.13.18 when

@@ -56,6 +56,13 @@ installed or removed. Disabling never deletes existing environments or Python.
   reject extra global `miserc.toml`/`miserc.local.toml` files before native parsing.
   Unsupported global rc customization is retained and reported, never deleted.
   This adapter adds no installer state, downloader or project-trust mutation.
+- RRW-F05 explicitly sets `idiomatic_version_file_enable_tools = ["python"]`
+  under global `[settings]`. A repository's `.python-version` overrides the
+  optional global 3.13.18 baseline for ordinary mise/shim discovery, including
+  a requested Python 3.14. The repository/user installs that interpreter through
+  mise, not uv; this setting alone does not preinstall every repository version
+  or automatically trust repository hooks. Foundation's isolated context still
+  ignores HOME/project version files and retains the exact global adapter pin.
 - Failure, unsafe config/lock paths and a missing or wrong interpreter remain
   visible. No provider login, model request, live host change, virtualenv deletion,
   broad cache cleanup, credential copying or application restart is authorized.
@@ -90,6 +97,10 @@ UBI also runs the pinned native lock serializer after enabled Prefect installati
 asserts the exact lock digest remains unchanged, then performs another ordinary
 foundation apply and asserts that digest again. Offline tests reproduce the
 old chezmoi conflict and two non-forced convergences in a disposable home.
+UBI further installs Python 3.14 through mise for a disposable repository with
+`.python-version`, verifies its user-shell selection, and proves the foundation
+still selects Python 3.13.18 with an unchanged global lock despite project/HOME
+idiomatic pins. Repository test installs do not expand the production global pin.
 
 ## Visual Evidence
 
