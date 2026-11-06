@@ -139,6 +139,7 @@ def test_enabled_mise_hook_requires_the_exact_python_pin(tmp_path, version):
     binary = home / '.local/bin'
     config.mkdir(parents=True)
     binary.mkdir(parents=True)
+    (home / '.local/share/mise/installs/python/3.13.18').mkdir(parents=True)
     (config / 'config.toml').write_text('[tools]\npython = "3.13.18"\n')
     (config / 'mise.lock').write_text('lockfile_version = 3\n')
     mise = binary / 'mise'
@@ -264,6 +265,134 @@ def test_optional_smoke_checks_python_in_user_shell_before_interference():
     assert '$(python3.13 --version)' in smoke
     assert 'Python 3.13.18' in smoke
     assert smoke.index('command -v python3.13') < smoke.index('# Deliberately invalid extra configs')
+
+
+def normalization_script():
+    hook = render('run_after_install-03-remote-mise.sh.tmpl',
+                  options={'prefect_mcp': {'enabled': True}})
+    return hook.split('# BEGIN Python install permissions\n', 1)[1].split(
+        '# END Python install permissions', 1)[0]
+
+
+def test_native_python_archive_permissions_are_hardened_without_byte_changes(tmp_path):
+    home = tmp_path / 'home'
+    install = home / '.local/share/mise/installs/python/3.13.18'
+    (install / 'bin').mkdir(parents=True)
+    (install / 'lib').mkdir()
+    interpreter = install / 'bin/python3.13'
+    interpreter.write_bytes(b'locked-interpreter')
+    interpreter.chmod(0o775)
+    library = install / 'lib/module.py'
+    library.write_bytes(b'locked-library')
+    library.chmod(0o664)
+    (install / 'lib').chmod(0o775)
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    external = outside / 'unchanged'
+    external.write_bytes(b'outside-install')
+    external.chmod(0o666)
+    (install / 'bin/python3').symlink_to('python3.13')
+    (install / 'linked-dir').symlink_to(outside, target_is_directory=True)
+    (install / 'linked-file').symlink_to(external)
+    for _ in range(2):
+        subprocess.run([sys.executable, '-', str(home), str(install)], input=normalization_script(),
+                       text=True, check=True)
+    assert interpreter.stat().st_mode & 0o777 == 0o755
+    assert library.stat().st_mode & 0o777 == 0o644
+    assert (install / 'lib').stat().st_mode & 0o777 == 0o755
+    assert interpreter.read_bytes() == b'locked-interpreter'
+    assert library.read_bytes() == b'locked-library'
+    assert external.stat().st_mode & 0o777 == 0o666
+    assert (install / 'bin/python3').is_symlink()
+
+
+@pytest.mark.parametrize('fault', ['symlink-parent', 'hardlink', 'special', 'wrong-root'])
+def test_python_permission_normalization_refuses_unsafe_inputs(tmp_path, fault):
+    home = tmp_path / 'home'
+    install = home / '.local/share/mise/installs/python/3.13.18'
+    install.mkdir(parents=True)
+    marker = install / 'unchanged'
+    marker.write_bytes(b'preserve')
+    marker.chmod(0o664)
+    if fault == 'symlink-parent':
+        actual = tmp_path / 'actual'
+        install.parent.rename(actual)
+        install.parent.symlink_to(actual, target_is_directory=True)
+    elif fault == 'hardlink':
+        (install / 'alias').hardlink_to(marker)
+    elif fault == 'special':
+        os.mkfifo(install / 'pipe')
+    else:
+        install = install.parent
+    result = subprocess.run([sys.executable, '-', str(home), str(install)],
+                            input=normalization_script(), text=True, capture_output=True)
+    assert result.returncode != 0
+    assert marker.stat().st_mode & 0o777 == 0o664
+
+
+@pytest.mark.parametrize('fault', ['home-symlink', 'ancestor-replacement', 'owner', 'privilege',
+                                  'writable-ancestor', 'entry-bound', 'walk-error', 'file-replacement'])
+def test_python_permission_normalization_security_guards(tmp_path, fault):
+    home = tmp_path / 'home'
+    install = home / '.local/share/mise/installs/python/3.13.18'
+    install.mkdir(parents=True)
+    marker = install / 'unchanged'
+    marker.write_bytes(b'preserve')
+    marker.chmod(0o664)
+    script = normalization_script()
+    prelude = ''
+    expected_mode = 0o664
+    if fault == 'home-symlink':
+        alias = tmp_path / 'alias'
+        alias.symlink_to(tmp_path, target_is_directory=True)
+        home = alias / 'home'
+        install = home / '.local/share/mise/installs/python/3.13.18'
+    elif fault == 'ancestor-replacement':
+        moved = tmp_path / 'original-python'
+        outside = tmp_path / 'outside'
+        outside.mkdir()
+        prelude = ('import os\noriginal_open = os.open\n'
+            'def injected_open(path, flags, *args, **kwargs):\n'
+            '    if path == "python" and "dir_fd" in kwargs:\n'
+            f'        os.rename({str(install.parent)!r}, {str(moved)!r})\n'
+            f'        os.symlink({str(outside)!r}, {str(install.parent)!r})\n'
+            '    return original_open(path, flags, *args, **kwargs)\n'
+            'os.open = injected_open\n')
+        marker = moved / '3.13.18/unchanged'
+    elif fault == 'owner':
+        prelude = ('import os\noriginal_stat = os.stat\n'
+            'def injected_stat(path, *args, **kwargs):\n'
+            '    result = original_stat(path, *args, **kwargs)\n'
+            '    if path == "unchanged":\n'
+            '        values = list(result); values[4] = os.getuid() + 1\n'
+            '        return os.stat_result(values)\n'
+            '    return result\n'
+            'os.stat = injected_stat\n')
+    elif fault == 'privilege':
+        marker.chmod(0o4664)
+        expected_mode = 0o4664
+    elif fault == 'writable-ancestor':
+        (home / '.local').chmod(0o775)
+    elif fault == 'entry-bound':
+        script = script.replace('count > 50000', 'count > 0')
+    elif fault == 'walk-error':
+        prelude = ('import os\n'
+            'def injected_walk(*args, **kwargs):\n'
+            '    kwargs["onerror"](PermissionError("fixture traversal failure"))\n'
+            'os.fwalk = injected_walk\n')
+    else:
+        alias = tmp_path / 'replacement-alias'
+        prelude = ('import os\noriginal_open = os.open\n'
+            'def injected_open(path, flags, *args, **kwargs):\n'
+            '    if path == "unchanged":\n'
+            f'        os.link({str(marker)!r}, {str(alias)!r})\n'
+            '    return original_open(path, flags, *args, **kwargs)\n'
+            'os.open = injected_open\n')
+    result = subprocess.run([sys.executable, '-', str(home), str(install)],
+                            input=prelude + script, text=True, capture_output=True)
+    assert result.returncode != 0
+    assert marker.stat().st_mode & 0o7777 == expected_mode
+    assert marker.read_bytes() == b'preserve'
 
 
 @pytest.mark.parametrize('operation', ['install', 'exec'])

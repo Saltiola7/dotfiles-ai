@@ -23,6 +23,12 @@ installed or removed. Disabling never deletes existing environments or Python.
   the existing Prefect installer. A bounded cached check also runs on reapply so
   retry can repair missing installs. mise retains installed/download ownership;
   there is no second installer state machine or unpinned `latest` selection.
+  The verified upstream archive carries group-writable file modes that native
+  mise preserves. Before interpreter qualification, remove group/other write
+  bits from owned real files/directories in this exact pinned install only.
+  Preflight ownership, types and single-link regular files before mutation;
+  reject unsafe ancestors and bound traversal. Do not follow/chmod symlinks,
+  change file bytes, or weaken the adapter's existing path/permission checks.
 - Given matching cached tools, reapply does not upgrade them. Missing locked
   assets fail loud, preserving their checksum/provenance requirements. Do not
   disable attestation or checksum checks to get a green deployment.
