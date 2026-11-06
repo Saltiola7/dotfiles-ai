@@ -36,6 +36,11 @@ on:
       - "tests/test_remote_personalisation.py"
       - "tests/test_codex_runtime_state.py"
       - "tests/test_remote_mise.py"
+      - "tests/test_remote_workflow_policy.py"
+      - "dot_local/bin/executable_workflow-policy"
+      - "private_dot_config/dotfiles-ai/private_workflow-policy.json.tmpl"
+      - "private_dot_config/worktrunk/config.toml.tmpl"
+      - ".chezmoitemplates/workflow-policy.tmpl"
       - "pyproject.toml"
       - "uv.lock"
       - "tests/remote_user_environment_smoke.sh"
@@ -47,7 +52,7 @@ jobs:
     container: registry.access.redhat.com/ubi10/ubi
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - run: dnf -y install ca-certificates curl git gzip python3 tar unzip diffutils findutils lsof xz
+      - run: dnf -y install ca-certificates curl git gzip python3 tar unzip diffutils findutils lsof xz util-linux
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         with:
           python-version: "3.12"

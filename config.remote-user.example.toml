@@ -7,7 +7,7 @@ persistentState = "/home/you/.local/state/dotfiles-ai/chezmoi.boltdb"
 enabled = true
 
 # Setup creates these user-owned roots before rendering; activation remains
-# workflow-policy owned. Keep its repo-path-hash and branch sanitizing policy.
+# an explicit owner decision after snapshot review. Keep repo-path-hash layout.
 [data.dotfiles_ai.workspaces]
 schema_version = 1
 root = "/home/you/.local/state/worktrees"

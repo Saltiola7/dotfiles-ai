@@ -154,6 +154,12 @@ activation. No daemon or device-name-only assertion. Default owned-home behavior
 claims no external-disk identity guarantee. Native identity parsing and replacement
 fixtures are Build/deployment acceptance, not unresolved design.
 
+[RRW-F03's remote-home extension](remote-worktrunk-policy.md) recognizes the exact
+Linux `HOME/.local/state/worktrees` root as owned home while reading native findmnt
+identity. It binds an available UUID and mountpoint; null UUID is permitted only
+for this exact default without a replacement-disk guarantee. External-root UUID
+requirements and explicit owner activation remain unchanged.
+
 Schema, policy digest, native version and feature activation are one coherent
 configuration generation. Unknown/mismatched versions or partial render/apply
 fail closed, retain last compatible generation and report the failure; a flag

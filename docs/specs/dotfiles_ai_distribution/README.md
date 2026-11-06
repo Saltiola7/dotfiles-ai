@@ -1,5 +1,8 @@
 # dotfiles-ai Distribution
 
+The [remote Worktrunk policy](features/remote-worktrunk-policy.md) supplies the
+shared remote storage guard's policy; activation remains an explicit owner step.
+
 The [remote global mise baseline](features/remote-mise-toolchain.md) owns optional
 pinned Python for the frozen Prefect adapter. Project toolchains keep their own
 mise/uv selections; host Python remains for OS/host scripts.
