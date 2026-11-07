@@ -120,6 +120,10 @@ def test_boot_proof_is_native_isolated_and_ubi10():
     assert 'setpriv --reuid' in boot
     assert 'Sessions --value' in boot
     assert 'opencode service start' not in boot
+    for label in ('not-systemd-root', 'wrong-architecture', 'missing-preparation',
+                  'restart-marker-retained', 'linger-not-enabled', 'login-session-present'):
+        assert "fail '" + label + "'" in boot
+    assert 'timeout 5 loginctl show-user' in boot
 
 
 def native_fixture():
