@@ -1,0 +1,44 @@
+name: remote-opencode-service
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/remote-opencode-service.yml"
+      - ".chezmoidata.toml"
+      - "config.remote-user.example.toml"
+      - "dot_local/bin/executable_remote-user-bootstrap"
+      - "dot_local/bin/executable_opencode.tmpl"
+      - "dot_local/bin/executable_opencode-install.tmpl"
+      - "private_dot_config/systemd/user/opencode-shared.service"
+      - "run_onchange_after_install-01-remote-opencode.sh.tmpl"
+      - "run_after_install-04-remote-opencode-service.sh.tmpl"
+      - "tests/remote_opencode_systemd/**"
+      - "tests/test_remote_opencode_service.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shared-service-boot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Qualify real lingering user manager and boot service
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="f01-systemd-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          docker build --pull -f tests/remote_opencode_systemd/Containerfile -t "$container" .
+          # Private cgroup namespace; no host state/cgroup bind mounts or ports.
+          # Remount only this disposable container's cgroup view writable.
+          docker run -d --name "$container" --privileged --cgroupns=private \
+            --tmpfs /run --tmpfs /run/lock --stop-timeout 40 \
+            "$container" /bin/bash -ec 'mount -o remount,rw /sys/fs/cgroup; exec /sbin/init'
+          docker exec "$container" bash /opt/f01/boot-smoke.sh prepare
+          docker restart --time 40 "$container"
+          docker exec "$container" bash /opt/f01/boot-smoke.sh verify

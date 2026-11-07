@@ -26,6 +26,8 @@ Brewfile
 .config/dotfiles-ai/runtime/prefect-mcp/.python-version
 install-02-remote-tools.sh
 install-03-remote-mise.sh
+install-04-remote-opencode-service.sh
+.config/systemd/user/opencode-shared.service
 .local/bin/remote-mise
 .config/mise/
 .bashrc.d/00-dotfiles-ai-mise.sh

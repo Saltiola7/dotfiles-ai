@@ -1,0 +1,40 @@
+#!/bin/bash
+# unit: {{ include "private_dot_config/systemd/user/opencode-shared.service" | sha256sum }}
+set -euo pipefail
+{{ if not .dotfiles_ai.remote_user_environment.enabled -}}
+exit 0
+{{ end -}}
+# Observer-driven setup has no login shell to populate the per-user bus address.
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+systemctl --user daemon-reload
+systemctl --user enable opencode-shared.service
+service_ready() {
+    python3 - "$HOME/.local/bin/opencode" <<'PY'
+import subprocess, sys
+try:
+    result = subprocess.run([sys.argv[1], 'service', 'status'], timeout=5,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    raise SystemExit(0 if result.returncode == 0 else 1)
+except (OSError, subprocess.TimeoutExpired):
+    raise SystemExit(1) from None
+PY
+}
+# Neither daemon-reload nor enable restarts an active foreground process.
+if ! systemctl --user is-active --quiet opencode-shared.service; then
+    # Preserve a healthy native shared service predating this unit; the enabled
+    # unit takes ownership on a later boot. Never take over mid-session.
+    if service_ready; then
+        exit 0
+    fi
+    systemctl --user start opencode-shared.service
+fi
+# Active is not equivalent to ready. Wait without restarting the process.
+for ((attempt = 0; attempt < 30; attempt++)); do
+    if service_ready; then
+        exit 0
+    fi
+    sleep 1
+done
+echo 'managed OpenCode shared service did not become ready' >&2
+exit 75

@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-06 — Remote shared-service boot startup (RRW-F01)
+
+- Add a remote-only systemd user unit for foreground native shared OpenCode on
+  loopback, enabled under default.target with bounded restart-on-failure.
+- Preserve healthy managed or pre-existing native services during reapply.
+  Host lingering stays with Fork A; native private state and wrapper version/
+  authentication checks stay unchanged. Actual disposable boot proof and hosted
+  results remain in the cycle; live rollout is separately approved.
+
 ## 2026-11-06 — Native mise lock bytes (RRW-F04)
 
 - Match native mise's generated header and terminating-newline format without
