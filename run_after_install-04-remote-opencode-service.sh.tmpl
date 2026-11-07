@@ -11,24 +11,49 @@ systemctl --user daemon-reload
 systemctl --user enable opencode-shared.service
 service_ready() {
     python3 - "$HOME/.local/bin/opencode" <<'PY'
-import subprocess, sys
+import json, os, pathlib, stat, subprocess, sys
+from urllib.parse import urlsplit
 try:
-    result = subprocess.run([sys.argv[1], 'service', 'status'], timeout=5,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    raise SystemExit(0 if result.returncode == 0 else 1)
-except (OSError, subprocess.TimeoutExpired):
+    target = sys.argv[1]
+    result = subprocess.run([target, 'service', 'status'], timeout=5,
+                            capture_output=True, text=True, check=True)
+    server = result.stdout.strip()
+    endpoint = urlsplit(server)
+    if (endpoint.scheme not in {'http', 'https'}
+            or endpoint.hostname not in {'127.0.0.1', 'localhost', '::1'}
+            or not endpoint.port or endpoint.username or endpoint.password):
+        raise ValueError('service not ready')
+    registration = pathlib.Path.home() / '.local/state/opencode/service.json'
+    with os.fdopen(os.open(registration, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)) as stream:
+        metadata = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or metadata.st_mode & 0o077 or metadata.st_nlink != 1 or metadata.st_size > 65536):
+            raise ValueError('unsafe service registration')
+        service = json.load(stream)
+    if (service.get('url') != server or type(service.get('pid')) is not int or service['pid'] <= 1
+            or not isinstance(service.get('password'), str) or not 0 < len(service['password']) <= 4096):
+        raise ValueError('invalid service registration')
+    environment = dict(os.environ, OPENCODE_PASSWORD=service['password'])
+    result = subprocess.run([target, 'api', '--server', server, 'get', '/api/info'],
+                            timeout=5, env=environment, capture_output=True, text=True, check=True)
+    if len(result.stdout) > 65536:
+        raise ValueError('invalid service response')
+    info = json.loads(result.stdout)
+    # Preserve healthy older native services. Attachment, not reapply, enforces
+    # exact client version through the existing wrapper's coordinated-restart guard.
+    if info.get('pid') != service['pid'] or not isinstance(info.get('version'), str) or not info['version']:
+        raise ValueError('service identity mismatch')
+except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
     raise SystemExit(1) from None
 PY
 }
 # Neither daemon-reload nor enable restarts an active foreground process.
-if ! systemctl --user is-active --quiet opencode-shared.service; then
-    # Preserve a healthy native shared service predating this unit; the enabled
-    # unit takes ownership on a later boot. Never take over mid-session.
-    if service_ready; then
-        exit 0
-    fi
-    systemctl --user start opencode-shared.service
+if service_ready; then
+    exit 0
 fi
+# Native systemd start is a no-op for an already active unit, not a restart.
+# Preserve an unhealthy active process while waiting; do not take it over.
+systemctl --user start opencode-shared.service
 # Active is not equivalent to ready. Wait without restarting the process.
 for ((attempt = 0; attempt < 30; attempt++)); do
     if service_ready; then

@@ -20,7 +20,8 @@ def test_remote_unit_uses_native_foreground_loopback_service():
     assert 'service start' not in unit['Service']['ExecStart']
 
 
-@pytest.mark.parametrize('state', ['unit-active', 'unit-unhealthy', 'native-active', 'stopped', 'start-fails'])
+@pytest.mark.parametrize('state', ['unit-active', 'unit-unhealthy', 'native-active', 'stopped',
+                                  'stopped-success', 'start-fails'])
 def test_remote_service_reapply_preserves_healthy_processes(tmp_path, state):
     home = tmp_path / 'home'
     binary = home / '.local/bin'
@@ -31,14 +32,26 @@ def test_remote_service_reapply_preserves_healthy_processes(tmp_path, state):
     systemctl.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >>"$CALLS"\n'
         'case "$2" in\n'
         'is-active) [ "$STATE" = unit-active ] || [ "$STATE" = unit-unhealthy ];;\n'
-        'start) [ "$STATE" != start-fails ] || exit 23; touch "$STARTED";;\n'
+        'start) [ "$STATE" != start-fails ] || exit 23; [ "$STATE" = unit-unhealthy ] || touch "$STARTED";;\n'
         '*) exit 0;;\nesac\n')
     systemctl.chmod(0o755)
     opencode = binary / 'opencode'
-    opencode.write_text('#!/bin/sh\n[ "$*" = "service status" ] || exit 99\n'
-        '[ "$STATE" = native-active ] || [ "$STATE" = unit-active ] || [ -f "$STARTED" ] || exit 1\n'
-        'echo http://127.0.0.1:12345\n')
+    opencode.write_text('#!/bin/sh\nif [ "$*" = "service status" ]; then\n'
+        '  if [ "$STATE" = stopped-success ] && [ ! -f "$STARTED" ]; then echo stopped; exit 0; fi\n'
+        '  [ "$STATE" = native-active ] || [ "$STATE" = unit-active ] || '
+        '[ "$STATE" = unit-unhealthy ] || [ -f "$STARTED" ] || exit 1\n'
+        '  echo http://127.0.0.1:12345\n'
+        'elif [ "$*" = "api --server http://127.0.0.1:12345 get /api/info" ]; then\n'
+        '  [ "$STATE" != unit-unhealthy ] || exit 1\n'
+        '  [ "$OPENCODE_PASSWORD" = fixture-service-password ] || exit 99\n'
+        '  echo \'{"pid":12345,"version":"2.0.99"}\'\n'
+        'else exit 99; fi\n')
     opencode.chmod(0o755)
+    registration = home / '.local/state/opencode/service.json'
+    registration.parent.mkdir(parents=True)
+    registration.write_text(json.dumps({'pid': 12345, 'url': 'http://127.0.0.1:12345',
+                                        'password': 'fixture-service-password'}))
+    registration.chmod(0o600)
     sleep = binary / 'sleep'
     sleep.write_text('#!/bin/sh\nexit 0\n')
     sleep.chmod(0o755)
@@ -52,7 +65,8 @@ def test_remote_service_reapply_preserves_healthy_processes(tmp_path, state):
     assert '--user daemon-reload' in calls
     assert '--user enable opencode-shared.service' in calls
     assert not any('restart' in call or 'stop ' in call for call in calls)
-    assert ('--user start opencode-shared.service' in calls) is (state in {'stopped', 'start-fails'})
+    assert ('--user start opencode-shared.service' in calls) is (
+        state in {'stopped', 'stopped-success', 'start-fails', 'unit-unhealthy'})
 
 
 def test_nonremote_service_hook_has_no_effects(tmp_path):

@@ -30,8 +30,11 @@ The unit uses private umask 0077 and has a 30-second shutdown timeout.
 - Given a healthy native shared process predating this unit, preserve it rather
   than taking ownership mid-session. The enabled unit starts on a later boot,
   when that old process is absent. No automatic service restart is performed.
-- Given neither active unit nor healthy native shared service, start the unit
-  and wait at most 30 one-second retries for native status, each call capped at
+- Native `service status` can return success with `stopped`; exit status alone
+  is not health. Require a valid loopback endpoint, private owned registration,
+  and authenticated explicit API/PID match. Never log the password or API body.
+- Given no healthy native shared service, request native systemd start (a no-op
+  for an already active unit) and wait at most 30 one-second retries, each call capped at
   five seconds. An already active unit gets the same bounded readiness check
   without a restart. Failure remains loud;
   no manual `opencode service start` fallback or unrelated process stop occurs.
