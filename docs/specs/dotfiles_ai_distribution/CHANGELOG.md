@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-07 — Initial remote default activation (RRW-007E)
+
+- Explicit remote apply initializes missing activation for the exact home-backed
+  default with native bindings and private no-replace publication. Existing or
+  stale activation is never refreshed. Preview/snapshot remain read-only.
+- Add race/private-file/binding regressions and native UBI apply/switch/reapply
+  qualification. Actual execution/Final Push remain in the cycle. No live rollout
+  or bootstrap change.
+
 ## 2026-11-06 — Remote shared-service boot startup (RRW-F01)
 
 - Add a remote-only systemd user unit for foreground native shared OpenCode on

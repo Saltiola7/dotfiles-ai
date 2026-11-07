@@ -1,5 +1,11 @@
 # Remote Worktrunk Policy (RRW-F03)
 
+> Historical delivered F03 contract below. The owner-approved
+> [RRW-007E successor](remote-worktree-activation.md) replaces manual initial
+> activation for the exact qualified remote home default: explicit apply creates
+> missing activation. Existing/stale activation and nondefault roots retain review
+> requirements. The old manual handoff is not an extra step for a fresh default.
+
 ## Boundary and behavior
 
 This distribution repair unblocks Fork A's INT-061 branch reconstruction without

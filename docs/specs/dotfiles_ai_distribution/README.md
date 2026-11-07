@@ -1,5 +1,9 @@
 # dotfiles-ai Distribution
 
+The [remote default activation](features/remote-worktree-activation.md) initializes
+missing activation during explicit remote apply at the qualified exact home
+default only. Existing activation is never overwritten or automatically refreshed.
+
 The [remote OpenCode boot service](features/remote-opencode-service.md) starts the
 native shared service through the lingering user's default target without
 restarting healthy sessions during foundation reapply.

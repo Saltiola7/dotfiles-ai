@@ -342,7 +342,7 @@ def test_integrity_detects_remote_tool_tampering(tmp_path, monkeypatch, tool):
     config.parent.mkdir(parents=True)
     config.write_text('{}')
     def command(*args, **kwargs):
-        output = ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R install-04-remote-opencode-service.sh\n R update-codex.sh\n R update-opencode.sh\n'
+        output = ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R install-04-remote-opencode-service.sh\n R install-05-remote-worktree-activation.sh\n R update-codex.sh\n R update-opencode.sh\n'
         if '--version' in args:
             output = {'codex': 'codex-cli 0.151.0', 'herdr': 'herdr 0.9.5',
                       'wt': 'wt v0.80.0', 'opencode': 'opencode v2.2.5'}[Path(args[0]).name]
