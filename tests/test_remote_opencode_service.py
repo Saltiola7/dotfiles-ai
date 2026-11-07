@@ -135,6 +135,37 @@ def native_fixture():
     return module
 
 
+@pytest.mark.parametrize('kind,accepted', [('manager', True), ('empty', True),
+    ('user', False), ('background', False), ('unknown', False), ('wrong-service', False),
+    ('wrong-uid', False), ('wrong-leader', False), ('query-fails', False)])
+def test_no_login_check_admits_only_verified_manager(kind, accepted):
+    script = (ROOT / 'tests/remote_opencode_systemd/boot-smoke.sh').read_text()
+    function = script.split('check_no_login() {', 1)[1].split('wait_system() {', 1)[0]
+    harness = '''set -euo pipefail
+uid=1000
+fail() { exit 1; }
+timeout() { shift; "$@"; }
+systemctl() { echo 12345; }
+loginctl() {
+  [ "$KIND" != query-fails ] || return 1
+  if [ "$1" = show-user ]; then
+    [ "$KIND" = empty ] || echo fixture-session
+    return 0
+  fi
+  case "$4" in
+    Class) case "$KIND" in user|background|unknown) echo "$KIND";; *) echo manager;; esac;;
+    Service) [ "$KIND" != wrong-service ] && echo systemd-user || echo sshd;;
+    User) [ "$KIND" != wrong-uid ] && echo 1000 || echo 1001;;
+    Leader) [ "$KIND" != wrong-leader ] && echo 12345 || echo 12346;;
+    *) return 1;;
+  esac
+}
+'''
+    result = subprocess.run(['/bin/bash'], input=harness + 'check_no_login() {' + function + '\ncheck_no_login\n',
+        text=True, capture_output=True, env={**os.environ, 'KIND': kind}, timeout=10)
+    assert (result.returncode == 0) is accepted, result.stderr
+
+
 def test_boot_fixture_preserves_failure_without_exposing_child_output(tmp_path, monkeypatch):
     fixture = native_fixture()
     monkeypatch.setattr(fixture, 'HOME', tmp_path)

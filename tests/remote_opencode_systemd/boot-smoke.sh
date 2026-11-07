@@ -24,6 +24,22 @@ as_user() {
         XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
         "$@"
 }
+check_no_login() {
+    local sessions session manager_pid class service owner leader
+    sessions=$(timeout 5 loginctl show-user fixture -p Sessions --value 2>/dev/null) || fail 'sessions-query-failed'
+    manager_pid=$(timeout 5 systemctl show "user@$uid.service" -p MainPID --value 2>/dev/null) || fail 'manager-query-failed'
+    [[ $manager_pid =~ ^[0-9]+$ && $manager_pid -gt 1 ]] || fail 'invalid-manager-pid'
+    # systemd >=256 registers user@.service itself as a manager session.
+    # This is not a login: admit only its exact class/service/UID/leader tuple.
+    for session in $sessions; do
+        [[ $session =~ ^[a-zA-Z0-9_-]+$ ]] || fail 'invalid-session-id'
+        class=$(timeout 5 loginctl show-session "$session" -p Class --value 2>/dev/null) || fail 'session-query-failed'
+        service=$(timeout 5 loginctl show-session "$session" -p Service --value 2>/dev/null) || fail 'session-query-failed'
+        owner=$(timeout 5 loginctl show-session "$session" -p User --value 2>/dev/null) || fail 'session-query-failed'
+        leader=$(timeout 5 loginctl show-session "$session" -p Leader --value 2>/dev/null) || fail 'session-query-failed'
+        [[ $class == manager && $service == systemd-user && $owner == "$uid" && $leader == "$manager_pid" ]] || fail 'login-session-present'
+    done
+}
 wait_system() {
     local attempt
     for ((attempt = 0; attempt < 60; attempt++)); do
@@ -65,8 +81,7 @@ case ${1:-} in
         wait_user
         linger=$(timeout 5 loginctl show-user fixture -p Linger --value 2>/dev/null) || fail 'linger-query-failed'
         [[ $linger == yes ]] || fail 'linger-not-enabled'
-        sessions=$(timeout 5 loginctl show-user fixture -p Sessions --value 2>/dev/null) || fail 'sessions-query-failed'
-        [[ -z $sessions ]] || fail 'login-session-present'
+        check_no_login
         as_user timeout 240 python3 /opt/f01/verify-user.py verify
         ;;
     *) echo 'usage: boot-smoke.sh prepare|verify' >&2; exit 64 ;;
