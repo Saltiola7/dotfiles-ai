@@ -42,7 +42,7 @@ on:
       - "tests/fixtures/remote-mise-native.lock"
       - "tests/test_remote_workflow_policy.py"
       - "tests/test_remote_worktree_activation.py"
-      - "run_after_install-05-remote-worktree-activation.sh.tmpl"
+      - "run_after_zz-remote-worktree-activation.sh.tmpl"
       - "dot_local/bin/executable_workflow-policy"
       - "private_dot_config/dotfiles-ai/private_workflow-policy.json.tmpl"
       - "private_dot_config/worktrunk/config.toml.tmpl"

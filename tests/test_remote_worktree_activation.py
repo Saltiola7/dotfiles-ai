@@ -114,11 +114,21 @@ def test_unavailable_identity_never_publishes(policy, activation, monkeypatch):
 
 def test_disabled_hook_has_no_effects(tmp_path):
     result = subprocess.run(['/bin/bash'], text=True, capture_output=True,
-        input=render('run_after_install-05-remote-worktree-activation.sh.tmpl', remote=False),
+        input=render('run_after_zz-remote-worktree-activation.sh.tmpl', remote=False),
         env={'HOME': str(tmp_path), 'PATH': '/unavailable'}, timeout=5)
     assert result.returncode == 0
     assert not list(tmp_path.iterdir())
-    assert 'initialize-default-home' in render('run_after_install-05-remote-worktree-activation.sh.tmpl')
+    assert 'initialize-default-home' in render('run_after_zz-remote-worktree-activation.sh.tmpl')
+
+
+def test_activation_runs_after_installers_and_updaters():
+    def target(path):
+        return path.name.removeprefix('run_').removeprefix('onchange_').removeprefix('after_').removesuffix('.tmpl')
+    hook = ROOT / 'run_after_zz-remote-worktree-activation.sh.tmpl'
+    activation_name = target(hook)
+    for path in ROOT.glob('run_*after_*.sh.tmpl'):
+        if path != hook:
+            assert target(path) < activation_name, path.name
 
 
 def test_ubi_qualifies_automatic_default_not_manual_activation():

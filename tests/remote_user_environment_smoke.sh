@@ -84,7 +84,7 @@ remote-user-bootstrap bootstrap "$revision"
 remote-user-foundation apply "$revision"
 test "$(sha256sum "$HOME/.opencode/bin/opencode")" = "$native_before"
 test "$(sha256sum "$HOME/.config/opencode/opencode.json")" = "$config_before"
-expected_status=$(printf ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R install-04-remote-opencode-service.sh\n R install-05-remote-worktree-activation.sh\n R update-codex.sh\n R update-opencode.sh')
+expected_status=$(printf ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R install-04-remote-opencode-service.sh\n R update-codex.sh\n R update-opencode.sh\n R zz-remote-worktree-activation.sh')
 test "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" status)" = "$expected_status"
 
 "$HOME/.local/bin/starship" --version
