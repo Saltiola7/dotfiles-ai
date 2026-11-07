@@ -23,13 +23,28 @@ UNIT = 'opencode-shared.service'
 
 
 class QualificationFailure(RuntimeError):
-    def __init__(self, status):
+    def __init__(self, status, operation='tool'):
         self.status = status if 0 < status < 256 else 1
+        self.operation = operation if operation in {'git', 'chezmoi', 'opencode', 'systemctl'} else 'tool'
+
+
+class InvariantFailure(RuntimeError):
+    """Only source-literal fixture invariant labels, never native output."""
+    def __init__(self, reason):
+        self.reason = reason
+
+
+def failure_reason(error):
+    if isinstance(error, QualificationFailure):
+        return f'native-{error.operation}-exit-{error.status}'
+    if isinstance(error, InvariantFailure):
+        return error.reason
+    return 'native-state-unavailable; output suppressed'
 
 
 def require(condition, message):
     if not condition:
-        raise RuntimeError(message)
+        raise InvariantFailure(message)
 
 
 def run(*args, timeout=10, env=None):
@@ -38,7 +53,7 @@ def run(*args, timeout=10, env=None):
                             env=env, cwd=HOME)
     if result.returncode:
         raise QualificationFailure(result.returncode if result.returncode > 0
-                                   else 128 - result.returncode)
+                                   else 128 - result.returncode, Path(args[0]).name)
     return result.stdout.strip()
 
 
@@ -68,7 +83,7 @@ def prepare():
     # Public bootstrap helper only downloads and verifies chezmoi. No stubs.
     spec = importlib.util.spec_from_file_location('bootstrap', '/opt/f01/bootstrap.py')
     if spec is None or spec.loader is None:
-        raise RuntimeError('bootstrap loader unavailable')
+        raise InvariantFailure('bootstrap loader unavailable')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     module.prepare_config()
@@ -166,15 +181,18 @@ def inspect():
 
 def ready(previous=None):
     deadline = time.monotonic() + 60
+    reason = 'service not observed'
     while time.monotonic() < deadline:
         try:
             pid, server = inspect()
             if pid != previous:
                 return pid, server
+        except (QualificationFailure, InvariantFailure) as error:
+            reason = failure_reason(error)
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
-            pass
+            reason = 'native-state-unavailable; output suppressed'
         time.sleep(1)
-    raise RuntimeError('bounded native service readiness failed')
+    raise InvariantFailure('bounded readiness: ' + reason)
 
 
 def attach(pid, server):
@@ -248,9 +266,10 @@ if __name__ == '__main__':
     try:
         require(os.getuid() == 1000 and Path.home() == HOME, 'wrong fixture identity')
         require(len(sys.argv) == 2 and sys.argv[1] in {'prepare', 'verify'}, 'invalid stage')
+        print('F01: stage ' + sys.argv[1], flush=True)
         {'prepare': prepare, 'verify': verify}[sys.argv[1]]()
     except Exception as error:
         # Neither subprocess output nor exception values can leak registration auth.
-        print('F01: qualification failed (native output suppressed)', file=sys.stderr)
+        print('F01: qualification failed (' + failure_reason(error) + ')', file=sys.stderr)
         sys.exit(error.status if isinstance(error, QualificationFailure)
                  else 124 if isinstance(error, subprocess.TimeoutExpired) else 1)

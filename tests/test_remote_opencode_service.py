@@ -5,6 +5,7 @@ import subprocess
 import json
 import tomllib
 import importlib.util
+import ast
 
 import pytest
 from test_remote_personalisation import ROOT, render
@@ -123,6 +124,28 @@ def test_boot_fixture_preserves_failure_without_exposing_child_output(tmp_path, 
         fixture.run('/bin/sh', '-c', 'echo fixture-private-output; echo fixture-private-error >&2; exit 23')
     assert error.value.status == 23
     assert 'fixture-private' not in str(error.value)
+    assert fixture.failure_reason(error.value) == 'native-tool-exit-23'
+    assert 'fixture-private' not in fixture.failure_reason(RuntimeError('fixture-private-error'))
+
+
+def test_boot_invariant_labels_are_source_literals():
+    tree = ast.parse((ROOT / 'tests/remote_opencode_systemd/verify-user.py').read_text())
+    for call in ast.walk(tree):
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == 'require':
+            assert isinstance(call.args[1], ast.Constant) and isinstance(call.args[1].value, str)
+
+
+def test_boot_readiness_retains_only_sanitized_last_reason(monkeypatch):
+    fixture = native_fixture()
+    ticks = iter([0, 0, 61])
+    monkeypatch.setattr(fixture.time, 'monotonic', lambda: next(ticks))
+    monkeypatch.setattr(fixture.time, 'sleep', lambda _: None)
+    def inspect():
+        raise fixture.InvariantFailure('service registration mismatch')
+    monkeypatch.setattr(fixture, 'inspect', inspect)
+    with pytest.raises(fixture.InvariantFailure) as error:
+        fixture.ready()
+    assert fixture.failure_reason(error.value) == 'bounded readiness: service registration mismatch'
 
 
 def test_boot_readiness_retries_native_command_failures(monkeypatch):
