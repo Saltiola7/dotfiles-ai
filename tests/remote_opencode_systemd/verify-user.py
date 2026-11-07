@@ -39,6 +39,8 @@ def failure_reason(error):
         return f'native-{error.operation}-exit-{error.status}'
     if isinstance(error, InvariantFailure):
         return error.reason
+    if isinstance(error, OSError):
+        return f'native-filesystem-errno-{error.errno}' if type(error.errno) is int else 'native-filesystem-error'
     return 'native-state-unavailable; output suppressed'
 
 
@@ -86,13 +88,17 @@ def prepare():
         raise InvariantFailure('bootstrap loader unavailable')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    print('F01: prepare bootstrap-config', flush=True)
     module.prepare_config()
+    print('F01: prepare install-chezmoi', flush=True)
     module.install_chezmoi()
     # Empty real config prevents unrelated plugins/MCP/provider integrations.
     # This fixture qualifies unit/wrapper/native behavior, NOT the full profile.
     config_dir = HOME / '.config/opencode'
+    print('F01: prepare empty-native-config', flush=True)
     config_dir.mkdir(mode=0o700)
     (config_dir / 'opencode.json').write_text('{}\n')
+    print('F01: prepare apply', flush=True)
     apply()  # The managed hook alone may start the initial service.
     ready()
     require(systemctl('is-enabled', UNIT) == 'enabled', 'unit not enabled')

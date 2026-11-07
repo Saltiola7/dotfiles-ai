@@ -1,5 +1,6 @@
 """INT-074: only explicit default-home apply may initialize activation."""
 import json
+import ast
 import os
 import stat
 import subprocess
@@ -185,3 +186,16 @@ def test_activation_contract_and_updates_cover_writing_boundary():
     for path in ('docs/UPDATES.md', 'docs/specs/dotfiles_ai_distribution/README.md',
                  'docs/specs/dotfiles_ai_distribution/CHANGELOG.md'):
         assert 'activation' in (ROOT / path).read_text().lower()
+
+
+def test_activation_progress_labels_are_literal_not_private_values():
+    tree = ast.parse((ROOT / 'dot_local/bin/executable_workflow-policy').read_text())
+    initialize = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                      and node.name == 'initialize_default_home')
+    labels = []
+    for node in ast.walk(initialize):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'print':
+            assert len(node.args) == 1 and isinstance(node.args[0], ast.Constant)
+            labels.append(node.args[0].value)
+    assert 'workflow-policy: activation stage home-identity' in labels
+    assert 'workflow-policy: activation stage publish' in labels
