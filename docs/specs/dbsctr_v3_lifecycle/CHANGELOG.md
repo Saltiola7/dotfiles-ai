@@ -1713,8 +1713,8 @@ delivery requires a feature branch and verified draft pull request into protecte
   targeted chezmoi deployment/identity/idempotence, live inventories, guarded
   partial-failure cleanup, and iterative independent review passed. Fifty
   completed worktrees were removed; the DBSCTR root fell from about 71.1 GiB to
-  18.2 GiB despite concurrent active-worktree growth. About 4.0 GiB of old MLC and
-  enterprise worktrees remains because their recorded remotes return repository
+  18.2 GiB despite concurrent active-worktree growth. About 4.0 GiB of old external-project
+  worktrees remains because their recorded remotes return repository
   not found, and one small drifted dotfiles worktree remains guarded. Gate
   Commits: `ea3682d`, `d1dd55f`, `bcf57b4`, `61dab54`. Gate Exceptions: none.
   Deployment: managed helper and DBSCTR skill applied locally. Intended Final
@@ -1984,13 +1984,9 @@ delivery requires a feature branch and verified draft pull request into protecte
   retained original-baseline changelog/DVC scope, and limited DVC status to
   cycle-changed DVC targets.
 - Validation: 112 affected tests passed and 1 skipped; Python compilation, diff
-  check, targeted deployment, and independent review passed. Live recovery
-  pushed Akamai commits `a7d7cc1a` and `86cc4722` without modifying the dirty
-  primary checkout. Prefect deployment `a31119bb-2bb5-46c5-9f29-ca8bcce0fb3f`
-  registered revision `86cc4722`; smoke run
-  `84693f20-3be4-424e-b272-a5d4064441a6` completed successfully and persisted
-  benchmark evidence. Gate Commit: `bdf7fe8`. Gate Exceptions: none. Intended
-  Final Push: `origin/main`.
+  check, targeted deployment, and independent review passed. External operational
+  evidence remains private. Gate Commit: `bdf7fe8`. Gate Exceptions: none.
+  Intended Final Push: `origin/main`.
 
 ## 2026-07-15 — V3.14 Structured Runtime Correlation
 

@@ -3,7 +3,7 @@
 ## Approved scope
 
 INT-042 selects host reliability investigation and cleanup only. Hibernation,
-guests, Python, SDS activation, the Safari update and deferred project upgrades
+guests, Python, private-project activation, the Safari update and deferred project upgrades
 remain paused. INT-043 permits removal of completed, delivered checkouts and
 their branches after preservation checks and archival disposition; unfinished
 work and active owners remain protected.

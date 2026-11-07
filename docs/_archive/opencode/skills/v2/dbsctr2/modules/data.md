@@ -52,13 +52,14 @@ needs it at query time, not just the authoring engineer.
 Sketch full pipeline topology with freshness annotations:
 
 ```
-source: searchconsole.searchdata_url_impression (BQ, daily partitioned)
-  → transform: sp_export_gsc_data (stored procedure, hourly batch of 365 dates)
-  → intermediate: gs://bucket/gsc/{YYYY-MM-DD}/export-*.parquet (GCS, partition-replace)
-  → ingest: ClickPipes (continuous S3-compat)
-  → serve: default.gsc (ClickHouse SharedMergeTree, partitioned toYYYYMM)
-  control: PipelineControl.last_successful_date (watermark)
-  freshness: source lags real-world by ~2 days (GSC delay); serve ≤ 1 hour behind source
+Synthetic event pipeline:
+  source: example_raw.events (daily partitions)
+  → transform: validate_and_export_events (configured batch window)
+  → intermediate: s3://example-bucket/events/date={YYYY-MM-DD}/*.parquet
+  → ingest: managed connector or bounded batch loader
+  → serve: example_analytics.events (partitioning selected for the workload)
+  control: example_pipeline_state.last_successful_date (watermark)
+  freshness: source and serving lag bounds declared by the project
 ```
 
 ### Watermark & Incremental State
@@ -68,10 +69,10 @@ Identify the state mechanism that makes the pipeline resumable:
 | Pattern | When to use | Example |
 |---------|-------------|---------|
 | **Control table** (DB row with last_successful_date) | SQL-based batch export | `PipelineControl` |
-| **Manifest comparison** (set diff: available − processed) | Object-store batch | Adobe: manifest dates vs processed dates |
-| **Gap auto-detection** (query for missing ranges) | Self-healing backfill | GSC dedup: find missing date ranges in serve table |
+| **Manifest comparison** (set diff: available − processed) | Object-store batch | Example import: manifest dates vs processed dates |
+| **Gap auto-detection** (query for missing ranges) | Self-healing backfill | Example events: find missing date ranges in serve table |
 | **Content hash** (hash of input → skip if unchanged) | Incremental updates, idempotent re-processing | Wiki builder: content hash change detection |
-| **Prefix staging** (staging/ → ready/ promotion) | Multi-stage validation before downstream access | Akamai: staging prefix → ready prefix after audit |
+| **Prefix staging** (staging/ → ready/ promotion) | Multi-stage validation before downstream access | Example audit: staging prefix → ready prefix after validation |
 
 Document which pattern you're using in the Domain phase. This becomes a contract in Phase 4.
 
@@ -79,8 +80,8 @@ Document which pattern you're using in the Domain phase. This becomes a contract
 
 When writing to object storage (GCS/S3/local), declare partition keys:
 ```
-output path: gs://bucket/crawl_data/date={YYYY-MM-DD}/crawl_type={mobile|desktop}/*.parquet
-partition keys: [date, crawl_type]
+output path: s3://example-bucket/events/date={YYYY-MM-DD}/event_type={created|updated}/*.parquet
+partition keys: [date, event_type]
 ```
 
 ### Pipeline Topology Types
@@ -109,18 +110,17 @@ Declare expected schema as typed Python artifacts. Prefer:
 
 Example:
 ```python
-class GscRow(TypedDict):
-    data_date: str          # ISO date, not null
-    url: str                # not null, must match subdomain whitelist
-    query: str              # not null (may be "(not provided)")
-    impressions: int        # >= 0
-    clicks: int             # >= 0; clicks <= impressions enforced at load-time (TypedDict can't)
-    search_features: list[str]  # subset of ALLOWED_FEATURES
+class ExampleEventSummary(TypedDict):
+    event_date: str          # ISO date, not null
+    event_type: str          # must belong to the configured allowed set
+    received_count: int      # >= 0
+    accepted_count: int      # >= 0 and <= received_count
+    flags: list[str]        # subset of configured allowed flags
 ```
 
-> TypedDict declares shape, not cross-field invariants. `clicks <= impressions` and
-> enum membership are asserted in a load-time check BEFORE transform logic (core
-> SKILL.md Phase 4), not by the type.
+> TypedDict declares shape, not cross-field invariants. Check
+> `accepted_count <= received_count` and allowed-value membership before
+> transformation; the type alone cannot enforce them.
 
 ### Semantic-Layer-First Contract
 
@@ -251,17 +251,15 @@ When using Prefect (or equivalent):
 Use arrow notation in spec docs. Column-level for critical transforms:
 
 ```
-## Lineage: gsc serve table
+## Lineage: synthetic event summary
 
-source: searchconsole.searchdata_url_impression
-  .data_date → PASSTHROUGH → gsc.data_date
-  .url → filter(subdomain_whitelist) → gsc.url
-  .is_* (28 booleans) → collect_truthy() → gsc.search_features (array)
-  .impressions → PASSTHROUGH → gsc.impressions
-  .clicks → PASSTHROUGH → gsc.clicks
-  .sum_position → PASSTHROUGH → gsc.sum_position
+source: example_raw.events
+  .event_date → PASSTHROUGH → example_analytics.event_summary.event_date
+  .event_type → validate(allowed_event_types) → event_summary.event_type
+  .is_valid → aggregate(count) → event_summary.accepted_count
+  .event_id → aggregate(count) → event_summary.received_count
 
-control: PipelineControl.last_successful_date → watermark for incremental range
+control: example_pipeline_state.last_successful_date → incremental watermark
 ```
 
 ---
@@ -354,25 +352,27 @@ auto-sync). Same corrections feed back into the offline eval set.
 
 ## Worked Example: Batch Export Pipeline
 
-A GSC data export illustrating all patterns:
+A synthetic event export illustrates the same engineering patterns. Names,
+volume bounds, batch windows and schedules are project-selected examples, not
+an inventory of a deployed pipeline.
 
 ```
 # Domain (Phase 1)
-Source: BigQuery searchconsole.searchdata_url_impression (daily partitioned)
-Control: PipelineControl table (last_successful_date watermark)
-Readiness: ExportLog (signals BQ partition is complete)
-Output: GCS Parquet (hive: gsc/{YYYY-MM-DD}/export-*.parquet)
-Downstream: ClickHouse default.gsc via ClickPipes (continuous)
-Topology: Sequential chain with readiness gate
-Freshness: Source lags real-world ~2 days; output ≤ 1h behind source
+Source: example_raw.events (daily partitions)
+Control: example_pipeline_state.last_successful_date watermark
+Readiness: example_partition_manifest signals source partition completeness
+Output: s3://example-bucket/events/date={YYYY-MM-DD}/*.parquet
+Downstream: example_analytics.events through a managed connector or batch loader
+Topology: sequential chain with a readiness gate
+Freshness: configured source and serving lag budgets
 
 # Contracts (Phase 4)
-Schema: GscExportRow(data_date, url, query, ..., search_features: list[str])
-Volume: ~500K-2M rows/day; tolerance ±50% of 7-day avg; breach = halt + alert
-Freshness: PipelineControl.last_successful_date < max(source.data_date) by ≤ 1 day
-Materialization: Partition-replace (overwrite per date, multiple shards)
-Idempotency: Safe to re-run — replaces entire date partition
-Backfill: Set batch_size=365 to reprocess year; or pass explicit date range
-Failure recovery: Incomplete partition invisible until full write; old data remains
-Orchestration: Hourly scheduled query; retry on transient BQ errors; readiness gate prevents premature export
+Schema: ExampleEventSummary(event_date, event_type, received_count, accepted_count, flags)
+Volume: project-configured lower/upper bounds; breach halts processing and alerts
+Freshness: incremental watermark stays within the configured source lag budget
+Materialization: partition-replace after complete validation
+Idempotency: re-running the same date range replaces its complete output partition
+Backfill: explicit bounded date range and batch-size configuration
+Failure recovery: incomplete staged output is invisible; prior valid data remains
+Orchestration: declared schedule, bounded retries and an upstream readiness gate
 ```

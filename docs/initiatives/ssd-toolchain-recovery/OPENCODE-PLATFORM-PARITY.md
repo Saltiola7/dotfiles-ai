@@ -31,7 +31,7 @@ Activation must separately qualify actual installer/update/restart behavior.
 
 No scheduled/automatic updates, fleet polling, Codex, OS/package maintenance,
 Python/project upgrades or hibernation changes. INT-050 leaves hibernation findings
-research-only and deferred. Preserve enterprise-seo-tools, SDS GKE and shared
+research-only and deferred. Preserve designated private-project and shared
 production exclusions. Unknown production coupling holds activation.
 
 ## Contracts and source acceptance

@@ -5,9 +5,9 @@
 All previously requested maintenance remains in scope except explicitly deferred
 hibernation, which must be surfaced after the rest completes. Upgrade all installed
 managed packages/apps and latest constraint-compatible Python dependencies,
-including allowed dependency majors. Exclude enterprise-seo-tools
-and production environments, preserve Python minor pins, preserve SDS GKE/shared
-production inputs, and retain intentional PPC DVC omissions. Scope approval does
+including allowed dependency majors. Exclude designated private projects
+and production environments, preserve Python minor pins and shared production
+inputs, and retain intentional private-project DVC omissions. Scope approval does
 not authorize deletion of unknown worktrees, archives, histories or failed evidence.
 
 These are independent research assignments, not claims that agents were launched.
@@ -28,7 +28,7 @@ concurrent edits to shared updater, launcher, guest and shell files.
 | external-state.md | State-root declarations, auth/service and Git/DVC metadata; EXTERNAL-STATE.md | Bounded complete consumer coverage with intentional omissions, failures and exact repair ownership |
 | herdr-host.md | shell_auth_startup specs, Herdr Host implementation and official integration; HERDR-RECOVERY.md | Signed replacement-volume registration route, unchanged ownership mode, exact-session preservation |
 | guests.md | sandbox-vm, guest templates, native Lima metadata and bounded runtime checks | Mount/service/provision drift, credential/state boundaries, source/deployed comparison and fresh-machine probe |
-| python.md | Personal/client project manifests and linked checkouts, excluding enterprise-seo-tools | Per-environment interpreter, pin, dirty status, production consumers, dependency health, isolated candidate checks and owning context |
+| python.md | Personal/client project manifests and linked checkouts, excluding designated private projects | Per-environment interpreter, pin, dirty status, production consumers, dependency health, isolated candidate checks and owning context |
 | lifecycle-closure.md | Existing cycle status, Git/Worktrunk inventory, matching specs/changelogs | Original V2 cycle closure plan, missing-worktree diagnosis, stale authority reconciliation, preserved failure evidence and draft delivery ordering |
 
 ## Acceptance and qualification by lane
@@ -44,8 +44,8 @@ concurrent edits to shared updater, launcher, guest and shell files.
   provisioning. Compare content drift before apply; never blanket-force unknown
   changes. No host credential/history copy into guest state.
 - **Python:** resolve and runtime-test isolated candidates before activation.
-  Dependency resolution alone is insufficient. SDS base/dev changes must preserve
-  shared production constraints. Produce separate project-owned slices after
+  Dependency resolution alone is insufficient. Private development changes must
+  preserve shared production constraints. Produce separate project-owned slices after
   classifying consumers; no aggregate upgrade across unknown environments.
 - **Lifecycle:** existing completed migration is evidence, not an instruction to
   replay it. Reconcile original cycle and fresh provisioning separately. Report
