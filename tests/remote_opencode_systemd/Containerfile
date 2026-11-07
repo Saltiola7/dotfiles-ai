@@ -8,6 +8,7 @@ RUN dnf -y --setopt=install_weak_deps=False install \
     && dnf clean all \
     && useradd --uid 1000 --create-home --shell /bin/bash fixture \
     && systemctl set-default multi-user.target \
+    && systemctl unmask systemd-logind.service \
     && systemctl add-wants multi-user.target systemd-logind.service dbus.socket
 
 # Minimal real chezmoi source; no fake systemctl, native binary, or registration.

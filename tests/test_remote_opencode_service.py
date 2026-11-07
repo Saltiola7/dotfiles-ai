@@ -90,6 +90,8 @@ def test_boot_proof_is_native_isolated_and_ubi10():
     container = (directory / 'Containerfile').read_text()
     assert 'FROM registry.access.redhat.com/ubi10/ubi' in container
     assert 'systemd' in container and 'python3 ' in container
+    assert container.index('systemctl unmask systemd-logind.service') < container.index(
+        'systemctl add-wants multi-user.target systemd-logind.service dbus.socket')
     assert '\nCOPY . ' not in container
     workflow = (ROOT / '.github/workflows/remote-opencode-service.yml').read_text()
     assert 'persist-credentials: false' in workflow
