@@ -8,7 +8,26 @@ export DOTFILES_AI_SYSTEMCTL=/tmp/dotfiles-ai-test-bin/systemctl
 export DOTFILES_AI_SOURCE="$source_root"
 install -d -m 0700 "$HOME"
 install -d -m 0755 /tmp/dotfiles-ai-test-bin
-printf '#!/bin/sh\nexit 0\n' >"$DOTFILES_AI_SYSTEMCTL"
+cat >"$DOTFILES_AI_SYSTEMCTL" <<'EOF'
+#!/bin/bash
+# Ordinary userland smoke only: emulate start, not a systemd/boot pass.
+case "$*" in
+  '--user is-active --quiet opencode-shared.service')
+    exec "$HOME/.local/bin/opencode" service status >/dev/null 2>&1
+    ;;
+  '--user start opencode-shared.service')
+    cd "$HOME"
+    # This container has no systemd child reaper. Retain a waiting parent so
+    # native stop observes its service PID disappear, rather than a zombie.
+    (
+      "$HOME/.local/bin/opencode" serve --service --hostname 127.0.0.1 --port 0 &
+      service_pid=$!
+      wait "$service_pid"
+    ) </dev/null >/dev/null 2>&1 &
+    ;;
+esac
+exit 0
+EOF
 chmod 0755 "$DOTFILES_AI_SYSTEMCTL"
 install -d -m 0700 "$HOME/.local/libexec/dotfiles-ai" "$HOME/.local/state/dotfiles-ai/codex-package"
 cat >"$HOME/.local/libexec/dotfiles-ai/codex" <<'EOF'
@@ -65,7 +84,7 @@ remote-user-bootstrap bootstrap "$revision"
 remote-user-foundation apply "$revision"
 test "$(sha256sum "$HOME/.opencode/bin/opencode")" = "$native_before"
 test "$(sha256sum "$HOME/.config/opencode/opencode.json")" = "$config_before"
-expected_status=$(printf ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R update-codex.sh\n R update-opencode.sh')
+expected_status=$(printf ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R install-04-remote-opencode-service.sh\n R update-codex.sh\n R update-opencode.sh')
 test "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" status)" = "$expected_status"
 
 "$HOME/.local/bin/starship" --version
@@ -151,6 +170,9 @@ printf '{}\n' >"$HOME/.config/op/config"
 chmod 0600 "$HOME/.local/state/dotfiles-ai/codex/auth.json" \
   "$HOME/.config/gcloud/application_default_credentials.json" "$HOME/.config/op/config"
 # Synthetic metadata only: never log in or send a provider/model request.
+# Stop only the disposable native process started by the fixture above before
+# replacing its registration with this existing synthetic auth-readiness server.
+"$HOME/.local/bin/opencode" service stop
 python3 - <<'PY' &
 import json, os
 from http.server import BaseHTTPRequestHandler, HTTPServer

@@ -19,6 +19,16 @@ a second inventory. Source preparation does not install the skill automatically.
 
 ## Remote-user setup inputs
 
+### OpenCode after remote boot (RRW-F01)
+
+The remote profile enables `opencode-shared.service` under the user's default
+target. Fork A supplies systemd lingering for declared users; no login is needed
+for the manager to start this loopback-only foreground native shared service.
+Reapply does not restart healthy sessions, including pre-existing native services
+which the unit leaves intact until a later boot. A native version update may still
+need an owner-coordinated restart before the wrapper accepts attachment. See the
+[boot-service contract](specs/dotfiles_ai_distribution/features/remote-opencode-service.md).
+
 ### Native mise lock formatting (RRW-F04)
 
 The managed remote lock matches native mise's exact generated header, blank lines

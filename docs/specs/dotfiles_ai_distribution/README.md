@@ -1,5 +1,9 @@
 # dotfiles-ai Distribution
 
+The [remote OpenCode boot service](features/remote-opencode-service.md) starts the
+native shared service through the lingering user's default target without
+restarting healthy sessions during foundation reapply.
+
 The [remote Worktrunk policy](features/remote-worktrunk-policy.md) supplies the
 shared remote storage guard's policy; activation remains an explicit owner step.
 
