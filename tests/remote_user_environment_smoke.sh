@@ -17,7 +17,13 @@ case "$*" in
     ;;
   '--user start opencode-shared.service')
     cd "$HOME"
-    "$HOME/.local/bin/opencode" serve --service --hostname 127.0.0.1 --port 0 </dev/null >/dev/null 2>&1 &
+    # This container has no systemd child reaper. Retain a waiting parent so
+    # native stop observes its service PID disappear, rather than a zombie.
+    (
+      "$HOME/.local/bin/opencode" serve --service --hostname 127.0.0.1 --port 0 &
+      service_pid=$!
+      wait "$service_pid"
+    ) </dev/null >/dev/null 2>&1 &
     ;;
 esac
 exit 0

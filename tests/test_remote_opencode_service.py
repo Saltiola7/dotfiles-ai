@@ -6,6 +6,8 @@ import json
 import tomllib
 import importlib.util
 import ast
+import sys
+import time
 
 import pytest
 from test_remote_personalisation import ROOT, render
@@ -133,6 +135,45 @@ def native_fixture():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_userland_service_fixture_keeps_reaping_parent(tmp_path):
+    smoke = (ROOT / 'tests/remote_user_environment_smoke.sh').read_text()
+    stub = smoke.split('cat >"$DOTFILES_AI_SYSTEMCTL" <<\'EOF\'\n', 1)[1].split('\nEOF', 1)[0]
+    assert 'wait "$service_pid"' in stub
+    binary = tmp_path / '.local/bin'
+    binary.mkdir(parents=True)
+    native = binary / 'opencode'
+    native.write_text(f'#!{sys.executable}\n'
+        'import os, pathlib, time\n'
+        'home = pathlib.Path.home()\n'
+        '(home / "child.pid").write_text(str(os.getpid()))\n'
+        'while not (home / "exit-child").exists(): time.sleep(0.01)\n')
+    native.chmod(0o700)
+    process = subprocess.Popen(['/bin/bash', '-c', stub, 'fixture-systemctl', '--user', 'start',
+                                'opencode-shared.service'],
+        env={**os.environ, 'HOME': str(tmp_path)}, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        assert process.wait(timeout=5) == 0
+        deadline = time.monotonic() + 5
+        while not (tmp_path / 'child.pid').exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        child = int((tmp_path / 'child.pid').read_text())
+        os.kill(child, 0)
+    finally:
+        (tmp_path / 'exit-child').touch()
+        if process.poll() is None:
+            process.terminate()
+        process.wait(timeout=5)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail('fixture service child was not reaped')
 
 
 @pytest.mark.parametrize('kind,accepted', [('manager', True), ('empty', True),
