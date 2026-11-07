@@ -84,7 +84,7 @@ remote-user-bootstrap bootstrap "$revision"
 remote-user-foundation apply "$revision"
 test "$(sha256sum "$HOME/.opencode/bin/opencode")" = "$native_before"
 test "$(sha256sum "$HOME/.config/opencode/opencode.json")" = "$config_before"
-expected_status=$(printf ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R install-04-remote-opencode-service.sh\n R update-codex.sh\n R update-opencode.sh')
+expected_status=$(printf ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R install-04-remote-opencode-service.sh\n R update-codex.sh\n R update-opencode.sh\n R zz-remote-worktree-activation.sh')
 test "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" status)" = "$expected_status"
 
 "$HOME/.local/bin/starship" --version
@@ -233,10 +233,40 @@ printf keep-auth >"$HOME/.local/state/dotfiles-ai/codex/auth.json"
 printf keep-history >"$HOME/.local/share/atuin/history.db"
 git -C "$source_root" config user.name Test
 git -C "$source_root" config user.email test@example.com
+# Empty-commit upgrade/rollback fixtures intentionally change source_commit,
+# which is bound by the existing policy digest. Review only that fixture change
+# explicitly; production initialization must NEVER refresh stale activation.
+review_fixture_generation() {
+  git -C "$source_root" checkout --detach "$1" >/dev/null 2>&1
+  python3 - <<'PY'
+import importlib.machinery, importlib.util, json, os, subprocess, tomllib
+from pathlib import Path
+home = Path.home()
+source = Path(os.environ['DOTFILES_AI_SOURCE'])
+config = tomllib.loads((home / '.config/dotfiles-ai/chezmoi.toml').read_text())
+options = config['data']['dotfiles_ai']['workspaces']
+value = json.loads(subprocess.check_output(['workflow-policy', 'render', '--source', str(source),
+    '--home', str(home), '--options', json.dumps(options)]))['policy']
+previous = json.loads((home / '.config/dotfiles-ai/workflow-policy.json').read_text())
+semantic = lambda document: {k: v for k, v in document.items() if k not in {'source_commit', 'policy_digest'}}
+assert semantic(value) == semantic(previous), 'fixture review refuses semantic policy change'
+loader = importlib.machinery.SourceFileLoader('fixture_policy', str(source / 'dot_local/bin/executable_workflow-policy'))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+assert spec is not None
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+target = home / '.config/dotfiles-ai/workflow-policy.activation.json'
+assert target.is_file() and not target.is_symlink() and target.stat().st_nlink == 1
+target.write_text(json.dumps(module.snapshot(value, home), sort_keys=True) + '\n')
+target.chmod(0o600)
+PY
+}
 git -C "$source_root" commit --allow-empty -m update >/dev/null
 update_revision=$(git -C "$source_root" rev-parse HEAD)
+review_fixture_generation "$update_revision"
 remote-user-foundation apply "$update_revision"
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$update_revision"
+review_fixture_generation "$revision"
 remote-user-foundation rollback
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$revision"
 test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
@@ -252,15 +282,16 @@ failure_status=$?
 set -e
 test "$failure_status" -ne 0
 install -m 0600 /tmp/chezmoi.toml "$HOME/.config/dotfiles-ai/chezmoi.toml"
+review_fixture_generation "$retry_revision"
 remote-user-foundation retry
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$retry_revision"
+review_fixture_generation "$revision"
 remote-user-foundation rollback
 test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
 test "$(cat "$HOME/.local/share/atuin/history.db")" = keep-history
 printf 'remote user environment smoke passed\n'
 
-# Owner actions below exist only in this disposable qualification home. Applying
-# the foundation must never create or replace workflow-policy activation itself.
+# Default-home foundation apply initializes activation without manual writes.
 python3 - <<'PY'
 from pathlib import Path
 import tomllib
@@ -271,7 +302,7 @@ assert config['data']['dotfiles_ai']['workspaces'] == {
 PY
 remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
 test -f "$HOME/.config/dotfiles-ai/workflow-policy.json"
-test ! -e "$HOME/.config/dotfiles-ai/workflow-policy.activation.json"
+test -f "$HOME/.config/dotfiles-ai/workflow-policy.activation.json"
 # Explicit owner provisioning for the existing default cache, not hydration.
 install -d -m 0700 "$HOME/.cache/dotfiles-ai/dvc" "$HOME/src/fixture-worktree"
 git init -q "$HOME/src/fixture-worktree"
@@ -283,12 +314,6 @@ git -C "$HOME/src/fixture-worktree" push -q origin HEAD:refs/heads/fixture/remot
 git -C "$HOME/src/fixture-worktree" fetch -q origin
 (
   cd "$HOME/src/fixture-worktree"
-  before=$(git worktree list --porcelain)
-  if wt switch fixture/remote-work --no-cd --yes; then
-    echo 'unactivated Worktrunk allocation unexpectedly succeeded' >&2
-    exit 1
-  fi
-  test "$(git worktree list --porcelain)" = "$before"
   proposal=$(mktemp "$HOME/.config/dotfiles-ai/workflow-policy.proposal.XXXXXX")
   workflow-policy snapshot >"$proposal"
   python3 - "$proposal" <<'PY'
@@ -301,9 +326,11 @@ assert stat.S_IMODE(policy.stat().st_mode) == 0o600
 assert proposal['policy_digest'] == json.loads(policy.read_text())['policy_digest']
 root = next(item for item in proposal['roots'] if item['canonical_path'] == str(home / '.local/state/worktrees'))
 assert root['kind'] == 'owned_home' and Path(root['mountpoint']).is_absolute()
+activation = home / '.config/dotfiles-ai/workflow-policy.activation.json'
+assert stat.S_IMODE(activation.stat().st_mode) == 0o600
+assert activation.stat().st_nlink == 1
+assert json.loads(activation.read_bytes()) == proposal
 PY
-  # Fixture owner has reviewed this exact proposal; no assistant live activation.
-  install -m 0600 "$proposal" "$HOME/.config/dotfiles-ai/workflow-policy.activation.json"
   workflow-policy check
   wt switch fixture/remote-work --no-cd --yes
   python3 - <<'PY'
@@ -321,7 +348,7 @@ PY
 activation_before=$(sha256sum "$HOME/.config/dotfiles-ai/workflow-policy.activation.json")
 remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
 test "$(sha256sum "$HOME/.config/dotfiles-ai/workflow-policy.activation.json")" = "$activation_before"
-printf 'remote Worktrunk policy and owner activation qualification passed\n'
+printf 'remote Worktrunk default apply activation qualification passed\n'
 
 # Enable the optional toolchain using only public fixture configuration. The
 # frozen adapter is qualified locally without an API URL, credentials or calls.

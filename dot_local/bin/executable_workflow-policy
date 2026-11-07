@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Render/check trusted storage policy; never allocate, activate, hydrate or remove."""
+"""Validate storage; explicit remote initialization never allocates worktrees."""
 import argparse
 import copy
+import fcntl
 import hashlib
 import json
 import os
@@ -9,10 +10,12 @@ from pathlib import Path
 import platform
 import plistlib
 import re
+import secrets
 import shlex
 import stat
 import subprocess
 import sys
+import time
 import tomllib
 from typing import NoReturn
 
@@ -400,6 +403,86 @@ def verify_snapshot(value, saved, home):
         refuse()
 
 
+def initialize_default_home(value, home, config):
+    """Apply-only, owner-approved initial default-home activation; never refresh."""
+    print('workflow-policy: activation stage validate-document', file=sys.stderr)
+    validate_document(value, home)
+    if platform.system() != 'Linux':
+        refuse()
+    directory = config / 'dotfiles-ai'
+    print('workflow-policy: activation stage directory', file=sys.stderr)
+    path_value(str(directory), home)
+    directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    lock_fd = None
+    temporary = None
+    name = 'workflow-policy.activation.json'
+    try:
+        print('workflow-policy: activation stage lock', file=sys.stderr)
+        flags = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
+        try:
+            lock_fd = os.open('.workflow-policy.activation.lock',
+                os.O_CREAT | os.O_EXCL | flags, 0o600, dir_fd=directory_fd)
+        except FileExistsError:
+            lock_fd = os.open('.workflow-policy.activation.lock', flags, dir_fd=directory_fd)
+        info = os.fstat(lock_fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+            refuse()
+        for attempt in range(50):
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if attempt == 49:
+                    refuse()
+                time.sleep(0.1)
+        if os.path.lexists(directory / name):
+            print('workflow-policy: activation stage existing-snapshot', file=sys.stderr)
+            saved = json.loads(private_file(directory / name), object_pairs_hook=unique)
+            if stat.S_IMODE((directory / name).lstat().st_mode) != 0o600:
+                refuse()
+            verify_snapshot(value, saved, home)
+            return
+        root = home / '.local/state/worktrees'
+        print('workflow-policy: activation stage exact-root', file=sys.stderr)
+        roots, _ = roots_of(value)
+        if value['root'] != str(root) or roots != {root}:
+            refuse()
+        path_value(str(root), home)
+        print('workflow-policy: activation stage home-identity', file=sys.stderr)
+        if (root.stat().st_dev != home.stat().st_dev
+                or mount_identity(root, owned_home=True) != mount_identity(home, owned_home=True)):
+            refuse()
+        print('workflow-policy: activation stage native-snapshot', file=sys.stderr)
+        proposal = snapshot(value, home)
+        candidate = '.activation-' + secrets.token_hex(16) + '.tmp'
+        fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
+                     0o600, dir_fd=directory_fd)
+        temporary = candidate  # Cleanup owns this name only after exclusive creation.
+        print('workflow-policy: activation stage complete-temporary', file=sys.stderr)
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(proposal, stream, sort_keys=True)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Complete bytes first; hard-link publication cannot replace any entry.
+        # The advisory lock keeps cooperating applies outside the two-link window.
+        print('workflow-policy: activation stage publish', file=sys.stderr)
+        os.link(temporary, name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd,
+                follow_symlinks=False)
+        os.unlink(temporary, dir_fd=directory_fd)
+        temporary = None
+        os.fsync(directory_fd)
+        print('workflow-policy: activation stage verify-published', file=sys.stderr)
+        verify_snapshot(value, json.loads(private_file(directory / name), object_pairs_hook=unique), home)
+    finally:
+        if temporary is not None:
+            os.unlink(temporary, dir_fd=directory_fd)
+        if lock_fd is not None:
+            os.close(lock_fd)
+        os.close(directory_fd)
+
+
 def render(source, home, options, previous):
     source = Path(source).resolve()
     if run("git", "status", "--porcelain=v1", "--untracked-files=all", cwd=source).strip():
@@ -455,6 +538,7 @@ def main():
     build.add_argument("--home", required=True)
     build.add_argument("--options", required=True, help="resolved local workspace table JSON or null")
     sub.add_parser("snapshot", help="print private qualification proposal; never install or activate it")
+    sub.add_parser("initialize-default-home", help="explicit apply: initialize missing approved remote-home activation only")
     guard = sub.add_parser("check", help="verify separately activated policy before native allocation")
     guard.add_argument("--target", help="native pre-switch destination; registered existing work stays reachable")
     args = parser.parse_args()
@@ -467,9 +551,13 @@ def main():
         previous = home / ".config/worktrunk/config.toml"
         local = tomllib.loads(private_file(previous, private=False).decode()) if os.path.lexists(previous) else {}
         print(json.dumps(render(args.source, home, json.loads(args.options, object_pairs_hook=unique), local), sort_keys=True))
-    elif args.command == "snapshot":
+    elif args.command in {"snapshot", "initialize-default-home"}:
         value = json.loads(private_file(config / "dotfiles-ai/workflow-policy.json"), object_pairs_hook=unique)
-        print(json.dumps(snapshot(value, home), sort_keys=True))
+        if args.command == "snapshot":
+            print(json.dumps(snapshot(value, home), sort_keys=True))
+        else:
+            initialize_default_home(value, home, config)
+            print('{"status":"activation_valid"}')
     else:
         check(home, config, args.target)
         print('{"status":"passed"}')

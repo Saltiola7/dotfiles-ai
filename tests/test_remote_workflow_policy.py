@@ -1,4 +1,4 @@
-"""Remote storage policy is rendered, but activation remains owner-written."""
+"""Remote policy rendering and original F03 storage identity constraints."""
 import json
 import subprocess
 import tomllib
@@ -77,19 +77,16 @@ def test_remote_home_does_not_hide_findmnt_failure(policy, storage_home, monkeyp
 
 def test_remote_activation_instructions_and_smoke_preserve_owner_boundary():
     instructions = (ROOT / 'docs/specs/dotfiles_ai_distribution/features/remote-worktrunk-policy.md').read_text()
-    assert 'workflow-policy snapshot >"$proposal" && cat "$proposal"' in instructions
-    assert 'Only after that exact proposal is accepted' in instructions
-    assert 'install -m 0600 "$proposal"' in instructions
+    assert 'RRW-007E successor' in instructions
     assert 'Other configured roots retain mandatory UUID identity' in instructions
     smoke = (ROOT / 'tests/remote_user_environment_smoke.sh').read_text()
-    assert smoke.index('unactivated Worktrunk allocation unexpectedly succeeded') < smoke.index(
-        'install -m 0600 "$proposal"')
-    assert 'remote Worktrunk policy and owner activation qualification passed' in smoke
+    assert 'remote Worktrunk default apply activation qualification passed' in smoke
+    assert 'install -m 0600 "$proposal"' not in smoke
     workflow = (ROOT / '.github/workflows/rhel-remote-user.yml').read_text()
     assert 'util-linux' in workflow
     assert '"tests/test_remote_workflow_policy.py"' in workflow
     example = (ROOT / 'config.remote-user.example.toml').read_text()
-    assert 'explicit owner decision after snapshot review' in example
+    assert 'Existing/stale activation still requires owner review' in example
     assert tomllib.loads(example)['data']['dotfiles_ai']['workspaces'] == {
         'schema_version': 1, 'root': '/home/you/.local/state/worktrees'}
     assert 'cat >>"$HOME/.config/dotfiles-ai/chezmoi.toml"' not in smoke

@@ -241,13 +241,7 @@ def apply(revision: str) -> None:
         git("diff", "--cached", "--quiet", capture=True)
         git("checkout", "--detach", revision, capture=True)
         data = configuration()
-        options = data.get("workspaces", {})
-        for name in ("root", "cache_root"):
-            if name in options:
-                directory = Path(options[name]).expanduser()
-                safe_path(directory)
-                directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-                safe_path(directory, "directory")
+        provision_workspace_directories(data)
         command("chezmoi", "-c", str(CONFIG), "-S", str(SOURCE), "apply", capture=True)
         validate_tool_integrity(data)
         targets = command(
@@ -276,6 +270,16 @@ def apply(revision: str) -> None:
         })
         write_state(failed)
         raise SystemExit("foundation apply failed") from None
+
+
+def provision_workspace_directories(data: dict) -> None:
+    options = {"cache_root": str(HOME / ".cache/dotfiles-ai/dvc"), **data.get("workspaces", {})}
+    for name in ("root", "cache_root"):
+        if name in options:
+            directory = Path(options[name]).expanduser()
+            safe_path(directory)
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            safe_path(directory, "directory")
 
 
 def validate_tool_integrity(data: dict) -> None:
@@ -330,6 +334,7 @@ def validate_integrity(state: dict) -> Path:
     if "prefect_python_version" in data.get("remote_user_environment", {}):
         expected_status.insert(1, " R install-03-remote-mise.sh")
         expected_status.insert(2, " R install-04-remote-opencode-service.sh")
+        expected_status.append(" R zz-remote-worktree-activation.sh")
     if sorted(status) != expected_status:
         raise RuntimeError("foundation managed targets changed")
     for target in state["managed_targets"]:

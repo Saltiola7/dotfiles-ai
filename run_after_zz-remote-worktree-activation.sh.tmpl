@@ -1,0 +1,6 @@
+#!/bin/bash
+set -euo pipefail
+{{ if not .dotfiles_ai.remote_user_environment.enabled -}}
+exit 0
+{{ end -}}
+exec "$HOME/.local/bin/workflow-policy" initialize-default-home

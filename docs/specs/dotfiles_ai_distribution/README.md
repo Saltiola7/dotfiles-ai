@@ -1,11 +1,17 @@
 # dotfiles-ai Distribution
 
+The [remote default activation](features/remote-worktree-activation.md) initializes
+missing activation during explicit remote apply at the qualified exact home
+default only. Existing activation is never overwritten or automatically refreshed.
+
 The [remote OpenCode boot service](features/remote-opencode-service.md) starts the
 native shared service through the lingering user's default target without
 restarting healthy sessions during foundation reapply.
 
 The [remote Worktrunk policy](features/remote-worktrunk-policy.md) supplies the
-shared remote storage guard's policy; activation remains an explicit owner step.
+shared remote storage guard's policy. Explicit remote apply initializes absent
+activation at the qualified home-backed default; nondefault roots and stale
+existing bindings still require separate owner review.
 
 The [remote global mise baseline](features/remote-mise-toolchain.md) owns optional
 pinned Python for the frozen Prefect adapter. Project toolchains keep their own

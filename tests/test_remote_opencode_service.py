@@ -216,6 +216,8 @@ def test_boot_fixture_preserves_failure_without_exposing_child_output(tmp_path, 
     assert 'fixture-private' not in str(error.value)
     assert fixture.failure_reason(error.value) == 'native-tool-exit-23'
     assert 'fixture-private' not in fixture.failure_reason(RuntimeError('fixture-private-error'))
+    assert fixture.failure_reason(FileNotFoundError(2, 'fixture-private-error', '/private-fixture')) == 'native-filesystem-errno-2'
+    assert fixture.failure_reason(FileExistsError(17, 'fixture-private-error', '/private-fixture')) == 'native-filesystem-errno-17'
 
 
 def test_boot_invariant_labels_are_source_literals():
