@@ -35,6 +35,21 @@ def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
         raise AssertionError('native failure must not pass')
 
 
+def test_durable_log_failure_is_not_hidden_by_readiness_retry(monkeypatch):
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    def rejected():
+        raise fixture['LogFailure']('log-status-401')
+    def no_sleep(seconds):
+        raise AssertionError('a rejected log request must not be retried')
+    monkeypatch.setattr(fixture['time'], 'sleep', no_sleep)
+    try:
+        fixture['wait'](rejected)
+    except fixture['LogFailure'] as error:
+        assert error.reason == 'log-status-401'
+    else:
+        raise AssertionError('log failure must propagate')
+
+
 class QualificationSourceTests(unittest.TestCase):
     def test_copy_is_explicit_public_file_allowlist(self):
         allowed = {
@@ -137,7 +152,8 @@ class QualificationSourceTests(unittest.TestCase):
                         'signal.pidfd_send_signal(fd, signal.SIGTERM)',
                         "backend._coverage(plan) == before", "backend.stop('herdr-core', capture)",
                         "cli('restore')", "cli('recover')", "backend._pids_absent(before['clients'])",
-                        "backend._client_argv(client['pid'], client['session_id'])",
+                         "backend._client_argv(client['pid'], client['session_id'])",
+                         "f01.connected(client['pid'], port)",
                         'backend._semantic', 'backend_pid() == pid', "'--version'",
                         "'remote-herdr-core', 'check'", "'ratio': 0.375",
                         'child.send_signal(signal.SIGSTOP)', 'require(interrupted)',

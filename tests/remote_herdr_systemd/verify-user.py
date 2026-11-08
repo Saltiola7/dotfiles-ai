@@ -46,6 +46,10 @@ class CommandFailure(RuntimeError):
         self.reason = reason
 
 
+class LogFailure(CommandFailure):
+    pass
+
+
 def require(condition):
     if not condition:
         raise RuntimeError()
@@ -95,6 +99,8 @@ def wait(check, seconds=120):
             result = check()
             if result:
                 return result
+        except LogFailure:
+            raise
         except Exception:
             pass  # Observations only; never retry native mutations.
         time.sleep(1)
@@ -297,8 +303,10 @@ def history(session_id, after=None):
         transport = connection.sock  # HTTP/1.0 may detach it from the connection at headers.
         require(transport is not None)
         response = connection.getresponse()
-        require(response.status == 200)
-        require(response.getheader('Content-Type', '').split(';')[0] == 'text/event-stream')
+        if response.status != 200:
+            raise LogFailure('log-status-' + str(response.status))
+        if response.getheader('Content-Type', '').split(';')[0] != 'text/event-stream':
+            raise LogFailure('log-content-type')
         deadline = time.monotonic() + 30
         raw = bytearray()
         while True:
@@ -310,7 +318,10 @@ def history(session_id, after=None):
             require(len(raw) <= 2 * 1024 * 1024)
             if not chunk or response.isclosed():
                 break
-        return parse_log(bytes(raw), session_id, after)[0]
+        try:
+            return parse_log(bytes(raw), session_id, after)[0]
+        except (ValueError, TypeError, KeyError, RuntimeError):
+            raise LogFailure('log-schema-invalid') from None
     finally:
         connection.close()
 
@@ -326,6 +337,7 @@ def inflight_switch(provider, plan, pid):
     require(admitted['id'] == message_id and admitted['sessionID'] == session_id)
     require(admitted['type'] == 'user' and admitted['delivery'] == 'steer')
     require(admitted['payload']['text'] == provider.nonce)
+    STEP = 'inflight-model-request'
     if not provider.held.wait(120):
         provider.check()
         raise CommandFailure('provider-hold-not-observed')
@@ -341,7 +353,8 @@ def inflight_switch(provider, plan, pid):
         events = history(session_id)
         return typed(events, 'step.started')
 
-    starts = wait(started)
+    STEP = 'inflight-start-log'
+    starts = started() or wait(started)
     require(len(starts) == 1)
     assistant_id = starts[0]['data']['assistantMessageID']
 
@@ -539,9 +552,16 @@ def observe(target, plan):
         require(backend._semantic(capture['plan']) == backend._semantic(plan))
         clients = backend._coverage(plan)
         require(len(clients) == 3)
+        f01 = load('f01', '/opt/f01/verify-user.py')
+        _, server = f01.ready()
+        port = urlsplit(server).port
+        require(port is not None)
         for client in clients:
             backend._client_argv(client['pid'], client['session_id'])
             require((Path('/proc') / str(client['pid']) / 'exe').resolve() == NATIVE)
+            # Exact argv and a stored session alone do not prove attachment.
+            # Reuse F01's native socket-owner proof against the shared backend.
+            wait(lambda: f01.connected(client['pid'], port), seconds=30)
         for space in plan['spaces']:
             for tab in space['tabs']:
                 for pane in tab['panes']:
