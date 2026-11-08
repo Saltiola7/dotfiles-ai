@@ -306,6 +306,35 @@ def manifest_for(backend, core, p=None):
     return manifest
 
 
+@pytest.mark.parametrize('replacement', ['shell', 'foreign', 'pending'])
+def test_prepare_observes_kept_spawn_before_proving_program(backend, replacement):
+    core = FakeCore(backend)
+    terminal: dict = {'address': 'kept', 'state': 'live', 'keep': True, 'pid': None,
+                'argv': ['/bin/bash', '-l'], 'cwd': '/work', 'foreground': None, 'labels': {}}
+    core.terminals['kept'] = terminal
+    observations = []
+    def wait(check):
+        observations.append('pending')
+        assert check() is False
+        if replacement != 'pending':
+            argv = ['/bin/bash', '-l'] if replacement == 'shell' else ['/usr/bin/vim']
+            synthetic_process(backend, 81, argv)
+            terminal.update(pid=81, argv=argv)
+        if not check():
+            raise native.NativeError('native readiness or stop proof unavailable')
+        observations.append('ready')
+    backend._wait = wait
+    if replacement == 'shell':
+        receipt = backend.prepare('herdr-core', plan(), 'kepttx')
+        assert receipt['pending'] is None
+        assert observations == ['pending', 'ready']
+    else:
+        with pytest.raises(native.NativeError):
+            backend.prepare('herdr-core', plan(), 'kepttx')
+    assert not any(method in {'terminal.run', 'terminal.kill', 'doc.set', 'command'}
+                   for method, _ in core.calls)
+
+
 def test_full_core_restore_direct_argv_and_idempotent_recovery(backend):
     core = FakeCore(backend)
     manifest = manifest_for(backend, core)

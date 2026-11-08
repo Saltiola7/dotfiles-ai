@@ -523,6 +523,15 @@ class Native:
             raise NativeError('core terminal identity mismatch')
         return result
 
+    def _wait_core_spawns(self):
+        """A listening core can still be spawning its kept replacement shells."""
+        def ready():
+            return not any(t.get('state') == 'live' and t.get('keep') is True
+                           and t.get('pid') is None for t in self._terminals())
+        # Observations only: never restart a core, run a terminal or retry a
+        # mutation because the kept-terminal PID is not available yet.
+        self._wait(ready)
+
     def _program(self, terminal):
         if terminal.get('state') != 'live' or type(terminal.get('pid')) is not int or terminal['pid'] <= 1:
             raise NativeError('core terminal not live or spawn pending')
@@ -1055,6 +1064,7 @@ class Native:
                 receipt['pending'] = None
                 self._receipt(receipt)
             self.core('server.status', {})
+            self._wait_core_spawns()
             document, version = self._document()
             terminals = self._terminals()
             for terminal in terminals:
@@ -1102,6 +1112,7 @@ class Native:
             if self.store.read(receipt['backup']) is None:
                 raise NativeError('preparation backup unavailable')
             if target == 'herdr-core':
+                self._wait_core_spawns()
                 document, version = self._document()
                 if document != receipt['document'] or version != receipt['doc_version']:
                     raise NativeError('prepared target changed')
@@ -1354,6 +1365,7 @@ class Native:
             receipt['pending'] = pending.get('previous')
             self._receipt(receipt)
             pending = receipt['pending']
+        self._wait_core_spawns()
         if pending:
             operation = pending.get('operation')
             if operation == 'terminal.run':

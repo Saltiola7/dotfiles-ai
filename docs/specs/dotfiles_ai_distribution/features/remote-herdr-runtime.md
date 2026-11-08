@@ -157,6 +157,10 @@ The controller persists mutation intent before stop, preparation, selection,
 restore and verification. `manifest.json` binds the current owned layout to its
 runtime, exact session identities and per-pane native terminal receipt. Store
 files are neither source-owned nor an interchange format to hand-edit.
+Core socket readiness does not establish kept-terminal readiness. Preparation
+and recovery wait within the existing bound for live kept records without PIDs,
+then apply full actual-program proof. This wait only observes; persistent pending
+spawns or unknown programs still refuse without creating or killing terminals.
 
 Recovery observes stopped source PID/start-time identities, exact post-stop
 snapshot fidelity, target backups, native CAS versions and transaction labels
