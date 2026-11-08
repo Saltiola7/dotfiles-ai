@@ -354,6 +354,30 @@ def test_busy_owned_program_is_not_overwritten(backend):
     assert not any(m in ('terminal.kill', 'terminal.run', 'doc.set') for m, _ in core.calls[before:])
 
 
+@pytest.mark.parametrize('change', ['argv', 'pid', 'document'])
+def test_shell_recovery_rechecks_after_publishing_kill_intent(backend, change):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    terminal = core.terminals['t1']
+    synthetic_process(backend, terminal['pid'], ['/bin/bash', '-l'])
+    terminal['argv'] = ['/bin/bash', '-l']
+    original = backend._receipt
+    def persist(receipt):
+        original(receipt)
+        if (receipt.get('pending') or {}).get('operation') == 'terminal.kill':
+            if change == 'argv':
+                synthetic_process(backend, terminal['pid'], ['/usr/bin/vim'])
+            elif change == 'pid':
+                synthetic_process(backend, terminal['pid'], ['/bin/bash', '-l'], ticks=99)
+            else:
+                core.version += 1
+    backend._receipt = persist
+    before = len(core.calls)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert not any(method == 'terminal.kill' for method, _ in core.calls[before:])
+
+
 def test_cas_edit_after_prepare_retains_private_backup(backend):
     core = FakeCore(backend)
     old = {'spaces': []}

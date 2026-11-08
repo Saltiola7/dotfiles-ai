@@ -295,9 +295,9 @@ def prepare():
         wait(shell_ready)
         import layout
         plain = {'schema_version': 1, 'spaces': [{'name': 'Desktop shell', 'directory': str(directories[0]),
-                 'tabs': [{'name': 'Original shell', 'panes': [{'key': 'plain', 'cwd': str(directories[0]),
-                           'session_id': None}], 'root': {'pane': 'plain'}}]}]}
-        document = layout.to_app_document(plain, {'plain': address})
+                 'tabs': [{'name': 'Original shell', 'panes': [{'key': 's0-t0-p0', 'cwd': str(directories[0]),
+                           'session_id': None}], 'root': {'pane': 's0-t0-p0'}}]}]}
+        document = layout.to_app_document(plain, {'s0-t0-p0': address})
         _, version = backend._document()
         backend.core('doc.set', {'name': 'herdr-app', 'value': document, 'version': version})
     cli('switch', 'herdr-core', '--from-file', EXPECTED, '--replace-target')

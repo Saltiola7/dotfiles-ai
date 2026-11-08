@@ -19,6 +19,14 @@ a second inventory. Source preparation does not install the skill automatically.
 
 ## Remote-user setup inputs
 
+### Default worktree activation (RRW-007E)
+
+Explicit remote apply initializes missing activation at the exact default
+`$HOME/.local/state/worktrees` on the home filesystem. No new flag/manual step
+is needed for a fresh default. Existing activation is never overwritten; changed
+source/policy, Worktrunk version or mount bindings still require review. See the
+[activation contract](specs/dotfiles_ai_distribution/features/remote-worktree-activation.md).
+
 ### OpenCode after remote boot (RRW-F01)
 
 The remote profile enables `opencode-shared.service` under the user's default

@@ -1404,6 +1404,15 @@ class Native:
             receipt['pending'] = {'operation': 'terminal.kill', 'pane': pane['key'],
                                   'terminal': address, 'pids': proofs}
             self._receipt(receipt)
+            # Durable intent publication is a scheduling/crash boundary. Recheck
+            # actual ownership immediately before killing the recovered shell.
+            observed, observed_version = self._document()
+            if observed != receipt['document'] or observed_version != receipt['doc_version']:
+                raise NativeError('core recovery document changed before shell stop')
+            actual = self._terminal(address)
+            if actual != terminal or self._pid_proofs(pids) != proofs:
+                raise NativeError('core recovery process changed before shell stop')
+            self._shell_proof(actual)
             self.core('terminal.kill', {'terminal': address})
             self._wait(lambda: self._terminal(address).get('state') == 'finished' and self._pids_absent(proofs))
             receipt['terminals'].pop(pane['key'])
