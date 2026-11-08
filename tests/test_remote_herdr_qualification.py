@@ -81,7 +81,7 @@ class QualificationSourceTests(unittest.TestCase):
     def test_hosted_boot_job_is_required_and_isolated(self):
         workflow = WORKFLOW.read_text()
         self.assertIn('contents: read', workflow)
-        self.assertIn('runs-on: ubuntu-24.04', workflow)
+        self.assertIn('runs-on: ubuntu-latest', workflow)
         self.assertIn('--cgroupns=private', workflow)
         self.assertIn('--privileged', workflow)
         self.assertIn('--tmpfs /run --tmpfs /run/lock', workflow)

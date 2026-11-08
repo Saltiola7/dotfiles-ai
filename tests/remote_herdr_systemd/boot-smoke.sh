@@ -25,7 +25,7 @@ wait_user() {
     done
     # Only fixed systemd state properties from this disposable fixture account;
     # never journals, environment, unit contents, registrations or native output.
-    systemctl show "user@$uid.service" --property=ActiveState,SubState,Result --no-pager || true
+    systemctl show "user@$uid.service" --property=ActiveState,SubState,Result,ExecMainCode,ExecMainStatus --no-pager || true
     fail
 }
 no_login() {

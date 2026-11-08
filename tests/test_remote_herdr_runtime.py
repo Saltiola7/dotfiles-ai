@@ -99,3 +99,20 @@ def test_runtime_activation_is_remote_only_and_does_not_restart(tmp_path):
     assert 'enable --now remote-herdr-restore.timer' in script
     commands = '\n'.join(line for line in script.splitlines() if not line.lstrip().startswith('#'))
     assert ' restart ' not in commands and ' stop ' not in commands
+
+
+@pytest.mark.parametrize('remote', [True, False])
+def test_effective_managed_files_include_pins_only_for_remote(remote):
+    data = {'chezmoi': {'os': 'linux', 'arch': 'amd64'}, 'dotfiles_ai': {
+        'remote_user_environment': {'enabled': remote},
+        'linux_workstation': {'enabled': not remote},
+        'herdr': {'host_enabled': False, 'launchagent': False}}}
+    result = subprocess.run(['chezmoi', '-S', str(ROOT), '--config', '/dev/null',
+        '--config-format', 'toml', '--override-data', json.dumps(data), 'managed'],
+        capture_output=True, text=True, check=True)
+    managed = set(result.stdout.splitlines())
+    for path in ('.config/dotfiles-ai/herdr-core.json', '.config/dotfiles-ai/herdr-runtime.json',
+                 '.local/bin/remote-herdr', '.local/bin/remote-herdr-core',
+                 '.local/share/dotfiles-ai/remote-herdr/controller.py',
+                 '.config/systemd/user/remote-herdr-restore.timer'):
+        assert (path in managed) is remote

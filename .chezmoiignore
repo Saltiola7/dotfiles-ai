@@ -236,6 +236,8 @@ load-dbsctr-reranker.sh
 .config/dotfiles-ai/*
 {{ if .dotfiles_ai.remote_user_environment.enabled }}
 !.config/dotfiles-ai/workflow-policy.json
+!.config/dotfiles-ai/herdr-core.json
+!.config/dotfiles-ai/herdr-runtime.json
 {{ end }}
 !.config/dotfiles-ai/codex-managed
 !.config/dotfiles-ai/codex-managed/**
