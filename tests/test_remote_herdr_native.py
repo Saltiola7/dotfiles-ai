@@ -335,6 +335,21 @@ def test_prepare_observes_kept_spawn_before_proving_program(backend, replacement
                    for method, _ in core.calls)
 
 
+def test_readiness_timeouts_identify_the_failed_boundary(backend):
+    core = FakeCore(backend)
+    receipt = backend.prepare('herdr-core', plan(), 'readytx')
+    def timeout(check):
+        raise native.NativeError('native readiness or stop proof unavailable')
+    backend._wait = timeout
+    with pytest.raises(native.NativeError, match='^core kept-terminal spawn readiness unavailable$'):
+        backend._wait_core_spawns()
+    with pytest.raises(native.NativeError, match='^restored runtime layout readiness unavailable$'):
+        backend._wait_ready('herdr-core', plan(), receipt)
+    with pytest.raises(native.NativeError, match='^core restored terminal readiness unavailable$'):
+        backend.restore('herdr-core', plan(), 'readytx', receipt)
+    assert sum(method == 'terminal.run' for method, _ in core.calls) == 1
+
+
 def test_full_core_restore_direct_argv_and_idempotent_recovery(backend):
     core = FakeCore(backend)
     manifest = manifest_for(backend, core)

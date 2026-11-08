@@ -869,6 +869,9 @@ def restart_and_recover(plan, pid):
         'core prior terminal creation requires recovery': 'prior-create',
         'session client already running': 'client-already-running',
         'native readiness or stop proof unavailable': 'readiness',
+        'core kept-terminal spawn readiness unavailable': 'kept-spawn-readiness',
+        'core restored terminal readiness unavailable': 'client-readiness',
+        'restored runtime layout readiness unavailable': 'layout-readiness',
         'core recovery process changed before shell stop': 'process-changed',
         'core recovery document changed before shell stop': 'document-changed-before-stop',
     }

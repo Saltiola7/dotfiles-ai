@@ -530,7 +530,12 @@ class Native:
                            and t.get('pid') is None for t in self._terminals())
         # Observations only: never restart a core, run a terminal or retry a
         # mutation because the kept-terminal PID is not available yet.
-        self._wait(ready)
+        try:
+            self._wait(ready)
+        except NativeError as error:
+            if str(error) == 'native readiness or stop proof unavailable':
+                raise NativeError('core kept-terminal spawn readiness unavailable') from None
+            raise
 
     def _program(self, terminal):
         if terminal.get('state') != 'live' or type(terminal.get('pid')) is not int or terminal['pid'] <= 1:
@@ -1288,7 +1293,12 @@ class Native:
                     return True
                 except (NativeError, ValueError, OSError):
                     return False
-            self._wait(terminal_ready)
+            try:
+                self._wait(terminal_ready)
+            except NativeError as error:
+                if str(error) == 'native readiness or stop proof unavailable':
+                    raise NativeError('core restored terminal readiness unavailable') from None
+                raise
         self._cas(plan, receipt)
         self._wait_ready(target, plan, receipt)
         return receipt
@@ -1301,7 +1311,12 @@ class Native:
                 return True
             except NativeError:
                 return False
-        self._wait(ready)
+        try:
+            self._wait(ready)
+        except NativeError as error:
+            if str(error) == 'native readiness or stop proof unavailable':
+                raise NativeError('restored runtime layout readiness unavailable') from None
+            raise
 
     @bounded
     def verify(self, target, plan, receipt):
