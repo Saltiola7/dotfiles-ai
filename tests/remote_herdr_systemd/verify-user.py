@@ -9,6 +9,7 @@ Runtime OpenAPI is checked before the first mutation. Unsupported schemas fail;
 the fixture never fabricates or migrates SQLite rows to satisfy the adapter.
 """
 import importlib.util
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -483,7 +484,14 @@ def prepare_fixture(provider):
     STEP = 'verify-installed-core'
     run(BIN / 'remote-herdr-core', 'check')
     STEP = 'verify-opencode-version'
-    require('1.18.25' in run(NATIVE, '--version'))
+    version = run(NATIVE, '--version')
+    require(re.fullmatch(r'opencode v2\.[0-9]+\.[0-9]+', version) is not None)
+    # F01 deliberately delegates updates to the native v2 installer. The old
+    # source asset defaults are not a Linux remote runtime pin. Bind this proof
+    # to the observed version and bytes, then enforce the runtime API schema.
+    write(HOME / 'qualified-opencode.json', {'version': version,
+          'binary_sha256': hashlib.sha256(NATIVE.read_bytes()).hexdigest()})
+    print('F07: ' + version + '; binary-sha256=' + hashlib.sha256(NATIVE.read_bytes()).hexdigest())
     STEP = 'verify-shared-backend'
     pid = backend_pid()
     STEP = 'session-api-schema'

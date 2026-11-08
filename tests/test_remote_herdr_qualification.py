@@ -78,18 +78,20 @@ class QualificationSourceTests(unittest.TestCase):
         pins = tomllib.loads((ROOT / '.chezmoidata.toml').read_text())['dotfiles_ai']
         self.assertEqual(pins['herdr']['version'], '0.9.5')
         self.assertEqual(pins['herdr_core']['version'], '0.1.18')
-        self.assertEqual(pins['opencode']['version'], '1.18.25')
         self.assertEqual(pins['herdr_core']['archive_sha256'],
                          '5b2f97cb4b2a9d7a6b2cc5942628203ed9fbb7cc0c2b4b09ad8a6f5648e246b7')
         self.assertEqual(pins['herdr_core']['binary_sha256'],
                          'baa9d208d6400556a6e379152455fe1301e0e1acdbc114ff60b79d64425179cf')
-        for section, key in (('herdr', 'linux_amd64_asset_sha256'),
-                             ('opencode', 'linux_amd64_asset_sha256')):
+        for section, key in (('herdr', 'linux_amd64_asset_sha256'),):
             self.assertRegex(pins[section][key], r'^[a-f0-9]{64}$')
         self.assertEqual(pins['herdr']['linux_amd64_asset_sha256'],
                          '14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d')
-        self.assertEqual(pins['opencode']['linux_amd64_asset_sha256'],
-                         '58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78')
+        native_installer = (ROOT / 'dot_local/bin/executable_opencode-install.tmpl').read_text()
+        self.assertIn('https://opencode.ai/v2/install', native_installer)
+        fixture = (FIXTURE / 'verify-user.py').read_text()
+        self.assertIn("write(HOME / 'qualified-opencode.json'", fixture)
+        self.assertIn('hashlib.sha256(NATIVE.read_bytes())', fixture)
+        self.assertNotIn("require('1.18.25' in", fixture)
         hook = (ROOT / 'run_onchange_after_install-00z-remote-herdr-core.sh.tmpl').read_text()
         self.assertIn('remote-herdr-core" install', hook)
         tui = (ROOT / 'run_onchange_after_install-00-remote-herdr.sh.tmpl').read_text()
