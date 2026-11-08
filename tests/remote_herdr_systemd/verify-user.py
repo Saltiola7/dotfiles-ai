@@ -740,23 +740,28 @@ def prepare_fixture(provider):
             raise CommandFailure(labels.get(str(error), 'process-proof-unavailable')) from None
         if initial_clients:
             raise CommandFailure('unexpected-client-count-' + str(len(initial_clients)))
-        STEP = 'plain-shell-adoption'
+        STEP = 'core-start'
         backend.command(['herdr-core', 'server', 'start', '--json'])
+        STEP = 'core-endpoint'
         wait(lambda: backend.endpoint_present('herdr-core'))
+        STEP = 'core-plain-terminal-create'
         shell = backend.core('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': str(directories[0]),
                                              'keep': True, 'no_parent': True, 'no_notify': True, 'wait': False})
         address = shell['address']
         def shell_ready():
             backend._live_program(backend._terminal(address))
             return True
+        STEP = 'core-plain-terminal-readiness'
         wait(shell_ready)
         import layout
         plain = {'schema_version': 1, 'spaces': [{'name': 'Desktop shell', 'directory': str(directories[0]),
                  'tabs': [{'name': 'Original shell', 'panes': [{'key': 's0-t0-p0', 'cwd': str(directories[0]),
                            'session_id': None}], 'root': {'pane': 's0-t0-p0'}}]}]}
         document = layout.to_app_document(plain, {'s0-t0-p0': address})
+        STEP = 'core-initial-document'
         _, version = backend._document()
         backend.core('doc.set', {'name': 'herdr-app', 'value': document, 'version': version})
+    STEP = 'core-file-import'
     cli('switch', 'herdr-core', '--from-file', EXPECTED, '--replace-target')
     observe('herdr-core', plan)
     with Store(ROOT) as store:
@@ -853,5 +858,17 @@ if __name__ == '__main__':
         suffix = '-' + error.reason if isinstance(error, CommandFailure) else '-invariant'
         if isinstance(error, (ImportError, AttributeError, TypeError, KeyError, OSError, UnicodeError)):
             suffix = '-unsupported-interface'
+        protocol_labels = {
+            'core protocol: core endpoint unsafe': 'core-endpoint-unsafe',
+            'core protocol: core endpoint unavailable or outcome uncertain': 'core-endpoint-unavailable',
+            'core protocol: core peer identity unavailable': 'core-peer-unavailable',
+            'core protocol: core peer identity mismatch': 'core-peer-mismatch',
+            'core protocol: core version or protocol incompatible': 'core-protocol-incompatible',
+            'core protocol: core response refused or invalid': 'core-response-refused',
+            'core protocol: core request outcome uncertain': 'core-outcome-uncertain',
+            'core protocol: core structured response invalid': 'core-response-invalid',
+        }
+        if type(error).__name__ == 'NativeError' and str(error) in protocol_labels:
+            suffix = '-' + protocol_labels[str(error)]
         print('F07: failed-' + STEP + suffix, file=sys.stderr)
         sys.exit(1)

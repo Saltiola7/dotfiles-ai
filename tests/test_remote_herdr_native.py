@@ -154,6 +154,15 @@ def test_absent_core_probe_never_autostarts(backend):
     assert not backend.calls
 
 
+def test_core_preserves_only_the_protocol_fixed_label(backend, monkeypatch):
+    def refused(*args):
+        raise native.protocol.CoreProtocolError('core response refused or invalid')
+    monkeypatch.setattr(native.protocol, 'request', refused)
+    with pytest.raises(native.NativeError, match='^core protocol: core response refused or invalid$'):
+        backend.core('server.status', {})
+    assert not backend.calls
+
+
 def test_api_snapshot_is_not_disk_schema(backend):
     with pytest.raises(native.NativeError):
         backend._api_inventory({'version': 3, 'workspaces': []})

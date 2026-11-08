@@ -49,6 +49,10 @@ def bounded(method):
             return method(*args, **kwargs)
         except NativeError:
             raise
+        except protocol.CoreProtocolError as error:
+            # Protocol errors contain only source-literal labels, never peer
+            # message text. Preserve that distinction for private diagnostics.
+            raise NativeError('core protocol: ' + str(error)) from None
         except Exception:
             raise NativeError('native observation or mutation uncertain') from None
     return call
