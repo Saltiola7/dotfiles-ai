@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Disposable native qualification. Loopback-only provider; no raw diagnostics.
 
-OpenCode API provenance at v1.18.25 (not the legacy SDK /session route):
+OpenCode v2.2.6 source provenance: anomalyco/opencode commit
+dc2ffcf8bf26f9e669b6aa22b95f50e12be15e06 (not the legacy SDK /session route):
 packages/cli/src/commands/handlers/api.ts and commands.ts: api --data, raw HTTP.
 packages/protocol/src/groups/session.ts: POST /api/session, GET /api/session/:sessionID.
 packages/schema/src/{location,session}.ts: location.directory, response.data.id.
@@ -10,6 +11,8 @@ the fixture never fabricates or migrates SQLite rows to satisfy the adapter.
 """
 import importlib.util
 import hashlib
+import base64
+import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -25,6 +28,7 @@ import sys
 import threading
 import time
 import uuid
+from urllib.parse import urlsplit, quote
 
 
 HOME = Path('/home/fixture')
@@ -105,8 +109,8 @@ def write(path, value):
 class HeldProvider:
     """One bounded ChatCompletions stream, owned only by prepare's lifetime.
 
-    v1.18.25 core/session/runner/model.ts selects the native compatible-chat
-    transport for @ai-sdk/openai-compatible; this does not run an npm package.
+    schema/config/provider.ts and ai/providers/openai-compatible.ts select the
+    bundled compatible-chat transport; this does not run an npm package.
     No credential or environment integration is configured or consulted here.
     """
 
@@ -208,32 +212,97 @@ class HeldProvider:
             require(not self.failed and self.requests == 1)
 
     def config(self):
-        return {'model': 'rrw007f/held', 'autoupdate': False, 'share': 'disabled',
+        return {'model': 'rrw007f/held', 'update': 'disable', 'share': 'disabled',
                 'snapshots': False, 'providers': {'rrw007f': {
                     'name': 'RRW007F loopback fixture',
-                    'api': {'type': 'aisdk', 'package': '@ai-sdk/openai-compatible',
-                            'url': 'http://127.0.0.1:' + str(self.server.server_port) + '/v1'},
+                    'package': '@opencode/ai/providers/openai-compatible',
+                    'settings': {'baseURL': 'http://127.0.0.1:' + str(self.server.server_port) + '/v1'},
                     'models': {'held': {'name': 'Held fixture',
                                        'capabilities': {'tools': False, 'input': ['text'], 'output': ['text']},
                                        'limit': {'context': 100000, 'output': 1024}}}}}}
 
 
-def history(session_id):
-    # Public v1.18.25 protocol/groups/session.ts and schema/{event,session-event}.ts.
+def parse_log(raw, session_id, after=None):
+    """Finite SSE snapshot, never include rejected event content in diagnostics.
+
+    Seq starts at zero; after is exclusive and may skip internal event gaps.
+    log.synced, not the last visible event, is the authoritative cursor.
+    """
+    require(len(raw) <= 2 * 1024 * 1024)
+    text = raw.decode('utf-8').replace('\r\n', '\n')
+    require('\r' not in text and text.endswith('\n\n'))
     events = []
-    after = 0
-    for _ in range(100):
-        page = api('get', '/api/session/' + session_id + '/history?limit=100&after=' + str(after))
-        for event in page['data']:
-            require(event['data']['sessionID'] == session_id)
-            require(event['durable']['aggregateID'] == session_id)
-            require(event['durable']['seq'] > after)
-            after = event['durable']['seq']
-            events.append(event)
-        if not page['hasMore']:
-            return events
-        require(page['data'])
-    raise RuntimeError()
+    last = -1 if after is None else after
+    synced = False
+    watermark = None
+    for frame in text.split('\n\n'):
+        data = []
+        for line in frame.split('\n'):
+            if not line or line.startswith(':'):
+                continue
+            field, _, value = line.partition(':')
+            require(field in {'data', 'event', 'id', 'retry'})
+            if field == 'data':
+                data.append(value.removeprefix(' '))
+        if not data:
+            continue
+        require(not synced)
+        event = json.loads('\n'.join(data))
+        if event['type'] == 'log.synced':
+            require(event['aggregateID'] == session_id)
+            watermark = event.get('seq')
+            require(watermark is None and last == -1 or
+                    type(watermark) is int and watermark >= max(last, 0))
+            synced = True
+            continue
+        require(len(events) < 10000)
+        require(event['data']['sessionID'] == session_id)
+        require(event['durable']['aggregateID'] == session_id)
+        seq = event['durable']['seq']
+        require(type(seq) is int and seq > last)
+        require(type(event['durable']['version']) is int and event['durable']['version'] >= 1)
+        require(isinstance(event['id'], str) and event['id'].startswith('evt_'))
+        last = seq
+        events.append(event)
+    require(synced)
+    return events, watermark
+
+
+def history(session_id, after=None):
+    # No limit/hasMore pagination exists: follow=false captures one finite watermark.
+    service = registration()
+    endpoint = urlsplit(service['url'])
+    require(endpoint.scheme == 'http' and endpoint.hostname == '127.0.0.1')
+    require(endpoint.port is not None and not endpoint.username and not endpoint.password)
+    require(endpoint.path in {'', '/'} and not endpoint.query and not endpoint.fragment)
+    path = '/api/experimental/session/' + quote(session_id, safe='') + '/log?follow=false'
+    if after is not None:
+        require(type(after) is int and after >= 0)
+        path += '&after=' + str(after)
+    connection = http.client.HTTPConnection('127.0.0.1', endpoint.port, timeout=30)
+    try:
+        token = base64.b64encode(('opencode:' + service['password']).encode()).decode('ascii')
+        connection.request('GET', path, headers={'Authorization': 'Basic ' + token,
+                                                'Accept': 'text/event-stream'})
+        transport = connection.sock  # HTTP/1.0 may detach it from the connection at headers.
+        require(transport is not None)
+        response = connection.getresponse()
+        require(response.status == 200)
+        require(response.getheader('Content-Type', '').split(';')[0] == 'text/event-stream')
+        deadline = time.monotonic() + 30
+        raw = bytearray()
+        while True:
+            remaining = deadline - time.monotonic()
+            require(remaining > 0)
+            transport.settimeout(remaining)
+            chunk = response.read1(min(65536, 2 * 1024 * 1024 + 1 - len(raw)))
+            raw.extend(chunk)
+            require(len(raw) <= 2 * 1024 * 1024)
+            if not chunk or response.isclosed():
+                break
+        return parse_log(bytes(raw), session_id, after)[0]
+    finally:
+        connection.close()
 
 
 def inflight_switch(provider, plan, pid):
@@ -243,13 +312,15 @@ def inflight_switch(provider, plan, pid):
     provider.session_id = session_id
     message_id = 'msg_' + provider.nonce
     admitted = api('post', '/api/session/' + session_id + '/prompt', {
-        'id': message_id, 'prompt': {'text': provider.nonce}, 'delivery': 'steer', 'resume': True})['data']
+        'id': message_id, 'text': provider.nonce, 'delivery': 'steer', 'resume': True})['data']
     require(admitted['id'] == message_id and admitted['sessionID'] == session_id)
+    require(admitted['type'] == 'user' and admitted['delivery'] == 'steer')
+    require(admitted['payload']['text'] == provider.nonce)
     require(provider.held.wait(120))
     provider.check()
 
     def typed(events, kind):
-        return [event for event in events if event['type'] == 'session.next.' + kind]
+        return [event for event in events if event['type'] == 'session.' + kind]
 
     def running():
         return api('get', '/api/session/active')['data'].get(session_id) == {'type': 'running'}
@@ -294,30 +365,147 @@ def inflight_switch(provider, plan, pid):
     texts = typed(events, 'text.ended')
     require(len(texts) == 1 and texts[0]['data']['assistantMessageID'] == assistant_id)
     require(texts[0]['data']['text'] == 'RRW007F-BEGIN:' + provider.nonce + ':END')
-    admissions = typed(events, 'prompt.admitted')
-    require(len(admissions) == 1 and admissions[0]['data']['messageID'] == admitted['id'])
-    require(admissions[0]['durable']['seq'] == admitted['admittedSeq'])
-    prompts = typed(events, 'prompted')
-    require(len(prompts) == 1 and prompts[0]['data']['messageID'] == admitted['id'])
-    require(admissions[0]['data']['prompt']['text'] == provider.nonce)
-    require(prompts[0]['data']['prompt']['text'] == provider.nonce)
+    admissions = typed(events, 'inbox.enqueued')
+    require(len(admissions) == 1 and admissions[0]['data']['inboxID'] == admitted['id'])
+    require(admissions[0]['data']['item'] == {
+        'type': admitted['type'], 'delivery': admitted['delivery'], 'payload': admitted['payload']})
+    delivered = typed(events, 'inbox.delivered')
+    require(len(delivered) == 1 and delivered[0]['data']['inboxID'] == admitted['id'])
+    require(admissions[0]['durable']['seq'] < delivered[0]['durable']['seq'] < starts[0]['durable']['seq'])
+    require(len(typed(events, 'execution.succeeded')) == 1)
+    require(not typed(events, 'execution.failed') and not typed(events, 'execution.interrupted'))
     require(backend_pid() == pid)
     provider.check()
     print('F07: inflight-turn-preservation-complete')
 
 
-def api(method, path, body=None):
-    # Registration/password stays in private memory and the subprocess environment.
+def registration():
     registration = HOME / '.local/state/opencode/service.json'
     metadata = registration.lstat()
     require(stat.S_ISREG(metadata.st_mode) and metadata.st_uid == os.getuid()
             and not metadata.st_mode & 0o077)
-    service = json.loads(registration.read_text())
+    return json.loads(registration.read_text())
+
+
+def api(method, path, body=None):
+    # Registration/password stays in private memory and the subprocess environment.
+    service = registration()
     env = dict(os.environ, OPENCODE_PASSWORD=service['password'])
     args = [NATIVE, 'api', '--server', service['url'], method, path]
     if body is not None:
         args += ['--data', json.dumps(body)]
     return json.loads(run(*args, env=env, timeout=30))
+
+
+def validate_api_schema(spec):
+    """Resolve local refs and require the actual wire structures, not just labels."""
+    def resolve(schema):
+        seen = set()
+        for _ in range(100):
+            if '$ref' in schema:
+                ref = schema['$ref']
+                require(ref.startswith('#/') and ref not in seen)
+                seen.add(ref)
+                schema = spec
+                for key in ref[2:].split('/'):
+                    schema = schema[key.replace('~1', '/').replace('~0', '~')]
+                continue
+            if 'anyOf' in schema:
+                nonnull = [item for item in schema['anyOf'] if item.get('type') != 'null']
+                if len(nonnull) == 1:
+                    schema = nonnull[0]
+                    continue
+            return schema
+        raise RuntimeError()
+
+    def properties(schema, fields, required=()):
+        schema = resolve(schema)
+        require(schema['type'] == 'object')
+        require(set(fields) <= schema['properties'].keys())
+        require(set(required) <= set(schema.get('required', [])))
+        return schema['properties']
+
+    def string(schema):
+        require(resolve(schema)['type'] == 'string')
+
+    def operation(path, method, identifier):
+        op = spec['paths'][path][method]
+        require(op['operationId'] == identifier)
+        if '{sessionID}' in path:
+            params = [resolve(p) for p in spec['paths'][path].get('parameters', []) + op.get('parameters', [])]
+            require(any(p['name'] == 'sessionID' and p['in'] == 'path' and p['required'] is True
+                        and resolve(p['schema'])['type'] == 'string' for p in params))
+        return op
+
+    def body(op):
+        return resolve(op['requestBody'])['content']['application/json']['schema']
+
+    def response(op):
+        schema = resolve(op['responses']['200'])['content']['application/json']['schema']
+        return properties(schema, {'data'}, {'data'})['data']
+
+    create = operation('/api/session', 'post', 'session.create')
+    fields = properties(body(create), {'id', 'parentID', 'title', 'agent', 'model', 'location',
+                                       'metadata', 'permissions'})
+    require(not resolve(body(create)).get('required'))
+    string(properties(fields['location'], {'directory'}, {'directory'})['directory'])
+    model = properties(fields['model'], {'id', 'providerID'}, {'id', 'providerID'})
+    string(model['id'])
+    string(model['providerID'])
+    for op in (create, operation('/api/session/{sessionID}', 'get', 'session.get')):
+        info = properties(response(op), {'id', 'projectID', 'cost', 'tokens', 'time', 'location'},
+                          {'id', 'projectID', 'cost', 'tokens', 'time', 'location'})
+        string(info['id'])
+        string(properties(info['location'], {'directory'}, {'directory'})['directory'])
+        properties(info['time'], {'created', 'updated'}, {'created', 'updated'})
+    prompt = operation('/api/session/{sessionID}/prompt', 'post', 'session.prompt')
+    fields = properties(body(prompt), {'id', 'text', 'files', 'agents', 'delivery', 'resume'}, {'text'})
+    require('prompt' not in fields)
+    string(fields['text'])
+    require(resolve(fields['resume'])['type'] == 'boolean')
+    require(set(resolve(fields['delivery'])['enum']) == {'steer', 'queue'})
+    inbox = properties(response(prompt), {'id', 'sessionID', 'type', 'payload', 'delivery', 'time'},
+                       {'id', 'sessionID', 'type', 'payload', 'delivery', 'time'})
+    string(inbox['id'])
+    string(inbox['sessionID'])
+    require(resolve(inbox['type']).get('enum') == ['user'] or resolve(inbox['type']).get('const') == 'user')
+    string(properties(inbox['payload'], {'text'}, {'text'})['text'])
+    active = resolve(response(operation('/api/session/active', 'get', 'session.active')))
+    require(active['type'] == 'object')
+    require(active['additionalProperties'] is False)
+    status = properties(active['patternProperties']['^ses'], {'type'}, {'type'})
+    require(resolve(status['type']).get('enum') == ['running'] or
+            resolve(status['type']).get('const') == 'running')
+    log = operation('/api/experimental/session/{sessionID}/log', 'get', 'experimental.session.log')
+    params = {p['name']: p for value in log['parameters'] if (p := resolve(value))['in'] == 'query'}
+    require({'after', 'follow'} <= params.keys())
+    require(not params['after'].get('required') and not params['follow'].get('required'))
+    string(params['after']['schema'])
+    require(set(resolve(params['follow']['schema'])['enum']) == {'true', 'false'})
+    sse = resolve(log['responses']['200'])['content']['text/event-stream']['schema']
+    frame = properties(sse, {'event', 'data'}, {'event', 'data'})
+    string(frame['event'])
+    encoded = resolve(frame['data'])
+    require(encoded['type'] == 'string' and encoded['contentMediaType'] == 'application/json')
+    items = resolve(encoded['contentSchema'])['anyOf']
+    # Union nesting is part of the checked-in protocol OpenAPI, not an SSE JSON envelope.
+    variants = [resolve(item) for item in items]
+    durable = next(item for item in variants if 'anyOf' in item)
+    kinds = {}
+    for value in durable['anyOf']:
+        event = resolve(value)
+        fields = properties(event, {'type', 'data', 'durable'}, {'type', 'data', 'durable'})
+        kinds[resolve(fields['type'])['enum'][0]] = fields['data']
+    for kind, fields in {
+        'session.step.started': {'sessionID', 'assistantMessageID'},
+        'session.step.ended': {'sessionID', 'assistantMessageID', 'finish'},
+        'session.text.ended': {'sessionID', 'assistantMessageID', 'text'},
+        'session.inbox.enqueued': {'sessionID', 'inboxID', 'item'},
+        'session.inbox.delivered': {'sessionID', 'inboxID'},
+    }.items():
+        properties(kinds[kind], fields, fields)
+    require(any(item.get('properties', {}).get('type', {}).get('enum') == ['log.synced']
+                and {'aggregateID', 'type'} <= set(item.get('required', [])) for item in variants))
 
 
 def adapter():
@@ -496,15 +684,14 @@ def prepare_fixture(provider):
     pid = backend_pid()
     STEP = 'session-api-schema'
     spec = api('get', '/openapi.json')
-    create = spec['paths']['/api/session']['post']
-    require(create['operationId'] == 'v2.session.create')
-    require('/api/session/{sessionID}' in spec['paths'])
+    validate_api_schema(spec)
     directories = [HOME / 'project alpha', HOME / 'project beta']
     for directory in directories:
         directory.mkdir(mode=0o700)
     sessions = []
     for directory in (directories[0], directories[0], directories[1]):
         created = api('post', '/api/session', {'location': {'directory': str(directory)},
+                                             'title': 'RRW007F fixture',
                                              'model': {'id': 'held', 'providerID': 'rrw007f'}})['data']
         require(created['location']['directory'] == str(directory))
         sessions.append(created['id'])
@@ -527,7 +714,7 @@ def prepare_fixture(provider):
     require(database.is_file())
     with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as db:
         db.execute('PRAGMA query_only = ON')
-        require({'id', 'directory'} <= {row[1] for row in db.execute('PRAGMA table_info(session)')})
+        require({'id', 'directory'} <= {row[1] for row in db.execute('PRAGMA table_info(session_v2)')})
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         backend._db_sessions(plan)

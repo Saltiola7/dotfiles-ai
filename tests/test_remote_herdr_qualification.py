@@ -3,6 +3,7 @@
 These tests do not certify native behavior; the mandatory hosted job does that.
 """
 import ast
+import copy
 import http.client
 import json
 from pathlib import Path
@@ -130,7 +131,7 @@ class QualificationSourceTests(unittest.TestCase):
         ast.parse(source)
         self.assertNotRegex(source, r'unittest.mock|monkeypatch|INSERT INTO|CREATE TABLE|fake.*binary')
         for witness in ("api('post', '/api/session'", "'location': {'directory'",
-                        "'v2.session.create'", "'?mode=ro'", 'PRAGMA table_info(session)',
+                        "'session.create'", "'?mode=ro'", 'PRAGMA table_info(session_v2)',
                         "'--from-file'", "'--replace-target'", "'terminal.run'", "'doc.set'",
                         "'hc-serve-'", "'hc-hold-'", "'hc-shutdown-'", "'Transient'",
                         'signal.pidfd_send_signal(fd, signal.SIGTERM)',
@@ -157,23 +158,28 @@ class QualificationSourceTests(unittest.TestCase):
                         "self.path == '/v1/chat/completions'", "body['model'] == 'held'",
                         "body['stream'] is True", "self.headers.get('X-Session-Id') == fixture.session_id",
                         "self.headers.get('x-session-affinity')", 'length <= 1024 * 1024',
-                        "'@ai-sdk/openai-compatible'", "'model': 'rrw007f/held'",
+                        "'@opencode/ai/providers/openai-compatible'", "'model': 'rrw007f/held'",
                         "'model': {'id': 'held', 'providerID': 'rrw007f'}",
                         "'id': message_id", "'delivery': 'steer', 'resume': True",
                         'provider.held.wait(120)', "switch('tui', plan, pid)",
                         'provider.release.set()', 'fixture.release.wait(360)',
-                        'self.requests == 1', "'/api/session/active'", 'range(100)',
-                        "'/history?limit=100&after='", "page['hasMore']",
-                        "event['durable']['seq'] > after", "['data']['assistantMessageID']",
+                        'self.requests == 1', "'/api/session/active'",
+                        "'/log?follow=false'", "'&after='", "event['type'] == 'log.synced'",
+                        "seq > last", "['data']['assistantMessageID']",
                         "typed(events, 'step.started') == starts", "typed(events, 'step.failed')",
                         "ends[0]['data']['finish'] == 'stop'", "typed(events, 'text.ended')",
-                        "admissions[0]['durable']['seq'] == admitted['admittedSeq']",
-                        "prompts[0]['data']['messageID'] == admitted['id']",
+                        "admissions[0]['data']['inboxID'] == admitted['id']",
+                        "delivered[0]['data']['inboxID'] == admitted['id']",
+                        "admissions[0]['data']['item'] ==",
+                        "'text': provider.nonce", "admitted['payload']['text'] == provider.nonce",
                         "'RRW007F-BEGIN:' + provider.nonce + ':END'",
                         'self.server.shutdown()', 'self.server.server_close()',
                         "print('F07: inflight-turn-preservation-complete')"):
             self.assertIn(witness, source)
         self.assertNotIn('/wait', source)
+        self.assertNotIn('/history?', source)
+        self.assertNotIn('session.next.', source)
+        self.assertNotIn("'prompt': {'text'", source)
         tree = ast.parse(source)
         functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
         prepare = ast.get_source_segment(source, functions['prepare_fixture'])
@@ -187,6 +193,241 @@ class QualificationSourceTests(unittest.TestCase):
         self.assertLess(proof.index('held()\n'), proof.index("switch('tui'"))
         self.assertLess(proof.index("switch('tui'"), proof.index('provider.release.set()'))
         self.assertLess(proof.index('provider.release.set()'), proof.index("print('F07:"))
+
+
+class SessionLogTests(unittest.TestCase):
+    """Synthetic wire data only; sequence zero and invisible gaps are legal."""
+
+    def setUp(self):
+        self.fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        self.parse = self.fixture['parse_log']
+
+    def event(self, seq=0, session='ses_synthetic'):
+        return {'id': 'evt_synthetic_' + str(seq), 'created': 0, 'type': 'session.step.started',
+                'data': {'sessionID': session, 'assistantMessageID': 'msg_synthetic'},
+                'durable': {'aggregateID': session, 'seq': seq, 'version': 1}}
+
+    def synced(self, seq=0):
+        return {'type': 'log.synced', 'aggregateID': 'ses_synthetic', 'seq': seq}
+
+    def wire(self, *items):
+        return ''.join('event: message\ndata: ' + json.dumps(item) + '\n\n' for item in items).encode()
+
+    def test_snapshot_starts_at_zero_and_cursor_uses_watermark_not_visible_event(self):
+        events = [self.event(0), self.event(3)]
+        self.assertEqual(self.parse(self.wire(*events, self.synced(5)), 'ses_synthetic'), (events, 5))
+        self.assertEqual(self.parse(self.wire(self.event(8), self.synced(9)), 'ses_synthetic', 5),
+                         ([self.event(8)], 9))
+        self.assertEqual(self.parse(self.wire(self.synced(9)), 'ses_synthetic', 9), ([], 9))
+        empty = {'type': 'log.synced', 'aggregateID': 'ses_synthetic'}
+        self.assertEqual(self.parse(self.wire(empty), 'ses_synthetic'), ([], None))
+
+    def test_crlf_comments_and_multiline_sse_data(self):
+        raw = (': heartbeat\r\n\r\nevent: message\r\ndata: {"type":"log.synced",\r\n'
+               'data: "aggregateID":"ses_synthetic","seq":0}\r\n\r\n').encode()
+        self.assertEqual(self.parse(raw, 'ses_synthetic'), ([], 0))
+
+    def test_rejects_cross_session_replay_missing_sync_and_nonmonotonic_sequence(self):
+        wrong_aggregate = self.event()
+        wrong_aggregate['durable']['aggregateID'] = 'ses_wrong'
+        cases = [self.wire(self.event()), self.wire(self.event(session='ses_wrong'), self.synced()),
+                 self.wire(wrong_aggregate, self.synced()),
+                 self.wire(self.event(), self.event(), self.synced()),
+                 self.wire(self.event(3), self.event(1), self.synced(3)),
+                 self.wire(self.event(3), self.synced(2)),
+                 self.wire(self.synced(), self.event()), self.wire(self.synced(), self.synced()),
+                 self.wire(self.synced())[:-1], b'data: PRIVATE-INVALID-JSON\n\n']
+        for raw in cases:
+            with self.subTest(length=len(raw)), self.assertRaises((RuntimeError, ValueError)):
+                self.parse(raw, 'ses_synthetic')
+        with self.assertRaises(RuntimeError):
+            self.parse(self.wire(self.event(3), self.synced(3)), 'ses_synthetic', 3)
+
+    def test_rejects_byte_and_event_overflow(self):
+        with self.assertRaises(RuntimeError):
+            self.parse(b':' * (2 * 1024 * 1024 + 1), 'ses_synthetic')
+        items = [{'id': 'evt_x', 'type': 'session.created', 'data': {'sessionID': 's'},
+                  'durable': {'aggregateID': 's', 'seq': i, 'version': 1}} for i in range(10001)]
+        raw = ''.join('data:' + json.dumps(item, separators=(',', ':')) + '\n\n'
+                      for item in items).encode()
+        self.assertLess(len(raw), 2 * 1024 * 1024)
+        with self.assertRaises(RuntimeError):
+            self.parse(raw, 's')
+
+
+def test_log_http_snapshot_uses_finite_get_exclusive_cursor_and_bounded_reads(monkeypatch):
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    history = fixture['history']
+    observations = {}
+    wire = b'data: {"type":"log.synced","aggregateID":"ses_synthetic","seq":0}\n\n'
+
+    class Transport:
+        def settimeout(self, seconds):
+            assert 0 < seconds <= 30
+
+    class Response:
+        status = 200
+
+        def __init__(self):
+            self.offset = 0
+
+        def getheader(self, name, default):
+            assert name == 'Content-Type'
+            return 'text/event-stream; charset=utf-8'
+
+        def read1(self, bound):
+            assert 0 < bound <= 65536
+            chunk = wire[self.offset:self.offset + 7]
+            self.offset += len(chunk)
+            return chunk
+
+        def isclosed(self):
+            return self.offset == len(wire)
+
+    class Connection:
+        sock: Transport | None = Transport()
+
+        def __init__(self, host, port, timeout):
+            assert (host, port, timeout) == ('127.0.0.1', 12345, 30)
+
+        def request(self, method, path, headers):
+            observations.update(method=method, path=path)
+            assert headers == {'Authorization': 'Basic b3BlbmNvZGU6c3ludGhldGlj',
+                               'Accept': 'text/event-stream'}
+
+        def getresponse(self):
+            self.sock = None  # Faithfully exercise HTTP/1.0's detached socket case.
+            return Response()
+
+        def close(self):
+            observations['closed'] = True
+
+    monkeypatch.setitem(history.__globals__, 'registration',
+                        lambda: {'url': 'http://127.0.0.1:12345', 'password': 'synthetic'})
+    monkeypatch.setattr(http.client, 'HTTPConnection', Connection)
+    assert history('ses_synthetic', after=0) == []
+    assert observations == {'method': 'GET',
+                            'path': '/api/experimental/session/ses_synthetic/log?follow=false&after=0',
+                            'closed': True}
+    observations.clear()
+    assert history('ses_synthetic') == []
+    assert observations['path'].endswith('/log?follow=false')
+
+
+class ApiSchemaTests(unittest.TestCase):
+    """Minimal current wire schemas, deliberately indirect through local refs."""
+
+    def spec(self):
+        def obj(fields, required=()):
+            return {'type': 'object', 'properties': fields, 'required': list(required)}
+        def nullable(schema):
+            return {'anyOf': [schema, {'type': 'null'}]}
+        string = {'type': 'string'}
+        location = obj({'directory': string}, ('directory',))
+        model = obj({'id': string, 'providerID': string}, ('id', 'providerID'))
+        info_fields = {'id': string, 'projectID': string, 'cost': {'type': 'number'},
+                       'tokens': obj({}), 'time': obj({'created': string, 'updated': string},
+                                                    ('created', 'updated')),
+                       'location': {'$ref': '#/components/schemas/Location'}}
+        info = obj(info_fields, info_fields)
+        inbox_fields = {'id': string, 'sessionID': string, 'type': {'type': 'string', 'enum': ['user']},
+                        'payload': obj({'text': string}, ('text',)), 'delivery': string, 'time': obj({})}
+        schemas = {'Location': location, 'Model': model, 'Info': info,
+                   'Inbox': obj(inbox_fields, inbox_fields)}
+
+        def op(identifier, data, payload=None, session=True):
+            operation = {'operationId': identifier, 'responses': {'200': {'content': {
+                'application/json': {'schema': obj({'data': data}, ('data',))}}}}}
+            if payload is not None:
+                operation['requestBody'] = {'content': {'application/json': {'schema': payload}}}
+            if session:
+                operation['parameters'] = [{'name': 'sessionID', 'in': 'path', 'required': True,
+                                            'schema': string}]
+            return operation
+
+        create = op('session.create', {'$ref': '#/components/schemas/Info'}, obj({
+            **{key: string for key in ('id', 'parentID', 'title', 'agent', 'metadata', 'permissions')},
+            'location': nullable({'$ref': '#/components/schemas/Location'}),
+            'model': nullable({'$ref': '#/components/schemas/Model'})}), session=False)
+        prompt = op('session.prompt', {'$ref': '#/components/schemas/Inbox'}, obj({
+            'id': string, 'text': string, 'files': {'type': 'array'}, 'agents': {'type': 'array'},
+            'delivery': nullable({'type': 'string', 'enum': ['steer', 'queue']}),
+            'resume': nullable({'type': 'boolean'})}, ('text',)))
+        active = op('session.active', {'type': 'object', 'additionalProperties': False,
+                    'patternProperties': {'^ses': obj({
+                        'type': {'type': 'string', 'enum': ['running']}}, ('type',))}}, session=False)
+        log = op('experimental.session.log', {})
+        log['parameters'].extend([
+            {'name': 'after', 'in': 'query', 'schema': string},
+            {'name': 'follow', 'in': 'query', 'schema': {'type': 'string', 'enum': ['true', 'false']}}])
+        events = []
+        for kind, fields in {
+            'session.step.started': ('sessionID', 'assistantMessageID'),
+            'session.step.ended': ('sessionID', 'assistantMessageID', 'finish'),
+            'session.text.ended': ('sessionID', 'assistantMessageID', 'text'),
+            'session.inbox.enqueued': ('sessionID', 'inboxID', 'item'),
+            'session.inbox.delivered': ('sessionID', 'inboxID'),
+        }.items():
+            schemas[kind] = obj({'type': {'type': 'string', 'enum': [kind]},
+                                 'data': obj(dict.fromkeys(fields, string), fields), 'durable': obj({})},
+                                ('type', 'data', 'durable'))
+            events.append({'$ref': '#/components/schemas/' + kind})
+        schemas['Durable'] = {'anyOf': events}
+        schemas['Synced'] = obj({'type': {'type': 'string', 'enum': ['log.synced']},
+                                 'aggregateID': string, 'seq': {'type': 'integer'}}, ('type', 'aggregateID'))
+        schemas['LogItem'] = {'anyOf': [{'$ref': '#/components/schemas/Durable'},
+                                        {'$ref': '#/components/schemas/Synced'}]}
+        schemas['Encoded'] = {'type': 'string', 'contentMediaType': 'application/json',
+                               'contentSchema': {'$ref': '#/components/schemas/LogItem'}}
+        log['responses']['200']['content'] = {'text/event-stream': {'schema': obj({
+            'event': string, 'data': {'$ref': '#/components/schemas/Encoded'}}, ('event', 'data'))}}
+        return {'components': {'schemas': schemas}, 'paths': {
+            '/api/session': {'post': create},
+            '/api/session/{sessionID}': {'get': op('session.get', {'$ref': '#/components/schemas/Info'})},
+            '/api/session/{sessionID}/prompt': {'post': prompt},
+            '/api/session/active': {'get': active},
+            '/api/experimental/session/{sessionID}/log': {'get': log}}}
+
+    def test_accepts_resolved_current_wire_structure(self):
+        runpy.run_path(str(FIXTURE / 'verify-user.py'))['validate_api_schema'](self.spec())
+
+    def test_rejects_matching_operation_names_with_incompatible_structures(self):
+        validate = runpy.run_path(str(FIXTURE / 'verify-user.py'))['validate_api_schema']
+        original = self.spec()
+        for case in ('operation', 'location', 'model', 'envelope', 'prompt', 'inbox', 'active',
+                     'log', 'cycle', 'event', 'encoding'):
+            spec = copy.deepcopy(original)
+            schemas = spec['components']['schemas']
+            paths = spec['paths']
+            create = paths['/api/session']['post']
+            prompt = paths['/api/session/{sessionID}/prompt']['post']
+            if case == 'operation':
+                create['operationId'] = 'v2.session.create'
+            elif case == 'location':
+                schemas['Location']['properties']['directory'] = {'type': 'integer'}
+            elif case == 'model':
+                schemas['Model']['required'] = []
+            elif case == 'envelope':
+                del create['responses']['200']['content']['application/json']['schema']['properties']['data']
+            elif case == 'prompt':
+                fields = prompt['requestBody']['content']['application/json']['schema']['properties']
+                fields['prompt'] = fields.pop('text')
+            elif case == 'inbox':
+                schemas['Inbox']['properties']['type']['enum'] = ['assistant']
+            elif case == 'active':
+                paths['/api/session/active']['get']['responses']['200']['content']['application/json'][
+                    'schema']['properties']['data']['patternProperties']['^ses']['properties'][
+                        'type']['enum'] = ['idle']
+            elif case == 'log':
+                paths['/api/experimental/session/{sessionID}/log']['get']['parameters'].pop()
+            elif case == 'cycle':
+                schemas['Location'] = {'$ref': '#/components/schemas/Location'}
+            elif case == 'event':
+                schemas['session.inbox.enqueued']['properties']['data']['required'] = []
+            elif case == 'encoding':
+                schemas['Encoded']['type'] = 'object'
+            with self.subTest(case=case), self.assertRaises((RuntimeError, KeyError)):
+                validate(spec)
 
 
 class LoopbackProviderTests(unittest.TestCase):
@@ -220,9 +461,11 @@ class LoopbackProviderTests(unittest.TestCase):
             provider.session_id = 'ses_synthetic'
             config = provider.config()
             self.assertEqual(set(config['providers']), {'rrw007f'})
-            self.assertEqual(config['providers']['rrw007f']['api'], {
-                'type': 'aisdk', 'package': '@ai-sdk/openai-compatible',
-                'url': 'http://127.0.0.1:' + str(provider.server.server_port) + '/v1'})
+            self.assertEqual(config['update'], 'disable')
+            self.assertEqual(config['providers']['rrw007f']['package'],
+                             '@opencode/ai/providers/openai-compatible')
+            self.assertEqual(config['providers']['rrw007f']['settings'], {
+                'baseURL': 'http://127.0.0.1:' + str(provider.server.server_port) + '/v1'})
             self.assertNotRegex(json.dumps(config), r'apiKey|credential|authorization|integration|env')
             response = self.request(provider)
             self.assertEqual(response.status, 200)

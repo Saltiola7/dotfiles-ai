@@ -78,6 +78,22 @@ def synthetic_db(backend):
         db.execute('INSERT INTO session VALUES (?, ?)', ('ses_abc', '/work'))
 
 
+@pytest.mark.parametrize('legacy_present', [False, True])
+def test_current_native_session_v2_store_is_authoritative(backend, legacy_present):
+    path = backend.home / '.local/share/opencode/opencode.db'
+    with sqlite3.connect(path) as db:
+        if not legacy_present:
+            db.execute('DROP TABLE session')
+        db.execute('CREATE TABLE session_v2 (id TEXT PRIMARY KEY, directory TEXT)')
+        db.execute('INSERT INTO session_v2 VALUES (?, ?)', ('ses_abc', '/work'))
+    backend._db_sessions(plan())
+    with sqlite3.connect(path) as db:
+        db.execute('UPDATE session_v2 SET directory = ?', ('/foreign',))
+    # A matching old row cannot override the actual native v2 session location.
+    with pytest.raises(native.NativeError, match='identity or directory'):
+        backend._db_sessions(plan())
+
+
 def wrapper_argv(backend, identity='ses_abc', server='http://127.0.0.1:4096', auto=True):
     # executable_opencode.tmpl:71,116-121: exec target, prepend server,
     # retain exact session constructor, append auto under HERDR_ENV (57-59).

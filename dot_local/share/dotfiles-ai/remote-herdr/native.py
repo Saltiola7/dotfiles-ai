@@ -390,12 +390,17 @@ class Native:
             with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=1)) as db:
                 db.execute('PRAGMA query_only = ON')
                 db.set_progress_handler(lambda: 1, 100000)
-                columns = {row[1] for row in db.execute('PRAGMA table_info(session)')}
+                # Native v2.2.6 uses session_v2. Never satisfy a current session
+                # proof from a stale legacy row when both tables coexist.
+                tables = {row[0] for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('session_v2', 'session')")}
+                table = 'session_v2' if 'session_v2' in tables else 'session'
+                columns = {row[1] for row in db.execute('PRAGMA table_info(' + table + ')')}
                 if not {'id', 'directory'} <= columns:
                     raise NativeError('OpenCode session schema unsupported')
                 for pane in panes(plan):
                     if pane['session_id'] is not None:
-                        rows = db.execute('SELECT id, directory FROM session WHERE id = ? AND length(directory) <= 4096 LIMIT 2',
+                        rows = db.execute('SELECT id, directory FROM ' + table + ' WHERE id = ? AND length(directory) <= 4096 LIMIT 2',
                                           (pane['session_id'],)).fetchall()
                         if rows != [(pane['session_id'], pane['cwd'])]:
                             raise NativeError('OpenCode session identity or directory unavailable')

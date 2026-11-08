@@ -184,6 +184,17 @@ identity are checked before destructive operations. Native OpenCode client proof
 accepts the foundation wrapper's exact executable and loopback `--server`, session
 and optional `--auto` expansion; arbitrary flags/endpoints remain unsupported.
 
+OpenCode installation and native updates retain F01 ownership. Legacy asset
+defaults in the source are not a pin for the remote native v2 executable. Hosted
+qualification records the actual native version/hash and checks its served API
+schema before creating sessions. The v2.2.6 database contract uses `session_v2`;
+when that table exists, stale legacy `session` rows cannot establish identity or
+directory proof. The earlier `session` schema remains supported only when the
+current table is absent. Unsupported schemas or relocated databases refuse.
+The held-turn fixture uses the current top-level prompt input and finite SSE
+durable-log snapshots; admission, assistant identity and final output are checked
+across a real runtime switch without external provider credentials or calls.
+
 The CLI/controller and services above are not yet qualified for rollout. Native
 boot, restart and bidirectional switching remain required completion gates.
 
