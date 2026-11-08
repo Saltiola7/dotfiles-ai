@@ -708,17 +708,21 @@ def prepare_fixture(provider):
                 {'key': 's1-t0-p0', 'cwd': str(directories[1]), 'session_id': sessions[2]}],
              'root': {'pane': 's1-t0-p0'}}]}]}
     write(EXPECTED, plan)
-    STEP = 'native-sqlite-contract'
+    STEP = 'native-database-resolution'
     # Observe the actual adapter-required store; do not create/fill a missing DB.
     with Store(ROOT) as store:
         database = Native(HOME, store).database_path()
+    STEP = 'native-database-file'
     require(database.is_file())
+    STEP = 'native-database-schema'
     with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as db:
         db.execute('PRAGMA query_only = ON')
         require({'id', 'directory'} <= {row[1] for row in db.execute('PRAGMA table_info(session_v2)')})
+    STEP = 'native-database-session-proof'
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         backend._db_sessions(plan)
+        STEP = 'initial-session-client-absence'
         require(not backend.scan(set(sessions)))
         STEP = 'plain-shell-adoption'
         backend.command(['herdr-core', 'server', 'start', '--json'])
