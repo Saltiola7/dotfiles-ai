@@ -197,6 +197,31 @@ class QualificationSourceTests(unittest.TestCase):
                              for node in validators), 2)
 
 
+def test_controller_failure_reports_only_known_journal_phase(monkeypatch):
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    class Store:
+        def __init__(self, root):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+        def read(self, name):
+            if name == 'transaction.json':
+                return {'phase': 'restore_pending', 'txid': 'fixture', 'private': 'PRIVATE'}
+            return {'pending': {'operation': 'terminal.run'}, 'private': 'PRIVATE'}
+    def failed(*args, **kwargs):
+        raise fixture['CommandFailure']('command-exit-75')
+    monkeypatch.setitem(fixture['cli'].__globals__, 'adapter', lambda: (Store, None))
+    monkeypatch.setitem(fixture['cli'].__globals__, 'run', failed)
+    try:
+        fixture['cli']('switch', 'herdr-core')
+    except fixture['CommandFailure'] as error:
+        assert error.reason == 'controller-restore_pending-terminal-run'
+    else:
+        raise AssertionError('failed switch must not pass')
+
+
 class ProjectedTurnTests(unittest.TestCase):
     """Synthetic projected messages, never native state or event-log payloads."""
 

@@ -83,7 +83,25 @@ def unit(*args):
 
 
 def cli(*args):
-    return run(BIN / 'remote-herdr', *args, timeout=180)
+    try:
+        return run(BIN / 'remote-herdr', *args, timeout=180)
+    except CommandFailure:
+        # Inspect only the failed fixture transaction, never replay its effects.
+        # Phase and pending operations are restricted to source-defined labels.
+        Store, _ = adapter()
+        with Store(ROOT) as store:
+            journal = store.read('transaction.json') or {}
+            phase = journal.get('phase')
+            phases = {'stop_pending', 'prepare_pending', 'prepared', 'select_pending',
+                      'restore_pending', 'verify_pending', 'complete'}
+            label = phase if phase in phases else 'before-journal'
+            receipt = (store.read('receipt-' + journal['txid'] + '.json')
+                       if phase in phases and journal.get('txid') else None)
+            operation = ((receipt or {}).get('pending') or {}).get('operation')
+            if operation in {'server.start', 'terminal.run', 'terminal.kill', 'doc.set',
+                             'tui.write', 'tui.start'}:
+                label += '-' + operation.replace('.', '-')
+        raise CommandFailure('controller-' + label) from None
 
 
 def wait(check, seconds=120):
