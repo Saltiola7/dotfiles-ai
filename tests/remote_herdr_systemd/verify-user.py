@@ -118,6 +118,15 @@ def cli(*args):
                     for terminal in terminals:
                         if terminal.get('state') == 'live':
                             check = 'core-live-program'
+                            if type(terminal.get('pid')) is not int:
+                                check += '-spawn-pending'
+                            else:
+                                program = terminal.get('foreground') or terminal
+                                argv = program.get('argv') or []
+                                if argv and argv[0] in ('/bin/sh', 'sh', '-sh'):
+                                    check += '-posix-shell'
+                                elif argv and argv[0] in ('/bin/bash', 'bash', '-bash'):
+                                    check += '-bash'
                             identity, _ = backend._live_program(terminal)
                             check = 'core-live-client-absence'
                             require(identity is None)
