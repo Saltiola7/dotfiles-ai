@@ -880,6 +880,25 @@ def restart_and_recover(plan, pid):
             Controller(store, Native(HOME, store)).restore()
     except Exception as error:
         label = labels.get(str(error), 'unclassified') if type(error).__name__ == 'NativeError' else 'controller'
+        if label == 'kept-spawn-readiness':
+            with Store(ROOT) as store:
+                backend = Native(HOME, store)
+                pending = [t for t in backend._terminals() if t.get('state') == 'live'
+                           and t.get('keep') is True and t.get('pid') is None]
+                label += '-count-' + str(len(pending))
+                for reason in ('server_stop', 'host_shutdown', 'holder_lost', 'stopped_by_restart', 'spawn_pending'):
+                    count = sum(t.get('reason') == reason for t in pending)
+                    if count:
+                        label += '-' + reason.replace('_', '-') + '-' + str(count)
+                try:
+                    log = backend._read(HOME / '.local/state/herdr-core/default/core.log', 2 * 1024 * 1024).decode('utf-8')
+                    holder_errors = sum(line.startswith('core: kept terminals waiting for a holder:')
+                                        for line in log.splitlines())
+                    shell_errors = sum(line.startswith('core: kept terminals waiting for a shell:')
+                                       for line in log.splitlines())
+                    label += '-holder-errors-' + str(holder_errors) + '-shell-errors-' + str(shell_errors)
+                except Exception:
+                    label += '-log-unavailable'
         raise CommandFailure('core-recovery-' + label) from None
     observe('herdr-core', plan)
     cli('recover')  # A completed transaction must be observational/idempotent.
