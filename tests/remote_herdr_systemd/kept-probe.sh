@@ -39,7 +39,7 @@ for session in $sessions; do
     [[ $(timeout 5 loginctl show-session "$session" -p Service --value 2>/dev/null) == systemd-user ]] || fail
 done
 chmod 0700 /home/fixture
-install -d -o fixture -g fixture -m 0700 /home/fixture/.local/bin
+install -d -o fixture -g fixture -m 0700 /home/fixture/.local /home/fixture/.local/bin
 [[ ! -e /home/fixture/.local/bin/remote-herdr-core ]] || fail
 install -o fixture -g fixture -m 0755 /opt/f01/source/dot_local/bin/executable_remote-herdr-core /home/fixture/.local/bin/remote-herdr-core
 as_user timeout 600 /usr/bin/python3 -I /opt/f07/kept-probe.py

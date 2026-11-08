@@ -176,8 +176,11 @@ def main():
         config = HOME / '.config/dotfiles-ai'
         config.mkdir(parents=True, mode=0o700, exist_ok=True)
         write_private(config / 'herdr-core.json', pins)
+        status['phase'] = 'install-binary'
         run(BIN / 'remote-herdr-core', 'install')
+        status['phase'] = 'verify-pin'
         run(BIN / 'remote-herdr-core', 'check')
+        status['phase'] = 'verify-pristine-state'
         source = SOURCE / 'dot_local/share/dotfiles-ai/remote-herdr'
         protocol = load('kept_protocol', source / 'protocol.py')
         processes = load('kept_processes', source / 'processes.py')

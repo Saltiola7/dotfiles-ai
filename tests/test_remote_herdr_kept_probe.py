@@ -71,6 +71,11 @@ class ClassificationTests(unittest.TestCase):
 
 
 class PrivateReadTests(unittest.TestCase):
+    def test_bootstrap_explicitly_owns_intermediate_local_directory(self):
+        script = (ROOT / 'tests/remote_herdr_systemd/kept-probe.sh').read_text()
+        self.assertIn('install -d -o fixture -g fixture -m 0700 '
+                      '/home/fixture/.local /home/fixture/.local/bin', script)
+
     def test_private_read_and_symlink_mode_bounds(self):
         with tempfile.TemporaryDirectory() as temporary:
             parent = Path(temporary).resolve()
