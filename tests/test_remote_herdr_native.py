@@ -55,6 +55,7 @@ def backend(tmp_path):
     synthetic_process(b, 20, ['/bin/bash', '-l'])
     b.calls = []
     b.command = lambda argv, timeout=30: b.calls.append(argv) or {}
+    b.database_path = lambda: b.home / '.local/share/opencode/opencode.db'
     b.endpoint_present = lambda runtime: False
     synthetic_db(b)
     return b
@@ -92,6 +93,22 @@ def test_current_native_session_v2_store_is_authoritative(backend, legacy_presen
     # A matching old row cannot override the actual native v2 session location.
     with pytest.raises(native.NativeError, match='identity or directory'):
         backend._db_sessions(plan())
+
+
+@pytest.mark.parametrize('name', ['opencode.db', 'opencode-v2.db', 'opencode-beta-2.db'])
+def test_native_database_path_uses_channel_aware_read_only_resolver(backend, name):
+    calls = []
+    backend.command = lambda argv, timeout=30: calls.append(argv) or str(backend.home / '.local/share/opencode' / name) + '\n'
+    path = native.Native.database_path(backend)
+    assert path.name == name
+    assert calls == [['opencode-native', 'debug', 'paths', 'db']]
+
+
+@pytest.mark.parametrize('value', ['/outside/opencode.db', ':memory:', '/home/other/opencode.db', 'PRIVATE\0VALUE'])
+def test_native_database_path_refuses_relocated_or_invalid_locations(backend, value):
+    backend.command = lambda argv, timeout=30: value
+    with pytest.raises(native.NativeError):
+        native.Native.database_path(backend)
 
 
 def wrapper_argv(backend, identity='ses_abc', server='http://127.0.0.1:4096', auto=True):

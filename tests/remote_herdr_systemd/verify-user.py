@@ -710,7 +710,8 @@ def prepare_fixture(provider):
     write(EXPECTED, plan)
     STEP = 'native-sqlite-contract'
     # Observe the actual adapter-required store; do not create/fill a missing DB.
-    database = HOME / '.local/share/opencode/opencode.db'
+    with Store(ROOT) as store:
+        database = Native(HOME, store).database_path()
     require(database.is_file())
     with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as db:
         db.execute('PRAGMA query_only = ON')

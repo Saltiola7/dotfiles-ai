@@ -194,6 +194,16 @@ class Native:
             raise NativeError('native command invalid')
         if argv[0] in ('herdr', 'herdr-core'):
             argv[0] = str(self._binary('tui' if argv[0] == 'herdr' else 'herdr-core'))
+        elif argv == ['opencode-native', 'debug', 'paths', 'db']:
+            # Read-only native path resolver, not service discovery/start. Native
+            # v2 installation/update ownership remains with the foundation.
+            executable = self.home / '.opencode/bin/opencode'
+            self._parents(executable)
+            info = executable.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_nlink != 1 or info.st_mode & 0o022 or not info.st_mode & 0o100):
+                raise NativeError('native OpenCode executable unsafe')
+            argv[0] = str(executable)
         elif argv[0] not in ('/usr/bin/systemctl', str(self.home / '.local/bin/chezmoi')):
             raise NativeError('native command not authorized')
         env = {'HOME': str(self.home), 'PATH': str(self.home / '.local/bin') + ':/usr/bin:/bin',
@@ -376,11 +386,22 @@ class Native:
         if self.process_cwd(pid) != program.get('cwd'):
             raise NativeError('owned shell directory proof unavailable')
 
+    @bounded
+    def database_path(self):
+        value = self.command(['opencode-native', 'debug', 'paths', 'db'])
+        if not isinstance(value, str) or '\0' in value:
+            raise NativeError('OpenCode database path unavailable')
+        path = Path(value.strip())
+        if (path.parent != self.home / '.local/share/opencode'
+                or not re.fullmatch(r'opencode(?:-[A-Za-z0-9._-]+)?\.db', path.name)):
+            raise NativeError('OpenCode database location unsupported')
+        return path
+
     def _db_sessions(self, plan):
         """Supported OpenCode SQLite identity/directory contract, read-only only."""
         if not sessions(plan):
             return
-        path = self.home / '.local/share/opencode/opencode.db'
+        path = self.database_path()
         # Missing store is not positive evidence of a resumable session.
         self._parents(path)
         info = path.lstat()

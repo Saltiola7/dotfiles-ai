@@ -190,7 +190,9 @@ qualification records the actual native version/hash and checks its served API
 schema before creating sessions. The v2.2.6 database contract uses `session_v2`;
 when that table exists, stale legacy `session` rows cannot establish identity or
 directory proof. The earlier `session` schema remains supported only when the
-current table is absent. Unsupported schemas or relocated databases refuse.
+current table is absent. The native read-only `debug paths db` resolver selects
+the channel-specific filename, constrained to the user's private OpenCode data
+directory. Unsupported schemas or relocated databases refuse.
 The held-turn fixture uses the current top-level prompt input and finite SSE
 durable-log snapshots; admission, assistant identity and final output are checked
 across a real runtime switch without external provider credentials or calls.
