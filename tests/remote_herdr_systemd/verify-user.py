@@ -90,6 +90,18 @@ def kept_spawn_diagnostics(backend):
     manifest = backend.store.read('manifest.json') or {}
     addresses = set((manifest.get('receipt') or {}).get('terminals', {}).values())
     label += '-mapped-' + str(sum(t.get('address') in addresses for t in pending))
+    try:
+        probe = load('kept_probe', '/opt/f07/kept-probe.py')
+        registry = probe.private_registry(HOME / '.local/state/herdr-core/default/terminals.json')
+        classes = [probe.classify(registry, t['address'], int(time.time() * 1000))['classification']
+                   for t in pending]
+        for kind in ('claimed-pending', 'eligible-pending-noholder', 'backoff-pending-noholder',
+                     'spawned', 'not-kept-live', 'record-missing', 'schema-unsupported'):
+            count = classes.count(kind)
+            if count:
+                label += '-' + kind + '-' + str(count)
+    except Exception:
+        label += '-private-state-unavailable'
     for reason in ('server_stop', 'host_shutdown', 'holder_lost', 'stopped_by_restart', 'spawn_pending'):
         count = sum(t.get('reason') == reason for t in pending)
         if count:

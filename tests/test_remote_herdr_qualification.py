@@ -242,7 +242,8 @@ def test_kept_spawn_diagnostics_expose_only_known_counts():
             return b'core: kept terminals waiting for a holder: PRIVATE Permission denied\nPRIVATE\n'
     result = fixture['kept_spawn_diagnostics'](Backend())
     assert 'PRIVATE' not in result
-    assert '-count-1-mapped-0-server-stop-1-holder-errors-1-shell-errors-0' in result
+    assert '-count-1-mapped-0' in result
+    assert '-server-stop-1-holder-errors-1-shell-errors-0' in result
     assert '-missing-0-denied-1-resource-0' in result
 
 
