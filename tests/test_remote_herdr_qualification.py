@@ -225,6 +225,11 @@ def test_controller_failure_reports_only_known_journal_phase(monkeypatch):
 def test_kept_spawn_diagnostics_expose_only_known_counts():
     fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
     class Backend:
+        @property
+        def store(self):
+            return self
+        def read(self, name):
+            return {'receipt': {'terminals': {}}}
         def _terminals(self):
             return [{'state': 'live', 'keep': True, 'pid': None,
                      'reason': 'server_stop', 'argv': ['PRIVATE']}]
@@ -232,7 +237,7 @@ def test_kept_spawn_diagnostics_expose_only_known_counts():
             return b'core: kept terminals waiting for a holder: PRIVATE Permission denied\nPRIVATE\n'
     result = fixture['kept_spawn_diagnostics'](Backend())
     assert 'PRIVATE' not in result
-    assert '-count-1-server-stop-1-holder-errors-1-shell-errors-0' in result
+    assert '-count-1-mapped-0-server-stop-1-holder-errors-1-shell-errors-0' in result
     assert '-missing-0-denied-1-resource-0' in result
 
 

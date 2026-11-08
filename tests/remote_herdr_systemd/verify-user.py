@@ -87,6 +87,9 @@ def kept_spawn_diagnostics(backend):
     pending = [t for t in backend._terminals() if t.get('state') == 'live'
                and t.get('keep') is True and t.get('pid') is None]
     label = '-count-' + str(len(pending))
+    manifest = backend.store.read('manifest.json') or {}
+    addresses = set((manifest.get('receipt') or {}).get('terminals', {}).values())
+    label += '-mapped-' + str(sum(t.get('address') in addresses for t in pending))
     for reason in ('server_stop', 'host_shutdown', 'holder_lost', 'stopped_by_restart', 'spawn_pending'):
         count = sum(t.get('reason') == reason for t in pending)
         if count:
@@ -98,7 +101,8 @@ def kept_spawn_diagnostics(backend):
                 ('shell', 'core: kept terminals waiting for a shell:')):
             label += '-' + name + '-errors-' + str(sum(line.startswith(prefix) for line in log.splitlines()))
         for name, text in (('missing', 'No such file or directory'),
-                           ('denied', 'Permission denied'), ('resource', 'Resource temporarily unavailable')):
+                           ('denied', 'Permission denied'), ('resource', 'Resource temporarily unavailable'),
+                           ('panic', 'panicked at'), ('failed', 'failed')):
             label += '-' + name + '-' + str(log.count(text))
     except Exception:
         label += '-log-unavailable'
