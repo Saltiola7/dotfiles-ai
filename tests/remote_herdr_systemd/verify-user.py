@@ -123,6 +123,7 @@ class HeldProvider:
         self.lock = threading.Lock()
         self.requests = 0
         self.failed = False  # Sanitized thread failure: never retain request/error text.
+        self.failure_label = 'io'
 
     def __enter__(self):
         fixture = self
@@ -141,26 +142,32 @@ class HeldProvider:
                 self.send_error(404)
 
             def do_POST(self):
+                def expected(condition, label):
+                    if not condition:
+                        with fixture.lock:
+                            fixture.failure_label = label
+                        raise RuntimeError()
                 try:
                     with fixture.lock:
                         fixture.requests += 1
-                        require(fixture.requests == 1)
-                    require(self.path == '/v1/chat/completions')
-                    require(self.headers.get('Transfer-Encoding') is None)
+                        unique = fixture.requests == 1
+                    expected(unique, 'duplicate-request')
+                    expected(self.path == '/v1/chat/completions', 'route')
+                    expected(self.headers.get('Transfer-Encoding') is None, 'transfer-encoding')
                     length = int(self.headers.get('Content-Length', '0'))
-                    require(0 < length <= 1024 * 1024)
+                    expected(0 < length <= 1024 * 1024, 'content-length')
                     raw = self.rfile.read(length)
                     require(len(raw) == length)
                     body = json.loads(raw)
-                    require(body['model'] == 'held' and body['stream'] is True)
-                    require(fixture.session_id is not None)
-                    require(self.headers.get('X-Session-Id') == fixture.session_id)
-                    require(bool(self.headers.get('x-session-affinity')))
-                    require(any(message.get('role') == 'user' and
+                    expected(body['model'] == 'held' and body['stream'] is True, 'model-stream')
+                    expected(fixture.session_id is not None, 'session-not-set')
+                    expected(self.headers.get('X-Session-Id') == fixture.session_id, 'session-header')
+                    expected(bool(self.headers.get('x-session-affinity')), 'affinity-header')
+                    expected(any(message.get('role') == 'user' and
                                 (message.get('content') == fixture.nonce or
                                  any(part.get('type') == 'text' and part.get('text') == fixture.nonce
                                      for part in message.get('content', []) if isinstance(part, dict)))
-                                for message in body['messages']))
+                                for message in body['messages']), 'prompt-content')
                     self.send_response(200)
                     self.send_header('Content-Type', 'text/event-stream')
                     self.send_header('Connection', 'close')
@@ -209,7 +216,10 @@ class HeldProvider:
 
     def check(self):
         with self.lock:
-            require(not self.failed and self.requests == 1)
+            if self.failed:
+                raise CommandFailure('provider-' + self.failure_label)
+            if self.requests != 1:
+                raise CommandFailure('provider-request-count-' + str(self.requests))
 
     def config(self):
         return {'model': 'rrw007f/held', 'update': 'disable', 'share': 'disabled',
@@ -316,7 +326,9 @@ def inflight_switch(provider, plan, pid):
     require(admitted['id'] == message_id and admitted['sessionID'] == session_id)
     require(admitted['type'] == 'user' and admitted['delivery'] == 'steer')
     require(admitted['payload']['text'] == provider.nonce)
-    require(provider.held.wait(120))
+    if not provider.held.wait(120):
+        provider.check()
+        raise CommandFailure('provider-hold-not-observed')
     provider.check()
 
     def typed(events, kind):

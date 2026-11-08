@@ -163,7 +163,7 @@ class QualificationSourceTests(unittest.TestCase):
                         "'id': message_id", "'delivery': 'steer', 'resume': True",
                         'provider.held.wait(120)', "switch('tui', plan, pid)",
                         'provider.release.set()', 'fixture.release.wait(360)',
-                        'self.requests == 1', "'/api/session/active'",
+                        'self.requests != 1', "'/api/session/active'",
                         "'/log?follow=false'", "'&after='", "event['type'] == 'log.synced'",
                         "seq > last", "['data']['assistantMessageID']",
                         "typed(events, 'step.started') == starts", "typed(events, 'step.failed')",
@@ -441,7 +441,7 @@ class LoopbackProviderTests(unittest.TestCase):
                                                        for alias in node.names)) or
                  (isinstance(node, ast.ImportFrom) and node.module == 'http.server') or
                  (isinstance(node, (ast.FunctionDef, ast.ClassDef)) and
-                  node.name in {'require', 'HeldProvider'})]
+                   node.name in {'require', 'CommandFailure', 'HeldProvider'})]
         namespace = {}
         exec(compile(ast.Module(body=nodes, type_ignores=[]), '<loopback-provider>', 'exec'), namespace)
         return namespace['HeldProvider']()
