@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "tui_version": {{ .dotfiles_ai.herdr.version | toJson }},
+  "tui_sha256": {{ .dotfiles_ai.herdr.linux_amd64_asset_sha256 | toJson }},
+  "core_version": {{ .dotfiles_ai.herdr_core.version | toJson }},
+  "core_sha256": {{ .dotfiles_ai.herdr_core.binary_sha256 | toJson }}
+}

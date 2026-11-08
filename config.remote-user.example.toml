@@ -37,6 +37,9 @@ vertex_location = "global"
 vertex_account = ""
 
 [data.dotfiles_ai.herdr]
+# Either "tui" (compatibility default) or "herdr-core" for the desktop client.
+# Setup writes this explicit per-user choice; never infer it from OS Login.
+runtime = "tui"
 launchagent = false
 host_enabled = false
 

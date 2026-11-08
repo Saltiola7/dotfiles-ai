@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution
 
+The [remote Herdr runtime contract](features/remote-herdr-runtime.md) owns explicit
+per-user `[data.dotfiles_ai.herdr] runtime = "herdr-core" | "tui"` selection
+(`tui` by default). The foundation installs checksum-pinned core 0.1.18; native
+transient units remain its process owners. `remote-herdr switch`, `restore` and
+`recover` preserve exact OpenCode sessions and private layout receipts without
+restarting the shared backend. Unowned target replacement requires explicit
+`--replace-target`; ambiguous ownership or unexplained edits refuse. Disposable
+hosted qualification is distinct from Fork A's separately authorized live rollout.
+
 The [remote default activation](features/remote-worktree-activation.md) initializes
 missing activation during explicit remote apply at the qualified exact home
 default only. Existing activation is never overwritten or automatically refreshed.
@@ -876,6 +885,12 @@ topology. The deployed Codex host/guest homes, managed
 launchers, desktop separation, install flow, and target transitions are
 canonical in [`features/codex-cli.md`](features/codex-cli.md); both views are
 required until Codex deployment updates this delivered topology.
+
+RRW-007F's remote-user activation and transfer boundaries are canonical in the
+[remote Herdr transition table](features/remote-herdr-runtime.md#visual-evidence)
+and its Text Equivalent. That view distinguishes the foundation binary owner,
+native process owners and serialized client transfer. It does not change the
+existing macOS/Fedora topology below or authorize live remote adoption.
 
 ```mermaid
 flowchart LR
