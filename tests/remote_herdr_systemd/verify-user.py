@@ -88,7 +88,7 @@ def cli(*args):
     except CommandFailure:
         # Inspect only the failed fixture transaction, never replay its effects.
         # Phase and pending operations are restricted to source-defined labels.
-        Store, _ = adapter()
+        Store, Native = adapter()
         with Store(ROOT) as store:
             journal = store.read('transaction.json') or {}
             phase = journal.get('phase')
@@ -101,6 +101,30 @@ def cli(*args):
             if operation in {'server.start', 'terminal.run', 'terminal.kill', 'doc.set',
                              'tui.write', 'tui.start'}:
                 label += '-' + operation.replace('.', '-')
+            if phase == 'prepare_pending' and journal.get('target') == 'herdr-core':
+                # Mirror observations only, not prepare's start/backup effects.
+                check = 'receipt'
+                try:
+                    backend = Native(HOME, store)
+                    require(receipt is not None)
+                    check = 'core-endpoint'
+                    require(backend.endpoint_present('herdr-core'))
+                    check = 'core-document-read'
+                    document, _ = backend._document()
+                    check = 'core-document-owned'
+                    backend._owned_target('herdr-core', document, journal['replace_target'])
+                    check = 'core-terminal-inventory'
+                    terminals = backend._terminals()
+                    for terminal in terminals:
+                        if terminal.get('state') == 'live':
+                            check = 'core-live-program'
+                            identity, _ = backend._live_program(terminal)
+                            check = 'core-live-client-absence'
+                            require(identity is None)
+                    check = 'observations-now-pass'
+                except Exception:
+                    pass  # Keep only the literal failed observation label.
+                label += '-' + check
         raise CommandFailure('controller-' + label) from None
 
 
