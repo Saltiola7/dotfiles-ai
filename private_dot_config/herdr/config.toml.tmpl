@@ -16,6 +16,9 @@ agent_panel_sort = {{ .dotfiles_ai.herdr.agent_panel_sort | quote }}{{ if .dotfi
 directory = {{ printf "%s/herdr/worktrees" .dotfiles_ai.state.root | quote }}
 {{ end }}
 {{ if .dotfiles_ai.remote_user_environment.enabled }}
+{{ if not (has .dotfiles_ai.herdr.runtime (list "herdr-core" "tui")) }}
+{{ fail "remote Herdr runtime must be herdr-core or tui" }}
+{{ end }}
 [session]
-resume_agents_on_restore = true
+resume_agents_on_restore = {{ eq .dotfiles_ai.herdr.runtime "tui" }}
 {{ end }}

@@ -1,0 +1,11 @@
+[Unit]
+Description=Restore the selected Herdr runtime and exact OpenCode clients
+After=opencode-shared.service
+Wants=opencode-shared.service
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=%h/.local/bin/remote-herdr restore
+TimeoutStartSec=15min
+# Core's upstream transient services own its processes. Never run serve here.

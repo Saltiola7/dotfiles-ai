@@ -58,6 +58,12 @@ def configuration() -> dict:
     if not isinstance(data, dict) or not isinstance(local, dict):
         raise RuntimeError("foundation configuration is invalid")
     effective = merge(data, local)
+    herdr = effective.get('herdr', {})
+    if (not isinstance(herdr, dict) or not isinstance(herdr.get('runtime', 'tui'), str)
+            or herdr.get('runtime', 'tui') not in {'tui', 'herdr-core'}):
+        raise RuntimeError('foundation Herdr runtime must be herdr-core or tui')
+    if effective.get('herdr_core') != data.get('herdr_core'):
+        raise RuntimeError('foundation Herdr core pin cannot be overridden')
     for name in (*tuple(flag for flag in SUPPORTED_FLAGS if "." not in flag),
                  "knowledge_store", "hermes", "rnd"):
         section = effective.get(name, {})
@@ -280,6 +286,12 @@ def apply(revision: str) -> None:
 
 def validate_tool_integrity(data: dict) -> None:
     binaries = HOME / ".local/bin"
+    core = data.get('herdr_core', {})
+    if 'binary_sha256' in core:
+        path = binaries / 'herdr-core'
+        safe_path(path, 'executable', 0o755)
+        if path.stat().st_nlink != 1 or hashlib.sha256(path.read_bytes()).hexdigest() != core['binary_sha256']:
+            raise RuntimeError('foundation Herdr core integrity changed')
     pins = data.get("remote_user_environment", {})
     tools = [("mise", "mise_sha256"), ("gh", "gh_binary_sha256")]
     if data.get("prefect_mcp", {}).get("enabled", False):

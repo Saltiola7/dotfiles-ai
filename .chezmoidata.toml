@@ -56,6 +56,7 @@ lmstudio_base_url = "http://127.0.0.1:1234/v1"
 theme = "catppuccin"
 
 [dotfiles_ai.herdr]
+runtime = "tui"
 theme = "catppuccin"
 agent_panel_sort = "priority"
 launchagent = true
@@ -87,6 +88,12 @@ server_enabled = false
 [dotfiles_ai.tailscale]
 enabled = false
 ssh = false
+
+[dotfiles_ai.herdr_core]
+version = "0.1.18"
+archive_url = "https://releases.herdr.dev/core/0.1.18/herdr-core-linux-x86_64.tar.gz"
+archive_sha256 = "5b2f97cb4b2a9d7a6b2cc5942628203ed9fbb7cc0c2b4b09ad8a6f5648e246b7"
+binary_sha256 = "baa9d208d6400556a6e379152455fe1301e0e1acdbc114ff60b79d64425179cf"
 
 [dotfiles_ai.remote_workspace]
 enabled = false

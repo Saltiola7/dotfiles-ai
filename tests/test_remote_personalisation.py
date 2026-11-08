@@ -282,6 +282,7 @@ def test_apply_records_failure_until_tool_bytes_are_verified(tmp_path, monkeypat
     content = b'#!/bin/sh\nexit 0\n'
     for key in ('mise_sha256', 'gh_binary_sha256'):
         data['remote_user_environment'][key] = hashlib.sha256(content).hexdigest()
+    data['herdr_core']['binary_sha256'] = hashlib.sha256(content).hexdigest()
     monkeypatch.setattr(core, 'configuration', lambda: data)
     revision = 'a' * 40
     monkeypatch.setattr(core, 'git', lambda *args, **kwargs:
@@ -291,7 +292,7 @@ def test_apply_records_failure_until_tool_bytes_are_verified(tmp_path, monkeypat
     with pytest.raises(SystemExit, match='foundation apply failed'):
         core.apply(revision)
     assert core.read_state()['state'] == 'failed_retryable'
-    for name in ('mise', 'gh'):
+    for name in ('mise', 'gh', 'herdr-core'):
         (binaries / name).write_bytes(content)
         (binaries / name).chmod(0o755)
     core.apply(revision)
@@ -322,18 +323,19 @@ def test_prefect_remote_managed_closure_contains_runtime_and_config():
     assert not any(path.startswith('.config/dotfiles-ai/runtime/dvc/') for path in managed)
 
 
-@pytest.mark.parametrize('tool', ['mise', 'gh'])
+@pytest.mark.parametrize('tool', ['mise', 'gh', 'herdr-core'])
 def test_integrity_detects_remote_tool_tampering(tmp_path, monkeypatch, tool):
     core = foundation(tmp_path, monkeypatch)
     data = core.configuration()
     binaries = core.HOME / '.local/bin'
     binaries.mkdir(parents=True)
-    for name in ('codex', 'gcloud', 'op', 'opencode', 'remote-agent-readiness', 'herdr', 'wt', 'mise', 'gh'):
+    for name in ('codex', 'gcloud', 'op', 'opencode', 'remote-agent-readiness', 'herdr', 'wt', 'mise', 'gh', 'herdr-core'):
         path = binaries / name
         path.write_text('#!/bin/sh\nexit 0\n')
         path.chmod(0o755)
     data['remote_user_environment']['mise_sha256'] = hashlib.sha256((binaries / 'mise').read_bytes()).hexdigest()
     data['remote_user_environment']['gh_binary_sha256'] = hashlib.sha256((binaries / 'gh').read_bytes()).hexdigest()
+    data['herdr_core']['binary_sha256'] = hashlib.sha256((binaries / 'herdr-core').read_bytes()).hexdigest()
     monkeypatch.setattr(core, 'configuration', lambda: data)
     revision = 'a' * 40
     monkeypatch.setattr(core, 'git', lambda *args, **kwargs:
@@ -352,7 +354,7 @@ def test_integrity_detects_remote_tool_tampering(tmp_path, monkeypatch, tool):
              'desired_revision': revision, 'managed_targets': []}
     assert core.validate_integrity(state) == binaries / 'remote-agent-readiness'
     (binaries / tool).write_text('#!/bin/sh\nexit 42\n')
-    with pytest.raises(RuntimeError, match='remote tool integrity changed'):
+    with pytest.raises(RuntimeError, match='Herdr core integrity changed' if tool == 'herdr-core' else 'remote tool integrity changed'):
         core.validate_integrity(state)
 
 
