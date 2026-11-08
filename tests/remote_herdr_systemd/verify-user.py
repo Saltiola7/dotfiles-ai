@@ -12,6 +12,7 @@ import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import socket
@@ -35,6 +36,11 @@ EXPECTED = HOME / 'qualification.json'
 STEP = 'initialization'
 
 
+class CommandFailure(RuntimeError):
+    def __init__(self, reason):
+        self.reason = reason
+
+
 def require(condition):
     if not condition:
         raise RuntimeError()
@@ -44,7 +50,17 @@ def run(*argv, timeout=90, env=None):
     # Never use check=True: CalledProcessError includes native argv/output.
     result = subprocess.run([str(a) for a in argv], capture_output=True, text=True,
                             cwd=HOME, env=env, timeout=timeout)
-    require(result.returncode == 0)
+    if result.returncode != 0:
+        # Literal program/hook names and numeric statuses only. Native text,
+        # registration, provider messages and command arguments remain withheld.
+        reason = 'command-exit-' + str(result.returncode)
+        hooks = {'install-00-remote-herdr.sh', 'install-00z-remote-herdr-core.sh',
+                 'install-01-remote-opencode.sh', 'install-04-remote-opencode-service.sh',
+                 'install-05-remote-herdr-runtime.sh'}
+        match = re.search(r'chezmoi: ([a-z0-9.-]+\.sh): exit status ([0-9]{1,3})', result.stderr)
+        if match and match[1] in hooks:
+            reason = match[1] + '-exit-' + match[2]
+        raise CommandFailure(reason)
     require(len(result.stdout) + len(result.stderr) <= 2 * 1024 * 1024)
     return result.stdout.strip()
 
@@ -435,14 +451,16 @@ def prepare():
 
 def prepare_fixture(provider):
     global STEP
-    STEP = 'install'
+    STEP = 'install-bootstrap-config'
     bootstrap = load('bootstrap', '/opt/f01/bootstrap.py')
     bootstrap.prepare_config()
+    STEP = 'install-chezmoi'
     bootstrap.install_chezmoi()
     # Only the allowlisted partial source is applied. No foundation/cloud tools.
     opencode_config = HOME / '.config/opencode'
     opencode_config.mkdir(mode=0o700)
     write(opencode_config / 'opencode.json', provider.config())
+    STEP = 'install-apply'
     run(BIN / 'chezmoi', '-c', CONFIG, '-S', SOURCE, 'apply', timeout=600)
     # Pause only the disposable timer during serial fixture manipulation.
     unit('stop', 'remote-herdr-restore.timer', 'remote-herdr-restore.service')
@@ -604,7 +622,8 @@ if __name__ == '__main__':
                   'verify-tui': lambda: boot('tui')}
         stages[sys.argv[1]]()
         print('F07: stage-complete')
-    except Exception:
+    except Exception as error:
         # STEP comes only from literal fixture labels, never exception/native text.
-        print('F07: failed-' + STEP, file=sys.stderr)
+        suffix = '-' + error.reason if isinstance(error, CommandFailure) else ''
+        print('F07: failed-' + STEP + suffix, file=sys.stderr)
         sys.exit(1)

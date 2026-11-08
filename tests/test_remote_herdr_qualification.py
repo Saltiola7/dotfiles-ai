@@ -7,7 +7,9 @@ import http.client
 import json
 from pathlib import Path
 import re
+import runpy
 import shlex
+import subprocess
 import tomllib
 import unittest
 
@@ -15,6 +17,21 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / 'tests/remote_herdr_systemd'
 WORKFLOW = ROOT / '.github/workflows/remote-herdr-runtime.yml'
+
+
+def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    def failed(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 1, stdout='PRIVATE-REGISTRATION', stderr=(
+            'PRIVATE-CREDENTIAL\nchezmoi: install-04-remote-opencode-service.sh: exit status 75'))
+    monkeypatch.setattr(subprocess, 'run', failed)
+    try:
+        fixture['run']('must-not-execute')
+    except fixture['CommandFailure'] as error:
+        assert error.reason == 'install-04-remote-opencode-service.sh-exit-75'
+        assert 'PRIVATE' not in str(error)
+    else:
+        raise AssertionError('native failure must not pass')
 
 
 class QualificationSourceTests(unittest.TestCase):
