@@ -723,7 +723,23 @@ def prepare_fixture(provider):
         backend = Native(HOME, store)
         backend._db_sessions(plan)
         STEP = 'initial-session-client-absence'
-        require(not backend.scan(set(sessions)))
+        import processes
+        try:
+            initial_clients = backend.scan(set(sessions))
+        except processes.ProcessProofError as error:
+            labels = {
+                'process observation ownership unavailable': 'process-read-ownership',
+                'process observation exceeds bound': 'process-read-bound',
+                'process identity unavailable': 'process-identity',
+                'process arguments unavailable': 'process-arguments',
+                'process directory unsafe': 'process-directory',
+                'process inventory unavailable': 'process-inventory',
+                'process inventory exceeds bound': 'process-inventory-bound',
+                'process session ownership ambiguous': 'process-ambiguous',
+            }
+            raise CommandFailure(labels.get(str(error), 'process-proof-unavailable')) from None
+        if initial_clients:
+            raise CommandFailure('unexpected-client-count-' + str(len(initial_clients)))
         STEP = 'plain-shell-adoption'
         backend.command(['herdr-core', 'server', 'start', '--json'])
         wait(lambda: backend.endpoint_present('herdr-core'))
