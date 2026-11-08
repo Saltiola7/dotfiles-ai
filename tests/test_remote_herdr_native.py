@@ -313,7 +313,7 @@ def test_prepare_observes_kept_spawn_before_proving_program(backend, replacement
                 'argv': ['/bin/bash', '-l'], 'cwd': '/work', 'foreground': None, 'labels': {}}
     core.terminals['kept'] = terminal
     observations = []
-    def wait(check):
+    def wait(check, *, seconds=None):
         observations.append('pending')
         assert check() is False
         if replacement != 'pending':
@@ -338,7 +338,7 @@ def test_prepare_observes_kept_spawn_before_proving_program(backend, replacement
 def test_readiness_timeouts_identify_the_failed_boundary(backend):
     core = FakeCore(backend)
     receipt = backend.prepare('herdr-core', plan(), 'readytx')
-    def timeout(check):
+    def timeout(check, *, seconds=None):
         raise native.NativeError('native readiness or stop proof unavailable')
     backend._wait = timeout
     with pytest.raises(native.NativeError, match='^core kept-terminal spawn readiness unavailable$'):
@@ -348,6 +348,30 @@ def test_readiness_timeouts_identify_the_failed_boundary(backend):
     with pytest.raises(native.NativeError, match='^core restored terminal readiness unavailable$'):
         backend.restore('herdr-core', plan(), 'readytx', receipt)
     assert sum(method == 'terminal.run' for method, _ in core.calls) == 1
+
+
+@pytest.mark.parametrize('recovers', [True, False])
+def test_kept_spawn_wait_covers_native_backoff_cap_and_remains_bounded(backend, monkeypatch, recovers):
+    core = FakeCore(backend)
+    backend.poll_seconds = 30.0
+    clock = {'now': 0.0}
+    monkeypatch.setattr(native.time, 'monotonic', lambda: clock['now'])
+    def sleep(seconds):
+        clock['now'] += seconds
+    monkeypatch.setattr(native.time, 'sleep', sleep)
+    def terminals():
+        return [{'state': 'live', 'keep': True,
+                 'pid': 81 if recovers and clock['now'] >= 60 else None}]
+    backend._terminals = terminals
+    if recovers:
+        backend._wait_core_spawns()
+        assert 60 <= clock['now'] < 61
+    else:
+        with pytest.raises(native.NativeError, match='kept-terminal spawn readiness unavailable'):
+            backend._wait_core_spawns()
+        assert 75 <= clock['now'] < 76
+    assert backend.poll_seconds == 30.0
+    assert not core.calls
 
 
 def test_full_core_restore_direct_argv_and_idempotent_recovery(backend):

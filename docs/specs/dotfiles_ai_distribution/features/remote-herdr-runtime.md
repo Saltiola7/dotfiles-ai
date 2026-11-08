@@ -158,8 +158,10 @@ restore and verification. `manifest.json` binds the current owned layout to its
 runtime, exact session identities and per-pane native terminal receipt. Store
 files are neither source-owned nor an interchange format to hand-edit.
 Core socket readiness does not establish kept-terminal readiness. Preparation
-and recovery wait within the existing bound for live kept records without PIDs,
-then apply full actual-program proof. This wait only observes; persistent pending
+and recovery wait up to 75 seconds for live kept records without PIDs, covering
+the native 60-second backoff cap plus sweep/recovery-loop margin. Other ordinary
+readiness waits remain 30 seconds. Full actual-program proof still follows the
+kept-spawn wait. This wait only observes; persistent pending
 spawns or unknown programs still refuse without creating or killing terminals.
 
 Recovery observes stopped source PID/start-time identities, exact post-stop

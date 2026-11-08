@@ -531,7 +531,9 @@ class Native:
         # Observations only: never restart a core, run a terminal or retry a
         # mutation because the kept-terminal PID is not available yet.
         try:
-            self._wait(ready)
+            # Upstream keep backoff caps at 60 seconds; leave a margin for the
+            # sweep and one-second recovery loop. Ordinary readiness stays 30s.
+            self._wait(ready, seconds=75.0)
         except NativeError as error:
             if str(error) == 'native readiness or stop proof unavailable':
                 raise NativeError('core kept-terminal spawn readiness unavailable') from None
@@ -710,8 +712,8 @@ class Native:
         elif source == 'herdr-core':
             self._other_off(source)
 
-    def _wait(self, check):
-        deadline = time.monotonic() + self.poll_seconds
+    def _wait(self, check, *, seconds=None):
+        deadline = time.monotonic() + (self.poll_seconds if seconds is None else seconds)
         while True:
             if check():
                 return
