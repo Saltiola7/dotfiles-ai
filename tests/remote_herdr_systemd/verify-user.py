@@ -854,7 +854,30 @@ def restart_and_recover(plan, pid):
         backend.absent(set(p['session_id'] for s in plan['spaces'] for t in s['tabs'] for p in t['panes']), capture['clients'])
         require(backend._pids_absent(capture['pids']))
     STEP = 'core-shell-recovery'
-    cli('restore')
+    # Use the installed controller directly for this phase so fixed native
+    # refusal labels survive the CLI's deliberately generic failure boundary.
+    # Native effects and locking are unchanged; never retry a failed restore.
+    from controller import Controller
+    labels = {
+        'core recovery document has unexplained edits': 'document-changed',
+        'core recovery terminal not owned': 'terminal-not-owned',
+        'core recovery directory mismatch': 'directory-mismatch',
+        'core recovery foreign program': 'foreign-program',
+        'core foreign or unsupported live program': 'unsupported-live-program',
+        'owned shell has foreign live program': 'shell-program-mismatch',
+        'core target changed after backup': 'target-changed',
+        'core prior terminal creation requires recovery': 'prior-create',
+        'session client already running': 'client-already-running',
+        'native readiness or stop proof unavailable': 'readiness',
+        'core recovery process changed before shell stop': 'process-changed',
+        'core recovery document changed before shell stop': 'document-changed-before-stop',
+    }
+    try:
+        with Store(ROOT) as store:
+            Controller(store, Native(HOME, store)).restore()
+    except Exception as error:
+        label = labels.get(str(error), 'unclassified') if type(error).__name__ == 'NativeError' else 'controller'
+        raise CommandFailure('core-recovery-' + label) from None
     observe('herdr-core', plan)
     cli('recover')  # A completed transaction must be observational/idempotent.
     observe('herdr-core', plan)
