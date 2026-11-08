@@ -368,6 +368,38 @@ def test_tui_uncertain_exec_waits_without_second_start(backend):
     assert not any('start' in argv for argv in calls)
 
 
+@pytest.mark.parametrize('change', [None, 'snapshot', 'surviving-client'])
+def test_interrupted_boot_preserves_exact_native_snapshot(backend, change):
+    backend.snapshot_path.parent.mkdir(parents=True)
+    snapshot = native.layout.to_tui_snapshot(plan())
+    snapshot['sidebar_width'] = 45
+    backend.snapshot_path.write_text(json.dumps(snapshot, indent=2))
+    backend.snapshot_path.chmod(0o600)
+    before = backend.snapshot_path.read_bytes()
+    receipt = {'runtime': 'tui', 'txid': 'boottx', 'document': copy.deepcopy(snapshot),
+               'pending': {'operation': 'tui.start'}}
+    if change == 'snapshot':
+        snapshot['sidebar_width'] = 46
+        backend.snapshot_path.write_text(json.dumps(snapshot))
+    elif change == 'surviving-client':
+        synthetic_process(backend, 88, wrapper_argv(backend))
+    calls = []
+    backend.command = lambda argv, timeout=30: calls.append(argv) or ('inactive\n' if 'show' in argv else {})
+    backend._wait_ready = lambda *args: None
+    def no_write(*args, **kwargs):
+        raise AssertionError('boot recovery must preserve native snapshot bytes')
+    backend._atomic = no_write
+    if change:
+        with pytest.raises(native.NativeError):
+            backend.recover_tui(plan(), 'boottx', receipt, preserve_snapshot=True)
+        assert not any('start' in argv for argv in calls)
+    else:
+        saved = backend.recover_tui(plan(), 'boottx', receipt, preserve_snapshot=True)
+        assert saved['document'] == snapshot and saved['pending'] is None
+        assert backend.snapshot_path.read_bytes() == before
+        assert sum('start' in argv for argv in calls) == 1
+
+
 @pytest.mark.parametrize('retain_original_argv', [False, True])
 def test_owned_shell_recovery_retains_records_and_remaps(backend, retain_original_argv):
     core = FakeCore(backend)

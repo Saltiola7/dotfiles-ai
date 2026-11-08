@@ -186,7 +186,8 @@ class Controller:
             if boot and boot.get('status') == 'start_pending':
                 if journal and journal.get('phase') != 'complete':
                     raise ControllerError('conflicting retained startup and switch intents')
-                boot['receipt'] = self.backend.recover_tui(boot['plan'], boot['receipt']['txid'], boot['receipt'])
+                boot['receipt'] = self.backend.recover_tui(
+                    boot['plan'], boot['receipt']['txid'], boot['receipt'], preserve_snapshot=True)
                 boot['status'] = 'complete'
                 self.store.write('boot.json', boot)
                 return

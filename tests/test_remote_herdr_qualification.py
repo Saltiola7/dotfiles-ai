@@ -35,21 +35,6 @@ def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
         raise AssertionError('native failure must not pass')
 
 
-def test_durable_log_failure_is_not_hidden_by_readiness_retry(monkeypatch):
-    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
-    def rejected():
-        raise fixture['LogFailure']('log-status-401')
-    def no_sleep(seconds):
-        raise AssertionError('a rejected log request must not be retried')
-    monkeypatch.setattr(fixture['time'], 'sleep', no_sleep)
-    try:
-        fixture['wait'](rejected)
-    except fixture['LogFailure'] as error:
-        assert error.reason == 'log-status-401'
-    else:
-        raise AssertionError('log failure must propagate')
-
-
 class QualificationSourceTests(unittest.TestCase):
     def test_copy_is_explicit_public_file_allowlist(self):
         allowed = {
@@ -168,7 +153,7 @@ class QualificationSourceTests(unittest.TestCase):
         self.assertNotIn('inflight-turn-not-qualified', shell)
         self.assertIn('native-layout-and-inflight-turn-qualification-complete', shell)
 
-    def test_inflight_proof_uses_native_identity_and_durable_history(self):
+    def test_inflight_proof_uses_native_identity_and_projected_messages(self):
         source = (FIXTURE / 'verify-user.py').read_text()
         for witness in ("Server(('127.0.0.1', 0), Handler)", 'ThreadingHTTPServer',
                         "self.path == '/v1/chat/completions'", "body['model'] == 'held'",
@@ -177,23 +162,17 @@ class QualificationSourceTests(unittest.TestCase):
                         "'@opencode/ai/providers/openai-compatible'", "'model': 'rrw007f/held'",
                         "'model': {'id': 'held', 'providerID': 'rrw007f'}",
                         "'id': message_id", "'delivery': 'steer', 'resume': True",
-                        'provider.held.wait(120)', "switch('tui', plan, pid)",
+                        'provider.held.wait(120)', "switch('tui', plan, pid, during=held)",
                         'provider.release.set()', 'fixture.release.wait(360)',
                         'self.requests != 1', "'/api/session/active'",
-                        "'/log?follow=false'", "'&after='", "event['type'] == 'log.synced'",
-                        "seq > last", "['data']['assistantMessageID']",
-                        "typed(events, 'step.started') == starts", "typed(events, 'step.failed')",
-                        "ends[0]['data']['finish'] == 'stop'", "typed(events, 'text.ended')",
-                        "admissions[0]['data']['inboxID'] == admitted['id']",
-                        "delivered[0]['data']['inboxID'] == admitted['id']",
-                        "admissions[0]['data']['item'] ==",
+                        "'/context'", "'/message/'", 'projected_turn(context(), admitted, original)',
                         "'text': provider.nonce", "admitted['payload']['text'] == provider.nonce",
-                        "'RRW007F-BEGIN:' + provider.nonce + ':END'",
                         'self.server.shutdown()', 'self.server.server_close()',
                         "print('F07: inflight-turn-preservation-complete')"):
             self.assertIn(witness, source)
         self.assertNotIn('/wait', source)
         self.assertNotIn('/history?', source)
+        self.assertNotIn('/api/experimental/session/', source)
         self.assertNotIn('session.next.', source)
         self.assertNotIn("'prompt': {'text'", source)
         tree = ast.parse(source)
@@ -209,125 +188,88 @@ class QualificationSourceTests(unittest.TestCase):
         self.assertLess(proof.index('held()\n'), proof.index("switch('tui'"))
         self.assertLess(proof.index("switch('tui'"), proof.index('provider.release.set()'))
         self.assertLess(proof.index('provider.release.set()'), proof.index("print('F07:"))
+        calls = [node for node in ast.walk(functions['inflight_switch']) if isinstance(node, ast.Call)]
+        validators = [node for node in calls if isinstance(node.func, ast.Name)
+                      and node.func.id in {'projected_assistant', 'projected_turn'}]
+        self.assertEqual(len(validators), 5)
+        self.assertEqual(sum(any(key.arg == 'complete' and isinstance(key.value, ast.Constant)
+                                 and key.value.value is True for key in node.keywords)
+                             for node in validators), 2)
 
 
-class SessionLogTests(unittest.TestCase):
-    """Synthetic wire data only; sequence zero and invisible gaps are legal."""
+class ProjectedTurnTests(unittest.TestCase):
+    """Synthetic projected messages, never native state or event-log payloads."""
 
     def setUp(self):
-        self.fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
-        self.parse = self.fixture['parse_log']
+        fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        self.validate = fixture['projected_turn']
+        self.message = fixture['projected_assistant']
+        self.admitted = {'id': 'msg_synthetic_user', 'payload': {'text': 'synthetic'}}
+        self.user = {'id': self.admitted['id'], 'type': 'user', 'text': 'synthetic',
+                     'time': {'created': 1}}
+        self.assistant: dict = {'id': 'msg_synthetic_assistant', 'type': 'assistant',
+                          'model': {'id': 'held', 'providerID': 'rrw007f'},
+                          'time': {'created': 2}, 'content': []}
 
-    def event(self, seq=0, session='ses_synthetic'):
-        return {'id': 'evt_synthetic_' + str(seq), 'created': 0, 'type': 'session.step.started',
-                'data': {'sessionID': session, 'assistantMessageID': 'msg_synthetic'},
-                'durable': {'aggregateID': session, 'seq': seq, 'version': 1}}
+    def test_accepts_original_incomplete_and_completed_projection(self):
+        self.assertEqual(self.validate([self.user, self.assistant], self.admitted), self.assistant)
+        done = copy.deepcopy(self.assistant)
+        done['time']['completed'] = 3
+        done['finish'] = 'stop'
+        done['content'] = [{'type': 'text', 'text': 'RRW007F-BEGIN:'},
+                           {'type': 'text', 'text': 'synthetic:END'}]
+        self.validate([self.user, done], self.admitted, self.assistant, complete=True)
+        idle = {'id': 'msg_idle', 'type': 'idle', 'time': {'created': 4}, 'outcome': 'succeeded'}
+        self.validate([self.user, done, idle], self.admitted, self.assistant, complete=True)
+        for outcome in ('failed', 'interrupted'):
+            with self.subTest(outcome=outcome), self.assertRaises(RuntimeError):
+                self.validate([self.user, done, dict(idle, outcome=outcome)],
+                              self.admitted, self.assistant, complete=True)
 
-    def synced(self, seq=0):
-        return {'type': 'log.synced', 'aggregateID': 'ses_synthetic', 'seq': seq}
+    def test_rejects_replacement_model_early_completion_and_errors(self):
+        for case in ('id', 'created', 'model', 'provider', 'completed', 'finish', 'error', 'content'):
+            changed = copy.deepcopy(self.assistant)
+            if case == 'id':
+                changed['id'] = 'msg_replacement'
+            elif case in {'created', 'completed'}:
+                changed['time'][case] = 99
+            elif case in {'model', 'provider'}:
+                changed['model']['id' if case == 'model' else 'providerID'] = 'wrong'
+            elif case == 'error':
+                changed['error'] = {'message': 'synthetic error'}
+            elif case == 'content':
+                changed['content'] = None
+            else:
+                changed['finish'] = 'stop'
+            with self.subTest(case=case), self.assertRaises(RuntimeError):
+                self.message(changed, self.assistant)
 
-    def wire(self, *items):
-        return ''.join('event: message\ndata: ' + json.dumps(item) + '\n\n' for item in items).encode()
+    def test_rejects_duplicate_missing_or_changed_user_and_assistant(self):
+        wrong_id = dict(self.user, id='msg_wrong')
+        wrong_text = dict(self.user, text='wrong')
+        for context in ([self.user], [self.assistant], [self.user, self.user],
+                        [self.assistant, self.assistant], [self.user, self.assistant, self.user],
+                        [self.user, self.assistant, self.assistant],
+                        [wrong_id, self.assistant], [wrong_text, self.assistant]):
+            with self.subTest(count=len(context)), self.assertRaises(RuntimeError):
+                self.validate(context, self.admitted, self.assistant)
 
-    def test_snapshot_starts_at_zero_and_cursor_uses_watermark_not_visible_event(self):
-        events = [self.event(0), self.event(3)]
-        self.assertEqual(self.parse(self.wire(*events, self.synced(5)), 'ses_synthetic'), (events, 5))
-        self.assertEqual(self.parse(self.wire(self.event(8), self.synced(9)), 'ses_synthetic', 5),
-                         ([self.event(8)], 9))
-        self.assertEqual(self.parse(self.wire(self.synced(9)), 'ses_synthetic', 9), ([], 9))
-        empty = {'type': 'log.synced', 'aggregateID': 'ses_synthetic'}
-        self.assertEqual(self.parse(self.wire(empty), 'ses_synthetic'), ([], None))
-
-    def test_crlf_comments_and_multiline_sse_data(self):
-        raw = (': heartbeat\r\n\r\nevent: message\r\ndata: {"type":"log.synced",\r\n'
-               'data: "aggregateID":"ses_synthetic","seq":0}\r\n\r\n').encode()
-        self.assertEqual(self.parse(raw, 'ses_synthetic'), ([], 0))
-
-    def test_rejects_cross_session_replay_missing_sync_and_nonmonotonic_sequence(self):
-        wrong_aggregate = self.event()
-        wrong_aggregate['durable']['aggregateID'] = 'ses_wrong'
-        cases = [self.wire(self.event()), self.wire(self.event(session='ses_wrong'), self.synced()),
-                 self.wire(wrong_aggregate, self.synced()),
-                 self.wire(self.event(), self.event(), self.synced()),
-                 self.wire(self.event(3), self.event(1), self.synced(3)),
-                 self.wire(self.event(3), self.synced(2)),
-                 self.wire(self.synced(), self.event()), self.wire(self.synced(), self.synced()),
-                 self.wire(self.synced())[:-1], b'data: PRIVATE-INVALID-JSON\n\n']
-        for raw in cases:
-            with self.subTest(length=len(raw)), self.assertRaises((RuntimeError, ValueError)):
-                self.parse(raw, 'ses_synthetic')
-        with self.assertRaises(RuntimeError):
-            self.parse(self.wire(self.event(3), self.synced(3)), 'ses_synthetic', 3)
-
-    def test_rejects_byte_and_event_overflow(self):
-        with self.assertRaises(RuntimeError):
-            self.parse(b':' * (2 * 1024 * 1024 + 1), 'ses_synthetic')
-        items = [{'id': 'evt_x', 'type': 'session.created', 'data': {'sessionID': 's'},
-                  'durable': {'aggregateID': 's', 'seq': i, 'version': 1}} for i in range(10001)]
-        raw = ''.join('data:' + json.dumps(item, separators=(',', ':')) + '\n\n'
-                      for item in items).encode()
-        self.assertLess(len(raw), 2 * 1024 * 1024)
-        with self.assertRaises(RuntimeError):
-            self.parse(raw, 's')
-
-
-def test_log_http_snapshot_uses_finite_get_exclusive_cursor_and_bounded_reads(monkeypatch):
-    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
-    history = fixture['history']
-    observations = {}
-    wire = b'data: {"type":"log.synced","aggregateID":"ses_synthetic","seq":0}\n\n'
-
-    class Transport:
-        def settimeout(self, seconds):
-            assert 0 < seconds <= 30
-
-    class Response:
-        status = 200
-
-        def __init__(self):
-            self.offset = 0
-
-        def getheader(self, name, default):
-            assert name == 'Content-Type'
-            return 'text/event-stream; charset=utf-8'
-
-        def read1(self, bound):
-            assert 0 < bound <= 65536
-            chunk = wire[self.offset:self.offset + 7]
-            self.offset += len(chunk)
-            return chunk
-
-        def isclosed(self):
-            return self.offset == len(wire)
-
-    class Connection:
-        sock: Transport | None = Transport()
-
-        def __init__(self, host, port, timeout):
-            assert (host, port, timeout) == ('127.0.0.1', 12345, 30)
-
-        def request(self, method, path, headers):
-            observations.update(method=method, path=path)
-            assert headers == {'Authorization': 'Basic b3BlbmNvZGU6c3ludGhldGlj',
-                               'Accept': 'text/event-stream'}
-
-        def getresponse(self):
-            self.sock = None  # Faithfully exercise HTTP/1.0's detached socket case.
-            return Response()
-
-        def close(self):
-            observations['closed'] = True
-
-    monkeypatch.setitem(history.__globals__, 'registration',
-                        lambda: {'url': 'http://127.0.0.1:12345', 'password': 'synthetic'})
-    monkeypatch.setattr(http.client, 'HTTPConnection', Connection)
-    assert history('ses_synthetic', after=0) == []
-    assert observations == {'method': 'GET',
-                            'path': '/api/experimental/session/ses_synthetic/log?follow=false&after=0',
-                            'closed': True}
-    observations.clear()
-    assert history('ses_synthetic') == []
-    assert observations['path'].endswith('/log?follow=false')
+    def test_rejects_incomplete_wrong_finish_error_and_changed_final_text(self):
+        for case in ('completed', 'finish', 'error', 'text'):
+            done = copy.deepcopy(self.assistant)
+            done['time']['completed'] = 3
+            done['finish'] = 'stop'
+            done['content'] = [{'type': 'text', 'text': 'RRW007F-BEGIN:synthetic:END'}]
+            if case == 'completed':
+                del done['time']['completed']
+            elif case == 'finish':
+                done['finish'] = 'length'
+            elif case == 'error':
+                done['error'] = {'message': 'synthetic error'}
+            else:
+                done['content'][0]['text'] += 'wrong'
+            with self.subTest(case=case), self.assertRaises(RuntimeError):
+                self.validate([self.user, done], self.admitted, self.assistant, complete=True)
 
 
 class ApiSchemaTests(unittest.TestCase):
@@ -372,37 +314,30 @@ class ApiSchemaTests(unittest.TestCase):
         active = op('session.active', {'type': 'object', 'additionalProperties': False,
                     'patternProperties': {'^ses': obj({
                         'type': {'type': 'string', 'enum': ['running']}}, ('type',))}}, session=False)
-        log = op('experimental.session.log', {})
-        log['parameters'].extend([
-            {'name': 'after', 'in': 'query', 'schema': string},
-            {'name': 'follow', 'in': 'query', 'schema': {'type': 'string', 'enum': ['true', 'false']}}])
-        events = []
-        for kind, fields in {
-            'session.step.started': ('sessionID', 'assistantMessageID'),
-            'session.step.ended': ('sessionID', 'assistantMessageID', 'finish'),
-            'session.text.ended': ('sessionID', 'assistantMessageID', 'text'),
-            'session.inbox.enqueued': ('sessionID', 'inboxID', 'item'),
-            'session.inbox.delivered': ('sessionID', 'inboxID'),
-        }.items():
-            schemas[kind] = obj({'type': {'type': 'string', 'enum': [kind]},
-                                 'data': obj(dict.fromkeys(fields, string), fields), 'durable': obj({})},
-                                ('type', 'data', 'durable'))
-            events.append({'$ref': '#/components/schemas/' + kind})
-        schemas['Durable'] = {'anyOf': events}
-        schemas['Synced'] = obj({'type': {'type': 'string', 'enum': ['log.synced']},
-                                 'aggregateID': string, 'seq': {'type': 'integer'}}, ('type', 'aggregateID'))
-        schemas['LogItem'] = {'anyOf': [{'$ref': '#/components/schemas/Durable'},
-                                        {'$ref': '#/components/schemas/Synced'}]}
-        schemas['Encoded'] = {'type': 'string', 'contentMediaType': 'application/json',
-                               'contentSchema': {'$ref': '#/components/schemas/LogItem'}}
-        log['responses']['200']['content'] = {'text/event-stream': {'schema': obj({
-            'event': string, 'data': {'$ref': '#/components/schemas/Encoded'}}, ('event', 'data'))}}
+        for kind in ('user', 'assistant'):
+            fields = {'id': string, 'time': obj({'created': {'type': 'number'}}, ('created',)),
+                      'type': {'type': 'string', 'enum': [kind]}}
+            fields.update({'text': string} if kind == 'user' else {
+                'model': {'$ref': '#/components/schemas/Model'}, 'content': {'type': 'array'}})
+            schemas[kind] = obj(fields, fields)
+        schemas['Message'] = {'anyOf': [{'$ref': '#/components/schemas/' + kind}
+                                        for kind in ('user', 'assistant')]}
+        # The actual Info union also includes a nested Compaction union.
+        schemas['Compaction'] = {'anyOf': [obj({
+            'id': string, 'time': obj({'created': {'type': 'number'}}, ('created',)),
+            'type': {'type': 'string', 'enum': ['compaction']}}, ('id', 'time', 'type'))]}
+        schemas['Message']['anyOf'].append({'$ref': '#/components/schemas/Compaction'})
+        message_ref = {'$ref': '#/components/schemas/Message'}
+        context = op('session.context', {'type': 'array', 'items': message_ref})
+        message = op('session.message.get', message_ref)
+        message['parameters'].append({'name': 'messageID', 'in': 'path', 'required': True, 'schema': string})
         return {'components': {'schemas': schemas}, 'paths': {
             '/api/session': {'post': create},
             '/api/session/{sessionID}': {'get': op('session.get', {'$ref': '#/components/schemas/Info'})},
             '/api/session/{sessionID}/prompt': {'post': prompt},
             '/api/session/active': {'get': active},
-            '/api/experimental/session/{sessionID}/log': {'get': log}}}
+            '/api/session/{sessionID}/context': {'get': context},
+            '/api/session/{sessionID}/message/{messageID}': {'get': message}}}
 
     def test_accepts_resolved_current_wire_structure(self):
         runpy.run_path(str(FIXTURE / 'verify-user.py'))['validate_api_schema'](self.spec())
@@ -411,7 +346,9 @@ class ApiSchemaTests(unittest.TestCase):
         validate = runpy.run_path(str(FIXTURE / 'verify-user.py'))['validate_api_schema']
         original = self.spec()
         for case in ('operation', 'location', 'model', 'envelope', 'prompt', 'inbox', 'active',
-                     'log', 'cycle', 'event', 'encoding'):
+                     'context-param', 'message-param', 'context-array', 'message-operation',
+                     'cycle', 'user-text', 'assistant-model', 'assistant-content', 'message-time',
+                     'missing-user', 'missing-assistant'):
             spec = copy.deepcopy(original)
             schemas = spec['components']['schemas']
             paths = spec['paths']
@@ -434,14 +371,29 @@ class ApiSchemaTests(unittest.TestCase):
                 paths['/api/session/active']['get']['responses']['200']['content']['application/json'][
                     'schema']['properties']['data']['patternProperties']['^ses']['properties'][
                         'type']['enum'] = ['idle']
-            elif case == 'log':
-                paths['/api/experimental/session/{sessionID}/log']['get']['parameters'].pop()
+            elif case == 'context-param':
+                paths['/api/session/{sessionID}/context']['get']['parameters'][0]['required'] = False
+            elif case == 'message-param':
+                paths['/api/session/{sessionID}/message/{messageID}']['get']['parameters'].pop()
+            elif case == 'context-array':
+                paths['/api/session/{sessionID}/context']['get']['responses']['200']['content'][
+                    'application/json']['schema']['properties']['data']['type'] = 'object'
+            elif case == 'message-operation':
+                paths['/api/session/{sessionID}/message/{messageID}']['get']['operationId'] = 'wrong'
             elif case == 'cycle':
                 schemas['Location'] = {'$ref': '#/components/schemas/Location'}
-            elif case == 'event':
-                schemas['session.inbox.enqueued']['properties']['data']['required'] = []
-            elif case == 'encoding':
-                schemas['Encoded']['type'] = 'object'
+            elif case == 'user-text':
+                schemas['user']['properties']['text'] = {'type': 'object'}
+            elif case == 'assistant-model':
+                schemas['assistant']['required'].remove('model')
+            elif case == 'assistant-content':
+                schemas['assistant']['properties']['content']['type'] = 'object'
+            elif case == 'message-time':
+                schemas['assistant']['properties']['time']['required'] = []
+            elif case == 'missing-user':
+                schemas['Message']['anyOf'].pop(0)
+            elif case == 'missing-assistant':
+                schemas['Message']['anyOf'].pop(1)
             with self.subTest(case=case), self.assertRaises((RuntimeError, KeyError)):
                 validate(spec)
 

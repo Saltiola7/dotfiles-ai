@@ -11,8 +11,6 @@ the fixture never fabricates or migrates SQLite rows to satisfy the adapter.
 """
 import importlib.util
 import hashlib
-import base64
-import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -28,7 +26,7 @@ import sys
 import threading
 import time
 import uuid
-from urllib.parse import urlsplit, quote
+from urllib.parse import urlsplit
 
 
 HOME = Path('/home/fixture')
@@ -44,10 +42,6 @@ STEP = 'initialization'
 class CommandFailure(RuntimeError):
     def __init__(self, reason):
         self.reason = reason
-
-
-class LogFailure(CommandFailure):
-    pass
 
 
 def require(condition):
@@ -99,8 +93,6 @@ def wait(check, seconds=120):
             result = check()
             if result:
                 return result
-        except LogFailure:
-            raise
         except Exception:
             pass  # Observations only; never retry native mutations.
         time.sleep(1)
@@ -245,92 +237,38 @@ class HeldProvider:
                                        'limit': {'context': 100000, 'output': 1024}}}}}}
 
 
-def parse_log(raw, session_id, after=None):
-    """Finite SSE snapshot, never include rejected event content in diagnostics.
-
-    Seq starts at zero; after is exclusive and may skip internal event gaps.
-    log.synced, not the last visible event, is the authoritative cursor.
-    """
-    require(len(raw) <= 2 * 1024 * 1024)
-    text = raw.decode('utf-8').replace('\r\n', '\n')
-    require('\r' not in text and text.endswith('\n\n'))
-    events = []
-    last = -1 if after is None else after
-    synced = False
-    watermark = None
-    for frame in text.split('\n\n'):
-        data = []
-        for line in frame.split('\n'):
-            if not line or line.startswith(':'):
-                continue
-            field, _, value = line.partition(':')
-            require(field in {'data', 'event', 'id', 'retry'})
-            if field == 'data':
-                data.append(value.removeprefix(' '))
-        if not data:
-            continue
-        require(not synced)
-        event = json.loads('\n'.join(data))
-        if event['type'] == 'log.synced':
-            require(event['aggregateID'] == session_id)
-            watermark = event.get('seq')
-            require(watermark is None and last == -1 or
-                    type(watermark) is int and watermark >= max(last, 0))
-            synced = True
-            continue
-        require(len(events) < 10000)
-        require(event['data']['sessionID'] == session_id)
-        require(event['durable']['aggregateID'] == session_id)
-        seq = event['durable']['seq']
-        require(type(seq) is int and seq > last)
-        require(type(event['durable']['version']) is int and event['durable']['version'] >= 1)
-        require(isinstance(event['id'], str) and event['id'].startswith('evt_'))
-        last = seq
-        events.append(event)
-    require(synced)
-    return events, watermark
+def projected_assistant(message, original=None, *, complete=False, nonce=''):
+    """Private in-memory projection assertions; failures disclose no payload."""
+    require(message['type'] == 'assistant' and bool(message['id']))
+    require(message['model'] == {'id': 'held', 'providerID': 'rrw007f'})
+    require(message['time']['created'] is not None and message.get('error') is None)
+    require(isinstance(message['content'], list))
+    if original is not None:
+        require(message['id'] == original['id'])
+        require(message['time']['created'] == original['time']['created'])
+    if complete:
+        require(message['time'].get('completed') is not None and message.get('finish') == 'stop')
+        require(''.join(part['text'] for part in message['content'] if part['type'] == 'text')
+                == 'RRW007F-BEGIN:' + nonce + ':END')
+    else:
+        require(message['time'].get('completed') is None and message.get('finish') is None)
+    return message
 
 
-def history(session_id, after=None):
-    # No limit/hasMore pagination exists: follow=false captures one finite watermark.
-    service = registration()
-    endpoint = urlsplit(service['url'])
-    require(endpoint.scheme == 'http' and endpoint.hostname == '127.0.0.1')
-    require(endpoint.port is not None and not endpoint.username and not endpoint.password)
-    require(endpoint.path in {'', '/'} and not endpoint.query and not endpoint.fragment)
-    path = '/api/experimental/session/' + quote(session_id, safe='') + '/log?follow=false'
-    if after is not None:
-        require(type(after) is int and after >= 0)
-        path += '&after=' + str(after)
-    connection = http.client.HTTPConnection('127.0.0.1', endpoint.port, timeout=30)
-    try:
-        token = base64.b64encode(('opencode:' + service['password']).encode()).decode('ascii')
-        connection.request('GET', path, headers={'Authorization': 'Basic ' + token,
-                                                'Accept': 'text/event-stream'})
-        transport = connection.sock  # HTTP/1.0 may detach it from the connection at headers.
-        require(transport is not None)
-        response = connection.getresponse()
-        if response.status != 200:
-            raise LogFailure('log-status-' + str(response.status))
-        if response.getheader('Content-Type', '').split(';')[0] != 'text/event-stream':
-            raise LogFailure('log-content-type')
-        deadline = time.monotonic() + 30
-        raw = bytearray()
-        while True:
-            remaining = deadline - time.monotonic()
-            require(remaining > 0)
-            transport.settimeout(remaining)
-            chunk = response.read1(min(65536, 2 * 1024 * 1024 + 1 - len(raw)))
-            raw.extend(chunk)
-            require(len(raw) <= 2 * 1024 * 1024)
-            if not chunk or response.isclosed():
-                break
-        try:
-            return parse_log(bytes(raw), session_id, after)[0]
-        except (ValueError, TypeError, KeyError, RuntimeError):
-            raise LogFailure('log-schema-invalid') from None
-    finally:
-        connection.close()
+def projected_turn(context, admitted, original=None, *, complete=False):
+    # Pinned source projector.ts InboxDelivered inserts id: input.id (the inboxID).
+    # Step.Started creates the assistant projection. These persisted message rows
+    # do not require Bus.configured's optional payload-log persistence (off by
+    # default in v2.2.6); no claim is made about retained event payloads.
+    users = [message for message in context if message['type'] == 'user']
+    assistants = [message for message in context if message['type'] == 'assistant']
+    require(len(users) == 1 and len(assistants) == 1)
+    require(users[0]['id'] == admitted['id'] and users[0]['text'] == admitted['payload']['text'])
+    require(users[0]['time']['created'] is not None)
+    for message in context:
+        if message['type'] == 'idle':
+            require(complete and message['outcome'] == 'succeeded' and message.get('error') is None)
+    return projected_assistant(assistants[0], original, complete=complete, nonce=admitted['payload']['text'])
 
 
 def inflight_switch(provider, plan, pid):
@@ -350,42 +288,31 @@ def inflight_switch(provider, plan, pid):
         raise CommandFailure('provider-hold-not-observed')
     provider.check()
 
-    def typed(events, kind):
-        return [event for event in events if event['type'] == 'session.' + kind]
-
     def running():
         return api('get', '/api/session/active')['data'].get(session_id) == {'type': 'running'}
 
-    last_log = []
-    def started():
-        nonlocal last_log
-        last_log = history(session_id)
-        return typed(last_log, 'step.started')
+    def context():
+        return api('get', '/api/session/' + session_id + '/context')['data']
 
-    STEP = 'inflight-start-log'
-    try:
-        starts = started() or wait(started)
-    except LogFailure:
-        raise
-    except RuntimeError:
-        # Counts of known event kinds only; no IDs, payloads or model text.
-        raise CommandFailure('start-event-missing-count-' + str(len(last_log))
-            + '-delivered-' + str(len(typed(last_log, 'inbox.delivered')))
-            + '-running-' + str(int(running()))) from None
-    require(len(starts) == 1)
-    assistant_id = starts[0]['data']['assistantMessageID']
+    def started():
+        return projected_turn(context(), admitted)
+
+    STEP = 'inflight-start-projection'
+    original = wait(started)
+    message_path = '/api/session/' + session_id + '/message/' + original['id']
 
     def held():
         provider.check()
         require(not provider.release.is_set() and not provider.done.is_set())
         require(backend_pid() == pid and running())
-        events = history(session_id)
-        require(typed(events, 'step.started') == starts)
-        require(not typed(events, 'step.ended') and not typed(events, 'step.failed'))
+        projected_assistant(api('get', message_path)['data'], original)
+        projected_turn(context(), admitted, original)
 
     STEP = 'inflight-turn-before-switch'
     held()
-    switch('tui', plan, pid)  # Existing proof checks old client PIDs absent, same sessions restored.
+    # switch() observes source shutdown and target TCP clients before returning;
+    # this callback also checks the original projection between those phases.
+    switch('tui', plan, pid, during=held)
     STEP = 'inflight-turn-after-switch'
     held()
     provider.release.set()  # Complete the original connection, never submit another prompt.
@@ -394,28 +321,13 @@ def inflight_switch(provider, plan, pid):
     provider.check()
 
     def settled():
-        events = history(session_id)
-        if not typed(events, 'step.ended') or session_id in api('get', '/api/session/active')['data']:
+        message = api('get', message_path)['data']
+        if message['time'].get('completed') is None or session_id in api('get', '/api/session/active')['data']:
             return None
-        return events
+        return message
 
-    events = wait(settled)
-    require(typed(events, 'step.started') == starts)
-    ends = typed(events, 'step.ended')
-    require(len(ends) == 1 and ends[0]['data']['assistantMessageID'] == assistant_id)
-    require(ends[0]['data']['finish'] == 'stop' and not typed(events, 'step.failed'))
-    texts = typed(events, 'text.ended')
-    require(len(texts) == 1 and texts[0]['data']['assistantMessageID'] == assistant_id)
-    require(texts[0]['data']['text'] == 'RRW007F-BEGIN:' + provider.nonce + ':END')
-    admissions = typed(events, 'inbox.enqueued')
-    require(len(admissions) == 1 and admissions[0]['data']['inboxID'] == admitted['id'])
-    require(admissions[0]['data']['item'] == {
-        'type': admitted['type'], 'delivery': admitted['delivery'], 'payload': admitted['payload']})
-    delivered = typed(events, 'inbox.delivered')
-    require(len(delivered) == 1 and delivered[0]['data']['inboxID'] == admitted['id'])
-    require(admissions[0]['durable']['seq'] < delivered[0]['durable']['seq'] < starts[0]['durable']['seq'])
-    require(len(typed(events, 'execution.succeeded')) == 1)
-    require(not typed(events, 'execution.failed') and not typed(events, 'execution.interrupted'))
+    projected_assistant(wait(settled), original, complete=True, nonce=provider.nonce)
+    projected_turn(context(), admitted, original, complete=True)
     require(backend_pid() == pid)
     provider.check()
     print('F07: inflight-turn-preservation-complete')
@@ -473,10 +385,11 @@ def validate_api_schema(spec):
     def operation(path, method, identifier):
         op = spec['paths'][path][method]
         require(op['operationId'] == identifier)
-        if '{sessionID}' in path:
-            params = [resolve(p) for p in spec['paths'][path].get('parameters', []) + op.get('parameters', [])]
-            require(any(p['name'] == 'sessionID' and p['in'] == 'path' and p['required'] is True
-                        and resolve(p['schema'])['type'] == 'string' for p in params))
+        params = [resolve(p) for p in spec['paths'][path].get('parameters', []) + op.get('parameters', [])]
+        for name in ('sessionID', 'messageID'):
+            if '{' + name + '}' in path:
+                require(any(p['name'] == name and p['in'] == 'path' and p['required'] is True
+                            and resolve(p['schema'])['type'] == 'string' for p in params))
         return op
 
     def body(op):
@@ -518,36 +431,37 @@ def validate_api_schema(spec):
     status = properties(active['patternProperties']['^ses'], {'type'}, {'type'})
     require(resolve(status['type']).get('enum') == ['running'] or
             resolve(status['type']).get('const') == 'running')
-    log = operation('/api/experimental/session/{sessionID}/log', 'get', 'experimental.session.log')
-    params = {p['name']: p for value in log['parameters'] if (p := resolve(value))['in'] == 'query'}
-    require({'after', 'follow'} <= params.keys())
-    require(not params['after'].get('required') and not params['follow'].get('required'))
-    string(params['after']['schema'])
-    require(set(resolve(params['follow']['schema'])['enum']) == {'true', 'false'})
-    sse = resolve(log['responses']['200'])['content']['text/event-stream']['schema']
-    frame = properties(sse, {'event', 'data'}, {'event', 'data'})
-    string(frame['event'])
-    encoded = resolve(frame['data'])
-    require(encoded['type'] == 'string' and encoded['contentMediaType'] == 'application/json')
-    items = resolve(encoded['contentSchema'])['anyOf']
-    # Union nesting is part of the checked-in protocol OpenAPI, not an SSE JSON envelope.
-    variants = [resolve(item) for item in items]
-    durable = next(item for item in variants if 'anyOf' in item)
-    kinds = {}
-    for value in durable['anyOf']:
-        event = resolve(value)
-        fields = properties(event, {'type', 'data', 'durable'}, {'type', 'data', 'durable'})
-        kinds[resolve(fields['type'])['enum'][0]] = fields['data']
-    for kind, fields in {
-        'session.step.started': {'sessionID', 'assistantMessageID'},
-        'session.step.ended': {'sessionID', 'assistantMessageID', 'finish'},
-        'session.text.ended': {'sessionID', 'assistantMessageID', 'text'},
-        'session.inbox.enqueued': {'sessionID', 'inboxID', 'item'},
-        'session.inbox.delivered': {'sessionID', 'inboxID'},
-    }.items():
-        properties(kinds[kind], fields, fields)
-    require(any(item.get('properties', {}).get('type', {}).get('enum') == ['log.synced']
-                and {'aggregateID', 'type'} <= set(item.get('required', [])) for item in variants))
+    def message_info(schema):
+        def members(schema):
+            schema = resolve(schema)
+            if 'anyOf' in schema:
+                return [leaf for item in schema['anyOf'] for leaf in members(item)]
+            return [schema]
+
+        variants = {}
+        require('anyOf' in resolve(schema))
+        for item in members(schema):
+            fields = properties(item, {'id', 'time', 'type'}, {'id', 'time', 'type'})
+            tag = resolve(fields['type'])
+            kind = tag.get('const') or tag['enum'][0]
+            variants[kind] = item
+        for kind in ('user', 'assistant'):
+            required = {'id', 'time', 'type'} | ({'text'} if kind == 'user' else {'model', 'content'})
+            fields = properties(variants[kind], required, required)
+            string(fields['id'])
+            properties(fields['time'], {'created'}, {'created'})
+            if kind == 'user':
+                string(fields['text'])
+            else:
+                model = properties(fields['model'], {'id', 'providerID'}, {'id', 'providerID'})
+                string(model['id'])
+                string(model['providerID'])
+                require(resolve(fields['content'])['type'] == 'array')
+
+    context = resolve(response(operation('/api/session/{sessionID}/context', 'get', 'session.context')))
+    require(context['type'] == 'array')
+    message_info(context['items'])
+    message_info(response(operation('/api/session/{sessionID}/message/{messageID}', 'get', 'session.message.get')))
 
 
 def adapter():
@@ -614,7 +528,7 @@ def backend_pid():
     return f01.ready()[0]  # Real authenticated API identity + owner + listener proof.
 
 
-def switch(target, plan, pid):
+def switch(target, plan, pid, during=None):
     global STEP
     STEP = 'switch-' + target
     Store, Native = adapter()
@@ -630,6 +544,8 @@ def switch(target, plan, pid):
         # New clients for the same sessions may now exist; old PID/start times may not.
         require(backend._pids_absent(before['clients']))
         require(store.read(journal['capture']['backup']) is not None)
+    if during is not None:
+        during()
     observe(target, plan)
     require(backend_pid() == pid)
 
@@ -740,7 +656,7 @@ def prepare_fixture(provider):
     sessions = []
     for directory in (directories[0], directories[0], directories[1]):
         created = api('post', '/api/session', {'location': {'directory': str(directory)},
-                                             'title': 'RRW007F fixture',
+                                              'title': 'RRW007F fixture ' + str(len(sessions)),
                                              'model': {'id': 'held', 'providerID': 'rrw007f'}})['data']
         require(created['location']['directory'] == str(directory))
         sessions.append(created['id'])

@@ -213,6 +213,11 @@ class BootBackend(Backend):
                 pass
         self.step('ready')
 
+    def recover_tui(self, value, txid, receipt, *, preserve_snapshot=False):
+        assert preserve_snapshot is True
+        self.step('recover_boot')
+        return {**receipt, 'pending': None}
+
 
 def test_tui_boot_checks_absence_and_holds_lock_through_readiness(tmp_path):
     c = module()
@@ -246,3 +251,17 @@ def test_uncertain_boot_blocks_switch_even_without_source_endpoint(tmp_path):
         with pytest.raises(c.ControllerError, match='boot startup'):
             controller.switch('herdr-core', imported=plan())
         assert 'preflight' not in backend.events
+
+
+def test_boot_recovery_explicitly_preserves_native_snapshot(tmp_path):
+    c = module()
+    with c.Store(tmp_path / 'state') as store:
+        backend = BootBackend(store)
+        backend.failure = 'ready'
+        controller = c.Controller(store, backend)
+        with pytest.raises(ValueError):
+            controller.restore()
+        backend.failure = None
+        controller.recover()
+        assert backend.events[-1] == 'recover_boot'
+        assert store.read('boot.json')['status'] == 'complete'

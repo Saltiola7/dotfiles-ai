@@ -1121,7 +1121,7 @@ class Native:
         return self.prepare(target, plan, txid, replace_target)
 
     @bounded
-    def recover_tui(self, plan, txid, receipt):
+    def recover_tui(self, plan, txid, receipt, *, preserve_snapshot=False):
         """Reconcile offline write/start using exact bytes and unit ownership."""
         plan = checked_plan(plan)
         if receipt.get('runtime') != 'tui' or receipt.get('txid') != txid or self.selected() != 'tui':
@@ -1146,7 +1146,14 @@ class Native:
         self.absent(sessions(plan), [])
         generated = layout.to_tui_snapshot(plan)
         current = self._optional_snapshot()
-        if current != generated:
+        if preserve_snapshot:
+            if (current != receipt['document'] or current is None
+                    or self._semantic(layout.from_tui_snapshot(current)) != self._semantic(plan)):
+                raise NativeError('TUI boot snapshot has unexplained edits')
+            # Boot observes a saved native snapshot, not a switch-generated file.
+            # Supported focus/default/history fields and original bytes stay intact.
+            generated = current
+        elif current != generated:
             if current != receipt['document'] or pending and pending.get('operation') == 'tui.start':
                 raise NativeError('TUI recovery snapshot has unexplained edits')
             receipt['pending'] = {'operation': 'tui.write', 'document': generated}

@@ -196,9 +196,13 @@ directory proof. The earlier `session` schema remains supported only when the
 current table is absent. The native read-only `debug paths db` resolver selects
 the channel-specific filename, constrained to the user's private OpenCode data
 directory. Unsupported schemas or relocated databases refuse.
-The held-turn fixture uses the current top-level prompt input and finite SSE
-durable-log snapshots; admission, assistant identity and final output are checked
-across a real runtime switch without external provider credentials or calls.
+The held-turn fixture uses the current top-level prompt input and projected native
+context/message APIs. Native CLI services do not retain event payloads by default;
+qualification must not assume historical payload retention or change service
+ownership to enable it. Admission, original assistant identity, active execution and final
+output are checked across a real switch without external provider credentials or
+calls. Interrupted TUI boot recovery preserves an unchanged native saved snapshot,
+including supported view/default fields, rather than rewriting a generated copy.
 
 The CLI/controller and services above are not yet qualified for rollout. Native
 boot, restart and bidirectional switching remain required completion gates.
