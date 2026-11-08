@@ -254,6 +254,15 @@ class ProjectedTurnTests(unittest.TestCase):
             with self.subTest(count=len(context)), self.assertRaises(RuntimeError):
                 self.validate(context, self.admitted, self.assistant)
 
+    def test_projection_failure_reports_only_fixed_labels_and_counts(self):
+        fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        with self.assertRaises(fixture['CommandFailure']) as captured:
+            fixture['projected_turn']([dict(self.user, text='PRIVATE'), self.assistant], self.admitted)
+        self.assertEqual(captured.exception.reason, 'projection-user-identity')
+        with self.assertRaises(fixture['CommandFailure']) as captured:
+            fixture['projected_turn']([self.user], self.admitted)
+        self.assertEqual(captured.exception.reason, 'projection-count-users-1-assistants-0')
+
     def test_rejects_incomplete_wrong_finish_error_and_changed_final_text(self):
         for case in ('completed', 'finish', 'error', 'text'):
             done = copy.deepcopy(self.assistant)

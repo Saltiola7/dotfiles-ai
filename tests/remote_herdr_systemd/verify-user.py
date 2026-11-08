@@ -239,10 +239,13 @@ class HeldProvider:
 
 def projected_assistant(message, original=None, *, complete=False, nonce=''):
     """Private in-memory projection assertions; failures disclose no payload."""
-    require(message['type'] == 'assistant' and bool(message['id']))
-    require(message['model'] == {'id': 'held', 'providerID': 'rrw007f'})
-    require(message['time']['created'] is not None and message.get('error') is None)
-    require(isinstance(message['content'], list))
+    def check(condition, label):
+        if not condition:
+            raise CommandFailure('projection-' + label)
+    check(message['type'] == 'assistant' and bool(message['id']), 'assistant-identity')
+    check(message['model'] == {'id': 'held', 'providerID': 'rrw007f'}, 'model')
+    check(message['time']['created'] is not None and message.get('error') is None, 'created-or-error')
+    check(isinstance(message['content'], list), 'content')
     if original is not None:
         require(message['id'] == original['id'])
         require(message['time']['created'] == original['time']['created'])
@@ -251,7 +254,7 @@ def projected_assistant(message, original=None, *, complete=False, nonce=''):
         require(''.join(part['text'] for part in message['content'] if part['type'] == 'text')
                 == 'RRW007F-BEGIN:' + nonce + ':END')
     else:
-        require(message['time'].get('completed') is None and message.get('finish') is None)
+        check(message['time'].get('completed') is None and message.get('finish') is None, 'completed-early')
     return message
 
 
@@ -262,12 +265,15 @@ def projected_turn(context, admitted, original=None, *, complete=False):
     # default in v2.2.6); no claim is made about retained event payloads.
     users = [message for message in context if message['type'] == 'user']
     assistants = [message for message in context if message['type'] == 'assistant']
-    require(len(users) == 1 and len(assistants) == 1)
-    require(users[0]['id'] == admitted['id'] and users[0]['text'] == admitted['payload']['text'])
+    if len(users) != 1 or len(assistants) != 1:
+        raise CommandFailure('projection-count-users-' + str(len(users)) + '-assistants-' + str(len(assistants)))
+    if users[0]['id'] != admitted['id'] or users[0]['text'] != admitted['payload']['text']:
+        raise CommandFailure('projection-user-identity')
     require(users[0]['time']['created'] is not None)
     for message in context:
         if message['type'] == 'idle':
-            require(complete and message['outcome'] == 'succeeded' and message.get('error') is None)
+            if not (complete and message['outcome'] == 'succeeded' and message.get('error') is None):
+                raise CommandFailure('projection-unexpected-idle')
     return projected_assistant(assistants[0], original, complete=complete, nonce=admitted['payload']['text'])
 
 
@@ -294,11 +300,21 @@ def inflight_switch(provider, plan, pid):
     def context():
         return api('get', '/api/session/' + session_id + '/context')['data']
 
+    projection_failure = 'projection-not-observed'
     def started():
-        return projected_turn(context(), admitted)
+        nonlocal projection_failure
+        try:
+            return projected_turn(context(), admitted)
+        except CommandFailure as error:
+            projection_failure = error.reason
+            return None
 
     STEP = 'inflight-start-projection'
-    original = wait(started)
+    try:
+        original = wait(started)
+    except RuntimeError:
+        provider.check()
+        raise CommandFailure(projection_failure) from None
     message_path = '/api/session/' + session_id + '/message/' + original['id']
 
     def held():
