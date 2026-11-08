@@ -78,6 +78,9 @@ User-manager lingering is already owned by Fork A, not enabled by this source.
 - Raw core calls use an existing owned Unix endpoint and plain JSON-RPC, require
   generation 1/version 0.1.18, enforce bounded messages and never retry an
   uncertain mutation. A probe must never auto-start the unselected runtime.
+  On Linux, endpoint checks reject group/world write access (which grants socket
+  connection), retain protected-parent and peer-UID verification, and allow
+  harmless read/execute bits from the upstream transient service's umask.
 
 The native terminal/schema contracts are pinned to core source `3965a46`, TUI
 `2ecf19a` and desktop `93b097f`. Core's `keep` restores a shell, not an agent;

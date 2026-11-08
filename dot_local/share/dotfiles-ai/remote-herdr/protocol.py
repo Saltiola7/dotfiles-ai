@@ -92,7 +92,9 @@ def request(endpoint: Path, method: str, params: dict) -> dict:
                     or info.st_mode & 0o022 and not info.st_mode & stat.S_ISVTX):
                 raise CoreProtocolError('core endpoint unsafe')
         info = endpoint.lstat()
-        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        # Linux pathname sockets require write permission to connect. Native
+        # transient units use their own umask; read/execute bits grant no access.
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
             raise CoreProtocolError('core endpoint unsafe')
         if not hasattr(socket, 'SO_PEERCRED'):
             raise CoreProtocolError('core peer identity unavailable')

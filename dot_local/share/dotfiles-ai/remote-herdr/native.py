@@ -290,7 +290,7 @@ class Native:
             raise NativeError('TUI request not authorized')
         self._parents(self.tui_endpoint)
         info = self.tui_endpoint.lstat()
-        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
             raise NativeError('TUI endpoint unsafe')
         if not hasattr(socket, 'SO_PEERCRED'):
             raise NativeError('TUI peer identity unavailable')

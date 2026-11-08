@@ -1,7 +1,10 @@
 """Pinned core protocol contracts; fake Unix peers only, never a live core."""
 import importlib.util
 import json
+import os
 from pathlib import Path
+import socket
+import struct
 
 import pytest
 
@@ -75,3 +78,35 @@ def test_private_json_refuses_duplicates_and_oversize():
         core.decode(b'{"id":1,"id":2}')
     with pytest.raises(core.CoreProtocolError):
         core.decode(b' ' * (core.MAX_MESSAGE + 1))
+
+
+@pytest.mark.parametrize('mode', [0o600, 0o700, 0o755, 0o770, 0o777])
+def test_linux_socket_permissions_follow_connect_write_access(tmp_path, monkeypatch, mode):
+    core = module()
+    endpoint = tmp_path.resolve() / 'core.sock'
+    monkeypatch.chdir(tmp_path)
+    # Only a synthetic local socket inode; never contact a native runtime.
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as inode:
+        inode.bind(endpoint.name)
+        endpoint.chmod(mode)
+        connections = []
+        class FakePeer:
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                pass
+            def settimeout(self, value):
+                pass
+            def connect(self, value):
+                connections.append(value)
+            def getsockopt(self, *args):
+                return struct.pack('3i', 123, os.getuid(), os.getgid())
+        monkeypatch.setattr(core.socket, 'SO_PEERCRED', 17, raising=False)
+        monkeypatch.setattr(core.socket, 'socket', lambda *args: FakePeer())
+        monkeypatch.setattr(core, 'exchange', lambda *args: {'observed': True})
+        if mode & 0o022:
+            with pytest.raises(core.CoreProtocolError):
+                core.request(endpoint, 'server.status', {})
+            assert not connections
+        else:
+            assert core.request(endpoint, 'server.status', {}) == {'observed': True}
