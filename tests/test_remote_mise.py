@@ -225,6 +225,12 @@ def test_foundation_qualifies_mise_interpreter_path_and_version(tmp_path, monkey
         path.write_bytes(b'fixture')
         path.chmod(0o755)
         data['remote_user_environment'][key] = hashlib.sha256(path.read_bytes()).hexdigest()
+    # Full foundation validation includes its managed core pin before mise.
+    # Supply valid synthetic bytes so these cases reach the Python boundary.
+    herdr_core = binary / 'herdr-core'
+    herdr_core.write_bytes(b'fixture-core')
+    herdr_core.chmod(0o755)
+    data['herdr_core']['binary_sha256'] = hashlib.sha256(herdr_core.read_bytes()).hexdigest()
     install_context(binary)
     install = core.HOME / '.local/share/mise/installs/python/3.13.18'
     interpreter = install / 'bin/python3.13'
