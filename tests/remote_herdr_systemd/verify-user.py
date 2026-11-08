@@ -82,6 +82,29 @@ def unit(*args):
     return run('/usr/bin/systemctl', '--user', *args, timeout=30)
 
 
+def kept_spawn_diagnostics(backend):
+    """Counts only, shared by failed preparation and explicit-stop recovery."""
+    pending = [t for t in backend._terminals() if t.get('state') == 'live'
+               and t.get('keep') is True and t.get('pid') is None]
+    label = '-count-' + str(len(pending))
+    for reason in ('server_stop', 'host_shutdown', 'holder_lost', 'stopped_by_restart', 'spawn_pending'):
+        count = sum(t.get('reason') == reason for t in pending)
+        if count:
+            label += '-' + reason.replace('_', '-') + '-' + str(count)
+    try:
+        log = backend._read(HOME / '.local/state/herdr-core/default/core.log', 2 * 1024 * 1024).decode('utf-8')
+        for name, prefix in (
+                ('holder', 'core: kept terminals waiting for a holder:'),
+                ('shell', 'core: kept terminals waiting for a shell:')):
+            label += '-' + name + '-errors-' + str(sum(line.startswith(prefix) for line in log.splitlines()))
+        for name, text in (('missing', 'No such file or directory'),
+                           ('denied', 'Permission denied'), ('resource', 'Resource temporarily unavailable')):
+            label += '-' + name + '-' + str(log.count(text))
+    except Exception:
+        label += '-log-unavailable'
+    return label
+
+
 def cli(*args):
     try:
         return run(BIN / 'remote-herdr', *args, timeout=180)
@@ -134,6 +157,8 @@ def cli(*args):
                 except Exception:
                     pass  # Keep only the literal failed observation label.
                 label += '-' + check
+                if check.endswith('-spawn-pending'):
+                    label += kept_spawn_diagnostics(backend)
         raise CommandFailure('controller-' + label) from None
 
 
@@ -883,22 +908,7 @@ def restart_and_recover(plan, pid):
         if label == 'kept-spawn-readiness':
             with Store(ROOT) as store:
                 backend = Native(HOME, store)
-                pending = [t for t in backend._terminals() if t.get('state') == 'live'
-                           and t.get('keep') is True and t.get('pid') is None]
-                label += '-count-' + str(len(pending))
-                for reason in ('server_stop', 'host_shutdown', 'holder_lost', 'stopped_by_restart', 'spawn_pending'):
-                    count = sum(t.get('reason') == reason for t in pending)
-                    if count:
-                        label += '-' + reason.replace('_', '-') + '-' + str(count)
-                try:
-                    log = backend._read(HOME / '.local/state/herdr-core/default/core.log', 2 * 1024 * 1024).decode('utf-8')
-                    holder_errors = sum(line.startswith('core: kept terminals waiting for a holder:')
-                                        for line in log.splitlines())
-                    shell_errors = sum(line.startswith('core: kept terminals waiting for a shell:')
-                                       for line in log.splitlines())
-                    label += '-holder-errors-' + str(holder_errors) + '-shell-errors-' + str(shell_errors)
-                except Exception:
-                    label += '-log-unavailable'
+                label += kept_spawn_diagnostics(backend)
         raise CommandFailure('core-recovery-' + label) from None
     observe('herdr-core', plan)
     cli('recover')  # A completed transaction must be observational/idempotent.

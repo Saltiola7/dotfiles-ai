@@ -222,6 +222,20 @@ def test_controller_failure_reports_only_known_journal_phase(monkeypatch):
         raise AssertionError('failed switch must not pass')
 
 
+def test_kept_spawn_diagnostics_expose_only_known_counts():
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    class Backend:
+        def _terminals(self):
+            return [{'state': 'live', 'keep': True, 'pid': None,
+                     'reason': 'server_stop', 'argv': ['PRIVATE']}]
+        def _read(self, path, bound):
+            return b'core: kept terminals waiting for a holder: PRIVATE Permission denied\nPRIVATE\n'
+    result = fixture['kept_spawn_diagnostics'](Backend())
+    assert 'PRIVATE' not in result
+    assert '-count-1-server-stop-1-holder-errors-1-shell-errors-0' in result
+    assert '-missing-0-denied-1-resource-0' in result
+
+
 class ProjectedTurnTests(unittest.TestCase):
     """Synthetic projected messages, never native state or event-log payloads."""
 
