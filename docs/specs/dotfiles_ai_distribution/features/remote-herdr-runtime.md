@@ -192,6 +192,9 @@ is not proof of a plain-shell target: actual process argv, cwd and PID/start-tim
 identity are checked before destructive operations. Native OpenCode client proof
 accepts the foundation wrapper's exact executable and loopback `--server`, session
 and optional `--auto` expansion; arbitrary flags/endpoints remain unsupported.
+TUI stop repeats layout, exact client coverage, actual foreground-program and
+PID/start-time checks after durable stop intent, immediately before native stop.
+A newly busy pane or changed process inventory refuses before either stop command.
 
 OpenCode installation and native updates retain F01 ownership. Legacy asset
 defaults in the source are not a pin for the remote native v2 executable. Hosted

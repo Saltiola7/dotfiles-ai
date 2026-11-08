@@ -731,6 +731,38 @@ def test_tui_invalid_poststop_save_blocks_handoff(backend):
     assert backend.store.read(captured['backup'])['snapshot'] == tui.saved
 
 
+@pytest.mark.parametrize('boundary', ['before-stop', 'during-intent'])
+@pytest.mark.parametrize('change', ['foreign-program', 'reused-pid'])
+def test_tui_stop_rechecks_actual_foreground_after_durable_intent(backend, boundary, change):
+    tui = FakeTui(backend)
+    value = plan()
+    tab = value['spaces'][0]['tabs'][0]
+    tab['panes'].append({'key': 's0-t0-p1', 'cwd': '/work', 'session_id': None})
+    tab['root'] = {'axis': 'row', 'ratio': 0.5, 'children': [
+        {'pane': 's0-t0-p0'}, {'pane': 's0-t0-p1'}]}
+    synthetic_process(backend, 40, ['/bin/bash', '-l'])
+    facts = [tui.rpc('pane.process_info', {})['process_info'],
+             {'pane_id': 'plain', 'shell_pid': 40,
+              'foreground_processes': [{'pid': 40, 'name': 'bash', 'cwd': '/work'}]}]
+    backend._tui_live = lambda: (copy.deepcopy(value), {}, copy.deepcopy(facts))
+    captured = backend.capture('tui')
+    def mutate():
+        argv = ['/usr/bin/vim'] if change == 'foreign-program' else ['/bin/bash', '-l']
+        synthetic_process(backend, 40, argv, ticks=99 if change == 'reused-pid' else 10)
+    if boundary == 'before-stop':
+        mutate()
+    else:
+        publish = backend.store.write
+        def write(name, document):
+            publish(name, document)
+            if name == 'source-stop.json' and document.get('pending') == {'operation': 'tui.stop'}:
+                mutate()
+        backend.store.write = write
+    with pytest.raises(native.NativeError):
+        backend.stop('tui', captured)
+    assert not tui.calls
+
+
 def test_tui_target_requires_backup_and_live_identity_readiness(backend):
     tui = FakeTui(backend, active=False)
     with pytest.raises(native.NativeError, match='approval'):

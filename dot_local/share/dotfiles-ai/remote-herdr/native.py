@@ -876,6 +876,19 @@ class Native:
                 continue
         return True
 
+    def _tui_process_proofs(self, facts, clients):
+        foreground = [p for fact in facts for p in fact.get('foreground_processes', [])]
+        known = {p['pid'] for p in clients}
+        for proc in foreground:
+            # Optional API argv is not proof of the actual foreground program.
+            argv = self.process_argv(proc['pid'])
+            is_shell = argv and argv[0] in ('/bin/bash', 'bash', '-bash') and argv[1:] in ([], ['-l'], ['--login'])
+            if proc['pid'] not in known and not is_shell:
+                raise NativeError('TUI unknown foreground process')
+        if any(client['pid'] not in {p['pid'] for p in foreground} for client in clients):
+            raise NativeError('TUI session process coverage incomplete')
+        return self._pid_proofs([f['shell_pid'] for f in facts] + [p['pid'] for p in foreground])
+
     @bounded
     def capture(self, source):
         runtime(source)
@@ -886,20 +899,7 @@ class Native:
         if source == 'tui':
             plan, api, facts = self._tui_live()
             clients = self._coverage(plan)
-            foreground = [p for fact in facts for p in fact.get('foreground_processes', [])]
-            known = {p['pid'] for p in clients}
-            for fact in facts:
-                for proc in fact.get('foreground_processes', []):
-                    # PaneProcessInfoProcess.argv is optional in the pinned
-                    # public schema. Never infer shell identity from name,
-                    # argv0 or cmdline: read the actual same-owner proc argv.
-                    argv = self.process_argv(proc['pid'])
-                    is_shell = argv and argv[0] in ('/bin/bash', 'bash', '-bash') and argv[1:] in ([], ['-l'], ['--login'])
-                    if proc['pid'] not in known and not is_shell:
-                        raise NativeError('TUI unknown foreground process')
-            if any(client['pid'] not in {p['pid'] for p in foreground} for client in clients):
-                raise NativeError('TUI session process coverage incomplete')
-            proofs = self._pid_proofs([f['shell_pid'] for f in facts] + [p['pid'] for p in foreground])
+            proofs = self._tui_process_proofs(facts, clients)
             value = {'plan': plan, 'api': api, 'clients': clients, 'pids': proofs,
                      'backup': self._backup({'snapshot': self._optional_snapshot()})}
         else:
@@ -970,6 +970,14 @@ class Native:
             # Stop both managed and manually started default TUI without ever
             # touching the independent F01 OpenCode user service.
             intent('tui.stop')
+            # Durable intent is a scheduling boundary. Re-observe actual programs
+            # and PID identities immediately before the destructive native stop.
+            live, _, facts = self._tui_live()
+            if self._semantic(live) != self._semantic(plan):
+                raise NativeError('TUI source changed after capture')
+            clients = self._coverage(live)
+            if clients != capture['clients'] or self._tui_process_proofs(facts, clients) != capture['pids']:
+                raise NativeError('TUI source process inventory changed after capture')
             self.command(['herdr', 'session', 'stop', 'default', '--json'], timeout=25)
             # The CLI's success alone is not an observation of process exit.
             self._wait(lambda: not self.endpoint_present(source) and self._pids_absent(capture['pids']))
