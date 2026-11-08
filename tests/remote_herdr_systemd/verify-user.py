@@ -246,18 +246,17 @@ def projected_assistant(message, original=None, *, complete=False, nonce=''):
     check(isinstance(message['model'], dict), 'model-shape')
     check(message['model'].get('id') == 'held', 'model-id')
     check(message['model'].get('providerID') == 'rrw007f', 'model-provider')
-    if message['model'] != {'id': 'held', 'providerID': 'rrw007f'}:
-        # Model.Ref permits an optional variant. Classify only known values and
-        # field counts; never disclose arbitrary model references or settings.
-        model = message['model']
-        raise CommandFailure('projection-model-fields-' + str(len(model))
-            + '-variant-null-' + str(int('variant' in model and model['variant'] is None))
-            + '-variant-default-' + str(int(model.get('variant') == 'default')))
+    # Model.Ref permits a variant; native clients select the explicit default.
+    # Pinned model-resolver.ts withVariant treats "default" as the base model.
+    model = message['model']
+    check(set(model) <= {'id', 'providerID', 'variant'}, 'model-fields')
+    check('variant' not in model or model['variant'] == 'default', 'model-variant')
     check(message['time']['created'] is not None and message.get('error') is None, 'created-or-error')
     check(isinstance(message['content'], list), 'content')
     if original is not None:
         require(message['id'] == original['id'])
         require(message['time']['created'] == original['time']['created'])
+        check(message['model'] == original['model'], 'model-changed')
     if complete:
         require(message['time'].get('completed') is not None and message.get('finish') == 'stop')
         require(''.join(part['text'] for part in message['content'] if part['type'] == 'text')

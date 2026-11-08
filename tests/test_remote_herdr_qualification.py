@@ -267,7 +267,21 @@ class ProjectedTurnTests(unittest.TestCase):
         with self.assertRaises(fixture['CommandFailure']) as captured:
             fixture['projected_assistant'](changed)
         self.assertEqual(captured.exception.reason,
-                         'projection-model-fields-3-variant-null-0-variant-default-0')
+                         'projection-model-variant')
+
+    def test_accepts_native_default_variant_but_requires_unchanged_reference(self):
+        original = copy.deepcopy(self.assistant)
+        original['model']['variant'] = 'default'
+        self.message(original)
+        self.message(copy.deepcopy(original), original)
+        with self.assertRaises(RuntimeError):
+            self.message(self.assistant, original)
+        with self.assertRaises(RuntimeError):
+            self.message(original, self.assistant)
+        changed = copy.deepcopy(original)
+        changed['model']['unknown'] = 'PRIVATE'
+        with self.assertRaises(RuntimeError):
+            self.message(changed, original)
 
     def test_rejects_incomplete_wrong_finish_error_and_changed_final_text(self):
         for case in ('completed', 'finish', 'error', 'text'):
