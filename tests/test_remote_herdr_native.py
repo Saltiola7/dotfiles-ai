@@ -66,6 +66,7 @@ def synthetic_process(backend, pid, argv, cwd='/work', ticks=10):
     directory.mkdir(exist_ok=True)
     fields = ['S'] + ['0'] * 18 + [str(ticks)] + ['0'] * 10
     (directory / 'stat').write_text(f'{pid} (synthetic) ' + ' '.join(fields))
+    (directory / 'status').write_text('Uid:\t' + '\t'.join([str(native.os.getuid())] * 4) + '\n')
     (directory / 'cmdline').write_bytes('\0'.join(argv).encode() + b'\0')
     (directory / 'cwd').unlink(missing_ok=True)
     (directory / 'cwd').symlink_to(cwd)
@@ -277,7 +278,7 @@ class FakeCore:
         if method == 'terminal.kill':
             terminal = self.terminals[params['terminal']]
             directory = self.backend.proc_root / str(terminal['pid'])
-            for name in ('stat', 'cmdline', 'cwd'):
+            for name in ('stat', 'cmdline', 'cwd', 'status'):
                 (directory / name).unlink()
             directory.rmdir()
             terminal['state'] = 'finished'
@@ -584,7 +585,7 @@ class FakeTui:
             self.active = False
             for pid in (20, 31):
                 directory = self.backend.proc_root / str(pid)
-                for name in ('stat', 'cmdline', 'cwd'):
+                for name in ('stat', 'cmdline', 'cwd', 'status'):
                     (directory / name).unlink()
                 directory.rmdir()
             saved = copy.deepcopy(self.saved)
@@ -868,7 +869,7 @@ def test_reconcile_stopped_requires_process_and_exact_session_absence(backend, p
     if proof == 'session':
         pid = captured['pids'][0]['pid']
         directory = backend.proc_root / str(pid)
-        for name in ('stat', 'cmdline', 'cwd'):
+        for name in ('stat', 'cmdline', 'cwd', 'status'):
             (directory / name).unlink()
         directory.rmdir()
         synthetic_process(backend, 99, wrapper_argv(backend))

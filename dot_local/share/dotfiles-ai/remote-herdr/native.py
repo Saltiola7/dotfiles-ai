@@ -334,7 +334,7 @@ class Native:
         return os.readlink(self.proc_root / str(pid) / 'cwd')
 
     def process_argv(self, pid):
-        raw = processes.read(self.proc_root / str(pid) / 'cmdline', LIMIT)
+        raw = processes.task_read(self.proc_root / str(pid), 'cmdline', LIMIT)
         return raw.rstrip(b'\0').decode('utf-8').split('\0')
 
     def _client_argv(self, pid, identity):
@@ -834,7 +834,7 @@ class Native:
                 raise NativeError('native client PID invalid')
             directory = self.proc_root / str(pid)
             info = directory.lstat()
-            if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            if not stat.S_ISDIR(info.st_mode) or processes.task_uid(directory) != os.getuid():
                 raise NativeError('native client ownership unavailable')
             state, ticks = processes.identity(directory, pid)
             if state in ('Z', 'X'):
@@ -847,12 +847,12 @@ class Native:
             directory = self.proc_root / str(item['pid'])
             try:
                 info = directory.lstat()
-                if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+                if not stat.S_ISDIR(info.st_mode) or processes.task_uid(directory) != os.getuid():
                     raise NativeError('native client exit ownership uncertain')
                 state, ticks = processes.identity(directory, item['pid'])
                 if state not in ('Z', 'X') and ticks == item['start_ticks']:
                     return False
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
                 continue
         return True
 

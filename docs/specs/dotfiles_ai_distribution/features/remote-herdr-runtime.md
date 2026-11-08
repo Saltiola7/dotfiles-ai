@@ -209,8 +209,13 @@ an app-created plain-shell copy is assumed compatible with core.
 Source client-exit verification uses Linux same-user procfs PID/start-time
 identities plus exact CLI session references. Socket disappearance alone is not
 proof. A still-live captured process, ambiguous identity, unreadable inventory
-or a newly observed matching client blocks target activation. Native qualification
-must prove this against the pinned OpenCode wrapper and real Herdr processes;
+or a newly observed matching client blocks target activation. Verification uses
+kernel task UIDs, not proc-inode ownership: same-user nondumpable tasks can
+have root-owned proc files. Scheduling state changes do not change PID identity.
+Disappearance during inventory restarts the complete observational scan, at most
+three times; persistent uncertainty still refuses. Scoped proc reads never relax
+the ordinary owned-file reader or expose task status/argv in diagnostics.
+Native qualification must prove this against the foundation OpenCode wrapper and real Herdr processes;
 synthetic procfs tests alone do not establish complete native coverage. Shared
 backend processes are deliberately not killed. Same-UID users can bypass their
 own controller; this is a cooperative ownership contract, not a security boundary
