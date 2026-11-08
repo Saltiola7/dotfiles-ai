@@ -19,6 +19,7 @@ COPY run_onchange_after_install-00-remote-herdr.sh.tmpl run_onchange_after_insta
 COPY dot_local/bin/executable_remote-user-bootstrap /opt/f01/bootstrap.py
 COPY tests/remote_opencode_systemd/verify-user.py /opt/f01/verify-user.py
 COPY tests/remote_herdr_systemd/boot-smoke.sh tests/remote_herdr_systemd/verify-user.py /opt/f07/
+COPY tests/remote_herdr_systemd/kept-probe.py tests/remote_herdr_systemd/kept-probe.sh /opt/f07/
 RUN install -d -m 0700 /var/lib/f07
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]

@@ -39,16 +39,26 @@ jobs:
         with:
           persist-credentials: false
       - name: Check qualification source boundaries
-        run: python3 -m unittest discover -s tests -p test_remote_herdr_qualification.py
+        run: |
+          python3 -m unittest discover -s tests -p test_remote_herdr_qualification.py
+          python3 -m unittest discover -s tests -p test_remote_herdr_kept_probe.py
       - name: Qualify real runtimes across two user-manager boots
         shell: bash
         run: |
           set -euo pipefail
           [[ $(uname -m) == x86_64 ]] || { echo 'F07: wrong-runner-architecture'; exit 1; }
           container="f07-systemd-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          probe="${container}-kept"
+          trap 'docker rm -f "$container" "$probe" >/dev/null 2>&1 || true' EXIT
           # Build/package output is public but not qualification evidence.
           docker build --pull -f tests/remote_herdr_systemd/Containerfile -t "$container" . >/dev/null 2>&1 || { echo 'F07: image-build-failed'; exit 1; }
+          # Separate native-only default-session reproduction: no shared backend,
+          # OpenCode sessions or provider traffic. A stall fails this candidate.
+          docker run -d --name "$probe" --privileged --cgroupns=private \
+            --tmpfs /run --tmpfs /run/lock --stop-timeout 40 \
+            "$container" /bin/bash -ec 'mount -o remount,rw /sys/fs/cgroup; exec /sbin/init' >/dev/null 2>&1 || { echo 'F07: kept-probe-boot-failed'; exit 1; }
+          docker exec "$probe" bash /opt/f07/kept-probe.sh approved-disposable-container
+          docker rm -f "$probe" >/dev/null 2>&1
           # Own init + private cgroup namespace; no host state/cgroup/port binds.
           docker run -d --name "$container" --privileged --cgroupns=private \
             --tmpfs /run --tmpfs /run/lock --stop-timeout 40 \

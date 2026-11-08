@@ -61,7 +61,9 @@ class QualificationSourceTests(unittest.TestCase):
                        for name in ('controller', 'native', 'layout', 'protocol', 'processes'))
         allowed.update('private_dot_config/systemd/user/' + name + '.tmpl'
                        for name in ('remote-herdr-tui.service', 'remote-herdr-restore.service',
-                                    'remote-herdr-restore.timer'))
+                                     'remote-herdr-restore.timer'))
+        allowed.update({'tests/remote_herdr_systemd/kept-probe.py',
+                        'tests/remote_herdr_systemd/kept-probe.sh'})
         copied = set()
         for line in (FIXTURE / 'Containerfile').read_text().splitlines():
             if not line.startswith('COPY '):
@@ -119,6 +121,9 @@ class QualificationSourceTests(unittest.TestCase):
         self.assertEqual([a or b for a, b in stages],
                          ['prepare', 'restart', 'verify-core', 'restart', 'verify-tui'])
         self.assertIn('test -f /var/lib/f07/qualified', workflow)
+        self.assertIn('docker exec "$probe" bash /opt/f07/kept-probe.sh approved-disposable-container', workflow)
+        self.assertLess(workflow.index('bash /opt/f07/kept-probe.sh'),
+                        workflow.index('bash /opt/f07/boot-smoke.sh prepare'))
         for path in ('dot_local/bin/executable_opencode*',
                      'dot_local/share/dotfiles-ai/remote-herdr/**',
                      'private_dot_config/herdr/**',
