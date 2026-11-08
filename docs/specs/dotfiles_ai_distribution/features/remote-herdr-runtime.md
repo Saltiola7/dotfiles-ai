@@ -6,8 +6,9 @@ INT-077 and INT-079, coordinator Discovery #508, authorize one remote user's
 selection of `herdr-core` or `tui`. RRW-007D is the delivered prerequisite.
 Risk is critical: switching must preserve session identities and layout without
 ever running an agent session under both runtimes. This document records the
-Domain and Behavior contract; version-qualified native interfaces, implementation
-and qualification remain pending. A registered cycle is not runtime readiness.
+Domain and Behavior contract and version-qualified native interfaces. Disposable
+hosted qualification passed; a registered cycle alone is not runtime readiness,
+and hosted proof is not live rollout approval.
 
 The approved handoff amendment makes the foundation the sole user-local core
 installer and integrity owner. Fork A coordinates reviewed version changes,
@@ -71,8 +72,8 @@ User-manager lingering is already owned by Fork A, not enabled by this source.
   needs separate review. Installer checks never launch or stop core.
 - The runtime identity is the default core session with `HC_SESSION` unset,
   state `~/.local/state/herdr-core/default`, config
-  `~/.config/herdr-core/config.toml`, and the native default socket under
-  `/run/user/<uid>/herdr-core/`. The desktop adopts a compatible pinned core;
+  `~/.config/herdr-core/config.toml`, and native socket
+  `/run/user/<uid>/herdr-core/default.sock`. The desktop adopts a compatible pinned core;
   users decline desktop or machine-update replacement offers. App-side config
   remains unmanaged on the Mac. No private runtime state enters source control.
 - Raw core calls use an existing owned Unix endpoint and plain JSON-RPC, require
@@ -86,6 +87,9 @@ The native terminal/schema contracts are pinned to core source `3965a46`, TUI
 `2ecf19a` and desktop `93b097f`. Core's `keep` restores a shell, not an agent;
 the adapter must explicitly restore sessions and remap the app document.
 SIGTERM/restart preserves programs; runtime exit is not a stop proof.
+The layout document is named `herdr-app`: its `doc.get` response contains
+`version` and `value.spaces`. Core terminal addresses bind leaf panes; document
+replacement uses that observed version for CAS, never an unversioned overwrite.
 
 The pure adapter accepts native on-disk TUI snapshot version 3 or labelled
 space plans. TUI `api snapshot` is a different, observational schema and must
@@ -127,9 +131,9 @@ restore evidence.
    switches may update only previously adapter-owned layout, never overwrite
    unexplained target edits.
 
-## Implementation and validation blockers
+## Implementation and qualification
 
-### Controller interface (local implementation; native acceptance pending)
+### Controller interface
 
 ```sh
 remote-herdr selected
@@ -213,14 +217,24 @@ output are checked across a real switch without external provider credentials or
 calls. Interrupted TUI boot recovery preserves an unchanged native saved snapshot,
 including supported view/default fields, rather than rewriting a generated copy.
 
-The CLI/controller and services above are not yet qualified for rollout. Native
-boot, restart and bidirectional switching remain required completion gates.
+The disposable hosted fixture qualifies core 0.1.18, TUI 0.9.5 and the observed
+native OpenCode v2.2.6 executable. It uses real native APIs/processes, the lingering
+systemd user manager and two container reboots, with no external model credentials
+or calls. It verifies three exact TCP-connected session clients, two spaces,
+labels/order, directories and supported split geometry, private target backup and
+retained terminal records, bidirectional switching, interrupted-switch recovery,
+core restart/explicit-stop recovery and both selected-runtime boot phases.
+The held turn keeps its original assistant/model identity, shared backend PID and
+one provider request through transfer, then completes the exact expected output.
+An isolated three-round kept-shell probe did not reproduce a general core stall;
+full-fixture inspection observed holder-free backoff pending beyond the old
+30-second adapter bound. It did not prove lost SPAWN or a claim-before-send defect.
 
-Before source implementation can be accepted, qualify the pinned core's serve,
-shutdown, process ownership, layout enumeration/creation, agent session start,
-observation and persistence interfaces. Resolve native TUI/core schema mappings
-and desktop-managed transient-unit adoption with Fork A. Neither a TUI API nor
-an app-created plain-shell copy is assumed compatible with core.
+All 19 hosted checks passed implementation head
+`24de7482f3c9ccc461b998ad17c63e1501ef1afa`; exact-head and final delivery evidence
+remain in the private Cycle Record. This is not live RHEL/VM, desktop connection,
+two-owner rollout or acceptance of a producer that omits tab labels. Fork A owns
+desktop transient-unit adoption, the setup interview and live migration/runbook.
 
 Source client-exit verification uses Linux same-user procfs PID/start-time
 identities plus exact CLI session references. Socket disappearance alone is not
@@ -231,8 +245,8 @@ have root-owned proc files. Scheduling state changes do not change PID identity.
 Disappearance during inventory restarts the complete observational scan, at most
 three times; persistent uncertainty still refuses. Scoped proc reads never relax
 the ordinary owned-file reader or expose task status/argv in diagnostics.
-Native qualification must prove this against the foundation OpenCode wrapper and real Herdr processes;
-synthetic procfs tests alone do not establish complete native coverage. Shared
+Hosted native qualification exercises the foundation OpenCode wrapper and real
+Herdr processes; synthetic procfs tests alone do not establish native coverage. Shared
 backend processes are deliberately not killed. Same-UID users can bypass their
 own controller; this is a cooperative ownership contract, not a security boundary
 against the account owner.
@@ -244,7 +258,26 @@ other-profile and other-user isolation, private-data diagnostics, rollback and
 recovery. Mocks alone do not satisfy native acceptance. Keep 007E activation,
 F01 shared-service proof and final optional-overlay disjointness intact.
 All live apply, pin changes, desktop connection and owner migration remain
-separately authorized Fork A work. No completion or native pass is claimed here.
+separately authorized Fork A work. No live deployment or merge is claimed here.
+
+## Operations and maintenance
+
+`remote-herdr selected` observes selection; `remote-herdr-core check` verifies the
+installed bytes without repair. The restore timer only invokes the serialized
+controller; upstream `hc-serve-*`, `hc-hold-*` and `hc-shutdown-*` units own core
+lifetime. A failed restore does not activate the unselected runtime and retains
+private boot/transaction intent. Diagnose through selected-unit status and
+source-literal failure labels without publishing native journals, registrations,
+titles, directories or session payloads. Use explicit `recover` to reconcile an
+interruption; do not erase receipts, blindly restart either runtime or restart
+the shared OpenCode service. Unknown outcomes require owner inspection.
+
+Fork A coordinates future core/TUI/OpenCode compatibility changes. A pin or native
+schema change requires renewed checksum, adapter and disposable native lifecycle
+qualification before rollout. Keep backups, receipts and completed history during
+support and migration; retirement needs an explicit inventory/retention decision.
+Disabling the selected runtime is not permission to uninstall binaries, remove
+native terminal records or discard OpenCode sessions. No automatic cleanup is added.
 
 ## Visual Evidence
 
@@ -254,7 +287,7 @@ separately authorized Fork A work. No completion or native pass is claimed here.
 | Interaction | required: transition table; what must stop before target agents start? |
 | State | required: transition table; where does uncertainty block activation? |
 | Data/trust | required: transition table; where is sensitive migration data retained? |
-| Schema | not_applicable: native interface/schema qualification remains open |
+| Schema | required: transition table and selected-interface contract; native IDs may change but session identities cannot |
 | Dependency/deployment | required: transition table; what is the installation prerequisite? |
 | Quantitative | not_applicable: no performance or capacity claim |
 
@@ -273,5 +306,5 @@ only the explicitly selected runtime. Switching first captures private state,
 then proves the source stopped before any target agent starts. Target readiness
 requires live session and layout fidelity. Uncertainty retains evidence and
 blocks activation. Canonical source: approved INT-077/079 and this behavior
-contract; native adapters remain unqualified. Owner: distribution maintainer.
+contract; hosted qualification is distinct from live acceptance. Owner: distribution maintainer.
 Update with selection, native interface, ownership or recovery changes.

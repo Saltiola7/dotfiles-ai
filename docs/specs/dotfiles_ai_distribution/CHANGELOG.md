@@ -1,5 +1,21 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-08 — Selected remote Herdr runtime (RRW-007F)
+
+- Add foundation-owned, archive/binary-verified core 0.1.18 installation and
+  explicit core/TUI selection, selected-only boot restore and guarded switches.
+  Private receipts preserve layout, exact sessions and interrupted work; unknown
+  programs, unexplained target edits and unproven source exit block activation.
+- All 19 hosted checks passed `24de7482`, including full-suite partitions,
+  native bidirectional/held-turn transfer, interruption and core restart/stop
+  recovery, both runtime boot phases, F01 boot and RHEL userland smoke. The
+  kept-spawn wait covers the native 60-second backoff; TUI stop rechecks actual
+  programs after durable intent. Final-head evidence stays in the Cycle Record.
+- Gate history includes `d2d1be01` and `24de7482`. Intended Final Push targets
+  `dbsctr/dotfiles_ai_distribution/RRW-007F`, draft PR #297, not main. No gate
+  exception, bootstrap change or live deployment; Fork A retains desktop adoption,
+  version coordination and combined rollout of 007B/007E/007F after approved merge.
+
 ## 2026-11-07 — Initial remote default activation (RRW-007E)
 
 - Explicit remote apply initializes missing activation for the exact home-backed
