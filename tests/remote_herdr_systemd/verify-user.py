@@ -61,7 +61,8 @@ def run(*argv, timeout=90, env=None):
         if match and match[1] in hooks:
             reason = match[1] + '-exit-' + match[2]
         raise CommandFailure(reason)
-    require(len(result.stdout) + len(result.stderr) <= 2 * 1024 * 1024)
+    if len(result.stdout) + len(result.stderr) > 2 * 1024 * 1024:
+        raise CommandFailure('output-bound')
     return result.stdout.strip()
 
 
@@ -463,18 +464,27 @@ def prepare_fixture(provider):
     STEP = 'install-apply'
     run(BIN / 'chezmoi', '-c', CONFIG, '-S', SOURCE, 'apply', timeout=600)
     # Pause only the disposable timer during serial fixture manipulation.
+    STEP = 'pause-restore-timer'
     unit('stop', 'remote-herdr-restore.timer', 'remote-herdr-restore.service')
+    STEP = 'load-installed-adapter'
     Store, Native = adapter()
+    STEP = 'open-private-store'
     with Store(ROOT) as store:
         backend = Native(HOME, store)
+        STEP = 'probe-default-tui'
         if backend.endpoint_present('tui'):
             run(BIN / 'herdr', 'session', 'stop', 'default', '--json')
         unit('stop', 'remote-herdr-tui.service')
         require(not backend.endpoint_present('tui'))
+        STEP = 'verify-tui-binary'
         backend._binary('tui')
+        STEP = 'verify-core-binary'
         backend._binary('herdr-core')
+    STEP = 'verify-installed-core'
     run(BIN / 'remote-herdr-core', 'check')
+    STEP = 'verify-opencode-version'
     require('1.18.25' in run(NATIVE, '--version'))
+    STEP = 'verify-shared-backend'
     pid = backend_pid()
     STEP = 'session-api-schema'
     spec = api('get', '/openapi.json')
@@ -624,6 +634,8 @@ if __name__ == '__main__':
         print('F07: stage-complete')
     except Exception as error:
         # STEP comes only from literal fixture labels, never exception/native text.
-        suffix = '-' + error.reason if isinstance(error, CommandFailure) else ''
+        suffix = '-' + error.reason if isinstance(error, CommandFailure) else '-invariant'
+        if isinstance(error, (ImportError, AttributeError, TypeError, KeyError, OSError, UnicodeError)):
+            suffix = '-unsupported-interface'
         print('F07: failed-' + STEP + suffix, file=sys.stderr)
         sys.exit(1)
