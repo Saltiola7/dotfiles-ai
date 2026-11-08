@@ -135,6 +135,7 @@ class HeldProvider:
         fixture = self
 
         class Handler(BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
             def log_message(self, format, *args):
                 pass
 
@@ -176,23 +177,29 @@ class HeldProvider:
                                 for message in body['messages']), 'prompt-content')
                     self.send_response(200)
                     self.send_header('Content-Type', 'text/event-stream')
+                    self.send_header('Transfer-Encoding', 'chunked')
                     self.send_header('Connection', 'close')
                     self.end_headers()
+
+                    def send_sse(data):
+                        wire = ('data: ' + data + '\n\n').encode()
+                        self.wfile.write(format(len(wire), 'x').encode() + b'\r\n' + wire + b'\r\n')
+                        self.wfile.flush()
 
                     def chunk(content, finish=None, usage=None):
                         value = {'id': 'chatcmpl-rrw007f', 'object': 'chat.completion.chunk',
                                  'created': 0, 'model': 'held',
                                  'choices': [{'index': 0, 'delta': {'content': content},
                                               'finish_reason': finish}], 'usage': usage}
-                        self.wfile.write(('data: ' + json.dumps(value) + '\n\n').encode())
-                        self.wfile.flush()
+                        send_sse(json.dumps(value))
 
                     chunk('RRW007F-BEGIN:')
                     fixture.held.set()  # Explicit barrier after the original stream flush.
                     require(fixture.release.wait(360))
                     chunk(fixture.nonce + ':END')
                     chunk('', 'stop', {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2})
-                    self.wfile.write(b'data: [DONE]\n\n')
+                    send_sse('[DONE]')
+                    self.wfile.write(b'0\r\n\r\n')
                     self.wfile.flush()
                 except Exception:
                     with fixture.lock:
@@ -349,12 +356,22 @@ def inflight_switch(provider, plan, pid):
     def running():
         return api('get', '/api/session/active')['data'].get(session_id) == {'type': 'running'}
 
+    last_log = []
     def started():
-        events = history(session_id)
-        return typed(events, 'step.started')
+        nonlocal last_log
+        last_log = history(session_id)
+        return typed(last_log, 'step.started')
 
     STEP = 'inflight-start-log'
-    starts = started() or wait(started)
+    try:
+        starts = started() or wait(started)
+    except LogFailure:
+        raise
+    except RuntimeError:
+        # Counts of known event kinds only; no IDs, payloads or model text.
+        raise CommandFailure('start-event-missing-count-' + str(len(last_log))
+            + '-delivered-' + str(len(typed(last_log, 'inbox.delivered')))
+            + '-running-' + str(int(running()))) from None
     require(len(starts) == 1)
     assistant_id = starts[0]['data']['assistantMessageID']
 

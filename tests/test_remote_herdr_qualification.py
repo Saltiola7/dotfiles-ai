@@ -485,6 +485,8 @@ class LoopbackProviderTests(unittest.TestCase):
             self.assertNotRegex(json.dumps(config), r'apiKey|credential|authorization|integration|env')
             response = self.request(provider)
             self.assertEqual(response.status, 200)
+            self.assertEqual(response.version, 11)
+            self.assertEqual(response.getheader('Transfer-Encoding'), 'chunked')
             self.assertEqual(response.getheader('Content-Type'), 'text/event-stream')
             first = json.loads(response.readline().decode().removeprefix('data: '))
             self.assertEqual(first['choices'][0]['delta']['content'], 'RRW007F-BEGIN:')
