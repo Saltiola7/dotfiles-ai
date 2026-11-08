@@ -243,7 +243,16 @@ def projected_assistant(message, original=None, *, complete=False, nonce=''):
         if not condition:
             raise CommandFailure('projection-' + label)
     check(message['type'] == 'assistant' and bool(message['id']), 'assistant-identity')
-    check(message['model'] == {'id': 'held', 'providerID': 'rrw007f'}, 'model')
+    check(isinstance(message['model'], dict), 'model-shape')
+    check(message['model'].get('id') == 'held', 'model-id')
+    check(message['model'].get('providerID') == 'rrw007f', 'model-provider')
+    if message['model'] != {'id': 'held', 'providerID': 'rrw007f'}:
+        # Model.Ref permits an optional variant. Classify only known values and
+        # field counts; never disclose arbitrary model references or settings.
+        model = message['model']
+        raise CommandFailure('projection-model-fields-' + str(len(model))
+            + '-variant-null-' + str(int('variant' in model and model['variant'] is None))
+            + '-variant-default-' + str(int(model.get('variant') == 'default')))
     check(message['time']['created'] is not None and message.get('error') is None, 'created-or-error')
     check(isinstance(message['content'], list), 'content')
     if original is not None:

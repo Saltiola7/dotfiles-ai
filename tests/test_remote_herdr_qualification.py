@@ -262,6 +262,12 @@ class ProjectedTurnTests(unittest.TestCase):
         with self.assertRaises(fixture['CommandFailure']) as captured:
             fixture['projected_turn']([self.user], self.admitted)
         self.assertEqual(captured.exception.reason, 'projection-count-users-1-assistants-0')
+        changed = copy.deepcopy(self.assistant)
+        changed['model']['variant'] = 'PRIVATE'
+        with self.assertRaises(fixture['CommandFailure']) as captured:
+            fixture['projected_assistant'](changed)
+        self.assertEqual(captured.exception.reason,
+                         'projection-model-fields-3-variant-null-0-variant-default-0')
 
     def test_rejects_incomplete_wrong_finish_error_and_changed_final_text(self):
         for case in ('completed', 'finish', 'error', 'text'):
