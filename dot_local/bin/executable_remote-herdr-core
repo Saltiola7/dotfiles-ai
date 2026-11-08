@@ -278,8 +278,18 @@ def main(argv=None):
         return 2
     try:
         run(Path(os.environ.get('HOME', '')), args[0])
-    except (OSError, ValueError, EOFError, tarfile.TarError, subprocess.SubprocessError):
-        print('remote herdr-core: drift, unsafe input, busy lock, or unavailable pin', file=sys.stderr)
+    except (OSError, ValueError, EOFError, tarfile.TarError, subprocess.SubprocessError) as error:
+        label = 'unavailable'
+        if isinstance(error, subprocess.CalledProcessError):
+            label = 'download-exit-' + str(error.returncode)
+        elif isinstance(error, OSError):
+            label = 'filesystem-errno-' + str(error.errno)
+        elif type(error) is ValueError and str(error) in {
+                'unsafe entry', 'invalid pins', 'input too large', 'archive too large',
+                'archive mismatch', 'payload too large', 'unsafe archive', 'missing payload',
+                'payload mismatch', 'unsafe mode', 'state depth exceeded', 'state size exceeded'}:
+            label = str(error).replace(' ', '-')
+        print('remote herdr-core: refused-' + label, file=sys.stderr)
         return 1
     return 0
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Disposable native qualification. No provider turns or raw diagnostic output.
+"""Disposable native qualification. Loopback-only provider; no raw diagnostics.
 
 OpenCode API provenance at v1.18.25 (not the legacy SDK /session route):
 packages/cli/src/commands/handlers/api.ts and commands.ts: api --data, raw HTTP.
@@ -9,6 +9,7 @@ Runtime OpenAPI is checked before the first mutation. Unsupported schemas fail;
 the fixture never fabricates or migrates SQLite rows to satisfy the adapter.
 """
 import importlib.util
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
@@ -19,7 +20,9 @@ import stat
 import struct
 import subprocess
 import sys
+import threading
 import time
+import uuid
 
 
 HOME = Path('/home/fixture')
@@ -79,6 +82,210 @@ def wait(check, seconds=120):
 def write(path, value):
     path.write_text(json.dumps(value))
     path.chmod(0o600)
+
+
+class HeldProvider:
+    """One bounded ChatCompletions stream, owned only by prepare's lifetime.
+
+    v1.18.25 core/session/runner/model.ts selects the native compatible-chat
+    transport for @ai-sdk/openai-compatible; this does not run an npm package.
+    No credential or environment integration is configured or consulted here.
+    """
+
+    def __init__(self):
+        self.nonce = 'rrw007f_' + uuid.uuid4().hex
+        self.session_id = None
+        self.held = threading.Event()
+        self.release = threading.Event()
+        self.done = threading.Event()
+        self.lock = threading.Lock()
+        self.requests = 0
+        self.failed = False  # Sanitized thread failure: never retain request/error text.
+
+    def __enter__(self):
+        fixture = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def setup(self):
+                super().setup()
+                self.connection.settimeout(5)
+
+            def do_GET(self):
+                with fixture.lock:
+                    fixture.failed = True
+                self.send_error(404)
+
+            def do_POST(self):
+                try:
+                    with fixture.lock:
+                        fixture.requests += 1
+                        require(fixture.requests == 1)
+                    require(self.path == '/v1/chat/completions')
+                    require(self.headers.get('Transfer-Encoding') is None)
+                    length = int(self.headers.get('Content-Length', '0'))
+                    require(0 < length <= 1024 * 1024)
+                    raw = self.rfile.read(length)
+                    require(len(raw) == length)
+                    body = json.loads(raw)
+                    require(body['model'] == 'held' and body['stream'] is True)
+                    require(fixture.session_id is not None)
+                    require(self.headers.get('X-Session-Id') == fixture.session_id)
+                    require(bool(self.headers.get('x-session-affinity')))
+                    require(any(message.get('role') == 'user' and
+                                (message.get('content') == fixture.nonce or
+                                 any(part.get('type') == 'text' and part.get('text') == fixture.nonce
+                                     for part in message.get('content', []) if isinstance(part, dict)))
+                                for message in body['messages']))
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/event-stream')
+                    self.send_header('Connection', 'close')
+                    self.end_headers()
+
+                    def chunk(content, finish=None, usage=None):
+                        value = {'id': 'chatcmpl-rrw007f', 'object': 'chat.completion.chunk',
+                                 'created': 0, 'model': 'held',
+                                 'choices': [{'index': 0, 'delta': {'content': content},
+                                              'finish_reason': finish}], 'usage': usage}
+                        self.wfile.write(('data: ' + json.dumps(value) + '\n\n').encode())
+                        self.wfile.flush()
+
+                    chunk('RRW007F-BEGIN:')
+                    fixture.held.set()  # Explicit barrier after the original stream flush.
+                    require(fixture.release.wait(360))
+                    chunk(fixture.nonce + ':END')
+                    chunk('', 'stop', {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2})
+                    self.wfile.write(b'data: [DONE]\n\n')
+                    self.wfile.flush()
+                except Exception:
+                    with fixture.lock:
+                        fixture.failed = True
+                finally:
+                    self.close_connection = True
+                    fixture.done.set()
+
+        class Server(ThreadingHTTPServer):
+            daemon_threads = False
+
+            def handle_error(self, request, client_address):
+                with fixture.lock:
+                    fixture.failed = True
+
+        self.server = Server(('127.0.0.1', 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_args):
+        self.release.set()
+        self.server.shutdown()
+        self.server.server_close()  # Joins only fixture-owned, bounded HTTP workers.
+        self.thread.join(timeout=10)
+        require(not self.thread.is_alive())
+
+    def check(self):
+        with self.lock:
+            require(not self.failed and self.requests == 1)
+
+    def config(self):
+        return {'model': 'rrw007f/held', 'autoupdate': False, 'share': 'disabled',
+                'snapshots': False, 'providers': {'rrw007f': {
+                    'name': 'RRW007F loopback fixture',
+                    'api': {'type': 'aisdk', 'package': '@ai-sdk/openai-compatible',
+                            'url': 'http://127.0.0.1:' + str(self.server.server_port) + '/v1'},
+                    'models': {'held': {'name': 'Held fixture',
+                                       'capabilities': {'tools': False, 'input': ['text'], 'output': ['text']},
+                                       'limit': {'context': 100000, 'output': 1024}}}}}}
+
+
+def history(session_id):
+    # Public v1.18.25 protocol/groups/session.ts and schema/{event,session-event}.ts.
+    events = []
+    after = 0
+    for _ in range(100):
+        page = api('get', '/api/session/' + session_id + '/history?limit=100&after=' + str(after))
+        for event in page['data']:
+            require(event['data']['sessionID'] == session_id)
+            require(event['durable']['aggregateID'] == session_id)
+            require(event['durable']['seq'] > after)
+            after = event['durable']['seq']
+            events.append(event)
+        if not page['hasMore']:
+            return events
+        require(page['data'])
+    raise RuntimeError()
+
+
+def inflight_switch(provider, plan, pid):
+    global STEP
+    STEP = 'inflight-turn-admission'
+    session_id = plan['spaces'][0]['tabs'][0]['panes'][0]['session_id']
+    provider.session_id = session_id
+    message_id = 'msg_' + provider.nonce
+    admitted = api('post', '/api/session/' + session_id + '/prompt', {
+        'id': message_id, 'prompt': {'text': provider.nonce}, 'delivery': 'steer', 'resume': True})['data']
+    require(admitted['id'] == message_id and admitted['sessionID'] == session_id)
+    require(provider.held.wait(120))
+    provider.check()
+
+    def typed(events, kind):
+        return [event for event in events if event['type'] == 'session.next.' + kind]
+
+    def running():
+        return api('get', '/api/session/active')['data'].get(session_id) == {'type': 'running'}
+
+    def started():
+        events = history(session_id)
+        return typed(events, 'step.started')
+
+    starts = wait(started)
+    require(len(starts) == 1)
+    assistant_id = starts[0]['data']['assistantMessageID']
+
+    def held():
+        provider.check()
+        require(not provider.release.is_set() and not provider.done.is_set())
+        require(backend_pid() == pid and running())
+        events = history(session_id)
+        require(typed(events, 'step.started') == starts)
+        require(not typed(events, 'step.ended') and not typed(events, 'step.failed'))
+
+    STEP = 'inflight-turn-before-switch'
+    held()
+    switch('tui', plan, pid)  # Existing proof checks old client PIDs absent, same sessions restored.
+    STEP = 'inflight-turn-after-switch'
+    held()
+    provider.release.set()  # Complete the original connection, never submit another prompt.
+    STEP = 'inflight-turn-settlement'
+    require(provider.done.wait(30))
+    provider.check()
+
+    def settled():
+        events = history(session_id)
+        if not typed(events, 'step.ended') or session_id in api('get', '/api/session/active')['data']:
+            return None
+        return events
+
+    events = wait(settled)
+    require(typed(events, 'step.started') == starts)
+    ends = typed(events, 'step.ended')
+    require(len(ends) == 1 and ends[0]['data']['assistantMessageID'] == assistant_id)
+    require(ends[0]['data']['finish'] == 'stop' and not typed(events, 'step.failed'))
+    texts = typed(events, 'text.ended')
+    require(len(texts) == 1 and texts[0]['data']['assistantMessageID'] == assistant_id)
+    require(texts[0]['data']['text'] == 'RRW007F-BEGIN:' + provider.nonce + ':END')
+    admissions = typed(events, 'prompt.admitted')
+    require(len(admissions) == 1 and admissions[0]['data']['messageID'] == admitted['id'])
+    require(admissions[0]['durable']['seq'] == admitted['admittedSeq'])
+    prompts = typed(events, 'prompted')
+    require(len(prompts) == 1 and prompts[0]['data']['messageID'] == admitted['id'])
+    require(admissions[0]['data']['prompt']['text'] == provider.nonce)
+    require(prompts[0]['data']['prompt']['text'] == provider.nonce)
+    require(backend_pid() == pid)
+    provider.check()
+    print('F07: inflight-turn-preservation-complete')
 
 
 def api(method, path, body=None):
@@ -222,6 +429,11 @@ Recovery must observe that outcome and not blindly launch another client.
 
 
 def prepare():
+    with HeldProvider() as provider:
+        prepare_fixture(provider)
+
+
+def prepare_fixture(provider):
     global STEP
     STEP = 'install'
     bootstrap = load('bootstrap', '/opt/f01/bootstrap.py')
@@ -230,7 +442,7 @@ def prepare():
     # Only the allowlisted partial source is applied. No foundation/cloud tools.
     opencode_config = HOME / '.config/opencode'
     opencode_config.mkdir(mode=0o700)
-    (opencode_config / 'opencode.json').write_text('{}\n')
+    write(opencode_config / 'opencode.json', provider.config())
     run(BIN / 'chezmoi', '-c', CONFIG, '-S', SOURCE, 'apply', timeout=600)
     # Pause only the disposable timer during serial fixture manipulation.
     unit('stop', 'remote-herdr-restore.timer', 'remote-herdr-restore.service')
@@ -256,7 +468,8 @@ def prepare():
         directory.mkdir(mode=0o700)
     sessions = []
     for directory in (directories[0], directories[0], directories[1]):
-        created = api('post', '/api/session', {'location': {'directory': str(directory)}})['data']
+        created = api('post', '/api/session', {'location': {'directory': str(directory)},
+                                             'model': {'id': 'held', 'providerID': 'rrw007f'}})['data']
         require(created['location']['directory'] == str(directory))
         sessions.append(created['id'])
     require(len(set(sessions)) == 3)
@@ -309,6 +522,8 @@ def prepare():
                     address in {t['address'] for t in value.get('terminals', [])} for value in backups))
         require(address in {t['address'] for t in backend._terminals()})
     require(backend_pid() == pid)
+    inflight_switch(provider, plan, pid)
+    switch('herdr-core', plan, pid)
     interrupted_switch(plan, pid)
     switch('herdr-core', plan, pid)
     restart_and_recover(plan, pid)

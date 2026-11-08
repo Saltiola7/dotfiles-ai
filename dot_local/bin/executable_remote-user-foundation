@@ -347,6 +347,9 @@ def validate_integrity(state: dict) -> Path:
         expected_status.insert(1, " R install-03-remote-mise.sh")
         expected_status.insert(2, " R install-04-remote-opencode-service.sh")
         expected_status.append(" R zz-remote-worktree-activation.sh")
+    if data.get('herdr_core'):
+        expected_status.append(' R install-05-remote-herdr-runtime.sh')
+    expected_status.sort()
     if sorted(status) != expected_status:
         raise RuntimeError("foundation managed targets changed")
     for target in state["managed_targets"]:

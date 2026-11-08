@@ -2,7 +2,8 @@
 # Hosted disposable container only. No PAM login, journals or native output.
 set -euo pipefail
 umask 077
-fail() { echo 'F07: shell-invariant-failed' >&2; exit 1; }
+stage=initialization
+fail() { echo "F07: shell-invariant-failed-$stage" >&2; exit 1; }
 [[ $EUID == 0 && $(cat /proc/1/comm) == systemd ]] || fail
 [[ $(uname -m) == x86_64 ]] || fail
 [[ $(systemd-detect-virt --container) == docker ]] || fail
@@ -22,6 +23,9 @@ wait_user() {
         if [[ -S /run/user/$uid/bus ]] && as_user timeout 5 systemctl --user is-active --quiet default.target >/dev/null 2>&1; then return; fi
         sleep 1
     done
+    # Only fixed systemd state properties from this disposable fixture account;
+    # never journals, environment, unit contents, registrations or native output.
+    systemctl show "user@$uid.service" --property=ActiveState,SubState,Result --no-pager || true
     fail
 }
 no_login() {
@@ -40,13 +44,17 @@ no_login() {
 }
 case ${1:-} in
     prepare)
+        stage=prepare-precondition
         [[ ! -e /var/lib/f07/prepared ]] || fail
         for ((attempt = 0; attempt < 90; attempt++)); do
             if timeout 5 systemctl is-active --quiet systemd-logind.service dbus.service >/dev/null 2>&1; then break; fi
             sleep 1
         done
+        stage=enable-linger
         timeout 10 loginctl enable-linger fixture >/dev/null 2>&1 || fail
+        stage=wait-user
         wait_user
+        stage=copy-source
         install -d -o fixture -g fixture -m 0700 /home/fixture/.local/share
         cp -R /opt/f01/source /home/fixture/.local/share/chezmoi-dotfiles-ai
         chown -R fixture:fixture /home/fixture/.local
@@ -54,6 +62,7 @@ case ${1:-} in
         touch /var/lib/f07/prepared /run/f07-core
         ;;
     verify-core)
+        stage=verify-core-precondition
         [[ -f /var/lib/f07/prepared && ! -e /run/f07-core && ! -e /var/lib/f07/core-verified ]] || fail
         wait_user
         [[ $(timeout 5 loginctl show-user fixture -p Linger --value 2>/dev/null) == yes ]] || fail
@@ -62,12 +71,13 @@ case ${1:-} in
         touch /var/lib/f07/core-verified /run/f07-tui
         ;;
     verify-tui)
+        stage=verify-tui-precondition
         [[ -f /var/lib/f07/core-verified && ! -e /run/f07-tui && ! -e /var/lib/f07/qualified ]] || fail
         wait_user
         no_login
         as_user timeout 600 python3 /opt/f07/verify-user.py verify-tui
         touch /var/lib/f07/qualified
-        echo 'F07: native-idle-layout-qualification-complete; inflight-turn-not-qualified'
+        echo 'F07: native-layout-and-inflight-turn-qualification-complete'
         ;;
     *) fail ;;
 esac
