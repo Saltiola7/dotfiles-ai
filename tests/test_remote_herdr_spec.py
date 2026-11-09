@@ -41,3 +41,14 @@ def test_runtime_support_contract_retains_state_and_installer_authority():
         assert token in operations
     assert '75 seconds' in text and '60-second backoff cap' in text
     assert 'Other ordinary\nreadiness waits remain 30 seconds' in text
+
+
+def test_shell_label_hotfix_contract_preserves_retained_recovery_and_scope():
+    root = Path(__file__).parents[1]
+    text = (root / 'docs/specs/dotfiles_ai_distribution/features/remote-herdr-runtime.md').read_text()
+    section = text.split('### Plain-shell label compatibility (RRW-007F-R1)', 1)[1]
+    for token in ('empty values', 'remote-herdr-owner', 'remote-herdr-pane',
+                  'remote-herdr-session', 'extra labels still refuse', 'restore_pending',
+                  'pending=None', 'remote-herdr recover', 'without repeating creation',
+                  'operators must not manufacture one', 'does not implement INT-082'):
+        assert token in section

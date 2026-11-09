@@ -262,6 +262,32 @@ separately authorized Fork A work. No live deployment or merge is claimed here.
 
 ## Operations and maintenance
 
+### Plain-shell label compatibility (RRW-007F-R1)
+
+Core 0.1.18 removes labels with empty values. Agent terminals require exact
+`remote-herdr-owner`, `remote-herdr-pane` and nonempty `remote-herdr-session`.
+Shell terminals require the owner and pane labels but omit the session label.
+Only an absent session label and the legacy empty session label are equivalent;
+missing owner/pane labels, nonempty mismatches and extra labels still refuse.
+Label compatibility never substitutes for actual program, directory, PID/start-time
+or duplicate-client proofs. No binary pin, installer, backend or CLI ownership changes.
+
+- Given a retained `restore_pending` switch, no manifest, and a receipt naming one
+  live owned shell with no session label and `pending=None`, explicit
+  `remote-herdr recover` reuses that terminal, creates only the remaining panes,
+  performs the version-checked document update and verifies before completing.
+- Given a legacy uncertain shell `terminal.run` intent containing an empty session
+  label, recovery matches the pinned core's omitted label without repeating creation.
+  Missing or multiple matches remain an uncertain outcome, not permission to retry.
+- Given a changed owner, pane, nonempty session, directory or actual program,
+  compatibility does not authorize attachment, replacement or destructive cleanup.
+
+The original transaction ID, receipt, native terminal record and private backup
+are retained. Recovery may publish its manifest through the existing controller;
+operators must not manufacture one or hand-edit a receipt. Automatic restore still
+refuses an unfinished switch. This hotfix does not implement INT-082 daily-layout
+adoption, unnamed TUI label normalization, broader CLI diagnostics or editor repair.
+
 `remote-herdr selected` observes selection; `remote-herdr-core check` verifies the
 installed bytes without repair. The restore timer only invokes the serialized
 controller; upstream `hc-serve-*`, `hc-hold-*` and `hc-shutdown-*` units own core
@@ -298,13 +324,15 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Active source to captured inventory | Switch controller | Private fidelity-checked layout/session data |
 | Captured source to stopped source | Switch controller | Prove source runtime and agents stopped |
 | Stopped source to live target | Native target adapter | Verify exact identities, directories, labels/order |
+| Retained shell receipt to recovered switch | Recovery controller | Match exact owner/pane with omitted or legacy-empty shell session label; reuse existing terminal |
 | Any uncertain or failed transition | Recovery controller | Retain evidence; no duplicate activation |
 
 **Text Equivalent:** The foundation installs the reviewed core binary, with
 version coordination retained by Fork A. Fork B starts
 only the explicitly selected runtime. Switching first captures private state,
 then proves the source stopped before any target agent starts. Target readiness
-requires live session and layout fidelity. Uncertainty retains evidence and
+requires live session and layout fidelity. Shell recovery accepts the core's
+omitted empty session label without relaxing owner or process checks. Uncertainty retains evidence and
 blocks activation. Canonical source: approved INT-077/079 and this behavior
 contract; hosted qualification is distinct from live acceptance. Owner: distribution maintainer.
 Update with selection, native interface, ownership or recovery changes.
