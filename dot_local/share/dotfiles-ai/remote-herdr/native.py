@@ -1627,7 +1627,7 @@ class Native:
                  receipt.get('labels', {}).get(k, self._labels(receipt['txid'], p)))
                  for k, p in old.items() if k in receipt['terminals']}
         labels, repairs = {}, layout._json_copy(receipt.get('repairs', {}))
-        live, proofs = {}, {}
+        live, proofs, actuals = {}, {}, {}
         stop = self.store.read('source-stop.json')
         stopped = {}
         if (stop and stop.get('runtime') == 'herdr-core' and stop.get('txid') == receipt['txid']):
@@ -1685,6 +1685,7 @@ class Native:
                             or self._actual_core_program(actual) != (None, desired['cwd'])):
                         raise NativeError('core repair source ownership or program changed')
                     live[leaf] = actual
+                    actuals[leaf] = (None, desired['cwd'], self.process_argv((actual.get('foreground') or actual)['pid']))
                     proofs[leaf] = self._pid_proofs([actual['pid'], (actual.get('foreground') or actual)['pid']])
                 return {'cwd': desired['cwd'], 'session_id': desired['session_id']}
             if previous and previous[0] != address:
@@ -1715,6 +1716,7 @@ class Native:
             identity, cwd = self._actual_core_program(terminal, unknown=previous is None and not replaced)
             if identity is False:
                 return None
+            actuals[leaf] = (identity, cwd, self.process_argv((terminal.get('foreground') or terminal)['pid']))
             if previous:
                 desired = previous[1]
                 if cwd != desired['cwd']:
@@ -1757,11 +1759,20 @@ class Native:
         self._db_sessions(projected)
         # Recheck actual programs and start times across the inventory boundary.
         for leaf, terminal in live.items():
-            if self._terminal(terminal['address']) != terminal:
+            current = self._terminal(terminal['address'])
+            # Core reports titles/status/geometry asynchronously. Those are not
+            # process identity. Foreground None -> the same PID's report is also
+            # harmless; actual argv/cwd and PID/start-time remain authoritative.
+            if (any(current.get(key) != terminal.get(key)
+                    for key in ('address', 'labels', 'state', 'pid', 'argv', 'cwd', 'keep'))
+                    or (current.get('foreground') or current).get('pid')
+                    != (terminal.get('foreground') or terminal).get('pid')):
                 raise NativeError('core current inventory changed')
             if self._pid_proofs([p['pid'] for p in proofs[leaf]]) != proofs[leaf]:
                 raise NativeError('core current process identity changed')
-            self._actual_core_program(terminal)
+            if (self._actual_core_program(current) != actuals[leaf][:2]
+                    or self.process_argv((current.get('foreground') or current)['pid']) != actuals[leaf][2]):
+                raise NativeError('core current process identity changed')
         return projected, bindings, labels, repairs
 
     def _wait_created_core(self, address, pane, labels):

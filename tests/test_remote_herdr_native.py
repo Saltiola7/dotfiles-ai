@@ -410,6 +410,66 @@ def test_current_capture_keeps_unrepresented_idle_shell_records(backend):
     assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
 
 
+@pytest.mark.parametrize('metadata', ['title', 'status', 'size', 'foreground-report'])
+def test_current_inventory_proof_ignores_presentation_updates(backend, metadata):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    original = core.rpc
+    def updating(method, params):
+        result = original(method, params)
+        if method == 'terminal.get':
+            if metadata == 'title':
+                result['title'] = 'Updated title'
+            elif metadata == 'status':
+                result.update(status={'state': 'idle'}, status_ms=42, turn=3, reported=True)
+            elif metadata == 'size':
+                result.update(cols=120, rows=40)
+            else:
+                result['foreground'] = {'pid': result['pid'], 'name': 'native',
+                                        'argv': wrapper_argv(backend, 'ses_abc'), 'cwd': '/work'}
+        return result
+    backend.core = updating
+    before = len(core.calls)
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['plan'] == plan()
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
+@pytest.mark.parametrize('change', ['labels', 'pid', 'state', 'stored-argv', 'actual-argv',
+                                    'cwd', 'start-ticks', 'foreground-pid', 'same-session-argv'])
+def test_current_inventory_still_refuses_ownership_and_process_changes(backend, change):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    original = core.rpc
+    def changed(method, params):
+        result = original(method, params)
+        if method == 'terminal.get':
+            if change == 'labels':
+                result['labels'] = {'foreign': 'owner'}
+            elif change == 'pid':
+                result['pid'] += 100
+            elif change == 'state':
+                result['state'] = 'finished'
+            elif change == 'stored-argv':
+                result['argv'] = ['/usr/bin/vim']
+            elif change == 'actual-argv':
+                synthetic_process(backend, result['pid'], wrapper_argv(backend, 'ses_other'))
+            elif change == 'same-session-argv':
+                synthetic_process(backend, result['pid'], wrapper_argv(backend, 'ses_abc', auto=False))
+            elif change == 'cwd':
+                synthetic_process(backend, result['pid'], wrapper_argv(backend, 'ses_abc'), cwd='/elsewhere')
+            elif change == 'start-ticks':
+                synthetic_process(backend, result['pid'], wrapper_argv(backend, 'ses_abc'), ticks=999)
+            else:
+                result['foreground'] = {'pid': 99, 'cwd': '/work', 'argv': wrapper_argv(backend, 'ses_abc')}
+        return result
+    backend.core = changed
+    before = len(core.calls)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
 @pytest.mark.parametrize('identity', ['ses_abc', None])
 def test_current_controller_stopped_clients_are_not_user_closed_views(backend, identity):
     core = FakeCore(backend)
