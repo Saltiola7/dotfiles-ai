@@ -27,5 +27,6 @@ def test_profile_completion_and_shared_storage_contracts_are_coherent():
     assert 'preserve activation bytes' in changelog
     assert 'source-only revisions retain activation' in activation
     assert 'former manual fixture refresh workaround' in activation
-    for token in ('606 tests', '4 explicitly selected', '91', '15', 'Fork A', '007I', 'never main'):
+    for token in ('606 tests', '4 explicitly selected', '91', '15', 'Fork A', '007I', 'never main',
+                  '532b4e1f', 'without changing workload', 'both boot phases'):
         assert token in changelog

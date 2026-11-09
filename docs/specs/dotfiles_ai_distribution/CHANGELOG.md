@@ -17,8 +17,13 @@
   native-binary tests are skipped locally, not claimed passed. Helper/new tests
   are type-clean; existing CLI (91) and native V2 fixture (15) diagnostics are
   unchanged from the retained base. Independent source reviews found no blocker.
-  Exact-head hosted/full-suite and lifecycle evidence belong to the Cycle Record;
-  no native/live deployment, gate waiver or full-file typing pass is implied.
+  Refresh the performance fixture's exact helper hash without changing workload
+  or runtime/help expectations; benchmark smoke and performance regressions pass.
+- Native/disposable qualification passed `532b4e1f`: RHEL source-only upgrade and
+  rollback preserve activation, shared OpenCode boot succeeds, and Herdr recovery,
+  adoption, held-turn transfer and both boot phases pass. Final-head full-suite
+  and lifecycle evidence belong to the Cycle Record. Earlier failures remain
+  retained; no live deployment, gate waiver or full-file typing pass is implied.
 - Gate history begins `79f5d2d`; intended Final Push is
   `dbsctr/dotfiles_ai_distribution/RRW-007H` and a draft PR, never main. Bootstrap
   and pins unchanged. Fork A owns setup preference, pins and rollout; 007I editor
