@@ -309,6 +309,515 @@ def manifest_for(backend, core, p=None):
     return manifest
 
 
+def test_current_document_adopts_later_client_and_preserves_closed_raw_view(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    assert core.document is not None
+    core.rpc('terminal.kill', {'terminal': 't1'})
+    with sqlite3.connect(backend.database_path()) as db:
+        db.execute('INSERT INTO session VALUES (?, ?)', ('ses_later', '/work'))
+    later = core.rpc('terminal.run', {'argv': [str(backend.home / '.local/bin/opencode'), '--session', 'ses_later'],
+                                    'cwd': '/work', 'labels': {}})
+    tab = core.document['spaces'][0]['tabs'][0]
+    old = tab['root']
+    tab['root'] = {'id': 'split-new', 'type': 'row', 'opaque': [None], 'children': [
+        old, {'id': 'later-leaf', 'type': 'block', 'content': {'terminal': later['address']}, 'size': {'weight': 2}}]}
+    core.document['spaces'][0]['name'] = 'Renamed by user'
+    core.document['metadata'] = {'preserve': True}
+    core.version += 1
+    before = copy.deepcopy(core.document)
+    calls = len(core.calls)
+    backend.restore_current()
+    saved = backend.store.read('manifest.json')
+    assert saved['schema_version'] == 2
+    assert native.sessions(saved['plan']) == {'ses_later'}
+    assert saved['receipt']['labels'] == {'s0-t0-p0': {}}
+    assert core.document == before
+    backend.restore_current()
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set', 'command') for m, _ in core.calls[calls:])
+
+
+def test_current_core_without_manifest_or_endpoint_is_quiet(backend):
+    backend.selected = lambda: 'herdr-core'
+    backend.restore_current()
+    assert not backend.calls and backend.store.read('manifest.json') is None
+
+
+def test_current_adoption_crash_before_manifest_recovers_durable_plan(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    assert core.document is not None
+    core.document['spaces'][0]['tabs'][0]['name'] = 'Edited'
+    core.version += 1
+    write = backend.store.write
+    def crash(name, value):
+        if name == 'manifest.json' and value.get('schema_version') == 2:
+            raise ValueError('synthetic crash')
+        write(name, value)
+    backend.store.write = crash
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    backend.store.write = write
+    before = len(core.calls)
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['plan']['spaces'][0]['tabs'][0]['name'] == 'Edited'
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
+@pytest.mark.parametrize('operation', ['terminal.kill', 'terminal.run', 'doc.set'])
+def test_current_document_unknown_effect_reconciles_without_replaying(backend, operation):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    assert core.document is not None
+    core.document['opaque'] = {'keep': True}
+    core.version += 1
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    original = core.rpc
+    def uncertain(method, params):
+        result = original(method, params)
+        if method == operation:
+            raise native.NativeError('synthetic uncertain outcome')
+        return result
+    backend.core = uncertain
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    backend.core = original
+    backend.restore_current()
+    backend.restore_current()
+    assert core.document['opaque'] == {'keep': True}
+    assert sum(m == 'terminal.run' for m, _ in core.calls) == 2
+    assert sum(m == 'terminal.kill' for m, _ in core.calls) == 1
+    assert sum(m == 'doc.set' for m, _ in core.calls) == 2
+
+
+def test_current_baseline_capture_accepts_user_metadata_without_killing_unknown_view(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    assert core.document is not None
+    core.document['spaces'][0]['tabs'][0]['root']['size'] = {'weight': 1, 'default': None}
+    core.document['opaque'] = 'keep'
+    backend.restore_current()
+    assert backend.capture('herdr-core')['plan'] == plan()
+
+
+def test_current_capture_keeps_unrepresented_idle_shell_records(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work', 'labels': {}})
+    backend.restore_current()
+    before = len(core.calls)
+    assert backend.capture('herdr-core')['plan'] == plan()
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
+@pytest.mark.parametrize('replace_finished_address', [False, True])
+def test_current_owned_shell_can_adopt_a_later_exact_client(backend, replace_finished_address):
+    core = FakeCore(backend)
+    manifest_for(backend, core, plan(None))
+    assert core.document is not None
+    with sqlite3.connect(backend.database_path()) as db:
+        db.execute('INSERT INTO session VALUES (?, ?)', ('ses_later', '/work'))
+    if replace_finished_address:
+        core.rpc('terminal.kill', {'terminal': 't1'})
+        later = core.rpc('terminal.run', {'argv': [str(backend.home / '.local/bin/opencode'),
+                        '--session', 'ses_later'], 'cwd': '/work', 'labels': {}})
+        core.document['spaces'][0]['tabs'][0]['root']['content']['terminal'] = later['address']
+        core.version += 1
+    else:
+        synthetic_process(backend, core.terminals['t1']['pid'], wrapper_argv(backend, 'ses_later'))
+    before = len(core.calls)
+    backend.restore_current()
+    assert native.sessions(backend.store.read('manifest.json')['plan']) == {'ses_later'}
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
+def test_current_repair_waits_for_observed_created_client_readiness(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    original = core.rpc
+    observations = 0
+    def delayed(method, params):
+        nonlocal observations
+        if method == 'terminal.get' and params['terminal'] == 't2':
+            observations += 1
+            if observations >= 2:
+                core.terminals['t2']['pid'] = 32
+        result = original(method, params)
+        if method == 'terminal.run':
+            core.terminals['t2']['pid'] = None
+            result['pid'] = None
+        return result
+    backend.core = delayed
+    def wait(check, *, seconds=None):
+        for _ in range(4):
+            if check():
+                return
+        raise native.NativeError('native readiness or stop proof unavailable')
+    backend._wait = wait
+    backend.restore_current()
+    assert observations >= 2
+    assert backend.store.read('manifest.json')['receipt']['terminals'] == {'s0-t0-p0': 't2'}
+    assert sum(method == 'terminal.run' for method, _ in core.calls) == 2
+
+
+def test_current_uncertain_cas_accepts_later_unrelated_desktop_serialization(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    original = core.rpc
+    def uncertain(method, params):
+        result = original(method, params)
+        if method == 'doc.set':
+            assert core.document is not None
+            core.document['desktop-metadata'] = {'preserve': True}
+            core.document['spaces'][0]['tabs'][0]['name'] = 'User rename after CAS'
+            core.version += 1
+            raise native.NativeError('synthetic lost CAS reply')
+        return result
+    backend.core = uncertain
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    backend.core = original
+    before = len(core.calls)
+    backend.restore_current()
+    saved = backend.store.read('manifest.json')
+    assert saved['plan']['spaces'][0]['tabs'][0]['name'] == 'User rename after CAS'
+    assert core.document is not None
+    assert core.document['desktop-metadata'] == {'preserve': True}
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
+def test_uncertain_current_create_persists_observed_address_before_readiness_wait(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    original = core.rpc
+    def uncertain(method, params):
+        result = original(method, params)
+        if method == 'terminal.run':
+            raise native.NativeError('synthetic lost create reply')
+        return result
+    backend.core = uncertain
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    backend.core = original
+    wait = backend._wait
+    waits = 0
+    def timeout(check, *, seconds=None):
+        nonlocal waits
+        waits += 1
+        if waits == 1:
+            assert check()  # Initial read-only kept-spawn observation is ready.
+            return
+        raise native.NativeError('native readiness or stop proof unavailable')
+    backend._wait = timeout
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    saved = backend.store.read('receipt-testtx.json')
+    assert saved['pending']['operation'] == 'terminal.run'
+    assert saved['repairs']['s0-t0-p0']['created'] == 't2'
+    backend._wait = wait
+    backend.restore_current()
+    assert sum(m == 'terminal.run' for m, _ in core.calls) == 2
+
+
+@pytest.mark.parametrize('returned_version', [None, 'unsupported', True, 0])
+def test_current_cas_bad_acknowledgement_retains_reconcilable_intent(backend, returned_version):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    original = core.rpc
+    def bad_reply(method, params):
+        result = original(method, params)
+        return {'version': returned_version} if method == 'doc.set' else result
+    backend.core = bad_reply
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    receipt = backend.store.read('receipt-testtx.json')
+    assert receipt['pending']['operation'] == 'doc.set'
+    backend.core = original
+    before = len(core.calls)
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['receipt']['pending'] is None
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
+def test_retained_published_64_pending_switch_adopts_three_without_resurrecting_four(backend):
+    core = FakeCore(backend)
+    leaves = [{'key': f's0-t0-p{i}', 'cwd': '/work',
+               'session_id': None if i < 10 else f'ses_retained{i}'} for i in range(64)]
+    def tree(items, native_tree=False):
+        if len(items) == 1:
+            return items[0] if native_tree else {'pane': items[0]['key']}
+        half = len(items) // 2
+        children = [tree(items[:half], native_tree), tree(items[half:], native_tree)]
+        if native_tree:
+            return {'id': 'branch-' + str(len(items)) + '-' + items[0]['id'], 'type': 'row', 'children': children}
+        return {'axis': 'row', 'ratio': 0.5, 'children': children}
+    value = {'schema_version': 1, 'spaces': [{'name': 'Original', 'directory': '/work', 'tabs': [
+        {'name': 'Original tab', 'root': tree(leaves), 'panes': leaves}]}]}
+    with sqlite3.connect(backend.database_path()) as db:
+        db.executemany('INSERT INTO session VALUES (?, ?)',
+                       [(p['session_id'], '/work') for p in leaves if p['session_id']])
+        db.executemany('INSERT INTO session VALUES (?, ?)', [(f'ses_new{i}', '/work') for i in range(3)])
+    manifest = manifest_for(backend, core, value)
+    assert core.document is not None
+    for address in ('t1', 't2', 't3', 't11'):
+        core.rpc('terminal.kill', {'terminal': address})
+    nodes = []
+    def collect(node):
+        if node['type'] == 'block':
+            if node['content']['terminal'] not in ('t1', 't2', 't3', 't11'):
+                nodes.append(copy.deepcopy(node))
+        else:
+            for child in node['children']:
+                collect(child)
+    collect(core.document['spaces'][0]['tabs'][0]['root'])
+    for i in range(3):
+        created = core.rpc('terminal.run', {'argv': [str(backend.home / '.local/bin/opencode'), '--session', f'ses_new{i}'],
+                                           'cwd': '/work', 'labels': {}})
+        nodes.insert(0, {'id': f'user-leaf-{i}', 'type': 'block', 'content': {'terminal': created['address']}})
+    core.document['spaces'][0]['name'] = 'User renamed'
+    core.document['spaces'][0]['tabs'][0]['root'] = tree(nodes, True)
+    core.document['opaque'] = {'serde': [None, {'keep': True}]}
+    core.version += 1
+    before = copy.deepcopy(core.document)
+    backend.store.write('transaction.json', {'schema_version': 1, 'txid': 'testtx', 'source': 'tui',
+        'target': 'herdr-core', 'phase': 'restore_pending', 'plan': value, 'receipt': manifest['receipt']})
+    calls = len(core.calls)
+    runtime_controller.Controller(backend.store, backend).recover()
+    saved = backend.store.read('manifest.json')
+    assert saved['schema_version'] == 2 and saved['txid'] == 'testtx'
+    assert len(native.panes(saved['plan'])) == 63 and len(native.sessions(saved['plan'])) == 56
+    assert not {'t1', 't2', 't3', 't11'} & set(saved['receipt']['terminals'].values())
+    assert all(core.terminals[a]['state'] == 'finished' for a in ('t1', 't2', 't3', 't11'))
+    assert core.document == before and backend.store.read('transaction.json')['phase'] == 'complete'
+    backend.restore_current()
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set', 'command') for m, _ in core.calls[calls:])
+
+
+@pytest.mark.parametrize('program', [['/usr/bin/vim'], ['opencode']])
+def test_current_fresh_baseline_leaves_unowned_unknown_program_untouched(backend, program):
+    core = FakeCore(backend)
+    created = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work', 'labels': {}})
+    synthetic_process(backend, created['pid'], program)
+    core.terminals[created['address']]['argv'] = program
+    core.document = native.layout.to_app_document(plan(None), {'s0-t0-p0': created['address']})
+    before = copy.deepcopy(core.document)
+    calls = len(core.calls)
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['plan'] == {'schema_version': 1, 'spaces': []}
+    assert core.document == before
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[calls:])
+
+
+@pytest.mark.parametrize('proof', ['database-directory', 'actual-directory', 'duplicate'])
+def test_current_later_client_adoption_refuses_bad_proofs_without_native_effect(backend, proof):
+    core = FakeCore(backend)
+    created = core.rpc('terminal.run', {'argv': [str(backend.home / '.local/bin/opencode'), '--session', 'ses_abc'],
+                                      'cwd': '/work', 'labels': {}})
+    core.document = native.layout.to_app_document(plan(), {'s0-t0-p0': created['address']})
+    if proof == 'database-directory':
+        with sqlite3.connect(backend.database_path()) as db:
+            db.execute('UPDATE session SET directory = ?', ('/elsewhere',))
+    elif proof == 'actual-directory':
+        synthetic_process(backend, created['pid'], wrapper_argv(backend), cwd='/elsewhere')
+    else:
+        synthetic_process(backend, 90, wrapper_argv(backend))
+    calls = len(core.calls)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert backend.store.read('manifest.json') is None
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[calls:])
+
+
+@pytest.mark.parametrize('boundary', ['kill-intent', 'run-intent', 'cas-intent', 'cas-conflict'])
+def test_current_repair_races_preserve_user_edit_without_duplicate_creation(backend, boundary):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    backend.restore_current()
+    assert core.document is not None
+    core.document['opaque'] = 'before'
+    core.version += 1
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    publish = backend._receipt
+    operations = {'kill-intent': 'terminal.kill', 'run-intent': 'terminal.run', 'cas-intent': 'doc.set'}
+    def race(receipt):
+        publish(receipt)
+        if boundary in operations and (receipt.get('pending') or {}).get('operation') == operations[boundary]:
+            assert core.document is not None
+            core.document['opaque'] = 'user-edit'
+            core.version += 1
+    backend._receipt = race
+    rpc = core.rpc
+    def conflict(method, params):
+        if method == 'doc.set':
+            assert core.document is not None
+            core.document['opaque'] = 'user-edit'
+            core.version += 1
+        return rpc(method, params)
+    if boundary == 'cas-conflict':
+        backend.core = conflict
+    calls = len(core.calls)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert core.document['opaque'] == 'user-edit'
+    backend._receipt = publish
+    backend.core = rpc
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    expected_runs = 1 if boundary in ('cas-intent', 'cas-conflict') else 0
+    assert sum(m == 'terminal.run' for m, _ in core.calls[calls:]) == expected_runs
+    assert sum(m == 'terminal.kill' for m, _ in core.calls[calls:]) == (0 if boundary == 'kill-intent' else 1)
+
+
+def test_current_schema2_reboot_rebinds_owned_leaf_preserving_unowned_unknown_view(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    backend.restore_current()
+    assert core.document is not None
+    original = copy.deepcopy(core.document['spaces'][0]['tabs'][0]['root'])
+    unknown = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work', 'labels': {}})
+    synthetic_process(backend, unknown['pid'], ['/usr/bin/vim'])
+    core.terminals[unknown['address']]['argv'] = ['/usr/bin/vim']
+    root = {'id': 'user-split', 'type': 'column', 'opaque': {'keep': None}, 'children': [
+        {'id': 'unowned-view', 'type': 'block', 'content': {'terminal': unknown['address']}}, original]}
+    core.document['spaces'][0]['tabs'][0]['root'] = root
+    core.version += 1
+    before = copy.deepcopy(core.document)
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    core.active = False
+    backend.restore_current()
+    expected = native.layout.rebind_app_document(before, {'s0-t0-p0': ('t1', 't3')})
+    assert core.document == expected
+    assert core.terminals[unknown['address']]['state'] == 'live'
+    assert core.terminals['t1']['state'] == 'finished'
+    backend.restore_current()
+    assert sum(m == 'terminal.run' for m, _ in core.calls) == 3
+
+
+def test_current_resumed_repair_rechecks_saved_source_labels_before_kill(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    publish = backend._receipt
+    def crash(receipt):
+        publish(receipt)
+        if receipt.get('repairs') and receipt.get('pending') is None:
+            raise ValueError('synthetic crash after adopted baseline')
+    backend._receipt = crash
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    backend._receipt = publish
+    core.terminals['t1']['labels'] = {'foreign': 'changed'}
+    calls = len(core.calls)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert not any(m in ('terminal.kill', 'terminal.run', 'doc.set') for m, _ in core.calls[calls:])
+
+
+def test_unpublished_full_v1_creation_still_uses_strict_migration_recovery(backend):
+    core = FakeCore(backend)
+    value = plan()
+    receipt = backend.prepare('herdr-core', value, 'synthetic')
+    cas = backend._cas
+    backend._cas = lambda *args: (_ for _ in ()).throw(ValueError('synthetic crash before CAS intent'))
+    with pytest.raises(native.NativeError):
+        backend.restore('herdr-core', value, 'synthetic', receipt)
+    backend._cas = cas
+    saved = backend.store.read('receipt-synthetic.json')
+    assert saved['terminals'] == {'s0-t0-p0': 't1'} and saved['pending'] is None
+    assert saved['document'] is None and core.document is None
+    backend.store.write('manifest.json', {'schema_version': 1, 'runtime': 'herdr-core',
+                         'txid': 'synthetic', 'plan': value, 'receipt': saved})
+    calls = len(core.calls)
+    backend.restore_current()
+    assert core.document == native.layout.to_app_document(value, saved['terminals'])
+    assert not any(m == 'terminal.run' for m, _ in core.calls[calls:])
+
+
+def test_published_partial_v1_receipt_does_not_resurrect_finished_view(backend):
+    core = FakeCore(backend)
+    manifest = manifest_for(backend, core)
+    core.rpc('terminal.kill', {'terminal': 't1'})
+    # Old recovery could persist removal from its binding map before crashing.
+    receipt = manifest['receipt']
+    receipt['terminals'] = {}
+    backend._receipt(receipt)
+    calls = len(core.calls)
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['plan'] == {'schema_version': 1, 'spaces': []}
+    assert core.document == manifest['receipt']['document']
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[calls:])
+
+
+def test_fresh_selected_live_core_adopts_exact_client_without_native_effect(backend):
+    core = FakeCore(backend)
+    created = core.rpc('terminal.run', {'argv': [str(backend.home / '.local/bin/opencode'), '--session', 'ses_abc'],
+                                      'cwd': '/work', 'labels': {'user': 'retain'}})
+    core.document = native.layout.to_app_document(plan(), {'s0-t0-p0': created['address']})
+    calls = len(core.calls)
+    backend.restore_current()
+    saved = backend.store.read('manifest.json')
+    assert saved['schema_version'] == 2 and saved['plan'] == plan()
+    assert saved['receipt']['labels'] == {'s0-t0-p0': {'user': 'retain'}}
+    assert backend.store.read(saved['receipt']['adoption_backup'])['manifest'] is None
+    backend.restore_current()
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set', 'command') for m, _ in core.calls[calls:])
+
+
+def test_fresh_selected_live_core_without_document_is_quiet(backend):
+    core = FakeCore(backend)
+    backend.restore_current()
+    assert backend.store.read('manifest.json') is None
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set', 'command') for m, _ in core.calls)
+
+
+def test_current_repair_waits_for_actual_shell_pid_exit_not_only_finished_record(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    rpc = core.rpc
+    def retained_process(method, params):
+        if method == 'terminal.kill':
+            core.calls.append((method, copy.deepcopy(params)))
+            core.terminals[params['terminal']]['state'] = 'finished'
+            return copy.deepcopy(core.terminals[params['terminal']])
+        return rpc(method, params)
+    backend.core = retained_process
+    calls = len(core.calls)
+    with pytest.raises(native.NativeError, match='proof'):
+        backend.restore_current()
+    assert backend.store.read('receipt-testtx.json')['pending']['operation'] == 'terminal.kill'
+    with pytest.raises(native.NativeError, match='still running'):
+        backend.restore_current()
+    assert sum(m == 'terminal.kill' for m, _ in core.calls[calls:]) == 1
+    assert not any(m in ('terminal.run', 'doc.set') for m, _ in core.calls[calls:])
+
+
+@pytest.mark.parametrize('malformed', ['binding', 'labels', 'document', 'pending'])
+def test_malformed_current_receipt_refuses_before_starting_stopped_core(backend, malformed):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    backend.restore_current()
+    receipt = backend.store.read('receipt-testtx.json')
+    if malformed == 'binding':
+        receipt['bindings']['s0-t0-p0'] = 'missing-leaf'
+    elif malformed == 'labels':
+        receipt['labels']['s0-t0-p0'] = {'bad': None}
+    elif malformed == 'document':
+        receipt['document'] = {'spaces': 'invalid'}
+    else:
+        receipt['pending'] = {'operation': 'unknown'}
+    backend.store.write('receipt-testtx.json', receipt)
+    core.active = False
+    calls = len(core.calls)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set', 'command') for m, _ in core.calls[calls:])
+
+
 def test_recover_retained_shell_receipt_completes_64_pane_switch(backend):
     core = FakeCore(backend)
     txid = 'shellfix'

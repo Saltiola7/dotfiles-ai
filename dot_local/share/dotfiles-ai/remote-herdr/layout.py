@@ -508,3 +508,129 @@ def to_app_document(plan, terminal_map):
             tabs.append({'id': prefix, 'name': tab['name'], 'root': tree(tab['root'], 'r')})
         spaces.append({'id': f's{si}', 'name': space['name'], 'folder': space['directory'], 'tabs': tabs})
     return _json_copy({'spaces': spaces})
+
+
+def project_app_document(value, classify):
+    """Project a bounded current document, without rewriting its opaque fields.
+
+    classify(leaf_id, local_address) returns cwd/session_id or None for a view
+    outside the restorable subset. Only the private projection is pruned. The
+    returned bindings separate stable native identity from canonical positions.
+    """
+    document = _object(_json_copy(value))
+    ids, addresses = set(), set()
+    count = tabs = 0
+    spaces, bindings = [], {}
+
+    def identity(item):
+        key = _string(_object(item).get('id'), 512)
+        if not key or key in ids:
+            _fail('missing or duplicate app identity')
+        ids.add(key)
+        return key
+
+    for source_space in _list(document.get('spaces'), MAX_SPACES):
+        identity(source_space)
+        space = {'name': _native_name(source_space.get('name')),
+                 'directory': _path(source_space.get('folder')), 'tabs': []}
+        for source_tab in _list(source_space.get('tabs'), MAX_TABS):
+            tabs += 1
+            if tabs > MAX_TABS:
+                _fail('too many app tabs')
+            identity(source_tab)
+            tab: dict = {'name': _native_name(source_tab.get('name')), 'panes': [], 'root': None}
+
+            def tree(node, depth):
+                nonlocal count
+                if depth > MAX_DEPTH:
+                    _fail('app tree exceeds depth limit')
+                leaf = identity(node)
+                kind = node.get('type')
+                size = node.get('size')
+                if size is not None:
+                    _object(size)
+                    weight = size.get('weight', 1)
+                    if type(weight) not in (int, float) or not math.isfinite(weight) or weight <= 0:
+                        _fail('invalid app weight')
+                if kind == 'block':
+                    count += 1
+                    if count > MAX_PANES or node.get('children') not in (None, []):
+                        _fail('invalid app leaf')
+                    content = node.get('content')
+                    if content is None:
+                        return None
+                    _object(content)
+                    if 'terminal' not in content:
+                        return None
+                    if any(content.get(field) is not None for field in ('machine', 'machine_id')):
+                        _fail('remote app terminal unsupported')
+                    address = content['terminal']
+                    if not _TERMINAL.fullmatch(_string(address)) or address in addresses:
+                        _fail('invalid or duplicate local app terminal')
+                    addresses.add(address)
+                    classified = classify(leaf, address)
+                    if classified is None:
+                        return None
+                    _object(classified, ('cwd', 'session_id'))
+                    key = f's{len(spaces)}-t{len(space["tabs"])}-p{len(tab["panes"])}'
+                    tab['panes'].append({'key': key, **classified})
+                    bindings[key] = {'leaf': leaf, 'terminal': address}
+                    return {'pane': key}
+                if kind not in ('row', 'column') or node.get('content') is not None:
+                    _fail('unsupported app layout node')
+                children = _list(node.get('children'), MAX_PANES)
+                projected = []
+                for child in children:
+                    branch = tree(child, depth + 1)
+                    if branch is not None:
+                        weight = (child.get('size') or {}).get('weight', 1)
+                        projected.append((branch, weight))
+                if not projected:
+                    return None
+                result, weight = projected[-1]
+                for branch, first_weight in reversed(projected[:-1]):
+                    total = first_weight + weight
+                    result = {'axis': kind, 'ratio': _ratio(first_weight / total),
+                              'children': [branch, result]}
+                    weight = total
+                return result
+
+            tab['root'] = tree(source_tab.get('root'), 1)
+            if tab['root'] is not None:
+                space['tabs'].append(tab)
+        if space['tabs']:
+            spaces.append(space)
+    return validate_plan({'schema_version': 1, 'spaces': spaces}), bindings
+
+
+def rebind_app_document(value, replacements):
+    """Compare leaf ID AND old address, patch only terminal scalar references."""
+    document = _json_copy(value)
+    replacements = dict(replacements)
+    found = set()
+
+    def classify(leaf, address):
+        if leaf in replacements:
+            expected, replacement = replacements[leaf]
+            if address != expected or not _TERMINAL.fullmatch(_string(replacement)):
+                _fail('app binding compare failed')
+            found.add(leaf)
+        return None
+
+    project_app_document(document, classify)
+    if found != set(replacements):
+        _fail('app binding leaf missing')
+
+    def patch(node):
+        if node.get('type') == 'block':
+            if node['id'] in replacements:
+                node['content']['terminal'] = replacements[node['id']][1]
+        else:
+            for child in node['children']:
+                patch(child)
+
+    for space in document['spaces']:
+        for tab in space['tabs']:
+            patch(tab['root'])
+    project_app_document(document, lambda leaf, address: None)
+    return document

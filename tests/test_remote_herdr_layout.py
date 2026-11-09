@@ -32,6 +32,63 @@ def plan():
         }]}]}
 
 
+def test_current_app_projection_and_rebind_preserve_opaque_document(layout):
+    document = layout.to_app_document(plan(), {f's0-t0-p{i}': f't{i + 1}' for i in range(3)})
+    document['opaque'] = {'token': ['synthetic', None]}
+    root = document['spaces'][0]['tabs'][0]['root']
+    root['custom'] = {'keep': True}
+    root['children'][0]['content']['serde_default'] = None
+    before = copy.deepcopy(document)
+    projected, bindings = layout.project_app_document(
+        document, lambda leaf, address: None if address == 't2' else
+        {'cwd': '/synthetic/project', 'session_id': 'ses_Test' + address[1:]})
+    assert len(projected['spaces'][0]['tabs'][0]['panes']) == 2
+    assert bindings == {'s0-t0-p0': {'leaf': 's0-t0-p0', 'terminal': 't1'},
+                        's0-t0-p1': {'leaf': 's0-t0-p2', 'terminal': 't3'}}
+    changed = layout.rebind_app_document(document, {'s0-t0-p2': ('t3', 't4')})
+    expected = copy.deepcopy(before)
+    expected['spaces'][0]['tabs'][0]['root']['children'][1]['children'][1]['content']['terminal'] = 't4'
+    assert changed == expected and document == before
+    with pytest.raises(ValueError):
+        layout.rebind_app_document(document, {'s0-t0-p2': ('t9', 't4')})
+
+
+@pytest.mark.parametrize('malformed', ['duplicate-leaf', 'duplicate-terminal', 'remote-address',
+                                      'machine', 'bad-weight', 'bad-axis', 'missing-id'])
+def test_current_app_projection_refuses_ambiguous_or_remote_structure(layout, malformed):
+    document = layout.to_app_document(plan(), {f's0-t0-p{i}': f't{i + 1}' for i in range(3)})
+    root = document['spaces'][0]['tabs'][0]['root']
+    first, last = root['children'][0], root['children'][1]['children'][1]
+    if malformed == 'duplicate-leaf':
+        last['id'] = first['id']
+    elif malformed == 'duplicate-terminal':
+        last['content']['terminal'] = first['content']['terminal']
+    elif malformed == 'remote-address':
+        last['content']['terminal'] = 'machine/t3'
+    elif malformed == 'machine':
+        last['content']['machine'] = 'remote'
+    elif malformed == 'bad-weight':
+        first['size']['weight'] = 0
+    elif malformed == 'bad-axis':
+        root['type'] = 'unknown'
+    else:
+        first.pop('id')
+    with pytest.raises(ValueError):
+        layout.project_app_document(document, lambda leaf, address: None)
+
+
+def test_current_projection_prunes_only_private_empty_tabs_spaces_and_singletons(layout):
+    document = layout.to_app_document(plan(), {f's0-t0-p{i}': f't{i + 1}' for i in range(3)})
+    before = copy.deepcopy(document)
+    projected, bindings = layout.project_app_document(document, lambda leaf, address:
+        {'cwd': '/synthetic/project', 'session_id': None} if address == 't3' else None)
+    assert projected['spaces'][0]['tabs'][0]['root'] == {'pane': 's0-t0-p0'}
+    assert bindings['s0-t0-p0']['leaf'] == 's0-t0-p2'
+    assert layout.project_app_document(document, lambda leaf, address: None) == (
+        {'schema_version': 1, 'spaces': []}, {})
+    assert document == before
+
+
 def test_roundtrip_geometry_identity_names_and_order(layout):
     value = plan()
     value['spaces'].append({'name': '', 'directory': '/synthetic/other', 'tabs': []})
