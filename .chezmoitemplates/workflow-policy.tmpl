@@ -1,3 +1,4 @@
 {{- /* One source-selected validator; previews never provision or activate roots. */ -}}
 {{- $options := index .dotfiles_ai "workspaces" -}}
-{{- output "python3" (joinPath .chezmoi.sourceDir "dot_local/bin/executable_workflow-policy") "render" "--source" .chezmoi.sourceDir "--home" .chezmoi.homeDir "--options" ($options | toJson) -}}
+{{- $config := env "XDG_CONFIG_HOME" | default (joinPath .chezmoi.homeDir ".config") -}}
+{{- output "python3" (joinPath .chezmoi.sourceDir "dot_local/bin/executable_workflow-policy") "render" "--source" .chezmoi.sourceDir "--home" .chezmoi.homeDir "--config-home" $config "--options" ($options | toJson) -}}

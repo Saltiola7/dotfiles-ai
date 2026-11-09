@@ -61,7 +61,20 @@ def unique(pairs):
 def digest(value):
     payload = {k: v for k, v in value.items() if k != "policy_digest"}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=False).encode()).hexdigest()
+                                      ensure_ascii=False).encode()).hexdigest()
+
+
+def semantic(value):
+    return {k: v for k, v in value.items()
+            if k not in {"source_commit", "policy_digest", "activation_binding"}}
+
+
+def semantic_digest(value):
+    return digest(semantic(value))
+
+
+def sha256(value):
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
 def run(*args, cwd=None):
@@ -104,12 +117,18 @@ def private_file(path, *, private=True):
     path_value(str(path.parent), path.parent)
     if path.is_symlink():
         refuse()
-    details = path.lstat()
-    if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
-            or details.st_nlink != 1 or details.st_size > 256 * 1024
-            or details.st_mode & (0o077 if private else 0o022)):
-        refuse()
-    return path.read_bytes()
+    # Validate the opened object, not a pathname that could change before read.
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as stream:
+        details = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid()
+                or details.st_nlink != 1 or details.st_size > 256 * 1024
+                or details.st_mode & (0o077 if private else 0o022)):
+            refuse()
+        raw = stream.read(256 * 1024 + 1)
+        if len(raw) > 256 * 1024:
+            refuse()
+        return raw
 
 
 def repository(path):
@@ -368,14 +387,32 @@ def mount_identity(path, *, owned_home=False):
 
 
 def validate_document(value, home):
-    fields(value, {"schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming"})
+    fields(value, {"schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming",
+                   "activation_binding"})
     if not isinstance(value.get("source_commit"), str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value["source_commit"]):
         refuse()
     if value.get("policy_digest") != digest(value):
         refuse()
-    normalized = resolve({k: v for k, v in value.items() if k not in {"source_commit", "policy_digest"}}, home)
+    normalized = resolve(semantic(value), home)
     if any(normalized[k] != value.get(k) for k in normalized):
         refuse()
+    if "activation_binding" in value:
+        binding = value["activation_binding"]
+        fields(binding, {"schema_version", "semantic_digest", "legacy_policy_digest"})
+        if (type(binding.get("schema_version")) is not int or binding["schema_version"] != 1
+                or not sha256(binding.get("semantic_digest"))
+                or binding["semantic_digest"] != semantic_digest(value)
+                or "legacy_policy_digest" in binding and not sha256(binding["legacy_policy_digest"])):
+            refuse()
+
+
+def previous_policy(config, home):
+    path = config / "dotfiles-ai/workflow-policy.json"
+    if not os.path.lexists(path):
+        return None
+    value = json.loads(private_file(path), object_pairs_hook=unique)
+    validate_document(value, home)
+    return value
 
 
 def snapshot(value, home):
@@ -394,12 +431,42 @@ def snapshot(value, home):
             uuid, mountpoint = (None, None) if owned else mount_identity(path)
         identities.append(dict(canonical_path=str(path), kind="owned_home" if owned else "external",
                                filesystem_uuid=uuid, mountpoint=mountpoint))
-    return dict(schema_version=1, policy_digest=value["policy_digest"], roots=identities,
-                 worktrunk_version=version)
+    return dict(schema_version=2, semantic_digest=semantic_digest(value), roots=identities,
+                  worktrunk_version=version)
 
 
 def verify_snapshot(value, saved, home):
-    if saved != snapshot(value, home):
+    current = snapshot(value, home)
+    fields(saved, {"schema_version", "policy_digest", "semantic_digest", "roots", "worktrunk_version"})
+    version = saved.get("schema_version")
+    if type(version) is not int or version not in {1, 2}:
+        refuse()
+    digest_key = "policy_digest" if version == 1 else "semantic_digest"
+    if (set(saved) != {"schema_version", digest_key, "roots", "worktrunk_version"}
+            or not sha256(saved[digest_key])
+            or not isinstance(saved["worktrunk_version"], str)):
+        refuse()
+    roots = saved["roots"]
+    if not isinstance(roots, list) or not 1 <= len(roots) <= 514:
+        refuse()
+    for root in roots:
+        keys = {"canonical_path", "kind", "filesystem_uuid", "mountpoint"}
+        fields(root, keys)
+        if (set(root) != keys or not isinstance(root["canonical_path"], str)
+                or not isinstance(root["kind"], str) or root["kind"] not in {"owned_home", "external"}
+                or root["filesystem_uuid"] is not None and not isinstance(root["filesystem_uuid"], str)
+                or root["mountpoint"] is not None and not isinstance(root["mountpoint"], str)):
+            refuse()
+    if version == 1:
+        admissible = {value["policy_digest"]}
+        anchor = value.get("activation_binding", {}).get("legacy_policy_digest")
+        if anchor is not None:
+            admissible.add(anchor)
+        if saved["policy_digest"] not in admissible:
+            refuse()
+        current.pop("semantic_digest")
+        current.update(schema_version=1, policy_digest=saved["policy_digest"])
+    if saved != current:
         refuse()
 
 
@@ -483,7 +550,7 @@ def initialize_default_home(value, home, config):
         os.close(directory_fd)
 
 
-def render(source, home, options, previous):
+def render(source, home, options, previous, *, previous_policy=None):
     source = Path(source).resolve()
     if run("git", "status", "--porcelain=v1", "--untracked-files=all", cwd=source).strip():
         refuse()
@@ -496,6 +563,17 @@ def render(source, home, options, previous):
         refuse()
     value = resolve(options, home)
     value["source_commit"] = commit
+    binding = {"schema_version": 1, "semantic_digest": semantic_digest(value)}
+    if previous_policy is not None:
+        validate_document(previous_policy, home)
+        if semantic(previous_policy) == semantic(value):
+            if "activation_binding" in previous_policy:
+                anchor = previous_policy["activation_binding"].get("legacy_policy_digest")
+            else:
+                anchor = previous_policy["policy_digest"]
+            if anchor is not None:
+                binding["legacy_policy_digest"] = anchor
+    value["activation_binding"] = binding
     value["policy_digest"] = digest(value)
     return {"policy": value, "worktrunk": native_config(value, home, previous)}
 
@@ -536,21 +614,25 @@ def main():
     build = sub.add_parser("render", help="read-only private generation; requires clean selected source")
     build.add_argument("--source", required=True)
     build.add_argument("--home", required=True)
+    build.add_argument("--config-home", help="absolute XDG configuration directory; defaults to XDG_CONFIG_HOME or HOME/.config")
     build.add_argument("--options", required=True, help="resolved local workspace table JSON or null")
     sub.add_parser("snapshot", help="print private qualification proposal; never install or activate it")
     sub.add_parser("initialize-default-home", help="explicit apply: initialize missing approved remote-home activation only")
     guard = sub.add_parser("check", help="verify separately activated policy before native allocation")
     guard.add_argument("--target", help="native pre-switch destination; registered existing work stays reachable")
     args = parser.parse_args()
-    home = Path.home().resolve()
-    config = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config"))
+    home = Path(args.home).resolve() if args.command == "render" else Path.home().resolve()
+    selected_config = args.config_home if args.command == "render" else None
+    config = Path(selected_config if selected_config is not None else
+                  os.environ.get("XDG_CONFIG_HOME") or home / ".config")
     if not config.is_absolute():
         refuse()
+    config = path_value(str(config), home, missing=True)
     if args.command == "render":
-        home = Path(args.home).resolve()
-        previous = home / ".config/worktrunk/config.toml"
+        previous = config / "worktrunk/config.toml"
         local = tomllib.loads(private_file(previous, private=False).decode()) if os.path.lexists(previous) else {}
-        print(json.dumps(render(args.source, home, json.loads(args.options, object_pairs_hook=unique), local), sort_keys=True))
+        print(json.dumps(render(args.source, home, json.loads(args.options, object_pairs_hook=unique), local,
+                                previous_policy=previous_policy(config, home)), sort_keys=True))
     elif args.command in {"snapshot", "initialize-default-home"}:
         value = json.loads(private_file(config / "dotfiles-ai/workflow-policy.json"), object_pairs_hook=unique)
         if args.command == "snapshot":
@@ -569,6 +651,6 @@ if __name__ == "__main__":
     except UnsupportedWorktrunk as error:
         print(f"workflow-policy: {error}; existing work retained", file=sys.stderr)
         sys.exit(1)
-    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError):
+    except (ValueError, OSError, KeyError, TypeError, RecursionError, subprocess.SubprocessError):
         print("workflow-policy: invalid_or_unavailable; existing work retained", file=sys.stderr)
         sys.exit(1)

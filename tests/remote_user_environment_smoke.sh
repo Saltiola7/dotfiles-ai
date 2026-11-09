@@ -233,41 +233,27 @@ printf keep-auth >"$HOME/.local/state/dotfiles-ai/codex/auth.json"
 printf keep-history >"$HOME/.local/share/atuin/history.db"
 git -C "$source_root" config user.name Test
 git -C "$source_root" config user.email test@example.com
-# Empty-commit upgrade/rollback fixtures intentionally change source_commit,
-# which is bound by the existing policy digest. Review only that fixture change
-# explicitly; production initialization must NEVER refresh stale activation.
-review_fixture_generation() {
-  git -C "$source_root" checkout --detach "$1" >/dev/null 2>&1
+# Source-only upgrades, rollback and retry must preserve activation without repair.
+activation_identity() {
   python3 - <<'PY'
-import importlib.machinery, importlib.util, json, os, subprocess, tomllib
+import hashlib
 from pathlib import Path
-home = Path.home()
-source = Path(os.environ['DOTFILES_AI_SOURCE'])
-config = tomllib.loads((home / '.config/dotfiles-ai/chezmoi.toml').read_text())
-options = config['data']['dotfiles_ai']['workspaces']
-value = json.loads(subprocess.check_output(['workflow-policy', 'render', '--source', str(source),
-    '--home', str(home), '--options', json.dumps(options)]))['policy']
-previous = json.loads((home / '.config/dotfiles-ai/workflow-policy.json').read_text())
-semantic = lambda document: {k: v for k, v in document.items() if k not in {'source_commit', 'policy_digest'}}
-assert semantic(value) == semantic(previous), 'fixture review refuses semantic policy change'
-loader = importlib.machinery.SourceFileLoader('fixture_policy', str(source / 'dot_local/bin/executable_workflow-policy'))
-spec = importlib.util.spec_from_loader(loader.name, loader)
-assert spec is not None
-module = importlib.util.module_from_spec(spec)
-loader.exec_module(module)
-target = home / '.config/dotfiles-ai/workflow-policy.activation.json'
+target = Path.home() / '.config/dotfiles-ai/workflow-policy.activation.json'
 assert target.is_file() and not target.is_symlink() and target.stat().st_nlink == 1
-target.write_text(json.dumps(module.snapshot(value, home), sort_keys=True) + '\n')
-target.chmod(0o600)
+print(f'{target.stat().st_ino}:{hashlib.sha256(target.read_bytes()).hexdigest()}')
 PY
+}
+activation_before=$(activation_identity)
+assert_activation_retained() {
+  test "$(activation_identity)" = "$activation_before"
 }
 git -C "$source_root" commit --allow-empty -m update >/dev/null
 update_revision=$(git -C "$source_root" rev-parse HEAD)
-review_fixture_generation "$update_revision"
 remote-user-foundation apply "$update_revision"
+assert_activation_retained
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$update_revision"
-review_fixture_generation "$revision"
 remote-user-foundation rollback
+assert_activation_retained
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$revision"
 test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
 test "$(cat "$HOME/.local/share/atuin/history.db")" = keep-history
@@ -282,11 +268,11 @@ failure_status=$?
 set -e
 test "$failure_status" -ne 0
 install -m 0600 /tmp/chezmoi.toml "$HOME/.config/dotfiles-ai/chezmoi.toml"
-review_fixture_generation "$retry_revision"
 remote-user-foundation retry
+assert_activation_retained
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$retry_revision"
-review_fixture_generation "$revision"
 remote-user-foundation rollback
+assert_activation_retained
 test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
 test "$(cat "$HOME/.local/share/atuin/history.db")" = keep-history
 printf 'remote user environment smoke passed\n'
@@ -323,7 +309,8 @@ home = Path.home()
 proposal = json.loads(Path(sys.argv[1]).read_text())
 policy = home / '.config/dotfiles-ai/workflow-policy.json'
 assert stat.S_IMODE(policy.stat().st_mode) == 0o600
-assert proposal['policy_digest'] == json.loads(policy.read_text())['policy_digest']
+assert proposal['schema_version'] == 2
+assert proposal['semantic_digest'] == json.loads(policy.read_text())['activation_binding']['semantic_digest']
 root = next(item for item in proposal['roots'] if item['canonical_path'] == str(home / '.local/state/worktrees'))
 assert root['kind'] == 'owned_home' and Path(root['mountpoint']).is_absolute()
 activation = home / '.config/dotfiles-ai/workflow-policy.activation.json'
