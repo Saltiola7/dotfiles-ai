@@ -180,8 +180,8 @@ rollback, source restart, shared-service restart or discard is performed.
 
 `remote-herdr-restore.timer` invokes the oneshot restore service at user-manager
 boot and every 30 seconds after completion. It does not supervise core or replace
-the native transient units. Core selection requires a migrated owned manifest;
-no layout or session is invented on first boot. TUI is launched by the separate
+the native transient units. Core selection can adopt an already available proven
+current document; no layout or session is invented on first boot. TUI is launched by the separate
 foreground `remote-herdr-tui.service`, with no independent enable/restart policy.
 Its guarded exec requires selection and a persisted controller startup intent.
 The controller proves saved clients absent and retains its lock through actual
@@ -190,8 +190,9 @@ Automatic restore refuses unfinished switches. `recover` explicitly reconciles
 retained boot/switch intent. Reapply enables the timer without restarting either
 runtime or the shared OpenCode service.
 
-Core user edits become an owned baseline only after a successful source capture
-and proven stop. Later unexplained target edits still refuse. Stored shell argv
+Selected-core user edits become a baseline after current-document adoption and
+exact process/session proof. Unselected target replacement and unrelated ownership
+conflicts still refuse. Stored shell argv
 is not proof of a plain-shell target: actual process argv, cwd and PID/start-time
 identity are checked before destructive operations. Native OpenCode client proof
 accepts the foundation wrapper's exact executable and loopback `--server`, session
@@ -261,6 +262,70 @@ All live apply, pin changes, desktop connection and owner migration remain
 separately authorized Fork A work. No live deployment or merge is claimed here.
 
 ## Operations and maintenance
+
+### Current-document restore and adoption (RRW-007G / INT-082)
+
+The desktop owns layout edits. The controller owns proven session bindings, not
+the whole shared `herdr-app` document. A binding identifies a stable leaf ID and
+terminal address, exact session (or plain shell), directory and observed native
+labels. Display position is not ownership. Renaming/reordering spaces or tabs,
+resizing/splitting nodes and the app's serialization defaults are not conflicts.
+The current bounded document is the baseline; unknown non-layout metadata is
+retained byte-for-value, not regenerated from the migration plan.
+
+Required behavior:
+
+- Given a retained `restore_pending` switch whose target document was subsequently
+  edited, recover reconciles the current document, updates the private plan and
+  completes the same transaction after actual-program and duplicate checks.
+- Given user-closed views or finished terminals, their old session bindings are
+  retired from the current baseline, never recreated from the original plan.
+  Native terminal records and earlier backups remain retained.
+- Given new exact `--session` clients in the current document, adopt only after
+  actual argv, same-owner PID/start-time, directory, native session-store and
+  account-wide duplicate-client proofs. No-`--session` home screens are not session
+  identities. Directory, recency, titles and backend PID never substitute for one.
+- Given a proven owned agent leaf that rebooted into a plain shell, prove the old
+  client absent, stop only that proven shell, create one exact client and rebind
+  only that leaf. Preserve all other current nodes, IDs, sizes, labels and metadata.
+- Given no manifest, an already available selected core can establish a proven
+  baseline. No document/core to adopt is a quiet no-op, not a repeatedly failing
+  timer. No baseline authorizes taking over an unselected runtime.
+- Given concurrent desktop writes, CAS uses the latest observed version. A stale
+  version refuses safely without replaying terminal creation. Recovery observes
+  durable intent and reconciles the existing effect before any further mutation.
+- Given unnamed TUI labels, normalize native null/empty custom names consistently
+  with live display labels (`~` for an unnamed space and one-based tab numbers).
+  Keep explicit names unchanged, including explicit `~` or numeric names. Use the
+  same comparison for capture, stop and stopped-source reconciliation.
+
+Manifest schema 2 marks the current-document ownership contract; schema 1 remains
+readable for existing migration receipts. An older adapter must refuse schema 2
+rather than overwrite a desktop-edited document through its old whole-plan CAS.
+The private receipt retains the current plan, document/version, native labels and
+terminal bindings before a destructive effect. Adoption preserves the previous
+manifest/receipt in a private backup. Unfinished initial migration creation still
+uses its original receipt and explicit replacement authority; a missing address
+is not evidence that a native create failed.
+
+Restore/verification and migration completion must use the reconciled plan, not
+the journal's stale original plan. Foreign actual programs in owned slots, changed
+directories, duplicate clients, malformed bindings and uncertain native outcomes
+remain refusals. Unowned content is preserved, never killed merely to make a
+layout match. The shared OpenCode backend and in-flight turns remain independent.
+
+Transient inventory disappearance may restart the entire read-only scan within a
+bounded settling window (at most five seconds); partial inventories never pass.
+Ownership/permission failures, ambiguous identities and exceeded bounds do not
+become retryable. Native start/run/kill/doc.set effects are never retried by this
+settling policy.
+
+Qualification must include edited layouts and app-style serialization, closing
+owned shells and an agent, adopting three later exact clients, fresh baselines,
+CAS races, interrupted mutation recovery, inventory churn and both boot phases.
+Use synthetic IDs, not live session prefixes or operator paths. Pins, live recovery,
+rollout, VM/Mac changes, 007H wrapper/config/activation work and 007I editor recovery
+remain outside this slice. Fork A owns the subsequent reviewed live operation.
 
 ### Plain-shell label compatibility (RRW-007F-R1)
 
@@ -340,6 +405,8 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Captured source to stopped source | Switch controller | Prove source runtime and agents stopped |
 | Stopped source to live target | Native target adapter | Verify exact identities, directories, labels/order |
 | Retained shell receipt to recovered switch | Recovery controller | Match exact owner/pane with omitted or legacy-empty shell session label; reuse existing terminal |
+| Desktop edits to current baseline | Recovery controller | Prove exact current bindings; retire closed views; preserve raw document and metadata |
+| Proven owned shell to resumed agent | Recovery controller | Old client absent; owned shell proof; one create; latest-version leaf-only CAS |
 | Any uncertain or failed transition | Recovery controller | Retain evidence; no duplicate activation |
 
 **Text Equivalent:** The foundation installs the reviewed core binary, with

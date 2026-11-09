@@ -60,3 +60,15 @@ def test_shell_label_hotfix_contract_preserves_retained_recovery_and_scope():
     for token in ('64 panes', '10 shells', '54 exact sessions', '63',
                   'Bootstrap and core 0.1.18 pin unchanged', 'draft PR', 'no live recovery'):
         assert token in changelog
+
+
+def test_current_document_contract_keeps_adoption_and_mutation_boundaries():
+    root = Path(__file__).parents[1]
+    text = (root / 'docs/specs/dotfiles_ai_distribution/features/remote-herdr-runtime.md').read_text()
+    section = text.split('### Current-document restore and adoption (RRW-007G / INT-082)', 1)[1]
+    for token in ('stable leaf ID', 'current document', 'restore_pending', 'never recreated',
+                  'account-wide duplicate-client proofs', 'quiet no-op', 'Manifest schema 2',
+                  'schema 1 remains', 'five seconds', 'partial inventories never pass',
+                  'Native start/run/kill/doc.set effects are never retried', 'three later exact clients',
+                  'one-based tab numbers', '007H', '007I'):
+        assert token in section
