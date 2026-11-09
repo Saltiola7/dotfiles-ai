@@ -944,6 +944,7 @@ def prepare_fixture(provider):
 
 def restart_and_recover(plan, pid):
     global STEP
+    from native import sessions
     Store, Native = adapter()
     STEP = 'core-preserving-restart'
     with Store(ROOT) as store:
@@ -972,7 +973,7 @@ def restart_and_recover(plan, pid):
         capture = backend.capture('herdr-core')
         # Explicit native stop kills programs, unlike SIGTERM above.
         backend.stop('herdr-core', capture)
-        backend.absent(set(p['session_id'] for s in plan['spaces'] for t in s['tabs'] for p in t['panes']), capture['clients'])
+        backend.absent(sessions(plan), capture['clients'])
         require(backend._pids_absent(capture['pids']))
     STEP = 'core-shell-recovery'
     # Use the installed controller directly for this phase so fixed native

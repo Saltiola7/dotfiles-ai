@@ -149,6 +149,7 @@ class QualificationSourceTests(unittest.TestCase):
                         'child.send_signal(signal.SIGSTOP)', 'require(interrupted)',
                         'require(refusal.returncode == 75)', "STEP = 'interrupted-switch-recovery'",
                         'retained-shell-label-recovery-complete',
+                        "backend.absent(sessions(plan), capture['clients'])",
                         "receipt['pending'] is None", "store.read('manifest.json') is None",
                         "manifest['receipt']['terminals'][first_pane['key']] == retained"):
             self.assertIn(witness, source)
