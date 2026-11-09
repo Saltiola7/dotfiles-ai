@@ -12,6 +12,7 @@ import pytest
 
 SOURCE = Path(__file__).resolve().parents[1] / 'dot_local/share/dotfiles-ai/remote-herdr'
 sys.path.insert(0, str(SOURCE))
+import controller as runtime_controller
 spec = importlib.util.spec_from_file_location('remote_herdr_native', SOURCE / 'native.py')
 assert spec is not None and spec.loader is not None
 native = importlib.util.module_from_spec(spec)
@@ -281,7 +282,9 @@ class FakeCore:
                          if params['argv'][0].endswith('/opencode') else params['argv'])
             synthetic_process(self.backend, pid, live_argv, params['cwd'])
             terminal = {'address': address, 'pid': pid, 'state': 'live', 'foreground': None,
-                        'argv': list(params['argv']), 'cwd': params['cwd'], 'labels': copy.deepcopy(params['labels'])}
+                         'argv': list(params['argv']), 'cwd': params['cwd'],
+                         # Core 0.1.18 removes empty label values on creation.
+                         'labels': {k: v for k, v in params['labels'].items() if v != ''}}
             self.terminals[address] = terminal
             return copy.deepcopy(terminal)
         if method == 'terminal.kill':
@@ -304,6 +307,146 @@ def manifest_for(backend, core, p=None):
                 'receipt': receipt, 'txid': 'testtx'}
     backend.store.write('manifest.json', manifest)
     return manifest
+
+
+def test_recover_retained_shell_receipt_completes_64_pane_switch(backend):
+    core = FakeCore(backend)
+    txid = 'shellfix'
+    leaves = [{'key': 's0-t0-p' + str(i), 'cwd': '/work',
+               'session_id': None if i < 10 else 'ses_hotfix' + str(i)} for i in range(64)]
+    def tree(keys):
+        if len(keys) == 1:
+            return {'pane': keys[0]}
+        half = len(keys) // 2
+        return {'axis': 'row', 'ratio': 0.5, 'children': [tree(keys[:half]), tree(keys[half:])]}
+    value = {'schema_version': 1, 'spaces': [{'name': 'Fixture', 'directory': '/work', 'tabs': [
+        {'name': 'Mixed panes', 'root': tree([p['key'] for p in leaves]), 'panes': leaves}]}]}
+    with sqlite3.connect(backend.database_path()) as db:
+        db.executemany('INSERT INTO session VALUES (?, ?)',
+                       [(p['session_id'], p['cwd']) for p in leaves if p['session_id']])
+    receipt = backend.prepare('herdr-core', value, txid, replace_target=True)
+    created = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work',
+                       'labels': {'remote-herdr-owner': txid, 'remote-herdr-pane': leaves[0]['key']}})
+    first = created['address']
+    receipt['terminals'][leaves[0]['key']] = first
+    backend._receipt(receipt)
+    backend.store.write('transaction.json', {
+        'schema_version': 1, 'txid': txid, 'source': 'tui', 'target': 'herdr-core',
+        'phase': 'restore_pending', 'replace_target': True, 'capture': None,
+        'plan': value, 'receipt': receipt})
+    assert backend.store.read('manifest.json') is None and receipt['pending'] is None
+    before = len(core.calls)
+    runtime_controller.Controller(backend.store, backend).recover()
+    journal = backend.store.read('transaction.json')
+    assert journal['phase'] == 'complete' and journal['previous_manifest'] is None
+    final = backend.store.read('manifest.json')
+    assert final['receipt']['terminals'][leaves[0]['key']] == first
+    assert len(final['receipt']['terminals']) == len(core.terminals) == 64
+    assert sum(method == 'terminal.run' for method, _ in core.calls[before:]) == 63
+    assert sum(method == 'doc.set' for method, _ in core.calls[before:]) == 1
+    assert not any(method in ('terminal.kill', 'command') for method, _ in core.calls[before:])
+    assert len(backend._coverage(value)) == 54
+    assert backend.store.read(receipt['backup']) is not None
+    before = len(core.calls)
+    runtime_controller.Controller(backend.store, backend).recover()
+    backend.restore_current()
+    assert not any(method in ('terminal.run', 'terminal.kill', 'doc.set', 'command')
+                   for method, _ in core.calls[before:])
+
+
+@pytest.mark.parametrize('session', [None, 'ses_abc'])
+def test_core_label_wire_contract_omits_empty_session_only_for_shells(backend, session):
+    pane = plan(session)['spaces'][0]['tabs'][0]['panes'][0]
+    labels = backend._labels('labelproof', pane)
+    assert labels == {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': pane['key'],
+                      **({'remote-herdr-session': session} if session else {})}
+
+
+@pytest.mark.parametrize('labels', [
+    {}, {'remote-herdr-pane': 's0-t0-p0'}, {'remote-herdr-owner': 'labelproof'},
+    {'remote-herdr-owner': 'foreign', 'remote-herdr-pane': 's0-t0-p0'},
+    {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 'other'},
+    {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0', 'remote-herdr-session': 'ses_abc'},
+    {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0', 'foreign': ''},
+])
+def test_shell_empty_label_compatibility_does_not_weaken_other_labels(backend, labels):
+    core = FakeCore(backend)
+    terminal = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work', 'labels': labels})
+    # Keep even unknown empty keys in this malformed observation; do not discard
+    # them while deciding ownership, regardless of core's creation behavior.
+    terminal['labels'] = labels
+    with pytest.raises(native.NativeError, match='ownership'):
+        backend._match_terminal(terminal, plan(None)['spaces'][0]['tabs'][0]['panes'][0], 'labelproof')
+
+
+@pytest.mark.parametrize('legacy_session_label', [False, True])
+def test_shell_labels_accept_pinned_wire_and_legacy_empty_representation(backend, legacy_session_label):
+    core = FakeCore(backend)
+    terminal = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work',
+                        'labels': {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0'}})
+    if legacy_session_label:
+        terminal['labels']['remote-herdr-session'] = ''
+    backend._match_terminal(terminal, plan(None)['spaces'][0]['tabs'][0]['panes'][0], 'labelproof')
+
+
+def test_legacy_pending_shell_creation_matches_normalized_core_labels(backend):
+    core = FakeCore(backend)
+    value = plan(None)
+    receipt = backend.prepare('herdr-core', value, 'labelproof')
+    labels = {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0', 'remote-herdr-session': ''}
+    created = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work', 'labels': labels})
+    receipt['pending'] = {'operation': 'terminal.run', 'pane': 's0-t0-p0', 'labels': labels}
+    backend._receipt(receipt)
+    backend.store.write('manifest.json', {'schema_version': 1, 'runtime': 'herdr-core',
+                        'plan': value, 'receipt': receipt, 'txid': 'labelproof'})
+    before = len(core.calls)
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['receipt']['terminals'] == {'s0-t0-p0': created['address']}
+    assert not any(method in ('terminal.run', 'terminal.kill') for method, _ in core.calls[before:])
+
+
+@pytest.mark.parametrize('session_label', [None, '', 'ses_foreign'])
+def test_agent_session_label_is_never_optional(backend, session_label):
+    core = FakeCore(backend)
+    labels = {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0'}
+    if session_label is not None:
+        labels['remote-herdr-session'] = session_label
+    terminal = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work', 'labels': labels})
+    with pytest.raises(native.NativeError, match='ownership'):
+        backend._match_terminal(terminal, plan()['spaces'][0]['tabs'][0]['panes'][0], 'labelproof')
+
+
+@pytest.mark.parametrize('matches', [0, 2])
+def test_legacy_pending_shell_creation_missing_or_duplicate_match_refuses(backend, matches):
+    core = FakeCore(backend)
+    value = plan(None)
+    receipt = backend.prepare('herdr-core', value, 'labelproof')
+    labels = {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0', 'remote-herdr-session': ''}
+    for _ in range(matches):
+        core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work', 'labels': labels})
+    receipt['pending'] = {'operation': 'terminal.run', 'pane': 's0-t0-p0', 'labels': labels}
+    backend._receipt(receipt)
+    backend.store.write('manifest.json', {'schema_version': 1, 'runtime': 'herdr-core',
+                        'plan': value, 'receipt': receipt, 'txid': 'labelproof'})
+    before = len(core.calls)
+    with pytest.raises(native.NativeError, match='uncertain terminal creation unresolved'):
+        backend.restore_current()
+    assert not any(method in ('terminal.run', 'terminal.kill', 'doc.set') for method, _ in core.calls[before:])
+
+
+@pytest.mark.parametrize('legacy_empty', [False, True])
+def test_unrecorded_owned_shell_refuses_blind_duplicate_creation(backend, legacy_empty):
+    core = FakeCore(backend)
+    value = plan(None)
+    receipt = backend.prepare('herdr-core', value, 'labelproof')
+    terminal = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work',
+                        'labels': {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0'}})
+    if legacy_empty:
+        core.terminals[terminal['address']]['labels']['remote-herdr-session'] = ''
+    before = len(core.calls)
+    with pytest.raises(native.NativeError, match='prior terminal creation requires recovery'):
+        backend.restore('herdr-core', value, 'labelproof', receipt)
+    assert not any(method in ('terminal.run', 'terminal.kill', 'doc.set') for method, _ in core.calls[before:])
 
 
 @pytest.mark.parametrize('replacement', ['shell', 'foreign', 'pending'])

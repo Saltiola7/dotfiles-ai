@@ -8,6 +8,9 @@ transient units remain its process owners. `remote-herdr switch`, `restore` and
 restarting the shared backend. Unowned target replacement requires explicit
 `--replace-target`; ambiguous ownership or unexplained edits refuse. Disposable
 hosted qualification is distinct from Fork A's separately authorized live rollout.
+Plain-shell recovery accepts core 0.1.18's omitted empty session label while
+retaining exact owner/pane and process proofs. Existing switch receipts need no
+hand edits; use explicit `remote-herdr recover` for an unfinished switch.
 
 The [remote default activation](features/remote-worktree-activation.md) initializes
 missing activation during explicit remote apply at the qualified exact home

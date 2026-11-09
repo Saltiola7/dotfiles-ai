@@ -52,3 +52,9 @@ def test_shell_label_hotfix_contract_preserves_retained_recovery_and_scope():
                   'pending=None', 'remote-herdr recover', 'without repeating creation',
                   'operators must not manufacture one', 'does not implement INT-082'):
         assert token in section
+    docs = root / 'docs/specs/dotfiles_ai_distribution'
+    assert 'Plain-shell recovery accepts' in (docs / 'README.md').read_text()
+    changelog = (docs / 'CHANGELOG.md').read_text().split('## 2026-11-08 — Recover retained plain-shell switches (RRW-007F-R1)', 1)[1].split('\n## ', 1)[0]
+    for token in ('64 panes', '10 shells', '54 exact sessions', '63',
+                  'Bootstrap and core 0.1.18 pin unchanged', 'draft PR', 'no live recovery'):
+        assert token in changelog

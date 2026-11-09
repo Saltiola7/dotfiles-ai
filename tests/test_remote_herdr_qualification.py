@@ -137,7 +137,7 @@ class QualificationSourceTests(unittest.TestCase):
         self.assertNotRegex(source, r'unittest.mock|monkeypatch|INSERT INTO|CREATE TABLE|fake.*binary')
         for witness in ("api('post', '/api/session'", "'location': {'directory'",
                         "'session.create'", "'?mode=ro'", 'PRAGMA table_info(session_v2)',
-                        "'--from-file'", "'--replace-target'", "'terminal.run'", "'doc.set'",
+                        'replace_target=True, imported=plan', "'terminal.run'", "'doc.set'",
                         "'hc-serve-'", "'hc-hold-'", "'hc-shutdown-'", "'Transient'",
                         'signal.pidfd_send_signal(fd, signal.SIGTERM)',
                         "backend._coverage(plan) == before", "backend.stop('herdr-core', capture)",
@@ -147,8 +147,16 @@ class QualificationSourceTests(unittest.TestCase):
                         'backend._semantic', 'backend_pid() == pid', "'--version'",
                         "'remote-herdr-core', 'check'", "'ratio': 0.375",
                         'child.send_signal(signal.SIGSTOP)', 'require(interrupted)',
-                        'require(refusal.returncode == 75)', "STEP = 'interrupted-switch-recovery'"):
+                        'require(refusal.returncode == 75)', "STEP = 'interrupted-switch-recovery'",
+                        'retained-shell-label-recovery-complete',
+                        "receipt['pending'] is None", "store.read('manifest.json') is None",
+                        "manifest['receipt']['terminals'][first_pane['key']] == retained"):
             self.assertIn(witness, source)
+        retained = next(node for node in ast.parse(source).body
+                        if isinstance(node, ast.FunctionDef) and node.name == 'retained_shell_switch')
+        self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                             and node.func.attr in {'write', 'write_text', 'write_bytes'}
+                             for node in ast.walk(retained)))
         shell = (FIXTURE / 'boot-smoke.sh').read_text()
         for witness in ('env -i', 'loginctl enable-linger fixture', 'no_login',
                         'systemd-detect-virt --container',
