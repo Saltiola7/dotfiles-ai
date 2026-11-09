@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import time
 
 SESSION = re.compile(r'ses_[A-Za-z0-9]+\Z')
 MAX_PROCESSES = 65536
@@ -156,7 +157,8 @@ def scan_sessions(sessions: set[str], root: Path = Path('/proc')) -> list[dict]:
     """Identify exact CLI session references; missing references are not identity proof."""
     if any(not isinstance(value, str) or not SESSION.fullmatch(value) for value in sessions):
         raise ProcessProofError('invalid session identity set')
-    for attempt in range(3):
+    deadline = time.monotonic() + 5.0
+    for attempt in range(26):
         result = []
         try:
             with os.scandir(root) as entries:
@@ -196,7 +198,9 @@ def scan_sessions(sessions: set[str], root: Path = Path('/proc')) -> list[dict]:
             return sorted(result, key=lambda item: item['pid'])
         except OSError as error:
             # Discard the entire partial inventory, not just the vanished PID.
-            if error.errno in {errno.ENOENT, errno.ESRCH} and attempt < 2:
+            remaining = deadline - time.monotonic()
+            if error.errno in {errno.ENOENT, errno.ESRCH} and attempt < 25 and remaining > 0:
+                time.sleep(min(0.2, remaining))
                 continue
             raise ProcessProofError('process inventory unavailable') from None
     raise ProcessProofError('process inventory unavailable')

@@ -137,10 +137,13 @@ def test_disappearance_restarts_complete_inventory(tmp_path, monkeypatch, stage,
     assert failed and visits.count('stat') >= 3
 
 
-def test_persistent_disappearance_refuses_after_three_attempts(tmp_path, monkeypatch):
+def test_persistent_disappearance_refuses_within_settling_window(tmp_path, monkeypatch):
     core = module()
     process(tmp_path, 101, ['agent', '-s', 'ses_saved'])
     calls = []
+    clock = {'now': 0.0}
+    monkeypatch.setattr(core.time, 'monotonic', lambda: clock['now'])
+    monkeypatch.setattr(core.time, 'sleep', lambda seconds: clock.update(now=clock['now'] + seconds))
 
     def task_read(*args):
         calls.append(args)
@@ -149,7 +152,49 @@ def test_persistent_disappearance_refuses_after_three_attempts(tmp_path, monkeyp
     monkeypatch.setattr(core, 'task_read', task_read)
     with pytest.raises(core.ProcessProofError):
         core.scan_sessions({'ses_saved'}, tmp_path)
-    assert len(calls) == 3
+    assert 3 < len(calls) <= 26
+    assert clock['now'] == pytest.approx(5.0)
+
+
+def test_inventory_churn_settles_without_accepting_partial_results(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    core = module()
+    process(tmp_path, 101, ['agent', '-s', 'ses_saved'])
+    process(tmp_path, 102, ['agent', '-s', 'ses_other'])
+    original = core.task_read
+    scan = os.scandir
+    @contextmanager
+    def ordered(path: Path):
+        with scan(path) as entries:
+            yield iter(sorted(entries, key=str))
+    monkeypatch.setattr(core.os, 'scandir', ordered)
+    visits = []
+    failures = 0
+    clock = {'now': 0.0}
+    monkeypatch.setattr(core.time, 'monotonic', lambda: clock['now'])
+    monkeypatch.setattr(core.time, 'sleep', lambda seconds: clock.update(now=clock['now'] + seconds))
+    def read(directory, name, limit):
+        nonlocal failures
+        if directory.name == '101' and name == 'cmdline':
+            visits.append('complete-first-process')
+        if directory.name == '102' and name == 'cmdline' and failures < 4:
+            failures += 1
+            raise OSError(errno.ENOENT, 'private churn')
+        return original(directory, name, limit)
+    monkeypatch.setattr(core, 'task_read', read)
+    assert [p['pid'] for p in core.scan_sessions({'ses_saved', 'ses_other'}, tmp_path)] == [101, 102]
+    assert failures == 4 and len(visits) == 5
+
+
+def test_inventory_permission_failure_is_not_settling(tmp_path, monkeypatch):
+    core = module()
+    process(tmp_path, 101, ['agent', '-s', 'ses_saved'])
+    def denied(*args):
+        raise OSError(errno.EACCES, 'private permission failure')
+    monkeypatch.setattr(core, 'task_read', denied)
+    monkeypatch.setattr(core.time, 'sleep', lambda seconds: pytest.fail('permission failure retried'))
+    with pytest.raises(core.ProcessProofError, match='inventory unavailable'):
+        core.scan_sessions({'ses_saved'}, tmp_path)
 
 
 def test_kernel_uid_not_inode_owner_proves_own_task(tmp_path, monkeypatch):

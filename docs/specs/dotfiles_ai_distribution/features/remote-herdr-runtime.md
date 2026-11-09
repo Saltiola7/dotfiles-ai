@@ -294,10 +294,13 @@ Required behavior:
 - Given concurrent desktop writes, CAS uses the latest observed version. A stale
   version refuses safely without replaying terminal creation. Recovery observes
   durable intent and reconciles the existing effect before any further mutation.
-- Given unnamed TUI labels, normalize native null/empty custom names consistently
-  with live display labels (`~` for an unnamed space and one-based tab numbers).
-  Keep explicit names unchanged, including explicit `~` or numeric names. Use the
-  same comparison for capture, stop and stopped-source reconciliation.
+- Given unnamed TUI labels, compare native null custom names through their live
+  display projection (`~` can identify home; tabs use one-based tab numbers), not
+  as explicit empty names. Bind correspondence through persisted public identities,
+  topology, directories and sessions: automatic workspace labels can change after
+  Git discovery and are not identity proof. Keep nullable naming provenance and
+  all explicit names unchanged, including empty, whitespace, `~` and numeric names.
+  Use the same comparison for capture, stop and stopped-source reconciliation.
 
 Manifest schema 2 marks the current-document ownership contract; schema 1 remains
 readable for existing migration receipts. An older adapter must refuse schema 2
