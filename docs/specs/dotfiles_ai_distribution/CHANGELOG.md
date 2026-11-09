@@ -1,5 +1,29 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-09 — Remote profile follow-ups (RRW-007H)
+
+- Add per-user `opencode.tab_bar_mode` for managed Mac/remote CLI `tabs.mode`:
+  explicit auto/on/off owns only that key; empty preserves existing local tabs.
+  Invalid mode/type or non-object managed tabs refuse without overwriting.
+- New activation snapshots bind semantic policy, native version and filesystem
+  identity. Legacy continuity requires one validated equivalent-policy preimage;
+  source-only updates/rollbacks preserve activation bytes and inode. Real drift,
+  unsafe files and unsupported schemas still refuse. Full policy provenance and
+  integrity remain source-bound. Existing policy consumers accept the metadata
+  without treating it as permission; the smoke no longer rewrites activation.
+- Both wrapper branches stop parsing at a true `--` and skip automatic `--auto`
+  injection, retaining option values, empty arguments and shared-service routing.
+- Local affected validation: 606 tests and 3 subtests pass; 4 explicitly selected
+  native-binary tests are skipped locally, not claimed passed. Helper/new tests
+  are type-clean; existing CLI (91) and native V2 fixture (15) diagnostics are
+  unchanged from the retained base. Independent source reviews found no blocker.
+  Exact-head hosted/full-suite and lifecycle evidence belong to the Cycle Record;
+  no native/live deployment, gate waiver or full-file typing pass is implied.
+- Gate history begins `79f5d2d`; intended Final Push is
+  `dbsctr/dotfiles_ai_distribution/RRW-007H` and a draft PR, never main. Bootstrap
+  and pins unchanged. Fork A owns setup preference, pins and rollout; 007I editor
+  recovery stays separate. Pre-support helper rollback still needs explicit review.
+
 ## 2026-11-09 — Restore current desktop bindings (RRW-007G)
 
 - Adopt the selected core's current document, retire closed/finished views and
