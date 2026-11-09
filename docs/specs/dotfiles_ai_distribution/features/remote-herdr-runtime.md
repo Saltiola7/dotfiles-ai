@@ -336,6 +336,50 @@ Use synthetic IDs, not live session prefixes or operator paths. Pins, live recov
 rollout, VM/Mac changes, 007H wrapper/config/activation work and 007I editor recovery
 remain outside this slice. Fork A owns the subsequent reviewed live operation.
 
+### Kept-shell kill-intent recovery (RRW-007G-R1 / INT-082)
+
+A terminal's presentation is not its process identity. Title, status/records,
+turn counters, geometry and same-process foreground reporting may change after
+publishing a kill intent without invalidating a proven owned idle shell. Do not
+compare the whole terminal record at that boundary. Preserve exact native binding,
+labels, launch identity, actual shell argv/cwd, PID/start-time and document/version
+checks. A changed layout, terminal reference, process or ownership still refuses.
+
+Given a current-document receipt with a pending kill:
+
+- If its bound terminal is finished, prove the original captured processes absent,
+  validate ownership and the unchanged document/version, then mark the stop observed
+  without issuing another kill. Do not infer exit from an RPC acknowledgement.
+- If the same original owned idle shell remains live, reconcile that observation
+  against the private intent and desired-session absence. Recheck all ownership,
+  process and version guards before completing the admitted kill, wait for terminal
+  completion and old PID/start-time exit, then proceed through the existing single
+  create/readiness and leaf-only CAS recovery. This is not blind mutation replay.
+- If any proof is unavailable, changed or contradictory, retain the intent and
+  refuse. Never stop a replacement process, resurrect a user-closed view, create a
+  duplicate session or weaken the selected-runtime/shared-backend boundary.
+
+New kill intents may add a private `identity` snapshot binding actual argv/cwd,
+native launch fields and terminal/foreground PID roles to the existing PID/start-time
+proofs. Validate its bounded shape before use. Existing receipts without that field
+remain readable under their original exact ownership, original PID/start-time,
+allowed idle-core-Bash argv, directory, binding and document/version proofs; never
+invent a historical argv snapshot. Unknown extra intent fields remain refusals.
+No new CLI/configuration input or manifest schema is introduced. Older adapters
+must refuse unsupported extended intents, not reinterpret or discard them.
+
+Refusal labels identify a fixed field category (binding, labels, PID/role, start-time,
+argv, directory, state, document version or layout), never observed values. Hosted
+diagnostics preserve that label across the bounded boot observation deadline.
+Synthetic and disposable native tests must cover display churn after publication,
+interruption before kill, lost successful kill replies, already-finished terminals,
+and negative identity/layout changes. Keep all existing exit, duplicate, CAS,
+retained-journal, held-turn and both-boot qualification.
+
+Fork A owns pinning and any live recovery. This separate critical-risk hotfix does
+not include 007H preference/activation/wrapper work or 007I editor recovery. Bootstrap,
+binary pins, installer owners, databases and saved layouts remain unchanged.
+
 ### Plain-shell label compatibility (RRW-007F-R1)
 
 Core 0.1.18 removes labels with empty values. Agent terminals require exact
@@ -416,6 +460,9 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Retained shell receipt to recovered switch | Recovery controller | Match exact owner/pane with omitted or legacy-empty shell session label; reuse existing terminal |
 | Desktop edits to current baseline | Recovery controller | Prove exact current bindings; retire closed views; preserve raw document and metadata |
 | Proven owned shell to resumed agent | Recovery controller | Old client absent; owned shell proof; one create; latest-version leaf-only CAS |
+| Pending shell kill, original shell still live | Recovery controller | Reprove original identity and unchanged version; complete kill; prove exit |
+| Pending shell kill, terminal already finished | Recovery controller | Same binding/labels/version and original process exit; observe without another kill |
+| Presentation churn at kill boundary | Recovery controller | Ignore display fields only; retain identity/layout guards and value-free field refusal labels |
 | Any uncertain or failed transition | Recovery controller | Retain evidence; no duplicate activation |
 
 **Text Equivalent:** The foundation installs the reviewed core binary, with
