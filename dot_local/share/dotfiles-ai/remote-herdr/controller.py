@@ -125,7 +125,8 @@ class Controller:
             self.store.write('history-' + prior['txid'] + '.json', prior)
 
     def _manifest(self, journal, receipt):
-        return {'schema_version': 1, 'runtime': journal['target'], 'plan': journal['plan'],
+        return {'schema_version': 2 if receipt.get('current_document') is True else 1,
+                'runtime': journal['target'], 'plan': journal['plan'],
                 'receipt': receipt, 'txid': journal['txid']}
 
     def _finish(self, journal, receipt):
@@ -226,9 +227,14 @@ class Controller:
                 # any new mutation. Retain the previous manifest in the journal.
                 journal.setdefault('previous_manifest', self.store.read('manifest.json'))
                 self.store.write('transaction.json', journal)
-                self.store.write('manifest.json', self._manifest(journal, receipt))
+                current = self.store.read('manifest.json')
+                if not (current and current.get('schema_version') == 2
+                        and current.get('txid') == journal['txid']):
+                    self.store.write('manifest.json', self._manifest(journal, receipt))
                 self.backend.restore_current()
-                receipt = self.store.read('manifest.json')['receipt']
+                current = self.store.read('manifest.json')
+                receipt = current['receipt']
+                journal['plan'] = current['plan']
             else:
                 receipt = self.backend.recover_tui(journal['plan'], journal['txid'], receipt)
             journal['receipt'] = receipt

@@ -60,3 +60,29 @@ def test_shell_label_hotfix_contract_preserves_retained_recovery_and_scope():
     for token in ('64 panes', '10 shells', '54 exact sessions', '63',
                   'Bootstrap and core 0.1.18 pin unchanged', 'draft PR', 'no live recovery'):
         assert token in changelog
+
+
+def test_current_document_contract_keeps_adoption_and_mutation_boundaries():
+    root = Path(__file__).parents[1]
+    text = (root / 'docs/specs/dotfiles_ai_distribution/features/remote-herdr-runtime.md').read_text()
+    section = text.split('### Current-document restore and adoption (RRW-007G / INT-082)', 1)[1]
+    for token in ('stable leaf ID', 'current document', 'restore_pending', 'never recreated',
+                  'account-wide duplicate-client proofs', 'quiet no-op', 'Manifest schema 2',
+                  'schema 1 remains', 'five seconds', 'partial inventories never pass',
+                  'Native start/run/kill/doc.set effects are never retried', 'three later exact clients',
+                  'one-based tab numbers', '007H', '007I'):
+        assert token in section
+
+
+def test_current_document_completion_artifacts_preserve_rollout_and_compatibility():
+    root = Path(__file__).parents[1] / 'docs/specs/dotfiles_ai_distribution'
+    readme = (root / 'README.md').read_text()
+    for token in ('Manifest schema 2', 'quiet no-op', 'No new configuration keys',
+                  'unresolved old mutation intents', 'RRW-007H', 'RRW-007I'):
+        assert token in readme
+    entry = (root / 'CHANGELOG.md').read_text().split(
+        '## 2026-11-09 — Restore current desktop bindings (RRW-007G)', 1)[1].split('\n## ', 1)[0]
+    for token in ('46a7347e', 'three later exact', 'same-journal', 'both runtime boots',
+                  'No new keys/inputs', 'Fork A', 'no failed evidence is waived',
+                  'Final Push', 'draft PR #299', 'never main'):
+        assert token in entry

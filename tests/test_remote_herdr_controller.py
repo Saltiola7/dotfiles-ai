@@ -181,6 +181,30 @@ def test_pending_switch_blocks_automatic_restore(tmp_path):
             controller.restore()
 
 
+def test_recovery_keeps_current_same_transaction_manifest_and_propagates_plan(tmp_path):
+    c = module()
+    with c.Store(tmp_path / 'state') as store:
+        current_plan = plan()
+        current_plan['spaces'][0]['name'] = 'User renamed'
+        receipt = {'runtime': 'herdr-core', 'txid': 'synthetic', 'pending': None, 'current_document': True}
+        manifest = {'schema_version': 2, 'runtime': 'herdr-core', 'txid': 'synthetic',
+                    'plan': current_plan, 'receipt': receipt}
+        store.write('manifest.json', manifest)
+        store.write('transaction.json', {'schema_version': 1, 'txid': 'synthetic', 'source': 'tui',
+                    'target': 'herdr-core', 'phase': 'restore_pending', 'plan': plan(), 'receipt': receipt})
+        class CurrentBackend(Backend):
+            def restore_current(self):
+                assert store.read('manifest.json') == manifest
+            def verify(self, target, value, receipt):
+                assert value == current_plan and receipt == manifest['receipt']
+        backend = CurrentBackend(store)
+        backend.choice = 'herdr-core'
+        c.Controller(store, backend).recover()
+        assert store.read('manifest.json') == manifest
+        journal = store.read('transaction.json')
+        assert journal['phase'] == 'complete' and journal['plan'] == current_plan
+
+
 def test_store_large_state_refuses_without_replacing_prior_bytes(tmp_path):
     c = module()
     with c.Store(tmp_path / 'state') as store:

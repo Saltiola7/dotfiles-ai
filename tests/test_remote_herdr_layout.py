@@ -32,6 +32,63 @@ def plan():
         }]}]}
 
 
+def test_current_app_projection_and_rebind_preserve_opaque_document(layout):
+    document = layout.to_app_document(plan(), {f's0-t0-p{i}': f't{i + 1}' for i in range(3)})
+    document['opaque'] = {'token': ['synthetic', None]}
+    root = document['spaces'][0]['tabs'][0]['root']
+    root['custom'] = {'keep': True}
+    root['children'][0]['content']['serde_default'] = None
+    before = copy.deepcopy(document)
+    projected, bindings = layout.project_app_document(
+        document, lambda leaf, address: None if address == 't2' else
+        {'cwd': '/synthetic/project', 'session_id': 'ses_Test' + address[1:]})
+    assert len(projected['spaces'][0]['tabs'][0]['panes']) == 2
+    assert bindings == {'s0-t0-p0': {'leaf': 's0-t0-p0', 'terminal': 't1'},
+                        's0-t0-p1': {'leaf': 's0-t0-p2', 'terminal': 't3'}}
+    changed = layout.rebind_app_document(document, {'s0-t0-p2': ('t3', 't4')})
+    expected = copy.deepcopy(before)
+    expected['spaces'][0]['tabs'][0]['root']['children'][1]['children'][1]['content']['terminal'] = 't4'
+    assert changed == expected and document == before
+    with pytest.raises(ValueError):
+        layout.rebind_app_document(document, {'s0-t0-p2': ('t9', 't4')})
+
+
+@pytest.mark.parametrize('malformed', ['duplicate-leaf', 'duplicate-terminal', 'remote-address',
+                                      'machine', 'bad-weight', 'bad-axis', 'missing-id'])
+def test_current_app_projection_refuses_ambiguous_or_remote_structure(layout, malformed):
+    document = layout.to_app_document(plan(), {f's0-t0-p{i}': f't{i + 1}' for i in range(3)})
+    root = document['spaces'][0]['tabs'][0]['root']
+    first, last = root['children'][0], root['children'][1]['children'][1]
+    if malformed == 'duplicate-leaf':
+        last['id'] = first['id']
+    elif malformed == 'duplicate-terminal':
+        last['content']['terminal'] = first['content']['terminal']
+    elif malformed == 'remote-address':
+        last['content']['terminal'] = 'machine/t3'
+    elif malformed == 'machine':
+        last['content']['machine'] = 'remote'
+    elif malformed == 'bad-weight':
+        first['size']['weight'] = 0
+    elif malformed == 'bad-axis':
+        root['type'] = 'unknown'
+    else:
+        first.pop('id')
+    with pytest.raises(ValueError):
+        layout.project_app_document(document, lambda leaf, address: None)
+
+
+def test_current_projection_prunes_only_private_empty_tabs_spaces_and_singletons(layout):
+    document = layout.to_app_document(plan(), {f's0-t0-p{i}': f't{i + 1}' for i in range(3)})
+    before = copy.deepcopy(document)
+    projected, bindings = layout.project_app_document(document, lambda leaf, address:
+        {'cwd': '/synthetic/project', 'session_id': None} if address == 't3' else None)
+    assert projected['spaces'][0]['tabs'][0]['root'] == {'pane': 's0-t0-p0'}
+    assert bindings['s0-t0-p0']['leaf'] == 's0-t0-p2'
+    assert layout.project_app_document(document, lambda leaf, address: None) == (
+        {'schema_version': 1, 'spaces': []}, {})
+    assert document == before
+
+
 def test_roundtrip_geometry_identity_names_and_order(layout):
     value = plan()
     value['spaces'].append({'name': '', 'directory': '/synthetic/other', 'tabs': []})
@@ -349,6 +406,59 @@ def test_empty_selection(layout):
     assert layout.from_tui_snapshot(layout.to_tui_snapshot(value)) == value
     assert layout.from_space_plan([]) == value
     assert layout.to_app_document(value, {}) == {'spaces': []}
+
+
+@pytest.mark.parametrize('number,encoded', [(0, '0'), (1, '1'), (31, 'Z'), (32, '0'), (33, '11'), (1024, 'Z0')])
+def test_tui_public_number_encoding(layout, number, encoded):
+    assert layout.encode_public_number(number) == encoded
+
+
+def test_tui_nullable_naming_provenance_is_not_canonical_schema(layout):
+    snapshot = layout.to_tui_snapshot(plan())
+    space = snapshot['workspaces'][0]
+    space['custom_name'] = None
+    space['tabs'][0]['custom_name'] = ''
+    assert layout.tui_names(snapshot) == [{'custom_name': None, 'tabs': ['']}]
+    space['custom_name'] = ''
+    assert layout.tui_names(snapshot) == [{'custom_name': '', 'tabs': ['']}]
+
+
+def identity_snapshot(layout):
+    snapshot = layout.to_tui_snapshot(plan())
+    space = snapshot['workspaces'][0]
+    space.update(id='synthetic', custom_name=None, public_tab_numbers=[3],
+                 public_pane_numbers={'0': 9, '1': 2, '2': 33})
+    return snapshot
+
+
+def test_tui_public_binding_uses_mapping_not_internal_numbers(layout):
+    snapshot = identity_snapshot(layout)
+    binding = layout.tui_public_identities(snapshot)[0]
+    assert binding['id'] == 'synthetic'
+    tab = binding['tabs'][0]
+    assert tab['id'] == 'synthetic:t3'
+    assert tab['root']['children'][0] == {'pane': 'synthetic:p9'}
+    assert set(tab['panes']) == {'synthetic:p9', 'synthetic:p2', 'synthetic:p11'}
+    assert tab['panes']['synthetic:p9']['session_id'] == 'ses_Test0'
+    assert snapshot == identity_snapshot(layout)
+
+
+@pytest.mark.parametrize('change', ['missing-workspace', 'missing-tabs', 'missing-pane', 'extra-pane',
+                                  'duplicate-pane', 'bool-pane', 'bad-root', 'bad-tab-number'])
+def test_tui_public_mapping_refuses_lossy_identity(layout, change):
+    snapshot = identity_snapshot(layout)
+    space = snapshot['workspaces'][0]
+    if change == 'missing-workspace': space.pop('id')
+    elif change == 'missing-tabs': space['public_tab_numbers'] = []
+    elif change == 'missing-pane': space['public_pane_numbers'].pop('1')
+    elif change == 'extra-pane': space['public_pane_numbers']['99'] = 99
+    elif change == 'duplicate-pane': space['public_pane_numbers']['1'] = 9
+    elif change == 'bool-pane': space['public_pane_numbers']['1'] = True
+    elif change == 'bad-root': space['tabs'][0]['root_pane'] = 99
+    else: space['public_tab_numbers'] = [True]
+    with pytest.raises(ValueError) as error:
+        layout.tui_public_identities(snapshot)
+    assert 'synthetic' not in str(error.value) and 'ses_Test' not in str(error.value)
 
 
 @pytest.mark.parametrize('value', ['x' * 4097, '\ud800', {'not': 'a string'}])

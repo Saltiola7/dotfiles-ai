@@ -1,5 +1,31 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-09 — Restore current desktop bindings (RRW-007G)
+
+- Adopt the selected core's current document, retire closed/finished views and
+  adopt later proven exact-session clients. Schema 2 separates stable leaf identity
+  and observed labels from display positions; repair uses owned-leaf-only CAS and
+  preserves opaque desktop metadata. Existing schema-1 migration recovery remains.
+- Retain durable kill/create/CAS intent, private backups, actual argv/PID/start-time,
+  directory and duplicate proofs. Completed controller stops retain their bindings;
+  user closures do not. Presentation/status updates are not process identities.
+- Normalize unnamed TUI views through persisted public IDs and nullable naming
+  provenance without rewriting explicit names. Retry only complete read-only
+  process inventories after transient disappearance, at most five seconds/26 attempts.
+- Native qualification passed implementation head `46a7347e`, including retained
+  recovery, held-turn transfer, desktop edits and closures, three later exact
+  clients, same-journal completion, idempotence, restart/stop and both runtime boots.
+  All 17 applicable checks passed that implementation head. Source regressions
+  cover ownership/races, uncertain replies and multi-pane crash recovery;
+  646 affected tests, 55 subtests and Linux/Python 3.12 typing pass. Final-head CI and
+  lifecycle evidence belong to the Cycle Record; no failed evidence is waived.
+- Edited legacy-v1 receipts with unresolved old mutation intents remain strict
+  refusals. No new keys/inputs, bootstrap change, core pin change or live deployment.
+  Fork A owns reviewed rollout/recovery. RRW-007H config/activation/wrapper fixes
+  and RRW-007I editor recovery remain separate.
+- Gate history starts at `24f87004`; intended Final Push targets
+  `dbsctr/dotfiles_ai_distribution/RRW-007G` and draft PR #299, never main.
+
 ## 2026-11-08 — Recover retained plain-shell switches (RRW-007F-R1)
 
 - Core 0.1.18 omits empty label values. Emit no shell session label and match its

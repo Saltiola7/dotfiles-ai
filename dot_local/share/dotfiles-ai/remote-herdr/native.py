@@ -573,6 +573,17 @@ class Native:
         return identity, cwd
 
     def _from_core(self, document, terminals):
+        manifest = self.store.read('manifest.json')
+        if manifest is not None and manifest.get('schema_version') == 2:
+            previous = checked_plan(manifest['plan'])
+            receipt = manifest['receipt']
+            self._binding_receipt(previous, receipt, manifest['txid'], 2)
+            plan, bindings, _, repairs = self._current_projection(document, terminals, previous, receipt)
+            represented = {b['terminal'] for b in bindings.values()}
+            if repairs or any(t.get('state') == 'live' and t['address'] not in represented
+                              and self._actual_core_program(t)[0] is not None for t in terminals):
+                raise NativeError('core source contains unrestorable live content')
+            return plan
         if document is None:
             document = {'spaces': []}
         if type(document) is not dict or set(document) != {'spaces'}:
@@ -649,17 +660,22 @@ class Native:
         manifest = self.store.read('manifest.json')
         if manifest is None or manifest.get('runtime') != 'herdr-core':
             return
-        if manifest.get('schema_version') != 1:
+        if manifest.get('schema_version') not in (1, 2):
             raise NativeError('core source manifest unsupported')
         previous = checked_plan(manifest['plan'])
         receipt = manifest['receipt']
+        if manifest['schema_version'] == 2:
+            self._binding_receipt(previous, receipt, manifest['txid'], 2)
         recorded = {receipt['terminals'][p['key']]: p for p in panes(previous)}
         for terminal in terminals:
             if terminal['address'] not in recorded or terminal.get('state') != 'live':
                 continue
             pane = recorded[terminal['address']]
-            if (not self._same_labels(terminal.get('labels'), self._labels(manifest['txid'], pane))
-                    or self._program(terminal) != (pane['session_id'], pane['cwd'])):
+            labels = (receipt['labels'][pane['key']] if manifest['schema_version'] == 2
+                      else self._labels(manifest['txid'], pane))
+            program = self._actual_core_program(terminal) if manifest['schema_version'] == 2 else self._program(terminal)
+            if (not self._same_labels(terminal.get('labels'), labels)
+                    or program != (pane['session_id'], pane['cwd'])):
                 raise NativeError('core source identity contradicts owned receipt')
 
     def _owned_target(self, target, value, replace_target):
@@ -800,21 +816,48 @@ class Native:
         if disk is None:
             raise NativeError('TUI workspace directory proof unavailable')
         old = layout.from_tui_snapshot(disk)
+        identities = layout.tui_public_identities(disk)
+        names = layout.tui_names(disk)
         if len(old['spaces']) != len(inventory):
             raise NativeError('TUI workspace directory proof stale')
         spaces = []
         process_info = []
         for si, space in enumerate(inventory):
             previous = old['spaces'][si]
-            if space['name'] != previous['name']:
+            binding = identities[si]
+            native_space = snapshot['workspaces'][si]
+            layout._string(space['name'], 512)
+            if binding is not None and native_space['workspace_id'] != binding['id']:
+                raise NativeError('TUI persisted workspace identity stale')
+            if binding is not None and (
+                    type(native_space.get('pane_count')) is not int
+                    or type(native_space.get('tab_count')) is not int
+                    or native_space['pane_count'] != sum(len(t['panes']) for t in binding['tabs'])):
+                raise NativeError('TUI persisted workspace pane count stale')
+            if names[si]['custom_name'] is not None and space['name'] != previous['name']:
                 raise NativeError('TUI workspace directory proof ambiguous')
-            canonical = {'name': space['name'], 'directory': previous['directory'], 'tabs': []}
+            if len(space['tabs']) != len(previous['tabs']):
+                raise NativeError('TUI persisted tab inventory stale')
+            canonical = {'name': previous['name'], 'directory': previous['directory'], 'tabs': []}
             for ti, tab in enumerate(space['tabs']):
+                expected = binding['tabs'][ti] if binding is not None else None
+                name = names[si]['tabs'][ti]
+                if tab['name'] != (str(ti + 1) if name is None else name):
+                    raise NativeError('TUI persisted tab name stale')
+                if expected is not None:
+                    api_tab = next(t for t in snapshot['tabs'] if t['tab_id'] == tab['id'])
+                    if (tab['id'] != expected['id'] or type(api_tab.get('number')) is not int
+                            or type(api_tab.get('pane_count')) is not int
+                            or api_tab['number'] != expected['number'] or tab['panes'] != expected['panes']):
+                        raise NativeError('TUI persisted public identity stale')
                 exported = self.tui('layout.export', {'tab_id': tab['id']})
                 if exported.get('type') != 'layout_export' or exported['layout']['tab_id'] != tab['id']:
                     raise NativeError('TUI layout export incompatible')
+                if binding is not None and exported['layout'].get('workspace_id') != binding['id']:
+                    raise NativeError('TUI layout workspace identity stale')
                 tab_panes = []
                 used = set()
+                public_keys = {}
 
                 def tree(node, depth=1):
                     if depth > layout.MAX_DEPTH or type(node) is not dict:
@@ -825,6 +868,7 @@ class Native:
                             raise NativeError('TUI layout pane coverage incomplete')
                         used.add(pid)
                         key = f's{si}-t{ti}-p{len(tab_panes)}'
+                        public_keys[key] = pid
                         tab_panes.append({'key': key, **tab['panes'][pid]})
                         facts = self.tui('pane.process_info', {'pane_id': pid})
                         if facts.get('type') != 'pane_process_info':
@@ -843,7 +887,14 @@ class Native:
                 root = tree(exported['layout']['root'])
                 if used != set(tab['panes']):
                     raise NativeError('TUI layout pane coverage incomplete')
-                canonical['tabs'].append({'name': tab['name'], 'root': root, 'panes': tab_panes})
+                def public_tree(node):
+                    if 'pane' in node:
+                        return {'pane': public_keys[node['pane']]}
+                    return {'axis': node['axis'], 'ratio': layout._ratio(node['ratio']),
+                            'children': [public_tree(child) for child in node['children']]}
+                if expected is not None and public_tree(root) != expected['root']:
+                    raise NativeError('TUI persisted topology stale')
+                canonical['tabs'].append({'name': previous['tabs'][ti]['name'], 'root': root, 'panes': tab_panes})
             spaces.append(canonical)
         plan = checked_plan({'schema_version': 1, 'spaces': spaces})
         return plan, snapshot, process_info
@@ -893,6 +944,15 @@ class Native:
             raise NativeError('TUI session process coverage incomplete')
         return self._pid_proofs([f['shell_pid'] for f in facts] + [p['pid'] for p in foreground])
 
+    def _captured_tui_names(self, capture):
+        if 'tui_names' in capture:
+            return capture['tui_names']
+        # Pre-007G captures retain the authoritative native file in their backup.
+        backup = self.store.read(capture['backup'])
+        if backup is None:
+            raise NativeError('TUI captured naming provenance unavailable')
+        return layout.tui_names(backup['snapshot'])
+
     @bounded
     def capture(self, source):
         runtime(source)
@@ -904,8 +964,10 @@ class Native:
             plan, api, facts = self._tui_live()
             clients = self._coverage(plan)
             proofs = self._tui_process_proofs(facts, clients)
+            snapshot = self._optional_snapshot()
             value = {'plan': plan, 'api': api, 'clients': clients, 'pids': proofs,
-                     'backup': self._backup({'snapshot': self._optional_snapshot()})}
+                     'tui_names': layout.tui_names(snapshot),
+                     'backup': self._backup({'snapshot': snapshot})}
         else:
             document, version = self._document()
             terminals = self._terminals()
@@ -913,7 +975,7 @@ class Native:
             plan = self._from_core(document, terminals)
             clients = self._coverage(plan)
             addresses = self._document_terminals(document)
-            active = [item for item in terminals if item['address'] in addresses]
+            active = [item for item in terminals if item['address'] in addresses and item.get('state') == 'live']
             represented = {item['pid'] for item in active if item.get('state') == 'live'}
             represented |= {item['foreground']['pid'] for item in active if item.get('foreground')}
             if any(client['pid'] not in represented for client in clients):
@@ -958,6 +1020,9 @@ class Native:
         if self._coverage(plan) != capture['clients']:
             raise NativeError('source client inventory changed after capture')
         stop_record = {'runtime': source, 'backup': capture['backup'], 'pending': None}
+        manifest = self.store.read('manifest.json')
+        if source == 'herdr-core' and manifest and manifest.get('schema_version') == 2:
+            stop_record.update(txid=manifest['txid'], terminals=[], pids=capture['pids'], completed=False)
 
         def intent(operation, **fields):
             stop_record['pending'] = {'operation': operation, **fields}
@@ -969,7 +1034,8 @@ class Native:
 
         if source == 'tui':
             live, _, _ = self._tui_live()
-            if self._semantic(live) != self._semantic(plan):
+            if (self._semantic(live) != self._semantic(plan)
+                    or layout.tui_names(self._optional_snapshot()) != self._captured_tui_names(capture)):
                 raise NativeError('TUI source changed after capture')
             # Stop both managed and manually started default TUI without ever
             # touching the independent F01 OpenCode user service.
@@ -977,7 +1043,8 @@ class Native:
             # Durable intent is a scheduling boundary. Re-observe actual programs
             # and PID identities immediately before the destructive native stop.
             live, _, facts = self._tui_live()
-            if self._semantic(live) != self._semantic(plan):
+            if (self._semantic(live) != self._semantic(plan)
+                    or layout.tui_names(self._optional_snapshot()) != self._captured_tui_names(capture)):
                 raise NativeError('TUI source changed after capture')
             clients = self._coverage(live)
             if clients != capture['clients'] or self._tui_process_proofs(facts, clients) != capture['pids']:
@@ -1002,6 +1069,9 @@ class Native:
                 if terminal['address'] not in capture['stop_terminals']:
                     continue
                 if terminal.get('state') == 'live':
+                    if 'terminals' in stop_record:
+                        assert isinstance(stop_record['terminals'], list)
+                        stop_record['terminals'].append(terminal['address'])
                     intent('terminal.kill', terminal=terminal['address'])
                     # Recheck after durable intent, immediately before each kill.
                     # Earlier kills may have changed other terminals/processes.
@@ -1031,6 +1101,8 @@ class Native:
             return True
 
         self._wait(stopped)
+        if 'completed' in stop_record:
+            stop_record['completed'] = True
         observed()
         return self.reconcile_stopped(source, capture)
 
@@ -1053,7 +1125,8 @@ class Native:
         if source == 'tui':
             snapshot = self._json(self.snapshot_path)
             final = layout.from_tui_snapshot(snapshot)
-            if self._semantic(final) != self._semantic(plan):
+            if (self._semantic(final) != self._semantic(plan)
+                    or layout.tui_names(snapshot) != self._captured_tui_names(capture)):
                 raise NativeError('TUI saved layout differs from live capture')
             self._backup({'snapshot': snapshot})
             if self.store.read('owned-tui.json') is not None:
@@ -1353,6 +1426,10 @@ class Native:
             raise NativeError('selected runtime readiness unavailable')
         if target == 'herdr-core':
             document, version = self._document()
+            if receipt.get('current_document') is True:
+                self._verify_current(plan, receipt, document, version)
+                self.store.write('owned-' + target + '.json', {'document': document})
+                return
             expected = layout.to_app_document(plan, receipt['terminals'])
             if document != expected:
                 raise NativeError('core restored layout differs')
@@ -1371,6 +1448,519 @@ class Native:
 
     @bounded
     def restore_current(self):
+        """Reconcile current desktop ownership, or resume unpublished migration."""
+        manifest = self.store.read('manifest.json')
+        if self.selected() != 'herdr-core':
+            raise NativeError('core recovery runtime not selected')
+        self._other_off('herdr-core')
+        if manifest is None and not self.endpoint_present('herdr-core'):
+            return
+        self._binary('herdr-core')
+        if manifest is None:
+            self._wait_core_spawns()
+            document, version = self._document()
+            if document is None:
+                return
+            txid = uuid.uuid4().hex
+            receipt = {'runtime': 'herdr-core', 'txid': txid, 'document': document,
+                       'doc_version': version, 'terminals': {}, 'pending': None}
+            self._restore_document(None, {'schema_version': 1, 'spaces': []}, receipt)
+            return
+        if (type(manifest) is not dict
+                or set(manifest) != {'schema_version', 'runtime', 'plan', 'receipt', 'txid'}
+                or type(manifest['schema_version']) is not int or manifest['schema_version'] not in (1, 2)
+                or manifest['runtime'] != 'herdr-core'
+                or type(manifest['txid']) is not str
+                or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', manifest['txid'])):
+            raise NativeError('runtime manifest unavailable or unsupported')
+        plan = checked_plan(manifest['plan'])
+        receipt = self.store.read('receipt-' + manifest['txid'] + '.json') or manifest['receipt']
+        receipt = layout._json_copy(receipt)
+        if type(receipt) is dict and receipt.get('current_document') is True:
+            # The receipt is durable before manifest publication and may contain
+            # an adopted plan newer than either the manifest or switch journal.
+            plan = checked_plan(receipt.get('plan'))
+        self._binding_receipt(plan, receipt, manifest['txid'], manifest['schema_version'])
+        if not self.endpoint_present('herdr-core'):
+            if receipt.get('pending') and receipt['pending'].get('operation') == 'server.start':
+                raise NativeError('core start outcome remains uncertain')
+            previous = receipt.get('pending')
+            receipt['pending'] = {'operation': 'server.start', 'previous': previous}
+            self._receipt(receipt)
+            self.command(['herdr-core', 'server', 'start', '--json'])
+            self._wait(lambda: self.endpoint_present('herdr-core'))
+            receipt['pending'] = previous
+            self._receipt(receipt)
+        if receipt.get('pending') and receipt['pending'].get('operation') == 'server.start':
+            self.core('server.status', {})
+            receipt['pending'] = receipt['pending'].get('previous')
+            self._receipt(receipt)
+        self._wait_core_spawns()
+        if receipt.get('current_document') is True:
+            self._reconcile_current_intent(receipt)
+            self._restore_document(manifest, receipt['plan'], receipt)
+            return
+        # Only an unpublished partial v1 migration keeps whole-plan authority.
+        if receipt.get('pending') or not self._published_migration_document(plan, receipt):
+            self._restore_migration_current()
+            return
+        self._restore_document(manifest, plan, receipt)
+
+    def _published_migration_document(self, plan, receipt):
+        """Recognize v1's exact published target, not merely a full create map.
+
+        Old recovery may already have removed a finished binding from its map.
+        Conversely every create can be recorded before the first document CAS.
+        Neither case changes whether whole-plan migration authority still applies.
+        """
+        references = {}
+        def record(leaf, address):
+            references[leaf] = address
+            return None
+        try:
+            layout.project_app_document(receipt['document'], record)
+            if any(references.get(key) != address for key, address in receipt['terminals'].items()):
+                return False
+            return layout.to_app_document(plan, references) == receipt['document']
+        except ValueError:
+            return False
+
+    def _binding_receipt(self, plan, receipt, txid, schema):
+        if (type(receipt) is not dict or receipt.get('runtime') != 'herdr-core'
+                or receipt.get('txid') != txid or type(receipt.get('terminals')) is not dict
+                or 'pending' not in receipt or 'document' not in receipt
+                or type(receipt.get('doc_version')) is not int or receipt['doc_version'] < 0):
+            raise NativeError('core recovery receipt identity mismatch')
+        keys = {p['key'] for p in panes(plan)}
+        mapping = receipt['terminals']
+        if (set(mapping) - keys or any(type(a) is not str or not layout._TERMINAL.fullmatch(a)
+                                      for a in mapping.values())
+                or len(set(mapping.values())) != len(mapping)):
+            raise NativeError('core recovery bindings invalid')
+        pending = receipt['pending']
+        if pending is not None:
+            if type(pending) is not dict or pending.get('operation') not in {
+                    'server.start', 'terminal.run', 'terminal.kill', 'doc.set'}:
+                raise NativeError('core pending mutation unsupported')
+        if schema == 2 or receipt.get('current_document') is True:
+            if (receipt.get('current_document') is not True or checked_plan(receipt.get('plan')) != plan
+                    or set(mapping) != keys or type(receipt.get('bindings')) is not dict
+                    or set(receipt['bindings']) != keys or type(receipt.get('labels')) is not dict
+                    or set(receipt['labels']) != keys
+                    or len(set(receipt['bindings'].values())) != len(keys)):
+                raise NativeError('current document receipt invalid')
+            for key in keys:
+                leaf = receipt['bindings'][key]
+                labels = receipt['labels'][key]
+                if (type(leaf) is not str or not leaf or len(leaf) > 512 or type(labels) is not dict
+                        or any(type(k) is not str or type(v) is not str for k, v in labels.items())):
+                    raise NativeError('current document binding invalid')
+            observed = {}
+            def record(leaf, address):
+                observed[leaf] = address
+                return None
+            layout.project_app_document(receipt['document'], record)
+            if any(observed.get(receipt['bindings'][key]) != address for key, address in mapping.items()):
+                raise NativeError('current document saved binding differs')
+            if pending is not None:
+                fields = {'terminal.kill': {'operation', 'pane', 'leaf', 'terminal', 'pids'},
+                          'terminal.run': {'operation', 'pane', 'leaf', 'labels'},
+                          'doc.set': {'operation', 'document', 'version'},
+                          'server.start': {'operation', 'previous'}}
+                if set(pending) != fields[pending['operation']]:
+                    raise NativeError('current document mutation intent invalid')
+            repairs = receipt.get('repairs')
+            if type(repairs) is not dict or set(repairs) - set(receipt['bindings'].values()):
+                raise NativeError('current document repairs invalid')
+            by_leaf = {receipt['bindings'][p['key']]: p for p in panes(plan)}
+            for leaf, repair in repairs.items():
+                if (type(repair) is not dict
+                        or set(repair) != {'terminal', 'pane', 'created', 'labels', 'stopped', 'pids'}
+                        or type(repair['stopped']) is not bool or type(repair['pane']) is not dict
+                        or set(repair['pane']) != {'key', 'cwd', 'session_id'}
+                        or (repair['pane']['session_id'] is None and not repair['stopped'])
+                        or any(repair['pane'][field] != by_leaf[leaf][field] for field in ('cwd', 'session_id'))
+                        or repair['terminal'] != mapping[by_leaf[leaf]['key']]
+                        or (repair['created'] is not None and (type(repair['created']) is not str
+                            or not layout._TERMINAL.fullmatch(repair['created'])))
+                        or repair['labels'] != self._labels(txid, {'key': leaf,
+                                                       'session_id': repair['pane']['session_id']})):
+                    raise NativeError('current document repair binding invalid')
+                proofs = repair['pids']
+                if proofs is not None and (type(proofs) is not list or not 1 <= len(proofs) <= 2
+                        or any(type(p) is not dict or set(p) != {'pid', 'start_ticks'}
+                               or type(p['pid']) is not int or p['pid'] <= 1
+                               or type(p['start_ticks']) is not int or p['start_ticks'] < 0 for p in proofs)):
+                    raise NativeError('current document repair PID proof invalid')
+                if repair['stopped'] and proofs is None:
+                    raise NativeError('current document repair stop proof unavailable')
+
+    def _actual_core_program(self, terminal, *, unknown=False):
+        """Actual process proof, independent of retained launch argv after keep."""
+        if terminal.get('state') != 'live':
+            raise NativeError('core terminal not live or spawn pending')
+        program = terminal.get('foreground') or terminal
+        pids = [terminal.get('pid'), program.get('pid')]
+        before = self._pid_proofs(pids)
+        argv = self.process_argv(program['pid'])
+        cwd = self.process_cwd(program['pid'])
+        if cwd != program.get('cwd'):
+            raise NativeError('core recovery directory mismatch')
+        if argv and argv[0] in ('/bin/bash', 'bash', '-bash'):
+            self._shell_proof(terminal)
+            identity = None
+        else:
+            try:
+                identity = self._session_argv(argv)
+            except NativeError:
+                if not unknown:
+                    raise NativeError('core recovery foreign live program') from None
+                identity = False
+        if self._pid_proofs(pids) != before:
+            raise NativeError('core process identity changed')
+        return identity, cwd
+
+    def _current_projection(self, document, terminals, plan, receipt):
+        lookup = {t['address']: t for t in terminals}
+        old = {p['key']: p for p in panes(plan)}
+        known = {receipt.get('bindings', {}).get(k, k): (receipt['terminals'][k], p,
+                 receipt.get('labels', {}).get(k, self._labels(receipt['txid'], p)))
+                 for k, p in old.items() if k in receipt['terminals']}
+        labels, repairs = {}, layout._json_copy(receipt.get('repairs', {}))
+        live, proofs, actuals = {}, {}, {}
+        stop = self.store.read('source-stop.json')
+        stopped = {}
+        if (stop and stop.get('runtime') == 'herdr-core' and stop.get('txid') == receipt['txid']):
+            if stop.get('completed') is not True or stop.get('pending') is not None:
+                raise NativeError('core controller stop requires reconciliation')
+            backup = self.store.read(stop['backup'])
+            if backup is None:
+                raise NativeError('core controller stop backup unavailable')
+            prior_addresses = {}
+            def collect(leaf, address):
+                prior_addresses[leaf] = address
+                return None
+            layout.project_app_document(backup['document'], collect)
+            self._pids_absent_or_fail(stop['pids'])
+            captured = {t['address']: t for t in backup['terminals']}
+            for leaf, address in prior_addresses.items():
+                if address not in stop['terminals']:
+                    continue
+                terminal = captured[address]
+                pids = {terminal['pid'], (terminal.get('foreground') or terminal)['pid']}
+                captured_proofs = [p for p in stop['pids'] if p['pid'] in pids]
+                if {p['pid'] for p in captured_proofs} != pids:
+                    raise NativeError('core controller stop process proof unavailable')
+                stopped[leaf] = (address, captured_proofs)
+
+        def classify(leaf, address):
+            previous = known.get(leaf)
+            replaced = False
+            repair = repairs.get(leaf)
+            if repair:
+                if previous is None:
+                    raise NativeError('core repair binding unavailable')
+                if address not in (repair['terminal'], repair.get('created')):
+                    raise NativeError('core repair binding changed')
+                desired = repair['pane']
+                if repair.get('stopped'):
+                    self._pids_absent_or_fail(repair['pids'])
+                    if lookup[repair['terminal']].get('state') != 'finished':
+                        raise NativeError('core repair stop outcome inconsistent')
+                if (not repair.get('stopped') and not repair.get('created')
+                        and lookup[address].get('state') == 'finished'):
+                    # A user closed the view before our durable stop intent.
+                    # This is a tombstone, not authority to resurrect a client.
+                    repairs.pop(leaf)
+                    return None
+                labels[leaf] = repair['labels'] if repair.get('created') else previous[2]
+                if repair.get('created'):
+                    actual = lookup.get(repair['created'])
+                    if (actual is None or not self._same_labels(actual.get('labels'), repair['labels'])
+                            or self._actual_core_program(actual) != (desired['session_id'], desired['cwd'])):
+                        raise NativeError('core created binding proof unavailable')
+                elif not repair.get('stopped'):
+                    actual = lookup[address]
+                    if (not self._same_labels(actual.get('labels'), previous[2])
+                            or self._actual_core_program(actual) != (None, desired['cwd'])):
+                        raise NativeError('core repair source ownership or program changed')
+                    live[leaf] = actual
+                    actuals[leaf] = (None, desired['cwd'], self.process_argv((actual.get('foreground') or actual)['pid']))
+                    proofs[leaf] = self._pid_proofs([actual['pid'], (actual.get('foreground') or actual)['pid']])
+                return {'cwd': desired['cwd'], 'session_id': desired['session_id']}
+            if previous and previous[0] != address:
+                old_terminal = lookup.get(previous[0])
+                if old_terminal is None or old_terminal.get('state') != 'finished':
+                    raise NativeError('core owned leaf terminal changed')
+                # A closed terminal is not the current leaf's program. Prove
+                # its replacement afresh; never carry over the retired session.
+                previous = None
+                replaced = True
+            terminal = lookup.get(address)
+            if terminal is None:
+                raise NativeError('core referenced terminal unavailable')
+            if terminal.get('state') == 'finished':
+                if previous and leaf in stopped and stopped[leaf][0] == address:
+                    if not self._same_labels(terminal.get('labels'), previous[2]):
+                        raise NativeError('core recovery terminal not owned')
+                    desired = previous[1]
+                    repairs[leaf] = {'terminal': address, 'pane': desired, 'created': None,
+                                     'stopped': True, 'pids': stopped[leaf][1],
+                                     'labels': self._labels(receipt['txid'], {'key': leaf, **{
+                                         k: desired[k] for k in ('cwd', 'session_id')}})}
+                    labels[leaf] = layout._json_copy(previous[2])
+                    return {'cwd': desired['cwd'], 'session_id': desired['session_id']}
+                return None
+            if previous and not self._same_labels(terminal.get('labels'), previous[2]):
+                raise NativeError('core recovery terminal not owned')
+            identity, cwd = self._actual_core_program(terminal, unknown=previous is None and not replaced)
+            if identity is False:
+                return None
+            actuals[leaf] = (identity, cwd, self.process_argv((terminal.get('foreground') or terminal)['pid']))
+            if previous:
+                desired = previous[1]
+                if cwd != desired['cwd']:
+                    raise NativeError('core recovery directory mismatch')
+                if identity is None and desired['session_id'] is not None:
+                    repairs[leaf] = {'terminal': address, 'pane': desired, 'created': None,
+                                     'stopped': False, 'pids': None,
+                                     'labels': self._labels(receipt['txid'], {'key': leaf, **{
+                                         k: desired[k] for k in ('cwd', 'session_id')}})}
+                    identity = desired['session_id']
+            labels[leaf] = layout._json_copy(terminal.get('labels', {}))
+            live[leaf] = terminal
+            proofs[leaf] = self._pid_proofs([terminal['pid'], (terminal.get('foreground') or terminal)['pid']])
+            return {'cwd': cwd, 'session_id': identity}
+
+        projected, bindings = layout.project_app_document(document, classify)
+        for repair in repairs.values():
+            allowed = {repair['terminal'], repair.get('created')}
+            if any(t.get('state') == 'live' and t['address'] not in allowed
+                   and self._same_labels(t.get('labels'), repair['labels']) for t in terminals):
+                raise NativeError('prior terminal creation requires recovery')
+        # Reconcile the entire desired session inventory once, before any effect.
+        found = self.scan(sessions(projected))
+        for pane in panes(projected):
+            leaf = bindings[pane['key']]['leaf']
+            identity = pane['session_id']
+            if identity is None:
+                continue
+            matches = [p for p in found if p['session_id'] == identity]
+            repair = repairs.get(leaf)
+            expected = 0 if repair and not repair.get('created') else 1
+            if len(matches) != expected:
+                raise NativeError('session client coverage incomplete or duplicate')
+            if matches:
+                terminal = lookup[repair['created']] if repair else live[leaf]
+                pid = (terminal.get('foreground') or terminal)['pid']
+                if matches[0]['pid'] != pid or self.process_cwd(pid) != pane['cwd']:
+                    raise NativeError('session client directory or PID mismatch')
+                self._client_argv(pid, identity)
+        self._db_sessions(projected)
+        # Recheck actual programs and start times across the inventory boundary.
+        for leaf, terminal in live.items():
+            current = self._terminal(terminal['address'])
+            # Core reports titles/status/geometry asynchronously. Those are not
+            # process identity. Foreground None -> the same PID's report is also
+            # harmless; actual argv/cwd and PID/start-time remain authoritative.
+            if (any(current.get(key) != terminal.get(key)
+                    for key in ('address', 'labels', 'state', 'pid', 'argv', 'cwd', 'keep'))
+                    or (current.get('foreground') or current).get('pid')
+                    != (terminal.get('foreground') or terminal).get('pid')):
+                raise NativeError('core current inventory changed')
+            if self._pid_proofs([p['pid'] for p in proofs[leaf]]) != proofs[leaf]:
+                raise NativeError('core current process identity changed')
+            if (self._actual_core_program(current) != actuals[leaf][:2]
+                    or self.process_argv((current.get('foreground') or current)['pid']) != actuals[leaf][2]):
+                raise NativeError('core current process identity changed')
+        return projected, bindings, labels, repairs
+
+    def _wait_created_core(self, address, pane, labels):
+        def ready():
+            try:
+                terminal = self._terminal(address)
+                return (self._same_labels(terminal.get('labels'), labels)
+                        and self._actual_core_program(terminal) == (pane['session_id'], pane['cwd']))
+            except (NativeError, ValueError, OSError):
+                return False
+        self._wait(ready)
+
+    def _reconcile_current_intent(self, receipt):
+        pending = receipt.get('pending')
+        if pending is None:
+            return
+        operation = pending.get('operation')
+        if operation in ('terminal.kill', 'terminal.run'):
+            leaf = pending.get('leaf')
+            repair = receipt['repairs'].get(leaf)
+            if (repair is None or receipt['bindings'].get(pending.get('pane')) != leaf
+                    or (operation == 'terminal.kill' and (pending.get('terminal') != repair['terminal']
+                        or pending.get('pids') != repair['pids']))
+                    or (operation == 'terminal.run' and (pending.get('labels') != repair['labels']
+                        or repair.get('stopped') is not True))):
+                raise NativeError('core pending mutation binding invalid')
+        if operation == 'terminal.kill':
+            if self._terminal(pending['terminal']).get('state') != 'finished':
+                raise NativeError('uncertain owned shell stop unresolved')
+            self._pids_absent_or_fail(pending['pids'])
+            receipt['repairs'][pending['leaf']]['stopped'] = True
+        elif operation == 'terminal.run':
+            matches = [t for t in self._terminals() if self._same_labels(t.get('labels'), pending['labels'])
+                       and t.get('state') != 'finished']
+            repair = receipt['repairs'][pending['leaf']]
+            pane = repair['pane']
+            if len(matches) != 1:
+                raise NativeError('uncertain terminal creation unresolved')
+            address = matches[0]['address']
+            if repair['created'] not in (None, address):
+                raise NativeError('uncertain created terminal identity changed')
+            repair['created'] = address
+            self._receipt(receipt)
+            self._wait_created_core(address, pane, repair['labels'])
+        elif operation == 'doc.set':
+            expected = layout.rebind_app_document(receipt['document'],
+                {leaf: (repair['terminal'], repair['created']) for leaf, repair in receipt['repairs'].items()})
+            if pending.get('document') != expected or pending.get('version') != receipt['doc_version']:
+                raise NativeError('core pending document binding invalid')
+            current, version = self._document()
+            observed = {}
+            def record(leaf, address):
+                observed[leaf] = address
+                return None
+            layout.project_app_document(current, record)
+            if (version <= pending['version'] or any(
+                    observed.get(leaf) != repair['created'] for leaf, repair in receipt['repairs'].items())):
+                raise NativeError('uncertain document mutation unresolved')
+            # A desktop serialization/rename may follow the successful CAS.
+            # Keep the acknowledged proposal internally consistent through a
+            # crash; the next projection adopts the actual current document.
+            receipt.update(document=pending['document'], doc_version=pending['version'] + 1)
+            for key, leaf in receipt['bindings'].items():
+                repair = receipt['repairs'].get(leaf)
+                if repair:
+                    receipt['terminals'][key] = repair['created']
+                    receipt['labels'][key] = repair['labels']
+            receipt['repairs'] = {}
+        else:
+            raise NativeError('core pending mutation unsupported')
+        receipt['pending'] = None
+        self._receipt(receipt)
+
+    def _restore_document(self, manifest, plan, receipt):
+        document, version = self._document()
+        if document is None:
+            raise NativeError('current core document unavailable')
+        projected, bindings, labels, repairs = self._current_projection(
+            document, self._terminals(), plan, receipt)
+        if any(leaf not in {b['leaf'] for b in bindings.values()} for leaf in repairs):
+            raise NativeError('core repair leaf missing')
+        if not receipt.get('current_document'):
+            receipt['adoption_backup'] = self._backup({'manifest': manifest, 'receipt': receipt})
+        receipt.update(current_document=True, plan=projected, document=document, doc_version=version,
+                       terminals={k: b['terminal'] for k, b in bindings.items()},
+                       bindings={k: b['leaf'] for k, b in bindings.items()},
+                       labels={k: labels[b['leaf']] for k, b in bindings.items()}, repairs=repairs)
+        self._receipt(receipt)
+        for key, leaf in receipt['bindings'].items():
+            repair = repairs.get(leaf)
+            if repair is None or repair.get('created'):
+                continue
+            repair_sessions = ({repair['pane']['session_id']}
+                               if repair['pane']['session_id'] is not None else set())
+            terminal = self._terminal(repair['terminal'])
+            if terminal.get('state') != 'finished':
+                if (not self._same_labels(terminal.get('labels'), receipt['labels'][key])
+                        or self._actual_core_program(terminal) != (None, repair['pane']['cwd'])):
+                    raise NativeError('core repair source ownership or program changed')
+                self._shell_proof(terminal)
+                pids = [terminal['pid'], (terminal.get('foreground') or terminal)['pid']]
+                proofs = self._pid_proofs(pids)
+                repair['pids'] = proofs
+                receipt['pending'] = {'operation': 'terminal.kill', 'pane': key, 'leaf': leaf,
+                                      'terminal': repair['terminal'], 'pids': proofs}
+                self._receipt(receipt)
+                self._current_effect_boundary(receipt)
+                observed = self._terminal(repair['terminal'])
+                if observed != terminal or self._pid_proofs(pids) != proofs:
+                    raise NativeError('core recovery process changed before shell stop')
+                self._shell_proof(observed)
+                if self.scan(repair_sessions):
+                    raise NativeError('session client already running')
+                self.core('terminal.kill', {'terminal': repair['terminal']})
+                self._wait(lambda: self._terminal(repair['terminal']).get('state') == 'finished'
+                           and self._pids_absent(proofs))
+                receipt['pending'] = None
+                repair['stopped'] = True
+                self._receipt(receipt)
+            elif not repair.get('stopped'):
+                raise NativeError('core repair terminal closed before shell stop')
+            self._current_effect_boundary(receipt)
+            if (self.scan(repair_sessions)
+                    or any(t.get('state') == 'live' and self._same_labels(t.get('labels'), repair['labels'])
+                           for t in self._terminals())):
+                raise NativeError('session client already running')
+            receipt['pending'] = {'operation': 'terminal.run', 'pane': key, 'leaf': leaf,
+                                  'labels': repair['labels']}
+            self._receipt(receipt)
+            self._current_effect_boundary(receipt)
+            if (self.scan(repair_sessions)
+                    or any(t.get('state') == 'live' and self._same_labels(t.get('labels'), repair['labels'])
+                           for t in self._terminals())):
+                raise NativeError('session client already running')
+            pane = repair['pane']
+            argv = ([str(self.home / '.local/bin/opencode'), '--session', pane['session_id']]
+                    if pane['session_id'] is not None else ['/bin/bash', '-l'])
+            result = self.core('terminal.run', {'argv': argv, 'cwd': pane['cwd'],
+                                'labels': repair['labels'], 'keep': True, 'no_parent': True,
+                                'no_notify': True, 'wait': False})
+            if (not self._same_labels(result.get('labels'), repair['labels'])
+                    or type(result.get('address')) is not str or not layout._TERMINAL.fullmatch(result['address'])):
+                raise NativeError('core created terminal ownership unavailable')
+            repair['created'] = result['address']
+            receipt['pending'] = None
+            self._receipt(receipt)
+            self._wait_created_core(repair['created'], pane, repair['labels'])
+        if repairs:
+            # Prove every created client before publishing its address.
+            self._current_projection(document, self._terminals(), projected, receipt)
+            replacements = {leaf: (r['terminal'], r['created']) for leaf, r in repairs.items()}
+            updated = layout.rebind_app_document(document, replacements)
+            receipt['pending'] = {'operation': 'doc.set', 'document': updated, 'version': version}
+            self._receipt(receipt)
+            self._current_effect_boundary(receipt)
+            answer = self.core('doc.set', {'name': 'herdr-app', 'value': updated, 'version': version})
+            if type(answer.get('version')) is not int or answer['version'] <= version:
+                raise NativeError('core document CAS outcome uncertain')
+            receipt.update(document=updated, doc_version=answer['version'])
+            for key, leaf in receipt['bindings'].items():
+                if leaf in repairs:
+                    receipt['terminals'][key] = repairs[leaf]['created']
+                    receipt['labels'][key] = repairs[leaf]['labels']
+            receipt.update(pending=None, repairs={})
+            self._receipt(receipt)
+        self.verify('herdr-core', projected, receipt)
+        self.store.write('manifest.json', {'schema_version': 2, 'runtime': 'herdr-core',
+                         'plan': projected, 'receipt': receipt, 'txid': receipt['txid']})
+
+    def _current_effect_boundary(self, receipt):
+        document, version = self._document()
+        if document != receipt['document'] or version != receipt['doc_version']:
+            raise NativeError('core recovery document changed before mutation')
+
+    def _verify_current(self, plan, receipt, document, version):
+        self._binding_receipt(plan, receipt, receipt['txid'], 2)
+        if receipt.get('pending') or receipt.get('repairs') or document != receipt['document']:
+            raise NativeError('core current restored layout differs')
+        projected, bindings, labels, repairs = self._current_projection(
+            document, self._terminals(), plan, receipt)
+        if (projected != plan or repairs
+                or {k: b['leaf'] for k, b in bindings.items()} != receipt['bindings']
+                or {k: b['terminal'] for k, b in bindings.items()} != receipt['terminals']
+                or {k: labels[b['leaf']] for k, b in bindings.items()} != receipt['labels']):
+            raise NativeError('core current restored bindings differ')
+        receipt['doc_version'] = version
+
+    def _restore_migration_current(self):
         """Explicit, idempotent core recovery. Never infer ownership from a shell."""
         manifest = self.store.read('manifest.json')
         if (type(manifest) is not dict or set(manifest) != {'schema_version', 'runtime', 'plan', 'receipt', 'txid'}

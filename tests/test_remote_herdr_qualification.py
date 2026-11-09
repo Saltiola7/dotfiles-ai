@@ -67,6 +67,99 @@ def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
 
 
 class QualificationSourceTests(unittest.TestCase):
+    def test_core_stop_failure_labels_are_fixed_and_cover_current_recovery(self):
+        tree = ast.parse((FIXTURE / 'verify-user.py').read_text())
+        restart = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                       and node.name == 'restart_and_recover')
+        assignment = next(node for node in restart.body if isinstance(node, ast.Assign)
+                          and any(isinstance(target, ast.Name) and target.id == 'labels'
+                                  for target in node.targets))
+        labels = ast.literal_eval(assignment.value)
+        for message in ('core controller stop process proof unavailable',
+                        'core repair binding changed', 'core current restored bindings differ',
+                        'current document repair PID proof invalid'):
+            self.assertRegex(labels[message], r'^[a-z-]+$')
+        self.assertNotIn('PRIVATE-RUNTIME-VALUE', labels)
+        self.assertEqual(labels.get('PRIVATE-RUNTIME-VALUE', 'unclassified'), 'unclassified')
+
+    def test_semantic_failure_diagnostic_withholds_runtime_values(self):
+        fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        compare = fixture['semantic_difference']
+        original = json.loads('''[{"name":"PRIVATE-SPACE", "directory":"/private/fixture", "tabs":[
+            {"name":"PRIVATE-TAB", "root":{"axis":"row", "ratio":0.25, "children":[
+                {"cwd":"/private/fixture", "session_id":"ses_private0"},
+                {"cwd":"/private/fixture", "session_id":"ses_private1"}]}}]}]''')
+        self.assertIsNone(compare(original, original))
+        changes = [('name', 'space-name'), ('directory', 'space-directory')]
+        for key, label in changes:
+            changed = copy.deepcopy(original)
+            changed[0][key] = 'PRIVATE-CHANGED'
+            self.assertEqual(compare(changed, original), label)
+        ratio_changed = copy.deepcopy(original)
+        ratio_changed[0]['tabs'][0]['root']['ratio'] = 0.5
+        self.assertEqual(compare(ratio_changed, original), 'split-ratio')
+        session_changed = copy.deepcopy(original)
+        session_changed[0]['tabs'][0]['root']['children'][1]['session_id'] = 'ses_private_changed'
+        self.assertEqual(compare(session_changed, original), 'pane-session')
+
+    def test_edited_fixture_expected_plan_has_canonical_keys_and_independent_geometry(self):
+        fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        tree = ast.parse((FIXTURE / 'verify-user.py').read_text())
+        prepare = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                       and node.name == 'prepare_fixture')
+        assignment = next(node for node in prepare.body if isinstance(node, ast.Assign)
+                          and any(isinstance(target, ast.Name) and target.id == 'plan'
+                                  for target in node.targets))
+        # Evaluate only the fixture's literal plan with synthetic directories/IDs.
+        plan = eval(compile(ast.Expression(assignment.value), '<fixture-plan>', 'eval'), {
+            'directories': [Path('/fixture/alpha'), Path('/fixture/beta')],
+            'sessions': ['ses_original0', 'ses_closed', 'ses_original2']})
+        later = [{'key': 'later-' + str(i), 'cwd': '/fixture/alpha',
+                  'session_id': 'ses_later' + str(i)} for i in range(3)]
+        before = copy.deepcopy((plan, later))
+        expected = fixture['edited_expected_plan'](plan, later)
+        layout = runpy.run_path(str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr/layout.py'))
+        self.assertEqual(layout['validate_plan'](expected), expected)
+        self.assertEqual((plan, later), before)
+        panes = [pane for space in expected['spaces'] for tab in space['tabs'] for pane in tab['panes']]
+        self.assertEqual({pane['session_id'] for pane in panes}, {
+            'ses_original0', 'ses_original2', 'ses_later0', 'ses_later1', 'ses_later2'})
+        self.assertEqual(len(panes), 5)
+        root = expected['spaces'][0]['tabs'][1]['root']
+        self.assertEqual(root['ratio'], 0.25)
+        self.assertEqual(root['children'][1]['ratio'], 0.4)
+
+    def test_current_document_fixture_uses_real_transactions_and_installed_recovery(self):
+        source = (FIXTURE / 'verify-user.py').read_text()
+        tree = ast.parse(source)
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                        and node.name == 'edited_document_recovery')
+        writes = [node for node in ast.walk(function) if isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Attribute) and node.func.attr == 'write']
+        self.assertEqual(writes, [])  # No hand-written transaction/receipt/manifest.
+        body = ast.get_source_segment(source, function)
+        self.assertIsNotNone(body)
+        assert body is not None
+        for token in ("Controller(store, backend).switch('herdr-core')",
+                      'Controller(store, backend).recover()', "cli('recover')", "cli('restore')",
+                      "range(3)", "'--session', created['id']", "'terminal.kill'",
+                      "backend._document()[0] == baseline", "backend.scan({closed_session})",
+                      "store.read(receipt['adoption_backup'])", "['txid'] == txid",
+                      'expected = edited_expected_plan(plan, later_panes)'):
+            self.assertIn(token, body)
+        prepare = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                       and node.name == 'prepare_fixture')
+        steps = [call.func.id for call in ast.walk(prepare) if isinstance(call, ast.Call)
+                 and isinstance(call.func, ast.Name)]
+        self.assertLess(steps.index('inflight_switch'), steps.index('edited_document_recovery'))
+        self.assertLess(steps.index('edited_document_recovery'), steps.index('restart_and_recover'))
+        observe = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                       and node.name == 'observe')
+        observation = ast.get_source_segment(source, observe)
+        assert observation is not None
+        self.assertNotIn('len(clients) == 3', observation)
+        self.assertIn("{client['session_id'] for client in clients} == expected_sessions", observation)
+
     def test_copy_is_explicit_public_file_allowlist(self):
         allowed = {
             '.chezmoidata.toml', 'config.remote-user.example.toml',

@@ -6,13 +6,28 @@ per-user `[data.dotfiles_ai.herdr] runtime = "herdr-core" | "tui"` selection
 transient units remain its process owners. `remote-herdr switch`, `restore` and
 `recover` preserve exact OpenCode sessions and private layout receipts without
 restarting the shared backend. Unowned target replacement requires explicit
-`--replace-target`; ambiguous ownership or unexplained edits refuse. Disposable
+`--replace-target`; ambiguous ownership or unapproved target replacement refuses. Disposable
 hosted qualification is distinct from Fork A's separately authorized live rollout.
 Plain-shell recovery accepts core 0.1.18's omitted empty session label while
 retaining exact owner/pane and process proofs. Existing switch receipts need no
 hand edits; use explicit `remote-herdr recover` for an unfinished switch.
 TUI process proof also accepts its native idle default, exact argument-free
 `/bin/sh`; command-bearing shells remain unsupported.
+
+Selected-core restore adopts the current desktop document, preserves user edits,
+retires closed views and adopts later exact `--session` clients after process,
+directory and duplicate proofs. Manifest schema 2 retains stable leaf bindings;
+older adapters must refuse it rather than regenerate the edited document.
+Only proven owned terminal references are CAS-rebound. A completed controller stop
+has separate private evidence; it is not mistaken for a user closure. Fresh selected
+core with no document/endpoint is a quiet no-op. Inventory disappearance settles
+within five seconds; permission failures and native mutations are never retried.
+Unnamed TUI views use persisted public identities and nullable naming provenance,
+not guessed display names; explicit empty, whitespace and numeric names stay exact.
+No new configuration keys or CLI inputs are required. Wrapper/config/activation
+follow-ups belong to RRW-007H and overlay editor recovery to RRW-007I. Schema-1
+edited receipts with unresolved old mutation intents still require conservative
+recovery; no automatic downgrade or hand-edited receipt migration is supported.
 
 The [remote default activation](features/remote-worktree-activation.md) initializes
 missing activation during explicit remote apply at the qualified exact home
