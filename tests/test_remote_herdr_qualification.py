@@ -66,6 +66,164 @@ def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
             raise AssertionError('failed CLI must stay failed')
 
 
+def test_r1_observe_refusal_is_fixed_and_survives_poll_deadline(monkeypatch):
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    namespace = fixture['observe'].__globals__
+    error_type = type('NativeError', (ValueError,), {})
+    class Store:
+        def __init__(self, root): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self, name):
+            return {'runtime': 'herdr-core', 'plan': {}, 'receipt': {}}
+    class Backend:
+        refusal = ''
+        def __init__(self, *args): pass
+        def _semantic(self, plan): return []
+        def verify(self, *args): raise error_type(self.refusal)
+    monkeypatch.setitem(namespace, 'adapter', lambda: (Store, Backend))
+    labels = fixture['r1_refusal_labels']()
+    assert set(labels.values()) == {'repair-' + field for field in (
+        'binding', 'labels', 'pid', 'start-time', 'argv', 'directory', 'state',
+        'exit', 'session', 'document-version', 'layout', 'identity-invalid')}
+    for refusal, label in [*labels.items(), ('PRIVATE-PATH-SESSION-PAYLOAD',
+                                            'unclassified-native-refusal')]:
+        Backend.refusal = refusal
+        ticks = iter([0, 0, 2])
+        monkeypatch.setattr(namespace['time'], 'monotonic', lambda: next(ticks))
+        monkeypatch.setattr(namespace['time'], 'sleep', lambda seconds: None)
+        try:
+            fixture['wait'](lambda: fixture['observe']('herdr-core', {}), seconds=1)
+        except fixture['CommandFailure'] as error:
+            assert error.reason == label
+            assert namespace['STEP'] == 'observe-herdr-core-verify'
+            assert 'PRIVATE' not in error.reason
+        else:
+            raise AssertionError('observation refusal must survive deadline')
+
+
+def test_r1_expected_raw_document_changes_only_selected_scalar(monkeypatch):
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    monkeypatch.syspath_prepend(str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr'))
+    import layout
+    # Use the real producer and its canonical keys, not assumed positional IDs.
+    plan = {'schema_version': 1, 'spaces': [{'name': 'Synthetic', 'directory': '/fixture',
+        'tabs': [{'name': 'Views', 'panes': [
+            {'key': 's0-t0-p0', 'cwd': '/fixture', 'session_id': 'ses_synthetic0'},
+            {'key': 's0-t0-p1', 'cwd': '/fixture', 'session_id': 'ses_synthetic1'}],
+            'root': {'axis': 'row', 'ratio': 0.4, 'children': [
+                {'pane': 's0-t0-p0'}, {'pane': 's0-t0-p1'}]}}]}]}
+    document = layout.to_app_document(plan, {'s0-t0-p0': 't1', 's0-t0-p1': 't2'})
+    document['metadata'] = {'opaque': [None, {'id': 'unrelated', 'terminal': 't1'}]}
+    root = document['spaces'][0]['tabs'][0]['root']
+    root['children'][0]['content']['opaque'] = {'preserved': True}
+    root['children'][0]['size'] = {'weight': 7}
+    baseline = copy.deepcopy(document)
+    expected = copy.deepcopy(document)
+    leaf = root['children'][0]['id']
+    expected['spaces'][0]['tabs'][0]['root']['children'][0]['content']['terminal'] = 't3'
+    assert fixture['expected_leaf_rebind'](document, leaf, 't1', 't3') == expected
+    assert document == baseline
+    for selected, old in [('missing', 't1'), (leaf, 't2')]:
+        try:
+            fixture['expected_leaf_rebind'](document, selected, old, 't3')
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError('unproven binding must refuse')
+
+
+def test_r1_poll_keeps_specific_step_after_later_generic_failure(monkeypatch):
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    namespace = fixture['wait'].__globals__
+    ticks = iter([0, 0, 1, 3])
+    monkeypatch.setattr(namespace['time'], 'monotonic', lambda: next(ticks))
+    monkeypatch.setattr(namespace['time'], 'sleep', lambda seconds: None)
+    attempts = 0
+    def observation():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            namespace['STEP'] = 'observe-herdr-core-verify'
+            raise fixture['CommandFailure']('repair-start-time')
+        namespace['STEP'] = 'observe-herdr-core-manifest'
+        raise RuntimeError('PRIVATE')
+    try:
+        fixture['wait'](observation, seconds=2)
+    except fixture['CommandFailure'] as error:
+        assert error.reason == 'repair-start-time'
+        assert namespace['STEP'] == 'observe-herdr-core-verify'
+    else:
+        raise AssertionError('last specific proof must remain visible')
+
+
+def test_r1_finished_facts_ignore_display_but_keep_exit_identity():
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    terminal = {'address': 't1', 'pid': 31, 'labels': {'owned': 'synthetic'},
+                'argv': ['/bin/bash'], 'cwd': '/fixture', 'state': 'finished',
+                'finished_ms': 7, 'reason': 'killed', 'exit_code': 143, 'exitcode': 143,
+                'status': 'old'}
+    changed = dict(terminal, status='new', title='new', seen_ms=99)
+    facts = fixture['finished_terminal_facts']
+    assert facts(changed) == facts(terminal)
+    for key in ('pid', 'labels', 'argv', 'cwd', 'state', 'finished_ms', 'reason', 'exit_code', 'exitcode'):
+        assert facts(dict(terminal, **{key: None})) != facts(terminal)
+
+
+def test_r1_fault_fixture_uses_native_keep_and_installed_restore_only():
+    source = (FIXTURE / 'verify-user.py').read_text()
+    tree = ast.parse(source)
+    functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+    function = functions['kept_shell_kill_recovery']
+    body = ast.get_source_segment(source, function)
+    assert body is not None
+    calls = [n for n in ast.walk(function) if isinstance(n, ast.Call)]
+    assert not any(isinstance(n.func, ast.Attribute) and n.func.attr in {
+        'write', 'write_text', 'write_bytes', 'execute'} for n in calls)
+    assert not any(isinstance(n.func, ast.Name) and n.func.id == 'write' for n in calls)
+    for witness in ("os.getuid() == 1000 and Path.home() == HOME", "backend.capture('herdr-core')",
+                    "backend._coverage(plan)", "manifest['receipt']['bindings'][key]",
+                    "manifest['receipt']['terminals'][key]", "client_pid != pid",
+                    "backend._client_argv(client_pid, pane['session_id'])",
+                    "'exe').resolve() == NATIVE", 'os.pidfd_open(client_pid)',
+                    'backend._pid_proofs([client_pid]) == client_proof',
+                    "backend.process_cwd(client_pid) == pane['cwd']",
+                    'signal.pidfd_send_signal(fd, signal.SIGTERM)',
+                    "backend._actual_core_program(current) != (None, pane['cwd'])",
+                    'backend._pids_absent(client_proof)', 'backend._shell_proof(current)',
+                    "pending.pop('identity')", 'original_receipt(receipt)',
+                    'backend._terminal(address) != snapshot', 'result = copy.deepcopy(result)',
+                    "Controller(store, backend).restore()", "cli('restore')",
+                    'original_core(method, params)', 'kills == 0',
+                    "pending['pids'] == shell_pids", "('identity' in pending) == lost_reply",
+                    "backend._terminal(address)['state'] == 'live'",
+                    "backend._pid_proofs([p['pid'] for p in shell_pids]) == shell_pids",
+                    "backend._terminal(address)['state'] == 'finished'",
+                    'backend._pids_absent(shell_pids)', "before['clients']", "before['pids']",
+                    "manifest['txid'] == txid and manifest['plan'] == plan",
+                    "receipt['pending'] is None and receipt['repairs'] == {}",
+                    "- addresses == {replacement}", '== other_clients',
+                    'expected_leaf_rebind(baseline, leaf, address, replacement)',
+                    'backend._document()[0] == expected', '== final_addresses',
+                    'finished_terminal_facts(backend._terminal(address)) == finished',
+                    "observe('herdr-core', plan)", 'backend_pid() == pid',
+                    'kept-shell-pending-kill-recovery-complete',
+                    'kept-shell-observed-kill-recovery-complete'):
+        assert witness in body
+    assert body.count("cli('restore')") == 2
+    assert "cli('recover')" not in body
+    helper = ast.get_source_segment(source, functions['expected_leaf_rebind'])
+    assert helper is not None and 'rebind_app_document' not in helper
+    assert body.index("pending.pop('identity')") < body.index('original_receipt(receipt)')
+    assert body.index('original_receipt(receipt)') < body.index('churned = True')
+    prepare = ast.get_source_segment(source, functions['prepare_fixture'])
+    assert prepare is not None
+    assert (prepare.index('restart_and_recover(plan, pid)') <
+            prepare.index('kept_shell_kill_recovery(plan, pid, lost_reply=False)') <
+            prepare.index('kept_shell_kill_recovery(plan, pid, lost_reply=True)') <
+            prepare.index("STEP = 'arm-core-boot'"))
+
+
 class QualificationSourceTests(unittest.TestCase):
     def test_core_stop_failure_labels_are_fixed_and_cover_current_recovery(self):
         tree = ast.parse((FIXTURE / 'verify-user.py').read_text())

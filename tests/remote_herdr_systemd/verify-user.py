@@ -190,6 +190,7 @@ def cli(*args):
                     'session client server unsupported': 'client-server',
                     'owned shell PID unavailable': 'shell-pid',
                 }
+                refusals.update(r1_refusal_labels())
                 try:
                     from native import panes
                     backend = Native(HOME, store)
@@ -213,16 +214,41 @@ def cli(*args):
         raise CommandFailure('controller-' + label) from None
 
 
+def r1_refusal_labels():
+    """Exact source refusals only; never interpolate native error payloads."""
+    return {
+        'core repair guard binding changed': 'repair-binding',
+        'core repair guard labels changed': 'repair-labels',
+        'core repair guard pid changed': 'repair-pid',
+        'core repair guard start-time changed': 'repair-start-time',
+        'core repair guard argv changed': 'repair-argv',
+        'core repair guard directory changed': 'repair-directory',
+        'core repair guard state changed': 'repair-state',
+        'core repair guard exit unproven': 'repair-exit',
+        'core repair guard session changed': 'repair-session',
+        'core repair guard document-version changed': 'repair-document-version',
+        'core repair guard layout changed': 'repair-layout',
+        'core repair guard identity invalid': 'repair-identity-invalid',
+    }
+
+
 def wait(check, seconds=120):
+    global STEP
     deadline = time.monotonic() + seconds
+    failure = None
     while time.monotonic() < deadline:
         try:
             result = check()
             if result:
                 return result
+        except CommandFailure as error:
+            failure = (STEP, error.reason)
         except Exception:
             pass  # Observations only; never retry native mutations.
         time.sleep(1)
+    if failure is not None:
+        STEP, reason = failure
+        raise CommandFailure(reason) from None
     raise RuntimeError()
 
 
@@ -670,7 +696,13 @@ def observe(target, plan):
         if difference:
             raise CommandFailure('manifest-' + difference)
         STEP = 'observe-' + target + '-verify'
-        backend.verify(target, manifest['plan'], manifest['receipt'])
+        try:
+            backend.verify(target, manifest['plan'], manifest['receipt'])
+        except Exception as error:
+            if type(error).__name__ == 'NativeError':
+                raise CommandFailure(r1_refusal_labels().get(
+                    str(error), 'unclassified-native-refusal')) from None
+            raise
         STEP = 'observe-' + target + '-capture'
         capture = backend.capture(target)
         STEP = 'observe-' + target + '-capture-fidelity'
@@ -816,6 +848,197 @@ def retained_shell_switch(plan, pid):
     observe('herdr-core', plan)
     require(backend_pid() == pid)
     print('F07: retained-shell-label-recovery-complete')
+
+
+def expected_leaf_rebind(document, leaf, old, new):
+    """Independent raw-tree expectation: change one scalar, preserve opaque data."""
+    import copy
+    expected = copy.deepcopy(document)
+    matches = []
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get('id') == leaf and node.get('type') == 'block':
+                require(node['content']['terminal'] == old)
+                matches.append(node)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+    walk(expected)
+    require(len(matches) == 1)
+    matches[0]['content']['terminal'] = new
+    return expected
+
+
+def finished_terminal_facts(terminal):
+    # Public status/seen/title reports can still change after exit. Only stable
+    # native completion and identity facts belong in the lost-reply assertion.
+    return {key: terminal[key] for key in (
+        'address', 'pid', 'labels', 'argv', 'cwd', 'state', 'finished_ms',
+        'reason', 'exit_code', 'exitcode') if key in terminal}
+
+
+def kept_shell_kill_recovery(plan, pid, *, lost_reply):
+    """Two serial real-kept-Bash faults; installed restore owns all recovery.
+
+    The first hook emulates the OLD serializer before its original private
+    writer runs, then its whole-record comparison after durable publication.
+    It is not a runtime hook installed in the CLI. Neither case writes a Store
+    document outside the adapter's original writer or manufactures a capture.
+    """
+    global STEP
+    import copy
+    from controller import Controller, ControllerError
+    from native import NativeError, panes
+    require(os.getuid() == 1000 and Path.home() == HOME)
+    Store, Native = adapter()
+    STEP = 'kept-shell-client-loss'
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        manifest = store.read('manifest.json')
+        require(manifest['runtime'] == 'herdr-core' and manifest['plan'] == plan)
+        txid = manifest['txid']
+        pane = next(p for p in panes(manifest['plan']) if p['session_id'] is not None)
+        key = pane['key']
+        leaf = manifest['receipt']['bindings'][key]
+        address = manifest['receipt']['terminals'][key]
+        before = backend.capture('herdr-core')
+        clients = backend._coverage(plan)
+        client = next(c for c in clients if c['session_id'] == pane['session_id'])
+        other_clients = [c for c in clients if c['session_id'] != pane['session_id']]
+        client_pid = client['pid']
+        terminal = backend._terminal(address)
+        require((terminal.get('foreground') or terminal)['pid'] == client_pid)
+        require(backend._actual_core_program(terminal) == (pane['session_id'], pane['cwd']))
+        backend._client_argv(client_pid, pane['session_id'])
+        require((Path('/proc') / str(client_pid) / 'exe').resolve() == NATIVE)
+        require(backend.process_cwd(client_pid) == pane['cwd'] and client_pid != pid)
+        client_proof = backend._pid_proofs([client_pid])  # Includes same-user/start-time proof.
+        require(backend_pid() == pid)
+        fd = os.pidfd_open(client_pid)
+        try:
+            require(backend._pid_proofs([client_pid]) == client_proof)
+            backend._client_argv(client_pid, pane['session_id'])
+            require((Path('/proc') / str(client_pid) / 'exe').resolve() == NATIVE)
+            require(backend.process_cwd(client_pid) == pane['cwd'])
+            signal.pidfd_send_signal(fd, signal.SIGTERM)
+        finally:
+            os.close(fd)
+        STEP = 'kept-shell-native-idle-bash'
+        def kept_ready():
+            current = backend._terminal(address)
+            if not backend._pids_absent(client_proof):
+                return False
+            if backend._actual_core_program(current) != (None, pane['cwd']):
+                return False
+            backend._shell_proof(current)
+            return current
+        shell = wait(kept_ready)
+        shell_pids = backend._pid_proofs([shell['pid'], (shell.get('foreground') or shell)['pid']])
+        require(backend_pid() == pid)
+        # Read the latest native document after keep's real UI reporting. The
+        # admitted adapter restore must retain exactly this raw view/version.
+        baseline, _ = backend._document()
+        addresses = {t['address'] for t in backend._terminals()}
+        original_core = backend.core
+        original_receipt = backend._receipt
+        kills = 0
+        churned = False
+        def fault_core(method, params):
+            nonlocal kills
+            if method == 'terminal.kill':
+                require(lost_reply and params == {'terminal': address} and kills == 0)
+                kills += 1
+                original_core(method, params)  # Actual successful native effect, once.
+                raise NativeError('fixture successful kill reply lost')
+            result = original_core(method, params)
+            if churned and method == 'terminal.get' and params == {'terminal': address}:
+                result = copy.deepcopy(result)
+                result.update(title='fixture display churn', status={'fixture': True},
+                              geometry={'rows': 31, 'cols': 97})
+            return result
+        def legacy_receipt(receipt):
+            nonlocal churned
+            pending = receipt.get('pending')
+            if not lost_reply and pending and pending['operation'] == 'terminal.kill':
+                require(pending['terminal'] == address and pending['leaf'] == leaf)
+                snapshot = copy.deepcopy(backend._terminal(address))
+                pending.pop('identity')  # Old serializer version emulation, BEFORE writer.
+                original_receipt(receipt)
+                churned = True  # Display-only RPC-result overlay, not native mutation.
+                require(backend._terminal(address) != snapshot)
+                raise NativeError('core recovery process changed before shell stop')
+            return original_receipt(receipt)
+        backend.core = fault_core
+        backend._receipt = legacy_receipt
+        STEP = 'kept-shell-admitted-restore-interruption'
+        try:
+            Controller(store, backend).restore()
+        except (NativeError, ControllerError) as error:
+            require(str(error) == ('fixture successful kill reply lost' if lost_reply
+                                  else 'core recovery process changed before shell stop'))
+        else:
+            raise CommandFailure('kept-shell-interruption-missing')
+        require(kills == (1 if lost_reply else 0))
+        # Drop all local faults before observing durable outcome, then close the
+        # lock before invoking the unmodified installed CLI.
+        backend = Native(HOME, store)
+        receipt = store.read('receipt-' + txid + '.json')
+        pending = receipt['pending']
+        require(receipt['txid'] == txid and receipt['plan'] == plan)
+        require(pending['operation'] == 'terminal.kill' and pending['terminal'] == address)
+        require(pending['pids'] == shell_pids and set(receipt['repairs']) == {leaf})
+        require(('identity' in pending) == lost_reply)
+        require(receipt['document'] == baseline and receipt['bindings'][key] == leaf)
+        if lost_reply:
+            wait(lambda: backend._terminal(address)['state'] == 'finished'
+                 and backend._pids_absent(shell_pids))
+            finished = finished_terminal_facts(backend._terminal(address))
+        else:
+            require(backend._terminal(address)['state'] == 'live')
+            require(backend._pid_proofs([p['pid'] for p in shell_pids]) == shell_pids)
+            backend._shell_proof(backend._terminal(address))
+    STEP = 'kept-shell-installed-restore'
+    cli('restore')
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        manifest = store.read('manifest.json')
+        receipt = manifest['receipt']
+        require(manifest['txid'] == txid and manifest['plan'] == plan)
+        require(receipt['pending'] is None and receipt['repairs'] == {})
+        replacement = receipt['terminals'][key]
+        require(replacement != address and receipt['bindings'][key] == leaf)
+        require({t['address'] for t in backend._terminals()} - addresses == {replacement})
+        require(backend._terminal(address)['state'] == 'finished')
+        require(backend._pids_absent(shell_pids) and backend._pids_absent(client_proof))
+        require(backend._pids_absent([p for p in before['clients'] if p['pid'] == client_pid]))
+        if lost_reply:
+            require(finished_terminal_facts(backend._terminal(address)) == finished)
+        expected = expected_leaf_rebind(baseline, leaf, address, replacement)
+        require(backend._document()[0] == expected)
+        coverage = backend._coverage(plan)
+        require([c for c in coverage if c['session_id'] != pane['session_id']] == other_clients)
+        for other in other_clients:
+            require(backend._pid_proofs([other['pid']]) == [
+                p for p in before['pids'] if p['pid'] == other['pid']])
+        require(backend._actual_core_program(backend._terminal(replacement))
+                == (pane['session_id'], pane['cwd']))
+        final_addresses = {t['address'] for t in backend._terminals()}
+    observe('herdr-core', plan)  # Exact unique client coverage, argv and real backend connection.
+    require(backend_pid() == pid)
+    cli('restore')
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        require({t['address'] for t in backend._terminals()} == final_addresses)
+        require(backend._coverage(plan) == coverage and backend._document()[0] == expected)
+        if lost_reply:
+            require(finished_terminal_facts(backend._terminal(address)) == finished)
+    require(backend_pid() == pid)
+    if lost_reply:
+        print('F07: kept-shell-observed-kill-recovery-complete')
+    else:
+        print('F07: kept-shell-pending-kill-recovery-complete')
 
 
 def edited_expected_plan(plan, later_panes):
@@ -1142,6 +1365,8 @@ def prepare_fixture(provider):
     interrupted_switch(plan, pid)
     switch('herdr-core', plan, pid)
     restart_and_recover(plan, pid)
+    kept_shell_kill_recovery(plan, pid, lost_reply=False)
+    kept_shell_kill_recovery(plan, pid, lost_reply=True)
     STEP = 'arm-core-boot'
     require(unit('is-enabled', 'remote-herdr-restore.timer') == 'enabled')
     unit('start', 'remote-herdr-restore.timer')
@@ -1230,6 +1455,7 @@ def restart_and_recover(plan, pid):
         'current document repair PID proof invalid': 'repair-pids-invalid',
         'current document repair stop proof unavailable': 'repair-stop-proof',
     }
+    labels.update(r1_refusal_labels())
     try:
         with Store(ROOT) as store:
             Controller(store, Native(HOME, store)).restore()
@@ -1299,6 +1525,7 @@ if __name__ == '__main__':
             'TUI workspace directory proof ambiguous': 'tui-workspace-ambiguous',
             'session client coverage incomplete or duplicate': 'session-client-coverage',
         }
+        protocol_labels.update(r1_refusal_labels())
         if type(error).__name__ == 'NativeError' and str(error) in protocol_labels:
             suffix = '-' + protocol_labels[str(error)]
         print('F07: failed-' + STEP + suffix, file=sys.stderr)
