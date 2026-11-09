@@ -74,6 +74,8 @@ model = "claude-sonnet-5-5@default" # or claude-opus-5-5@default
 hub_port = 25464
 
 [data.dotfiles_ai.opencode]
+# Empty leaves tabs.mode unmanaged; choose auto, on or off per user.
+# tab_bar_mode = "off"
 version = "1.18.25"
 linux_amd64_asset_url = "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-x64.tar.gz"
 linux_amd64_asset_sha256 = "58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78"

@@ -18,14 +18,14 @@ import probe_opencode_v2 as probe
 from test_opencode_control_plane import DATA, OC, ROOT
 
 
-def project(root, name):
+def project(root, name, values=None):
     target = root / ".config/opencode" / name
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
         target.write_text("{}\n")
     result = subprocess.run([
         "chezmoi", "-S", str(ROOT), "-D", str(root), "--config", "/dev/null",
-        "--config-format", "toml", "--override-data", json.dumps(DATA),
+        "--config-format", "toml", "--override-data", json.dumps(DATA if values is None else values),
         "--cache", str(root / "chezmoi-cache"), "--persistent-state", str(root / "chezmoi-state"),
         "apply", str(target),
     ], capture_output=True, text=True, timeout=30)

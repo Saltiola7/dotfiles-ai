@@ -1,10 +1,25 @@
 {{- /* chezmoi:modify-template */ -}}
 {{- $managed := dict "$schema" "https://opencode.ai/v2/cli.json" "theme" (dict "name" .dotfiles_ai.opencode.theme "mode" "dark") "keybinds" (dict "agent.cycle" "tab" "agent.cycle.reverse" "shift+tab") -}}
+{{- $tabMode := .dotfiles_ai.opencode.tab_bar_mode -}}
+{{- if not (kindIs "string" $tabMode) -}}
+{{- fail "OpenCode tab_bar_mode must be a string; original left unchanged" -}}
+{{- end -}}
+{{- if not (has $tabMode (list "" "auto" "on" "off")) -}}
+{{- fail "OpenCode tab_bar_mode must be empty, auto, on or off; original left unchanged" -}}
+{{- end -}}
+{{- if ne $tabMode "" -}}
+{{- $_ := set $managed "tabs" (dict "mode" $tabMode) -}}
+{{- end -}}
 {{- $config := $managed -}}
 {{- if ne (trim .chezmoi.stdin) "" -}}
 {{- $local := fromJson .chezmoi.stdin -}}
 {{- if not (kindIs "map" $local) -}}
 {{- fail "OpenCode CLI configuration must be a JSON object; original left unchanged" -}}
+{{- end -}}
+{{- if and (ne $tabMode "") (hasKey $local "tabs") -}}
+{{- if not (kindIs "map" $local.tabs) -}}
+{{- fail "OpenCode CLI tabs must be an object; original left unchanged" -}}
+{{- end -}}
 {{- end -}}
 {{- $config = mergeOverwrite $local $managed -}}
 {{- end -}}
