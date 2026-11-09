@@ -369,7 +369,7 @@ No new CLI/configuration input or manifest schema is introduced. Older adapters
 must refuse unsupported extended intents, not reinterpret or discard them.
 
 Refusal labels identify a fixed field category (binding, labels, PID/role, start-time,
-argv, directory, state, document version or layout), never observed values. Hosted
+argv, directory, state, exit, session, document version or layout), never observed values. Hosted
 diagnostics preserve that label across the bounded boot observation deadline.
 Synthetic and disposable native tests must cover display churn after publication,
 interruption before kill, lost successful kill replies, already-finished terminals,

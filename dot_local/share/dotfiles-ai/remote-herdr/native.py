@@ -1567,8 +1567,12 @@ class Native:
                           'terminal.run': {'operation', 'pane', 'leaf', 'labels'},
                           'doc.set': {'operation', 'document', 'version'},
                           'server.start': {'operation', 'previous'}}
-                if set(pending) != fields[pending['operation']]:
+                expected = fields[pending['operation']]
+                if (set(pending) != expected and not (pending['operation'] == 'terminal.kill'
+                        and set(pending) == expected | {'identity'})):
                     raise NativeError('current document mutation intent invalid')
+                if 'identity' in pending:
+                    self._validate_kill_identity(pending['identity'])
             repairs = receipt.get('repairs')
             if type(repairs) is not dict or set(repairs) - set(receipt['bindings'].values()):
                 raise NativeError('current document repairs invalid')
@@ -1785,6 +1789,144 @@ class Native:
                 return False
         self._wait(ready)
 
+    @staticmethod
+    def _validate_kill_identity(identity):
+        def argv(value):
+            return (type(value) is list and 1 <= len(value) <= 256
+                    and all(type(v) is str and len(v) <= 4096 and '\0' not in v for v in value))
+        def directory(value):
+            return type(value) is str and 0 < len(value) <= 4096 and '\0' not in value
+        if (type(identity) is not dict
+                or set(identity) != {'argv', 'cwd', 'launch', 'pid', 'foreground_pid'}
+                or not argv(identity['argv']) or not directory(identity['cwd'])
+                or any(type(identity[k]) is not int or identity[k] <= 1
+                       for k in ('pid', 'foreground_pid'))
+                or type(identity['launch']) is not dict
+                or set(identity['launch']) != {'argv', 'cwd', 'keep'}
+                or not argv(identity['launch']['argv'])
+                or not directory(identity['launch']['cwd'])
+                or (identity['launch']['keep'] is not None and type(identity['launch']['keep']) is not bool)):
+            raise NativeError('core repair guard identity invalid')
+
+    def _kill_identity(self, terminal):
+        pid = (terminal.get('foreground') or terminal)['pid']
+        identity = {'argv': self.process_argv(pid), 'cwd': self.process_cwd(pid),
+                    'pid': terminal['pid'], 'foreground_pid': pid,
+                    'launch': {k: terminal.get(k) for k in ('argv', 'cwd', 'keep')}}
+        self._validate_kill_identity(identity)
+        return identity
+
+    def _kill_document_guard(self, receipt):
+        document, version = self._document()
+        if document != receipt['document']:
+            raise NativeError('core repair guard layout changed')
+        if version != receipt['doc_version']:
+            raise NativeError('core repair guard document-version changed')
+
+    def _current_kill_guard(self, receipt):
+        """Re-observe only security facts, never terminal presentation or RPC ack."""
+        self._kill_document_guard(receipt)
+        pending = receipt['pending']
+        key, leaf = pending['pane'], pending['leaf']
+        repair = receipt['repairs'].get(leaf)
+        if (repair is None or receipt['bindings'].get(key) != leaf
+                or receipt['terminals'].get(key) != pending['terminal']
+                or pending['terminal'] != repair['terminal'] or pending['pids'] != repair['pids']
+                or not pending['pids'] or repair['created'] is not None):
+            raise NativeError('core repair guard binding changed')
+        references = {}
+        def record(ref, address):
+            references[ref] = address
+            return None
+        layout.project_app_document(receipt['document'], record)
+        if references.get(leaf) != pending['terminal']:
+            raise NativeError('core repair guard binding changed')
+        terminal = self._terminal(pending['terminal'])
+        if terminal.get('address') != pending['terminal']:
+            raise NativeError('core repair guard binding changed')
+        if not self._same_labels(terminal.get('labels'), receipt['labels'][key]):
+            raise NativeError('core repair guard labels changed')
+        identity = pending.get('identity')
+        if 'identity' in pending:
+            self._validate_kill_identity(identity)
+            if {identity['pid'], identity['foreground_pid']} != {p['pid'] for p in pending['pids']}:
+                raise NativeError('core repair guard pid changed')
+            if terminal.get('pid') != identity['pid']:
+                raise NativeError('core repair guard pid changed')
+            if terminal.get('argv') != identity['launch']['argv']:
+                raise NativeError('core repair guard argv changed')
+            if terminal.get('cwd') != identity['launch']['cwd']:
+                raise NativeError('core repair guard directory changed')
+            if terminal.get('keep') != identity['launch']['keep']:
+                raise NativeError('core repair guard state changed')
+        if terminal.get('state') == 'finished':
+            try:
+                self._pids_absent_or_fail(pending['pids'])
+            except (NativeError, OSError, ValueError):
+                raise NativeError('core repair guard exit unproven') from None
+        elif terminal.get('state') == 'live':
+            program = terminal.get('foreground') or terminal
+            pids = [terminal.get('pid'), program.get('pid')]
+            if (any(type(pid) is not int or pid <= 1 for pid in pids)
+                    or set(pids) != {p['pid'] for p in pending['pids']}
+                    or (identity is not None and (pids[0] != identity['pid']
+                        or pids[1] != identity['foreground_pid']))):
+                raise NativeError('core repair guard pid changed')
+            try:
+                proofs = self._pid_proofs(pids)
+            except (NativeError, OSError, ValueError):
+                raise NativeError('core repair guard start-time changed') from None
+            if proofs != pending['pids']:
+                raise NativeError('core repair guard start-time changed')
+            argv = self.process_argv(pids[1])
+            if (not argv or argv[0] not in ('/bin/bash', 'bash', '-bash')
+                    or argv[1:] not in ([], ['-l'], ['--login'])
+                    or (identity is not None and (argv != identity['argv']
+                        or terminal.get('argv') != identity['launch']['argv']))):
+                raise NativeError('core repair guard argv changed')
+            cwd = self.process_cwd(pids[1])
+            if (cwd != repair['pane']['cwd']
+                    or (terminal.get('foreground') is not None and program.get('cwd') != cwd)
+                    or (identity is not None and cwd != identity['cwd'])):
+                raise NativeError('core repair guard directory changed')
+            if self._pid_proofs(pids) != proofs:
+                raise NativeError('core repair guard start-time changed')
+        else:
+            raise NativeError('core repair guard state changed')
+        self._kill_document_guard(receipt)
+        if terminal['state'] == 'live':
+            # The document RPC is another scheduling boundary. Recheck actual
+            # process facts after it, without relying on cached foreground data.
+            try:
+                latest = self._pid_proofs(pids)
+            except (NativeError, OSError, ValueError):
+                raise NativeError('core repair guard start-time changed') from None
+            if latest != proofs:
+                raise NativeError('core repair guard start-time changed')
+            if self.process_argv(pids[1]) != argv:
+                raise NativeError('core repair guard argv changed')
+            if self.process_cwd(pids[1]) != cwd:
+                raise NativeError('core repair guard directory changed')
+            if self._pid_proofs(pids) != latest:
+                raise NativeError('core repair guard start-time changed')
+        return terminal['state']
+
+    def _complete_current_kill(self, receipt):
+        pending = receipt['pending']
+        repair = receipt['repairs'][pending['leaf']]
+        self._current_kill_guard(receipt)
+        desired = repair['pane']['session_id']
+        if self.scan({desired} if desired is not None else set()):
+            raise NativeError('core repair guard session changed')
+        # Inventory observation may itself race a terminal or document change.
+        state = self._current_kill_guard(receipt)
+        if state == 'live':
+            self.core('terminal.kill', {'terminal': pending['terminal']})
+            self._wait(lambda: self._terminal(pending['terminal']).get('state') == 'finished'
+                       and self._pids_absent(pending['pids']))
+        self._current_kill_guard(receipt)
+        repair['stopped'] = True
+
     def _reconcile_current_intent(self, receipt):
         pending = receipt.get('pending')
         if pending is None:
@@ -1800,10 +1942,7 @@ class Native:
                         or repair.get('stopped') is not True))):
                 raise NativeError('core pending mutation binding invalid')
         if operation == 'terminal.kill':
-            if self._terminal(pending['terminal']).get('state') != 'finished':
-                raise NativeError('uncertain owned shell stop unresolved')
-            self._pids_absent_or_fail(pending['pids'])
-            receipt['repairs'][pending['leaf']]['stopped'] = True
+            self._complete_current_kill(receipt)
         elif operation == 'terminal.run':
             matches = [t for t in self._terminals() if self._same_labels(t.get('labels'), pending['labels'])
                        and t.get('state') != 'finished']
@@ -1877,18 +2016,10 @@ class Native:
                 proofs = self._pid_proofs(pids)
                 repair['pids'] = proofs
                 receipt['pending'] = {'operation': 'terminal.kill', 'pane': key, 'leaf': leaf,
-                                      'terminal': repair['terminal'], 'pids': proofs}
+                                      'terminal': repair['terminal'], 'pids': proofs,
+                                      'identity': self._kill_identity(terminal)}
                 self._receipt(receipt)
-                self._current_effect_boundary(receipt)
-                observed = self._terminal(repair['terminal'])
-                if observed != terminal or self._pid_proofs(pids) != proofs:
-                    raise NativeError('core recovery process changed before shell stop')
-                self._shell_proof(observed)
-                if self.scan(repair_sessions):
-                    raise NativeError('session client already running')
-                self.core('terminal.kill', {'terminal': repair['terminal']})
-                self._wait(lambda: self._terminal(repair['terminal']).get('state') == 'finished'
-                           and self._pids_absent(proofs))
+                self._complete_current_kill(receipt)
                 receipt['pending'] = None
                 repair['stopped'] = True
                 self._receipt(receipt)

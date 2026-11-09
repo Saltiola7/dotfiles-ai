@@ -946,7 +946,7 @@ def test_current_repair_waits_for_actual_shell_pid_exit_not_only_finished_record
     with pytest.raises(native.NativeError, match='proof'):
         backend.restore_current()
     assert backend.store.read('receipt-testtx.json')['pending']['operation'] == 'terminal.kill'
-    with pytest.raises(native.NativeError, match='still running'):
+    with pytest.raises(native.NativeError, match='^core repair guard exit unproven$'):
         backend.restore_current()
     assert sum(m == 'terminal.kill' for m, _ in core.calls[calls:]) == 1
     assert not any(m in ('terminal.run', 'doc.set') for m, _ in core.calls[calls:])
@@ -1327,6 +1327,309 @@ def test_shell_recovery_rechecks_after_publishing_kill_intent(backend, change):
     with pytest.raises(native.NativeError):
         backend.restore_current()
     assert not any(method == 'terminal.kill' for method, _ in core.calls[before:])
+
+
+def r1_shell(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    core.calls.clear()
+    return core
+
+
+def r1_on_intent(backend, action):
+    write = backend.store.write
+    def persist(name, value):
+        write(name, value)
+        if name == 'receipt-testtx.json' and (value.get('pending') or {}).get('operation') == 'terminal.kill':
+            action()
+    backend.store.write = persist
+    return write
+
+
+@pytest.mark.parametrize('field', ['title', 'status', 'records', 'turn', 'geometry', 'foreground'])
+def test_r1_display_churn_after_kill_intent_is_not_identity(backend, field):
+    core = r1_shell(backend)
+    terminal = core.terminals['t1']
+    value = ({'pid': terminal['pid'], 'argv': ['/bin/bash', '-l'], 'cwd': '/work'}
+             if field == 'foreground' else {'async': 'PRIVATE_DISPLAY'})
+    r1_on_intent(backend, lambda: terminal.update({field: value}))
+    backend.restore_current()
+    assert [m for m, _ in core.calls if m == 'terminal.kill'] == ['terminal.kill']
+    assert backend.store.read('manifest.json')['schema_version'] == 2
+
+
+@pytest.mark.parametrize('lost_reply', [False, True])
+@pytest.mark.parametrize('legacy', [False, True])
+@pytest.mark.parametrize('schema', [1, 2])
+def test_r1_interrupted_kill_reconciles_original_observation(backend, lost_reply, legacy, schema):
+    core = r1_shell(backend)
+    write = backend.store.write
+    if lost_reply:
+        def rpc(method, params):
+            result = core.rpc(method, params)
+            if method == 'terminal.kill':
+                raise native.NativeError('synthetic interruption')
+            return result
+        backend.core = rpc
+    else:
+        def interrupt():
+            raise native.NativeError('synthetic interruption')
+        r1_on_intent(backend, interrupt)
+    with pytest.raises(native.NativeError, match='synthetic interruption'):
+        backend.restore_current()
+    backend.store.write = write
+    backend.core = core.rpc
+    saved = backend.store.read('receipt-testtx.json')
+    if legacy:
+        saved['pending'].pop('identity', None)
+    # Exercise the old schema-2 pending-kill entry point as well as published v1.
+    manifest = backend.store.read('manifest.json')
+    if schema == 2:
+        manifest.update(schema_version=2, plan=saved['plan'], receipt=saved)
+    write('manifest.json', manifest)
+    write('receipt-testtx.json', saved)
+    backend.restore_current()
+    assert len([m for m, _ in core.calls if m == 'terminal.kill']) == 1
+    assert len([m for m, _ in core.calls if m == 'terminal.run']) == 1
+    assert backend.store.read('receipt-testtx.json')['pending'] is None
+
+
+@pytest.mark.parametrize('change,label', [
+    ('labels', 'labels'), ('pid', 'pid'), ('start', 'start-time'),
+    ('argv', 'argv'), ('foreign', 'argv'), ('cwd', 'directory'),
+    ('foreground', 'pid'), ('launch', 'argv'), ('raw', 'layout'),
+    ('version', 'document-version'), ('session', 'session'),
+])
+@pytest.mark.parametrize('resume', [False, True])
+def test_r1_kill_identity_changes_refuse_with_literal_labels(backend, change, label, resume):
+    core = r1_shell(backend)
+    terminal = core.terminals['t1']
+    def mutate():
+        if change == 'labels':
+            terminal['labels']['remote-herdr-owner'] = 'PRIVATE_CHANGED'
+        elif change == 'pid':
+            terminal['pid'] = 988
+        elif change == 'start':
+            synthetic_process(backend, terminal['pid'], ['/bin/bash', '-l'], ticks=999)
+        elif change in ('argv', 'foreign'):
+            synthetic_process(backend, terminal['pid'], ['/bin/bash', '--login'] if change == 'argv' else ['/PRIVATE_FOREIGN'])
+        elif change == 'cwd':
+            synthetic_process(backend, terminal['pid'], ['/bin/bash', '-l'], cwd='/PRIVATE_DIRECTORY')
+        elif change == 'foreground':
+            terminal['foreground'] = {'pid': 988, 'argv': ['/bin/bash'], 'cwd': '/work'}
+        elif change == 'launch':
+            terminal['argv'] = ['/PRIVATE_LAUNCH']
+        elif change == 'raw':
+            core.document['PRIVATE_RAW'] = 'PRIVATE_VALUE'
+        elif change == 'version':
+            core.version += 1
+        else:
+            synthetic_process(backend, 988, wrapper_argv(backend))
+    if resume:
+        def interrupt():
+            raise native.NativeError('synthetic interruption')
+        write = r1_on_intent(backend, interrupt)
+        with pytest.raises(native.NativeError, match='synthetic interruption'):
+            backend.restore_current()
+        backend.store.write = write
+        mutate()
+    else:
+        r1_on_intent(backend, mutate)
+    with pytest.raises(native.NativeError) as error:
+        backend.restore_current()
+    assert str(error.value) == f'core repair guard {label} changed'
+    assert not any(m in ('terminal.kill', 'terminal.run', 'doc.set') for m, _ in core.calls)
+    assert backend.store.read('receipt-testtx.json')['pending']['operation'] == 'terminal.kill'
+
+
+@pytest.mark.parametrize('bad', [None, {}, {'extra': 'PRIVATE'}, 'PRIVATE', []])
+def test_r1_malformed_identity_refuses_without_effect(backend, bad):
+    core = r1_shell(backend)
+    def interrupt():
+        raise native.NativeError('synthetic interruption')
+    write = r1_on_intent(backend, interrupt)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    backend.store.write = write
+    saved = backend.store.read('receipt-testtx.json')
+    saved['pending']['identity'] = bad
+    write('receipt-testtx.json', saved)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert not any(m in ('terminal.kill', 'terminal.run', 'doc.set') for m, _ in core.calls)
+    assert backend.store.read('receipt-testtx.json')['pending'] == saved['pending']
+
+
+@pytest.mark.parametrize('change', ['extra', 'nested-extra', 'oversized', 'bool-pid', 'wrong-role', 'wrong-proof'])
+def test_r1_extended_intent_shape_and_binding_fail_closed(backend, change):
+    core = r1_shell(backend)
+    def interrupt():
+        raise native.NativeError('synthetic interruption')
+    write = r1_on_intent(backend, interrupt)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    backend.store.write = write
+    saved = backend.store.read('receipt-testtx.json')
+    pending = saved['pending']
+    if change == 'extra':
+        pending['PRIVATE_EXTRA'] = True
+    elif change == 'nested-extra':
+        pending['identity']['launch']['PRIVATE_EXTRA'] = True
+    elif change == 'oversized':
+        pending['identity']['argv'] = ['/bin/bash'] + ['PRIVATE'] * 256
+    elif change == 'bool-pid':
+        pending['identity']['pid'] = True
+    elif change == 'wrong-role':
+        pending['identity']['foreground_pid'] = 988
+    else:
+        pending['pids'][0]['start_ticks'] += 1
+    write('receipt-testtx.json', saved)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert not any(m in ('terminal.kill', 'terminal.run', 'doc.set') for m, _ in core.calls)
+    assert backend.store.read('receipt-testtx.json')['pending'] == pending
+
+
+@pytest.mark.parametrize('change', ['labels', 'raw', 'version', 'still-live-pid', 'launch', 'directory', 'pid', 'keep'])
+def test_r1_finished_kill_rechecks_ownership_and_document_without_rekill(backend, change):
+    core = r1_shell(backend)
+    pid = core.terminals['t1']['pid']
+    def rpc(method, params):
+        result = core.rpc(method, params)
+        if method == 'terminal.kill':
+            raise native.NativeError('synthetic lost reply')
+        return result
+    backend.core = rpc
+    with pytest.raises(native.NativeError, match='synthetic lost reply'):
+        backend.restore_current()
+    backend.core = core.rpc
+    if change == 'labels':
+        core.terminals['t1']['labels'] = {'PRIVATE': 'PRIVATE'}
+    elif change == 'raw':
+        core.document['PRIVATE'] = 'PRIVATE'
+    elif change == 'version':
+        core.version += 1
+    elif change == 'still-live-pid':
+        synthetic_process(backend, pid, ['/bin/bash', '-l'])
+    elif change == 'launch':
+        core.terminals['t1']['argv'] = ['/PRIVATE_CHANGED']
+    elif change == 'directory':
+        core.terminals['t1']['cwd'] = '/PRIVATE_CHANGED'
+    elif change == 'pid':
+        core.terminals['t1']['pid'] = 988
+    else:
+        core.terminals['t1']['keep'] = True
+    with pytest.raises(native.NativeError) as error:
+        backend.restore_current()
+    assert 'PRIVATE' not in str(error.value)
+    assert len([m for m, _ in core.calls if m == 'terminal.kill']) == 1
+    assert not any(m in ('terminal.run', 'doc.set') for m, _ in core.calls)
+    assert backend.store.read('receipt-testtx.json')['pending']['operation'] == 'terminal.kill'
+
+
+def test_r1_legacy_intent_does_not_invent_historical_actual_argv(backend):
+    core = r1_shell(backend)
+    def interrupt():
+        raise native.NativeError('synthetic interruption')
+    write = r1_on_intent(backend, interrupt)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    backend.store.write = write
+    saved = backend.store.read('receipt-testtx.json')
+    saved['pending'].pop('identity')
+    write('receipt-testtx.json', saved)
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '--login'])
+    backend.restore_current()
+    assert len([m for m, _ in core.calls if m == 'terminal.kill']) == 1
+
+
+def test_r1_same_pid_foreground_report_removal_preserves_identity(backend):
+    core = r1_shell(backend)
+    terminal = core.terminals['t1']
+    terminal['foreground'] = {'pid': terminal['pid'], 'argv': ['/bin/bash', '-l'], 'cwd': '/work'}
+    r1_on_intent(backend, lambda: terminal.update(foreground=None))
+    backend.restore_current()
+    assert len([m for m, _ in core.calls if m == 'terminal.kill']) == 1
+
+
+def test_r1_kept_shell_uses_actual_directory_not_the_original_launch_directory(backend):
+    core = r1_shell(backend)
+    terminal = core.terminals['t1']
+    terminal['cwd'] = '/original-launch'
+    terminal['foreground'] = {'pid': terminal['pid'], 'argv': ['/bin/bash', '-l'], 'cwd': '/work'}
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['plan'] == plan()
+    assert len([m for m, _ in core.calls if m == 'terminal.kill']) == 1
+
+
+@pytest.mark.parametrize('resume,legacy', [(False, False), (True, False), (True, True)])
+def test_r1_foreground_report_can_disappear_with_a_different_launch_directory(backend, resume, legacy):
+    core = r1_shell(backend)
+    terminal = core.terminals['t1']
+    terminal['cwd'] = '/original-launch'
+    terminal['foreground'] = {'pid': terminal['pid'], 'argv': ['/bin/bash', '-l'], 'cwd': '/work'}
+    if resume:
+        def interrupt():
+            raise native.NativeError('synthetic interruption')
+        write = r1_on_intent(backend, interrupt)
+        with pytest.raises(native.NativeError):
+            backend.restore_current()
+        backend.store.write = write
+        if legacy:
+            saved = backend.store.read('receipt-testtx.json')
+            saved['pending'].pop('identity')
+            write('receipt-testtx.json', saved)
+        terminal['foreground'] = None
+    else:
+        r1_on_intent(backend, lambda: terminal.update(foreground=None))
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['plan'] == plan()
+    assert len([m for m, _ in core.calls if m == 'terminal.kill']) == 1
+
+
+def test_r1_rechecks_actual_argv_after_final_document_observation(backend):
+    core = r1_shell(backend)
+    document = backend._document
+    pending_observations = 0
+    def changed_after_read():
+        nonlocal pending_observations
+        value = document()
+        receipt = backend.store.read('receipt-testtx.json')
+        if (receipt.get('pending') or {}).get('operation') == 'terminal.kill':
+            pending_observations += 1
+            if pending_observations == 2:
+                synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '--login'])
+        return value
+    backend._document = changed_after_read
+    with pytest.raises(native.NativeError, match='^core repair guard argv changed$'):
+        backend.restore_current()
+    assert not any(m in ('terminal.kill', 'terminal.run', 'doc.set') for m, _ in core.calls)
+
+
+@pytest.mark.parametrize('change', ['document', 'version', 'argv', 'labels'])
+def test_r1_inventory_observation_is_followed_by_identity_and_document_guards(backend, change):
+    core = r1_shell(backend)
+    scan = backend.scan
+    def racing_scan(wanted):
+        result = scan(wanted)
+        receipt = backend.store.read('receipt-testtx.json')
+        if (receipt.get('pending') or {}).get('operation') == 'terminal.kill':
+            if change == 'document':
+                core.document['PRIVATE'] = 'PRIVATE'
+            elif change == 'version':
+                core.version += 1
+            elif change == 'argv':
+                synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '--login'])
+            else:
+                core.terminals['t1']['labels']['PRIVATE'] = 'PRIVATE'
+        return result
+    backend.scan = racing_scan
+    with pytest.raises(native.NativeError) as error:
+        backend.restore_current()
+    assert 'PRIVATE' not in str(error.value)
+    assert not any(m in ('terminal.kill', 'terminal.run', 'doc.set') for m, _ in core.calls)
+    assert backend.store.read('receipt-testtx.json')['pending']['operation'] == 'terminal.kill'
 
 
 def test_cas_edit_after_prepare_retains_private_backup(backend):
