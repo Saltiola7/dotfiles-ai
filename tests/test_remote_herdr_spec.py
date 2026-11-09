@@ -98,3 +98,17 @@ def test_kept_shell_kill_intent_contract_retains_identity_and_exit_guards():
                   'never observed values', 'Unknown extra intent fields', 'No new CLI/configuration input',
                   'lost successful kill replies', 'both-boot', 'Fork A', '007H', '007I'):
         assert token in section
+
+
+def test_r1_completion_artifacts_preserve_hotfix_and_rollout_boundaries():
+    root = Path(__file__).parents[1] / 'docs/specs/dotfiles_ai_distribution'
+    readme = (root / 'README.md').read_text()
+    entry = (root / 'CHANGELOG.md').read_text().split(
+        '## 2026-11-09 — Pending kept-shell recovery (RRW-007G-R1)', 1)[1].split('\n## ', 1)[0]
+    for token in ('RRW-007G-R1', 'legacy intents', 'fixed field labels',
+                  'Fork A', 'Bootstrap, binary pins and setup inputs are unchanged'):
+        assert token in readme
+    for token in ('INT-082', '719 tests', '55 subtests', 'Older adapters refuse',
+                  'installed CLI', '60644736', 'never main', 'exact-head approval',
+                  '007H', '007I', 'address-only'):
+        assert token in entry
