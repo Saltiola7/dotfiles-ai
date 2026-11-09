@@ -589,15 +589,21 @@ def adapter():
 
 
 def observe(target, plan):
+    global STEP
+    STEP = 'observe-' + target + '-manifest'
     Store, Native = adapter()
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         manifest = store.read('manifest.json')
         require(manifest is not None and manifest['runtime'] == target)
         require(backend._semantic(manifest['plan']) == backend._semantic(plan))
+        STEP = 'observe-' + target + '-verify'
         backend.verify(target, manifest['plan'], manifest['receipt'])
+        STEP = 'observe-' + target + '-capture'
         capture = backend.capture(target)
+        STEP = 'observe-' + target + '-capture-fidelity'
         require(backend._semantic(capture['plan']) == backend._semantic(plan))
+        STEP = 'observe-' + target + '-client-coverage'
         clients = backend._coverage(plan)
         require(len(clients) == 3)
         f01 = load('f01', '/opt/f01/verify-user.py')
@@ -655,6 +661,7 @@ def switch(target, plan, pid, during=None):
         backend = Native(HOME, store)
         before = backend.capture(backend.selected())
     cli('switch', target)
+    STEP = 'switch-' + target + '-exit-proof'
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         journal = store.read('transaction.json')
@@ -1051,6 +1058,12 @@ if __name__ == '__main__':
             'core protocol: core response refused or invalid': 'core-response-refused',
             'core protocol: core request outcome uncertain': 'core-outcome-uncertain',
             'core protocol: core structured response invalid': 'core-response-invalid',
+            'TUI unknown foreground process': 'tui-unknown-foreground',
+            'TUI session process coverage incomplete': 'tui-session-coverage',
+            'TUI restored layout differs': 'tui-layout-differs',
+            'TUI duplicate or failed pane': 'tui-duplicate-or-failed-pane',
+            'TUI workspace directory proof ambiguous': 'tui-workspace-ambiguous',
+            'session client coverage incomplete or duplicate': 'session-client-coverage',
         }
         if type(error).__name__ == 'NativeError' and str(error) in protocol_labels:
             suffix = '-' + protocol_labels[str(error)]
