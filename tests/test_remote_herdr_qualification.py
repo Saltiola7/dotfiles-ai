@@ -33,6 +33,37 @@ def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
         assert 'PRIVATE' not in str(error)
     else:
         raise AssertionError('native failure must not pass')
+    # Failed core-restore observation may classify only fixed labels, never raw
+    # native payloads. This is an in-memory adapter, not a native process probe.
+    monkeypatch.syspath_prepend(str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr'))
+    class State:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self, name):
+            if name == 'transaction.json':
+                return {'phase': 'restore_pending', 'target': 'herdr-core', 'txid': 'fixture',
+                        'plan': {'spaces': [{'tabs': [{'panes': [{'key': 'p0'}]}]}]}}
+            return {'pending': None, 'terminals': {'p0': 't1'}}
+    error_type = type('NativeError', (ValueError,), {})
+    class Backend:
+        refusal = ''
+        def __init__(self, *args): pass
+        def _other_off(self, target): pass
+        def _terminal(self, address): return {}
+        def _match_terminal(self, *args): raise error_type(self.refusal)
+        def _safe_live_terminals(self, *args):
+            raise AssertionError('failed terminal proof must stop observations')
+    monkeypatch.setitem(fixture['cli'].__globals__, 'adapter', lambda: (lambda root: State(), Backend))
+    for refusal, label in [('core terminal ownership mismatch', 'terminal-ownership'),
+                           ('PRIVATE-NATIVE-DETAIL', 'unclassified-native-refusal')]:
+        Backend.refusal = refusal
+        try:
+            fixture['cli']('must-not-execute')
+        except fixture['CommandFailure'] as error:
+            assert error.reason == 'controller-restore_pending-mapped-1-receipt-terminal-proof-' + label
+            assert 'PRIVATE' not in str(error)
+        else:
+            raise AssertionError('failed CLI must stay failed')
 
 
 class QualificationSourceTests(unittest.TestCase):

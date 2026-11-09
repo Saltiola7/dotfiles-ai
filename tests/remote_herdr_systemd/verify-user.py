@@ -175,6 +175,41 @@ def cli(*args):
                 label += '-' + check
                 if check.endswith('-spawn-pending'):
                     label += kept_spawn_diagnostics(backend)
+            elif phase in {'restore_pending', 'verify_pending'} and journal.get('target') == 'herdr-core':
+                # Inspect only after a failed CLI. No retries, stop or relaunch.
+                check = 'receipt'
+                refusals = {
+                    'core terminal ownership mismatch': 'terminal-ownership',
+                    'core terminal session or directory mismatch': 'terminal-identity',
+                    'core terminal not live or spawn pending': 'terminal-pending',
+                    'core foreign or unsupported live program': 'unsupported-program',
+                    'owned shell has foreign live program': 'shell-program',
+                    'target contains unowned live agent': 'unowned-agent',
+                    'core client directory proof unavailable': 'client-directory',
+                    'session client executable or identity unsupported': 'client-argv',
+                    'session client server unsupported': 'client-server',
+                    'owned shell PID unavailable': 'shell-pid',
+                }
+                try:
+                    from native import panes
+                    backend = Native(HOME, store)
+                    if receipt is None:
+                        raise RuntimeError()
+                    label += '-mapped-' + str(len(receipt['terminals']))
+                    check = 'other-runtime'
+                    backend._other_off('herdr-core')
+                    check = 'receipt-terminal-proof'
+                    for pane in panes(journal['plan']):
+                        address = receipt['terminals'].get(pane['key'])
+                        if address is not None:
+                            backend._match_terminal(backend._terminal(address), pane, journal['txid'])
+                    check = 'live-terminal-inventory'
+                    backend._safe_live_terminals(journal['plan'], receipt)
+                    check = 'current-observations-pass'
+                except Exception as error:
+                    if type(error).__name__ == 'NativeError':
+                        check += '-' + refusals.get(str(error), 'unclassified-native-refusal')
+                label += '-' + check
         raise CommandFailure('controller-' + label) from None
 
 
