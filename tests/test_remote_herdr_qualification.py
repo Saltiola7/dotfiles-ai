@@ -67,6 +67,26 @@ def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
 
 
 class QualificationSourceTests(unittest.TestCase):
+    def test_semantic_failure_diagnostic_withholds_runtime_values(self):
+        fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        compare = fixture['semantic_difference']
+        original = json.loads('''[{"name":"PRIVATE-SPACE", "directory":"/private/fixture", "tabs":[
+            {"name":"PRIVATE-TAB", "root":{"axis":"row", "ratio":0.25, "children":[
+                {"cwd":"/private/fixture", "session_id":"ses_private0"},
+                {"cwd":"/private/fixture", "session_id":"ses_private1"}]}}]}]''')
+        self.assertIsNone(compare(original, original))
+        changes = [('name', 'space-name'), ('directory', 'space-directory')]
+        for key, label in changes:
+            changed = copy.deepcopy(original)
+            changed[0][key] = 'PRIVATE-CHANGED'
+            self.assertEqual(compare(changed, original), label)
+        ratio_changed = copy.deepcopy(original)
+        ratio_changed[0]['tabs'][0]['root']['ratio'] = 0.5
+        self.assertEqual(compare(ratio_changed, original), 'split-ratio')
+        session_changed = copy.deepcopy(original)
+        session_changed[0]['tabs'][0]['root']['children'][1]['session_id'] = 'ses_private_changed'
+        self.assertEqual(compare(session_changed, original), 'pane-session')
+
     def test_edited_fixture_expected_plan_has_canonical_keys_and_independent_geometry(self):
         fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
         tree = ast.parse((FIXTURE / 'verify-user.py').read_text())

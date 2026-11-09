@@ -623,6 +623,41 @@ def adapter():
     return Store, Native
 
 
+def semantic_difference(actual, expected):
+    """Return only fixed schema labels, never names, paths or session IDs."""
+    if len(actual) != len(expected):
+        return 'space-count'
+    def tree(left, right):
+        if set(left) != set(right):
+            return 'tree-shape'
+        for key, label in (('cwd', 'pane-directory'), ('session_id', 'pane-session'),
+                           ('axis', 'split-axis'), ('ratio', 'split-ratio')):
+            if left.get(key) != right.get(key):
+                return label
+        if 'children' in left:
+            if len(left['children']) != len(right['children']):
+                return 'child-count'
+            for a, b in zip(left['children'], right['children']):
+                result = tree(a, b)
+                if result:
+                    return result
+        return None
+    for left, right in zip(actual, expected):
+        if left['name'] != right['name']:
+            return 'space-name'
+        if left['directory'] != right['directory']:
+            return 'space-directory'
+        if len(left['tabs']) != len(right['tabs']):
+            return 'tab-count'
+        for a, b in zip(left['tabs'], right['tabs']):
+            if a['name'] != b['name']:
+                return 'tab-name'
+            result = tree(a['root'], b['root'])
+            if result:
+                return result
+    return None
+
+
 def observe(target, plan):
     global STEP
     STEP = 'observe-' + target + '-manifest'
@@ -631,7 +666,9 @@ def observe(target, plan):
         backend = Native(HOME, store)
         manifest = store.read('manifest.json')
         require(manifest is not None and manifest['runtime'] == target)
-        require(backend._semantic(manifest['plan']) == backend._semantic(plan))
+        difference = semantic_difference(backend._semantic(manifest['plan']), backend._semantic(plan))
+        if difference:
+            raise CommandFailure('manifest-' + difference)
         STEP = 'observe-' + target + '-verify'
         backend.verify(target, manifest['plan'], manifest['receipt'])
         STEP = 'observe-' + target + '-capture'
