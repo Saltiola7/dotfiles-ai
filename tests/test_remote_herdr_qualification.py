@@ -67,6 +67,21 @@ def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
 
 
 class QualificationSourceTests(unittest.TestCase):
+    def test_core_stop_failure_labels_are_fixed_and_cover_current_recovery(self):
+        tree = ast.parse((FIXTURE / 'verify-user.py').read_text())
+        restart = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                       and node.name == 'restart_and_recover')
+        assignment = next(node for node in restart.body if isinstance(node, ast.Assign)
+                          and any(isinstance(target, ast.Name) and target.id == 'labels'
+                                  for target in node.targets))
+        labels = ast.literal_eval(assignment.value)
+        for message in ('core controller stop process proof unavailable',
+                        'core repair binding changed', 'core current restored bindings differ',
+                        'current document repair PID proof invalid'):
+            self.assertRegex(labels[message], r'^[a-z-]+$')
+        self.assertNotIn('PRIVATE-RUNTIME-VALUE', labels)
+        self.assertEqual(labels.get('PRIVATE-RUNTIME-VALUE', 'unclassified'), 'unclassified')
+
     def test_semantic_failure_diagnostic_withholds_runtime_values(self):
         fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
         compare = fixture['semantic_difference']
