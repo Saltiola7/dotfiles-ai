@@ -14,9 +14,11 @@ Fork A retains pins, preview, rollout, live apply and VM/worktree/pane operation
   `HOME/.local/state/worktrees`, no root override outside it, qualified safe
   ancestry, matching home/root device and native findmnt UUID/mountpoint identity.
   A same-spelling path on another mount refuses. Existing cache rules remain.
-- Bind the existing snapshot: policy digest, Worktrunk version and root/cache
-  identities. Preserve the existing source-commit binding within policy digest;
-  even a source revision change can require reviewed reactivation.
+- Bind the snapshot to effective policy, Worktrunk version and root/cache
+  identities. RRW-007H / INT-084 separates source provenance from activation:
+  source-only revisions retain activation through semantic identity or a proven
+  legacy preimage. See [profile follow-ups](remote-profile-followups.md) for the
+  versioned binding and schema-2 snapshot contract. Never ignore real policy drift.
 - Never replace any existing entry, including a dangling symlink. Matching
   private activation stays byte/inode identical. Malformed, unsafe or stale
   activation fails visibly without repair, chmod, unlink or automatic refresh.
@@ -44,9 +46,9 @@ snapshot. Check affected helper and tests with configured ty.
 
 Disposable UBI uses native findmnt/Worktrunk: default foundation apply initializes
 activation; remote-branch switch succeeds without a manual activation write;
-native snapshot matches; reapply retains bytes. Fixture empty-commit upgrades and
-rollbacks explicitly review source-identity-only snapshot changes; production
-apply never refreshes them. Keep foundation and F01 boot gates green separately.
+native snapshot verifies; reapply retains bytes. Empty-commit upgrades and rollbacks
+retain activation without the former manual fixture refresh workaround. Production
+apply never refreshes existing activation. Keep foundation and F01 boot gates green separately.
 Actual execution remains in the cycle; no live RHEL acceptance is claimed.
 Maintain helper, Worktrunk compatibility and findmnt semantics together. Failed
 identity never publishes; failed publication never overwrites. Retain crash/stale
@@ -68,6 +70,7 @@ evidence and existing checkouts. Bootstrap bytes are unchanged.
 |---|---|---|
 | Explicit remote apply, absent activation, exact home-backed default | Initializer | Publish native snapshot once at 0600 |
 | Matching existing activation + apply | Validator | Preserve file |
+| Source-only revision + proven equivalent policy/version/identity | Validator | Preserve activation; allow allocation |
 | Stale/unsafe state or unqualified initial root | Validator | Refuse; retain evidence pending review |
 | Preview/render/snapshot | Read-only helper | No activation, root or checkout creation |
 | Matching activation + native switch | Worktrunk | Allocate in existing namespace |
