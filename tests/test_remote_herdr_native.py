@@ -865,6 +865,225 @@ def test_tui_capture_observational_api_never_written_as_native_file(backend):
     assert not any('opencode' in arg for argv in tui.calls for arg in argv)
 
 
+def public_tui(backend, name=None, tab_name=None):
+    tui = FakeTui(backend)
+    space = tui.saved['workspaces'][0]
+    space.update(id='synthetic', custom_name=name, public_tab_numbers=[3], public_pane_numbers={'0': 7})
+    space['tabs'][0]['custom_name'] = tab_name
+    backend.snapshot_path.write_text(json.dumps(tui.saved))
+    api = tui.snapshot()
+    api['workspaces'][0].update(workspace_id='synthetic', label='~' if name is None else name)
+    api['tabs'][0].update(workspace_id='synthetic', tab_id='synthetic:t3', number=3,
+                          label='1' if tab_name is None else tab_name)
+    for key in ('panes', 'agents'):
+        api[key][0].update(workspace_id='synthetic', tab_id='synthetic:t3', pane_id='synthetic:p7')
+    tui.snapshot_override = api
+    rpc = tui.rpc
+    def public_rpc(method, params):
+        result = rpc(method, params)
+        if method == 'layout.export':
+            result['layout'].update(workspace_id='synthetic', tab_id='synthetic:t3')
+            result['layout']['root']['pane_id'] = 'synthetic:p7'
+        elif method == 'pane.process_info':
+            result['process_info']['pane_id'] = 'synthetic:p7'
+        return result
+    backend.tui = public_rpc
+    return tui
+
+
+@pytest.mark.parametrize('automatic', [False, True])
+def test_legacy_tui_capture_uses_retained_backup_for_naming(backend, automatic):
+    if automatic:
+        public_tui(backend)
+    else:
+        FakeTui(backend)
+    captured = backend.capture('tui')
+    del captured['tui_names']
+    assert backend.stop('tui', captured) == captured['plan']
+
+
+@pytest.mark.parametrize('name,tab_name', [(None, None), ('', ''), (' ', ' '), ('~', '1'), ('1', '~')])
+def test_tui_public_identity_preserves_nullable_and_explicit_names(backend, name, tab_name):
+    tui = public_tui(backend, name, tab_name)
+    before = backend.snapshot_path.read_bytes()
+    captured = backend.capture('tui')
+    assert captured['plan']['spaces'][0]['name'] == ('' if name is None else name)
+    assert captured['plan']['spaces'][0]['tabs'][0]['name'] == ('' if tab_name is None else tab_name)
+    assert captured['tui_names'] == [{'custom_name': name, 'tabs': [tab_name]}]
+    assert backend.snapshot_path.read_bytes() == before
+    assert backend.store.read(captured['backup'])['snapshot'] == tui.saved
+
+
+@pytest.mark.parametrize('change', ['workspace', 'tab', 'pane', 'export-workspace', 'missing', 'tab-label'])
+def test_tui_automatic_names_require_exact_persisted_identity(backend, change):
+    tui = public_tui(backend)
+    api = tui.snapshot_override
+    assert api is not None
+    if change == 'workspace': api['workspaces'][0]['workspace_id'] = 'stale'
+    elif change == 'tab': api['tabs'][0]['tab_id'] = 'synthetic:t2'
+    elif change == 'pane':
+        api['panes'][0]['pane_id'] = api['agents'][0]['pane_id'] = 'synthetic:p8'
+    elif change == 'tab-label': api['tabs'][0]['label'] = '3'
+    elif change == 'missing':
+        tui.saved['workspaces'][0].pop('id')
+        backend.snapshot_path.write_text(json.dumps(tui.saved))
+    else:
+        rpc = backend.tui
+        def stale(method, params):
+            result = rpc(method, params)
+            if method == 'layout.export': result['layout']['workspace_id'] = 'stale'
+            return result
+        backend.tui = stale
+    with pytest.raises((native.NativeError, ValueError)):
+        backend.capture('tui')
+    assert not tui.calls
+
+
+@pytest.mark.parametrize('boundary', ['before-stop', 'during-intent', 'poststop'])
+@pytest.mark.parametrize('target', ['workspace', 'tab'])
+def test_tui_null_to_explicit_empty_rename_refuses(backend, boundary, target):
+    tui = public_tui(backend)
+    captured = backend.capture('tui')
+    def rename():
+        item = tui.saved['workspaces'][0]
+        if target == 'tab': item = item['tabs'][0]
+        item['custom_name'] = ''
+        backend.snapshot_path.write_text(json.dumps(tui.saved))
+        assert tui.snapshot_override is not None
+        tui.snapshot_override['workspaces' if target == 'workspace' else 'tabs'][0]['label'] = ''
+    if boundary == 'before-stop': rename()
+    elif boundary == 'during-intent':
+        write = backend.store.write
+        def persist(name, value):
+            write(name, value)
+            if name == 'source-stop.json' and value.get('pending') == {'operation': 'tui.stop'}: rename()
+        backend.store.write = persist
+    else:
+        command = backend.command
+        def stopped(argv, timeout=30):
+            result = command(argv, timeout)
+            if argv[:3] == ['herdr', 'session', 'stop']: rename()
+            return result
+        backend.command = stopped
+    with pytest.raises(native.NativeError):
+        backend.stop('tui', captured)
+    if boundary != 'poststop': assert not tui.calls
+
+
+def test_tui_legacy_explicit_names_keep_strict_fallback_and_optional_export_workspace(backend):
+    tui = FakeTui(backend)
+    rpc = backend.tui
+    def legacy(method, params):
+        result = rpc(method, params)
+        if method == 'layout.export': result['layout'].pop('workspace_id')
+        return result
+    backend.tui = legacy
+    assert backend.capture('tui')['plan'] == plan()
+    api = tui.snapshot()
+    api['workspaces'][0]['label'] = 'Space '
+    tui.snapshot_override = api
+    with pytest.raises(native.NativeError): backend.capture('tui')
+    assert not tui.calls
+
+
+def test_tui_automatic_name_never_falls_back_even_when_display_equals_empty(backend):
+    tui = FakeTui(backend)
+    tui.saved['workspaces'][0]['custom_name'] = None
+    backend.snapshot_path.write_text(json.dumps(tui.saved))
+    api = tui.snapshot()
+    api['workspaces'][0]['label'] = ''
+    tui.snapshot_override = api
+    with pytest.raises(native.NativeError) as error: backend.capture('tui')
+    assert str(error.value) == 'native observation or mutation uncertain'
+    assert not tui.calls
+
+
+@pytest.mark.parametrize('change', ['workspace-count', 'workspace-count-bool', 'automatic-label-type'])
+def test_tui_public_binding_rejects_invalid_workspace_observation(backend, change):
+    tui = public_tui(backend)
+    api = tui.snapshot_override
+    assert api is not None
+    if change == 'automatic-label-type': api['workspaces'][0]['label'] = None
+    else: api['workspaces'][0]['pane_count'] = True if change.endswith('bool') else 2
+    with pytest.raises(native.NativeError): backend.capture('tui')
+    assert not tui.calls
+
+
+@pytest.mark.parametrize('change', [None, 'direction', 'ratio', 'order', 'cwd', 'session'])
+def test_tui_public_binding_proves_ordered_topology_and_pane_identity(backend, change):
+    tui = public_tui(backend)
+    space = tui.saved['workspaces'][0]
+    tab = space['tabs'][0]
+    # Equal pane cwds make ordering proof depend on public identity, not cwd.
+    tab['panes']['42'] = {'cwd': '/work'}
+    space['public_pane_numbers']['42'] = 9
+    tab['layout'] = {'Split': {'direction': 'Vertical', 'ratio': 0.3,
+                              'first': {'Pane': 42}, 'second': {'Pane': 0}}}
+    backend.snapshot_path.write_text(json.dumps(tui.saved))
+    api = tui.snapshot_override
+    assert api is not None
+    api['workspaces'][0]['pane_count'] = api['tabs'][0]['pane_count'] = 2
+    api['panes'].append({'workspace_id': 'synthetic', 'tab_id': 'synthetic:t3',
+                         'pane_id': 'synthetic:p9', 'cwd': '/work'})
+    root = {'type': 'split', 'direction': 'down', 'ratio': 0.3,
+            'first': {'type': 'pane', 'pane_id': 'synthetic:p9'},
+            'second': {'type': 'pane', 'pane_id': 'synthetic:p7'}}
+    if change == 'direction': root['direction'] = 'right'
+    elif change == 'ratio': root['ratio'] = 0.7
+    elif change == 'order': root['first'], root['second'] = root['second'], root['first']
+    elif change == 'cwd': api['panes'][1]['cwd'] = '/stale'
+    elif change == 'session':
+        for key in ('panes', 'agents'):
+            api[key][0]['agent_session']['value'] = 'ses_Changed'
+    rpc = backend.tui
+    def split_rpc(method, params):
+        result = rpc(method, params)
+        if method == 'layout.export': result['layout']['root'] = copy.deepcopy(root)
+        elif method == 'pane.process_info': result['process_info']['pane_id'] = params['pane_id']
+        return result
+    backend.tui = split_rpc
+    if change is None:
+        value, _, _ = backend._tui_live()
+        assert value['spaces'][0]['tabs'][0]['root']['axis'] == 'column'
+        assert value['spaces'][0]['tabs'][0]['panes'][0]['session_id'] is None
+    else:
+        with pytest.raises(native.NativeError):
+            backend.capture('tui')
+    assert not tui.calls
+
+
+def test_tui_unnamed_tabs_display_position_not_public_number(backend):
+    tui = public_tui(backend)
+    space = tui.saved['workspaces'][0]
+    space['public_tab_numbers'] = [1, 3]
+    space['public_pane_numbers']['42'] = 9
+    space['tabs'].append({'custom_name': None, 'root_pane': 42, 'layout': {'Pane': 42},
+                          'panes': {'42': {'cwd': '/other'}}})
+    backend.snapshot_path.write_text(json.dumps(tui.saved))
+    api = tui.snapshot_override
+    assert api is not None
+    api['workspaces'][0].update(tab_count=2, pane_count=2)
+    api['tabs'][0].update(tab_id='synthetic:t1', number=1)
+    for key in ('panes', 'agents'): api[key][0]['tab_id'] = 'synthetic:t1'
+    api['tabs'].append({'workspace_id': 'synthetic', 'tab_id': 'synthetic:t3',
+                        'number': 3, 'label': '2', 'pane_count': 1})
+    api['panes'].append({'workspace_id': 'synthetic', 'tab_id': 'synthetic:t3',
+                         'pane_id': 'synthetic:p9', 'cwd': '/other'})
+    rpc = backend.tui
+    def tabs_rpc(method, params):
+        result = rpc(method, params)
+        if method == 'layout.export':
+            result['layout']['tab_id'] = params['tab_id']
+            if params['tab_id'] == 'synthetic:t3': result['layout']['root']['pane_id'] = 'synthetic:p9'
+        elif method == 'pane.process_info': result['process_info']['pane_id'] = params['pane_id']
+        return result
+    backend.tui = tabs_rpc
+    value, _, _ = backend._tui_live()
+    assert [tab['name'] for tab in value['spaces'][0]['tabs']] == ['', '']
+    api['tabs'][1]['label'] = '3'
+    with pytest.raises(native.NativeError): backend._tui_live()
+
+
 def test_tui_invalid_poststop_save_blocks_handoff(backend):
     tui = FakeTui(backend)
     captured = backend.capture('tui')

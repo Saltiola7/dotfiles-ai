@@ -351,6 +351,59 @@ def test_empty_selection(layout):
     assert layout.to_app_document(value, {}) == {'spaces': []}
 
 
+@pytest.mark.parametrize('number,encoded', [(0, '0'), (1, '1'), (31, 'Z'), (32, '0'), (33, '11'), (1024, 'Z0')])
+def test_tui_public_number_encoding(layout, number, encoded):
+    assert layout.encode_public_number(number) == encoded
+
+
+def test_tui_nullable_naming_provenance_is_not_canonical_schema(layout):
+    snapshot = layout.to_tui_snapshot(plan())
+    space = snapshot['workspaces'][0]
+    space['custom_name'] = None
+    space['tabs'][0]['custom_name'] = ''
+    assert layout.tui_names(snapshot) == [{'custom_name': None, 'tabs': ['']}]
+    space['custom_name'] = ''
+    assert layout.tui_names(snapshot) == [{'custom_name': '', 'tabs': ['']}]
+
+
+def identity_snapshot(layout):
+    snapshot = layout.to_tui_snapshot(plan())
+    space = snapshot['workspaces'][0]
+    space.update(id='synthetic', custom_name=None, public_tab_numbers=[3],
+                 public_pane_numbers={'0': 9, '1': 2, '2': 33})
+    return snapshot
+
+
+def test_tui_public_binding_uses_mapping_not_internal_numbers(layout):
+    snapshot = identity_snapshot(layout)
+    binding = layout.tui_public_identities(snapshot)[0]
+    assert binding['id'] == 'synthetic'
+    tab = binding['tabs'][0]
+    assert tab['id'] == 'synthetic:t3'
+    assert tab['root']['children'][0] == {'pane': 'synthetic:p9'}
+    assert set(tab['panes']) == {'synthetic:p9', 'synthetic:p2', 'synthetic:p11'}
+    assert tab['panes']['synthetic:p9']['session_id'] == 'ses_Test0'
+    assert snapshot == identity_snapshot(layout)
+
+
+@pytest.mark.parametrize('change', ['missing-workspace', 'missing-tabs', 'missing-pane', 'extra-pane',
+                                  'duplicate-pane', 'bool-pane', 'bad-root', 'bad-tab-number'])
+def test_tui_public_mapping_refuses_lossy_identity(layout, change):
+    snapshot = identity_snapshot(layout)
+    space = snapshot['workspaces'][0]
+    if change == 'missing-workspace': space.pop('id')
+    elif change == 'missing-tabs': space['public_tab_numbers'] = []
+    elif change == 'missing-pane': space['public_pane_numbers'].pop('1')
+    elif change == 'extra-pane': space['public_pane_numbers']['99'] = 99
+    elif change == 'duplicate-pane': space['public_pane_numbers']['1'] = 9
+    elif change == 'bool-pane': space['public_pane_numbers']['1'] = True
+    elif change == 'bad-root': space['tabs'][0]['root_pane'] = 99
+    else: space['public_tab_numbers'] = [True]
+    with pytest.raises(ValueError) as error:
+        layout.tui_public_identities(snapshot)
+    assert 'synthetic' not in str(error.value) and 'ses_Test' not in str(error.value)
+
+
 @pytest.mark.parametrize('value', ['x' * 4097, '\ud800', {'not': 'a string'}])
 def test_invalid_strings(layout, value):
     canonical = plan()

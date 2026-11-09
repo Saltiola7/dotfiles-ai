@@ -225,6 +225,81 @@ def _native_name(value):
     return '' if value is None else _string(value, 512)
 
 
+def encode_public_number(number):
+    """Pinned TUI public-address encoding, not an internal pane ID."""
+    if type(number) is not int or not 0 <= number <= 0xffffffff:
+        _fail('invalid public number')
+    alphabet = '123456789ABCDEFGHJKMNPQRSTVWXYZ0'
+    encoded = ''
+    while number:
+        number, digit = divmod(number - 1, 32)
+        encoded = alphabet[digit] + encoded
+    return encoded or '0'
+
+
+def tui_names(value):
+    """Private nullable naming provenance; never part of canonical schema v1."""
+    snapshot = _json_copy(value)
+    from_tui_snapshot(snapshot)
+    def name(item):
+        value = item.get('custom_name')
+        return None if value is None else _string(value, 512)
+    return [{'custom_name': name(space), 'tabs': [name(tab) for tab in space['tabs']]}
+            for space in snapshot['workspaces']]
+
+
+def tui_public_identities(value):
+    """Exact disk-to-API identities, or strict explicit-name legacy fallback.
+
+    Reuse the snapshot parser for bounded topology, cwd and session validation.
+    Never infer an automatic workspace label from its directory.
+    """
+    snapshot = _json_copy(value)
+    plan = from_tui_snapshot(snapshot)
+    result = []
+    seen_spaces = set()
+    for si, space in enumerate(snapshot['workspaces']):
+        automatic = space.get('custom_name') is None or any(
+            tab.get('custom_name') is None for tab in space['tabs'])
+        if not automatic and not any(key in space for key in ('id', 'public_tab_numbers')):
+            result.append(None)
+            continue
+        wid = _string(space.get('id'), 512)
+        if not wid or wid in seen_spaces:
+            _fail('missing or duplicate persisted workspace identity')
+        seen_spaces.add(wid)
+        numbers = _list(space.get('public_tab_numbers'), MAX_TABS)
+        if len(numbers) != len(space['tabs']):
+            _fail('incomplete public tab numbers')
+        tids = [wid + ':t' + encode_public_number(n) for n in numbers]
+        if len(set(tids)) != len(tids) or len(set(numbers)) != len(numbers):
+            _fail('duplicate public tab numbers')
+        public = _object(space.get('public_pane_numbers'))
+        raw = {number for tab in space['tabs'] for number in tab['panes']}
+        if set(public) != raw:
+            _fail('incomplete public pane mapping')
+        pids = {number: wid + ':p' + encode_public_number(n) for number, n in public.items()}
+        if len(set(pids.values())) != len(pids) or len(set(public.values())) != len(public):
+            _fail('duplicate public pane numbers')
+        tabs = []
+        for ti, tab in enumerate(space['tabs']):
+            canonical = plan['spaces'][si]['tabs'][ti]
+            ordered = sorted(tab['panes'], key=int)
+            mapping = {pane['key']: pids[number] for pane, number in zip(canonical['panes'], ordered)}
+            if type(tab.get('root_pane')) is not int or str(tab['root_pane']) not in tab['panes']:
+                _fail('invalid persisted root pane')
+            def tree(node):
+                if 'pane' in node:
+                    return {'pane': mapping[node['pane']]}
+                return {'axis': node['axis'], 'ratio': node['ratio'],
+                        'children': [tree(child) for child in node['children']]}
+            tabs.append({'id': tids[ti], 'number': numbers[ti], 'root': tree(canonical['root']),
+                         'panes': {mapping[p['key']]: {'cwd': p['cwd'], 'session_id': p['session_id']}
+                                   for p in canonical['panes']}})
+        result.append({'id': wid, 'tabs': tabs})
+    return result
+
+
 def from_tui_snapshot(value):
     """Read TUI 0.9.5 snapshot v3; ignore non-layout metadata, never execute argv."""
     snapshot = _json_copy(value)

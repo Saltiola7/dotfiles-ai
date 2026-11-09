@@ -800,21 +800,48 @@ class Native:
         if disk is None:
             raise NativeError('TUI workspace directory proof unavailable')
         old = layout.from_tui_snapshot(disk)
+        identities = layout.tui_public_identities(disk)
+        names = layout.tui_names(disk)
         if len(old['spaces']) != len(inventory):
             raise NativeError('TUI workspace directory proof stale')
         spaces = []
         process_info = []
         for si, space in enumerate(inventory):
             previous = old['spaces'][si]
-            if space['name'] != previous['name']:
+            binding = identities[si]
+            native_space = snapshot['workspaces'][si]
+            layout._string(space['name'], 512)
+            if binding is not None and native_space['workspace_id'] != binding['id']:
+                raise NativeError('TUI persisted workspace identity stale')
+            if binding is not None and (
+                    type(native_space.get('pane_count')) is not int
+                    or type(native_space.get('tab_count')) is not int
+                    or native_space['pane_count'] != sum(len(t['panes']) for t in binding['tabs'])):
+                raise NativeError('TUI persisted workspace pane count stale')
+            if names[si]['custom_name'] is not None and space['name'] != previous['name']:
                 raise NativeError('TUI workspace directory proof ambiguous')
-            canonical = {'name': space['name'], 'directory': previous['directory'], 'tabs': []}
+            if len(space['tabs']) != len(previous['tabs']):
+                raise NativeError('TUI persisted tab inventory stale')
+            canonical = {'name': previous['name'], 'directory': previous['directory'], 'tabs': []}
             for ti, tab in enumerate(space['tabs']):
+                expected = binding['tabs'][ti] if binding is not None else None
+                name = names[si]['tabs'][ti]
+                if tab['name'] != (str(ti + 1) if name is None else name):
+                    raise NativeError('TUI persisted tab name stale')
+                if expected is not None:
+                    api_tab = next(t for t in snapshot['tabs'] if t['tab_id'] == tab['id'])
+                    if (tab['id'] != expected['id'] or type(api_tab.get('number')) is not int
+                            or type(api_tab.get('pane_count')) is not int
+                            or api_tab['number'] != expected['number'] or tab['panes'] != expected['panes']):
+                        raise NativeError('TUI persisted public identity stale')
                 exported = self.tui('layout.export', {'tab_id': tab['id']})
                 if exported.get('type') != 'layout_export' or exported['layout']['tab_id'] != tab['id']:
                     raise NativeError('TUI layout export incompatible')
+                if binding is not None and exported['layout'].get('workspace_id') != binding['id']:
+                    raise NativeError('TUI layout workspace identity stale')
                 tab_panes = []
                 used = set()
+                public_keys = {}
 
                 def tree(node, depth=1):
                     if depth > layout.MAX_DEPTH or type(node) is not dict:
@@ -825,6 +852,7 @@ class Native:
                             raise NativeError('TUI layout pane coverage incomplete')
                         used.add(pid)
                         key = f's{si}-t{ti}-p{len(tab_panes)}'
+                        public_keys[key] = pid
                         tab_panes.append({'key': key, **tab['panes'][pid]})
                         facts = self.tui('pane.process_info', {'pane_id': pid})
                         if facts.get('type') != 'pane_process_info':
@@ -843,7 +871,14 @@ class Native:
                 root = tree(exported['layout']['root'])
                 if used != set(tab['panes']):
                     raise NativeError('TUI layout pane coverage incomplete')
-                canonical['tabs'].append({'name': tab['name'], 'root': root, 'panes': tab_panes})
+                def public_tree(node):
+                    if 'pane' in node:
+                        return {'pane': public_keys[node['pane']]}
+                    return {'axis': node['axis'], 'ratio': layout._ratio(node['ratio']),
+                            'children': [public_tree(child) for child in node['children']]}
+                if expected is not None and public_tree(root) != expected['root']:
+                    raise NativeError('TUI persisted topology stale')
+                canonical['tabs'].append({'name': previous['tabs'][ti]['name'], 'root': root, 'panes': tab_panes})
             spaces.append(canonical)
         plan = checked_plan({'schema_version': 1, 'spaces': spaces})
         return plan, snapshot, process_info
@@ -893,6 +928,15 @@ class Native:
             raise NativeError('TUI session process coverage incomplete')
         return self._pid_proofs([f['shell_pid'] for f in facts] + [p['pid'] for p in foreground])
 
+    def _captured_tui_names(self, capture):
+        if 'tui_names' in capture:
+            return capture['tui_names']
+        # Pre-007G captures retain the authoritative native file in their backup.
+        backup = self.store.read(capture['backup'])
+        if backup is None:
+            raise NativeError('TUI captured naming provenance unavailable')
+        return layout.tui_names(backup['snapshot'])
+
     @bounded
     def capture(self, source):
         runtime(source)
@@ -904,8 +948,10 @@ class Native:
             plan, api, facts = self._tui_live()
             clients = self._coverage(plan)
             proofs = self._tui_process_proofs(facts, clients)
+            snapshot = self._optional_snapshot()
             value = {'plan': plan, 'api': api, 'clients': clients, 'pids': proofs,
-                     'backup': self._backup({'snapshot': self._optional_snapshot()})}
+                     'tui_names': layout.tui_names(snapshot),
+                     'backup': self._backup({'snapshot': snapshot})}
         else:
             document, version = self._document()
             terminals = self._terminals()
@@ -969,7 +1015,8 @@ class Native:
 
         if source == 'tui':
             live, _, _ = self._tui_live()
-            if self._semantic(live) != self._semantic(plan):
+            if (self._semantic(live) != self._semantic(plan)
+                    or layout.tui_names(self._optional_snapshot()) != self._captured_tui_names(capture)):
                 raise NativeError('TUI source changed after capture')
             # Stop both managed and manually started default TUI without ever
             # touching the independent F01 OpenCode user service.
@@ -977,7 +1024,8 @@ class Native:
             # Durable intent is a scheduling boundary. Re-observe actual programs
             # and PID identities immediately before the destructive native stop.
             live, _, facts = self._tui_live()
-            if self._semantic(live) != self._semantic(plan):
+            if (self._semantic(live) != self._semantic(plan)
+                    or layout.tui_names(self._optional_snapshot()) != self._captured_tui_names(capture)):
                 raise NativeError('TUI source changed after capture')
             clients = self._coverage(live)
             if clients != capture['clients'] or self._tui_process_proofs(facts, clients) != capture['pids']:
@@ -1053,7 +1101,8 @@ class Native:
         if source == 'tui':
             snapshot = self._json(self.snapshot_path)
             final = layout.from_tui_snapshot(snapshot)
-            if self._semantic(final) != self._semantic(plan):
+            if (self._semantic(final) != self._semantic(plan)
+                    or layout.tui_names(snapshot) != self._captured_tui_names(capture)):
                 raise NativeError('TUI saved layout differs from live capture')
             self._backup({'snapshot': snapshot})
             if self.store.read('owned-tui.json') is not None:
