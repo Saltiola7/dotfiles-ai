@@ -640,7 +640,10 @@ def observe(target, plan):
         require(backend._semantic(capture['plan']) == backend._semantic(plan))
         STEP = 'observe-' + target + '-client-coverage'
         clients = backend._coverage(plan)
-        require(len(clients) == 3)
+        expected_sessions = {p['session_id'] for s in plan['spaces'] for t in s['tabs']
+                             for p in t['panes'] if p['session_id'] is not None}
+        require({client['session_id'] for client in clients} == expected_sessions)
+        require(len(clients) == len(expected_sessions))
         f01 = load('f01', '/opt/f01/verify-user.py')
         _, server = f01.ready()
         port = urlsplit(server).port
@@ -776,6 +779,136 @@ def retained_shell_switch(plan, pid):
     observe('herdr-core', plan)
     require(backend_pid() == pid)
     print('F07: retained-shell-label-recovery-complete')
+
+
+def edited_expected_plan(plan, later_panes):
+    """Independent canonical expectation, not a projection of the actual doc."""
+    import copy
+    expected = copy.deepcopy(plan)
+    alpha = expected['spaces'][0]
+    alpha['name'] = 'Desktop renamed alpha'
+    retained_tab = alpha['tabs'][1]
+    retained_tab['panes'] = retained_tab['panes'][:1]
+    retained_tab['panes'][0]['key'] = 's0-t0-p0'
+    retained_tab['root'] = {'pane': 's0-t0-p0'}
+    later_panes = copy.deepcopy(later_panes)
+    for index, pane in enumerate(later_panes):
+        pane['key'] = 's0-t1-p' + str(index)
+    alpha['tabs'] = [retained_tab, {'name': '2', 'panes': later_panes, 'root': {
+        'axis': 'row', 'ratio': 0.25, 'children': [{'pane': 's0-t1-p0'}, {
+            'axis': 'column', 'ratio': 0.4,
+            'children': [{'pane': 's0-t1-p1'}, {'pane': 's0-t1-p2'}]}]}}]
+    return expected
+
+
+def edited_document_recovery(plan, pid):
+    """Interrupt after actual effects, never fabricate journals or receipts."""
+    global STEP
+    import copy
+    from controller import Controller, ControllerError
+    from native import NativeError
+    Store, Native = adapter()
+    STEP = 'edited-document-retain-switch'
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        source = backend.capture('tui')
+        restore = backend.restore
+        def interrupted_restore(*args, **kwargs):
+            restore(*args, **kwargs)
+            raise NativeError('fixture interruption after target restore')
+        backend.restore = interrupted_restore
+        try:
+            Controller(store, backend).switch('herdr-core')
+        except ControllerError:
+            pass
+        else:
+            raise CommandFailure('edited-switch-interruption-missing')
+        require(store.read('transaction.json')['phase'] == 'restore_pending')
+        require(backend._pids_absent(source['pids']) and backend._pids_absent(source['clients']))
+        # Retain the manifest through genuine recovery writes, interrupted before
+        # journal completion. Only this disposable adapter instance is faulted.
+        backend = Native(HOME, store)
+        restore_current = backend.restore_current
+        def interrupted_recovery():
+            restore_current()
+            raise NativeError('fixture interruption after manifest publication')
+        backend.restore_current = interrupted_recovery
+        try:
+            Controller(store, backend).recover()
+        except ControllerError:
+            pass
+        else:
+            raise CommandFailure('edited-recovery-interruption-missing')
+        journal = store.read('transaction.json')
+        txid = journal['txid']
+        require(journal['phase'] == 'restore_pending')
+        require(store.read('manifest.json')['txid'] == txid)
+        backend = Native(HOME, store)
+        document, version = backend._document()
+        require(document is not None)
+        edited = copy.deepcopy(document)
+        shell_tab, agent_tab = edited['spaces'][0]['tabs']
+        shell_address = shell_tab['root']['content']['terminal']
+        closed_agent = agent_tab['root']['children'][1]['content']['terminal']
+        closed_session = plan['spaces'][0]['tabs'][1]['panes'][1]['session_id']
+        STEP = 'edited-document-close-views'
+        backend.core('terminal.kill', {'terminal': shell_address})
+        backend.core('terminal.kill', {'terminal': closed_agent})
+        agent_tab['root'] = agent_tab['root']['children'][0]
+        edited['spaces'][0]['tabs'] = [agent_tab]
+        edited['spaces'][0]['name'] = 'Desktop renamed alpha'
+        edited['metadata'] = {'fixture': 'preserve', 'nested': [None, {'value': 7}]}
+        later_panes = []
+        later_leaves = []
+        STEP = 'edited-document-create-later-clients'
+        cwd = plan['spaces'][0]['directory']
+        for index in range(3):
+            created = api('post', '/api/session', {'location': {'directory': cwd},
+                          'title': 'Later exact fixture ' + str(index)})['data']
+            require(created['location']['directory'] == cwd)
+            terminal = backend.core('terminal.run', {
+                'argv': [str(BIN / 'opencode'), '--session', created['id']], 'cwd': cwd,
+                'keep': True, 'no_parent': True, 'no_notify': True, 'wait': False})
+            address = terminal['address']
+            wait(lambda: backend._actual_core_program(backend._terminal(address)) == (created['id'], cwd))
+            key = 'later-' + str(index)
+            later_panes.append({'key': key, 'cwd': cwd, 'session_id': created['id']})
+            later_leaves.append({'id': key, 'type': 'block', 'content': {'terminal': address},
+                                 'size': {'weight': index + 1}})
+        # Build expected semantics independently of the adoption implementation.
+        edited['spaces'][0]['tabs'].append({'id': 'later-tab', 'name': '2', 'root': {
+            'id': 'later-row', 'type': 'row', 'children': [later_leaves[0], {
+                'id': 'later-column', 'type': 'column', 'size': {'weight': 3},
+                'children': later_leaves[1:]}]}})
+        expected = edited_expected_plan(plan, later_panes)
+        STEP = 'edited-document-publish-desktop-cas'
+        backend.core('doc.set', {'name': 'herdr-app', 'value': edited, 'version': version})
+        baseline, _ = backend._document()  # Native serialization is authoritative.
+        addresses = {t['address'] for t in backend._terminals()}
+    STEP = 'edited-document-installed-recovery'
+    cli('recover')
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        require(store.read('transaction.json')['phase'] == 'complete')
+        require(store.read('transaction.json')['txid'] == txid)
+        require(store.read('manifest.json')['schema_version'] == 2)
+        require(backend._document()[0] == baseline)
+        require({t['address'] for t in backend._terminals()} == addresses)
+        require(not backend.scan({closed_session}))
+        receipt = store.read('manifest.json')['receipt']
+        require(store.read(receipt['adoption_backup']) is not None)
+    observe('herdr-core', expected)
+    cli('restore')
+    cli('recover')
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        require(backend._document()[0] == baseline)
+        require({t['address'] for t in backend._terminals()} == addresses)
+        require(not backend.scan({closed_session}))
+    require(backend_pid() == pid)
+    write(EXPECTED, expected)
+    print('F07: current-document-adoption-recovery-complete')
+    return expected
 
 
 def interrupted_switch(plan, pid):
@@ -968,7 +1101,7 @@ def prepare_fixture(provider):
         require(address in {t['address'] for t in backend._terminals()})
     require(backend_pid() == pid)
     inflight_switch(provider, plan, pid)
-    switch('herdr-core', plan, pid)
+    plan = edited_document_recovery(plan, pid)
     interrupted_switch(plan, pid)
     switch('herdr-core', plan, pid)
     restart_and_recover(plan, pid)
