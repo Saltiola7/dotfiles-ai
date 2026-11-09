@@ -281,6 +281,12 @@ Required behavior:
 - Given user-closed views or finished terminals, their old session bindings are
   retired from the current baseline, never recreated from the original plan.
   Native terminal records and earlier backups remain retained.
+- Controller-stopped terminals are not user closures. A completed private stop
+  record bound to the manifest transaction, captured document/leaf/address and
+  observed labels authorizes restoration only of those recorded stopped bindings,
+  after captured PID/start-time exit proof and exact-session absence. Unrelated
+  or incomplete stop records never authorize resurrection. Missing current leaves
+  remain closed even when the controller previously stopped their terminals.
 - Given new exact `--session` clients in the current document, adopt only after
   actual argv, same-owner PID/start-time, directory, native session-store and
   account-wide duplicate-client proofs. No-`--session` home screens are not session

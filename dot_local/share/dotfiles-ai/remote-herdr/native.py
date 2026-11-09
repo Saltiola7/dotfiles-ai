@@ -1020,6 +1020,9 @@ class Native:
         if self._coverage(plan) != capture['clients']:
             raise NativeError('source client inventory changed after capture')
         stop_record = {'runtime': source, 'backup': capture['backup'], 'pending': None}
+        manifest = self.store.read('manifest.json')
+        if source == 'herdr-core' and manifest and manifest.get('schema_version') == 2:
+            stop_record.update(txid=manifest['txid'], terminals=[], pids=capture['pids'], completed=False)
 
         def intent(operation, **fields):
             stop_record['pending'] = {'operation': operation, **fields}
@@ -1066,6 +1069,9 @@ class Native:
                 if terminal['address'] not in capture['stop_terminals']:
                     continue
                 if terminal.get('state') == 'live':
+                    if 'terminals' in stop_record:
+                        assert isinstance(stop_record['terminals'], list)
+                        stop_record['terminals'].append(terminal['address'])
                     intent('terminal.kill', terminal=terminal['address'])
                     # Recheck after durable intent, immediately before each kill.
                     # Earlier kills may have changed other terminals/processes.
@@ -1095,6 +1101,8 @@ class Native:
             return True
 
         self._wait(stopped)
+        if 'completed' in stop_record:
+            stop_record['completed'] = True
         observed()
         return self.reconcile_stopped(source, capture)
 
@@ -1570,7 +1578,7 @@ class Native:
                         or set(repair) != {'terminal', 'pane', 'created', 'labels', 'stopped', 'pids'}
                         or type(repair['stopped']) is not bool or type(repair['pane']) is not dict
                         or set(repair['pane']) != {'key', 'cwd', 'session_id'}
-                        or repair['pane']['session_id'] is None
+                        or (repair['pane']['session_id'] is None and not repair['stopped'])
                         or any(repair['pane'][field] != by_leaf[leaf][field] for field in ('cwd', 'session_id'))
                         or repair['terminal'] != mapping[by_leaf[leaf]['key']]
                         or (repair['created'] is not None and (type(repair['created']) is not str
@@ -1620,6 +1628,30 @@ class Native:
                  for k, p in old.items() if k in receipt['terminals']}
         labels, repairs = {}, layout._json_copy(receipt.get('repairs', {}))
         live, proofs = {}, {}
+        stop = self.store.read('source-stop.json')
+        stopped = {}
+        if (stop and stop.get('runtime') == 'herdr-core' and stop.get('txid') == receipt['txid']):
+            if stop.get('completed') is not True or stop.get('pending') is not None:
+                raise NativeError('core controller stop requires reconciliation')
+            backup = self.store.read(stop['backup'])
+            if backup is None:
+                raise NativeError('core controller stop backup unavailable')
+            prior_addresses = {}
+            def collect(leaf, address):
+                prior_addresses[leaf] = address
+                return None
+            layout.project_app_document(backup['document'], collect)
+            self._pids_absent_or_fail(stop['pids'])
+            captured = {t['address']: t for t in backup['terminals']}
+            for leaf, address in prior_addresses.items():
+                if address not in stop['terminals']:
+                    continue
+                terminal = captured[address]
+                pids = {terminal['pid'], (terminal.get('foreground') or terminal)['pid']}
+                captured_proofs = [p for p in stop['pids'] if p['pid'] in pids]
+                if {p['pid'] for p in captured_proofs} != pids:
+                    raise NativeError('core controller stop process proof unavailable')
+                stopped[leaf] = (address, captured_proofs)
 
         def classify(leaf, address):
             previous = known.get(leaf)
@@ -1667,6 +1699,16 @@ class Native:
             if terminal is None:
                 raise NativeError('core referenced terminal unavailable')
             if terminal.get('state') == 'finished':
+                if previous and leaf in stopped and stopped[leaf][0] == address:
+                    if not self._same_labels(terminal.get('labels'), previous[2]):
+                        raise NativeError('core recovery terminal not owned')
+                    desired = previous[1]
+                    repairs[leaf] = {'terminal': address, 'pane': desired, 'created': None,
+                                     'stopped': True, 'pids': stopped[leaf][1],
+                                     'labels': self._labels(receipt['txid'], {'key': leaf, **{
+                                         k: desired[k] for k in ('cwd', 'session_id')}})}
+                    labels[leaf] = layout._json_copy(previous[2])
+                    return {'cwd': desired['cwd'], 'session_id': desired['session_id']}
                 return None
             if previous and not self._same_labels(terminal.get('labels'), previous[2]):
                 raise NativeError('core recovery terminal not owned')
@@ -1812,6 +1854,8 @@ class Native:
             repair = repairs.get(leaf)
             if repair is None or repair.get('created'):
                 continue
+            repair_sessions = ({repair['pane']['session_id']}
+                               if repair['pane']['session_id'] is not None else set())
             terminal = self._terminal(repair['terminal'])
             if terminal.get('state') != 'finished':
                 if (not self._same_labels(terminal.get('labels'), receipt['labels'][key])
@@ -1829,7 +1873,7 @@ class Native:
                 if observed != terminal or self._pid_proofs(pids) != proofs:
                     raise NativeError('core recovery process changed before shell stop')
                 self._shell_proof(observed)
-                if self.scan({repair['pane']['session_id']}):
+                if self.scan(repair_sessions):
                     raise NativeError('session client already running')
                 self.core('terminal.kill', {'terminal': repair['terminal']})
                 self._wait(lambda: self._terminal(repair['terminal']).get('state') == 'finished'
@@ -1840,7 +1884,7 @@ class Native:
             elif not repair.get('stopped'):
                 raise NativeError('core repair terminal closed before shell stop')
             self._current_effect_boundary(receipt)
-            if (self.scan({repair['pane']['session_id']})
+            if (self.scan(repair_sessions)
                     or any(t.get('state') == 'live' and self._same_labels(t.get('labels'), repair['labels'])
                            for t in self._terminals())):
                 raise NativeError('session client already running')
@@ -1848,13 +1892,14 @@ class Native:
                                   'labels': repair['labels']}
             self._receipt(receipt)
             self._current_effect_boundary(receipt)
-            if (self.scan({repair['pane']['session_id']})
+            if (self.scan(repair_sessions)
                     or any(t.get('state') == 'live' and self._same_labels(t.get('labels'), repair['labels'])
                            for t in self._terminals())):
                 raise NativeError('session client already running')
             pane = repair['pane']
-            result = self.core('terminal.run', {'argv': [str(self.home / '.local/bin/opencode'),
-                                '--session', pane['session_id']], 'cwd': pane['cwd'],
+            argv = ([str(self.home / '.local/bin/opencode'), '--session', pane['session_id']]
+                    if pane['session_id'] is not None else ['/bin/bash', '-l'])
+            result = self.core('terminal.run', {'argv': argv, 'cwd': pane['cwd'],
                                 'labels': repair['labels'], 'keep': True, 'no_parent': True,
                                 'no_notify': True, 'wait': False})
             if (not self._same_labels(result.get('labels'), repair['labels'])

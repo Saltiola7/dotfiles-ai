@@ -410,6 +410,102 @@ def test_current_capture_keeps_unrepresented_idle_shell_records(backend):
     assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
 
 
+@pytest.mark.parametrize('identity', ['ses_abc', None])
+def test_current_controller_stopped_clients_are_not_user_closed_views(backend, identity):
+    core = FakeCore(backend)
+    manifest_for(backend, core, plan(identity))
+    backend.restore_current()
+    captured = backend.capture('herdr-core')
+    backend.stop('herdr-core', captured)
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['plan'] == plan(identity)
+    addresses = set(core.terminals)
+    backend.restore_current()
+    assert set(core.terminals) == addresses
+
+
+@pytest.mark.parametrize('change', ['unfinished', 'missing-backup', 'changed-labels'])
+def test_current_controller_stop_revival_requires_durable_proof(backend, change):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    backend.restore_current()
+    backend.stop('herdr-core', backend.capture('herdr-core'))
+    stop = backend.store.read('source-stop.json')
+    if change == 'unfinished':
+        stop['completed'] = False
+    elif change == 'missing-backup':
+        stop['backup'] = 'backup-unavailable.json'
+    else:
+        core.terminals['t1']['labels'] = {'foreign': 'owner'}
+    backend.store.write('source-stop.json', stop)
+    before = len(core.calls)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
+def test_current_unrelated_controller_stop_does_not_revive_user_finished_terminal(backend):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    backend.restore_current()
+    backend.stop('herdr-core', backend.capture('herdr-core'))
+    stop = backend.store.read('source-stop.json')
+    stop['txid'] = 'different-transaction'
+    backend.store.write('source-stop.json', stop)
+    before = len(core.calls)
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['plan']['spaces'] == []
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
+@pytest.mark.parametrize('identity', ['ses_abc', None])
+@pytest.mark.parametrize('interruption', ['receipt', 'terminal.run'])
+def test_controller_stopped_multi_pane_repairs_recover_durable_receipt(backend, identity, interruption):
+    core = FakeCore(backend)
+    original_plan = plan(identity)
+    for index in (1, 2):
+        extra = copy.deepcopy(original_plan['spaces'][0]['tabs'][0])
+        key = f's0-t{index}-p0'
+        extra['name'] = 'Extra ' + str(index)
+        extra['root'] = {'pane': key}
+        extra['panes'][0]['key'] = key
+        extra['panes'][0]['session_id'] = 'ses_extra' + str(index)
+        original_plan['spaces'][0]['tabs'].append(extra)
+        with sqlite3.connect(backend.database_path()) as db:
+            db.execute('INSERT INTO session VALUES (?, ?)', ('ses_extra' + str(index), '/work'))
+    manifest_for(backend, core, original_plan)
+    backend.restore_current()
+    captured = backend.capture('herdr-core')
+    assert len(captured['pids']) > 2
+    backend.stop('herdr-core', captured)
+    write = backend.store.write
+    rpc = core.rpc
+    failed = False
+    def fail_write(name, value):
+        nonlocal failed
+        write(name, value)
+        if interruption == 'receipt' and not failed and name == 'receipt-testtx.json' and value.get('repairs'):
+            failed = True
+            raise native.NativeError('synthetic crash after repair publication')
+    def fail_rpc(method, params):
+        nonlocal failed
+        result = rpc(method, params)
+        if interruption == 'terminal.run' and not failed and method == 'terminal.run':
+            failed = True
+            raise native.NativeError('synthetic lost stopped-client create reply')
+        return result
+    backend.store.write = fail_write
+    backend.core = fail_rpc
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert failed
+    backend.store.write = write
+    backend.core = rpc
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['plan'] == original_plan
+    assert len(core.terminals) == 6
+
+
 @pytest.mark.parametrize('replace_finished_address', [False, True])
 def test_current_owned_shell_can_adopt_a_later_exact_client(backend, replace_finished_address):
     core = FakeCore(backend)
