@@ -175,6 +175,41 @@ def cli(*args):
                 label += '-' + check
                 if check.endswith('-spawn-pending'):
                     label += kept_spawn_diagnostics(backend)
+            elif phase in {'restore_pending', 'verify_pending'} and journal.get('target') == 'herdr-core':
+                # Inspect only after a failed CLI. No retries, stop or relaunch.
+                check = 'receipt'
+                refusals = {
+                    'core terminal ownership mismatch': 'terminal-ownership',
+                    'core terminal session or directory mismatch': 'terminal-identity',
+                    'core terminal not live or spawn pending': 'terminal-pending',
+                    'core foreign or unsupported live program': 'unsupported-program',
+                    'owned shell has foreign live program': 'shell-program',
+                    'target contains unowned live agent': 'unowned-agent',
+                    'core client directory proof unavailable': 'client-directory',
+                    'session client executable or identity unsupported': 'client-argv',
+                    'session client server unsupported': 'client-server',
+                    'owned shell PID unavailable': 'shell-pid',
+                }
+                try:
+                    from native import panes
+                    backend = Native(HOME, store)
+                    if receipt is None:
+                        raise RuntimeError()
+                    label += '-mapped-' + str(len(receipt['terminals']))
+                    check = 'other-runtime'
+                    backend._other_off('herdr-core')
+                    check = 'receipt-terminal-proof'
+                    for pane in panes(journal['plan']):
+                        address = receipt['terminals'].get(pane['key'])
+                        if address is not None:
+                            backend._match_terminal(backend._terminal(address), pane, journal['txid'])
+                    check = 'live-terminal-inventory'
+                    backend._safe_live_terminals(journal['plan'], receipt)
+                    check = 'current-observations-pass'
+                except Exception as error:
+                    if type(error).__name__ == 'NativeError':
+                        check += '-' + refusals.get(str(error), 'unclassified-native-refusal')
+                label += '-' + check
         raise CommandFailure('controller-' + label) from None
 
 
@@ -380,7 +415,8 @@ def projected_turn(context, admitted, original=None, *, complete=False):
 def inflight_switch(provider, plan, pid):
     global STEP
     STEP = 'inflight-turn-admission'
-    session_id = plan['spaces'][0]['tabs'][0]['panes'][0]['session_id']
+    session_id = next(p['session_id'] for s in plan['spaces'] for t in s['tabs']
+                      for p in t['panes'] if p['session_id'] is not None)
     provider.session_id = session_id
     message_id = 'msg_' + provider.nonce
     admitted = api('post', '/api/session/' + session_id + '/prompt', {
@@ -588,15 +624,21 @@ def adapter():
 
 
 def observe(target, plan):
+    global STEP
+    STEP = 'observe-' + target + '-manifest'
     Store, Native = adapter()
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         manifest = store.read('manifest.json')
         require(manifest is not None and manifest['runtime'] == target)
         require(backend._semantic(manifest['plan']) == backend._semantic(plan))
+        STEP = 'observe-' + target + '-verify'
         backend.verify(target, manifest['plan'], manifest['receipt'])
+        STEP = 'observe-' + target + '-capture'
         capture = backend.capture(target)
+        STEP = 'observe-' + target + '-capture-fidelity'
         require(backend._semantic(capture['plan']) == backend._semantic(plan))
+        STEP = 'observe-' + target + '-client-coverage'
         clients = backend._coverage(plan)
         require(len(clients) == 3)
         f01 = load('f01', '/opt/f01/verify-user.py')
@@ -612,6 +654,8 @@ def observe(target, plan):
         for space in plan['spaces']:
             for tab in space['tabs']:
                 for pane in tab['panes']:
+                    if pane['session_id'] is None:
+                        continue
                     data = api('get', '/api/session/' + pane['session_id'])['data']
                     require(data['id'] == pane['session_id'])
                     require(data['location']['directory'] == pane['cwd'])
@@ -652,6 +696,7 @@ def switch(target, plan, pid, during=None):
         backend = Native(HOME, store)
         before = backend.capture(backend.selected())
     cli('switch', target)
+    STEP = 'switch-' + target + '-exit-proof'
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         journal = store.read('transaction.json')
@@ -664,6 +709,73 @@ def switch(target, plan, pid, during=None):
         during()
     observe(target, plan)
     require(backend_pid() == pid)
+
+
+def retained_shell_switch(plan, pid):
+    """Produce the old adapter failure through real controller writes, then recover.
+
+    Only legacy label emission/comparison is injected in this disposable process.
+    Native core normalizes labels; no receipt, journal or manifest is hand-edited.
+    The subsequent recover command loads the installed, unmodified adapter.
+    """
+    global STEP
+    STEP = 'retained-shell-switch'
+    Store, Native = adapter()
+    from controller import Controller, ControllerError
+    from native import NativeError
+    first_pane = plan['spaces'][0]['tabs'][0]['panes'][0]
+    require(first_pane['session_id'] is None)
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        labels = backend._labels
+        match = backend._match_terminal
+        def legacy_labels(txid, pane):
+            value = labels(txid, pane)
+            value['remote-herdr-session'] = pane['session_id'] or ''
+            return value
+        def legacy_match(terminal, pane, txid):
+            if terminal.get('labels') != legacy_labels(txid, pane):
+                raise NativeError('core terminal ownership mismatch')
+            return match(terminal, pane, txid)
+        backend._labels = legacy_labels
+        backend._match_terminal = legacy_match
+        backend.poll_seconds = 1.0
+        try:
+            Controller(store, backend).switch('herdr-core', replace_target=True, imported=plan)
+        except ControllerError:
+            pass
+        else:
+            raise CommandFailure('legacy-shell-failure-not-observed')
+        journal = store.read('transaction.json')
+        require(journal['phase'] == 'restore_pending' and backend.selected() == 'herdr-core')
+        receipt = store.read('receipt-' + journal['txid'] + '.json')
+        require(receipt['pending'] is None and set(receipt['terminals']) == {first_pane['key']})
+        require(store.read('manifest.json') is None and not backend.endpoint_present('tui'))
+        require(not backend.scan({p['session_id'] for s in plan['spaces'] for t in s['tabs']
+                                  for p in t['panes'] if p['session_id']}))
+        retained = receipt['terminals'][first_pane['key']]
+        terminal = backend._terminal(retained)
+        require(terminal['labels'] == {'remote-herdr-owner': journal['txid'],
+                                       'remote-herdr-pane': first_pane['key']})
+        wait(lambda: backend._shell_proof(backend._terminal(retained)) or True)
+        addresses = {t['address'] for t in backend._terminals()}
+        backup = receipt['backup']
+    require(backend_pid() == pid)
+    refusal = subprocess.run([str(BIN / 'remote-herdr'), 'restore'], cwd=HOME,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    require(refusal.returncode == 75)
+    STEP = 'retained-shell-recover'
+    cli('recover')
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        require(store.read('transaction.json')['phase'] == 'complete')
+        manifest = store.read('manifest.json')
+        require(manifest['receipt']['terminals'][first_pane['key']] == retained)
+        require(store.read(backup) is not None)
+        require(len({t['address'] for t in backend._terminals()} - addresses) == 3)
+    observe('herdr-core', plan)
+    require(backend_pid() == pid)
+    print('F07: retained-shell-label-recovery-complete')
 
 
 def interrupted_switch(plan, pid):
@@ -779,11 +891,14 @@ def prepare_fixture(provider):
     require(len(set(sessions)) == 3)
     plan = {'schema_version': 1, 'spaces': [
         {'name': 'Alpha space', 'directory': str(directories[0]), 'tabs': [
+            {'name': 'Plain shell', 'panes': [
+                {'key': 's0-t0-p0', 'cwd': str(directories[0]), 'session_id': None}],
+             'root': {'pane': 's0-t0-p0'}},
             {'name': 'Review split', 'panes': [
-                {'key': 's0-t0-p0', 'cwd': str(directories[0]), 'session_id': sessions[0]},
-                {'key': 's0-t0-p1', 'cwd': str(directories[0]), 'session_id': sessions[1]}],
+                {'key': 's0-t1-p0', 'cwd': str(directories[0]), 'session_id': sessions[0]},
+                {'key': 's0-t1-p1', 'cwd': str(directories[0]), 'session_id': sessions[1]}],
              'root': {'axis': 'row', 'ratio': 0.375,
-                      'children': [{'pane': 's0-t0-p0'}, {'pane': 's0-t0-p1'}]}}]},
+                       'children': [{'pane': 's0-t1-p0'}, {'pane': 's0-t1-p1'}]}}]},
         {'name': 'Beta space', 'directory': str(directories[1]), 'tabs': [
             {'name': 'Exact saved agent', 'panes': [
                 {'key': 's1-t0-p0', 'cwd': str(directories[1]), 'session_id': sessions[2]}],
@@ -843,7 +958,7 @@ def prepare_fixture(provider):
         _, version = backend._document()
         backend.core('doc.set', {'name': 'herdr-app', 'value': document, 'version': version})
     STEP = 'core-file-import'
-    cli('switch', 'herdr-core', '--from-file', EXPECTED, '--replace-target')
+    retained_shell_switch(plan, pid)
     observe('herdr-core', plan)
     with Store(ROOT) as store:
         backend = Native(HOME, store)
@@ -864,6 +979,7 @@ def prepare_fixture(provider):
 
 def restart_and_recover(plan, pid):
     global STEP
+    from native import sessions
     Store, Native = adapter()
     STEP = 'core-preserving-restart'
     with Store(ROOT) as store:
@@ -892,7 +1008,7 @@ def restart_and_recover(plan, pid):
         capture = backend.capture('herdr-core')
         # Explicit native stop kills programs, unlike SIGTERM above.
         backend.stop('herdr-core', capture)
-        backend.absent(set(p['session_id'] for s in plan['spaces'] for t in s['tabs'] for p in t['panes']), capture['clients'])
+        backend.absent(sessions(plan), capture['clients'])
         require(backend._pids_absent(capture['pids']))
     STEP = 'core-shell-recovery'
     # Use the installed controller directly for this phase so fixed native
@@ -978,6 +1094,12 @@ if __name__ == '__main__':
             'core protocol: core response refused or invalid': 'core-response-refused',
             'core protocol: core request outcome uncertain': 'core-outcome-uncertain',
             'core protocol: core structured response invalid': 'core-response-invalid',
+            'TUI unknown foreground process': 'tui-unknown-foreground',
+            'TUI session process coverage incomplete': 'tui-session-coverage',
+            'TUI restored layout differs': 'tui-layout-differs',
+            'TUI duplicate or failed pane': 'tui-duplicate-or-failed-pane',
+            'TUI workspace directory proof ambiguous': 'tui-workspace-ambiguous',
+            'session client coverage incomplete or duplicate': 'session-client-coverage',
         }
         if type(error).__name__ == 'NativeError' and str(error) in protocol_labels:
             suffix = '-' + protocol_labels[str(error)]

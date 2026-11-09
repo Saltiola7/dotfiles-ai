@@ -1,5 +1,32 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-08 — Recover retained plain-shell switches (RRW-007F-R1)
+
+- Core 0.1.18 omits empty label values. Emit no shell session label and match its
+  omitted/legacy-empty forms consistently across ownership and recovery checks.
+  Exact owner/pane, agent session, program, directory and duplicate proofs remain.
+- Source regression recovers a retained one-shell receipt with no manifest into
+  64 panes (10 shells, 54 exact sessions), reusing that shell and creating only 63
+  terminals. Legacy uncertain-create intents also reconcile without duplication.
+  Native qualification now includes a shell pane and generates the old failure
+  through controller writes before invoking the unmodified CLI's `recover`.
+- Admit TUI's native argument-free `/bin/sh` default in capture/pre-stop proof.
+  Command-bearing shells, flags, aliases and other executable paths still refuse;
+  core shell policy stays unchanged.
+- Native lifecycle qualification passed `dea82203`, including genuine retained
+  shell recovery through the installed CLI, held-turn preservation, bidirectional
+  switching, restart/explicit-stop recovery and both runtime boot phases. Final
+  documentation-head qualification remains recorded in the Cycle Record; no
+  failed or mixed-attempt CI evidence is waived.
+- Scoped validation: 520 tests, 55 subtests and Linux/Python 3.12 typing pass.
+  Exact-head hosted/native qualification and completion evidence belong to the
+  Cycle Record; no live recovery or gate exception is claimed. Gate history starts
+  at `c1da3b7b`; intended Final Push is
+  `dbsctr/dotfiles_ai_distribution/RRW-007F-R1` and a draft PR, never main.
+- Bootstrap and core 0.1.18 pin unchanged. Fork A retains pinning and live recovery.
+  INT-082 daily-layout adoption, unnamed labels, diagnostics and editor repair
+  remain separate follow-up work, not completed by this hotfix.
+
 ## 2026-11-08 — Selected remote Herdr runtime (RRW-007F)
 
 - Add foundation-owned, archive/binary-verified core 0.1.18 installation and

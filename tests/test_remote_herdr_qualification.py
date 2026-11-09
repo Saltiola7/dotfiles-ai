@@ -33,6 +33,37 @@ def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
         assert 'PRIVATE' not in str(error)
     else:
         raise AssertionError('native failure must not pass')
+    # Failed core-restore observation may classify only fixed labels, never raw
+    # native payloads. This is an in-memory adapter, not a native process probe.
+    monkeypatch.syspath_prepend(str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr'))
+    class State:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self, name):
+            if name == 'transaction.json':
+                return {'phase': 'restore_pending', 'target': 'herdr-core', 'txid': 'fixture',
+                        'plan': {'spaces': [{'tabs': [{'panes': [{'key': 'p0'}]}]}]}}
+            return {'pending': None, 'terminals': {'p0': 't1'}}
+    error_type = type('NativeError', (ValueError,), {})
+    class Backend:
+        refusal = ''
+        def __init__(self, *args): pass
+        def _other_off(self, target): pass
+        def _terminal(self, address): return {}
+        def _match_terminal(self, *args): raise error_type(self.refusal)
+        def _safe_live_terminals(self, *args):
+            raise AssertionError('failed terminal proof must stop observations')
+    monkeypatch.setitem(fixture['cli'].__globals__, 'adapter', lambda: (lambda root: State(), Backend))
+    for refusal, label in [('core terminal ownership mismatch', 'terminal-ownership'),
+                           ('PRIVATE-NATIVE-DETAIL', 'unclassified-native-refusal')]:
+        Backend.refusal = refusal
+        try:
+            fixture['cli']('must-not-execute')
+        except fixture['CommandFailure'] as error:
+            assert error.reason == 'controller-restore_pending-mapped-1-receipt-terminal-proof-' + label
+            assert 'PRIVATE' not in str(error)
+        else:
+            raise AssertionError('failed CLI must stay failed')
 
 
 class QualificationSourceTests(unittest.TestCase):
@@ -137,7 +168,7 @@ class QualificationSourceTests(unittest.TestCase):
         self.assertNotRegex(source, r'unittest.mock|monkeypatch|INSERT INTO|CREATE TABLE|fake.*binary')
         for witness in ("api('post', '/api/session'", "'location': {'directory'",
                         "'session.create'", "'?mode=ro'", 'PRAGMA table_info(session_v2)',
-                        "'--from-file'", "'--replace-target'", "'terminal.run'", "'doc.set'",
+                        'replace_target=True, imported=plan', "'terminal.run'", "'doc.set'",
                         "'hc-serve-'", "'hc-hold-'", "'hc-shutdown-'", "'Transient'",
                         'signal.pidfd_send_signal(fd, signal.SIGTERM)',
                         "backend._coverage(plan) == before", "backend.stop('herdr-core', capture)",
@@ -147,8 +178,17 @@ class QualificationSourceTests(unittest.TestCase):
                         'backend._semantic', 'backend_pid() == pid', "'--version'",
                         "'remote-herdr-core', 'check'", "'ratio': 0.375",
                         'child.send_signal(signal.SIGSTOP)', 'require(interrupted)',
-                        'require(refusal.returncode == 75)', "STEP = 'interrupted-switch-recovery'"):
+                        'require(refusal.returncode == 75)', "STEP = 'interrupted-switch-recovery'",
+                        'retained-shell-label-recovery-complete',
+                        "backend.absent(sessions(plan), capture['clients'])",
+                        "receipt['pending'] is None", "store.read('manifest.json') is None",
+                        "manifest['receipt']['terminals'][first_pane['key']] == retained"):
             self.assertIn(witness, source)
+        retained = next(node for node in ast.parse(source).body
+                        if isinstance(node, ast.FunctionDef) and node.name == 'retained_shell_switch')
+        self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                             and node.func.attr in {'write', 'write_text', 'write_bytes'}
+                             for node in ast.walk(retained)))
         shell = (FIXTURE / 'boot-smoke.sh').read_text()
         for witness in ('env -i', 'loginctl enable-linger fixture', 'no_login',
                         'systemd-detect-virt --container',

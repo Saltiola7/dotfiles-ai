@@ -339,7 +339,8 @@ class Native:
 
     def process_argv(self, pid):
         raw = processes.task_read(self.proc_root / str(pid), 'cmdline', LIMIT)
-        return raw.rstrip(b'\0').decode('utf-8').split('\0')
+        # Remove the terminator, not trailing empty arguments: exact argv is proof.
+        return raw.removesuffix(b'\0').decode('utf-8').split('\0')
 
     def _client_argv(self, pid, identity):
         if self._session_argv(self.process_argv(pid)) != identity:
@@ -657,7 +658,7 @@ class Native:
             if terminal['address'] not in recorded or terminal.get('state') != 'live':
                 continue
             pane = recorded[terminal['address']]
-            if (terminal.get('labels') != self._labels(manifest['txid'], pane)
+            if (not self._same_labels(terminal.get('labels'), self._labels(manifest['txid'], pane))
                     or self._program(terminal) != (pane['session_id'], pane['cwd'])):
                 raise NativeError('core source identity contradicts owned receipt')
 
@@ -883,6 +884,9 @@ class Native:
             # Optional API argv is not proof of the actual foreground program.
             argv = self.process_argv(proc['pid'])
             is_shell = argv and argv[0] in ('/bin/bash', 'bash', '-bash') and argv[1:] in ([], ['-l'], ['--login'])
+            # Pinned TUI defaults to /bin/sh when exec-tui leaves SHELL unset.
+            # Admit only its idle argv; never sh -c, flags or arbitrary aliases.
+            is_shell = is_shell or argv == ['/bin/sh']
             if proc['pid'] not in known and not is_shell:
                 raise NativeError('TUI unknown foreground process')
         if any(client['pid'] not in {p['pid'] for p in foreground} for client in clients):
@@ -1098,8 +1102,20 @@ class Native:
         return receipt
 
     def _labels(self, txid, pane):
-        return {'remote-herdr-owner': txid, 'remote-herdr-pane': pane['key'],
-                'remote-herdr-session': pane['session_id'] or ''}
+        labels = {'remote-herdr-owner': txid, 'remote-herdr-pane': pane['key']}
+        if pane['session_id'] is not None:
+            labels['remote-herdr-session'] = pane['session_id']
+        return labels
+
+    @staticmethod
+    def _same_labels(observed, expected):
+        # Core 0.1.18 drops empty values. Normalize only the legacy optional
+        # session label; never forgive missing owner/pane or unrelated labels.
+        if type(observed) is not dict or type(expected) is not dict:
+            return False
+        def canonical(labels):
+            return {k: v for k, v in labels.items() if k != 'remote-herdr-session' or v != ''}
+        return canonical(observed) == canonical(expected)
 
     @bounded
     def recover_prepared(self, target, plan, txid, replace_target=False):
@@ -1195,7 +1211,7 @@ class Native:
         return receipt
 
     def _match_terminal(self, terminal, pane, txid):
-        if terminal.get('labels') != self._labels(txid, pane):
+        if not self._same_labels(terminal.get('labels'), self._labels(txid, pane)):
             raise NativeError('core terminal ownership mismatch')
         identity, cwd = self._program(terminal)
         if (identity, cwd) != (pane['session_id'], pane['cwd']):
@@ -1284,7 +1300,7 @@ class Native:
             labels = self._labels(txid, pane)
             # Existing owner labels without a recorded address imply an uncertain
             # earlier create, not permission for a blind duplicate create.
-            if any(t.get('labels') == labels and t.get('state') != 'finished' for t in self._terminals()):
+            if any(self._same_labels(t.get('labels'), labels) and t.get('state') != 'finished' for t in self._terminals()):
                 raise NativeError('core prior terminal creation requires recovery')
             receipt['pending'] = {'operation': 'terminal.run', 'pane': key, 'labels': labels}
             self._receipt(receipt)
@@ -1395,12 +1411,12 @@ class Native:
             operation = pending.get('operation')
             if operation == 'terminal.run':
                 matches = [t for t in self._terminals()
-                           if t.get('labels') == pending['labels'] and t.get('state') != 'finished']
+                           if self._same_labels(t.get('labels'), pending['labels']) and t.get('state') != 'finished']
                 if len(matches) != 1:
                     raise NativeError('uncertain terminal creation unresolved')
                 pane = next(p for p in panes(plan) if p['key'] == pending['pane'])
                 terminal = matches[0]
-                if terminal.get('labels') != self._labels(txid, pane):
+                if not self._same_labels(terminal.get('labels'), self._labels(txid, pane)):
                     raise NativeError('uncertain terminal ownership unresolved')
                 identity, cwd = self._program(terminal)
                 if cwd != pane['cwd'] or identity not in (None, pane['session_id']):
@@ -1439,7 +1455,7 @@ class Native:
             if address is None:
                 continue
             terminal = self._terminal(address)
-            if terminal.get('labels') != self._labels(txid, pane):
+            if not self._same_labels(terminal.get('labels'), self._labels(txid, pane)):
                 raise NativeError('core recovery terminal not owned')
             if terminal.get('state') == 'finished':
                 if pane['session_id'] and self.scan({pane['session_id']}):
