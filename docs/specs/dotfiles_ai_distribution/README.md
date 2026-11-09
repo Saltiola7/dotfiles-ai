@@ -11,6 +11,8 @@ hosted qualification is distinct from Fork A's separately authorized live rollou
 Plain-shell recovery accepts core 0.1.18's omitted empty session label while
 retaining exact owner/pane and process proofs. Existing switch receipts need no
 hand edits; use explicit `remote-herdr recover` for an unfinished switch.
+TUI process proof also accepts its native idle default, exact argument-free
+`/bin/sh`; command-bearing shells remain unsupported.
 
 The [remote default activation](features/remote-worktree-activation.md) initializes
 missing activation during explicit remote apply at the qualified exact home

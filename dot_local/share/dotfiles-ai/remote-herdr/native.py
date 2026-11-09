@@ -339,7 +339,8 @@ class Native:
 
     def process_argv(self, pid):
         raw = processes.task_read(self.proc_root / str(pid), 'cmdline', LIMIT)
-        return raw.rstrip(b'\0').decode('utf-8').split('\0')
+        # Remove the terminator, not trailing empty arguments: exact argv is proof.
+        return raw.removesuffix(b'\0').decode('utf-8').split('\0')
 
     def _client_argv(self, pid, identity):
         if self._session_argv(self.process_argv(pid)) != identity:
@@ -883,6 +884,9 @@ class Native:
             # Optional API argv is not proof of the actual foreground program.
             argv = self.process_argv(proc['pid'])
             is_shell = argv and argv[0] in ('/bin/bash', 'bash', '-bash') and argv[1:] in ([], ['-l'], ['--login'])
+            # Pinned TUI defaults to /bin/sh when exec-tui leaves SHELL unset.
+            # Admit only its idle argv; never sh -c, flags or arbitrary aliases.
+            is_shell = is_shell or argv == ['/bin/sh']
             if proc['pid'] not in known and not is_shell:
                 raise NativeError('TUI unknown foreground process')
         if any(client['pid'] not in {p['pid'] for p in foreground} for client in clients):

@@ -10,7 +10,11 @@
   terminals. Legacy uncertain-create intents also reconcile without duplication.
   Native qualification now includes a shell pane and generates the old failure
   through controller writes before invoking the unmodified CLI's `recover`.
-- Scoped validation: 509 tests, 55 subtests and Linux/Python 3.12 typing pass.
+- Admit TUI's native argument-free `/bin/sh` default in capture/pre-stop proof.
+  Command-bearing shells, flags, aliases and other executable paths still refuse;
+  core shell policy stays unchanged. Native retained-state recovery passed before
+  this compatibility correction; fresh full qualification remains required.
+- Scoped validation: 520 tests, 55 subtests and Linux/Python 3.12 typing pass.
   Exact-head hosted/native qualification and completion evidence belong to the
   Cycle Record; no live recovery or gate exception is claimed. Gate history starts
   at `c1da3b7b`; intended Final Push is

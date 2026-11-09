@@ -1220,7 +1220,8 @@ def test_absent_core_preflight_defers_document_ownership_until_prepare(backend):
 
 
 @pytest.mark.parametrize(('direction', 'axis'), [('right', 'row'), ('down', 'column')])
-def test_pinned_api_split_direction_and_optional_process_argv(backend, direction, axis):
+@pytest.mark.parametrize('shell', [['/bin/bash', '-l'], ['/bin/sh']])
+def test_pinned_api_split_direction_and_optional_process_argv(backend, direction, axis, shell):
     tui = FakeTui(backend)
     snapshot = tui.snapshot()
     snapshot['workspaces'][0]['pane_count'] = 2
@@ -1228,7 +1229,7 @@ def test_pinned_api_split_direction_and_optional_process_argv(backend, direction
     snapshot['panes'].append({'workspace_id': 'wid', 'tab_id': 'tid', 'pane_id': 'pid2',
         'terminal_id': 'term2', 'focused': False, 'cwd': '/work', 'agent_status': 'unknown', 'revision': 1})
     tui.snapshot_override = snapshot
-    synthetic_process(backend, 40, ['/bin/bash', '-l'])
+    synthetic_process(backend, 40, shell)
     rpc = tui.rpc
 
     def split_rpc(method, params):
@@ -1253,3 +1254,25 @@ def test_pinned_api_split_direction_and_optional_process_argv(backend, direction
     with pytest.raises(native.NativeError, match='unknown foreground'):
         backend.capture('tui')
     assert not tui.calls
+
+
+@pytest.mark.parametrize(('argv', 'allowed'), [
+    (['/bin/sh'], True),
+    (['/bin/sh', '-c', 'printf must-not-run'], False),
+    (['/bin/sh', '-l'], False),
+    (['/bin/sh', '--login'], False),
+    (['/bin/sh', '-i'], False),
+    (['/bin/sh', ''], False),
+    (['sh'], False),
+    (['/usr/bin/sh'], False),
+    (['/usr/bin/vim'], False),
+])
+def test_tui_default_posix_shell_requires_exact_argument_free_argv(backend, argv, allowed):
+    synthetic_process(backend, 40, argv)
+    facts = [{'shell_pid': 40, 'foreground_processes': [{'pid': 40, 'name': 'bash'}]}]
+    if allowed:
+        assert backend._tui_process_proofs(facts, []) == [{'pid': 40, 'start_ticks': 10}]
+    else:
+        with pytest.raises(native.NativeError, match='unknown foreground'):
+            backend._tui_process_proofs(facts, [])
+    assert not backend.calls

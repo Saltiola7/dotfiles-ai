@@ -272,6 +272,13 @@ missing owner/pane labels, nonempty mismatches and extra labels still refuse.
 Label compatibility never substitutes for actual program, directory, PID/start-time
 or duplicate-client proofs. No binary pin, installer, backend or CLI ownership changes.
 
+TUI 0.9.5 (`src/pane.rs` / `src/config/model.rs` at
+`2ecf19a92fc3a7fff75b6ce3655ef04f4625ec01`) defaults to `/bin/sh` when `SHELL`
+is absent, as in the sanitized `exec-tui` environment. TUI capture and pre-stop
+proof also accept exactly `['/bin/sh']` with no arguments, in addition to the
+existing Bash forms. `sh -c`, shell flags, aliases and other executable paths
+still refuse. This TUI-only compatibility does not change core's shell policy.
+
 - Given a retained `restore_pending` switch, no manifest, and a receipt naming one
   live owned shell with no session label and `pending=None`, explicit
   `remote-herdr recover` reuses that terminal, creates only the remaining panes,
