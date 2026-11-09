@@ -670,7 +670,39 @@ def observe(target, plan):
         if difference:
             raise CommandFailure('manifest-' + difference)
         STEP = 'observe-' + target + '-verify'
-        backend.verify(target, manifest['plan'], manifest['receipt'])
+        try:
+            backend.verify(target, manifest['plan'], manifest['receipt'])
+        except Exception as error:
+            labels = {
+                'core current restored layout differs': 'current-layout',
+                'core current restored bindings differ': 'current-bindings',
+                'core current inventory changed': 'current-inventory',
+                'core current process identity changed': 'current-process',
+                'core controller stop requires reconciliation': 'controller-stop-incomplete',
+                'core controller stop process proof unavailable': 'controller-stop-pids',
+                'core repair stop outcome inconsistent': 'repair-stop-inconsistent',
+                'core created binding proof unavailable': 'created-binding',
+                'core recovery foreign live program': 'foreign-program',
+                'core recovery directory mismatch': 'directory-mismatch',
+                'core recovery terminal not owned': 'ownership',
+                'core terminal not live or spawn pending': 'terminal-pending',
+                'session client coverage incomplete or duplicate': 'client-coverage',
+                'native client exit ownership uncertain': 'exit-ownership',
+                'native observation or mutation uncertain': 'native-uncertain',
+            }
+            label = labels.get(str(error), 'unclassified') if type(error).__name__ == 'NativeError' else 'observation'
+            STEP += '-' + label
+            if manifest.get('txid'):
+                retained = store.read('receipt-' + manifest['txid'] + '.json')
+                if retained:
+                    pending = retained.get('pending')
+                    if isinstance(pending, dict):
+                        operations = {'server.start': 'start', 'terminal.kill': 'kill',
+                                      'terminal.run': 'run', 'doc.set': 'cas'}
+                        STEP += '-pending-' + operations.get(pending.get('operation'), 'unknown')
+                    if retained.get('repairs'):
+                        STEP += '-repairs'
+            raise CommandFailure('verify-' + label) from None
         STEP = 'observe-' + target + '-capture'
         capture = backend.capture(target)
         STEP = 'observe-' + target + '-capture-fidelity'

@@ -67,6 +67,38 @@ def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
 
 
 class QualificationSourceTests(unittest.TestCase):
+    def test_boot_verify_diagnostics_keep_only_fixed_refusal_labels(self):
+        fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        observe = fixture['observe']
+        error_type = type('NativeError', (ValueError,), {})
+        class State:
+            retained = None
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self, name):
+                if name.startswith('receipt-'):
+                    return self.retained
+                return {'runtime': 'herdr-core', 'plan': [], 'receipt': {}, 'txid': 'fixture'}
+        class Backend:
+            refusal = ''
+            def __init__(self, *args): pass
+            def _semantic(self, plan): return []
+            def verify(self, *args): raise error_type(self.refusal)
+        observe.__globals__['adapter'] = lambda: (lambda root: State(), Backend)
+        for refusal, label in [('core current restored bindings differ', 'current-bindings'),
+                               ('PRIVATE-RUNTIME-VALUE', 'unclassified')]:
+            Backend.refusal = refusal
+            with self.assertRaises(fixture['CommandFailure']) as caught:
+                observe('herdr-core', [])
+            self.assertEqual(caught.exception.reason, 'verify-' + label)
+            self.assertEqual(observe.__globals__['STEP'], 'observe-herdr-core-verify-' + label)
+            self.assertNotIn('PRIVATE', str(caught.exception))
+        State.retained = {'pending': {'operation': 'PRIVATE-RUNTIME-OP'}, 'repairs': {'PRIVATE-LEAF': {}}}
+        with self.assertRaises(fixture['CommandFailure']):
+            observe('herdr-core', [])
+        self.assertEqual(observe.__globals__['STEP'],
+                         'observe-herdr-core-verify-unclassified-pending-unknown-repairs')
+
     def test_core_stop_failure_labels_are_fixed_and_cover_current_recovery(self):
         tree = ast.parse((FIXTURE / 'verify-user.py').read_text())
         restart = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
