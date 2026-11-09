@@ -51,7 +51,8 @@ def test_shell_label_hotfix_contract_preserves_retained_recovery_and_scope():
                   'remote-herdr-session', 'extra labels still refuse', 'restore_pending',
                   'pending=None', 'remote-herdr recover', 'without repeating creation',
                   'operators must not manufacture one', 'does not implement INT-082',
-                  "exactly `['/bin/sh']`", 'TUI-only compatibility'):
+                  "exactly `['/bin/sh']`", 'TUI-only compatibility',
+                  'dea822039d71902ca7dc6dc5cc337a7d31514b31', 'both runtime boot phases'):
         assert token in section
     docs = root / 'docs/specs/dotfiles_ai_distribution'
     assert 'Plain-shell recovery accepts' in (docs / 'README.md').read_text()

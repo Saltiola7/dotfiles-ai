@@ -12,8 +12,12 @@
   through controller writes before invoking the unmodified CLI's `recover`.
 - Admit TUI's native argument-free `/bin/sh` default in capture/pre-stop proof.
   Command-bearing shells, flags, aliases and other executable paths still refuse;
-  core shell policy stays unchanged. Native retained-state recovery passed before
-  this compatibility correction; fresh full qualification remains required.
+  core shell policy stays unchanged.
+- Native lifecycle qualification passed `dea82203`, including genuine retained
+  shell recovery through the installed CLI, held-turn preservation, bidirectional
+  switching, restart/explicit-stop recovery and both runtime boot phases. Final
+  documentation-head qualification remains recorded in the Cycle Record; no
+  failed or mixed-attempt CI evidence is waived.
 - Scoped validation: 520 tests, 55 subtests and Linux/Python 3.12 typing pass.
   Exact-head hosted/native qualification and completion evidence belong to the
   Cycle Record; no live recovery or gate exception is claimed. Gate history starts

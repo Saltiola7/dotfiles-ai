@@ -295,6 +295,14 @@ operators must not manufacture one or hand-edit a receipt. Automatic restore sti
 refuses an unfinished switch. This hotfix does not implement INT-082 daily-layout
 adoption, unnamed TUI label normalization, broader CLI diagnostics or editor repair.
 
+Hosted native proof passed implementation head
+`dea822039d71902ca7dc6dc5cc337a7d31514b31`: legacy label emission/comparison
+generated the retained failure through real controller writes, then the unmodified
+installed CLI recovered the existing shell without receipt edits. The same job
+passed held-turn preservation, bidirectional switching, core restart/explicit-stop
+recovery and both runtime boot phases. This is disposable qualification, not live
+owner recovery, final-head CI closure or delivery of the broader adoption slice.
+
 `remote-herdr selected` observes selection; `remote-herdr-core check` verifies the
 installed bytes without repair. The restore timer only invokes the serialized
 controller; upstream `hc-serve-*`, `hc-hold-*` and `hc-shutdown-*` units own core
