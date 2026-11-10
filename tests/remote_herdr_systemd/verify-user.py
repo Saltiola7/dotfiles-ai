@@ -909,6 +909,7 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
         other_clients = [c for c in clients if c['session_id'] != pane['session_id']]
         client_pid = client['pid']
         terminal = backend._terminal(address)
+        require(terminal.get('keep') is True)
         require((terminal.get('foreground') or terminal)['pid'] == client_pid)
         require(backend._actual_core_program(terminal) == (pane['session_id'], pane['cwd']))
         backend._client_argv(client_pid, pane['session_id'])
@@ -922,7 +923,10 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
             backend._client_argv(client_pid, pane['session_id'])
             require((Path('/proc') / str(client_pid) / 'exe').resolve() == NATIVE)
             require(backend.process_cwd(client_pid) == pane['cwd'])
-            signal.pidfd_send_signal(fd, signal.SIGTERM)
+            # A UI can handle TERM and exit normally, which core correctly
+            # treats as final. Force only this proven fixture client's signal
+            # loss: pinned core keep replaces signaled programs with its shell.
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
         finally:
             os.close(fd)
         STEP = 'kept-shell-native-idle-bash'
