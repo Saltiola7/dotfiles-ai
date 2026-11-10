@@ -518,11 +518,11 @@ def project_app_document(value, classify):
     returned bindings separate stable native identity from canonical positions.
     """
     document = _object(_json_copy(value))
-    ids, addresses = set(), set()
+    space_ids, tab_ids, node_ids, addresses = set(), set(), set(), set()
     count = tabs = 0
     spaces, bindings = [], {}
 
-    def identity(item):
+    def identity(item, ids):
         key = _string(_object(item).get('id'), 512)
         if not key or key in ids:
             _fail('missing or duplicate app identity')
@@ -530,21 +530,21 @@ def project_app_document(value, classify):
         return key
 
     for source_space in _list(document.get('spaces'), MAX_SPACES):
-        identity(source_space)
+        identity(source_space, space_ids)
         space = {'name': _native_name(source_space.get('name')),
                  'directory': _path(source_space.get('folder')), 'tabs': []}
         for source_tab in _list(source_space.get('tabs'), MAX_TABS):
             tabs += 1
             if tabs > MAX_TABS:
                 _fail('too many app tabs')
-            identity(source_tab)
+            identity(source_tab, tab_ids)
             tab: dict = {'name': _native_name(source_tab.get('name')), 'panes': [], 'root': None}
 
             def tree(node, depth):
                 nonlocal count
                 if depth > MAX_DEPTH:
                     _fail('app tree exceeds depth limit')
-                leaf = identity(node)
+                leaf = identity(node, node_ids)
                 kind = node.get('type')
                 size = node.get('size')
                 if size is not None:

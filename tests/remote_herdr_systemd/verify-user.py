@@ -738,28 +738,38 @@ def observe(target, plan):
         STEP = 'observe-' + target + '-client-coverage'
         clients = backend._coverage(plan)
         expected_sessions = {p['session_id'] for s in plan['spaces'] for t in s['tabs']
-                             for p in t['panes'] if p['session_id'] is not None}
+                              for p in t['panes'] if p['session_id'] is not None}
+        STEP = 'observe-' + target + '-client-session-set'
         require({client['session_id'] for client in clients} == expected_sessions)
+        STEP = 'observe-' + target + '-client-session-count'
         require(len(clients) == len(expected_sessions))
         f01 = load('f01', '/opt/f01/verify-user.py')
+        STEP = 'observe-' + target + '-shared-backend-ready'
         _, server = f01.ready()
         port = urlsplit(server).port
         require(port is not None)
         for client in clients:
+            STEP = 'observe-' + target + '-client-argv'
             backend._client_argv(client['pid'], client['session_id'])
+            STEP = 'observe-' + target + '-client-executable'
             require((Path('/proc') / str(client['pid']) / 'exe').resolve() == NATIVE)
             # Exact argv and a stored session alone do not prove attachment.
             # Reuse F01's native socket-owner proof against the shared backend.
+            STEP = 'observe-' + target + '-client-connected'
             wait(lambda: f01.connected(client['pid'], port), seconds=30)
         for space in plan['spaces']:
             for tab in space['tabs']:
                 for pane in tab['panes']:
                     if pane['session_id'] is None:
                         continue
+                    STEP = 'observe-' + target + '-session-api'
                     data = api('get', '/api/session/' + pane['session_id'])['data']
+                    STEP = 'observe-' + target + '-session-api-identity'
                     require(data['id'] == pane['session_id'])
+                    STEP = 'observe-' + target + '-session-api-directory'
                     require(data['location']['directory'] == pane['cwd'])
         if target == 'herdr-core':
+            STEP = 'observe-herdr-core-tui-inactive'
             require(unit('show', 'remote-herdr-tui.service', '-p', 'ActiveState', '--value') == 'inactive')
             transient_owners(backend, clients)
         else:
@@ -768,18 +778,25 @@ def observe(target, plan):
 
 
 def transient_owners(backend, clients):
+    global STEP
     # Upstream 3965a46 platform/systemd.rs owns all three unit families.
+    STEP = 'observe-herdr-core-transient-unit-list'
     units = json.loads(unit('list-units', '--all', '--output=json', '--no-pager', 'hc-*.service'))
     names = [item['unit'] for item in units]
     for prefix in ('hc-serve-', 'hc-hold-', 'hc-shutdown-'):
         matches = [name for name in names if name.startswith(prefix)]
+        STEP = 'observe-herdr-core-transient-unit-families'
         require(matches)
         for name in matches:
+            STEP = 'observe-herdr-core-transient-unit-property'
             require(unit('show', name, '-p', 'Transient', '--value') == 'yes')
     for client in clients:
+        STEP = 'observe-herdr-core-client-cgroup'
         cgroup = (Path('/proc') / str(client['pid']) / 'cgroup').read_text()
         require('hc-hold-' in cgroup and '.service' in cgroup)
+    STEP = 'observe-herdr-core-no-persistent-units'
     require(not list((HOME / '.config/systemd/user').glob('hc-*.service')))
+    STEP = 'observe-herdr-core-exclusive-endpoint'
     require(backend.endpoint_present('herdr-core') and not backend.endpoint_present('tui'))
 
 
@@ -899,6 +916,136 @@ def expected_leaf_rebind(document, leaf, old, new):
     return expected
 
 
+def app_compatible_document(document):
+    """Fixture-authored native app document, NOT actual Desktop UI producer evidence.
+
+    Reuse tab IDs only across kinds; retain every original node, split and opaque
+    field. The fixture's three current tabs need no new sessions or DB seeding.
+    """
+    import copy
+    result = copy.deepcopy(document)
+    tabs = [tab for space in result['spaces'] for tab in space['tabs']]
+    require(len(tabs) == 3)
+    node_ids = set()
+    def walk(node):
+        require(node['id'] not in node_ids)
+        node_ids.add(node['id'])
+        for child in node.get('children', []):
+            walk(child)
+    for tab in tabs:
+        walk(tab['root'])
+    require(len({tab['id'] for tab in tabs}) == 3)
+    for tab in tabs:
+        root = tab['root']
+        if root['id'] == tab['id'] and root['type'] == 'row':
+            require(len(root['children']) == 1)
+            continue
+        require(tab['id'] not in node_ids)
+        tab['root'] = {'id': tab['id'], 'type': 'row', 'children': [root]}
+        node_ids.add(tab['id'])
+    return result
+
+
+def native_app_labels(backend, address, *, changed=False):
+    """Fixture-only public terminal.label; never extend production RPC authority.
+
+    Provenance: herdrdev/herdr-core 3965a46caae095a3ead01de237fa13955e52b8c6,
+    schema/hc.openrpc.json terminal.label: labels object<string>, terminal string,
+    result Terminal. This simulates an app's labels on REAL core records, not a
+    terminal.get overlay and not actual Desktop UI producer evidence.
+    """
+    global STEP
+    import layout
+    import protocol
+    STEP = 'app-label-local-address'
+    require(layout._TERMINAL.fullmatch(address) is not None)
+    before = backend._terminal(address)
+    labels = {'where': 'fixture app changed' if changed else 'fixture app',
+              'herdr.seen': '2' if changed else '1',
+              'herdr.space': 'fixture-space', 'herdr.tab': 'fixture-tab'}
+    STEP = 'app-label-owned-endpoint'
+    endpoint = backend._core_endpoint()
+    # The adapter proves the existing endpoint and native version first. This
+    # isolated transport sends ONLY hello and the pinned public label operation.
+    require(backend.endpoint_present('herdr-core'))
+    for parent in (endpoint.parent, *endpoint.parent.parents):
+        info = parent.lstat()
+        require(stat.S_ISDIR(info.st_mode) and info.st_uid in {0, os.getuid()}
+                and (not info.st_mode & 0o022 or info.st_mode & stat.S_ISVTX))
+    info = endpoint.lstat()
+    require(stat.S_ISSOCK(info.st_mode) and info.st_uid == os.getuid() and not info.st_mode & 0o022)
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+        peer.settimeout(30)
+        peer.connect(str(endpoint))
+        _, uid, _ = struct.unpack('3i', peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        require(uid == os.getuid())
+        pending = b''
+        # Not a generic RPC helper: both messages and parameters are fixed here.
+        for number, method, params in (
+                (1, 'hello', {'framed': False}),
+                (2, 'terminal.label', {'terminal': address, 'labels': labels})):
+            outgoing = json.dumps({'jsonrpc': '2.0', 'id': number, 'method': method,
+                                   'params': params}, allow_nan=False).encode() + b'\n'
+            require(len(outgoing) <= protocol.MAX_MESSAGE)
+            peer.sendall(outgoing)
+            while b'\n' not in pending:
+                part = peer.recv(min(65536, protocol.MAX_MESSAGE + 1 - len(pending)))
+                require(bool(part))
+                pending += part
+                require(len(pending) <= protocol.MAX_MESSAGE)
+            raw, pending = pending.split(b'\n', 1)
+            answer = protocol.decode(raw)
+            require(answer.get('jsonrpc') == '2.0' and type(answer.get('id')) is int
+                    and answer['id'] == number and 'error' not in answer
+                    and isinstance(answer.get('result'), dict))
+            result = answer['result']
+            if number == 1:
+                STEP = 'app-label-protocol-version'
+                require(result.get('version') == '0.1.18' and type(result.get('generation')) is int
+                        and result['generation'] == 1 and result.get('framed') is False
+                        and isinstance(result.get('methods'), list)
+                        and 'terminal.label' in result['methods'])
+            else:
+                STEP = 'app-label-response-address'
+                require(result['address'] == address)
+    STEP = 'app-label-preserved-ownership'
+    actual = backend._terminal(address)
+    require(actual['labels'] == dict(before.get('labels', {}), **labels))
+    return actual['labels']
+
+
+def adopt_app_compatibility(plan):
+    """Real native CAS and label effects; installed restore adopts without churn."""
+    global STEP
+    STEP = 'app-adoption-read-current'
+    Store, Native = adapter()
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        manifest = store.read('manifest.json')
+        clients = backend._coverage(plan)
+        document, version = backend._document()
+        STEP = 'app-adoption-three-tab-shape'
+        document = app_compatible_document(document)
+        labels = {address: native_app_labels(backend, address)
+                  for address in manifest['receipt']['terminals'].values()}
+        STEP = 'app-adoption-document-cas'
+        backend.core('doc.set', {'name': 'herdr-app', 'value': document, 'version': version})
+        baseline, _ = backend._document()
+        addresses = {t['address'] for t in backend._terminals()}
+    STEP = 'app-adoption-installed-restore'
+    cli('restore')
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        STEP = 'app-adoption-raw-document'
+        require(backend._document()[0] == baseline)
+        STEP = 'app-adoption-client-identities'
+        require(backend._coverage(plan) == clients)
+        STEP = 'app-adoption-terminal-inventory'
+        require({t['address'] for t in backend._terminals()} == addresses)
+        STEP = 'app-adoption-terminal-labels'
+        require(all(backend._terminal(address)['labels'] == value for address, value in labels.items()))
+
+
 def finished_terminal_facts(terminal):
     # Public status/seen/title reports can still change after exit. Only stable
     # native completion and identity facts belong in the lost-reply assertion.
@@ -921,6 +1068,7 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
     from native import NativeError, panes
     require(os.getuid() == 1000 and Path.home() == HOME)
     Store, Native = adapter()
+    adopt_app_compatibility(plan)
     STEP = 'kept-shell-client-loss'
     with Store(ROOT) as store:
         backend = Native(HOME, store)
@@ -1023,6 +1171,9 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
         require(pending['pids'] == shell_pids and set(receipt['repairs']) == {leaf})
         require(('identity' in pending) == lost_reply)
         require(receipt['document'] == baseline and receipt['bindings'][key] == leaf)
+        # Actual public native label changes after intent publication; no mocked
+        # terminal payload substitutes for app/ownership compatibility proof.
+        native_app_labels(backend, address, changed=True)
         if lost_reply:
             wait(lambda: backend._terminal(address)['state'] == 'finished'
                  and backend._pids_absent(shell_pids))
@@ -1151,7 +1302,7 @@ def edited_document_recovery(plan, pid):
         edited['spaces'][0]['name'] = 'Desktop renamed alpha'
         edited['metadata'] = {'fixture': 'preserve', 'nested': [None, {'value': 7}]}
         later_panes = []
-        later_leaves = []
+        later_leaves: list[dict] = []
         STEP = 'edited-document-create-later-clients'
         cwd = plan['spaces'][0]['directory']
         for index in range(3):
@@ -1173,10 +1324,52 @@ def edited_document_recovery(plan, pid):
                 'id': 'later-column', 'type': 'column', 'size': {'weight': 3},
                 'children': later_leaves[1:]}]}})
         expected = edited_expected_plan(plan, later_panes)
+        # Three existing tabs, including the later nested split, get app-style
+        # one-child rows. Fixture-authored structure is not Desktop UI evidence.
+        edited = app_compatible_document(edited)
+        repair_leaf = agent_tab['root']['id']
+        repair_address = agent_tab['root']['content']['terminal']
+        live_addresses = [repair_address, *[leaf['content']['terminal'] for leaf in later_leaves],
+                          edited['spaces'][1]['tabs'][0]['root']['children'][0]['content']['terminal']]
+        app_labels = {address: native_app_labels(backend, address) for address in live_addresses}
         STEP = 'edited-document-publish-desktop-cas'
         backend.core('doc.set', {'name': 'herdr-app', 'value': edited, 'version': version})
         baseline, _ = backend._document()  # Native serialization is authoritative.
         addresses = {t['address'] for t in backend._terminals()}
+        # A genuine retained switch, manifest and mixed live/repair population.
+        # No direct journal/receipt writes: kill only our proven exact client;
+        # core's keep machinery must supply its real idle Bash before recover.
+        repair_session = expected['spaces'][0]['tabs'][0]['panes'][0]['session_id']
+        clients = backend._coverage(expected)
+        client = next(c for c in clients if c['session_id'] == repair_session)
+        other_clients = [c for c in clients if c['session_id'] != repair_session]
+        other_proofs = backend._pid_proofs([c['pid'] for c in other_clients])
+        client_proof = backend._pid_proofs([client['pid']])
+        backend._client_argv(client['pid'], repair_session)
+        require((Path('/proc') / str(client['pid']) / 'exe').resolve() == NATIVE)
+        require(client['pid'] != pid and backend.process_cwd(client['pid']) == cwd)
+        fd = os.pidfd_open(client['pid'])
+        try:
+            require(backend._pid_proofs([client['pid']]) == client_proof)
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
+        finally:
+            os.close(fd)
+        def idle_repair():
+            current = backend._terminal(repair_address)
+            if not backend._pids_absent(client_proof):
+                return False
+            if backend._actual_core_program(current) != (None, cwd):
+                return False
+            backend._shell_proof(current)
+            return current
+        shell = wait(idle_repair)
+        shell_proof = backend._pid_proofs([shell['pid'], (shell.get('foreground') or shell)['pid']])
+        # Native keep reporting may update view data; retain its latest raw view.
+        baseline, _ = backend._document()
+        require(store.read('transaction.json')['phase'] == 'restore_pending')
+    refusal = subprocess.run([str(BIN / 'remote-herdr'), 'restore'], cwd=HOME,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    require(refusal.returncode == 75)
     STEP = 'edited-document-installed-recovery'
     cli('recover')
     with Store(ROOT) as store:
@@ -1184,10 +1377,20 @@ def edited_document_recovery(plan, pid):
         require(store.read('transaction.json')['phase'] == 'complete')
         require(store.read('transaction.json')['txid'] == txid)
         require(store.read('manifest.json')['schema_version'] == 2)
-        require(backend._document()[0] == baseline)
-        require({t['address'] for t in backend._terminals()} == addresses)
-        require(not backend.scan({closed_session}))
         receipt = store.read('manifest.json')['receipt']
+        replacement = receipt['terminals']['s0-t0-p0']
+        require(replacement != repair_address)
+        baseline = expected_leaf_rebind(baseline, repair_leaf, repair_address, replacement)
+        require(backend._document()[0] == baseline)
+        require({t['address'] for t in backend._terminals()} - addresses == {replacement})
+        addresses.add(replacement)
+        require(backend._terminal(repair_address)['state'] == 'finished')
+        require(backend._pids_absent(shell_proof) and backend._pids_absent(client_proof))
+        require([c for c in backend._coverage(expected) if c['session_id'] != repair_session] == other_clients)
+        require(backend._pid_proofs([c['pid'] for c in other_clients]) == other_proofs)
+        require(all(backend._terminal(address)['labels'] == labels
+                    for address, labels in app_labels.items()))
+        require(not backend.scan({closed_session}))
         require(store.read(receipt['adoption_backup']) is not None)
     observe('herdr-core', expected)
     cli('restore')
@@ -1399,6 +1602,7 @@ def prepare_fixture(provider):
     restart_and_recover(plan, pid)
     kept_shell_kill_recovery(plan, pid, lost_reply=False)
     kept_shell_kill_recovery(plan, pid, lost_reply=True)
+    print('F07: app-labels-and-tab-identities-recovery-complete')
     STEP = 'arm-core-boot'
     require(unit('is-enabled', 'remote-herdr-restore.timer') == 'enabled')
     unit('start', 'remote-herdr-restore.timer')

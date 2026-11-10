@@ -28,6 +28,31 @@
   `dbsctr/dotfiles_ai_distribution/RRW-007H` and a draft PR, never main. Bootstrap
   and pins unchanged. Fork A owns setup preference, pins and rollout; 007I editor
   recovery stays separate. Pre-support helper rollback still needs explicit review.
+## 2026-11-10 — Desktop ownership and ID compatibility (RRW-007G-R2)
+
+- Correct INT-082 ownership matching at every shared matcher and two raw-label
+  guards: ignore app display metadata, compare the complete `remote-herdr-*`
+  namespace exactly. Keep required owner/pane, session compatibility, malformed
+  record refusal and duplicate-creation guards. Private receipts remain intact.
+- Separate space, tab and all-tree-node ID namespaces. Permit app tab/root reuse
+  and one-child rows, but still refuse missing/duplicate same-kind IDs across
+  spaces/tabs, branch/leaf aliasing, duplicate terminal/session and unsafe bounds.
+  Preserve raw documents and leaf-only CAS.
+- Synthetic retained-journal recovery covers mixed live/repair clients and both
+  R1 interruption points. Disposable native qualification adds actual public
+  `terminal.label` effects and three fixture-authored app-shaped tabs, then uses
+  installed `recover` against genuine controller-written `restore_pending`.
+  Fixture documents do not claim actual Desktop UI producer execution.
+- Local affected validation: 775 tests and 55 subtests pass; affected Linux/Python
+  3.12 typing is clean. Independent source reviews found no blocker. Hosted/native
+  and full-suite evidence belongs to the Cycle Record; no live recovery, hand-edited
+  journals, timeout relaxation or gate exception is implied.
+- Contract `b925d036`, implementation `13ae0c56`, fixture `579f1000`; intended Final
+  Push is draft branch `dbsctr/dotfiles_ai_distribution/RRW-007G-R2`, never main.
+  Separate exact-head merge approval is required. Bootstrap, binary pins, inputs
+  and receipt/manifest schemas unchanged. Fork A owns pins/live recovery; 007H
+  builds on this hotfix with fresh qualification, and 007I remains separate.
+
 ## 2026-11-09 — Pending kept-shell recovery (RRW-007G-R1)
 
 - Repair INT-082 current-document kill reconciliation: ignore display-only churn,

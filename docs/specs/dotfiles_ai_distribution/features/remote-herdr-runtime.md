@@ -336,6 +336,40 @@ Use synthetic IDs, not live session prefixes or operator paths. Pins, live recov
 rollout, VM/Mac changes, 007H wrapper/config/activation work and 007I editor recovery
 remain outside this slice. Fork A owns the subsequent reviewed live operation.
 
+### Desktop ownership and identity compatibility (RRW-007G-R2 / INT-082)
+
+App display labels and ownership labels have different owners. At every shared
+`_same_labels` consumer, including duplicate-creation checks, compare exactly the
+complete `remote-herdr-*` namespace. Ignore non-ownership labels such as `where`,
+`herdr.seen`, `herdr.space` and `herdr.tab`, including changes during recovery.
+Missing or changed owner/pane/session, extra ownership keys and malformed label
+records still refuse. Preserve the existing omitted/empty optional session-label
+compatibility for plain shells; never infer ownership from app display labels.
+
+The app may use its tab ID as its row root ID, including a one-child row. Validate
+IDs independently for spaces, tabs and all tree nodes; cross-kind reuse is legal.
+Within each kind, missing or duplicate IDs still refuse, including duplicate nodes
+across different tabs or spaces. All node IDs share one node namespace so a branch
+and leaf cannot alias. Stable leaf bindings and duplicate terminal/session guards
+remain exact. Projection may collapse a one-child row in its private canonical
+plan, but it must not rewrite the raw app document, names, layout or opaque fields.
+
+Given retained `restore_pending`, selected `herdr-core`, manifest and receipt with
+mixed live and repair terminals, `remote-herdr recover` must complete after these
+compatibility corrections without hand-editing journals or manufacturing a new
+manifest. Already-live exact sessions stay live; required repairs retain R1's
+ownership, original-process, exit, desired-session absence and document/version
+checks. User-closed views remain closed; no duplicate client or backend restart.
+
+Qualify synthetic positive/negative label and ID cases plus disposable native
+terminals carrying app labels and app-created-tab document structure. Distinguish
+actual app-producer evidence from a fixture-authored compatible document; unavailable
+producer capability is not a native app UI pass. Retain both R1 interruption cases,
+held-turn, raw-document leaf-only CAS and both-boot evidence. No new CLI/configuration
+inputs, receipt/manifest schema, binary pins, bootstrap or live operations. Fork A
+retains the live journal and exclusively owns live recovery and pinning. 007H must
+build on this separately qualified hotfix; 007I remains separate.
+
 ### Kept-shell kill-intent recovery (RRW-007G-R1 / INT-082)
 
 A terminal's presentation is not its process identity. Title, status/records,
@@ -463,6 +497,8 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Pending shell kill, original shell still live | Recovery controller | Reprove original identity and unchanged version; complete kill; prove exit |
 | Pending shell kill, terminal already finished | Recovery controller | Same binding/labels/version and original process exit; observe without another kill |
 | Presentation churn at kill boundary | Recovery controller | Ignore display fields only; retain identity/layout guards and value-free field refusal labels |
+| App display labels alongside ownership labels | Shared ownership matcher | Ignore non-ownership labels; compare complete remote-herdr namespace exactly |
+| App tab ID reused by its row root | Current-document projector | Separate kind namespaces; retain global tree-node uniqueness and raw document |
 | Any uncertain or failed transition | Recovery controller | Retain evidence; no duplicate activation |
 
 **Text Equivalent:** The foundation installs the reviewed core binary, with

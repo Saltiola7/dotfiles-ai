@@ -228,6 +228,193 @@ def test_r1_fault_fixture_uses_native_keep_and_installed_restore_only():
             prepare.index("STEP = 'arm-core-boot'"))
 
 
+def test_r2_app_document_preserves_nodes_metadata_and_semantics_without_aliases():
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    layout = runpy.run_path(str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr/layout.py'))
+    plan = {'schema_version': 1, 'spaces': [{'name': 'Synthetic', 'directory': '/fixture',
+        'tabs': [{'name': str(i), 'panes': [
+            {'key': 's0-t' + str(i) + '-p0', 'cwd': '/fixture', 'session_id': 'ses_synthetic' + str(i)}],
+            'root': {'pane': 's0-t' + str(i) + '-p0'}} for i in range(3)]}]}
+    document = layout['to_app_document'](plan, {'s0-t' + str(i) + '-p0': 't' + str(i + 1)
+                                              for i in range(3)})
+    document['metadata'] = {'opaque': [None, {'value': 7}]}
+    for tab in document['spaces'][0]['tabs']:
+        tab['opaque'] = {'preserved': [1, 2]}
+        tab['root']['size'] = {'weight': 7}
+        tab['root']['content']['opaque'] = {'value': True}
+    original = copy.deepcopy(document)
+    result = fixture['app_compatible_document'](document)
+    assert document == original
+    ids = []
+    for before, tab in zip(original['spaces'][0]['tabs'], result['spaces'][0]['tabs']):
+        assert tab['root'] == {'id': tab['id'], 'type': 'row', 'children': [before['root']]}
+        assert tab['opaque'] == before['opaque']
+        ids.extend([tab['root']['id'], tab['root']['children'][0]['id']])
+    assert len(ids) == len(set(ids)) == 6
+    assert result['metadata'] == original['metadata']
+    assert fixture['app_compatible_document'](result) == result
+    classify = lambda leaf, address: {'cwd': '/fixture', 'session_id':
+                                     'ses_synthetic' + str(int(address[1:]) - 1)}
+    projected, _ = layout['project_app_document'](result, classify)
+    assert projected == plan
+    # Rebinding must still find precisely one block after cross-kind ID reuse.
+    tab = result['spaces'][0]['tabs'][0]
+    leaf = tab['root']['children'][0]['id']
+    rebound = fixture['expected_leaf_rebind'](result, leaf, 't1', 't4')
+    expected = copy.deepcopy(result)
+    expected['spaces'][0]['tabs'][0]['root']['children'][0]['content']['terminal'] = 't4'
+    assert rebound == expected
+    rebound['metadata']['opaque'].append('independent')
+    assert result['metadata'] == original['metadata']
+    for case in ('node-alias', 'tab-alias', 'cross-tab-node', 'wrong-count'):
+        invalid = copy.deepcopy(document)
+        tabs = invalid['spaces'][0]['tabs']
+        if case == 'node-alias':
+            tabs[0]['root']['id'] = tabs[0]['id']
+        elif case == 'tab-alias':
+            tabs[1]['id'] = tabs[0]['id']
+        elif case == 'cross-tab-node':
+            tabs[1]['root']['id'] = tabs[0]['root']['id']
+        else:
+            tabs.pop()
+        try:
+            fixture['app_compatible_document'](invalid)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError('ambiguous fixture identity must refuse')
+
+
+def test_r2_native_label_transport_is_fixed_bounded_and_preserves_ownership(monkeypatch):
+    for address in ('t7', 'ta', 't10'):
+        check_r2_native_label_transport(monkeypatch, address)
+
+
+def check_r2_native_label_transport(monkeypatch, address):
+    # Synthetic wire only. No socket, native endpoint, proc or environment probe.
+    from types import SimpleNamespace
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    namespace = fixture['native_app_labels'].__globals__
+    monkeypatch.syspath_prepend(str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr'))
+    import protocol
+    import stat
+    import struct
+    methods = protocol.METHODS
+    monkeypatch.setattr(namespace['os'], 'getuid', lambda: 1000)
+    parent = SimpleNamespace(parents=(), lstat=lambda: SimpleNamespace(st_mode=stat.S_IFDIR | 0o700,
+                                                                      st_uid=1000))
+    class Endpoint:
+        def __init__(self): self.parent = parent
+        def lstat(self): return SimpleNamespace(st_mode=stat.S_IFSOCK | 0o600, st_uid=1000)
+        def __str__(self): return '/synthetic/socket'
+    class Backend:
+        labels = {'remote-herdr-owner': 'synthetic', 'remote-herdr-pane': 'p0',
+                  'remote-herdr-session': 'ses_synthetic'}
+        def _core_endpoint(self): return Endpoint()
+        def endpoint_present(self, target): return target == 'herdr-core'
+        def _terminal(self, address): return {'address': address, 'labels': dict(self.labels)}
+    backend = Backend()
+    class Peer:
+        compatible = True
+        sent: list = []
+        pending = b''
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def settimeout(self, timeout): assert timeout == 30
+        def connect(self, endpoint): assert endpoint == '/synthetic/socket'
+        def getsockopt(self, *args): return struct.pack('3i', 7, 1000, 1000)
+        def sendall(self, raw):
+            message = json.loads(raw)
+            self.sent.append(message)
+            if message['method'] == 'hello':
+                assert message['params'] == {'framed': False}
+                result = {'version': '0.1.18' if self.compatible else 'unsupported',
+                          'generation': 1, 'framed': False, 'methods': ['terminal.label']}
+            else:
+                assert message['method'] == 'terminal.label'
+                assert set(message['params']) == {'terminal', 'labels'}
+                assert message['params']['terminal'] == address
+                assert set(message['params']['labels']) == {'where', 'herdr.seen', 'herdr.space', 'herdr.tab'}
+                backend.labels = dict(backend.labels, **message['params']['labels'])
+                result = backend._terminal(address)
+            self.pending = json.dumps({'jsonrpc': '2.0', 'id': message['id'], 'result': result}).encode() + b'\n'
+        def recv(self, size):
+            assert 0 < size <= 65536
+            part, self.pending = self.pending[:17], self.pending[17:]
+            return part
+    peer = Peer()
+    # macOS need not expose Linux SO_PEERCRED; this is only a synthetic wire test.
+    monkeypatch.setattr(namespace['socket'], 'SO_PEERCRED', 17, raising=False)
+    monkeypatch.setattr(namespace['socket'], 'socket', lambda *args: peer)
+    original = dict(backend.labels)
+    for changed in (False, True):
+        labels = fixture['native_app_labels'](backend, address, changed=changed)
+        assert {key: labels[key] for key in original} == original
+        assert labels['herdr.seen'] == ('2' if changed else '1')
+    assert [message['method'] for message in peer.sent] == ['hello', 'terminal.label'] * 2
+    assert protocol.METHODS == methods and 'terminal.label' not in methods
+    peer.sent = []
+    peer.compatible = False
+    try:
+        fixture['native_app_labels'](backend, address)
+    except RuntimeError as error:
+        assert not str(error)
+    else:
+        raise AssertionError('unsupported native version must refuse before labeling')
+    assert [message['method'] for message in peer.sent] == ['hello']
+
+
+def test_r2_source_requires_real_native_labels_retained_recover_and_r1_guards():
+    source = (FIXTURE / 'verify-user.py').read_text()
+    functions = {n.name: n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
+    label = ast.get_source_segment(source, functions['native_app_labels'])
+    assert label is not None
+    for witness in ('3965a46caae095a3ead01de237fa13955e52b8c6', 'schema/hc.openrpc.json',
+                    "(2, 'terminal.label', {'terminal': address, 'labels': labels})",
+                    'protocol.MAX_MESSAGE', 'protocol.decode(raw)', 'socket.SO_PEERCRED',
+                    "'herdr.seen'", "'herdr.space'", "'herdr.tab'", "'where'",
+                    "actual['labels'] == dict(before.get('labels', {}), **labels)"):
+        assert witness in label
+    assert 'protocol.METHODS' not in source
+    edited = ast.get_source_segment(source, functions['edited_document_recovery'])
+    assert edited is not None
+    for witness in ("Controller(store, backend).switch('herdr-core')",
+                    "Controller(store, backend).recover()", "['phase'] == 'restore_pending'",
+                    'app_compatible_document(edited)', 'native_app_labels(backend, address)',
+                    "require(refusal.returncode == 75)", "cli('recover')",
+                    'signal.pidfd_send_signal(fd, signal.SIGKILL)', 'backend._shell_proof(current)',
+                    'backend._pids_absent(shell_proof)', '== other_clients',
+                    'expected_leaf_rebind(baseline, repair_leaf, repair_address, replacement)',
+                    '- addresses == {replacement}', 'write(EXPECTED, expected)'):
+        assert witness in edited
+    assert edited.index("cli('recover')") < edited.index("cli('restore')")
+    r1 = ast.get_source_segment(source, functions['kept_shell_kill_recovery'])
+    assert r1 is not None
+    assert r1.index('adopt_app_compatibility(plan)') < r1.index("STEP = 'kept-shell-client-loss'")
+    assert r1.index("receipt['pending']") < r1.index('native_app_labels(backend, address, changed=True)')
+    prepare = ast.get_source_segment(source, functions['prepare_fixture'])
+    assert prepare is not None
+    assert prepare.index('kept_shell_kill_recovery(plan, pid, lost_reply=True)') < prepare.index(
+        "print('F07: app-labels-and-tab-identities-recovery-complete')")
+    assert 'NOT actual Desktop UI producer evidence' in source
+
+
+def test_observation_diagnostics_separate_coverage_and_native_ownership():
+    source = (FIXTURE / 'verify-user.py').read_text()
+    functions = {node.name: node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef)}
+    observe = ast.get_source_segment(source, functions['observe'])
+    owners = ast.get_source_segment(source, functions['transient_owners'])
+    assert observe is not None and owners is not None
+    for suffix in ('client-session-set', 'client-session-count', 'shared-backend-ready',
+                   'client-argv', 'client-executable', 'client-connected', 'session-api',
+                   'session-api-identity', 'session-api-directory'):
+        assert "STEP = 'observe-' + target + '-" + suffix + "'" in observe
+    for suffix in ('transient-unit-list', 'transient-unit-families', 'transient-unit-property',
+                   'client-cgroup', 'no-persistent-units', 'exclusive-endpoint'):
+        assert "STEP = 'observe-herdr-core-" + suffix + "'" in owners
+    assert "wait(lambda: f01.connected(client['pid'], port), seconds=30)" in observe
+
+
 class QualificationSourceTests(unittest.TestCase):
     def test_boot_verify_diagnostics_keep_only_fixed_refusal_labels(self):
         fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))

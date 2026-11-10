@@ -53,6 +53,75 @@ def test_current_app_projection_and_rebind_preserve_opaque_document(layout):
         layout.rebind_app_document(document, {'s0-t0-p2': ('t9', 't4')})
 
 
+def test_r2_cross_kind_ids_and_one_child_row_preserve_raw_document(layout):
+    document = layout.to_app_document(plan(), {f's0-t0-p{i}': f't{i + 1}' for i in range(3)})
+    space = document['spaces'][0]
+    tab = space['tabs'][0]
+    leaf = tab['root']['children'][0]
+    space['id'] = tab['id'] = 'app-tab'
+    tab['root'] = {'id': 'app-tab', 'type': 'row', 'children': [leaf],
+                   'opaque': {'preserve': [None]}, 'size': {'weight': 1}}
+    document['metadata'] = {'untouched': True}
+    before = copy.deepcopy(document)
+    projected, bindings = layout.project_app_document(
+        document, lambda leaf, address: {'cwd': '/synthetic/project', 'session_id': 'ses_Test'})
+    assert projected['spaces'][0]['tabs'][0]['root'] == {'pane': 's0-t0-p0'}
+    assert bindings == {'s0-t0-p0': {'leaf': leaf['id'], 'terminal': 't1'}}
+    changed = layout.rebind_app_document(document, {leaf['id']: ('t1', 't9')})
+    expected = copy.deepcopy(before)
+    expected['spaces'][0]['tabs'][0]['root']['children'][0]['content']['terminal'] = 't9'
+    assert changed == expected and document == before
+
+
+@pytest.mark.parametrize('kind', ['space', 'tab', 'node', 'branch', 'branch-leaf'])
+@pytest.mark.parametrize('placement', ['same-space', 'cross-space'])
+def test_r2_same_kind_duplicate_ids_still_refuse(layout, kind, placement):
+    document = layout.to_app_document(plan(), {f's0-t0-p{i}': f't{i + 1}' for i in range(3)})
+    space = document['spaces'][0]
+    tab = space['tabs'][0]
+    other = copy.deepcopy(tab)
+    other['id'] = 'other-tab'
+    def rename(node):
+        node['id'] += '-other'
+        if node['type'] == 'block':
+            node['content']['terminal'] += '0'
+        else:
+            for child in node['children']:
+                rename(child)
+    rename(other['root'])
+    if placement == 'cross-space' or kind == 'space':
+        second = copy.deepcopy(space)
+        second['id'] = space['id'] if kind == 'space' else 'other-space'
+        second['tabs'] = [other]
+        document['spaces'].append(second)
+    else:
+        space['tabs'].append(other)
+    if kind == 'tab':
+        other['id'] = tab['id']
+    elif kind == 'node':
+        other['root']['children'][0]['id'] = tab['root']['children'][0]['id']
+    elif kind == 'branch':
+        other['root']['id'] = tab['root']['id']
+    elif kind == 'branch-leaf':
+        other['root']['children'][0]['id'] = tab['root']['id']
+    with pytest.raises(ValueError, match='identity'):
+        layout.project_app_document(document, lambda leaf, address: None)
+
+
+@pytest.mark.parametrize('kind', ['space', 'tab', 'node'])
+@pytest.mark.parametrize('bad', [None, '', 1, [], 'missing'])
+def test_r2_each_identity_kind_requires_nonempty_string(layout, kind, bad):
+    document = layout.to_app_document(plan(), {f's0-t0-p{i}': f't{i + 1}' for i in range(3)})
+    space = document['spaces'][0]
+    tab = space['tabs'][0]
+    target = space if kind == 'space' else tab if kind == 'tab' else tab['root']
+    target['id'] = bad
+    if bad == 'missing':
+        target.pop('id')
+    with pytest.raises(ValueError):
+        layout.project_app_document(document, lambda leaf, address: None)
+
+
 @pytest.mark.parametrize('malformed', ['duplicate-leaf', 'duplicate-terminal', 'remote-address',
                                       'machine', 'bad-weight', 'bad-axis', 'missing-id'])
 def test_current_app_projection_refuses_ambiguous_or_remote_structure(layout, malformed):

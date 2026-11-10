@@ -112,3 +112,30 @@ def test_r1_completion_artifacts_preserve_hotfix_and_rollout_boundaries():
                   'installed CLI', '60644736', 'never main', 'exact-head approval',
                   '007H', '007I', 'address-only'):
         assert token in entry
+
+
+def test_r2_desktop_compatibility_contract_preserves_ownership_and_identity():
+    root = Path(__file__).parents[1]
+    text = (root / 'docs/specs/dotfiles_ai_distribution/features/remote-herdr-runtime.md').read_text()
+    section = text.split('### Desktop ownership and identity compatibility (RRW-007G-R2 / INT-082)', 1)[1].split('\n### ', 1)[0]
+    for token in ('_same_labels', 'duplicate-creation', 'complete `remote-herdr-*`',
+                  '`where`', '`herdr.seen`', '`herdr.space`', '`herdr.tab`',
+                  'extra ownership keys', 'independently for spaces, tabs and all tree nodes',
+                  'one-child row', 'branch', 'leaf', 'restore_pending', 'remote-herdr recover',
+                  'without hand-editing journals', 'Already-live exact sessions stay live',
+                  'actual app-producer evidence', 'both-boot', 'Fork A', '007H', '007I'):
+        assert token in section
+
+
+def test_r2_completion_artifacts_keep_live_recovery_separate():
+    root = Path(__file__).parents[1] / 'docs/specs/dotfiles_ai_distribution'
+    readme = (root / 'README.md').read_text()
+    entry = (root / 'CHANGELOG.md').read_text().split(
+        '## 2026-11-10 — Desktop ownership and ID compatibility (RRW-007G-R2)', 1)[1].split('\n## ', 1)[0]
+    for token in ('RRW-007G-R2', 'remote-herdr-*', 'one-child row',
+                  'restore_pending', 'remote-herdr recover', 'Fork A'):
+        assert token in readme
+    for token in ('INT-082', '775 tests', '55 subtests', 'terminal.label',
+                  'genuine controller-written', 'actual Desktop UI', '13ae0c56',
+                  'never main', 'exact-head merge approval', '007H', '007I'):
+        assert token in entry
