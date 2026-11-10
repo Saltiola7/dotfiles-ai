@@ -336,6 +336,63 @@ Use synthetic IDs, not live session prefixes or operator paths. Pins, live recov
 rollout, VM/Mac changes, 007H wrapper/config/activation work and 007I editor recovery
 remain outside this slice. Fork A owns the subsequent reviewed live operation.
 
+### App-connected repair ordering (RRW-007G-R3 / INT-082)
+
+A connected desktop removes a pane whose referenced terminal finishes. New repair
+must not kill its referenced kept shell before a live replacement is ready and
+the proven leaf has been rebound by document-version CAS. Prefer per-leaf create,
+verify, rebind, then retire the old shell so one failed later repair cannot strand
+every earlier replacement outside the document. The original shell remains live
+until rebind. No duplicate exact-session client is permitted: an idle Bash is not
+an already-live OpenCode client, regardless of its retained launch metadata.
+
+Before creation, preserve ownership namespace, actual shell argv/cwd, PID/start-time,
+desired-session absence and current leaf/address/version proofs. Persist every
+effect intent before invoking native mutation. Before rebind, verify the exact
+created client, original shell identity, duplicate absence and unchanged leaf and
+version. After a proven CAS, retire only the captured old shell, never the live
+replacement. Prove its process exit independently of RPC acknowledgement. Raw
+document edits outside the owned leaf are not overwritten or synthesized.
+
+Crash recovery must distinguish pre-create, created/unbound, CAS-uncertain and
+post-rebind old-shell-stop stages. Accept a proven successful effect without
+repeating it; uncertainty remains durable until qualified. New private intent or
+repair fields require bounded exact validation; older adapters must conservatively
+refuse unsupported active forms. Retained R1/R2 intents remain readable using their
+original proofs, without inventing historical process identity. The R1 kill-first
+transition below describes legacy compatibility only; R3 owns new repair ordering.
+
+Given a retained pending `terminal.run`, inspect the actual current document and
+all native terminals, live **and finished**, using exact ownership-namespace labels.
+If its stable leaf is absent and no terminal carries those labels, resolve that
+repair as closed, retain its private history, and continue remaining repairs. Do
+not recreate the removed view or blindly repeat `terminal.run`. A finished match,
+duplicate match, conflicting ownership or replacement reference is not absence and
+must not be silently cleared. A present leaf with no terminal match remains an
+uncertain create, not permission to retry. Preserve process, layout and version
+guards around observations; never turn an observation into an atomicity claim.
+
+Recovery must continue from the reported complete switch journal and current
+receipt containing many repairs, already-created unbound replacements and a gone
+pending-run leaf. Project the actual current document without resurrecting user
+closures; rebind proven earlier creations before attempting new creates. Never
+hand-edit journals, fabricate a clean manifest, discard uncertainty or restart the
+shared backend. Ambiguous or changed original-process proofs still refuse.
+
+Native disposable qualification runs a concurrent app-like client which removes
+panes when their referenced terminals finish, using version-checked app document
+writes. Assert the replacement is live and bound when old shells finish; exercise
+retained legacy mixed state and interruptions around run, readiness, CAS and stop.
+Keep held-turn, R1/R2 compatibility, duplicate, private-backup, restart/stop and
+both-boot evidence. Fixed refusal labels expose no native values. This is an
+app-like protocol client, not a claim of actual Desktop UI execution.
+
+Authority: INT-082, #524 `d8e9e0f`, manifest
+`0ac1088028a1d3aca0cff09897bdce2ff3cb0829647a6bd885179af70715a8b3`.
+No new public CLI/configuration inputs, bootstrap or binary pin changes. Fork A
+exclusively owns live recovery, timer decisions, pinning and rollout. 007I remains
+paused, with all work retained, until this separately approved hotfix is delivered.
+
 ### Desktop ownership and identity compatibility (RRW-007G-R2 / INT-082)
 
 App display labels and ownership labels have different owners. At every shared
@@ -499,6 +556,9 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Presentation churn at kill boundary | Recovery controller | Ignore display fields only; retain identity/layout guards and value-free field refusal labels |
 | App display labels alongside ownership labels | Shared ownership matcher | Ignore non-ownership labels; compare complete remote-herdr namespace exactly |
 | App tab ID reused by its row root | Current-document projector | Separate kind namespaces; retain global tree-node uniqueness and raw document |
+| New kept-shell repair while app is connected | Recovery controller | Create/verify replacement, CAS leaf, then stop only the captured old shell |
+| Pending run with gone leaf and zero live or finished label matches | Recovery controller | Preserve closure, resolve repair, continue others without replay |
+| Crash after leaf CAS but before old-shell exit | Recovery controller | Prove replacement binding and original identity; reconcile old-shell stop only |
 | Any uncertain or failed transition | Recovery controller | Retain evidence; no duplicate activation |
 
 **Text Equivalent:** The foundation installs the reviewed core binary, with
