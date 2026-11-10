@@ -28,6 +28,30 @@
   `dbsctr/dotfiles_ai_distribution/RRW-007H` and a draft PR, never main. Bootstrap
   and pins unchanged. Fork A owns setup preference, pins and rollout; 007I editor
   recovery stays separate. Pre-support helper rollback still needs explicit review.
+## 2026-11-09 — Pending kept-shell recovery (RRW-007G-R1)
+
+- Repair INT-082 current-document kill reconciliation: ignore display-only churn,
+  finish a proven original live-shell kill or observe its completed outcome without
+  another kill. Preserve ownership, PID/start-time, actual argv/directory, native
+  launch identity, exit, desired-session absence and raw-document/version guards.
+  Identity/layout changes retain the intent and refuse with fixed field labels.
+- New private kill intents optionally capture bounded identity facts; legacy
+  intents remain readable under their original proofs without invented historical
+  argv. No new CLI/configuration inputs, bootstrap change or binary pin change.
+  Older adapters refuse unsupported extended intents; never hand-edit journals.
+- Local affected validation: 719 tests and 55 subtests pass; affected Linux/Python
+  3.12 typing is clean. Independent source reviews found no remaining blocker.
+  Hosted fixtures exercise real native-kept shells, legacy pre-effect interruption
+  and lost successful kill replies, then resume through the installed CLI while
+  preserving backend identity, other clients and independent leaf-only expectations.
+  Hosted/native/full-suite results remain separate Cycle Record evidence, not a
+  live deployment claim. No gate exceptions or timeout relaxations.
+- Gate history begins `4ecc381c`, implementation `a60663c4`, hosted fixture
+  `60644736`; intended Final Push is the draft branch
+  `dbsctr/dotfiles_ai_distribution/RRW-007G-R1`, never main. Merge needs separate
+  exact-head approval. Fork A owns pins and live recovery; 007H reconciliation and
+  007I editor recovery remain separate. Native kill is address-only; repeated
+  observations narrow races but do not promise an atomic conditional kill.
 
 ## 2026-11-09 — Restore current desktop bindings (RRW-007G)
 

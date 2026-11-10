@@ -86,3 +86,29 @@ def test_current_document_completion_artifacts_preserve_rollout_and_compatibilit
                   'No new keys/inputs', 'Fork A', 'no failed evidence is waived',
                   'Final Push', 'draft PR #299', 'never main'):
         assert token in entry
+
+
+def test_kept_shell_kill_intent_contract_retains_identity_and_exit_guards():
+    root = Path(__file__).parents[1]
+    text = (root / 'docs/specs/dotfiles_ai_distribution/features/remote-herdr-runtime.md').read_text()
+    section = text.split('### Kept-shell kill-intent recovery (RRW-007G-R1 / INT-082)', 1)[1].split('\n### ', 1)[0]
+    for token in ('presentation is not its process identity', 'same original owned idle shell',
+                  'original captured processes absent', 'unchanged document/version',
+                  'not blind mutation replay', 'single', 'identity', 'remain readable',
+                  'never observed values', 'Unknown extra intent fields', 'No new CLI/configuration input',
+                  'lost successful kill replies', 'both-boot', 'Fork A', '007H', '007I'):
+        assert token in section
+
+
+def test_r1_completion_artifacts_preserve_hotfix_and_rollout_boundaries():
+    root = Path(__file__).parents[1] / 'docs/specs/dotfiles_ai_distribution'
+    readme = (root / 'README.md').read_text()
+    entry = (root / 'CHANGELOG.md').read_text().split(
+        '## 2026-11-09 — Pending kept-shell recovery (RRW-007G-R1)', 1)[1].split('\n## ', 1)[0]
+    for token in ('RRW-007G-R1', 'legacy intents', 'fixed field labels',
+                  'Fork A', 'Bootstrap, binary pins and setup inputs are unchanged'):
+        assert token in readme
+    for token in ('INT-082', '719 tests', '55 subtests', 'Older adapters refuse',
+                  'installed CLI', '60644736', 'never main', 'exact-head approval',
+                  '007H', '007I', 'address-only'):
+        assert token in entry

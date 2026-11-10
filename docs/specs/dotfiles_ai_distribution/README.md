@@ -29,6 +29,16 @@ follow-ups belong to RRW-007H and overlay editor recovery to RRW-007I. Schema-1
 edited receipts with unresolved old mutation intents still require conservative
 recovery; no automatic downgrade or hand-edited receipt migration is supported.
 
+RRW-007G-R1 reconciles a current-document pending shell kill under the original
+ownership, process, exit and document/version proofs. Display-only terminal churn
+does not block it: complete the proven original live-shell kill, or observe its
+already-finished outcome without another kill. New private intents optionally
+retain exact actual/launch identity; legacy intents retain their original proofs
+without inventing historical argv. Real identity/layout changes still refuse with
+fixed field labels that expose no values. Do not hand-edit journals or discard
+pending evidence. Older adapters refuse extended intents; Fork A owns pinning and
+any live recovery. Bootstrap, binary pins and setup inputs are unchanged.
+
 The [remote default activation](features/remote-worktree-activation.md) initializes
 missing activation during explicit remote apply at the qualified exact home
 default only. Existing activation is never overwritten or automatically refreshed.
