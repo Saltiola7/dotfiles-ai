@@ -14,6 +14,8 @@ import subprocess
 import tomllib
 import unittest
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / 'tests/remote_herdr_systemd'
@@ -282,7 +284,8 @@ def test_r2_app_document_preserves_nodes_metadata_and_semantics_without_aliases(
             raise AssertionError('ambiguous fixture identity must refuse')
 
 
-def test_r2_native_label_transport_is_fixed_bounded_and_preserves_ownership(monkeypatch):
+@pytest.mark.parametrize('address', ['t7', 'ta', 't10'])
+def test_r2_native_label_transport_is_fixed_bounded_and_preserves_ownership(monkeypatch, address):
     # Synthetic wire only. No socket, native endpoint, proc or environment probe.
     from types import SimpleNamespace
     fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
@@ -325,10 +328,10 @@ def test_r2_native_label_transport_is_fixed_bounded_and_preserves_ownership(monk
             else:
                 assert message['method'] == 'terminal.label'
                 assert set(message['params']) == {'terminal', 'labels'}
-                assert message['params']['terminal'] == 't7'
+                assert message['params']['terminal'] == address
                 assert set(message['params']['labels']) == {'where', 'herdr.seen', 'herdr.space', 'herdr.tab'}
                 backend.labels = dict(backend.labels, **message['params']['labels'])
-                result = backend._terminal('t7')
+                result = backend._terminal(address)
             self.pending = json.dumps({'jsonrpc': '2.0', 'id': message['id'], 'result': result}).encode() + b'\n'
         def recv(self, size):
             assert 0 < size <= 65536
@@ -340,7 +343,7 @@ def test_r2_native_label_transport_is_fixed_bounded_and_preserves_ownership(monk
     monkeypatch.setattr(namespace['socket'], 'socket', lambda *args: peer)
     original = dict(backend.labels)
     for changed in (False, True):
-        labels = fixture['native_app_labels'](backend, 't7', changed=changed)
+        labels = fixture['native_app_labels'](backend, address, changed=changed)
         assert {key: labels[key] for key in original} == original
         assert labels['herdr.seen'] == ('2' if changed else '1')
     assert [message['method'] for message in peer.sent] == ['hello', 'terminal.label'] * 2
@@ -348,7 +351,7 @@ def test_r2_native_label_transport_is_fixed_bounded_and_preserves_ownership(monk
     peer.sent = []
     peer.compatible = False
     try:
-        fixture['native_app_labels'](backend, 't7')
+        fixture['native_app_labels'](backend, address)
     except RuntimeError as error:
         assert not str(error)
     else:

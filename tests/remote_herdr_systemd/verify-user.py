@@ -926,12 +926,16 @@ def native_app_labels(backend, address, *, changed=False):
     result Terminal. This simulates an app's labels on REAL core records, not a
     terminal.get overlay and not actual Desktop UI producer evidence.
     """
+    global STEP
+    import layout
     import protocol
-    require(re.fullmatch(r't[0-9]+', address) is not None)
+    STEP = 'app-label-local-address'
+    require(layout._TERMINAL.fullmatch(address) is not None)
     before = backend._terminal(address)
     labels = {'where': 'fixture app changed' if changed else 'fixture app',
               'herdr.seen': '2' if changed else '1',
               'herdr.space': 'fixture-space', 'herdr.tab': 'fixture-tab'}
+    STEP = 'app-label-owned-endpoint'
     endpoint = backend._core_endpoint()
     # The adapter proves the existing endpoint and native version first. This
     # isolated transport sends ONLY hello and the pinned public label operation.
@@ -968,12 +972,15 @@ def native_app_labels(backend, address, *, changed=False):
                     and isinstance(answer.get('result'), dict))
             result = answer['result']
             if number == 1:
+                STEP = 'app-label-protocol-version'
                 require(result.get('version') == '0.1.18' and type(result.get('generation')) is int
                         and result['generation'] == 1 and result.get('framed') is False
                         and isinstance(result.get('methods'), list)
                         and 'terminal.label' in result['methods'])
             else:
+                STEP = 'app-label-response-address'
                 require(result['address'] == address)
+    STEP = 'app-label-preserved-ownership'
     actual = backend._terminal(address)
     require(actual['labels'] == dict(before.get('labels', {}), **labels))
     return actual['labels']
@@ -981,23 +988,33 @@ def native_app_labels(backend, address, *, changed=False):
 
 def adopt_app_compatibility(plan):
     """Real native CAS and label effects; installed restore adopts without churn."""
+    global STEP
+    STEP = 'app-adoption-read-current'
     Store, Native = adapter()
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         manifest = store.read('manifest.json')
         clients = backend._coverage(plan)
         document, version = backend._document()
+        STEP = 'app-adoption-three-tab-shape'
         document = app_compatible_document(document)
         labels = {address: native_app_labels(backend, address)
                   for address in manifest['receipt']['terminals'].values()}
+        STEP = 'app-adoption-document-cas'
         backend.core('doc.set', {'name': 'herdr-app', 'value': document, 'version': version})
         baseline, _ = backend._document()
         addresses = {t['address'] for t in backend._terminals()}
+    STEP = 'app-adoption-installed-restore'
     cli('restore')
     with Store(ROOT) as store:
         backend = Native(HOME, store)
-        require(backend._document()[0] == baseline and backend._coverage(plan) == clients)
+        STEP = 'app-adoption-raw-document'
+        require(backend._document()[0] == baseline)
+        STEP = 'app-adoption-client-identities'
+        require(backend._coverage(plan) == clients)
+        STEP = 'app-adoption-terminal-inventory'
         require({t['address'] for t in backend._terminals()} == addresses)
+        STEP = 'app-adoption-terminal-labels'
         require(all(backend._terminal(address)['labels'] == value for address, value in labels.items()))
 
 
