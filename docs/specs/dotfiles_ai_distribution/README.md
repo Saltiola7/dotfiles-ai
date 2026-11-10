@@ -39,6 +39,16 @@ fixed field labels that expose no values. Do not hand-edit journals or discard
 pending evidence. Older adapters refuse extended intents; Fork A owns pinning and
 any live recovery. Bootstrap, binary pins and setup inputs are unchanged.
 
+RRW-007G-R2 compares only the complete `remote-herdr-*` ownership namespace:
+desktop display labels (`where`, `herdr.seen`, `herdr.space`, `herdr.tab`) do not
+invalidate ownership, while missing/changed/extra ownership keys still refuse.
+Current app documents use distinct space/tab/tree-node ID namespaces, allowing a
+tab and its one-child row root to share an ID without allowing duplicate nodes.
+Retained `restore_pending` recovers through `remote-herdr recover` without journal
+edits; already-live clients, raw document and original exit/version checks remain.
+Native qualification distinguishes fixture-authored app-shaped documents from
+actual Desktop UI producer evidence. Fork A owns live recovery and pinning.
+
 The [remote default activation](features/remote-worktree-activation.md) initializes
 missing activation during explicit remote apply at the qualified exact home
 default only. Existing activation is never overwritten or automatically refreshed.
