@@ -14,8 +14,6 @@ import subprocess
 import tomllib
 import unittest
 
-import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / 'tests/remote_herdr_systemd'
@@ -284,8 +282,12 @@ def test_r2_app_document_preserves_nodes_metadata_and_semantics_without_aliases(
             raise AssertionError('ambiguous fixture identity must refuse')
 
 
-@pytest.mark.parametrize('address', ['t7', 'ta', 't10'])
-def test_r2_native_label_transport_is_fixed_bounded_and_preserves_ownership(monkeypatch, address):
+def test_r2_native_label_transport_is_fixed_bounded_and_preserves_ownership(monkeypatch):
+    for address in ('t7', 'ta', 't10'):
+        check_r2_native_label_transport(monkeypatch, address)
+
+
+def check_r2_native_label_transport(monkeypatch, address):
     # Synthetic wire only. No socket, native endpoint, proc or environment probe.
     from types import SimpleNamespace
     fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
