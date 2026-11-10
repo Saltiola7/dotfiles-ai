@@ -190,6 +190,23 @@ def test_r3_legacy_mixed_gone_pending_run_rebinds_existing_clients_first(backend
     assert not any(m in ('terminal.run', 'doc.set', 'terminal.kill') for m, _ in core.calls[before:])
 
 
+@pytest.mark.parametrize('owner', ['previous-transaction', 'testtx'])
+def test_r3_legacy_finished_session_history_is_not_a_pending_create(backend, owner):
+    core, receipt = mixed_legacy(backend, 6, 4)
+    for index in range(3):
+        historical = copy.deepcopy(core.terminals[f't{index + 1}'])
+        address = f'th{index}'
+        historical.update(address=address, state='finished', foreground=None,
+            labels={'remote-herdr-owner': owner, 'remote-herdr-pane': f's0-t{index}-p0',
+                    'remote-herdr-session': f'ses_mixed{index}'})
+        core.terminals[address] = historical
+    backend._reconcile_current_intent(receipt)
+    assert receipt['pending'] is None
+    for leaf in ('app-leaf-0', 'app-leaf-1'):
+        backend._replacement_proof(receipt['repairs'][leaf])
+    assert not any(method in ('terminal.run', 'terminal.kill', 'doc.set') for method, _ in core.calls)
+
+
 def test_r3_rebound_stop_requires_process_exit_not_rpc_acknowledgement(backend):
     core = AppCore(backend)
     manifest_for(backend, core)

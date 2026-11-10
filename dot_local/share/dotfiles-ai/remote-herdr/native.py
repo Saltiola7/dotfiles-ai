@@ -1996,9 +1996,10 @@ class Native:
                 raise NativeError('core repair guard labels changed')
             if terminal['address'] == repair['terminal']:
                 continue
-            related = (labels.get('remote-herdr-pane') == expected['remote-herdr-pane']
-                       or (expected.get('remote-herdr-session')
-                           and labels.get('remote-herdr-session') == expected['remote-herdr-session']))
+            same_pane = labels.get('remote-herdr-pane') == expected['remote-herdr-pane']
+            related = (same_pane
+                       or (terminal.get('state') != 'finished' and expected.get('remote-herdr-session')
+                            and labels.get('remote-herdr-session') == expected['remote-herdr-session']))
             current = ('create_id' in repair and labels.get('remote-herdr-repair') == repair['create_id'])
             if (self._same_labels(labels, expected) or current
                     or (related and (terminal.get('state') != 'finished' or 'create_id' not in repair))):
