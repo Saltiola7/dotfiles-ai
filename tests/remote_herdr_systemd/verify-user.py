@@ -710,28 +710,38 @@ def observe(target, plan):
         STEP = 'observe-' + target + '-client-coverage'
         clients = backend._coverage(plan)
         expected_sessions = {p['session_id'] for s in plan['spaces'] for t in s['tabs']
-                             for p in t['panes'] if p['session_id'] is not None}
+                              for p in t['panes'] if p['session_id'] is not None}
+        STEP = 'observe-' + target + '-client-session-set'
         require({client['session_id'] for client in clients} == expected_sessions)
+        STEP = 'observe-' + target + '-client-session-count'
         require(len(clients) == len(expected_sessions))
         f01 = load('f01', '/opt/f01/verify-user.py')
+        STEP = 'observe-' + target + '-shared-backend-ready'
         _, server = f01.ready()
         port = urlsplit(server).port
         require(port is not None)
         for client in clients:
+            STEP = 'observe-' + target + '-client-argv'
             backend._client_argv(client['pid'], client['session_id'])
+            STEP = 'observe-' + target + '-client-executable'
             require((Path('/proc') / str(client['pid']) / 'exe').resolve() == NATIVE)
             # Exact argv and a stored session alone do not prove attachment.
             # Reuse F01's native socket-owner proof against the shared backend.
+            STEP = 'observe-' + target + '-client-connected'
             wait(lambda: f01.connected(client['pid'], port), seconds=30)
         for space in plan['spaces']:
             for tab in space['tabs']:
                 for pane in tab['panes']:
                     if pane['session_id'] is None:
                         continue
+                    STEP = 'observe-' + target + '-session-api'
                     data = api('get', '/api/session/' + pane['session_id'])['data']
+                    STEP = 'observe-' + target + '-session-api-identity'
                     require(data['id'] == pane['session_id'])
+                    STEP = 'observe-' + target + '-session-api-directory'
                     require(data['location']['directory'] == pane['cwd'])
         if target == 'herdr-core':
+            STEP = 'observe-herdr-core-tui-inactive'
             require(unit('show', 'remote-herdr-tui.service', '-p', 'ActiveState', '--value') == 'inactive')
             transient_owners(backend, clients)
         else:
@@ -740,18 +750,25 @@ def observe(target, plan):
 
 
 def transient_owners(backend, clients):
+    global STEP
     # Upstream 3965a46 platform/systemd.rs owns all three unit families.
+    STEP = 'observe-herdr-core-transient-unit-list'
     units = json.loads(unit('list-units', '--all', '--output=json', '--no-pager', 'hc-*.service'))
     names = [item['unit'] for item in units]
     for prefix in ('hc-serve-', 'hc-hold-', 'hc-shutdown-'):
         matches = [name for name in names if name.startswith(prefix)]
+        STEP = 'observe-herdr-core-transient-unit-families'
         require(matches)
         for name in matches:
+            STEP = 'observe-herdr-core-transient-unit-property'
             require(unit('show', name, '-p', 'Transient', '--value') == 'yes')
     for client in clients:
+        STEP = 'observe-herdr-core-client-cgroup'
         cgroup = (Path('/proc') / str(client['pid']) / 'cgroup').read_text()
         require('hc-hold-' in cgroup and '.service' in cgroup)
+    STEP = 'observe-herdr-core-no-persistent-units'
     require(not list((HOME / '.config/systemd/user').glob('hc-*.service')))
+    STEP = 'observe-herdr-core-exclusive-endpoint'
     require(backend.endpoint_present('herdr-core') and not backend.endpoint_present('tui'))
 
 

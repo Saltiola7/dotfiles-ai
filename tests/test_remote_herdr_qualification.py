@@ -391,6 +391,22 @@ def test_r2_source_requires_real_native_labels_retained_recover_and_r1_guards():
     assert 'NOT actual Desktop UI producer evidence' in source
 
 
+def test_observation_diagnostics_separate_coverage_and_native_ownership():
+    source = (FIXTURE / 'verify-user.py').read_text()
+    functions = {node.name: node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef)}
+    observe = ast.get_source_segment(source, functions['observe'])
+    owners = ast.get_source_segment(source, functions['transient_owners'])
+    assert observe is not None and owners is not None
+    for suffix in ('client-session-set', 'client-session-count', 'shared-backend-ready',
+                   'client-argv', 'client-executable', 'client-connected', 'session-api',
+                   'session-api-identity', 'session-api-directory'):
+        assert "STEP = 'observe-' + target + '-" + suffix + "'" in observe
+    for suffix in ('transient-unit-list', 'transient-unit-families', 'transient-unit-property',
+                   'client-cgroup', 'no-persistent-units', 'exclusive-endpoint'):
+        assert "STEP = 'observe-herdr-core-" + suffix + "'" in owners
+    assert "wait(lambda: f01.connected(client['pid'], port), seconds=30)" in observe
+
+
 class QualificationSourceTests(unittest.TestCase):
     def test_core_stop_failure_labels_are_fixed_and_cover_current_recovery(self):
         tree = ast.parse((FIXTURE / 'verify-user.py').read_text())
