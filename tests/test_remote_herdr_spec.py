@@ -153,3 +153,17 @@ def test_r3_app_connected_transition_keeps_replacement_live_before_retirement():
                   '0ac1088028a1d3aca0cff09897bdce2ff3cb0829647a6bd885179af70715a8b3',
                   'Fork A', '007I'):
         assert token in section
+
+
+def test_r3_completion_artifacts_keep_recovery_authority_and_provenance_exact():
+    root = Path(__file__).parents[1] / 'docs/specs/dotfiles_ai_distribution'
+    readme = (root / 'README.md').read_text()
+    entry = (root / 'CHANGELOG.md').read_text().split(
+        '## 2026-11-10 — App-connected restore ordering (RRW-007G-R3)', 1)[1].split('\n## ', 1)[0]
+    for token in ('RRW-007G-R3', 'CAS-rebind', 'recover', 'complete switch journal',
+                  'closed without replaying', 'Fork A', 'RRW-007I'):
+        assert token in readme
+    for token in ('#524', '924 tests', '68 subtests', 'generation', 'pre-kill oracle',
+                  'Native/Controller', 'uninstrumented idempotence', 'Desktop GUI',
+                  'never main', 'separate approval', '007I', '30a5b01b'):
+        assert token in entry
