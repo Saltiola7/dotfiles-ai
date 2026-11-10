@@ -372,12 +372,25 @@ must not be silently cleared. A present leaf with no terminal match remains an
 uncertain create, not permission to retry. Preserve process, layout and version
 guards around observations; never turn an observation into an atomicity claim.
 
+New repairs may carry a private `source` identity snapshot and `create_id` of
+exactly 32 lowercase hexadecimal characters, bound to a `remote-herdr-repair`
+ownership label. Each new admitted creation gets a fresh generation; unrelated
+finished historical generations are not evidence of that create. A matching
+current-generation finished record still blocks absence claims. Legacy intents
+without a generation retain their original label meaning. Per-leaf CAS intents
+bind `leaf` and exact `replacement` process proof; post-CAS kill intents bind a
+validated `rebound` document/version and replacement proof in addition to original
+shell identity. These are private bounded extensions, not setup inputs.
+
 Recovery must continue from the reported complete switch journal and current
 receipt containing many repairs, already-created unbound replacements and a gone
 pending-run leaf. Project the actual current document without resurrecting user
 closures; rebind proven earlier creations before attempting new creates. Never
 hand-edit journals, fabricate a clean manifest, discard uncertainty or restart the
 shared backend. Ambiguous or changed original-process proofs still refuse.
+With a complete switch journal, explicit `recover` for selected core invokes the
+same native current-document reconciliation as `restore`; it does not replay the
+completed switch or rewrite its history. Complete TUI journals remain a no-op.
 
 Native disposable qualification runs a concurrent app-like client which removes
 panes when their referenced terminals finish, using version-checked app document
