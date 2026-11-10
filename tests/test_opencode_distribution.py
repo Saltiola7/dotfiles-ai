@@ -71,6 +71,7 @@ else:
             ['chezmoi', '-S', str(ROOT), '--config', '/dev/null', '--config-format', 'toml',
              '--override-data', json.dumps(values), 'execute-template'],
             input=template, text=True, capture_output=True, check=True).stdout)
+        subprocess.run(['/bin/bash', '-n', str(script)], check=True, capture_output=True)
         scripts[name] = script
     return native, state, scripts
 
@@ -114,6 +115,56 @@ def test_native_host_routes_without_implicit_recovery_pacing(native_host_fixture
     else:
         assert json.loads(result.stdout) == expected
     assert (Path(os.environ['HOME']) / 'paced').exists() == paced
+
+
+@pytest.mark.parametrize('argv,expected,shared', [
+    (['--'], ['--'], True),
+    (['--', '--auto', '--server', '', 'mini'], ['--', '--auto', '--server', '', 'mini'], True),
+    (['--standalone', '--', '--auto'], ['--standalone', '--', '--auto'], False),
+    (['--server', 'http://localhost:1234', '--', 'api'],
+     ['--server', 'http://localhost:1234', '--', 'api'], False),
+    (['mini', '--', '--help', ''], ['mini', '--', '--help', ''], True),
+    (['--prompt', '--'], ['--prompt', '--', '--auto'], True),
+    (['--session', '--', '--'], ['--session', '--', '--'], True),
+])
+def test_native_wrapper_separator_preserves_exact_tail(native_host_fixture, argv, expected, shared):
+    _, _, scripts = native_host_fixture
+    result = subprocess.run(['/bin/bash', str(scripts['opencode']), *argv],
+                            env={**os.environ, 'HERDR_ENV': '1'}, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    if shared:
+        at = 1 if argv[0] == 'mini' else 0
+        expected = [*expected[:at], '--server', 'http://127.0.0.1:12345', *expected[at:]]
+    assert json.loads(result.stdout) == expected
+
+
+@pytest.mark.parametrize('argv,expected', [
+    (['--'], ['--']),
+    (['--', '--server', '--auto', ''], ['--', '--server', '--auto', '']),
+    (['--prompt', '--'], ['--prompt', '--', '--auto']),
+    (['--session', '--', '--'], ['--session', '--', '--']),
+    (['session', 'list'], ['session', 'list']),
+])
+def test_legacy_wrapper_separator_preserves_exact_tail(tmp_path, argv, expected):
+    from test_portable_distribution import data
+    home = Path(os.environ['HOME'])
+    updater = home / '.local/bin/opencode-update-all'
+    updater.parent.mkdir(parents=True, exist_ok=True)
+    updater.write_text(f'#!{sys.executable}\nimport json,sys\nprint(json.dumps(sys.argv[2:]))\n')
+    updater.chmod(0o700)
+    values = data(state_root='', remote_user_environment=True)
+    values['chezmoi'] = {'os': 'linux', 'arch': '386'}
+    rendered = subprocess.run(['chezmoi', '-S', str(ROOT), '--config', '/dev/null',
+        '--config-format', 'toml', '--override-data', json.dumps(values), 'execute-template'],
+        input=(ROOT / 'dot_local/bin/executable_opencode.tmpl').read_text(),
+        text=True, capture_output=True, check=True).stdout
+    wrapper = tmp_path / 'legacy-wrapper'
+    wrapper.write_text(rendered)
+    subprocess.run(['/bin/bash', '-n', str(wrapper)], check=True, capture_output=True)
+    result = subprocess.run(['/bin/bash', str(wrapper), *argv],
+        env={**os.environ, 'HERDR_ENV': '1'}, text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == expected
 
 
 def test_native_bootstrap_preserves_existing_release_and_refuses_unsafe_state(native_host_fixture):
@@ -316,6 +367,7 @@ def isolate_native_configuration(tmp_path, monkeypatch):
 def load_updater():
     loader = importlib.machinery.SourceFileLoader("opencode_update", str(UPDATER))
     spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module

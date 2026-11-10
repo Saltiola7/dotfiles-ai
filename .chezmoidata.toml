@@ -54,6 +54,8 @@ default_model = "openai/gpt-6-astra"
 small_model = "openai/gpt-6-luna"
 lmstudio_base_url = "http://127.0.0.1:1234/v1"
 theme = "catppuccin"
+# Empty preserves local tabs.mode; explicit values: auto, on, off.
+tab_bar_mode = ""
 
 [dotfiles_ai.herdr]
 runtime = "tui"

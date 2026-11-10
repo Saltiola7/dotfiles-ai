@@ -7438,7 +7438,8 @@ def inventory_policy_sources():
     policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
     if (not isinstance(policy, dict) or type(policy.get("schema_version")) is not int
             or policy["schema_version"] != 1 or set(policy) - {
-                "schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming"}
+                "schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming",
+                "activation_binding"}
             or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", policy.get("source_commit", ""))
             or policy.get("policy_digest") != continuation_digest({
                 k: v for k, v in policy.items() if k != "policy_digest"})):
@@ -19139,7 +19140,9 @@ def pr_review_policy_snapshot(root):
         if pr_review_private_bytes(source, 256 * 1024) != raw:
             fail("pr_review_policy_changed")
         policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
-        if (not isinstance(policy, dict) or set(policy) != {"schema_version", "source_commit", "policy_digest",
+        # The selected helper has validated optional activation metadata above;
+        # it is not delivery authority and remains covered by the full digest.
+        if (not isinstance(policy, dict) or set(policy) - {"activation_binding"} != {"schema_version", "source_commit", "policy_digest",
                 "root", "cache_root", "repositories", "naming"}
                 or type(policy["schema_version"]) is not int or policy["schema_version"] != 1
                 or policy["policy_digest"] != pr_review_digest({k: v for k, v in policy.items() if k != "policy_digest"})):

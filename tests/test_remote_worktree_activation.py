@@ -63,10 +63,10 @@ def test_existing_activation_is_never_repaired_or_overwritten(policy, activation
     assert other.read_text() == 'retained'
 
 
-@pytest.mark.parametrize('change', ['root', 'mount', 'platform', 'version', 'policy'])
+@pytest.mark.parametrize('change', ['root', 'mount', 'platform', 'version', 'policy', 'unproven_source'])
 def test_unapproved_location_or_changed_binding_refuses(policy, activation, monkeypatch, change):
     home, config, value = activation
-    if change in {'version', 'policy'}:
+    if change in {'version', 'policy', 'unproven_source'}:
         policy.initialize_default_home(value, home, config)
     if change == 'root':
         value['root'] = str(home / 'Worktrees')
@@ -78,7 +78,17 @@ def test_unapproved_location_or_changed_binding_refuses(policy, activation, monk
         monkeypatch.setattr(policy.platform, 'system', lambda: 'Darwin')
     elif change == 'version':
         monkeypatch.setattr(policy, 'worktrunk_version', lambda: 'wt v0.81.0')
+    elif change == 'policy':
+        value['naming']['task'] = 'changed'
+        value['policy_digest'] = policy.digest(value)
     else:
+        # A legacy full hash without its deployed policy preimage is not proof.
+        target = config / 'dotfiles-ai/workflow-policy.activation.json'
+        saved = policy.snapshot(value, home)
+        saved.pop('semantic_digest', None)
+        saved.update(schema_version=1, policy_digest=value['policy_digest'])
+        target.write_text(json.dumps(saved))
+        target.chmod(0o600)
         value['source_commit'] = 'b' * 40
         value['policy_digest'] = policy.digest(value)
     with pytest.raises(ValueError):
@@ -135,7 +145,8 @@ def test_ubi_qualifies_automatic_default_not_manual_activation():
     smoke = (ROOT / 'tests/remote_user_environment_smoke.sh').read_text()
     assert 'remote Worktrunk default apply activation qualification passed' in smoke
     assert 'install -m 0600 "$proposal"' not in smoke
-    assert 'semantic(value) == semantic(previous)' in smoke
+    assert 'review_fixture_generation' not in smoke
+    assert 'assert_activation_retained' in smoke
 
 
 def test_fresh_foundation_provisions_default_cache_before_snapshot(tmp_path, monkeypatch):
@@ -190,7 +201,7 @@ def test_temporary_name_collision_never_unlinks_unowned_entry(policy, activation
 def test_activation_contract_and_updates_cover_writing_boundary():
     relative = 'docs/specs/dotfiles_ai_distribution/features/remote-worktree-activation.md'
     feature = (ROOT / relative).read_text()
-    for text in ('initialize-default-home', 'source-commit binding', 'never write',
+    for text in ('initialize-default-home', 'semantic identity', 'never write',
                  '## Visual Evidence', '**Text Equivalent:**', 'mode 0600', 'single-link'):
         assert text in feature
     for path in ('docs/UPDATES.md', 'docs/specs/dotfiles_ai_distribution/README.md',
@@ -209,3 +220,68 @@ def test_activation_progress_labels_are_literal_not_private_values():
             labels.append(node.args[0].value)
     assert 'workflow-policy: activation stage home-identity' in labels
     assert 'workflow-policy: activation stage publish' in labels
+
+
+def legacy_snapshot(policy, value, home):
+    saved = policy.snapshot(value, home)
+    saved.pop('semantic_digest', None)
+    saved.update(schema_version=1, policy_digest=value['policy_digest'])
+    return saved
+
+
+def test_new_activation_uses_semantics_not_source_commit(policy, activation):
+    home, config, value = activation
+    policy.initialize_default_home(value, home, config)
+    target = config / 'dotfiles-ai/workflow-policy.activation.json'
+    before, inode = target.read_bytes(), target.stat().st_ino
+    saved = json.loads(before)
+    assert saved['schema_version'] == 2
+    assert saved['semantic_digest'] == policy.semantic_digest(value)
+    assert 'policy_digest' not in saved
+    value['source_commit'] = 'b' * 40
+    value['policy_digest'] = policy.digest(value)
+    policy.initialize_default_home(value, home, config)
+    assert target.read_bytes() == before and target.stat().st_ino == inode
+
+
+def test_legacy_file_survives_deployed_bridge_and_multiple_bumps(policy, activation, monkeypatch):
+    from test_remote_workflow_policy import render_policy
+    home, config, value = activation
+    path = config / 'dotfiles-ai/workflow-policy.json'
+    path.write_text(json.dumps(value))
+    path.chmod(0o600)
+    target = config / 'dotfiles-ai/workflow-policy.activation.json'
+    target.write_text(json.dumps(legacy_snapshot(policy, value, home)))
+    target.chmod(0o600)
+    before, inode = target.read_bytes(), target.stat().st_ino
+    for commit in ('b' * 40, 'c' * 40, 'a' * 40):
+        value = render_policy(policy, home, monkeypatch, policy.previous_policy(config, home),
+                              options={'schema_version': 1, 'root': str(home / '.local/state/worktrees')},
+                              commit=commit)
+        path.write_text(json.dumps(value))
+        policy.initialize_default_home(value, home, config)
+        assert target.read_bytes() == before and target.stat().st_ino == inode
+
+
+@pytest.mark.parametrize('change', ['schema_bool', 'extra', 'root_extra', 'root_kind',
+                                  'uuid_bool', 'version_type', 'digest_type'])
+@pytest.mark.parametrize('legacy', [False, True])
+def test_snapshot_rejects_noncanonical_shapes(policy, activation, change, legacy):
+    home, _, value = activation
+    saved = legacy_snapshot(policy, value, home) if legacy else policy.snapshot(value, home)
+    if change == 'schema_bool':
+        saved['schema_version'] = True
+    elif change == 'extra':
+        saved['extra'] = None
+    elif change == 'root_extra':
+        saved['roots'][0]['extra'] = None
+    elif change == 'root_kind':
+        saved['roots'][0]['kind'] = 1
+    elif change == 'uuid_bool':
+        saved['roots'][0]['filesystem_uuid'] = False
+    elif change == 'version_type':
+        saved['worktrunk_version'] = 80
+    else:
+        saved['policy_digest' if legacy else 'semantic_digest'] = True
+    with pytest.raises(ValueError):
+        policy.verify_snapshot(value, saved, home)

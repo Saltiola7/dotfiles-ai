@@ -52,6 +52,12 @@ actual Desktop UI producer evidence. Fork A owns live recovery and pinning.
 The [remote default activation](features/remote-worktree-activation.md) initializes
 missing activation during explicit remote apply at the qualified exact home
 default only. Existing activation is never overwritten or automatically refreshed.
+Source-only foundation revisions retain valid activation through semantic policy
+identity or a validated legacy preimage; actual policy/version/filesystem drift
+still refuses allocation. [RRW-007H profile follow-ups](features/remote-profile-followups.md)
+also define `[data.dotfiles_ai.opencode] tab_bar_mode = "off"` for Mac and remote
+CLI tab bars (`auto`/`on`/`off`; empty leaves local mode unmanaged), and exact wrapper
+separator handling without automatic `--auto` after `--`. Fork A owns setup and rollout.
 
 The [remote OpenCode boot service](features/remote-opencode-service.md) starts the
 native shared service through the lingering user's default target without

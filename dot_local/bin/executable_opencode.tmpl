@@ -20,6 +20,7 @@ export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
 {{ end -}}
 
     auto=0
+    separator=0
     {{ if or (and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64")) (and (eq .chezmoi.os "linux") (or (eq .chezmoi.arch "arm64") (eq .chezmoi.arch "amd64"))) -}}
     interactive=1
     positional=0
@@ -31,6 +32,7 @@ export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
         argument_index=$((argument_index + 1))
         if [[ $value == 1 ]]; then value=0; continue; fi
         case "$argument" in
+            --) separator=1; break ;;
             --help|-h|--version|-v|--completions|--wizard) interactive=0 ;;
             --auto) auto=1 ;;
             --session|-s) value=1 ;;
@@ -55,15 +57,21 @@ export HERMES_HOME={{ printf "%s/hermes" .dotfiles_ai.state.root | quote }}
         esac
     done
 if [[ -n ${HERDR_ENV:-} ]]; then
-    if [[ $interactive == 1 ]]; then
+    if [[ $interactive == 1 && $separator == 0 ]]; then
         [[ $auto == 1 ]] || set -- "$@" --auto
     fi
     {{ else -}}
 if [[ -n ${HERDR_ENV:-} ]]; then
+    value=0
     for argument in "$@"; do
-        [[ $argument == --auto ]] && auto=1
+        if [[ $value == 1 ]]; then value=0; continue; fi
+        case "$argument" in
+            --) separator=1; break ;;
+            --auto) auto=1 ;;
+            --session|-s|--server|--model|-m|--agent|--prompt|--log-level|--port|--hostname) value=1 ;;
+        esac
     done
-    [[ $auto == 1 || ( ${1:-} == session && ${2:-} == list ) ]] || set -- "$@" --auto
+    [[ $separator == 1 || $auto == 1 || ( ${1:-} == session && ${2:-} == list ) ]] || set -- "$@" --auto
     {{ end -}}
 
 fi
