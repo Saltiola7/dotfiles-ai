@@ -1032,7 +1032,7 @@ def test_core_label_wire_contract_omits_empty_session_only_for_shells(backend, s
     {'remote-herdr-owner': 'foreign', 'remote-herdr-pane': 's0-t0-p0'},
     {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 'other'},
     {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0', 'remote-herdr-session': 'ses_abc'},
-    {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0', 'foreign': ''},
+    {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0', 'remote-herdr-unknown': ''},
 ])
 def test_shell_empty_label_compatibility_does_not_weaken_other_labels(backend, labels):
     core = FakeCore(backend)
@@ -1060,6 +1060,7 @@ def test_legacy_pending_shell_creation_matches_normalized_core_labels(backend):
     receipt = backend.prepare('herdr-core', value, 'labelproof')
     labels = {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0', 'remote-herdr-session': ''}
     created = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work', 'labels': labels})
+    core.terminals[created['address']]['labels'].update(app_labels())
     receipt['pending'] = {'operation': 'terminal.run', 'pane': 's0-t0-p0', 'labels': labels}
     backend._receipt(receipt)
     backend.store.write('manifest.json', {'schema_version': 1, 'runtime': 'herdr-core',
@@ -1108,10 +1109,200 @@ def test_unrecorded_owned_shell_refuses_blind_duplicate_creation(backend, legacy
                         'labels': {'remote-herdr-owner': 'labelproof', 'remote-herdr-pane': 's0-t0-p0'}})
     if legacy_empty:
         core.terminals[terminal['address']]['labels']['remote-herdr-session'] = ''
+    core.terminals[terminal['address']]['labels'].update(app_labels())
     before = len(core.calls)
     with pytest.raises(native.NativeError, match='prior terminal creation requires recovery'):
         backend.restore('herdr-core', value, 'labelproof', receipt)
     assert not any(method in ('terminal.run', 'terminal.kill', 'doc.set') for method, _ in core.calls[before:])
+
+
+def app_labels():
+    return {'where': 'desktop', 'herdr.seen': '1', 'herdr.space': 'space',
+            'herdr.tab': 'tab', 'another-display-key': ''}
+
+
+@pytest.mark.parametrize('lost_reply', [False, True])
+def test_r2_controller_recovers_retained_mixed_app_document(backend, tmp_path, lost_reply):
+    with runtime_controller.Store(tmp_path / 'private-journal') as store:
+        backend.store = store
+        core = FakeCore(backend)
+        value = plan()
+        tabs = value['spaces'][0]['tabs']
+        for i in (1, 2):
+            tab = copy.deepcopy(tabs[0])
+            key = f's0-t{i}-p0'
+            tab.update(name=f'App tab {i}', root={'pane': key}, panes=[{
+                'key': key, 'cwd': '/work', 'session_id': f'ses_app{i}'}])
+            tabs.append(tab)
+        with sqlite3.connect(backend.database_path()) as db:
+            db.executemany('INSERT INTO session VALUES (?, ?)', [('ses_app1', '/work'), ('ses_app2', '/work')])
+        manifest_for(backend, core, value)
+        assert core.document is not None
+        for tab in core.document['spaces'][0]['tabs']:
+            tab['root'] = {'id': tab['id'], 'type': 'row', 'children': [tab['root']],
+                           'opaque': {'keep': [None, True]}}
+        core.document['metadata'] = {'app': 'untouched'}
+        for terminal in core.terminals.values():
+            terminal['labels'].update(app_labels())
+        core.version += 1
+        backend.restore_current()
+        manifest = store.read('manifest.json')
+        original = copy.deepcopy(core.document)
+        live = {a: copy.deepcopy(t) for a, t in core.terminals.items() if a != 't2'}
+        synthetic_process(backend, core.terminals['t2']['pid'], ['/bin/bash', '-l'])
+        store.write('transaction.json', {'schema_version': 1, 'txid': 'testtx', 'source': 'tui',
+            'target': 'herdr-core', 'phase': 'restore_pending', 'plan': manifest['plan'],
+            'receipt': manifest['receipt']})
+        write = store.write
+        if lost_reply:
+            def rpc(method, params):
+                result = core.rpc(method, params)
+                if method == 'terminal.kill':
+                    raise native.NativeError('synthetic interruption')
+                return result
+            backend.core = rpc
+        else:
+            def interrupt():
+                raise native.NativeError('synthetic interruption')
+            r1_on_intent(backend, interrupt)
+        with pytest.raises(runtime_controller.ControllerError, match='recovery uncertain'):
+            runtime_controller.Controller(store, backend).recover()
+        assert store.read('transaction.json')['phase'] == 'restore_pending'
+        assert store.read('receipt-testtx.json')['pending']['operation'] == 'terminal.kill'
+        store.write = write
+        def app_rpc(method, params):
+            result = core.rpc(method, params)
+            if method == 'terminal.run':
+                core.terminals[result['address']]['labels'].update(app_labels())
+                result['labels'].update(app_labels())
+            return result
+        backend.core = app_rpc
+        for terminal in core.terminals.values():
+            terminal['labels'].update({k: 'changed' for k in app_labels()})
+        calls = len(core.calls)
+        runtime_controller.Controller(store, backend).recover()
+        final = store.read('manifest.json')
+        assert store.read('transaction.json')['phase'] == 'complete'
+        assert final['receipt']['pending'] is None and final['receipt']['repairs'] == {}
+        assert len(core.terminals) == 4
+        assert sum(m == 'terminal.run' for m, _ in core.calls[calls:]) == 1
+        assert sum(m == 'terminal.kill' for m, _ in core.calls[calls:]) == (not lost_reply)
+        assert not any(m == 'command' for m, _ in core.calls[calls:])
+        expected = copy.deepcopy(original)
+        expected['spaces'][0]['tabs'][1]['root']['children'][0]['content']['terminal'] = 't4'
+        assert core.document == expected
+        assert final['receipt']['bindings'] == manifest['receipt']['bindings']
+        for address, terminal in live.items():
+            assert core.terminals[address]['pid'] == terminal['pid']
+            assert core.terminals[address]['state'] == 'live'
+            assert backend.process_argv(terminal['pid']) == wrapper_argv(
+                backend, terminal['labels']['remote-herdr-session'])
+        assert len(backend._coverage(final['plan'])) == 3
+        backend.restore_current()
+
+
+@pytest.mark.parametrize('session', [None, 'ses_abc'])
+def test_r2_label_namespace_is_exact_and_symmetric(backend, session):
+    expected = backend._labels('labelproof', plan(session)['spaces'][0]['tabs'][0]['panes'][0])
+    observed = {**expected, **app_labels()}
+    assert backend._same_labels(observed, expected)
+    assert backend._same_labels(expected, observed)
+    assert backend._same_labels(observed, {**expected, 'where': 'changed'})
+    if session is None:
+        assert backend._same_labels(observed, {**expected, 'remote-herdr-session': ''})
+    for key in expected:
+        for changed in ('missing', 'changed', ''):
+            bad = dict(observed)
+            if changed == 'missing':
+                bad.pop(key)
+            else:
+                bad[key] = changed
+            assert not backend._same_labels(bad, expected)
+            assert not backend._same_labels(expected, bad)
+    for bad in ({**observed, 'remote-herdr-extra': 'x'},
+                {**observed, 'where': None}, {**observed, 1: 'display'},
+                {**observed, 'herdr.tab': []}, None, [], 'labels'):
+        assert not backend._same_labels(bad, expected)
+        assert not backend._same_labels(expected, bad)
+    for bad in ({'remote-herdr-owner': '', 'remote-herdr-pane': 'pane'},
+                {'remote-herdr-owner': 'owner', 'remote-herdr-pane': ''},
+                {'remote-herdr-extra': 'x'}, {'where': None}):
+        assert not backend._same_labels(bad, bad)
+
+
+@pytest.mark.parametrize('boundary', ['inventory', 'verification', 'kill-intent'])
+@pytest.mark.parametrize('change', ['added', 'changed', 'removed'])
+def test_r2_display_churn_at_shared_guards(backend, boundary, change):
+    core = r1_shell(backend) if boundary == 'kill-intent' else FakeCore(backend)
+    if boundary != 'kill-intent':
+        manifest_for(backend, core)
+        backend.restore_current()
+    terminal = core.terminals['t1']
+    if change != 'added':
+        terminal['labels'].update(app_labels())
+    def churn():
+        for key in app_labels():
+            if change == 'removed':
+                terminal['labels'].pop(key, None)
+            else:
+                terminal['labels'][key] = 'updated'
+    if boundary == 'kill-intent':
+        r1_on_intent(backend, churn)
+    elif boundary == 'inventory':
+        original = core.rpc
+        def rpc(method, params):
+            if method == 'terminal.get':
+                churn()
+            return original(method, params)
+        backend.core = rpc
+    else:
+        saved = backend.store.read('manifest.json')
+        saved['receipt']['labels']['s0-t0-p0'].update(app_labels())
+        backend.store.write('manifest.json', saved)
+        backend.store.write('receipt-testtx.json', saved['receipt'])
+        churn()
+    before = len(core.calls)
+    if boundary == 'verification':
+        saved = backend.store.read('manifest.json')
+        receipt = copy.deepcopy(saved['receipt'])
+        backend.verify('herdr-core', saved['plan'], receipt)
+        assert receipt['labels'] == saved['receipt']['labels']
+    backend.restore_current()
+    assert backend.store.read('manifest.json')['schema_version'] == 2
+    assert sum(m == 'terminal.kill' for m, _ in core.calls[before:]) == (boundary == 'kill-intent')
+
+
+@pytest.mark.parametrize('family', ['match', 'receipt', 'ready', 'legacy-verify', 'current-verify', 'capture'])
+@pytest.mark.parametrize('bad', [False, True])
+def test_r2_app_labelled_caller_families_preserve_ownership_guards(backend, family, bad):
+    core = FakeCore(backend)
+    manifest = manifest_for(backend, core)
+    if family == 'current-verify':
+        backend.restore_current()
+        manifest = backend.store.read('manifest.json')
+    terminal = core.terminals['t1']
+    terminal['labels'].update(app_labels())
+    if bad:
+        terminal['labels']['remote-herdr-unexpected'] = 'private'
+    pane = manifest['plan']['spaces'][0]['tabs'][0]['panes'][0]
+    def check():
+        if family == 'match':
+            backend._match_terminal(terminal, pane, 'testtx')
+        elif family == 'receipt':
+            backend._receipt_consistency(backend._terminals())
+        elif family == 'ready':
+            backend._wait_created_core('t1', pane, backend._labels('testtx', pane))
+        elif family == 'capture':
+            backend.capture('herdr-core')
+        else:
+            backend.verify('herdr-core', manifest['plan'], manifest['receipt'])
+    before = len(core.calls)
+    if bad:
+        with pytest.raises(native.NativeError):
+            check()
+    else:
+        check()
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set', 'command') for m, _ in core.calls[before:])
 
 
 @pytest.mark.parametrize('replacement', ['shell', 'foreign', 'pending'])
@@ -1622,7 +1813,7 @@ def test_r1_inventory_observation_is_followed_by_identity_and_document_guards(ba
             elif change == 'argv':
                 synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '--login'])
             else:
-                core.terminals['t1']['labels']['PRIVATE'] = 'PRIVATE'
+                core.terminals['t1']['labels']['remote-herdr-PRIVATE'] = 'PRIVATE'
         return result
     backend.scan = racing_scan
     with pytest.raises(native.NativeError) as error:
@@ -1664,6 +1855,7 @@ def test_uncertain_create_discovered_by_labels_only_on_recovery(backend, reboote
     backend.store.write('manifest.json', {'schema_version': 1, 'runtime': 'herdr-core',
                                         'plan': plan(), 'receipt': receipt, 'txid': 'testtx'})
     backend.core = original
+    core.terminals['t1']['labels'].update(app_labels())
     if rebooted_to_shell:
         core.active = False
         synthetic_process(backend, 31, ['/bin/bash', '-l'])

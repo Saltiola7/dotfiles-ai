@@ -1182,12 +1182,22 @@ class Native:
 
     @staticmethod
     def _same_labels(observed, expected):
-        # Core 0.1.18 drops empty values. Normalize only the legacy optional
-        # session label; never forgive missing owner/pane or unrelated labels.
+        # Display labels belong to the app. Compare the complete ownership
+        # namespace, including unknown keys, without altering private receipts.
+        # Core 0.1.18 drops the legacy optional empty session label.
         if type(observed) is not dict or type(expected) is not dict:
             return False
+        for labels in (observed, expected):
+            if any(type(k) is not str or type(v) is not str for k, v in labels.items()):
+                return False
+            # Current-document adoption also records unowned app clients. An
+            # ownership-labelled record, however, must have both required keys.
+            if (any(k.startswith('remote-herdr-') for k in labels)
+                    and any(not labels.get(k) for k in ('remote-herdr-owner', 'remote-herdr-pane'))):
+                return False
         def canonical(labels):
-            return {k: v for k, v in labels.items() if k != 'remote-herdr-session' or v != ''}
+            return {k: v for k, v in labels.items() if k.startswith('remote-herdr-')
+                    and (k != 'remote-herdr-session' or v != '')}
         return canonical(observed) == canonical(expected)
 
     @bounded
@@ -1767,8 +1777,9 @@ class Native:
             # Core reports titles/status/geometry asynchronously. Those are not
             # process identity. Foreground None -> the same PID's report is also
             # harmless; actual argv/cwd and PID/start-time remain authoritative.
-            if (any(current.get(key) != terminal.get(key)
-                    for key in ('address', 'labels', 'state', 'pid', 'argv', 'cwd', 'keep'))
+            if (not self._same_labels(current.get('labels'), terminal.get('labels'))
+                    or any(current.get(key) != terminal.get(key)
+                           for key in ('address', 'state', 'pid', 'argv', 'cwd', 'keep'))
                     or (current.get('foreground') or current).get('pid')
                     != (terminal.get('foreground') or terminal).get('pid')):
                 raise NativeError('core current inventory changed')
@@ -2087,7 +2098,8 @@ class Native:
         if (projected != plan or repairs
                 or {k: b['leaf'] for k, b in bindings.items()} != receipt['bindings']
                 or {k: b['terminal'] for k, b in bindings.items()} != receipt['terminals']
-                or {k: labels[b['leaf']] for k, b in bindings.items()} != receipt['labels']):
+                or any(not self._same_labels(labels[b['leaf']], receipt['labels'][k])
+                       for k, b in bindings.items())):
             raise NativeError('core current restored bindings differ')
         receipt['doc_version'] = version
 
