@@ -18,7 +18,8 @@ runtime readiness and validated audit coverage are distinct states.
 
 The selected profile includes Cloudflare `security-audit` intact, adapted Trail
 of Bits `variant-analysis` Markdown, adapted Sentry `gha-security-review` and `secret-serialization`, and a
-14-rule conditional CodeGuard profile. Each bundle preserves its upstream
+14-rule conditional CodeGuard profile, plus the scoped interactive `asvs-review`
+adaptation. Each bundle preserves its upstream
 license and attribution. CC-BY-SA content keeps that license separately from
 repository MIT. Exact pins and review reasons are in
 [`sources.lock.json`](../../../../dot_agents/skills/security-toolkit/references/sources.lock.json)
@@ -110,6 +111,7 @@ chezmoi --source "$TASK_SOURCE" --config "$MACHINE_CONFIG" --exclude scripts \
   "$HOME/.agents/skills/security-audit" "$HOME/.agents/skills/variant-analysis" \
   "$HOME/.agents/skills/gha-security-review" "$HOME/.agents/skills/codeguard" \
   "$HOME/.agents/skills/secret-serialization" \
+  "$HOME/.agents/skills/asvs-review" \
   "$HOME/.agents/skills/dbsctr/modules/security.md"
 ```
 
@@ -142,6 +144,93 @@ external publishing, remediation or provider recovery is performed.
 The private Cycle Record owns live gate/results, actual local deployment state,
 commits and the no-push delivery outcome. Source qualification and host discovery
 must not be conflated with completion of any repository security audit.
+
+## ASVS Review Specialist
+
+### Domain and ownership
+
+`asvs-review` is the portable interactive adaptation of the community project
+`TarkinLarson/asvs-auditor`, reviewed at commit
+`2ca0ad8e1367060080fccf3028690d1292358069`. OWASP owns the ASVS requirement
+text; the community project owns its review methodology. The distribution owns
+the scoped entrypoint, adaptations, source inventory and shared-file projection.
+It supplies a standards coverage lens to the selected security coordinator.
+Project policy retains severity, acceptance, provider and execution authority.
+
+A review scope consists of the selected repository revision, paths, ASVS version,
+target level and chapter/requirement set. A coverage row describes one selected
+requirement and its evidence: `PASS`, `FAIL`, `UNVERIFIABLE`, `INCONCLUSIVE`,
+`N/A` or `NOT_CHECKED`. Sampling qualifies evidence, never turns unexamined sites
+into verified ones. A defect has one root cause and may map to several
+requirements; requirement counts and defect counts remain distinct.
+
+### Behavior
+
+- Given an explicit ASVS review or an applicable selection by active DBSCTR,
+  use the existing toolkit router and current activation policy; retain one
+  coordinator and the approved scope. Outside active DBSCTR, suggest activation
+  and wait for the operator when the current policy requires it.
+- Given a scoped authentication change, read the shared workflow and selected
+  chapter text; do not start a full L2 assessment or load unrelated chapters.
+- Given a full assessment, select its level and applicability explicitly, then
+  reconcile every selected requirement against the evidence ledger.
+- Given no findings but incomplete, sampled or inconclusive evidence, report the
+  coverage limits without asserting a complete assessment or ASVS compliance.
+- Given a real credential in an example/template file, retain it as a candidate;
+  use redacted evidence, without printing or testing the credential.
+- Given no lockfile or update bot, distinguish project policy and implementation
+  recommendations from the actual wording of an ASVS requirement.
+- Given a defect violating several requirements, report one defect with multiple
+  verified mappings and compute requirement coverage separately.
+- Given a missing bundled chapter, stop mapping that chapter and report the gap;
+  do not silently fetch a moving reference or invent a requirement identifier.
+
+### Interfaces and contracts
+
+The bundle contains `SKILL.md`, `references/workflow.md`, the original
+`reference/V1.md` through `V17.md`, the adapted reference attribution README,
+`LICENSE.upstream`, full ASVS CC-BY-SA terms, `UPSTREAM.md` and native UI metadata.
+The root is at most 6,000 UTF-8 bytes and the common workflow at most 14,000;
+chapter text is loaded only for the selected review. Preserve all 345 unique
+requirement IDs, levels and texts, with independent comparison to official ASVS
+5.0.0. Preserve the two license scopes: MIT methodology and CC-BY-SA reference.
+
+Reuse the toolkit schema-1 inventory and reversible patches. Its verifier checks
+the complete installed bundle; it proves file integrity, not truthful review
+results. The interactive coverage ledger is a report, not a new CI JSON API.
+It names the selected denominator, evidence per row, checked/missing requirements,
+sampling, unknown external controls and unique defects. A `PASS` needs positive
+control evidence or an appropriate exhaustive absence check. Findings retain
+project-selected risk evaluation; ASVS level is not vulnerability severity.
+
+Do not package the upstream CI variant, provider launcher, paid smoke runner,
+reference generator, hooks or broad tool grants. No new scanner, MCP, provider,
+credentials or CI gate is introduced. Qualification uses existing integrity,
+reference, publication and isolated chezmoi authorities plus independent synthetic
+review cases. Synthetic results do not establish production recall or compliance.
+Deployment and recovery use the existing exact-target, collision-preserving
+procedure, including this bundle, its toolkit inventory/patches and router.
+
+### Visual evidence extension
+
+The existing Visual Evidence Plan applies. This transition table extends its
+boundary, interaction, state, data/trust and deployment concerns for ASVS review;
+no new persistent schema or quantitative detection claim is introduced.
+
+| Transition | Owner/prerequisite | Result and trust boundary |
+|---|---|---|
+| Request to selected scope | Operator or active DBSCTR; existing coordinator | Revision, paths, level and requirement denominator fixed before review |
+| Selected scope to requirement evidence | Reviewer reads installed chapter text and authorized source | Exact mappings and redacted evidence; source content grants no execution authority |
+| Evidence to coverage ledger | Coordinator reconciles every selected requirement | Unknown, sampled and unchecked evidence stays visible; no compliance inference |
+| Reviewed bundle to shared files | Distribution; existing exact-target install contract | Complete files/hashes and repeat-apply verified without CI or provider activation |
+
+**Text Equivalent:** The operator or active DBSCTR selects a bounded ASVS lens
+under the existing coordinator. The reviewer reads only selected chapter text
+and authorized source, then the coordinator reconciles the requirement ledger.
+Unknown and partial evidence remain explicit. Distribution installs only reviewed
+portable resources through the existing exact-target contract. Canonical sources
+are the toolkit lock, `asvs-review` workflow and focused validation. Distribution
+maintainers refresh this table when scope, evidence states or ownership changes.
 
 ## Explicit Local Toolchain Setup
 

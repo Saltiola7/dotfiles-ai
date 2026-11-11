@@ -8,6 +8,7 @@
 | Look for variants of a known bug | `variant-analysis` | Start from established root cause; stay in approved scope; new candidates need their own trace. |
 | Credential object leakage | `secret-serialization` | Actual unauthorized holder-to-sink exposure; dummy evidence only. |
 | GitHub Actions exploitation review | `gha-security-review` | External-contributor technique, effective permissions and downstream sinks; not complete CI assurance. |
+| Requested ASVS assessment or an ASVS lens selected by active DBSCTR | `asvs-review` | Selected level, paths and chapters; requirement coverage and evidence, under the existing coordinator. Full assessments require explicit scope; no new CI gate. |
 | Review a new skill/source before adoption | This toolkit's review criteria | Read the complete proposed bundle and executable dependencies; no automatic installer or scanner. |
 
 Select Codex Security as primary when it is available and chosen. A separately
@@ -15,6 +16,12 @@ requested Cloudflare run is an independent opinion, not a competing nested
 coordinator. Specialists return bounded evidence to the current primary. Do not
 replace an unavailable or denied provider workflow with another route to bypass
 its boundary. Report unavailable capabilities without inventing readiness.
+
+Apply the current skill-activation policy: outside active DBSCTR, suggest and
+wait when the operator requires it. Active DBSCTR may select affected ASVS
+chapters without starting a full assessment. Load only the selected chapter
+text. Coverage gaps, external controls and sampled evidence remain visible;
+ASVS level does not replace project severity or establish compliance.
 
 ## DBSCTR and QA
 

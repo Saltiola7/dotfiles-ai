@@ -211,6 +211,9 @@ The macOS transport reads an exact origin/account/repository Keychain item with
 interaction disabled, using an isolated Git 2.56+ Basic-auth fetch. It never
 stores credentials, starts login or infers API principal authority. Missing
 runtime capability or Keychain access blocks the read safely.
+Transport failures reap the leader, still clean its owned group and always
+close pipes; unresolved cleanup reports a fixed unavailable category within a
+bounded wait instead of exposing a raw permission error.
 Selection enumerates metadata without password access, then reads only the
 unique item reference with a single-item query and revalidates its identity.
 The Git process keeps its private home; only the dedicated credential child
