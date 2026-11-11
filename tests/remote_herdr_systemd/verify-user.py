@@ -805,6 +805,31 @@ def backend_pid():
     return f01.ready()[0]  # Real authenticated API identity + owner + listener proof.
 
 
+def fixture_captured_client_proofs(backend, capture):
+    """Select original boot-bound proofs, never serialize rich session rows.
+
+    Native.capture covers client PIDs in both branches: core checks represented
+    terminal/foreground PIDs; TUI checks foreground coverage before collecting
+    shell/foreground proofs. Validate that coverage BEFORE any fixture effect.
+    """
+    clients, proofs = capture['clients'], capture['pids']
+    backend._validate_pid_proofs(proofs)
+    require(type(clients) is list and len(clients) <= 512)
+    require(all(type(c) is dict and set(c) == {'pid', 'start_ticks', 'session_id'}
+                and type(c['pid']) is int and c['pid'] > 1
+                and type(c['start_ticks']) is int and c['start_ticks'] >= 0
+                and type(c['session_id']) is str and bool(c['session_id']) for c in clients))
+    ids = {c['pid'] for c in clients}
+    require(len(ids) == len(clients))
+    require(all('boot_id' in p for p in proofs))
+    selected = [dict(p) for p in proofs if p['pid'] in ids]
+    require({p['pid'] for p in selected} == ids and len(selected) == len(clients))
+    by_pid = {p['pid']: p for p in selected}
+    require(all(by_pid[c['pid']]['start_ticks'] == c['start_ticks'] for c in clients))
+    backend._validate_pid_proofs(selected)
+    return selected
+
+
 def switch(target, plan, pid, during=None):
     global STEP
     STEP = 'switch-' + target
@@ -812,6 +837,7 @@ def switch(target, plan, pid, during=None):
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         before = backend.capture(backend.selected())
+        client_proofs = fixture_captured_client_proofs(backend, before)
     cli('switch', target)
     STEP = 'switch-' + target + '-exit-proof'
     with Store(ROOT) as store:
@@ -820,7 +846,7 @@ def switch(target, plan, pid, during=None):
         require(journal['phase'] == 'complete')
         require(backend._pids_absent(before['pids']))
         # New clients for the same sessions may now exist; old PID/start times may not.
-        require(backend._pids_absent(before['clients']))
+        require(backend._pids_absent(client_proofs))
         require(store.read(journal['capture']['backup']) is not None)
     if during is not None:
         during()
@@ -1924,10 +1950,13 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
         leaf = manifest['receipt']['bindings'][key]
         address = manifest['receipt']['terminals'][key]
         before = backend.capture('herdr-core')
+        captured_clients = fixture_captured_client_proofs(backend, before)
         clients = backend._coverage(plan)
         client = next(c for c in clients if c['session_id'] == pane['session_id'])
         other_clients = [c for c in clients if c['session_id'] != pane['session_id']]
         client_pid = client['pid']
+        captured_client = [p for p in captured_clients if p['pid'] == client_pid]
+        require(len(captured_client) == 1)
         terminal = backend._terminal(address)
         require(terminal.get('keep') is True)
         require((terminal.get('foreground') or terminal)['pid'] == client_pid)
@@ -2075,7 +2104,7 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
         require({t['address'] for t in backend._terminals()} - addresses == {replacement})
         require(backend._terminal(address)['state'] == 'finished')
         require(backend._pids_absent(shell_pids) and backend._pids_absent(client_proof))
-        require(backend._pids_absent([p for p in before['clients'] if p['pid'] == client_pid]))
+        require(backend._pids_absent(captured_client))
         if lost_reply:
             require(finished_terminal_facts(backend._terminal(address)) == finished)
         expected = expected_leaf_rebind(baseline, leaf, address, replacement)
@@ -2135,6 +2164,7 @@ def edited_document_recovery(plan, pid):
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         source = backend.capture('tui')
+        source_client_proofs = fixture_captured_client_proofs(backend, source)
         restore = backend.restore
         def interrupted_restore(*args, **kwargs):
             restore(*args, **kwargs)
@@ -2147,7 +2177,7 @@ def edited_document_recovery(plan, pid):
         else:
             raise CommandFailure('edited-switch-interruption-missing')
         require(store.read('transaction.json')['phase'] == 'restore_pending')
-        require(backend._pids_absent(source['pids']) and backend._pids_absent(source['clients']))
+        require(backend._pids_absent(source['pids']) and backend._pids_absent(source_client_proofs))
         # Retain the manifest through genuine recovery writes, interrupted before
         # journal completion. Only this disposable adapter instance is faulted.
         backend = Native(HOME, store)

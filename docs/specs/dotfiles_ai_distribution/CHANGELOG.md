@@ -15,7 +15,7 @@
   admit a fresh R3 repair after whole-receipt backup, never a historical kill.
   Unsupported/ambiguous facts still refuse; older strict readers reject extended
   active forms. No new public inputs, bootstrap or binary pin changes.
-- Herdr source validation: 887 tests and 88 subtests; 38 stdlib qualification tests;
+- Initial Herdr source validation: 887 tests and 88 subtests; 38 stdlib qualification tests;
   affected Linux/Python 3.12 typing clean. Independent source/fixture reviews found
   no blocker. Native fixture adds app-observed core stop/start after interrupted
   and completed restore; source tests are not native execution, full VM reboot or
@@ -27,6 +27,12 @@
   approval is separate. No live operations, timer changes, cleanup or waivers.
   Fork A owns pinning/live rollout. 007I remains preserved and paused. The separate
   lifecycle staged-deletion defect is not bundled into R4.
+- Retain the first hosted native failure at the switch-to-TUI exit check, before
+  new restart cases: fixture callers supplied rich session records to the strict
+  PID-proof validator. Select complete original boot-bound client proofs before
+  effects instead; do not relax production validation or omit client-exit checks.
+  Fixture regressions cover missing/duplicate/malformed proof coverage. Fresh
+  exact-head native/full CI remains required after this correction.
 
 ## 2026-11-10 — App-connected restore ordering (RRW-007G-R3)
 

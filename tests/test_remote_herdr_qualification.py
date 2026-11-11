@@ -11,8 +11,10 @@ import re
 import runpy
 import shlex
 import subprocess
+import sys
 import tomllib
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -203,7 +205,8 @@ def test_r1_fault_fixture_uses_native_keep_and_installed_restore_only():
                     "backend._terminal(address)['state'] == 'live'",
                     "backend._pid_proofs([p['pid'] for p in shell_pids]) == shell_pids",
                     "backend._terminal(address)['state'] == 'finished'",
-                    'backend._pids_absent(shell_pids)', "before['clients']", "before['pids']",
+                    'backend._pids_absent(shell_pids)', 'fixture_captured_client_proofs(backend, before)',
+                    'backend._pids_absent(captured_client)', "before['pids']",
                     'fixture_before_legacy_repair_kill(backend, baseline, leaf, source, pane,',
                     'shell_pids, txid, key, legacy)', 'forwarded == 1', 'backend.core = original_core',
                     "manifest['txid'] == txid and manifest['plan'] == plan",
@@ -903,6 +906,125 @@ def test_observation_diagnostics_separate_coverage_and_native_ownership():
     assert "wait(lambda: f01.connected(client['pid'], port), seconds=30)" in observe
 
 
+class CapturedClientProofTests(unittest.TestCase):
+    """Execute the REAL strict validator against synthetic captured facts only."""
+
+    def setUp(self):
+        self.fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        module_path = str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr')
+        sys.path.insert(0, module_path)
+        try:
+            from native import Native, NativeError
+        finally:
+            sys.path.remove(module_path)
+        self.Native = Native
+        self.NativeError = NativeError
+        self.backend = object.__new__(Native)  # No constructor, env, home or proc reads.
+        def forbidden(*args):
+            raise AssertionError('must use captured facts, never collect after effects')
+        self.enterContext(patch.object(self.backend, '_pid_proofs', forbidden))
+        self.enterContext(patch.object(self.backend, 'process_boot_id', forbidden))
+        self.boot = '11111111-2222-4333-8444-555555555555'
+        self.capture: dict = {'clients': [
+            {'pid': 101, 'start_ticks': 7, 'session_id': 'ses_synthetic0'},
+            {'pid': 202, 'start_ticks': 9, 'session_id': 'ses_synthetic1'}],
+            'pids': [{'pid': 303, 'start_ticks': 3, 'boot_id': self.boot},
+                     {'pid': 202, 'start_ticks': 9, 'boot_id': self.boot},
+                     {'pid': 101, 'start_ticks': 7, 'boot_id': self.boot}]}
+
+    def test_red_regression_rich_client_rows_fail_real_absence_validator_before_proc(self):
+        # The exact failed native call, not a permissive fake _pids_absent. It
+        # must reject before process_boot_id (which is deliberately forbidden).
+        with self.assertRaises(self.NativeError) as caught:
+            self.backend._pids_absent(self.capture['clients'])
+        self.assertEqual(str(caught.exception), 'native client PID proof invalid')
+
+    def test_selected_original_proofs_pass_strict_absence_and_preserve_boot_and_input(self):
+        before = copy.deepcopy(self.capture)
+        selected = self.fixture['fixture_captured_client_proofs'](self.backend, self.capture)
+        self.assertEqual(selected, self.capture['pids'][1:])
+        self.assertEqual({p['pid'] for p in selected}, {101, 202})
+        self.Native._validate_pid_proofs(selected)
+        observed = []
+        class AbsentProc:
+            def __truediv__(self, pid):
+                observed.append(int(pid))
+                return self
+            def lstat(self): raise FileNotFoundError()
+        with patch.object(self.backend, 'proc_root', AbsentProc(), create=True):
+            with patch.object(self.backend, 'process_boot_id', lambda: self.boot):
+                self.assertTrue(self.backend._pids_absent(selected))
+            self.assertEqual(observed, [202, 101])  # Shell 303 is not a session client.
+            self.assertEqual(self.capture, before)
+            # A different boot is evaluated by the actual native oracle, without
+            # losing the original boot ID or consulting synthetic current PID paths.
+            observed.clear()
+            with patch.object(self.backend, 'process_boot_id', lambda: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'):
+                self.assertTrue(self.backend._pids_absent(selected))
+            self.assertFalse(observed)
+        self.assertTrue(all(p['boot_id'] == self.boot for p in selected))
+        selected[0]['start_ticks'] += 1
+        self.assertEqual(self.capture, before)  # Selection does not alias receipt rows.
+
+    def test_bad_capture_refuses_before_effects_without_filtering_unsafe_proofs(self):
+        for case in ('missing-client-proof', 'duplicate-client', 'duplicate-proof',
+                     'rich-proof', 'unsafe-proof-field', 'unsafe-client-field',
+                     'missing-boot', 'invalid-boot', 'mixed-boots', 'changed-start',
+                     'boolean-pid', 'invalid-client-shape'):
+            with self.subTest(case=case):
+                capture = copy.deepcopy(self.capture)
+                if case == 'missing-client-proof': capture['pids'].pop()
+                elif case == 'duplicate-client': capture['clients'].append(copy.deepcopy(capture['clients'][0]))
+                elif case == 'duplicate-proof': capture['pids'].append(copy.deepcopy(capture['pids'][0]))
+                elif case == 'rich-proof': capture['pids'][1] = copy.deepcopy(capture['clients'][1])
+                elif case == 'unsafe-proof-field': capture['pids'][0]['unsafe'] = 'must-not-be-filtered'
+                elif case == 'unsafe-client-field': capture['clients'][0]['unsafe'] = 'must-not-be-filtered'
+                elif case == 'missing-boot':
+                    for proof in capture['pids']: proof.pop('boot_id')
+                elif case == 'invalid-boot': capture['pids'][0]['boot_id'] = 'invalid'
+                elif case == 'mixed-boots': capture['pids'][0]['boot_id'] = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+                elif case == 'changed-start': capture['clients'][0]['start_ticks'] += 1
+                elif case == 'boolean-pid': capture['clients'][0]['pid'] = True
+                elif case == 'invalid-client-shape': capture['clients'][0] = 101
+                effects = []
+                with self.assertRaises((RuntimeError, self.NativeError)):
+                    self.fixture['fixture_captured_client_proofs'](self.backend, capture)
+                    effects.append('switch-or-kill')
+                self.assertEqual(effects, [])
+
+    def test_idle_shell_capture_has_empty_client_subset_but_keeps_valid_full_inventory(self):
+        capture = copy.deepcopy(self.capture)
+        capture['clients'] = []
+        self.assertEqual(self.fixture['fixture_captured_client_proofs'](self.backend, capture), [])
+        self.Native._validate_pid_proofs(capture['pids'])
+
+    def test_all_three_native_call_sites_select_before_effects_and_keep_exit_assertions(self):
+        source = (FIXTURE / 'verify-user.py').read_text()
+        nodes = {n.name: n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
+        bodies = {k: ast.get_source_segment(source, v) or '' for k, v in nodes.items()}
+        switch = bodies['switch']
+        self.assertLess(switch.index('fixture_captured_client_proofs(backend, before)'),
+                        switch.index("cli('switch', target)"))
+        self.assertIn('backend._pids_absent(client_proofs)', switch)
+        kept = bodies['kept_shell_kill_recovery']
+        self.assertLess(kept.index('fixture_captured_client_proofs(backend, before)'),
+                        kept.index('signal.pidfd_send_signal(fd, signal.SIGKILL)'))
+        self.assertLess(kept.index('require(len(captured_client) == 1)'),
+                        kept.index('signal.pidfd_send_signal(fd, signal.SIGKILL)'))
+        self.assertIn('backend._pids_absent(captured_client)', kept)
+        edited = bodies['edited_document_recovery']
+        self.assertLess(edited.index('fixture_captured_client_proofs(backend, source)'),
+                        edited.index("Controller(store, backend).switch('herdr-core')"))
+        self.assertIn('backend._pids_absent(source_client_proofs)', edited)
+        # Bounded AST audit of every strict absence call: no rich clients or a
+        # comprehension derived from rich clients may cross that boundary.
+        for call in ast.walk(ast.parse(source)):
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == '_pids_absent':
+                for argument in call.args:
+                    self.assertFalse(any(isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Constant)
+                                         and n.slice.value == 'clients' for n in ast.walk(argument)))
+
+
 class RestartQualificationSourceTests(unittest.TestCase):
     """Scripted/source evidence only; none of these are native restart proofs."""
 
@@ -1242,7 +1364,8 @@ class QualificationSourceTests(unittest.TestCase):
                         "'hc-serve-'", "'hc-hold-'", "'hc-shutdown-'", "'Transient'",
                         'signal.pidfd_send_signal(fd, signal.SIGTERM)',
                         "backend._coverage(plan) == before", "backend.stop('herdr-core', capture)",
-                        "cli('restore')", "cli('recover')", "backend._pids_absent(before['clients'])",
+                        "cli('restore')", "cli('recover')", 'backend._pids_absent(client_proofs)',
+                        'fixture_captured_client_proofs(backend, before)',
                          "backend._client_argv(client['pid'], client['session_id'])",
                          "f01.connected(client['pid'], port)",
                         'backend._semantic', 'backend_pid() == pid', "'--version'",
