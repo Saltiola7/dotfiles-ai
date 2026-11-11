@@ -141,6 +141,17 @@ def test_r2_completion_artifacts_keep_live_recovery_separate():
         assert token in entry
 
 
+def test_r4_reboot_recovery_contract_keeps_current_process_and_closure_proofs():
+    root = Path(__file__).parents[1]
+    text = (root / 'docs/specs/dotfiles_ai_distribution/features/remote-herdr-runtime.md').read_text()
+    section = text.split('### Reboot-interrupted repair (RRW-007G-R4 / INT-082)', 1)[1].split('\n### ', 1)[0]
+    for token in ('stored `created` address is an effect identity', 'fresh repair generation',
+                  'unbound retained replacement', 'already bound', 'stopped repair whose stable leaf is gone',
+                  'completed restore', '54 repairs', 'hand edits', 'PID reuse',
+                  'core-only restart is not a full VM boot claim', 'gate-commit', 'RRW-007I'):
+        assert token in section
+
+
 def test_r3_app_connected_transition_keeps_replacement_live_before_retirement():
     root = Path(__file__).parents[1]
     text = (root / 'docs/specs/dotfiles_ai_distribution/features/remote-herdr-runtime.md').read_text()

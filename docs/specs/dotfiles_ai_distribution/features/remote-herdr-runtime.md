@@ -336,6 +336,63 @@ Use synthetic IDs, not live session prefixes or operator paths. Pins, live recov
 rollout, VM/Mac changes, 007H wrapper/config/activation work and 007I editor recovery
 remain outside this slice. Fork A owns the subsequent reviewed live operation.
 
+### Reboot-interrupted repair (RRW-007G-R4 / INT-082)
+
+Core can return an already-created replacement as a live labelled plain shell
+after restart. A stored `created` address is an effect identity, not proof its
+desired OpenCode process survived. Classify its current program before requiring
+active-client coverage. Given exact owned labels, expected cwd, a proven plain
+shell and no duplicate desired client, admit a fresh repair generation under the
+existing ownership and exit guards. Do not call a plain shell a ready client or
+reuse old process identity against a new process. Preserve finished historical
+records without treating them as current creations or deleting uncertain clients.
+
+Use current document facts to distinguish an unbound retained replacement from
+one already bound by a successful CAS. A finished original address and a retained
+created address are not interchangeable. Do not overwrite a user-rebound leaf,
+attach the desired session to a wrong directory, repeat an uncertain run or retire
+a live replacement using an original-source proof. Revalidate process identity,
+desired-session absence and document version at every mutation boundary. New
+repair remains replacement-first: live readiness, leaf CAS, captured-shell stop.
+
+Given a stopped repair whose stable leaf is gone, preserve that closure and
+continue the remaining owned repairs once its original exit and absence of an
+uncertain live owned client are reconciled. Finished history is not a live client.
+Do not recreate the closed view or clear unexplained live/unbound terminals.
+
+Every admitted interruption phase must be recoverable after core restart: idle or
+controller stop, run admission/readiness, leaf CAS before/after acknowledgement,
+old-shell cleanup and completed restore. Reconcile durable effect intent against
+current live/finished inventories and current process facts before admitting new
+effects. Never convert stale PID/start-time evidence into authority over a new
+boot's process, infer process absence solely from a restarted server or silently
+discard a pending mutation. Unsupported or ambiguous identity/version facts retain
+state and refuse rather than guessing. Retained legacy schema-1/2 forms remain
+readable; any private proof extensions require exact validation and conservative
+older-adapter refusal. Completed switch history remains unchanged.
+
+The reported retained-state regression has a complete journal, 54 repairs, two
+legacy unbound created replacements now plain shells with their original labels,
+finished original terminals, a stopped repair whose leaf is absent and no desired
+sessions live. Recover through installed restore/recover, with no published-state
+hand edits. Keep R3 closed pending-run behavior and all R1/R2 ownership safeguards.
+
+Qualification interrupts after some native repairs, restarts core as boot would
+with an app-like finish-event pane remover connected, then completes recovery.
+Restart again after completed restore and verify convergence without duplicate
+clients, resurrected closures or changed unrelated document/process facts. Cover
+the finer interruption matrix with synthetic tests and negative ownership, cwd,
+PID reuse, duplicate and version cases. Keep the deterministic pre-kill ordering
+oracle, held-turn and both-boot qualification. A fixture client/observer is not
+actual Desktop GUI execution; core-only restart is not a full VM boot claim.
+
+Authority remains ready INT-082 under #524, manifest
+`0ac1088028a1d3aca0cff09897bdce2ff3cb0829647a6bd885179af70715a8b3`;
+base is R3 `7579ac3a4575f1296f8aeb2e84eda2174ceaac95`. No new public inputs,
+bootstrap or binary pin changes, live recovery, timer changes or cleanup. Fork A
+owns pins and live rollout. The independent lifecycle `gate-commit` staged-deletion
+defect is outside R4. RRW-007I stays paused with all work retained.
+
 ### App-connected repair ordering (RRW-007G-R3 / INT-082)
 
 A connected desktop removes a pane whose referenced terminal finishes. New repair
@@ -572,6 +629,9 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | New kept-shell repair while app is connected | Recovery controller | Create/verify replacement, CAS leaf, then stop only the captured old shell |
 | Pending run with gone leaf and zero live or finished label matches | Recovery controller | Preserve closure, resolve repair, continue others without replay |
 | Crash after leaf CAS but before old-shell exit | Recovery controller | Prove replacement binding and original identity; reconcile old-shell stop only |
+| Created replacement returns as an owned plain shell after restart | Recovery controller | Reclassify current program; admit fresh proven shell repair, never call it a ready client |
+| Stopped repair leaf absent after restart | Recovery controller | Reconcile original exit and uncertain live clients, retain closure, continue other repairs |
+| Restart during run/CAS/cleanup or after completion | Recovery controller | Reconcile durable intent against current process/document facts without replay or stale process authority |
 | Any uncertain or failed transition | Recovery controller | Retain evidence; no duplicate activation |
 
 **Text Equivalent:** The foundation installs the reviewed core binary, with
