@@ -3752,15 +3752,48 @@ def _forgejo_run(command, *, cwd, env, timeout=30, input=None):
         fail("Forgejo transport unavailable")
     finally:
         if process is not None:
-            if not finished or process.poll() is None:
+            cleanup_failed = False
+            try:
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            process.wait()
-            for stream in (process.stdin, process.stdout, process.stderr):
-                if stream is not None:
-                    stream.close()
+                    # Reap an exited leader before macOS signals its group.
+                    status = process.poll()
+                except OSError:
+                    status, cleanup_failed = None, True
+                if not finished or status is None:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    except PermissionError:
+                        # The leader may have exited between poll and signal.
+                        # Still require group cleanup when descendants remain.
+                        try:
+                            process.poll()
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        except OSError:
+                            cleanup_failed = True
+                    except OSError:
+                        cleanup_failed = True
+                if cleanup_failed and process.returncode is None:
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                try:
+                    process.wait(timeout=1)
+                except (OSError, subprocess.TimeoutExpired):
+                    cleanup_failed = True
+            finally:
+                for stream in (process.stdin, process.stdout, process.stderr):
+                    if stream is not None:
+                        try:
+                            stream.close()
+                        except OSError:
+                            cleanup_failed = True
+            if cleanup_failed:
+                raise RuntimeError("Forgejo transport cleanup unavailable") from None
 
 
 def _forgejo_trusted_file(value):
