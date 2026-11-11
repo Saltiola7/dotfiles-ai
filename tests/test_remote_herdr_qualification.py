@@ -1099,7 +1099,7 @@ class RestartQualificationSourceTests(unittest.TestCase):
             self.assertIn(witness, identity)
         restart = bodies['fixture_bootlike_core_restart']
         self.assertNotRegex(restart, r'store\.write\(|\.write_(?:text|bytes)\(|terminal\.(?:run|kill)|doc\.set')
-        for witness in ("3965a46c", 'app.pause_restart()', 'fixture_core_identity(backend) == owner',
+        for witness in ("3965a46c", 'app.pause_restart()', 'current_owner == owner',
                         "backend.command(['herdr-core', 'server', 'stop', '--json'])",
                         "backend.command(['herdr-core', 'server', 'start', '--json'])",
                         'backend._pids_absent(owner)', 'backend._pids_absent(programs)',
@@ -1131,6 +1131,87 @@ class RestartQualificationSourceTests(unittest.TestCase):
         self.assertLess(prepare.index('interrupted_restore_restart_recovery(plan, pid)'),
                         prepare.index("STEP = 'arm-core-boot'"))
         self.assertIn("wait(lambda: observe(target, plan), seconds=150)", bodies['boot'])
+
+    def test_supervisor_identity_boundaries_have_distinct_value_free_diagnostics(self):
+        from types import SimpleNamespace
+        import struct
+        identity = self.fixture['fixture_core_identity']
+        namespace = identity.__globals__
+        cases = {
+            'fixture-owner': 'core-restart-identity-fixture-owner',
+            'endpoints': 'core-restart-identity-endpoints',
+            'connect': 'core-restart-identity-peer-connect',
+            'credentials': 'core-restart-identity-peer-credentials',
+            'uid': 'core-restart-identity-peer-uid',
+            'backend-pid': 'core-restart-identity-peer-uid',
+            'executable': 'core-restart-identity-peer-executable',
+            'cgroup': 'core-restart-identity-peer-cgroup',
+            'proof': 'core-restart-identity-peer-process-proof',
+        }
+        proof = [{'pid': 701, 'start_ticks': 7, 'boot_id': '11111111-2222-4333-8444-555555555555'}]
+        for case, label in [*cases.items(), ('valid', 'core-restart-identity-peer-process-proof')]:
+            with self.subTest(case=case):
+                class Peer:
+                    def __enter__(self): return self
+                    def __exit__(self, *args): pass
+                    def connect(self, endpoint):
+                        if case == 'connect': raise OSError('PRIVATE-ENDPOINT')
+                    def getsockopt(self, *args):
+                        if case == 'credentials': raise ValueError('PRIVATE-PEER')
+                        return struct.pack('3i', 999 if case == 'backend-pid' else 701,
+                                           1001 if case == 'uid' else 1000, 1000)
+                class SyntheticPath:
+                    def __init__(self, path): self.path = path
+                    @staticmethod
+                    def home(): return namespace['HOME']
+                    def __truediv__(self, name): return SyntheticPath(self.path + '/' + name)
+                    def resolve(self):
+                        self_outer.assertTrue(self.path.endswith('/701/exe'))
+                        return Path('/PRIVATE/foreign') if case == 'executable' else namespace['BIN'] / 'herdr-core'
+                    def read_text(self):
+                        self_outer.assertTrue(self.path.endswith('/701/cgroup'))
+                        return '0::/PRIVATE/foreign.service' if case == 'cgroup' else '0::/user.slice/hc-serve-12345678.service'
+                self_outer = self
+                def proofs(pids):
+                    self.assertEqual(pids, [701])
+                    if case == 'proof': raise ValueError('PRIVATE-PROCESS')
+                    return copy.deepcopy(proof)
+                backend = SimpleNamespace(
+                    endpoint_present=lambda target: target == 'herdr-core' or case == 'endpoints',
+                    _core_endpoint=lambda: '/PRIVATE/socket', _pid_proofs=proofs)
+                with patch.dict(namespace, {'Path': SyntheticPath, 'backend_pid': lambda: 999}), \
+                     patch.object(namespace['os'], 'getuid', lambda: 1001 if case == 'fixture-owner' else 1000), \
+                     patch.object(namespace['socket'], 'socket', lambda *args: Peer()), \
+                     patch.object(namespace['socket'], 'SO_PEERCRED', 17, create=True):
+                    if case == 'valid':
+                        self.assertEqual(identity(backend), proof)
+                    else:
+                        with self.assertRaises((RuntimeError, OSError, ValueError)):
+                            identity(backend)
+                    self.assertEqual(namespace['STEP'], label)
+                    self.assertNotIn('PRIVATE', namespace['STEP'])
+
+    def test_restart_step_labels_are_literal_and_cover_each_native_boundary(self):
+        source = (FIXTURE / 'verify-user.py').read_text()
+        tree = ast.parse(source)
+        function = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                        and n.name == 'fixture_bootlike_core_restart')
+        assignments = [n for n in ast.walk(function) if isinstance(n, ast.Assign)
+                       and any(isinstance(t, ast.Name) and t.id == 'STEP' for t in n.targets)]
+        self.assertTrue(all(isinstance(n.value, ast.Constant) and type(n.value.value) is str for n in assignments))
+        labels = {n.value.value for n in assignments
+                  if isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)}
+        self.assertEqual(len(labels), len(assignments))
+        for suffix in ('before-backend', 'before-document', 'before-manifest', 'before-live-inventory',
+                       'before-live-keep-owner', 'before-history', 'before-client-proofs', 'before-program-proofs',
+                       'observer-pause', 'before-stop-identity', 'before-stop-program-proofs', 'native-stop',
+                       'stop-endpoint-exit', 'stop-supervisor-exit', 'stop-program-exit', 'stop-client-exit',
+                       'stopped-backend', 'native-start', 'start-endpoint', 'start-new-identity',
+                       'retained-terminal', 'retained-program-directory', 'retained-shell-proof', 'retained-labels',
+                       'desired-session-absence', 'raw-document-preservation', 'finished-history-preservation',
+                       'recovered-backend', 'observer-reconnect'):
+            self.assertIn('core-restart-' + suffix, labels)
+        self.assertTrue(all(re.fullmatch(r'core-restart-[a-z-]+', label) for label in labels))
 
 
 class QualificationSourceTests(unittest.TestCase):

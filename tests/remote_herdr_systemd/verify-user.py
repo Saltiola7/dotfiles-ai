@@ -1744,16 +1744,30 @@ def app_closed_pending_run_recovery(plan, pid):
 
 
 def fixture_core_identity(backend):
-    """Exact disposable supervisor identity, independent of status payload PIDs."""
+    """Exact disposable supervisor identity, independent of status payload PIDs.
+
+    Pinned 3965a46c: client.rs spawn_core passes `serve`; platform/systemd.rs
+    spawn names hc-<first argument>-<nonce>. server.rs serve binds its own socket
+    through platform/unix.rs AsyncListener::bind (no broker/listener inheritance).
+    """
+    global STEP
+    STEP = 'core-restart-identity-fixture-owner'
     require(os.getuid() == 1000 and Path.home() == HOME)
+    STEP = 'core-restart-identity-endpoints'
     require(backend.endpoint_present('herdr-core') and not backend.endpoint_present('tui'))
+    STEP = 'core-restart-identity-peer-connect'
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
         peer.connect(str(backend._core_endpoint()))
+        STEP = 'core-restart-identity-peer-credentials'
         core_pid, uid, _ = struct.unpack('3i', peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+    STEP = 'core-restart-identity-peer-uid'
     require(uid == os.getuid() and core_pid != backend_pid())
     proc = Path('/proc') / str(core_pid)
+    STEP = 'core-restart-identity-peer-executable'
     require((proc / 'exe').resolve() == BIN / 'herdr-core')
+    STEP = 'core-restart-identity-peer-cgroup'
     require('hc-serve-' in (proc / 'cgroup').read_text())
+    STEP = 'core-restart-identity-peer-process-proof'
     return backend._pid_proofs([core_pid])
 
 
@@ -1765,46 +1779,87 @@ def fixture_bootlike_core_restart(backend, app, plan, pid):
     reference/event history, with an acknowledged RPC-free outage barrier. No
     native record, document, receipt or process identity is manufactured here.
     """
+    global STEP
     from native import sessions
+    STEP = 'core-restart-before-backend'
     require(backend_pid() == pid)
+    STEP = 'core-restart-before-document'
     document, _ = backend._document()
+    STEP = 'core-restart-before-manifest'
     manifest = backend.store.read('manifest.json')
     txid = manifest['txid']
+    STEP = 'core-restart-before-live-inventory'
     live = [t for t in backend._terminals() if t['state'] == 'live']
+    STEP = 'core-restart-before-live-keep-owner'
     require(live and all(t.get('keep') is True and
                         t.get('labels', {}).get('remote-herdr-owner') == txid for t in live))
+    STEP = 'core-restart-before-history'
     historical = {t['address']: finished_terminal_facts(t) for t in backend._terminals()
                   if t['state'] == 'finished'}
+    STEP = 'core-restart-before-client-proofs'
     clients = backend.scan(sessions(plan))
     stale = backend._pid_proofs([c['pid'] for c in clients])
+    STEP = 'core-restart-before-program-proofs'
     programs = backend._pid_proofs([p for t in live for p in
         (t['pid'], (t.get('foreground') or t)['pid'])])
     owner = fixture_core_identity(backend)
+    STEP = 'core-restart-observer-pause'
     app.pause_restart()  # No in-flight app CAS may cross the declared outage.
-    require(fixture_core_identity(backend) == owner)
+    current_owner = fixture_core_identity(backend)
+    STEP = 'core-restart-before-stop-identity'
+    require(current_owner == owner)
+    STEP = 'core-restart-before-stop-program-proofs'
     require(backend._pid_proofs([p['pid'] for p in programs]) == programs)
+    STEP = 'core-restart-native-stop'
     backend.command(['herdr-core', 'server', 'stop', '--json'])
-    wait(lambda: not backend.endpoint_present('herdr-core') and backend._pids_absent(owner)
-         and backend._pids_absent(programs) and backend._pids_absent(stale), seconds=60)
+    def exited():
+        global STEP
+        STEP = 'core-restart-stop-endpoint-exit'
+        if backend.endpoint_present('herdr-core'):
+            return False
+        STEP = 'core-restart-stop-supervisor-exit'
+        if not backend._pids_absent(owner):
+            return False
+        STEP = 'core-restart-stop-program-exit'
+        if not backend._pids_absent(programs):
+            return False
+        STEP = 'core-restart-stop-client-exit'
+        return backend._pids_absent(stale)
+    wait(exited, seconds=60)
+    STEP = 'core-restart-stopped-backend'
     require(backend_pid() == pid)
+    STEP = 'core-restart-native-start'
     backend.command(['herdr-core', 'server', 'start', '--json'])
+    STEP = 'core-restart-start-endpoint'
     wait(lambda: backend.endpoint_present('herdr-core'), seconds=30)
-    require(fixture_core_identity(backend) != owner)
+    current_owner = fixture_core_identity(backend)
+    STEP = 'core-restart-start-new-identity'
+    require(current_owner != owner)
     def retained():
+        global STEP
         for previous in live:
+            STEP = 'core-restart-retained-terminal'
             current = backend._terminal(previous['address'])
+            STEP = 'core-restart-retained-program-directory'
             if backend._actual_core_program(current) != (None, previous['cwd']):
                 return False
+            STEP = 'core-restart-retained-shell-proof'
             backend._shell_proof(current)
+            STEP = 'core-restart-retained-labels'
             require(current['labels'] == previous['labels'])
         return True
     # Assert native behavior, never assume a warm restart rehydrates Bash.
     wait(retained, seconds=30)
+    STEP = 'core-restart-desired-session-absence'
     require(not backend.scan(sessions(plan)))
+    STEP = 'core-restart-raw-document-preservation'
     require(backend._document()[0] == document)
+    STEP = 'core-restart-finished-history-preservation'
     require(all(finished_terminal_facts(backend._terminal(a)) == facts
                 for a, facts in historical.items()))
+    STEP = 'core-restart-recovered-backend'
     require(backend_pid() == pid)
+    STEP = 'core-restart-observer-reconnect'
     _, Native = adapter()
     app.reconnect(Native(HOME, backend.store).core)
     return stale
