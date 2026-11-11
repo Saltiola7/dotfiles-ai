@@ -196,6 +196,8 @@ class Controller:
                 raise ControllerError('switch journal unavailable')
             phase = journal['phase']
             if phase == 'complete':
+                if self.backend.selected() == 'herdr-core':
+                    self.backend.restore_current()
                 return
             if phase == 'stop_pending':
                 capture = journal['capture']

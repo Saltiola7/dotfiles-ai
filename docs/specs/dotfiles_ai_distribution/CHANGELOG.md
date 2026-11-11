@@ -1,5 +1,32 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-10 — App-connected restore ordering (RRW-007G-R3)
+
+- Repair INT-082 under #524: new repairs create/verify a live client, CAS its owned
+  leaf, then stop only the proven old shell. Publish per leaf and retain durable
+  create/CAS/cleanup intents. Original ownership/process/exit, duplicate and shared
+  backend guards remain; native address-only kills are not atomic conditional kills.
+- Reconcile a gone legacy pending-run leaf only with no live or finished matching
+  terminal/client; preserve closure and continue remaining repairs without replay.
+  Reuse proven earlier unbound clients. Explicit selected-core `recover` dispatches
+  native receipt recovery even with a complete switch journal, retaining its history.
+- Private repair `source`/`create_id`, generation ownership labels and per-leaf
+  CAS/rebound proofs prevent finished history from aliasing a new create. Legacy
+  schema-1/2 receipts remain readable; unsupported extended active forms refuse on
+  older adapters. Post-CAS raw document/version drift conservatively retains intent.
+- Local affected validation: 924 tests and 68 subtests pass; affected Linux/Python
+  3.12 typing and stdlib qualification checks pass. Independent source reviews found
+  no remaining blocker. Native fixture adds a concurrent finish-event pane pruner,
+  native canary, deterministic pre-kill oracle and installed-CLI retained mixed-state
+  recovery. The ordering case instruments installed Native/Controller; later CLI
+  calls prove uninstrumented idempotence. No actual Desktop GUI execution is claimed.
+- Contract `1bc2e5af`, implementation `5645b0f3`, history guard `ba6b8fdb`, native
+  fixture `30a5b01b`; intended Final Push is draft branch
+  `dbsctr/dotfiles_ai_distribution/RRW-007G-R3`, never main. Exact-head native/full CI
+  and completion evidence belong to the Cycle Record; merge needs separate approval.
+  No new inputs, pin/bootstrap changes, live operations, timer changes or waivers.
+  Fork A owns pins/live recovery; 007I work is preserved and paused until R3 delivery.
+
 ## 2026-11-09 — Remote profile follow-ups (RRW-007H)
 
 - Add per-user `opencode.tab_bar_mode` for managed Mac/remote CLI `tabs.mode`:
