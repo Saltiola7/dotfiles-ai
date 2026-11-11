@@ -1,5 +1,15 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-11 — Preserve ASVS main during Python qualification
+
+- Reconcile accepted ASVS documentation and source without changing the thirteen
+  Python requirements, runtime ownership, deployed pins or support floor.
+- Keep main's stronger Forgejo cleanup contract and its full transport tests,
+  the observed Python 3.15 help oracle and the stderr producer lifetime repair.
+- Source-contract and oldest/newest transport checks pass after reconciliation.
+  Fresh combined-source hosted qualification remains required before protected
+  merge of PR #276; execution and delivery outcomes remain in the Cycle Record.
+
 ## 2026-11-11 — Stabilize the stderr-limit qualification fixture
 
 - Hold the fixture's producer alive after flushing its output so the log-bound
