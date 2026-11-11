@@ -1,5 +1,33 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-11 — Reboot-interrupted repair (RRW-007G-R4)
+
+- Correct INT-082 recovery when previously created replacements return as labelled
+  plain shells. Journal a proven live-shell leaf hop, capture current source facts,
+  reconcile cleanup and admit a fresh replacement-first generation. Preserve closed
+  stopped leaves and interrupted idle/controller-stop checkpoints without replaying
+  uncertain creation or editing published state. Retained large legacy state and
+  completed-journal recovery remain covered.
+- Private `retained_shell: true` intents distinguish shell-hop CAS/cleanup from
+  active-client readiness. New PID proofs include validated Linux `boot_id` so
+  PID/start-tick aliases across boots never confer old-process kill authority.
+  Legacy forms remain readable; a matching boot-less live kill can independently
+  admit a fresh R3 repair after whole-receipt backup, never a historical kill.
+  Unsupported/ambiguous facts still refuse; older strict readers reject extended
+  active forms. No new public inputs, bootstrap or binary pin changes.
+- Herdr source validation: 887 tests and 88 subtests; 38 stdlib qualification tests;
+  affected Linux/Python 3.12 typing clean. Independent source/fixture reviews found
+  no blocker. Native fixture adds app-observed core stop/start after interrupted
+  and completed restore; source tests are not native execution, full VM reboot or
+  Desktop GUI evidence. Existing actual fixture boot phases remain separate.
+- Contract `d8f0709d`, initial runtime `0fd8bb8f`, legacy admission/native fixture
+  `55761659`. Intended Final Push is draft branch
+  `dbsctr/dotfiles_ai_distribution/RRW-007G-R4`, never main. Exact-head hosted
+  native/full CI and completion results belong to the Cycle Record; final merge
+  approval is separate. No live operations, timer changes, cleanup or waivers.
+  Fork A owns pinning/live rollout. 007I remains preserved and paused. The separate
+  lifecycle staged-deletion defect is not bundled into R4.
+
 ## 2026-11-10 — App-connected restore ordering (RRW-007G-R3)
 
 - Repair INT-082 under #524: new repairs create/verify a live client, CAS its owned

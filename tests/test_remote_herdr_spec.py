@@ -152,6 +152,20 @@ def test_r4_reboot_recovery_contract_keeps_current_process_and_closure_proofs():
         assert token in section
 
 
+def test_r4_delivery_artifacts_keep_boot_proofs_and_native_claims_bounded():
+    root = Path(__file__).parents[1] / 'docs/specs/dotfiles_ai_distribution'
+    readme = (root / 'README.md').read_text()
+    entry = (root / 'CHANGELOG.md').read_text().split(
+        '## 2026-11-11 — Reboot-interrupted repair (RRW-007G-R4)', 1)[1].split('\n## ', 1)[0]
+    for token in ('RRW-007G-R4', 'Linux boot UUIDs', 'idle-stop checkpoints',
+                  'not a full VM/Desktop GUI claim', 'No new inputs', 'Fork A'):
+        assert token in readme
+    for token in ('887 tests', '88 subtests', '38 stdlib', '`boot_id`',
+                  '`retained_shell: true`', 'never a historical kill', 'never main',
+                  'final merge', '007I', 'staged-deletion defect'):
+        assert token in entry
+
+
 def test_r3_app_connected_transition_keeps_replacement_live_before_retirement():
     root = Path(__file__).parents[1]
     text = (root / 'docs/specs/dotfiles_ai_distribution/features/remote-herdr-runtime.md').read_text()
