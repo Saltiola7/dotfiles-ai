@@ -4,8 +4,8 @@ Engineering Profile: [../PROFILE.md](../PROFILE.md). Owner: lifecycle maintainer
 Risk: critical because delivery evidence participates in destructive retirement.
 Modules: Python and Security. Source-only slice: `rebased-completion-core` in the
 [delivery Initiative](../../../initiatives/dbsctr-delivery-lifecycle/REBASED-DELIVERY.md).
-This is a proposed capability contract; existing runtime behavior is unchanged
-until the implementation and managed activation are independently qualified.
+The source implementation supplies this capability. Managed installation and
+native consumer-route qualification remain separate activation obligations.
 
 ## Outcome and scope
 
@@ -93,6 +93,10 @@ For the first supported proof:
    Verify native merged head/base/PR identities and actual Git objects. The result
    must remain in the freshly fetched ultimate default; the original baseline
    must be an ancestor of the landed base. An intermediate target does not qualify.
+   For each landed commit, the native introducing-PR observation must uniquely
+   match this verified PR. Otherwise a dropped leading phase could be confused
+   with equivalent work already introduced by another PR. Missing or ambiguous
+   native association is unavailable proof, not permission to borrow that work.
 3. Verify correspondence per commit by deterministic, conflict-free replay of
    each original delta onto that landed commit's parent and exact resulting-tree
    comparison. This admits unrelated changes on the newer base without claiming
@@ -102,12 +106,17 @@ For the first supported proof:
    filters and merge drivers; replay must not execute repository code or mutate
    the original worktree, index, branch or gate evidence. Use bounded isolated
    native Git operations; an unsafe/unqualified capability is unavailable.
+   The first implementation refuses grafts, local filter/merge-driver definitions,
+   merge/filter/encoding attributes in compared trees, and submodules. Replay
+   requires the selected native Git to support an explicit merge-base.
 4. Recheck source/record/pointer and native PR/target identities under the existing
    evidence and target locks before persistence. Historical base advancement
    after the merge is allowed when the verified landed range remains included.
 5. Preserve original Git objects through the private evidence ref, save the
    immutable receipt/completed record atomically, then remove only the matching
    active pointer. Preserve the current save-before-pointer-removal ordering.
+   Reverify retained custody after the final potentially executing source/DVC
+   inspection, then reobserve record, pointer and cheap source facts before save.
 
 First-slice unsupported cases are capability limits, not permission to squash or
 drop a phase. A provider grouping multiple PRs must expose an unambiguous verified
@@ -140,6 +149,9 @@ every landed commit into the ultimate default, together with the matching retain
 source ref and original evidence. The retained source HEAD must still match the
 receipt; any later source work blocks retirement. Original baseline obligations
 and foreign/pre-cycle ownership checks remain. No cached receipt-only acceptance.
+The source-only default oracle also requires fresh per-landed-commit introducing-PR
+observations; it does not authenticate caller-created observations or remove the
+existing unavailable runtime-qualification reasons.
 
 All other [preservation predicates](workflow-preservation-retirement.md) remain
 mandatory: artifact/DVC preservation, clean and owned worktree, terminal correlated
@@ -182,12 +194,15 @@ where their predicates are owned. Retain version-1 exact-tree behavior and
 historical-record regressions. Use existing publication/instruction authorities,
 Python compilation and `git diff --check`; no new validation framework.
 
-| Gates | Applicability | Current result / exception |
-|---|---|---|
-| Domain, Behavior, Spec, Contract, Test-driven implementation, Refactor | required | not_run / none; Discovery is not implementation evidence |
-| Review/Integrate; Maintain/Retire | required | not_run / none |
-| Release | not_applicable: no independent package/image publication | not_run / none |
-| Deploy; Operate | not_applicable for source-only draft PR; required in later managed qualification | not_run / none |
+Current Gate Results and any approved Gate Exceptions belong to the private Cycle
+Record. This table selects applicability rather than duplicating live execution.
+
+| Gates | Source-only applicability |
+|---|---|
+| Domain, Behavior, Spec, Contract, Test-driven implementation, Refactor | required |
+| Review/Integrate; Maintain/Retire | required |
+| Release | not_applicable: no independent package/image publication |
+| Deploy; Operate | not_applicable for source-only draft PR; required in later managed qualification |
 
 Keep source changes within the existing helper, its affected tests and lifecycle
 guidance. Managed installation and a representative native rebase route require

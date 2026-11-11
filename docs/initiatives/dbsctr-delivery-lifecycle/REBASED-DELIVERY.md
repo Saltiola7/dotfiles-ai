@@ -80,7 +80,7 @@ Transport backoff, duplicate events and changed-code repair are different concer
 
 | Slice | Execution owner | Current scope/state | Dependency |
 |---|---|---|---|
-| `rebased-completion-core` | build | First source slice; specification ready after document validation, implementation and launch feasibility unverified | Existing merged source; no dependency on a new queue |
+| `rebased-completion-core` | build | Registered source slice; implementation and source qualification recorded by Build, integration/activation remain separate | Existing merged source; no dependency on a new queue |
 | `rebased-delivery-policy` | discovery | Deferred installation, personal defaults and per-repository activation | Delivered core and a qualified deployment plan |
 | `dagger-delivery-adoption` | discovery | Deferred to the existing Dagger work: independent queue, CI-to-agent loop and consumer integration | Delivered core and existing validation/consumer qualification |
 
@@ -109,7 +109,9 @@ Discovery does not register a cycle. Build must first perform exact Initiative
 preflight in an explicit Worktrunk checkout and present scope, risk, target and
 launch digest for approval. No-upstream Discovery branches do not justify an
 extra publication. Same-repository draft delivery carries this documentation with
-implementation. Launch feasibility remains unverified until that preflight.
+implementation. This source cycle completed that preflight and exact approval;
+the private Cycle Record retains launch and qualification evidence. Subsequent
+launches still need their own current feasibility check.
 
 ## Risks and deferred decisions
 

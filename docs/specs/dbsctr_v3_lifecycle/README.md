@@ -1,11 +1,12 @@
 # DBSCTR V3 Lifecycle
 
-[Verified rebased delivery](features/rebased-delivery.md) specifies a focused
-extension to external completion and preservation: retain original phase IDs and
-evidence, verify each landed commit and preserve source objects through a private
-evidence ref. The six-phase workflow remains unchanged. Implementation and native
-activation are pending; queue operation and CI-to-agent feedback adoption stay
-with the existing validation owner through the delivery Initiative handoff.
+[Verified rebased delivery](features/rebased-delivery.md) adds explicit
+`complete-external --proof rebased_commits` source support. It retains original
+phase IDs/evidence, verifies each landed change and native introducing PR, and
+preserves original objects through a private evidence ref. Cleanup-history
+verification rechecks that custody and correspondence; other runtime guards
+remain authoritative. Managed activation and queue/CI feedback adoption stay
+with the existing owners through the delivery Initiative handoff.
 
 [Retained cross-repository Initiative authority](features/cross-repository-initiative-amendment.md)
 extends the amendment route for a separate coordinator checkout without importing

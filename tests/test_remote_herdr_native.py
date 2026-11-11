@@ -618,9 +618,7 @@ def test_current_repair_waits_for_observed_created_client_readiness(backend):
 
 
 def test_current_uncertain_cas_accepts_later_unrelated_desktop_serialization(backend):
-    core = FakeCore(backend)
-    manifest_for(backend, core)
-    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    core = r1_shell(backend)
     original = core.rpc
     def uncertain(method, params):
         result = original(method, params)
@@ -634,6 +632,11 @@ def test_current_uncertain_cas_accepts_later_unrelated_desktop_serialization(bac
     backend.core = uncertain
     with pytest.raises(native.NativeError):
         backend.restore_current()
+    # Retained R1/R2 batch-CAS intent: old shell was already proven stopped.
+    receipt = backend.store.read('receipt-testtx.json')
+    receipt['pending'].pop('leaf')
+    receipt['pending'].pop('replacement')
+    backend.store.write('receipt-testtx.json', receipt)
     backend.core = original
     before = len(core.calls)
     backend.restore_current()
@@ -696,7 +699,8 @@ def test_current_cas_bad_acknowledgement_retains_reconcilable_intent(backend, re
     before = len(core.calls)
     backend.restore_current()
     assert backend.store.read('manifest.json')['receipt']['pending'] is None
-    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+    # R3 has not retired the old shell until the lost CAS result is proven.
+    assert [m for m, _ in core.calls[before:] if m in ('terminal.run', 'terminal.kill', 'doc.set')] == ['terminal.kill']
 
 
 def test_retained_published_64_pending_switch_adopts_three_without_resurrecting_four(backend):
@@ -823,9 +827,10 @@ def test_current_repair_races_preserve_user_edit_without_duplicate_creation(back
     backend.core = rpc
     with pytest.raises(native.NativeError):
         backend.restore_current()
-    expected_runs = 1 if boundary in ('cas-intent', 'cas-conflict') else 0
+    # R3 creates and rebinds before publishing its old-shell kill intent.
+    expected_runs = 0 if boundary == 'run-intent' else 1
     assert sum(m == 'terminal.run' for m, _ in core.calls[calls:]) == expected_runs
-    assert sum(m == 'terminal.kill' for m, _ in core.calls[calls:]) == (0 if boundary == 'kill-intent' else 1)
+    assert not any(m == 'terminal.kill' for m, _ in core.calls[calls:])
 
 
 def test_current_schema2_reboot_rebinds_owned_leaf_preserving_unowned_unknown_view(backend):
@@ -931,9 +936,7 @@ def test_fresh_selected_live_core_without_document_is_quiet(backend):
 
 
 def test_current_repair_waits_for_actual_shell_pid_exit_not_only_finished_record(backend):
-    core = FakeCore(backend)
-    manifest_for(backend, core)
-    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    core = r1_shell(backend)
     rpc = core.rpc
     def retained_process(method, params):
         if method == 'terminal.kill':
@@ -1150,6 +1153,7 @@ def test_r2_controller_recovers_retained_mixed_app_document(backend, tmp_path, l
         original = copy.deepcopy(core.document)
         live = {a: copy.deepcopy(t) for a, t in core.terminals.items() if a != 't2'}
         synthetic_process(backend, core.terminals['t2']['pid'], ['/bin/bash', '-l'])
+        arm_legacy_kill(backend, core)
         store.write('transaction.json', {'schema_version': 1, 'txid': 'testtx', 'source': 'tui',
             'target': 'herdr-core', 'phase': 'restore_pending', 'plan': manifest['plan'],
             'receipt': manifest['receipt']})
@@ -1525,7 +1529,38 @@ def r1_shell(backend):
     manifest_for(backend, core)
     synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
     core.calls.clear()
+    arm_legacy_kill(backend, core)
     return core
+
+
+def arm_legacy_kill(backend, core):
+    # Serialize the historical kill-first boundary explicitly. These regression
+    # tests exercise retained R1 intents, not R3's deliberately changed ordering.
+    restore = backend.restore_current
+    def legacy_restore():
+        backend.restore_current = restore
+        manifest = backend.store.read('manifest.json')
+        receipt = copy.deepcopy(manifest['receipt'])
+        document, version = backend._document()
+        projected, bindings, labels, repairs = backend._current_projection(
+            document, backend._terminals(), manifest['plan'], receipt)
+        for repair in repairs.values():
+            repair.pop('create_id', None)
+            repair['labels'].pop('remote-herdr-repair', None)
+        receipt.update(current_document=True, plan=projected, document=document, doc_version=version,
+                       bindings={k: b['leaf'] for k, b in bindings.items()},
+                       labels={k: labels[b['leaf']] for k, b in bindings.items()}, repairs=repairs)
+        key, binding = next((k, b) for k, b in bindings.items() if b['leaf'] in repairs)
+        leaf = binding['leaf']
+        terminal = core.terminals[binding['terminal']]
+        proofs = backend._pid_proofs([terminal['pid'], (terminal.get('foreground') or terminal)['pid']])
+        repairs[leaf]['pids'] = proofs
+        receipt['pending'] = {'operation': 'terminal.kill', 'pane': key, 'leaf': leaf,
+                              'terminal': terminal['address'], 'pids': proofs,
+                              'identity': backend._kill_identity(terminal)}
+        backend._receipt(receipt)
+        restore()
+    backend.restore_current = legacy_restore
 
 
 def r1_on_intent(backend, action):

@@ -6,8 +6,9 @@
 operator-approved context map and narrowed first source slice: preserve original
 phase evidence, verify rebased commit correspondence and support guarded cleanup.
 The existing Dagger work owns later queue/CI feedback adoption. The earlier
-merge-commit-only contract below remains the legacy route; the new proof requires
-its own implementation and managed qualification. MANIFEST.json owns readiness.
+merge-commit-only contract below remains the legacy route. The new proof has
+source implementation; verified integration and managed qualification remain
+separate. MANIFEST.json owns readiness.
 
 This Initiative makes successful DBSCTR delivery converge back to a clean base
 checkout without requiring operators to reason about stale feature branches and
