@@ -1202,8 +1202,8 @@ class RestartQualificationSourceTests(unittest.TestCase):
         labels = {n.value.value for n in assignments
                   if isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)}
         self.assertEqual(len(labels), len(assignments))
-        for suffix in ('before-backend', 'before-document', 'before-manifest', 'before-live-inventory',
-                       'before-live-keep-owner', 'before-history', 'before-client-proofs', 'before-program-proofs',
+        for suffix in ('before-backend', 'before-document', 'before-manifest',
+                       'before-history', 'before-client-proofs', 'before-program-proofs',
                        'observer-pause', 'before-stop-identity', 'before-stop-program-proofs', 'native-stop',
                        'stop-endpoint-exit', 'stop-supervisor-exit', 'stop-program-exit', 'stop-client-exit',
                        'stopped-backend', 'native-start', 'start-endpoint', 'start-new-identity',
@@ -1212,6 +1212,190 @@ class RestartQualificationSourceTests(unittest.TestCase):
                        'recovered-backend', 'observer-reconnect'):
             self.assertIn('core-restart-' + suffix, labels)
         self.assertTrue(all(re.fullmatch(r'core-restart-[a-z-]+', label) for label in labels))
+
+
+class RestartInventorySourceTests(unittest.TestCase):
+    """Real Native terminal-list decoding; scripted RPC/proc seams, no host reads."""
+
+    def setUp(self):
+        from types import SimpleNamespace
+        self.fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        module_path = str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr')
+        sys.path.insert(0, module_path)
+        try:
+            from native import Native
+        finally:
+            sys.path.remove(module_path)
+        self.Native = Native
+        self.backend = object.__new__(Native)
+        self.boot = '11111111-2222-4333-8444-555555555555'
+        self.owner = 'synthetic-owner'
+        first = {'remote-herdr-owner': self.owner, 'remote-herdr-pane': 'p0',
+                 'remote-herdr-session': 'ses_synthetic0'}
+        second = dict(first, **{'remote-herdr-pane': 'p1', 'remote-herdr-session': 'ses_synthetic1'})
+        created = dict(first, **{'remote-herdr-pane': 'leaf0', 'remote-herdr-repair': 'a' * 32})
+        self.receipt: dict = {'txid': self.owner, 'terminals': {'p0': 't1', 'p1': 't2'},
+            'labels': {'p0': first, 'p1': second}, 'repairs': {'leaf0': {
+                'terminal': 't1', 'created': 't3', 'pane': {'key': 'p0'}, 'labels': created}}}
+        self.manifest: dict = {'txid': self.owner, 'receipt': copy.deepcopy(self.receipt)}
+        self.document: dict = {'spaces': [{'tabs': [{'root': {'id': 'row', 'type': 'row', 'children': [
+            {'id': 'leaf0', 'type': 'block', 'content': {'terminal': 't1'}},
+            {'id': 'leaf1', 'type': 'block', 'content': {'terminal': 't2'}}]}}]}]}
+        self.seed: dict = {'address': 't9', 'created_ms': 10, 'keep': True, 'labels': {},
+                           'argv': ['/bin/bash', '-l'], 'cwd': '/fixture', 'pid': 909, 'state': 'live'}
+        self.inventory: list[dict] = [dict(self.seed, address=a, pid=p, labels=copy.deepcopy(labels))
+            for a, p, labels in [('t1', 101, first), ('t2', 202, second), ('t3', 303, created)]]
+        self.calls = []
+        self.effects = []
+        self.version = 17
+        def rpc(method, params):
+            self.calls.append(method)
+            if method == 'terminal.list':
+                self.assertEqual(params, {'all': True})
+                return {'terminals': copy.deepcopy(self.inventory)}
+            if method == 'terminal.get':
+                result = copy.deepcopy(next(t for t in self.inventory if t['address'] == params['terminal']))
+                result['title'] = 'synthetic display churn ' + str(len(self.calls))
+                return result
+            if method == 'doc.get':
+                self.assertEqual(params, {'name': 'herdr-app'})
+                return {'version': self.version, 'value': copy.deepcopy(self.document)}
+            if method == 'terminal.kill':
+                self.effects.append(copy.deepcopy(params))
+                next(t for t in self.inventory if t['address'] == params['terminal'])['state'] = 'finished'
+                return {}
+            raise AssertionError('unexpected RPC')
+        def read(name):
+            self.assertEqual(name, 'receipt-' + self.owner + '.json')
+            return copy.deepcopy(self.receipt)
+        def forbidden(*args): raise AssertionError('unexpected host/process read')
+        self.enterContext(patch.object(self.backend, 'core', rpc))
+        self.enterContext(patch.object(self.backend, 'store', SimpleNamespace(read=read), create=True))
+        self.enterContext(patch.object(self.backend, 'process_boot_id', forbidden))
+        self.enterContext(patch.object(self.backend, '_pid_proofs', forbidden))
+
+    def test_partial_receipt_sources_and_unbound_created_are_accounted_exactly(self):
+        before = copy.deepcopy(self.inventory)
+        live = self.fixture['fixture_restart_live_inventory'](self.backend, self.document, self.manifest)
+        self.assertEqual(live, before)
+        self.assertEqual(self.inventory, before)
+        self.assertEqual(self.calls, ['terminal.list'])
+        self.assertFalse(self.effects)
+
+    def test_unknown_original_import_seed_is_not_authority_for_core_wide_stop(self):
+        self.inventory.append(copy.deepcopy(self.seed))
+        with self.assertRaises(self.fixture['CommandFailure']) as caught:
+            self.fixture['fixture_restart_live_inventory'](self.backend, self.document, self.manifest)
+        self.assertEqual(caught.exception.reason,
+            'inventory-owner-missing-unknown-and-unaccounted-live-unknown')
+        self.assertEqual(self.fixture['fixture_restart_live_inventory'].__globals__['STEP'],
+                         'core-restart-before-live-owner-missing')
+        self.assertFalse(self.effects)
+
+    def test_inventory_reports_all_fixed_memberships_and_refuses_before_any_effect(self):
+        baseline = copy.deepcopy(self.inventory)
+        cases = ('empty', 'keep-missing', 'keep-false', 'owner-missing', 'owner-mismatch',
+                 'unaccounted-live', 'labels-mismatch')
+        for case in cases:
+            with self.subTest(case=case):
+                self.inventory[:] = copy.deepcopy(baseline)
+                if case == 'empty': self.inventory.clear()
+                elif case == 'keep-missing': self.inventory[0].pop('keep')
+                elif case == 'keep-false': self.inventory[0]['keep'] = False
+                elif case == 'owner-missing': self.inventory[0]['labels'].pop('remote-herdr-owner')
+                elif case == 'owner-mismatch': self.inventory[2]['labels']['remote-herdr-owner'] = 'PRIVATE-FOREIGN'
+                elif case == 'unaccounted-live': self.inventory.append(dict(self.inventory[0], address='t8'))
+                elif case == 'labels-mismatch': self.inventory[0]['labels']['remote-herdr-pane'] = 'PRIVATE-CHANGED'
+                with self.assertRaises(self.fixture['CommandFailure']) as caught:
+                    self.fixture['fixture_restart_live_inventory'](self.backend, self.document, self.manifest)
+                expected_step = 'core-restart-before-live-' + case
+                self.assertEqual(self.fixture['fixture_restart_live_inventory'].__globals__['STEP'], expected_step)
+                self.assertNotIn('PRIVATE', caught.exception.reason)
+                self.assertNotIn(self.owner, caught.exception.reason)
+                if case in ('keep-missing', 'keep-false', 'owner-missing', 'labels-mismatch'):
+                    self.assertIn(case + '-referenced', caught.exception.reason)
+                    self.assertIn(case + '-repair-source', caught.exception.reason)
+                    self.assertIn(case + '-saved-binding', caught.exception.reason)
+                if case == 'owner-mismatch': self.assertIn('owner-mismatch-repair-created', caught.exception.reason)
+                if case == 'unaccounted-live': self.assertIn('unaccounted-live-unknown', caught.exception.reason)
+                self.assertFalse(self.effects)
+
+    def test_only_exact_locally_created_seed_is_retired_with_current_proofs(self):
+        self.inventory.append(copy.deepcopy(self.seed))
+        def proofs(pids):
+            proof = [{'pid': p, 'start_ticks': 11, 'boot_id': self.boot} for p in sorted(set(pids))]
+            self.Native._validate_pid_proofs(proof)
+            self.assertEqual({p['pid'] for p in proof}, {909})
+            return proof
+        def shell(terminal): self.assertEqual(terminal['argv'], ['/bin/bash', '-l'])
+        with patch.object(self.backend, '_pid_proofs', proofs), \
+             patch.object(self.backend, '_actual_core_program', lambda t: (None, t['cwd'])), \
+             patch.object(self.backend, '_shell_proof', shell), \
+             patch.object(self.backend, '_pids_absent', lambda p: p == proofs([909])):
+            self.fixture['fixture_retire_import_seed'](self.backend, self.seed)
+        self.assertEqual(self.effects, [{'terminal': 't9'}])
+        self.assertEqual([t['state'] for t in self.inventory], ['live', 'live', 'live', 'finished'])
+        self.assertEqual(len(self.fixture['fixture_restart_live_inventory'](
+            self.backend, self.document, self.manifest)), 3)
+
+    def test_one_failure_reports_all_relevant_fixed_facts_without_runtime_values(self):
+        unknown = copy.deepcopy(self.seed)
+        unknown.pop('keep')
+        unknown['labels'] = {'remote-herdr-owner': 'PRIVATE-FOREIGN'}
+        self.inventory.append(unknown)
+        self.inventory[0]['keep'] = False
+        self.inventory[2]['labels'].pop('remote-herdr-owner')
+        with self.assertRaises(self.fixture['CommandFailure']) as caught:
+            self.fixture['fixture_restart_live_inventory'](self.backend, self.document, self.manifest)
+        reason = caught.exception.reason
+        for fact in ('keep-missing-unknown', 'keep-false-referenced', 'keep-false-repair-source',
+                     'owner-missing-repair-created', 'owner-mismatch-unknown', 'unaccounted-live-unknown',
+                     'labels-mismatch-repair-created'):
+            self.assertIn(fact, reason)
+        self.assertNotIn('PRIVATE', reason)
+        self.assertNotIn(self.owner, reason)
+        self.assertNotIn('/fixture', reason)
+        self.assertFalse(self.effects)
+        self.assertEqual(self.calls, ['terminal.list'])
+
+    def test_seed_mismatch_or_current_proof_change_never_forwards_kill(self):
+        self.inventory.append(copy.deepcopy(self.seed))
+        baseline = copy.deepcopy(self.inventory)
+        for case in ('owner', 'creation', 'referenced', 'process', 'version', 'not-bash'):
+            with self.subTest(case=case):
+                self.inventory[:] = copy.deepcopy(baseline)
+                self.version = 17
+                if case == 'owner': self.inventory[-1]['labels']['remote-herdr-owner'] = 'PRIVATE-FOREIGN'
+                elif case == 'creation': self.inventory[-1]['created_ms'] += 1
+                document = copy.deepcopy(self.document)
+                if case == 'referenced': self.document['spaces'][0]['tabs'][0]['root']['children'][0]['content']['terminal'] = 't9'
+                reads = 0
+                def proofs(pids):
+                    nonlocal reads
+                    reads += 1
+                    if case == 'version': self.version = 18
+                    return [{'pid': 909, 'start_ticks': reads if case == 'process' else 11, 'boot_id': self.boot}]
+                with patch.object(self.backend, '_pid_proofs', proofs), \
+                     patch.object(self.backend, '_actual_core_program', lambda t: ('ses_wrong' if case == 'not-bash' else None, t['cwd'])), \
+                     patch.object(self.backend, '_shell_proof', lambda t: None):
+                    with self.assertRaises(RuntimeError):
+                        self.fixture['fixture_retire_import_seed'](self.backend, self.seed)
+                self.document = document
+                self.assertFalse(self.effects)
+
+    def test_seed_retirement_is_after_backup_and_before_further_cases(self):
+        source = (FIXTURE / 'verify-user.py').read_text()
+        prepare = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'prepare_fixture')
+        body = ast.get_source_segment(source, prepare) or ''
+        self.assertLess(body.index("backups = [store.read(path.name)"), body.index('fixture_retire_import_seed(backend, shell)'))
+        self.assertLess(body.index('fixture_retire_import_seed(backend, shell)'), body.index('inflight_switch(provider, plan, pid)'))
+        restart = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)
+                       and n.name == 'fixture_bootlike_core_restart')
+        restart_body = ast.get_source_segment(source, restart) or ''
+        self.assertLess(restart_body.index('fixture_restart_live_inventory(backend, document, manifest)'),
+                        restart_body.index('app.pause_restart()'))
+        self.assertLess(restart_body.index('fixture_restart_live_inventory(backend, document, manifest)'),
+                        restart_body.index("backend.command(['herdr-core', 'server', 'stop', '--json'])"))
 
 
 class QualificationSourceTests(unittest.TestCase):

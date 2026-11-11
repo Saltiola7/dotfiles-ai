@@ -33,6 +33,12 @@
   effects instead; do not relax production validation or omit client-exit checks.
   Fixture regressions cover missing/duplicate/malformed proof coverage. Fresh
   exact-head native/full CI remains required after this correction.
+- The next native run passes retained R1/R2/R3 cases but stops before restart on
+  live-inventory ownership. Source tracing identifies the fixture's original
+  unlabelled import seed, which remained kept after its reference was replaced.
+  Retire only that exact creation-proven seed after backup/document/process checks;
+  account for every remaining live terminal against durable receipt/repair facts.
+  Unknown live terminals still block fixture-wide stop; production rules unchanged.
 
 ## 2026-11-10 — App-connected restore ordering (RRW-007G-R3)
 

@@ -1743,6 +1743,107 @@ def app_closed_pending_run_recovery(plan, pid):
     return expected_plan
 
 
+def fixture_retire_import_seed(backend, seed):
+    """Retire ONLY prepare's exact original unlabelled import/backup test shell.
+
+    Import replaces its document, not its terminal. Native stop keeps unreferenced
+    kept shells pending, so leaving this known seed alive contaminates later cases.
+    Never search for or clean up other unlabelled/old-owner records.
+    """
+    global STEP
+    STEP = 'import-seed-exact-creation'
+    address = seed['address']
+    current = backend._terminal(address)
+    require(all(current.get(k) == seed.get(k) for k in
+                ('address', 'created_ms', 'labels', 'argv', 'cwd', 'keep')))
+    require(seed['labels'] == {} and seed['keep'] is True and seed['argv'] == ['/bin/bash', '-l'])
+    STEP = 'import-seed-not-referenced'
+    document, version = backend._document()
+    require(address not in fixture_references(document).values())
+    STEP = 'import-seed-current-shell-proof'
+    require(backend._actual_core_program(current) == (None, seed['cwd']))
+    backend._shell_proof(current)
+    proof = backend._pid_proofs([current['pid'], (current.get('foreground') or current)['pid']])
+    STEP = 'import-seed-before-kill-proof'
+    latest = backend._terminal(address)
+    require(backend._document() == (document, version))
+    require(all(latest.get(k) == current.get(k) for k in
+                ('address', 'created_ms', 'labels', 'argv', 'cwd', 'keep', 'pid')))
+    require((latest.get('foreground') or latest)['pid'] == (current.get('foreground') or current)['pid'])
+    require(backend._pid_proofs([p['pid'] for p in proof]) == proof)
+    require(backend._actual_core_program(latest) == (None, seed['cwd']))
+    STEP = 'import-seed-native-kill'
+    backend.core('terminal.kill', {'terminal': address})
+    STEP = 'import-seed-exit-proof'
+    wait(lambda: backend._terminal(address)['state'] == 'finished' and backend._pids_absent(proof))
+    require(backend._document() == (document, version))
+
+
+def fixture_restart_live_inventory(backend, document, manifest):
+    """Account for ALL live records before core-wide stop; never ignore unknowns.
+
+    One bounded diagnostic enumerates only fixed reason/membership tokens. No
+    address, owner value, session, PID, path or native payload enters output.
+    """
+    global STEP
+    STEP = 'core-restart-before-live-receipt'
+    receipt = backend.store.read('receipt-' + manifest['txid'] + '.json')
+    require(receipt is not None and receipt['txid'] == manifest['txid'])
+    expected = {}
+    def remember(address, labels):
+        require(address not in expected or expected[address] == labels)
+        expected[address] = labels
+    for key, address in receipt['terminals'].items():
+        remember(address, receipt['labels'][key])
+    sources, created = set(), set()
+    for repair in receipt.get('repairs', {}).values():
+        sources.add(repair['terminal'])
+        remember(repair['terminal'], receipt['labels'][repair['pane']['key']])
+        if repair.get('created'):
+            created.add(repair['created'])
+            remember(repair['created'], repair['labels'])
+    referenced = set(fixture_references(document).values())
+    saved = set(manifest['receipt']['terminals'].values())
+    STEP = 'core-restart-before-live-inventory'
+    live = [t for t in backend._terminals() if t['state'] == 'live']
+    if not live:
+        STEP = 'core-restart-before-live-empty'
+        raise CommandFailure('inventory-live-empty')
+    groups = {'referenced': [], 'repair-source': [], 'repair-created': [], 'saved-binding': [], 'unknown': []}
+    for terminal in live:
+        address = terminal['address']
+        # Report all relevant memberships, not just the first matching category.
+        memberships = [name for name, addresses in (
+            ('referenced', referenced), ('repair-source', sources), ('repair-created', created),
+            ('saved-binding', saved)) if address in addresses]
+        for name in memberships or ['unknown']:
+            groups[name].append(terminal)
+    checks = (
+        ('core-restart-before-live-keep-missing', 'keep-missing', lambda t: 'keep' not in t),
+        ('core-restart-before-live-keep-false', 'keep-false', lambda t: t.get('keep') is False),
+        ('core-restart-before-live-keep-invalid', 'keep-invalid', lambda t: 'keep' in t and type(t['keep']) is not bool),
+        ('core-restart-before-live-owner-missing', 'owner-missing',
+         lambda t: not isinstance(t.get('labels'), dict) or not t['labels'].get('remote-herdr-owner')),
+        ('core-restart-before-live-owner-mismatch', 'owner-mismatch',
+         lambda t: isinstance(t.get('labels'), dict) and bool(t['labels'].get('remote-herdr-owner'))
+         and t['labels']['remote-herdr-owner'] != manifest['txid']),
+        ('core-restart-before-live-unaccounted-live', 'unaccounted-live', lambda t: t['address'] not in expected),
+        ('core-restart-before-live-labels-mismatch', 'labels-mismatch',
+         lambda t: t['address'] in expected and not backend._same_labels(t.get('labels'), expected[t['address']])),
+    )
+    failures = []
+    first_step = None
+    for step, reason, check in checks:
+        for membership, terminals in groups.items():
+            if any(check(t) for t in terminals):
+                first_step = first_step or step
+                failures.append(reason + '-' + membership)
+    if first_step is not None:
+        STEP = first_step
+        raise CommandFailure('inventory-' + '-and-'.join(failures))
+    return live
+
+
 def fixture_core_identity(backend):
     """Exact disposable supervisor identity, independent of status payload PIDs.
 
@@ -1787,12 +1888,7 @@ def fixture_bootlike_core_restart(backend, app, plan, pid):
     document, _ = backend._document()
     STEP = 'core-restart-before-manifest'
     manifest = backend.store.read('manifest.json')
-    txid = manifest['txid']
-    STEP = 'core-restart-before-live-inventory'
-    live = [t for t in backend._terminals() if t['state'] == 'live']
-    STEP = 'core-restart-before-live-keep-owner'
-    require(live and all(t.get('keep') is True and
-                        t.get('labels', {}).get('remote-herdr-owner') == txid for t in live))
+    live = fixture_restart_live_inventory(backend, document, manifest)
     STEP = 'core-restart-before-history'
     historical = {t['address']: finished_terminal_facts(t) for t in backend._terminals()
                   if t['state'] == 'finished'}
@@ -2559,6 +2655,7 @@ def prepare_fixture(provider):
         require(any(value.get('document') == document and
                     address in {t['address'] for t in value.get('terminals', [])} for value in backups))
         require(address in {t['address'] for t in backend._terminals()})
+        fixture_retire_import_seed(backend, shell)
     require(backend_pid() == pid)
     inflight_switch(provider, plan, pid)
     plan = edited_document_recovery(plan, pid)
