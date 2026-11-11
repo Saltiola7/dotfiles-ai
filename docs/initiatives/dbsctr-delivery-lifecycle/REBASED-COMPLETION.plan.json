@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Source-only lifecycle support; no independent package or image publication."},
+    "deploy": {"applicability": "not_applicable", "reason": "Source-only draft PR; no installed helper, personal policy, repository setting or queue activation. Managed qualification is a separate slice."},
+    "operate": {"applicability": "not_applicable", "reason": "Source validation uses disposable Git fixtures. No live merge, removal, worker or agent feedback runs in this source slice."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

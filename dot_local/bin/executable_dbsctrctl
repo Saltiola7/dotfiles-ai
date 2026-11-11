@@ -5562,7 +5562,10 @@ def lineage_git(root, *args):
     output, errors = preservation_output(child, limit=1024 * 1024, timeout=5)
     if child.returncode or errors.strip():
         fail("lineage committed objects are unavailable")
-    return output.decode("utf-8")
+    try:
+        return output.decode("utf-8")
+    except UnicodeError:
+        fail("lineage committed object encoding is unsupported")
 
 
 def lineage_ancestor(root, older, newer):
@@ -5589,7 +5592,7 @@ def lineage_document_blobs(root, blobs):
         fail("historical lineage documentation blobs are unavailable")
 
 
-def lineage_merge_tree(root, first, second):
+def lineage_merge_tree(root, first, second, *, base=None):
     objects = Path(lineage_git(root, "rev-parse", "--git-path", "objects").strip())
     objects = objects if objects.is_absolute() else root / objects
     objects = objects.resolve(strict=True)
@@ -5604,7 +5607,8 @@ def lineage_merge_tree(root, first, second):
         lineage_git(temporary, "init", "--bare", "--template=", "--initial-branch=control",
                     "--object-format=" + object_format, str(bare))
         (bare / "objects/info/alternates").write_text(str(objects) + "\n")
-        result = lineage_git(bare, "merge-tree", "--write-tree", first, second).splitlines()
+        options = ["--merge-base=" + lineage_oid(base)] if base is not None else []
+        result = lineage_git(bare, "merge-tree", "--write-tree", *options, first, second).splitlines()
         if len(result) != 1:
             fail("lineage merge is not an exact clean merge")
         return lineage_oid(result[0])
@@ -9930,14 +9934,17 @@ def local_cli_mutation_guard(args, selected):
         record = read_cycle_record(root, path, historical=True)
         if (not native_workspace_execution(record) or record["delivery"] != before["delivery"]
                 or record["worktree"] != before["worktree"]
-                or not pointer.exists() or active_pointer_id(root, pointer) != record["cycle_id"]
+                or (args.command != "complete-external" and (
+                    not pointer.exists() or active_pointer_id(root, pointer) != record["cycle_id"]))
                 or not record_worktree_matches(root, record, root, bindings=False)):
             fail("local-only mutation binding changed")
         lineage_pending_guard(root, record)
         if args.command in {"final-push", "reconcile-target"}:
             require_pushable(record)
-        else:
+        elif args.command != "complete-external":
             require_active(record)
+        # External completion owns finalizing/completed admission and matching
+        # pointer checks; keep this shared mutation lock and lineage custody.
         yield
 
 
@@ -10263,10 +10270,27 @@ def removal_default_predicates(root, records, observation):
                     or pull["headRefName"] != delivery["branch"] or pull["headRefOid"] != expected
                     or pull["baseRefName"] != delivery["base_branch"]):
                 reasons.append("pr_delivery_unverified")
-            obligations = [git(root, "--no-replace-objects", "rev-parse", "HEAD").stdout.strip(),
-                           record["git"]["head"], record["worktree"]["base_commit"],
-                           *record["git"]["pre_cycle_ahead_commits"],
-                           *(entry["id"] for entry in record["commits"]), pull["mergeCommit"]["oid"]]
+            original_head = git(root, "--no-replace-objects", "rev-parse", "HEAD").stdout.strip()
+            completion = record.get("external_completion", {})
+            history = [original_head, *(entry["id"] for entry in record["commits"])]
+            if completion.get("proof") == "rebased_commits":
+                validate_external_completion(record)
+                if (completion["head"] != original_head or completion["target_branch"] != default
+                        or completion["merge"] != pull["mergeCommit"]["oid"]
+                        or completion["pull_request"] != {"number": pull["number"], "url": pull["url"]}):
+                    fail("rebased retirement delivery changed")
+                with local_completion_git_context():
+                    if (lineage_git(root, "rev-parse", original_head + "^{tree}").strip() != completion["tree"]
+                            or rebased_mapping(root, record, completion["merge"]) != {
+                                key: completion[key] for key in ("landed_base", "commit_mapping", "source_retention_ref")}):
+                        fail("rebased retirement correspondence changed")
+                rebased_source_retention(root, record, original_head)
+                history = [item["landed"] for item in completion["commit_mapping"]]
+                for landed in history:
+                    require_rebased_introduction(observation["commit_pull_requests"][landed], repository,
+                                                 completion["pull_request"], completion["merged_at"])
+            obligations = [record["git"]["head"], record["worktree"]["base_commit"],
+                           *record["git"]["pre_cycle_ahead_commits"], *history, pull["mergeCommit"]["oid"]]
             for commit in obligations:
                 if (not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", commit)
                         or git(root, "--no-replace-objects", "merge-base", "--is-ancestor", commit, head,
@@ -10292,6 +10316,7 @@ def workspace_remove_check(root):
                 if path.stem in ids:
                     records.append(read_cycle_record(root, path, historical=True, max_bytes=1024 * 1024))
             selected |= any((record.get("initiative") or {}).get("initiative_id") == "dbsctr-workflow-convergence"
+                            or record.get("external_completion", {}).get("proof") == "rebased_commits"
                             for record in records)
     except (RuntimeError, OSError, ValueError, TypeError, KeyError, TimeoutError, subprocess.SubprocessError):
         unavailable = True
@@ -10395,6 +10420,8 @@ def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
             if not matches:
                 continue
             related.append(record["cycle_id"])
+            if not strict and record.get("external_completion", {}).get("proof") == "rebased_commits":
+                reasons.append("git_default_unavailable")
             if local_only_cycle(record):
                 return {"schema_version": 1, "eligible": False,
                         "reasons": ["unpublished_local_completion"], "cycle_ids": related}
@@ -20284,6 +20311,10 @@ def validate_external_completion(record):
     fields = {"schema_version", "status", "proof", "cycle_id", "repository", "pull_request",
               "head", "tree", "merge", "merge_parent", "target_branch", "target_head",
               "merged_at", "verified_at", "recorded_commits"}
+    version = value.get("schema_version") if isinstance(value, dict) else None
+    rebased = type(version) is int and version == 2
+    if rebased:
+        fields |= {"landed_base", "commit_mapping", "source_retention_ref"}
     delivery = record.get("delivery", {})
     github = delivery.get("github", {})
     if (not isinstance(github, dict) or set(github) != {"host", "repository", "account"}
@@ -20291,10 +20322,11 @@ def validate_external_completion(record):
             or not all(isinstance(item, dict) and "id" in item for item in record["commits"])):
         fail("invalid external completion record identity")
     if (not isinstance(value, dict) or set(value) != fields
-            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or type(version) is not int or version not in (1, 2)
             or record.get("schema_version") not in (3, 4, 5)
             or record.get("delivery_intent") != "draft_pr" or record.get("state") != "completed"
-            or value["status"] != "delivered_external" or value["proof"] != "exact_tree"
+            or value["status"] != "delivered_external"
+            or value["proof"] != ("rebased_commits" if rebased else "exact_tree")
             or value["cycle_id"] != record.get("cycle_id")
             or value["repository"] != github or github.get("host") != "github.com"
             or value["target_branch"] != delivery.get("base_branch")
@@ -20311,6 +20343,132 @@ def validate_external_completion(record):
             or type(pull["number"]) is not int or not 1 <= pull["number"] < 2**53
             or pull["url"] != f"https://github.com/{github.get('repository')}/pull/{pull['number']}"):
         fail("invalid external completion pull request")
+
+    if rebased:
+        mapping = value["commit_mapping"]
+        if (not external_oid(value["landed_base"], width)
+                or value["source_retention_ref"] != rebased_source_ref(record)
+                or not isinstance(mapping, list) or not 1 <= len(mapping) <= 1024
+                or len(mapping) != len(value["recorded_commits"])
+                or any(not isinstance(item, dict) or set(item) != {"original", "landed"}
+                       or not all(external_oid(item[key], width) for key in ("original", "landed"))
+                       for item in mapping)
+                or [item["original"] for item in mapping] != value["recorded_commits"]
+                or len({item["original"] for item in mapping}) != len(mapping)
+                or len({item["landed"] for item in mapping}) != len(mapping)
+                or mapping[-1]["landed"] != value["merge"]
+                or mapping[-1]["original"] != value["head"]
+                or value["merge_parent"] != (mapping[-2]["landed"] if len(mapping) > 1 else value["landed_base"])):
+            fail("invalid rebased completion correspondence")
+
+
+def rebased_source_ref(record):
+    identifier = record.get("cycle_id")
+    if (not isinstance(identifier, str) or not OPAQUE_ID.fullmatch(identifier)
+            or ".." in identifier or identifier.endswith((".", ".lock"))):
+        fail("invalid rebased source retention identity")
+    return "refs/dbsctr/evidence/" + identifier
+
+
+def rebased_source_retention(root, record, head, *, create=False, required=False):
+    """Keep original objects reachable, without retaining a feature branch."""
+    ref = rebased_source_ref(record)
+    with local_completion_git_context():
+        entries = lineage_git(root, "for-each-ref", "--format=%(refname) %(objectname) %(symref)", ref).splitlines()
+        if entries:
+            if len(entries) != 1 or entries[0].split() != [ref, head]:
+                fail("rebased source retention ref changed")
+        elif required or record.get("external_completion") is not None:
+            fail("rebased source retention ref is unavailable")
+        elif create:
+            lineage_git(root, "update-ref", "--no-deref", ref, head, "0" * len(head))
+            if lineage_git(root, "for-each-ref", "--format=%(refname) %(objectname) %(symref)", ref).split() != [ref, head]:
+                fail("rebased source retention ref changed")
+    return ref
+
+
+def require_rebased_introduction(value, repository, pull, merged_at):
+    # On the verified default branch, GitHub reports the PR which introduced
+    # this object. Replay alone could borrow a dropped phase from an older PR.
+    item = value[0] if isinstance(value, list) and len(value) == 1 else None
+    if (not isinstance(item, dict) or type(item.get("number")) is not int
+            or item["number"] != pull["number"]
+            or str(item.get("html_url", "")).casefold() != pull["url"].casefold()
+            or item.get("state") != "closed" or item.get("merged_at") != merged_at
+            or not isinstance(item.get("base"), dict)
+            or not isinstance(item["base"].get("repo"), dict)
+            or str(item["base"]["repo"].get("full_name", "")).casefold() != repository.casefold()):
+        fail("rebased commit is not uniquely introduced by the verified pull request")
+
+
+def rebased_git_safety(root):
+    """Reject graph rewriting and locally configured executable transforms."""
+    grafts = Path(lineage_git(root, "rev-parse", "--git-path", "info/grafts").strip())
+    if (grafts if grafts.is_absolute() else root / grafts).exists():
+        fail("rebased proof does not support grafts")
+    config = lineage_git(root, "config", "--local", "--list", "-z")
+    for entry in config.split("\0"):
+        key = entry.split("\n", 1)[0].lower()
+        if key.startswith("filter.") or key.startswith("merge.") and key.endswith(".driver"):
+            fail("rebased proof does not support configured filters or merge drivers")
+
+
+def rebased_mapping(root, record, merge):
+    """Prove each complete source delta against its landed predecessor."""
+    commits = [entry["id"] for entry in record["commits"]]
+    if not 1 <= len(commits) <= 1024 or len(set(commits)) != len(commits):
+        fail("rebased source exceeds correspondence bounds")
+    rebased_git_safety(root)
+    original = record["git"]["head"]
+    actual = lineage_git(root, "rev-list", "--first-parent", "--reverse", "--max-count=1025",
+                         original + ".." + commits[-1]).splitlines()
+    if actual != commits:
+        fail("rebased source does not match recorded commits")
+    landed = lineage_git(root, "rev-list", "--first-parent", "--max-count=" + str(len(commits)), merge).splitlines()[::-1]
+    if len(landed) != len(commits):
+        fail("rebased landed range is incomplete")
+    mapping, checked = [], set()
+    landed_base = None
+    for source, destination in zip(commits, landed):
+        source_fields = lineage_git(root, "show", "-s", "--format=%T %P", source).split()
+        landed_fields = lineage_git(root, "show", "-s", "--format=%T %P", destination).split()
+        if (len(source_fields) != 2 or source_fields[1] != original or len(landed_fields) != 2):
+            fail("rebased proof requires single-parent consecutive commits")
+        source_tree, source_parent = source_fields
+        landed_tree, landed_parent = landed_fields
+        if source_tree == lineage_git(root, "rev-parse", source_parent + "^{tree}").strip():
+            fail("rebased proof does not support empty source commits")
+        if landed_base is None:
+            landed_base = landed_parent
+            if not lineage_ancestor(root, record["git"]["head"], landed_base):
+                fail("rebased landed base is outside source ancestry")
+        elif landed_parent != mapping[-1]["landed"]:
+            fail("rebased landed range is not consecutive")
+        for revision in (source, source_parent, destination, landed_parent):
+            tree = lineage_git(root, "rev-parse", revision + "^{tree}").strip()
+            if tree in checked:
+                continue
+            checked.add(tree)
+            for entry in lineage_git(root, "ls-tree", "-r", "-z", tree).split("\0"):
+                if not entry:
+                    continue
+                metadata, name = entry.split("\t", 1)
+                if metadata.startswith("160000 "):
+                    fail("rebased proof does not support submodules")
+                if name.rsplit("/", 1)[-1] == ".gitattributes":
+                    attrs = lineage_git(root, "cat-file", "blob", metadata.split()[2])
+                    for line in attrs.splitlines():
+                        if line.lstrip().startswith("#"):
+                            continue
+                        if any(token.lstrip("-!").split("=", 1)[0] in {"merge", "filter", "working-tree-encoding"}
+                               for token in line.split()[1:]):
+                            fail("rebased proof does not support merge or filter attributes")
+        if lineage_merge_tree(root, landed_parent, source, base=source_parent) != landed_tree:
+            fail("rebased commit does not preserve the original change")
+        mapping.append({"original": source, "landed": destination})
+        original = source
+    return {"landed_base": landed_base, "commit_mapping": mapping,
+            "source_retention_ref": rebased_source_ref(record)}
 
 
 def require_completion_dvc(root, record, changed):
@@ -20399,6 +20557,15 @@ def external_merge_proof(root, record, args, env, head, tree, commits):
             fail("external merge pull request does not match the pinned merged source")
         return value["merged_at"]
 
+    rebased = getattr(args, "proof", "exact_tree") == "rebased_commits"
+    def default_identity():
+        native_repository = external_github(root, env, f"repos/{repository}")
+        if (not isinstance(native_repository, dict)
+                or str(native_repository.get("full_name", "")).casefold() != repository.casefold()
+                or native_repository.get("default_branch") != delivery["base_branch"]):
+            fail("rebased completion requires the native ultimate default")
+    if rebased:
+        default_identity()
     merged_at = identity(pull)
     old_pull = delivery.get("pull_request")
     if old_pull is not None and (
@@ -20420,7 +20587,7 @@ def external_merge_proof(root, record, args, env, head, tree, commits):
             or not isinstance(native_parents, list) or len(native_parents) != len(parents)
             or not all(isinstance(item, dict) for item in native_parents)
             or [item.get("sha") for item in native_parents] != parents
-            or merge_tree != tree or len(parents) not in (1, 2)):
+            or (len(parents) != 1 if rebased else (merge_tree != tree or len(parents) not in (1, 2)))):
         fail("external merge object is not the expected native exact-tree commit")
     if len(parents) == 2:
         # An ordinary two-parent merge is admitted only as an exact-tree merge of
@@ -20434,6 +20601,18 @@ def external_merge_proof(root, record, args, env, head, tree, commits):
     if (git(root, "merge-base", "--is-ancestor", merge, target, check=False).returncode
             or git(root, "merge-base", "--is-ancestor", record["git"]["head"], parent, check=False).returncode):
         fail("external merge is outside the protected base lineage")
+    correspondence = {}
+    if rebased:
+        with local_completion_git_context():
+            correspondence = rebased_mapping(root, record, merge)
+        deadline = time.monotonic() + 60
+        for pair in correspondence["commit_mapping"]:
+            if time.monotonic() >= deadline:
+                fail("rebased native introduction verification timed out")
+            introduced = external_github(root, env,
+                f"repos/{repository}/commits/{pair['landed']}/pulls?per_page=2")
+            require_rebased_introduction(introduced, repository, {"number": args.pr_number, "url": url}, merged_at)
+        rebased_source_retention(root, record, head)
     imported_anchor = merge if len(parents) == 2 else parent
     for commit in commits:
         imported = git(root, "show", "-s", "--format=%P", commit).stdout.split()[1:]
@@ -20445,12 +20624,15 @@ def external_merge_proof(root, record, args, env, head, tree, commits):
             or current["object"].get("type") != "commit" or current["object"].get("sha") != target
             or identity(external_github(root, env, endpoint)) != merged_at):
         fail("external merge protected-base or pull-request identity changed during verification")
-    return {"schema_version": 1, "status": "delivered_external", "proof": "exact_tree",
+    if rebased:
+        default_identity()
+    return {"schema_version": 2 if rebased else 1, "status": "delivered_external",
+            "proof": "rebased_commits" if rebased else "exact_tree",
             "cycle_id": record["cycle_id"], "repository": dict(github),
             "pull_request": {"number": args.pr_number, "url": url}, "head": head, "tree": tree,
             "merge": merge, "merge_parent": parent, "target_branch": delivery["base_branch"],
             "target_head": target, "merged_at": merged_at, "verified_at": now(),
-            "recorded_commits": commits}
+            "recorded_commits": commits, **correspondence}
 
 
 def command_complete_external(args):
@@ -20492,6 +20674,8 @@ def command_complete_external(args):
         if record["state"] == "completed" and "external_completion" not in record:
             fail("cycle already completed through another delivery route")
         with local_completion_git_context():
+            if args.proof == "rebased_commits":
+                rebased_git_safety(root)
             head, tree, commits = external_source(root, record, args.expected_head)
         if not external_oid(args.expected_merge, len(head)):
             fail("external merge pin has the wrong object format")
@@ -20507,12 +20691,16 @@ def command_complete_external(args):
         previous = record.get("external_completion")
         if previous is not None:
             stable = set(receipt) - {"verified_at", "target_head"}
-            if any(previous[key] != receipt[key] for key in stable):
+            if set(previous) != set(receipt) or any(previous[key] != receipt[key] for key in stable):
                 fail("completed external delivery receipt changed")
             receipt = previous
+        if receipt["proof"] == "rebased_commits":
+            rebased_source_retention(root, record, head, create=not args.preview)
         with local_completion_git_context():
             if external_source(root, record, args.expected_head) != (head, tree, commits):
                 fail("external completion source changed during verification")
+        if receipt["proof"] == "rebased_commits":
+            rebased_source_retention(root, record, head, required=not args.preview)
         if json.dumps(read_cycle_record(root, path, historical=True), sort_keys=True) != admitted:
             fail("external completion record changed during verification")
         if own_pointer != pointer.exists() or own_pointer and active_pointer_id(root, pointer) != identifier:
@@ -21785,6 +21973,7 @@ def parser():
     complete_local.add_argument("--cycle-id", help="retry an already completed local-only cycle in its native checkout")
     complete_local.set_defaults(func=command_complete_local)
     complete_external = commands.add_parser("complete-external")
+    complete_external.add_argument("--proof", choices=("exact_tree", "rebased_commits"), default="exact_tree")
     complete_external.add_argument("--cycle-id", help="verify/retry an already externally completed cycle")
     complete_external.add_argument("--pr-number", required=True, type=int)
     complete_external.add_argument("--expected-head", required=True)
