@@ -3214,7 +3214,7 @@ def validate_schema6_record(root, record):
         "preservation_policy", "execution", "initiative", "initiative_approval"}
     optional = {"discovery_import", "profile_history", "graphify_check", "phase_profile", "dvc_push",
                 "dvc_preservation", "local_completion", "completed_at", "source_sync",
-                "initiative_amendments", "initiative_authority_checkpoints"}
+                "initiative_amendments", "initiative_authority_checkpoints", "completion_reconciliation"}
     if (not required <= set(record) or not set(record) <= required | optional
             or not native_workspace_execution(record) or record["execution"]["origin"] != "registered"
             or record["delivery_intent"] != "local" or record["state"] not in {"active", "completed"}
@@ -6127,6 +6127,11 @@ def evidence_policy_argv(value):
             or any(not isinstance(arg, str) or not arg or "\0" in arg
                    or len(arg.encode("utf-8")) > 4096 or SECRET_VALUE.search(arg) for arg in value)):
         fail("invalid evidence policy command")
+    # Literal credential values must not enter immutable approved-plan custody.
+    # Configuration selectors such as --auth-mode/--access-token-file stay valid.
+    credential_option = re.compile(r"--(?:password|passwd|token|secret|api[-_]key|access[-_]token|client[-_]secret|authorization|auth[-_]token)(?:=|$)", re.I)
+    if any(credential_option.match(arg) for arg in value):
+        fail("credential command options require an environment-backed project wrapper")
 
 
 def validate_evidence_policy(value, gates, requirement_ids=None):
@@ -6736,7 +6741,7 @@ def completion_evidence_dispositions(root, record, *, strict_source=False, allow
                 decision = evidence_binding_applicability(root, record, name, allow_runtime=allow_runtime, probe_cache=probe_cache)
             elif strict_source and name in {"deploy", "operate"}:
                 decision = {"disposition": "unavailable", "reason_code": "runtime_binding_enrollment_required"}
-            elif (point == head or not strict_source and item.get("commit")
+            elif (point == head or policy is None and not strict_source and item.get("commit")
                   or source_head == point and lineage_git(root, "rev-parse", point + "^{tree}").strip()
                      == lineage_git(root, "rev-parse", head + "^{tree}").strip()):
                 decision = {"disposition": "retained", "reason_code": "legacy_source_rule", "evidence": item["id"]}
@@ -21197,7 +21202,8 @@ def complete_local_offline(args):
                 if json.dumps(read_cycle_record(root, path, historical=True), sort_keys=True) != admitted_record:
                     fail("local completion record changed during validation")
                 if effective_evidence_policy(record) is not None:
-                    require_completion_bindings(root, record)
+                    decisions = require_completion_bindings(root, record)
+                    retain_source_applicability(root, record, decisions, {})
                 save(path, record)
             if not explicit:
                 if active_pointer_id(root, pointer) != identifier:
@@ -21930,11 +21936,175 @@ def require_completion_target_pin(root, record, env, target):
         fail("protected target changed before completion persistence; retry fresh proof")
 
 
+def validate_completion_applicability(root, before, plan):
+    cycle = before["cycle_id"]
+    decisions = plan["evidence_dispositions"]
+    required = {name for name, gate in before["gates"].items() if gate["applicability"] == "required"}
+    if (not isinstance(decisions, dict) or set(decisions) != required
+            or any(not isinstance(item, dict) or item.get("disposition") != "retained"
+                   or item.get("evidence") != before["gates"][name].get("evidence") for name, item in decisions.items())
+            or plan["requirements"] != completion_requirement_dispositions(before, decisions)
+            or not external_timestamp(plan["verified_at"])):
+        fail("completion reconciliation requirement or evidence disposition changed")
+    observations = plan["runtime_observations"]
+    if not isinstance(observations, list) or len(observations) > 32 or any(not isinstance(item, dict) for item in observations):
+        fail("invalid completion runtime observation population")
+    for observation in observations:
+        initiative_fields(observation, {"schema_version", "cycle_id", "kind", "command_digest", "inputs_digest",
+                                       "result", "identity", "exit_code", "observed_at", "reference"}, "runtime observation")
+        if (type(observation["schema_version"]) is not int or observation["schema_version"] != 1
+                or observation["kind"] != "runtime_probe" or type(observation["exit_code"]) is not int
+                or any(not isinstance(observation[name], str) or not re.fullmatch(r"[0-9a-f]{64}", observation[name])
+                       for name in ("command_digest", "inputs_digest"))):
+            fail("invalid runtime observation identity")
+        evidence_runtime_identity(observation["identity"])
+    for name, decision in decisions.items():
+        if decision["reason_code"] == "trusted_inputs_equivalent":
+            binding = load_evidence_binding(root, before, decision["evidence"])
+            declaration = effective_evidence_policy(before)["gates"][name]
+            if binding["gate_policy_digest"] != evidence_gate_policy_digest(effective_evidence_policy(before), name):
+                fail("completion applicability policy changed")
+            if "runtime" in declaration:
+                validated = datetime.fromisoformat(binding["runtime"]["validated_at"].replace("Z", "+00:00"))
+                verified = datetime.fromisoformat(plan["verified_at"].replace("Z", "+00:00"))
+                snapshot_digest = continuation_digest({key: binding[key] for key in ("inputs", "toolchain", "environment")})
+                if (decision.get("runtime_status") != "passed"
+                        or not 0 <= (verified - validated).total_seconds() <= declaration["runtime"]["max_age_seconds"]
+                        or not any(observation.get("identity") == binding["runtime"]["identity"]
+                                   and observation.get("command_digest") == continuation_digest(declaration["runtime"]["probe_argv"])
+                                   and observation.get("inputs_digest") == snapshot_digest
+                                   and external_timestamp(observation.get("observed_at"))
+                                   and validated <= datetime.fromisoformat(observation["observed_at"].replace("Z", "+00:00")) <= verified
+                                   for observation in observations)):
+                    fail("completion runtime applicability observation unavailable")
+        elif decision["reason_code"] not in {"legacy_source_rule", "approved_exception"}:
+            fail("unsupported completion applicability decision")
+    for observation in observations:
+        reference = observation["reference"]
+        if (set(reference) != {"schema_version", "sha256"} or type(reference["schema_version"]) is not int
+                or reference["schema_version"] != 1 or not isinstance(reference["sha256"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", reference["sha256"])):
+            fail("invalid runtime observation reference")
+        data = amendment_read(root, cycle_dir(root) / "evidence" / cycle / reference["sha256"])
+        if (amendment_hash(data) != reference["sha256"]
+                or json.loads(data, object_pairs_hook=no_duplicate_keys) != {key: value for key, value in observation.items() if key != "reference"}
+                or observation["result"] != "passed" or observation["exit_code"] != 0
+                or observation["cycle_id"] != cycle or not external_timestamp(observation["observed_at"])):
+            fail("runtime observation custody changed")
+
+
+def source_applicability_identity(record):
+    return {"policy_digest": continuation_digest(effective_evidence_policy(record)),
+            "authority_receipt_digest": continuation_digest(effective_initiative(record)),
+            "record_digest": continuation_digest({name: value for name, value in record.items()
+                if name not in {"completion_reconciliation", "source_sync", "phase_profile", "runtime"}}),
+            "registration_digest": continuation_digest({name: record.get(name) for name in (
+                "git", "worktree", "execution", "engineering_profile", "applicability_plan", "initiative", "initiative_approval")}),
+            "gate_state_digest": continuation_digest(record["gates"]),
+            "commits_digest": continuation_digest(record["commits"]),
+            "delivery_digest": continuation_digest(record["delivery"]),
+            "evidence_refs": {name: continuation_digest(record["evidence"]["items"][gate["evidence"]])
+                              for name, gate in record["gates"].items() if gate["applicability"] == "required"},
+            "binding_refs": {name: record["evidence"].get("bindings", {}).get(gate.get("evidence"))
+                             for name, gate in record["gates"].items() if gate["applicability"] == "required"}}
+
+
+def completion_source_destination(root, record):
+    if not local_only_cycle(record):
+        return remote_destination(root, upstream(root))
+    remote, forge = record["delivery"]["remote"], record["delivery"]["forge"]
+    identity = {name: forge[name] for name in ("provider", "origin", "repository")}
+    values = {"url": forge["origin"] + "/" + forge["repository"] + ".git"}
+    for kind, key, extra in (("fetch_urls", "url", []), ("push_urls", "pushurl", ["--push"])):
+        configured = git(root, "config", "--null", "--get-all", f"remote.{remote}.{key}", check=False)
+        if configured.returncode not in (0, 1):
+            fail("local completion destination unavailable")
+        values[kind] = configured.stdout.rstrip("\0").split("\0") if configured.stdout else []
+        if kind == "push_urls" and not values[kind]:
+            values[kind] = list(values["fetch_urls"])
+        effective = git(root, "remote", "get-url", "--all", *extra, remote)
+        if any(repository_identity_from_url(url, "forgejo") != identity for url in effective.stdout.splitlines()):
+            fail("local completion destination changed")
+    return values
+
+
+@offline_amendment_read
+def retain_source_applicability(root, record, decisions, probes):
+    """Add immutable applicability custody; never rewrite an execution or receipt."""
+    if effective_evidence_policy(record) is None:
+        return
+    if (status_paths(root) or branch(root) != record["git"]["branch"]
+            or upstream(root) != record["git"]["upstream"]
+            or completion_source_destination(root, record) != record["git"]["remote"]):
+        fail("completion source changed before applicability persistence")
+    current = require_completion_bindings(root, record)
+    if {name: {k: v for k, v in item.items() if k != "runtime_status"} for name, item in current.items()} != {
+            name: {k: v for k, v in item.items() if k != "runtime_status"} for name, item in decisions.items()}:
+        fail("completion applicability changed before persistence")
+    observations = [value for value in probes.values() if isinstance(value, dict) and value.get("kind") == "runtime_probe"]
+    verified = now()
+    record["completed_at"] = verified
+    if local_only_cycle(record):
+        record["local_completion"]["completed_at"] = verified
+    for observation in observations:
+        age = (datetime.fromisoformat(verified.replace("Z", "+00:00"))
+               - datetime.fromisoformat(observation["observed_at"].replace("Z", "+00:00"))).total_seconds()
+        if not 0 <= age <= 60:
+            fail("completion runtime observation expired; retain delivery and retry verification")
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    plan = {"schema_version": 2, "cycle_id": record["cycle_id"], "kind": "source_applicability",
+            "route": "local" if local_only_cycle(record) else "final_push", "head": head,
+            "tree": git(root, "rev-parse", "HEAD^{tree}").stdout.strip(),
+            **source_applicability_identity(record), "evidence_dispositions": decisions,
+            "requirements": completion_requirement_dispositions(record, decisions),
+            "runtime_observations": observations, "verified_at": verified}
+    # Each performed attempt has its own observation identity. Interrupted/orphan
+    # attempts remain immutable; an ordinary retry may make a fresh observation.
+    digest = continuation_digest(plan)
+    amendment_write_once(root, reconciliation_location(root, record["cycle_id"], digest, "plan.json"), amendment_bytes(plan))
+    with local_completion_git_context():
+        reconciliation_source_refs(root, record["cycle_id"], [], acceptance_head=head, create=True)
+    record["completion_reconciliation"] = {"schema_version": 2, "digest": digest}
+    validate_source_applicability(root, record)
+    if (status_paths(root) or git(root, "rev-parse", "HEAD").stdout.strip() != head
+            or branch(root) != record["git"]["branch"] or upstream(root) != record["git"]["upstream"]
+            or completion_source_destination(root, record) != record["git"]["remote"]):
+        fail("completion source changed during applicability custody write")
+
+
+def validate_source_applicability(root, record):
+    entry = record["completion_reconciliation"]
+    plan = amendment_json(root, reconciliation_location(root, record["cycle_id"], entry["digest"], "plan.json"))
+    identity = source_applicability_identity(record)
+    fields = {"schema_version", "cycle_id", "kind", "route", "head", "tree", "evidence_dispositions",
+              "requirements", "runtime_observations", "verified_at", *identity}
+    if (not isinstance(plan, dict) or set(plan) != fields or type(plan["schema_version"]) is not int or plan["schema_version"] != 2
+            or continuation_digest(plan) != entry["digest"] or record["state"] != "completed"
+            or not effective_evidence_policy(record) or plan["cycle_id"] != record["cycle_id"]
+            or plan["kind"] != "source_applicability" or plan["route"] != ("local" if local_only_cycle(record) else "final_push")
+            or any(plan[name] != value for name, value in identity.items())
+            or not external_oid(plan["head"]) or not external_oid(plan["tree"], len(plan["head"]))
+            or not record["commits"] or plan["head"] != record["commits"][-1]["id"]
+            or not external_timestamp(plan["verified_at"])
+            or plan["verified_at"] != record["completed_at"]):
+        fail("completion source applicability custody changed")
+    if local_only_cycle(record) and (plan["head"] != record["local_completion"]["head"]
+            or plan["tree"] != record["local_completion"]["tree"] or plan["runtime_observations"]):
+        fail("local completion applicability custody changed")
+    with local_completion_git_context():
+        reconciliation_source_refs(root, record["cycle_id"], [], acceptance_head=plan["head"])
+        if lineage_git(root, "rev-parse", plan["head"] + "^{tree}").strip() != plan["tree"]:
+            fail("completion source applicability tree changed")
+    validate_completion_applicability(root, record, plan)
+
+
 def validate_completion_reconciliation(root, record):
     entry = record["completion_reconciliation"]
     if (not isinstance(entry, dict) or set(entry) != {"schema_version", "digest"}
-            or type(entry["schema_version"]) is not int or entry["schema_version"] != 1):
+            or type(entry["schema_version"]) is not int or entry["schema_version"] not in (1, 2)):
         fail("unsupported completion reconciliation custody")
+    if entry["schema_version"] == 2:
+        return validate_source_applicability(root, record)
     cycle, digest = record["cycle_id"], entry["digest"]
     plan = amendment_json(root, reconciliation_location(root, cycle, digest, "plan.json"))
     raw = amendment_read(root, reconciliation_location(root, cycle, digest, "before.json"))
@@ -21963,45 +22133,7 @@ def validate_completion_reconciliation(root, record):
     completion_acceptance_context(root, selected, plan["head"], plan["segments"][-1]["target_head"])
     if completion_target_equivalence(root, before, selected[-1][1], plan["segments"][-1]["target_head"]) != plan["accepted_target"]:
         fail("completion accepted target applicability changed")
-    decisions = plan["evidence_dispositions"]
-    required = {name for name, gate in before["gates"].items() if gate["applicability"] == "required"}
-    if (not isinstance(decisions, dict) or set(decisions) != required
-            or any(item.get("disposition") != "retained" or item.get("evidence") != before["gates"][name].get("evidence")
-                   for name, item in decisions.items())
-            or plan["requirements"] != completion_requirement_dispositions(before, decisions)
-            or not external_timestamp(plan["verified_at"])):
-        fail("completion reconciliation requirement or evidence disposition changed")
-    for name, decision in decisions.items():
-        if decision["reason_code"] == "trusted_inputs_equivalent":
-            binding = load_evidence_binding(root, before, decision["evidence"])
-            declaration = effective_evidence_policy(before)["gates"][name]
-            if binding["gate_policy_digest"] != evidence_gate_policy_digest(effective_evidence_policy(before), name):
-                fail("completion applicability policy changed")
-            if "runtime" in declaration:
-                validated = datetime.fromisoformat(binding["runtime"]["validated_at"].replace("Z", "+00:00"))
-                verified = datetime.fromisoformat(plan["verified_at"].replace("Z", "+00:00"))
-                snapshot_digest = continuation_digest({key: binding[key] for key in ("inputs", "toolchain", "environment")})
-                if (decision.get("runtime_status") != "passed" or not 0 <= (verified - validated).total_seconds() <= declaration["runtime"]["max_age_seconds"]
-                        or not any(observation.get("identity") == binding["runtime"]["identity"]
-                                   and observation.get("command_digest") == continuation_digest(declaration["runtime"]["probe_argv"])
-                                   and observation.get("inputs_digest") == snapshot_digest
-                                   and external_timestamp(observation.get("observed_at"))
-                                   and validated <= datetime.fromisoformat(observation["observed_at"].replace("Z", "+00:00")) <= verified
-                                   for observation in plan["runtime_observations"])):
-                    fail("completion runtime applicability observation unavailable")
-        elif decision["reason_code"] not in {"legacy_source_rule", "approved_exception"}:
-            fail("unsupported completion applicability decision")
-    for observation in plan["runtime_observations"]:
-        reference = observation["reference"]
-        if (set(reference) != {"schema_version", "sha256"} or reference["schema_version"] != 1
-                or not isinstance(reference["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", reference["sha256"])):
-            fail("invalid runtime observation reference")
-        data = amendment_read(root, cycle_dir(root) / "evidence" / cycle / reference["sha256"])
-        if (amendment_hash(data) != reference["sha256"]
-                or json.loads(data, object_pairs_hook=no_duplicate_keys) != {key: value for key, value in observation.items() if key != "reference"}
-                or observation["result"] != "passed" or observation["exit_code"] != 0
-                or observation["cycle_id"] != cycle or not external_timestamp(observation["observed_at"])):
-            fail("runtime observation custody changed")
+    validate_completion_applicability(root, before, plan)
     replacement = json.loads(outcome.get("replacement", ""), object_pairs_hook=no_duplicate_keys)
     if (set(outcome) != {"schema_version", "replacement", "replacement_sha256"}
             or type(outcome["schema_version"]) is not int or outcome["schema_version"] != 1
@@ -22185,7 +22317,8 @@ def command_complete_external(args):
             changed_context = git(root, "rev-parse", "HEAD").stdout.strip() != args.expected_head
             original_chain = lineage_git(root, "rev-list", "--reverse", "--first-parent",
                                          record["git"]["head"] + ".." + args.expected_head).splitlines()
-        if (changed_context or record.get("initiative_amendments") or record.get("lineage_recovery")
+        if (effective_evidence_policy(record) is not None or changed_context
+                or record.get("initiative_amendments") or record.get("lineage_recovery")
                 or original_chain != [entry["id"] for entry in record["commits"]]):
             return complete_external_segments(root, path, record, pointer, args, explicit)
     with evidence_lock(root, identifier, timeout=1), target_lock(root, record):
@@ -22354,8 +22487,9 @@ def finish_push(root, path, record):
     if changelog_path not in changed:
         fail("reviewed CHANGELOG path is not committed in this cycle")
     require_completion_dvc(root, record, changed)
+    completion_probes, completion_decisions = {}, {}
     if effective_evidence_policy(record) is not None:
-        require_completion_bindings(root, record, allow_runtime=True, probe_cache={})
+        completion_decisions = require_completion_bindings(root, record, allow_runtime=True, probe_cache=completion_probes)
     record["phase_profile"] = (validate_phase_profile(record["phase_profile"], record["cycle_id"])
                                if "phase_profile" in record
                                else unavailable_phase_report(record["cycle_id"]))
@@ -22386,6 +22520,7 @@ def finish_push(root, path, record):
         baseline["reconciled_at"] = now()
     record["state"] = "completed"
     record["completed_at"] = now()
+    retain_source_applicability(root, record, completion_decisions, completion_probes)
     save(path, record)
     source_sync = ({"status": "not_applicable", "reason": "draft_pr_delivery"}
                    if record["delivery_intent"] == "draft_pr"

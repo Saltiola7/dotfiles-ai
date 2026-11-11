@@ -3,6 +3,8 @@
 import copy
 import importlib.machinery
 import importlib.util
+from pathlib import Path
+import subprocess
 
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -57,7 +59,7 @@ def test_exact_approved_policy_is_deterministic_without_mutation(core):
     "unknown_gate", "unmapped_requirement", "duplicate_gate", "nonrequired_gate", "incomplete_scope",
     "empty_inputs", "duplicate_inputs", "absolute_input", "traversal_input", "pathspec_input",
     "glob_input", "secret_input", "invalid_environment", "duplicate_environment", "empty_argv",
-    "nul_argument", "secret_argument", "unknown_declaration_field", "runtime_without_policy",
+    "nul_argument", "secret_argument", "credential_option", "unknown_declaration_field", "runtime_without_policy",
     "zero_freshness", "boolean_freshness", "unbounded_probe", "unknown_runtime_field", "null_authority",
     "unsupported_encoding",
 ])
@@ -115,6 +117,8 @@ def test_invalid_policy_never_becomes_reuse_authority(core, problem):
         declaration["argv"] = ["python3", "bad\0argument"]
     elif problem == "secret_argument":
         declaration["argv"] = ["python3", "op://private/item/value"]
+    elif problem == "credential_option":
+        declaration["argv"] = ["python3", "--password", "synthetic-private-value"]
     elif problem == "unknown_declaration_field":
         declaration["trust_me"] = True
     elif problem == "null_authority":
@@ -152,6 +156,32 @@ def test_gate_local_projection_ignores_unrelated_policy_but_not_prerequisites(co
     assert core.evidence_gate_policy_digest(affected, "contract") != digest
     assert core.evidence_gate_policy_digest(affected, "test_driven_implementation") != core.evidence_gate_policy_digest(
         original, "test_driven_implementation")
+
+
+@pytest.mark.parametrize("argv", [["python3", "--auth-mode", "native"],
+                                  ["python3", "--access-token-file", "fixture-token-path"]])
+def test_nonsecret_authentication_configuration_selectors_remain_valid(core, argv):
+    selected = policy()
+    selected["gates"]["contract"]["argv"] = argv
+    assert core.validate_evidence_policy(selected, gates(core), ["EXAMPLE-001", "EXAMPLE-002"]) == selected
+
+
+@pytest.mark.parametrize("selected_policy,at_head,expected", [
+    (True, False, "rerun_required"), (True, True, "retained"), (False, False, "retained"),
+])
+def test_undeclared_scope_has_no_new_cross_head_credit(core, monkeypatch, selected_policy, at_head, expected):
+    head, old = "b" * 40, "a" * 40
+    point = head if at_head else old
+    selected = {"schema_version": 1, "requirements": {
+        "EXAMPLE-001": {"revision": "1", "depends_on": [], "gates": ["refactor"]}}, "gates": {}}
+    record = {"applicability_plan": {"evidence_policy": selected} if selected_policy else {},
+              "gates": {"refactor": {"applicability": "required", "result": "passed", "evidence": "ev-original"}},
+              "commits": [{"id": point, "gates": ["refactor"]}]}
+    monkeypatch.setattr(core, "git", lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, head + "\n", ""))
+    monkeypatch.setattr(core, "verify_envelope", lambda *_args, **_kwargs: {
+        "id": "ev-original", "head": point, "commit": point})
+    decisions = core.completion_evidence_dispositions(Path.cwd(), record)
+    assert decisions["refactor"]["disposition"] == expected
 
 
 @settings(max_examples=24, deadline=None)
