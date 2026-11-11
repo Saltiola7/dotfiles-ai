@@ -20,6 +20,9 @@
 - Source-only: no managed installation, consumer recovery, external merge, cloud
   apply or checkout removal. Journey and distribution slices retain those owners;
   successful completion never grants cleanup authority.
+- Reconciled accepted upstream source and renewed its exact documentary authority;
+  original approvals and failed executions remain retained. Updated the isolated
+  credential fixture loader for Python 3.15 without dropping its assertions.
 
 ## 2026-11-11 — Forgejo transport cleanup race
 
