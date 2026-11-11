@@ -107,3 +107,13 @@ Existing exact-session transports may deliver explicitly opted-in advisory
 completion references; successful review findings never become failed tests or
 formal gate evidence. Local OpenCode is a feedback client, not an inference
 proxy in this slice.
+
+## Bounded storage repair
+
+[STORAGE.md](STORAGE.md) defines the PY-03/PY-04 follow-up within this context:
+readable bounded private journals, atomic observation-capacity reservation and
+preserved request replay. Python and Security apply; runtime/provider topology,
+dependency pins and feedback authority remain unchanged. The private format change
+requires old writers to stop and makes enabled in-place downgrade unsupported.
+Private deployment, operation and rollback qualification remain required before
+delivery; Discovery documents do not establish those results.

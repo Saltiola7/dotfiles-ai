@@ -46,3 +46,7 @@ dot_agents/skills/fastapi/LICENSE.upstream -whitespace
 dot_agents/skills/atheris/LICENSE.upstream -whitespace
 dot_agents/skills/secure-python-release-pipeline/LICENSE.upstream -whitespace
 dot_agents/skills/port-to-free-threaded-python/LICENSE.upstream -whitespace
+# Preserve untouched JFrog resources, including original EOF whitespace.
+dot_agents/skills/jfrog-init/scripts/jfrog-detect-jfrog-mcp.mjs -whitespace
+dot_agents/skills/jfrog-init/scripts/jfrog-reinstall-jfrog-plugin.mjs -whitespace
+dot_agents/skills/jfrog/references/artifactory-aql-syntax.md -whitespace

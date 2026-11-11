@@ -1,0 +1,67 @@
+--- a/references/doc-access.md
++++ b/references/doc-access.md
+@@ -1,32 +1,41 @@
+-# Reference Architecture — documentation access
++# Reference architecture documentation access
+ 
+-Fetch official content in-session. **Do not copy page bodies into this repo.**
++Fetch relevant current official content during the task; do not copy upstream
++page bodies into this repository or load the whole manual for a narrow question.
++Use available web tooling and actual native permissions. Failed access is an
++evidence gap, not permission to bypass a denial or change runtime configuration.
+ 
+-## Bootstrap and fallback
++## Targeted access first
+ 
+-| Step | URL | When |
+-|------|-----|------|
+-| Primary | https://jfrog.com/reference-architecture/llms-full.txt | Start of every ref-arch session |
+-| 1 | https://jfrog.com/reference-architecture/llms.txt | llms-full fails or for `index.md` URL pattern |
+-| 2 | `https://jfrog.com/reference-architecture/<path>/index.md` | One section; append `index.md` to HTML path |
+-| 3 | https://jfrog.com/reference-architecture/sitemap.xml | Exhaustive URL list |
+-| 4 | HTML URL (no `index.md`) | If `index.md` fails |
++| Need | Source and selection |
++|---|---|
++| Known topic/page | The relevant public page under https://jfrog.com/reference-architecture/; fetch its content directly |
++| Topic navigation or Markdown URL pattern | https://jfrog.com/reference-architecture/llms.txt |
++| Individual Markdown section | `https://jfrog.com/reference-architecture/<path>/index.md`; use the actual known page path |
++| Broad documented-use-case inventory | https://jfrog.com/reference-architecture/sitemap.xml |
++| Actual cross-domain/full-site comparison | https://jfrog.com/reference-architecture/llms-full.txt only when needed and within tool/context limits |
++| Markdown unavailable | Fetch the corresponding public HTML page rather than guessing another deployment target |
+ 
+-Parse llms-full by `---`, `# <Title>`, and `URL: https://jfrog.com/reference-architecture/...`.
+-Base path: `https://jfrog.com/reference-architecture/`. SaaS prefix: **`jfrog-saas`**, not `saas`.
++The base path is `https://jfrog.com/reference-architecture/`. Known SaaS paths
++use `jfrog-saas`, but resolve current URLs from the official index/sitemap rather
++than constructing a speculative catalog of slugs.
+ 
+-## Size governance
++## Scope and size
+ 
+-| Fetched size | Action |
+-|--------------|--------|
+-| Under ~1 MB, not truncated | One llms-full bootstrap per ref-arch thread |
+-| ~1–2 MB or ref-arch is side context | Prefer sitemap + targeted `index.md` |
+-| Truncated or over ~2 MB | Skip mandatory llms-full; use fallback ladder only |
++Retain only task-relevant page content for follow-ups. A truncated response does
++not establish full-source coverage; fetch the required sections separately and
++report any unverified claim. A large response is not a reason to load megabytes
++of unrelated reference material. Refresh affected sources when version/support
++or freshness uncertainty matters.
+ 
+-Downgrade early for narrow questions (e.g. sizing only → `.../deployment/sizing/index.md`).
+-Tell the user when targeted fetches replace a full bootstrap.
++If a full dump is actually used, sections can contain `# <Title>` and
++`URL: https://jfrog.com/reference-architecture/...`, separated by `---`. Cite the
++specific public HTML URL supporting the claim rather than the dump URL alone.
+ 
+-## Citations and Helm
++## Runtime and chart details
+ 
+-- User-facing link: the section `URL:` line (HTML).
+-- Chart details: https://github.com/jfrog/charts/tree/master/stable/jfrog-platform — `WebFetch` README when install commands are needed.
++Preserve the selected hosting/runtime; verify official support for its version.
++For a selected Kubernetes route, current chart instructions are at
++https://github.com/jfrog/charts/tree/master/stable/jfrog-platform . Fetch its
++matching README and values before proposing exact install commands. Planning
++never executes those commands or provisions a platform.

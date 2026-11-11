@@ -6,21 +6,48 @@ persistentState = "/home/you/.local/state/dotfiles-ai/chezmoi.boltdb"
 [data.dotfiles_ai.remote_user_environment]
 enabled = true
 
+# Setup creates these user-owned roots; explicit apply initializes fresh
+# default-home activation. Existing/stale activation still requires owner review.
+# Keep repo-path-hash layout.
+[data.dotfiles_ai.workspaces]
+schema_version = 1
+root = "/home/you/.local/state/worktrees"
+
+[data.dotfiles_ai.onepassword]
+enabled = false
+
+[data.dotfiles_ai.prefect_mcp]
+# Enabling installs pinned user-local uv and mise-managed Python 3.13.
+# Runtime installation retains its frozen lock and --no-python-downloads policy.
+enabled = false
+
+[data.dotfiles_ai.jfrog_cli]
+enabled = false
+
+[data.dotfiles_ai.history_projection]
+enabled = false
+
 [data.dotfiles_ai.codex]
 channel = "stable"
 
 [data.dotfiles_ai.opencode]
+# Setup records the user's tab-bar preference: auto, on, off; empty is unmanaged.
+# tab_bar_mode = "off"
 # Set the non-secret project before starting the user-owned Vertex login.
 vertex_project = ""
 vertex_location = "global"
 vertex_account = ""
 
 [data.dotfiles_ai.herdr]
+# Either "tui" (compatibility default) or "herdr-core" for the desktop client.
+# Setup writes this explicit per-user choice; never infer it from OS Login.
+runtime = "tui"
 launchagent = false
 host_enabled = false
 
 [data.dotfiles_ai.atuin]
-sync_address = "https://api.atuin.sh"
+# Remote history stays local; the role ignores any inherited sync endpoint.
+sync_address = ""
 server_enabled = false
 
 [data.dotfiles_ai.hermes]

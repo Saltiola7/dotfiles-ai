@@ -11,6 +11,277 @@ The stable Engineering Profile is
 [`../PROFILE.md`](../PROFILE.md). Product Intent remains
 [`../PRODUCT.md`](../PRODUCT.md).
 
+## PY-01 First-Clone Repair
+
+### Problem And Scope
+
+Audit finding `PY-01` identified a first-install failure in
+`remote-user-bootstrap`: a new `git clone --no-checkout` reported tracked files as
+deleted, and the dirty-source guard rejected it before the requested checkout.
+The previous bootstrap unit fixture and CentOS smoke workflow both prepared an
+already checked-out source, leaving first-clone success untested.
+
+This is a single-context repair owned by `dotfiles_ai_distribution`. Reuse the
+Engineering Profile and Product Intent linked above, especially the remote-user
+journey. No Initiative, PM ticket, new state schema, installer migration, Python
+floor increase, or new test dependency is required.
+
+| Current-cycle field | PY-01 decision |
+|---|---|
+| Deliverable | Corrected portable bootstrap source, regression tests, and updated existing specifications |
+| Risk | Elevated: source admission and recovery precede user-owned executable installation/apply |
+| Delivery intent | Feature branch and draft pull request; source/CI qualification only |
+| Applicable modules | Python and Security; no cloud resource or remote-access change |
+| Supported targets | Existing Python `>=3.12`; CentOS Stream 10 x86_64 bootstrap; unchanged macOS/Fedora renders |
+| Writable implementation scope | `dot_local/bin/executable_remote-user-bootstrap`, `tests/test_remote_user_environment.py`; extend existing smoke/workflow only when needed to prove the absent-source path |
+| Adjacent ownership | Foundation apply/state, readiness, native installers, private first-login triggers and live rollout retain their existing owners |
+
+### Decisions And Non-Goals
+
+- Distinguish a source absent at admission from every pre-existing source. A new
+  clone must become a clean checkout of the exact requested commit before config,
+  installer or foundation apply can run. Do not treat its deliberate initial
+  checkout state as evidence of user changes.
+- Preserve the fixed approved origin, full lowercase commit identity, commit
+  object verification, ownership and non-symlink checks. A fresh-clone exception
+  must never exempt a later invocation or an arbitrary existing directory.
+- Preserve rejection of tracked, staged and untracked changes in existing source.
+  Never reset, force-checkout, clean, delete or overwrite it to make bootstrap pass.
+- A pre-existing no-checkout directory left by the old failure follows that same
+  refusal. Its appearance cannot distinguish an incomplete clone from intentional
+  user deletions. Preserve it for explicit operator inspection/repair.
+- Failed new preparation must permit a later same-revision attempt: leave either
+  no final source or a clean reusable checkout. A normal checked-out clone or
+  disposable preparation can satisfy this; Discovery does not mandate staging.
+  If staging is selected, cleanup is limited to that attempt's proven-owned
+  temporary artifacts, and a concurrently appearing final source must be retained.
+- Preserve the CLI, config location/mode, pinned chezmoi identity, foundation
+  invocation, content-free failure output and existing state schema/counters.
+  No provider login/request, service start, cloud/SSH access or live apply belongs
+  to this source-only repair.
+- Automatic repair of legacy dirty sources, general bootstrap concurrency,
+  updater changes and the other Python audit findings remain out of scope.
+
+### Implementation Interface And Ownership
+
+Keep `prepare_source(revision: str) -> None` and the public bootstrap CLI unchanged.
+For a source absent at admission, reserve the destination with exclusive directory
+creation and retain its device/inode identity. Use Git's normal checked-out clone
+before the existing origin, cleanliness, object and exact detached-checkout checks.
+If preparation fails, cleanup may remove only that invocation's newly reserved
+directory after safe-path, ownership and identity rechecks. Never claim cleanup
+ownership when reservation fails or the final path has been replaced. Existing
+sources bypass this acquisition/cleanup branch entirely. Hard termination and
+general concurrent bootstrap coordination remain outside this bounded guarantee.
+
+### Acceptance Behaviors
+
+1. **Given** an owned safe home, absent source and valid full requested commit,
+   **when** bootstrap prepares the source, **then** it reaches that exact detached
+   commit with a clean worktree before any downstream action, creates the existing
+   private non-secret config, and invokes foundation as `apply REVISION`.
+2. **Given** an existing safe clean source with the approved origin, **when** the
+   same revision is requested again, **then** no new clone is needed and existing
+   bootstrap behavior remains compatible.
+3. **Given** an existing dirty source, including a legacy no-checkout directory,
+   **when** bootstrap runs, **then** it refuses without checkout or downstream
+   apply and preserves tracked/staged/untracked bytes and Git index/HEAD state.
+4. **Given** wrong origin, noncommit/missing revision, unsafe ownership or a
+   symlinked source/ancestor, **when** source preparation runs, **then** it fails
+   closed before config, installer or foundation apply; diagnostics remain safe.
+5. **Given** clone, required fetch or checkout fails during new preparation,
+   **when** the caller retries the same requested revision, **then** the failure
+   has not stranded a dirty final source and the retry can finish after the cause
+   is removed. Failure exits nonzero and records only the existing safe failure
+   state; repeated same-revision failure preserves existing counter semantics.
+6. **Given** source preparation succeeds but later preparation/apply fails,
+   **when** the same revision is retried, **then** the clean source is reused and
+   foundation's existing retry, managed-target and rollback contracts still apply.
+
+### Source Admission Transitions
+
+This table is canonical for PY-01 interaction ordering and source state. It does
+not add persistent foundation states.
+
+| Source at admission | Guard or event | Result before config/install/apply |
+|---|---|---|
+| Absent | Approved clone and exact commit verification/checkout succeed | Clean detached requested commit; continue existing bootstrap |
+| Absent | Clone/fetch/verification/checkout fails | Nonzero safe failure; no poisoned final source; same-revision retry remains possible |
+| Existing clean | Ownership, origin and commit checks succeed | Preserve existing clean-source checks; select exact requested commit and continue |
+| Existing dirty or legacy no-checkout | Dirty-source guard fails | Preserve source/index/HEAD; stop before downstream work |
+| Any | Unsafe source/ancestor, wrong origin or invalid requested object | Fail closed; no downstream work |
+
+**Text Equivalent:** Only a source absent at admission receives first-clone
+handling. Its exact commit and clean checkout must be established before config,
+installation or apply. New preparation failure must remain retryable. Every
+pre-existing source retains its original safety and cleanliness guards, including
+legacy no-checkout directories. Source admission never creates a new foundation
+state or authorizes destructive recovery. Canonical sources are the decisions
+and behaviors above and the existing bootstrap/foundation contracts. Owner:
+distribution maintainer. Update trigger: source admission, failure ordering or
+recovery behavior changes.
+
+### Validation And Evidence Contract
+
+- Add a red-first absent-source regression using a real local Git seed and real
+  status/revision/checkout operations. Shim only public clone/fetch transport to
+  that seed; retain the approved origin value. Do not mock the dirty-status result
+  that exposes the defect, add a runtime source-URL override or change global Git
+  configuration. Isolate fixture signing/hooks locally as necessary.
+- Preinstall a fake correctly versioned chezmoi and stub foundation apply. Assert
+  exact requested HEAD, detached/clean state, private config mode and exact apply
+  arguments. Unexpected download, provider or downstream calls fail the fixture.
+- Exercise the six acceptance behaviors, including actual legacy no-checkout
+  state, dirty tracked/staged/untracked inputs, unavailable/noncommit revisions,
+  clone/fetch/checkout failures and successful same-revision retry. Preserve source
+  bytes, index and HEAD on existing-source refusal; retain old negative tests.
+- Run `uv run --group test pytest tests/test_remote_user_environment.py -q`, then
+  configured publication/instruction checks and the configured full pytest suite.
+  Existing CI selects Python 3.14 on PRs and Python 3.12/3.13/3.14 on weekly/manual
+  compatibility runs; obtain matching compatibility evidence before claiming those
+  targets qualified. No checker is selected in root metadata; typing analysis is
+  a recorded capability gap, not a fabricated pass or a tooling migration.
+- The current CentOS smoke starts with a prepared checkout. Run the new offline
+  absent-source regression in disposable CentOS as well; extend its existing
+  workflow/smoke only as needed while retaining install/reapply/rollback coverage.
+  Reuse supported-platform render and publication checks. Fixture success does
+  not establish a real remote first-login rollout or online authentication.
+
+### Deferred Adjacent Risk
+
+Bootstrap failure recording can replace `desired_revision` after a
+*different*-revision attempt, while foundation's retry-revision guard runs later.
+That is an adjacent pre-existing gap in the broader retry promise. PY-01 tests
+and acceptance cover unchanged-revision recovery; they do not establish
+cross-revision pin enforcement. A separate scoped follow-up must decide and test
+rejection before source mutation and failure-state replacement. This Discovery
+neither fixes that behavior nor claims the whole rollout is qualified.
+
+### DBSCTR Applicability Plan
+
+The cycle uses this plan under the selected checkout's ignored `.dbsctr/plans/`
+directory, bound to the committed Engineering Profile. This declaration records
+applicability; actual gate results and delivery evidence remain in the Cycle Record.
+
+```json
+{
+  "profile": "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "No published package or versioned release artifact; delivery is a source repair and draft pull request."},
+    "deploy": {"applicability": "not_applicable", "reason": "No managed host, guest or remote installation/apply; disposable CI validation only."},
+    "operate": {"applicability": "not_applicable", "reason": "No live service, enrollment, scheduler or production rollout is operated in this source-only slice."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}
+```
+
+## Approved RHEL Successor: RRW-002
+
+### Source Qualification Evidence
+
+The successor contracts below are implemented in RRW-002: IAP-only rendered
+client settings and doctor, remote-only empty Atuin endpoint with automatic sync
+disabled, and no remote enrollment of the Atuin server even when its old enable
+flag is inherited. Other platforms retain their existing configuration. Current
+`main`'s PY-01 clone admission, retry-safe cleanup and negative tests are preserved.
+
+Native x86_64 GitHub UBI 10 qualification passed at source commit
+`76c8f631a897ced2ec56c95ddd3f2a7971f57c0b`:
+[run 41705268407](https://github.com/Saltiola7/dotfiles-ai/actions/runs/41705268407).
+The job passed 22 offline bootstrap tests and the full installation, local/synthetic
+readiness, reapply, damage/retry, update and rollback smoke, including OpenCode
+`v2.2.5`. This proves disposable UBI userland, not live RHEL or online provider
+authentication. Earlier failed attempts remain in private cycle evidence. No
+Gate Exception is inferred, and a merged INT-021 implementation SHA is reported
+only after actual merge. This evidence supersedes the historical Discovery-only
+implementation status below, not its requirements or live-platform boundaries.
+
+**Discovery only:** `rhel-remote-workspace` / `rrw-002-rhel-user-runtime`
+defines the RHEL 10 x86_64 successor to the historical RWUE runtime below.
+This document does not establish implementation, container qualification, live
+RHEL readiness, or completed authentication. Coordinator manifest validation,
+fresh receipt, feasible Begin preflight, and exact approval remain prerequisites
+for Build. This public source records portable contracts, not private deployment
+identities or infrastructure inventory.
+
+| Intent | Portable contract |
+|---|---|
+| INT-001, INT-011 | Standalone remote support targets RHEL 10 x86_64; macOS and Fedora Lima behavior remains unchanged. |
+| INT-002 | The remote-workspace client supports IAP only; remove its alternate-host data and Tailscale prerequisite. Unrelated host and Lima Tailscale features remain unchanged. |
+| INT-008, INT-009 | Keep user tools in the invoking user's home and Atuin history local-only. Do not introduce a containerized toolchain or an Atuin server. |
+| INT-010 | Replace the CentOS smoke image with `registry.access.redhat.com/ubi10/ubi`; retain the existing disposable bootstrap/retry/reapply/update/rollback checks. |
+| INT-016, INT-020 | The same public runtime supports independently owned users. Diagnose portable bootstrap failures with safe failure classes; never fabricate colleague or live-RHEL acceptance. |
+| INT-021 | Private rollout consumes one full merged public runtime commit SHA. This Discovery PR is not that implementation revision. |
+| INT-022, INT-024 | No staging, OpenShell, cloud changes, provider login, or managed-host apply; normal protected PR review, no admin bypass. |
+
+### Successor Behavior And Compatibility
+
+- **Given** a configured IAP client with no Tailscale executable, **when** the
+  local doctor runs, **then** it checks mise, gcloud, SSH, Herdr, endpoint
+  coordinates, and usable repository-root task configuration without requiring
+  Tailscale or starting the VM.
+- **Given** an arbitrary caller directory, **when** the IAP wrapper forwards a
+  task, **then** task arguments and repository-bound discovery are unchanged.
+  VM up/down, connection rejection while stopped, idle-stop, and keep-awake
+  behavior remain owned by the infrastructure repository, not duplicated here.
+- **Given** remote-user intent, **when** the role renders/applies, **then** Atuin
+  remains a host-side per-user executable with local history and automatic sync
+  disabled, no sync-service activation, and no login or sync request from startup.
+  Already saved history and credentials are neither read nor deleted to perform
+  this migration. macOS and Fedora sync behavior is unchanged.
+- **Given** a clean disposable UBI 10 userland, **when** bootstrap, retry, second
+  apply, update and rollback are exercised, **then** checksums, target integrity,
+  safe state transitions and preservation pass without real provider credentials.
+- **Given** a portable bootstrap failure, **when** a bounded diagnostic is emitted,
+  **then** it identifies a safe failing stage or class, exits nonzero and retains
+  retry state, without raw subprocess/provider output, identity, paths, prompts,
+  credentials, sessions or history. An unknown cause stays unknown until reproduced.
+
+`remote-user-bootstrap bootstrap REVISION`, the 40-character immutable revision
+rule, state schema, owned-home checks, local-only readiness semantics, and rollback
+preservation remain compatible. Default templates and rendered client environment
+drop `tailscale_host` and `REMOTE_DEV_TAILSCALE_HOST`; doctor no longer reads them.
+Stale machine-local values must not select a transport, add a prerequisite, or
+enable network activity. The migration does not rewrite unrelated local settings
+or revoke a network identity. Remote sync stays disabled even if an old local
+Atuin sync endpoint exists; do not change non-remote defaults to implement it.
+
+### Evidence And Completion Boundary
+
+Use the existing remote-user smoke entry point and extend its assertions rather
+than adding a second bootstrap. If the CI workflow is renamed, update its own
+path filters, render tests, documentation references and any required-check
+consumer in the same reviewed change. A container run qualifies UBI userland,
+not a RHEL VM, RHEL subscription repositories, enforcing SELinux, a real systemd
+user manager, OS Login, IAP, or rootless Podman on the host. Those proofs remain
+with the private rebuild/onboarding owner. Shared/personal target-disjointness
+proof uses an exact reviewed personal-source revision without changing its
+Yazi-only ownership.
+
+| Gate | Applicability | Result |
+|---|---|---|
+| Domain, Behavior, Spec, Contract | required: migration and preservation contracts | pending |
+| Test-driven implementation, Refactor, Review/Integrate | required: red-first client/config regression checks, affected pytest, configured CI and publication authorities | pending |
+| Release | not_applicable: no separate versioned release artifact | not_run |
+| Deploy | required: disposable UBI user-home installation, not a live-host apply | pending |
+| Operate | required: disposable prerequisites, readiness classes and preservation checks | pending |
+| Maintain/Retire | required: remote transport/sync retirement, rollback and retained private state | pending |
+
+Acceptance retains Python 3.12/3.13/3.14 compatibility and configured CI cadence,
+shell/TOML/JSON validation, public-content checks including new docs, missing
+Tailscale and stale-key cases, IAP forwarding outside the repository, remote-only
+Atuin/no-sync assertions, and empty second apply. Simulated `ready` is explicitly
+local/synthetic evidence, never independent two-user authentication acceptance.
+No Gate Exception is approved. Return the merged RRW-002 SHA and evidence paths
+to the coordinator after implementation delivery, not before.
+
 ## Scope And Boundaries
 
 ### Native-update CI compatibility follow-up
@@ -140,13 +411,59 @@ RWUE-003 in the separately owned personal source.
 - Rollback preserves authentication, sessions, history, personal overlays, and
   unrelated files.
 
-## Visual Evidence Plan
+## RRW-007A Foundation Personalisation
+
+The merged `rhel-remote-workspace` extension owns INT-036/041/042/044. Extend
+the existing remote role, not its host/desktop counterpart or the personal
+overlay. The public foundation owns checksum-pinned user-local `mise` and `gh`,
+and verifies their installed executable bytes during integrity admission. When
+Prefect MCP is enabled it also owns checksum-pinned user-local `uv`; Fork A's
+global mise baseline supplies pinned Python 3.13 under RRW-007C (superseding the
+original host prerequisite). The adapter retains its existing
+frozen runtime and `--no-python-downloads` contract.
+
+The canonical setup input and supported-flag table is
+[`docs/UPDATES.md`](../../../UPDATES.md#remote-user-setup-inputs).
+`remote-user-foundation supported-flags` returns that mapping as content-free
+JSON. Foundation apply and integrity merge source defaults with the user's local
+non-secret data, validate boolean flag types and Vertex project string type, and
+refuse local release-pin overrides. Remote rendering and foundation configuration
+reject `knowledge_store`, `hermes` and `rnd` enablement before downstream apply.
+
+The existing `dotfiles_ai.workspaces.root` input selects
+`HOME/.local/state/worktrees`; preserve schema version 1, the existing
+`<repo>-<path-hash>/<branch>` policy, branch sanitization and all qualification /
+activation checks. Existing checkouts do not move. The shared `.bashrc` sources
+readable `.bashrc.d/*.sh` snippets; another source can contribute disjoint snippets
+without taking ownership of `.bashrc`.
+
+Remote Herdr installs the skill emitted by the pinned Herdr executable, installs
+its native OpenCode integration, and enables `session.resume_agents_on_restore`.
+No GUI application, macOS host app, provider login, authentication-state transfer
+or private overlay apply is introduced. Retry and rollback keep the existing
+foundation state/counter and unrelated-state preservation contracts.
+
+Acceptance adds: mismatched tool bytes fail integrity; wrong download checksums
+never replace installed executables; an unchanged install does not redownload;
+the bounded tool check runs on every apply so same-revision retry repairs damaged
+tools without forcing unrelated installers, and verified bytes precede success;
+unsupported feature flags fail before apply; enabled Prefect receives only its
+own runtime/config closure and requires the existing Python 3.13 owner; Bash
+snippets run without transferring shared startup ownership; UBI proves the new
+install/reapply/integrity/recovery behavior without claiming live RHEL acceptance.
+
+## Visual Evidence
+
+The distribution owner maintains the ownership/state view below when bootstrap,
+authentication evidence, platform or rollout boundaries change. RRW-002 keeps
+those boundaries; its IAP-only and local-history acceptance remains explicit in
+the successor behavior above rather than duplicating the private deployment view.
 
 | Concern | Decision | Review question | Canonical source |
 |---|---|---|---|
 | Boundary | `required: ownership flow` | Which side owns portable versus private rollout behavior? | Diagram below |
-| Interaction | `required: bootstrap and refresh sequence` | What can run automatically, and what remains interactive? | Diagram below |
-| State | `required: explicit state transitions` | Which failures retry and which wait for the user? | Behavior and diagram |
+| Interaction | `required: source-admission transition table and rollout flow` | Which source checks precede downstream work, and what remains interactive? | PY-01 Source Admission Transitions and diagram below |
+| State | `required: source-admission transition table and rollout flow` | Which sources retry, refuse, or wait for the user? | PY-01 Source Admission Transitions, Behavior and diagram |
 | Data/trust | `required: ownership flow` | Where can credentials and private identity exist? | Trust And Compatibility |
 | Schema | `not_applicable` | Existing versioned foundation state is extended without a new shared schema | Foundation state contract |
 | Dependency/deployment | `required: ownership flow` | Why must this slice precede private rollout? | Diagram below |
@@ -155,10 +472,12 @@ RWUE-003 in the separately owned personal source.
 ```mermaid
 flowchart LR
     accTitle: Portable rollout runtime ownership and state
-    accDescr: Public dotfiles-ai bootstraps one user-owned revision and refreshes content-free state. Private infrastructure only triggers and aggregates. Users perform interactive authentication themselves.
+    accDescr: Public dotfiles-ai bootstraps one user-owned revision, verifies pinned tools, and refreshes content-free state. Private infrastructure provides the host Python prerequisite, triggers and aggregates. Users perform interactive authentication themselves.
     I[Private first-login trigger] -->|full public revision| B[Portable user bootstrap]
     B -->|structural failure| F[failed_retryable]
     B -->|foundation valid| R[Content-free auth refresh]
+    B -->|native locked install when Prefect enabled| H[Global mise Python 3.13]
+    B -->|verify pinned tools| T[User-local mise, gh and optional uv]
     R -->|login incomplete| P[auth_pending]
     R -->|all local evidence present| D[ready]
     U[Unix user] -->|interactive login| A[Per-user provider stores]
@@ -169,7 +488,10 @@ flowchart LR
 ```
 
 **Text Equivalent:** Private infrastructure supplies one immutable public
-revision to a user-owned bootstrap. Structural failure is retryable. A valid
+revision to a user-owned bootstrap. The shared global mise baseline provides
+Python 3.13 when Prefect is enabled; the foundation owns and verifies mise, gh
+and conditional uv.
+Structural failure is retryable. A valid
 foundation runs content-free authentication checks: incomplete login waits in
 `auth_pending`, while complete local checks reach `ready`, without proving online
 credential validity. No provider request, token refresh or service start occurs
@@ -198,7 +520,35 @@ Validation must include:
 
 ## Readiness
 
+### Historical RWUE-005A
+
 The scope, repository ownership, interfaces, state transitions, safety boundary,
 and validation are ready. Implementation requires the reconciled cross-repository
 Begin behavior in protected source plus a fresh Initiative receipt and exact
 digest-bound approval.
+
+### PY-01 Implementation And Delivery
+
+The source correction uses exclusive new-directory admission, an ordinary Git
+clone and identity-checked cleanup on preparation failure. Existing sources
+retain their safety and cleanliness checks. Commit verification compares the
+peeled commit identity with the requested full hash before checkout, rejecting
+annotated-tag objects as well as blobs and unavailable objects.
+
+Regression coverage uses real Git with local-only transport substitution. It
+covers absent-source success/reuse; partial clone, fetch and checkout failure;
+same-revision retry; downstream apply failure; tracked/staged/untracked and legacy
+source refusal; wrong origin; replaced and symlinked cleanup targets; and invalid
+object identities. The CentOS workflow now runs the offline bootstrap tests using
+the existing uv/pytest toolchain before its original install/reapply smoke.
+
+The bounded implementation belongs to this single context. The broader
+RWUE-005A Initiative is not launched by this correction. Live bootstrap,
+deployment, authentication and remote rollout remain separate. The adjacent
+cross-revision retry-pin gap above remains unresolved and is not covered by a
+claim of broader rollout readiness.
+
+Engineering Profile and Product Intent are reused. The context CHANGELOG records
+the source outcome and intended draft delivery; the private Cycle Record and
+final response own actual validation and push outcomes. No Gate Exception is
+implicitly granted by this specification.

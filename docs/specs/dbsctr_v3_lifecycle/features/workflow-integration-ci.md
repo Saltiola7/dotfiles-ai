@@ -1,10 +1,10 @@
 # Workflow PR integration and affected CI
 
-**SPECIFICATION READY, NOT IMPLEMENTED — not runtime qualified.** Owner: lifecycle Discovery primary.
+**SOURCE IMPLEMENTED — runtime qualification remains capability-specific.** Owner: lifecycle Discovery primary.
 Profile: [../PROFILE.md](../PROFILE.md); risk: critical (authorization and retained data); modules: Python,
 Security, Data, ML/AI. Covers convergence INT-022–INT-039 and Q-06–Q-09 in the
 [Initiative](../../../initiatives/dbsctr-workflow-convergence/README.md).
-No implementation, merge, gate result or consumer-repository change is authorized.
+Source delivery does not establish live merge authority, gate results or consumer-repository activation.
 
 ## Domain and ownership
 
@@ -164,6 +164,12 @@ remain blocked. No direct protected/default push, force
 push, reset, branch deletion or history rewrite is part of integration.
 
 ### Bounded watch and repair
+
+The independently approved [supervised repair contract](supervised-ci-repairs.md)
+adds an explicit operator-plan/reservation route without enabling the automatic
+checker below. Its native failure observation, exact consent, durable budget and
+separate activation requirements apply only to that route; no old record acquires
+automation implicitly. Automatic Recommendation/CI-map schemas remain unchanged.
 
 Poll native CI at 30-second intervals for at most 30 minutes per explicit watch
 invocation; never overlap requests. API denial returns blocked immediately;

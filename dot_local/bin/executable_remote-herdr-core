@@ -1,0 +1,298 @@
+#!/usr/bin/python3 -I
+"""Install/check reviewed core bytes without executing any native core command.
+
+Existing core.lock holders can outlive core stop. Locks are only an advisory
+quiescence boundary, not agent ownership or proof against same-UID races/new
+sessions. Nonstandard/XDG-relocated state roots require separate review.
+"""
+from contextlib import ExitStack
+import fcntl
+import gzip
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import stat
+import subprocess
+import sys
+import tarfile
+
+
+MAX_ARCHIVE = 64 * 1024 * 1024
+MAX_BINARY = 128 * 1024 * 1024
+MAX_NOTICE = 4 * 1024 * 1024
+MAX_TAR = MAX_BINARY + 2 * MAX_NOTICE + 1024 * 1024
+STATE_ROOTS = ('.local/share/herdr', '.local/state/herdr', '.herdr',
+               '.local/share/herdr-core', '.local/state/herdr-core')
+NOFOLLOW = os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+def owned(item, *, directory=False, private=False):
+    expected = stat.S_ISDIR if directory else stat.S_ISREG
+    if (not expected(item.st_mode) or item.st_uid != os.getuid()
+            or item.st_mode & (0o077 if private else 0o022)
+            or not directory and item.st_nlink != 1):
+        raise ValueError('unsafe entry')
+
+
+def keep(stack, fd):
+    stack.callback(os.close, fd)
+    return fd
+
+
+def directory(stack, base, relative, *, create=False, private=False):
+    current = base
+    for name in relative.split('/'):
+        if create:
+            try:
+                os.mkdir(name, 0o700, dir_fd=current)
+            except FileExistsError:
+                pass
+        current = keep(stack, os.open(name, os.O_RDONLY | os.O_DIRECTORY | NOFOLLOW,
+                                      dir_fd=current))
+        owned(os.fstat(current), directory=True, private=private)
+    return current
+
+
+def regular(stack, parent, name, *, flags=os.O_RDONLY, private=False):
+    fd = keep(stack, os.open(name, flags | NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent))
+    owned(os.fstat(fd), private=private)
+    return fd
+
+
+def bounded_read(fd, limit):
+    chunks = []
+    remaining = limit + 1
+    while remaining:
+        chunk = os.read(fd, min(remaining, 1024 * 1024))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    result = b''.join(chunks)
+    if len(result) > limit:
+        raise ValueError('input too large')
+    return result
+
+
+def pins(stack, home):
+    parent = directory(stack, home, '.config/dotfiles-ai')
+    fd = regular(stack, parent, 'herdr-core.json')
+    result = json.loads(bounded_read(fd, 4096))
+    if (not isinstance(result, dict)
+            or set(result) != {'version', 'archive_url', 'archive_sha256', 'binary_sha256'}
+            or not all(isinstance(value, str) for value in result.values())
+            or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', result['version'])
+            or result['archive_url'] != 'https://releases.herdr.dev/core/'
+               + result['version'] + '/herdr-core-linux-x86_64.tar.gz'
+            or any(not re.fullmatch('[0-9a-f]{64}', result[key])
+                   for key in ('archive_sha256', 'binary_sha256'))):
+        raise ValueError('invalid pins')
+    return result
+
+
+def download(url):
+    # Use the host's existing curl transport, as the release CDN rejects the
+    # platform urllib client. No redirect following and no native core execution.
+    result = subprocess.run(['curl', '--proto', '=https', '--tlsv1.2', '-fsS',
+        '--connect-timeout', '10', '--max-time', '90', '--max-filesize', str(MAX_ARCHIVE), url],
+        capture_output=True, check=True, timeout=100).stdout
+    if len(result) > MAX_ARCHIVE:
+        raise ValueError('archive too large')
+    return result
+
+
+def payload(pinned):
+    packed = download(pinned['archive_url'])
+    if (len(packed) > MAX_ARCHIVE
+            or hashlib.sha256(packed).hexdigest() != pinned['archive_sha256']):
+        raise ValueError('archive mismatch')
+    with gzip.GzipFile(fileobj=io.BytesIO(packed)) as stream:
+        raw = stream.read(MAX_TAR + 1)
+    if len(raw) > MAX_TAR:
+        raise ValueError('payload too large')
+    expected = {'herdr-core', 'LICENSE', 'THIRD-PARTY-NOTICES'}
+    binary = None
+    end = 0
+    with tarfile.open(fileobj=io.BytesIO(raw), mode='r:') as archive:
+        for _ in range(4):
+            member = archive.next()
+            if member is None:
+                break
+            if (member.name not in expected or member.type not in (tarfile.REGTYPE, tarfile.AREGTYPE)
+                    or member.pax_headers or member.sparse is not None
+                    or member.offset != end or member.offset_data != end + 512
+                    or not 0 < member.size <= (MAX_BINARY if member.name == 'herdr-core' else MAX_NOTICE)):
+                raise ValueError('unsafe archive')
+            expected.remove(member.name)
+            end = member.offset_data + ((member.size + 511) // 512) * 512
+            if member.name == 'herdr-core':
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise ValueError('missing payload')
+                with stream:
+                    binary = stream.read(MAX_BINARY + 1)
+    if (expected or binary is None or any(raw[end:])
+            or hashlib.sha256(binary).hexdigest() != pinned['binary_sha256']):
+        raise ValueError('payload mismatch')
+    return binary
+
+
+def snapshot(stack, parent):
+    try:
+        fd = regular(stack, parent, 'herdr-core')
+    except FileNotFoundError:
+        return None, None
+    item = os.fstat(fd)
+    if item.st_mode & 0o7000:
+        raise ValueError('unsafe mode')
+    digest = hashlib.sha256(bounded_read(fd, MAX_BINARY)).hexdigest()
+    return item, digest
+
+
+def core_locks(stack, home, roots=STATE_ROOTS):
+    """Hold existing locks only; bounded known-root traversal, never native CLI.
+
+    Callers/tests may inject reviewed relative roots, never inferred process or
+    environment paths. Missing roots/locks are not created.
+    """
+    budget = 4096
+
+    def visit(parent, depth):
+        nonlocal budget
+        if depth > 12:
+            raise ValueError('state depth exceeded')
+        # scandir iteration is bounded (unlike listdir on an unbounded tree).
+        with os.scandir(parent) as entries:
+            for entry in entries:
+                budget -= 1
+                if budget < 0:
+                    raise ValueError('state size exceeded')
+                item = entry.stat(follow_symlinks=False)
+                if stat.S_ISDIR(item.st_mode):
+                    owned(item, directory=True)
+                    child = directory(stack, parent, entry.name)
+                    visit(child, depth + 1)
+                elif entry.name == 'core.lock':
+                    fd = regular(stack, parent, entry.name)
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                elif stat.S_ISLNK(item.st_mode) or item.st_uid != os.getuid():
+                    raise ValueError('unavailable state ownership')
+
+    for root in roots:
+        if root.startswith('/') or any(part in ('', '.', '..') for part in root.split('/')):
+            raise ValueError('invalid state root')
+        try:
+            parent = directory(stack, home, root)
+        except FileNotFoundError:
+            continue
+        visit(parent, 0)
+
+
+def unchanged(parent, old):
+    try:
+        current = os.stat('herdr-core', dir_fd=parent, follow_symlinks=False)
+    except FileNotFoundError:
+        if old is None:
+            return
+        raise ValueError('destination changed') from None
+    if old is None or (current.st_dev, current.st_ino, current.st_mode, current.st_nlink,
+                       current.st_size, current.st_mtime_ns, current.st_ctime_ns) != (
+            old.st_dev, old.st_ino, old.st_mode, old.st_nlink,
+            old.st_size, old.st_mtime_ns, old.st_ctime_ns):
+        raise ValueError('destination changed')
+
+
+def run(home: Path, operation: str):
+    if operation not in ('install', 'check') or not home.is_absolute() or '..' in home.parts:
+        raise ValueError('unsupported operation')
+    with ExitStack() as stack:
+        root = keep(stack, os.open(home, os.O_RDONLY | os.O_DIRECTORY | NOFOLLOW))
+        owned(os.fstat(root), directory=True)
+        pinned = pins(stack, root)
+        if operation == 'check':
+            parent = directory(stack, root, '.local/bin') if exists(root, '.local') else None
+            if parent is None:
+                raise ValueError('core drift')
+            old, digest = snapshot(stack, parent)
+            if old is None or stat.S_IMODE(old.st_mode) != 0o755 or digest != pinned['binary_sha256']:
+                raise ValueError('core drift')
+            return
+        state_base = directory(stack, root, '.local/state/dotfiles-ai', create=True)
+        state = directory(stack, state_base, 'herdr-core', create=True, private=True)
+        lock = regular(stack, state, 'install.lock', flags=os.O_RDWR | os.O_CREAT, private=True)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        parent = directory(stack, root, '.local/bin', create=True)
+        old, digest = snapshot(stack, parent)
+        if old is None or stat.S_IMODE(old.st_mode) != 0o755 or digest != pinned['binary_sha256']:
+            core_locks(stack, root)
+            binary = payload(pinned)
+            temporary = '.herdr-core-' + secrets.token_hex(16)
+            # A private same-filesystem directory keeps even the final 0755
+            # staged inode inaccessible until its atomic destination rename.
+            os.mkdir(temporary, 0o700, dir_fd=parent)
+            try:
+                with ExitStack() as staging:
+                    stage = directory(staging, parent, temporary, private=True)
+                    try:
+                        fd = regular(staging, stage, 'binary', flags=os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                                     private=True)
+                        with os.fdopen(os.dup(fd), 'wb') as stream:
+                            stream.write(binary)
+                            stream.flush()
+                            os.fchmod(fd, 0o755)
+                            os.fsync(fd)
+                        unchanged(parent, old)
+                        os.replace('binary', 'herdr-core', src_dir_fd=stage, dst_dir_fd=parent)
+                        os.fsync(parent)
+                    finally:
+                        try:
+                            os.unlink('binary', dir_fd=stage)
+                        except FileNotFoundError:
+                            pass
+            finally:
+                os.rmdir(temporary, dir_fd=parent)
+        # Atomic creation preserves every existing entry, including dangling links.
+        try:
+            os.symlink('herdr-core', 'hc', dir_fd=parent)
+            os.fsync(parent)
+        except FileExistsError:
+            pass
+
+
+def exists(parent, name):
+    try:
+        os.stat(name, dir_fd=parent, follow_symlinks=False)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def main(argv=None):
+    args = sys.argv[1:] if argv is None else argv
+    if args not in (['install'], ['check']):
+        print('usage: remote-herdr-core {install|check}', file=sys.stderr)
+        return 2
+    try:
+        run(Path(os.environ.get('HOME', '')), args[0])
+    except (OSError, ValueError, EOFError, tarfile.TarError, subprocess.SubprocessError) as error:
+        label = 'unavailable'
+        if isinstance(error, subprocess.CalledProcessError):
+            label = 'download-exit-' + str(error.returncode)
+        elif isinstance(error, OSError):
+            label = 'filesystem-errno-' + str(error.errno)
+        elif type(error) is ValueError and str(error) in {
+                'unsafe entry', 'invalid pins', 'input too large', 'archive too large',
+                'archive mismatch', 'payload too large', 'unsafe archive', 'missing payload',
+                'payload mismatch', 'unsafe mode', 'state depth exceeded', 'state size exceeded'}:
+            label = str(error).replace(' ', '-')
+        print('remote herdr-core: refused-' + label, file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

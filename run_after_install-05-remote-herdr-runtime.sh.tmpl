@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+{{ if not .dotfiles_ai.remote_user_environment.enabled -}}
+exit 0
+{{ end -}}
+export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+systemctl --user daemon-reload
+# Reapplying must not restart either runtime or the shared OpenCode backend.
+# The timer invokes the lock-serialized, selected-only restore controller.
+systemctl --user enable --now remote-herdr-restore.timer

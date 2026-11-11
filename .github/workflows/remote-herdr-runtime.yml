@@ -1,0 +1,72 @@
+name: remote-herdr-runtime
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/remote-herdr-runtime.yml"
+      - ".chezmoidata.toml"
+      - ".chezmoiignore"
+      - "config.remote-user.example.toml"
+      - "dot_local/bin/executable_remote-user-bootstrap"
+      - "dot_local/bin/executable_remote-herdr*"
+      - "dot_local/bin/executable_herdr-opencode-restore*"
+      - "dot_local/bin/executable_opencode*"
+      - "dot_local/share/dotfiles-ai/remote-herdr/**"
+      - "private_dot_config/herdr/**"
+      - "private_dot_config/dotfiles-ai/herdr*.tmpl"
+      - "private_dot_config/systemd/user/remote-herdr*"
+      - "private_dot_config/systemd/user/opencode-shared.service"
+      - "run_onchange_after_install-00-remote-herdr.sh.tmpl"
+      - "run_onchange_after_install-00z-remote-herdr-core.sh.tmpl"
+      - "run_onchange_after_install-01-remote-opencode.sh.tmpl"
+      - "run_after_install-04-remote-opencode-service.sh.tmpl"
+      - "run_after_install-05-remote-herdr-runtime.sh.tmpl"
+      - "tests/remote_herdr_systemd/**"
+      - "tests/remote_opencode_systemd/**"
+      - "tests/test_remote_herdr*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qualified-native-idle-layout:
+    # Match the qualified F01 lingering-user-manager runner and container host.
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check qualification source boundaries
+        run: |
+          python3 -m unittest discover -s tests -p test_remote_herdr_qualification.py
+          python3 -m unittest discover -s tests -p test_remote_herdr_kept_probe.py
+      - name: Qualify real runtimes across two user-manager boots
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == x86_64 ]] || { echo 'F07: wrong-runner-architecture'; exit 1; }
+          container="f07-systemd-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          probe="${container}-kept"
+          trap 'docker rm -f "$container" "$probe" >/dev/null 2>&1 || true' EXIT
+          # Build/package output is public but not qualification evidence.
+          docker build --pull -f tests/remote_herdr_systemd/Containerfile -t "$container" . >/dev/null 2>&1 || { echo 'F07: image-build-failed'; exit 1; }
+          # Separate native-only default-session reproduction: no shared backend,
+          # OpenCode sessions or provider traffic. A stall fails this candidate.
+          docker run -d --name "$probe" --privileged --cgroupns=private \
+            --tmpfs /run --tmpfs /run/lock --stop-timeout 40 \
+            "$container" /bin/bash -ec 'mount -o remount,rw /sys/fs/cgroup; exec /sbin/init' >/dev/null 2>&1 || { echo 'F07: kept-probe-boot-failed'; exit 1; }
+          docker exec "$probe" bash /opt/f07/kept-probe.sh approved-disposable-container
+          docker rm -f "$probe" >/dev/null 2>&1
+          # Own init + private cgroup namespace; no host state/cgroup/port binds.
+          docker run -d --name "$container" --privileged --cgroupns=private \
+            --tmpfs /run --tmpfs /run/lock --stop-timeout 40 \
+            "$container" /bin/bash -ec 'mount -o remount,rw /sys/fs/cgroup; exec /sbin/init' >/dev/null 2>&1 || { echo 'F07: container-boot-failed'; exit 1; }
+          docker exec "$container" bash /opt/f07/boot-smoke.sh prepare
+          docker restart --time 40 "$container" >/dev/null 2>&1 || { echo 'F07: core-reboot-failed'; exit 1; }
+          docker exec "$container" bash /opt/f07/boot-smoke.sh verify-core
+          docker restart --time 40 "$container" >/dev/null 2>&1 || { echo 'F07: tui-reboot-failed'; exit 1; }
+          docker exec "$container" bash /opt/f07/boot-smoke.sh verify-tui
+          # Success requires the last native stage, without skipping failures.
+          docker exec "$container" test -f /var/lib/f07/qualified

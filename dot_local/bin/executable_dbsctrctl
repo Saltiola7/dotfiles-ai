@@ -95,14 +95,13 @@ PRESENTATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
 INCIDENT_KINDS = ("defect", "friction", "behavior_gap", "capability_idea")
 INCIDENT_STATES = ("open", "investigating", "fixing", "resolved", "dismissed")
 INSPECT_RESPONSE_HARD = 128 * 1024
-GIT_REPOSITORY_ENV = {
-    key: value for key, value in os.environ.items()
-    if key not in {
-        "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
-        "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    } and not key.startswith("GIT_CONFIG_")
+GIT_REPOSITORY_REDIRECTS = {
+    "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE",
+    "GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
 }
+GIT_REPOSITORY_ENV = {key: value for key, value in os.environ.items()
+                      if key not in GIT_REPOSITORY_REDIRECTS and not key.startswith("GIT_CONFIG_")}
 INSPECT_ENV = {**GIT_REPOSITORY_ENV, "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1"}
 EVIDENCE_RAW_CAP = 1024 * 1024
 EVIDENCE_SIDECAR_CAP = 256 * 1024
@@ -3180,6 +3179,14 @@ def read_cycle_record(root, path, label="Cycle Record", *, historical=False, max
                 validate_initiative_amendments(root, record)
             except (KeyError, TypeError, ValueError, AttributeError, OSError):
                 fail("invalid Initiative amendment history")
+    if "lineage_recovery" in record:
+        with local_completion_git_context():
+            try:
+                validate_lineage_recovery(root, record)
+            except (RuntimeError, OSError, ValueError, TypeError, KeyError, AttributeError):
+                fail("invalid lineage recovery custody")
+    if "external_completion" in record:
+        validate_external_completion(record)
     return record
 
 
@@ -3570,6 +3577,9 @@ def load(root, *, bindings=True):
 
 
 def save(path, record):
+    if "lineage_recovery" in record:
+        with local_completion_git_context():
+            validate_lineage_recovery(root_dir(), record)
     if local_only_cycle(record):
         try:
             validate_schema6_record(root_dir(), record)
@@ -4931,6 +4941,45 @@ def amendment_receipt(root, receipt):
         fail("Initiative amendment receipt disagrees with committed manifest")
 
 
+def amendment_external_authority(directory, receipt):
+    """Retain native coordinator custody; never fetch or import foreign documents."""
+    if repository_equal(receipt["coordinator_repository"], receipt["repository"]):
+        fail("same-repository clones cannot select cross-repository amendments")
+    path = Path(directory)
+    if (not path.is_absolute() or path.is_symlink() or not path.is_dir()
+            or any(parent.is_symlink() for parent in path.parents)):
+        fail("unsafe Initiative amendment authority checkout")
+    authority = repo_root(path)
+    if authority != path or authority.resolve() != path:
+        fail("Initiative amendment authority checkout changed")
+    require_local_read_filters(authority)
+    require_repository_home(authority, receipt["coordinator_repository"])
+    if git(authority, "rev-parse", "HEAD").stdout.strip() != receipt["manifest_commit"]:
+        fail("Initiative amendment authority HEAD changed")
+    amendment_receipt(authority, receipt)
+    # The coordinator owns normative documents, not the consumer's profile.
+    closure = amendment_closure(authority, receipt, {"profile": receipt["manifest_path"]})
+    amendment_clean_documents(authority, closure)
+    custody = []
+    for directory in (authority, common_git_dir(authority).resolve(), git_dir(authority).resolve()):
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            fail("unsafe Initiative amendment native authority custody")
+        custody.append([str(directory), info.st_dev, info.st_ino, info.st_uid])
+    identity = continuation_digest(custody)
+    return {"directory": str(authority), "identity_digest": identity,
+            "repository": receipt["coordinator_repository"],
+            "commit": receipt["manifest_commit"], "closure": closure}
+
+
+def amendment_local_profile(root, profile, blob):
+    closure = amendment_closure(root, {"artifacts": [], "manifest_path": profile,
+                                       "manifest_commit": "HEAD"}, {"profile": profile})
+    if len(closure) != 1 or closure[0]["blob"] != blob:
+        fail("Initiative amendment source profile changed")
+    return closure
+
+
 def amendment_replacement(before, entry):
     replacement = json.loads(json.dumps(before))
     replacement.setdefault("initiative_amendments", []).append(entry)
@@ -5018,7 +5067,7 @@ def validate_initiative_amendments(root, record):
               "envelope_sha256", "envelope_locator"}
     for index, entry in enumerate(entries):
         if (not isinstance(entry, dict) or set(entry) != fields or type(entry["schema_version"]) is not int
-                or entry["schema_version"] != 1 or entry["launch_digest"] in digests
+                or entry["schema_version"] not in (1, 2) or entry["launch_digest"] in digests
                 or entry["previous_effective_receipt_digest"] != continuation_digest(prior)
                 or entry["approval_method"] not in {"interactive_cli", "agent_confirmed"}
                 or not isinstance(entry["reason"], str) or not entry["reason"].strip()
@@ -5060,10 +5109,23 @@ def validate_initiative_amendments(root, record):
             fail("invalid Initiative amendment receipt")
         if receipt["schema_version"] == 2:
             validate_local_initiative_receipt(receipt)
-        amendment_receipt(root, receipt)
-        if (plan["closure"] != amendment_closure(root, receipt, before["applicability_plan"])
-                or not amendment_tree(root, receipt["manifest_commit"], plan["closure"])):
-            fail("Initiative amendment approved document closure changed")
+        if entry["schema_version"] == 2:
+            if (type(plan.get("schema_version")) is not int or plan["schema_version"] != 2
+                    or not isinstance(plan.get("authority"), dict)):
+                fail("invalid cross-repository Initiative amendment")
+            authority = plan["authority"]
+            if (amendment_external_authority(authority["directory"], receipt) != authority
+                    or common_git_dir(Path(authority["directory"])).resolve() == common_git_dir(root).resolve()
+                    or plan["closure"] != amendment_local_profile(root, before["engineering_profile"]["path"],
+                                                                 before["engineering_profile"]["blob"])):
+                fail("Initiative amendment retained authority changed")
+        else:
+            if plan.get("schema_version") != 1 or "authority" in plan:
+                fail("invalid same-repository Initiative amendment")
+            amendment_receipt(root, receipt)
+            if (plan["closure"] != amendment_closure(root, receipt, before["applicability_plan"])
+                    or not amendment_tree(root, receipt["manifest_commit"], plan["closure"])):
+                fail("Initiative amendment approved document closure changed")
         replacement = amendment_replacement(before, entry)
         expected = amendment_bytes(replacement)
         outcome = amendment_json(root, paths["outcome.json"])
@@ -5178,8 +5240,7 @@ def amendment_selection(root, args):
     if not re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]*/MANIFEST\.json", args.initiative_manifest):
         fail("unsafe Initiative amendment manifest")
     authority = repo_root(args.initiative_source) if args.initiative_source else root
-    if common_git_dir(authority).resolve() != common_git_dir(root).resolve():
-        fail("Initiative amendment requires native same-repository authority")
+    external = common_git_dir(authority).resolve() != common_git_dir(root).resolve()
     require_local_read_filters(authority)
     receipt = initiative_receipt(authority / args.initiative_manifest, args.initiative_slice, authority)
     receipt["manifest_path"] = args.initiative_manifest
@@ -5210,10 +5271,14 @@ def amendment_selection(root, args):
     if (normalized != record["applicability_plan"]
             or record["engineering_profile"] != {"path": profile, "blob": blob}):
         fail("Initiative amendment applicability changed")
-    closure = amendment_closure(authority, receipt, plan)
-    if next(c["blob"] for c in closure if c["path"] == profile) != blob:
-        fail("Initiative amendment source profile changed")
-    amendment_clean_documents(authority, closure)
+    retained = amendment_external_authority(str(authority), receipt) if external else None
+    if external:
+        closure = amendment_local_profile(root, profile, blob)
+    else:
+        closure = amendment_closure(authority, receipt, plan)
+        if next(c["blob"] for c in closure if c["path"] == profile) != blob:
+            fail("Initiative amendment source profile changed")
+        amendment_clean_documents(authority, closure)
     # Selected checkout documents must match their current HEAD, not new authority.
     if git(root, "status", "--porcelain=v1", "--", *[c["path"] for c in closure]).stdout:
         fail("Initiative amendment selected documents are dirty")
@@ -5221,13 +5286,15 @@ def amendment_selection(root, args):
     reason = args.reason
     if not isinstance(reason, str) or not reason.strip() or len(reason.encode()) > 4096 or "\0" in reason:
         fail("invalid Initiative amendment reason")
-    launch = {"schema_version": 1, "cycle_id": args.cycle_id, "receipt": receipt,
+    launch = {"schema_version": 2 if external else 1, "cycle_id": args.cycle_id, "receipt": receipt,
               "previous_effective_receipt_digest": continuation_digest(effective_initiative(record)),
               "before_record_sha256": amendment_hash(raw), "plan_digest": args.expected_plan_digest,
               "applicability_plan": normalized, "risk": record["risk"], "delivery": record["delivery"],
               "reason": reason, "source_commit": receipt["manifest_commit"], "closure": closure,
               "destination": destination,
               "checkout": amendment_checkout(root, [c["path"] for c in closure])}
+    if external:
+        launch["authority"] = retained
     return path, record, raw, launch
 
 
@@ -5266,6 +5333,9 @@ def initiative_amend_offline(args):
             if args.expected_launch_digest in custody:
                 durable, digest = True, args.expected_launch_digest
             admitted = read_cycle_record(root, cycle_dir(root) / "cycles" / f"{args.cycle_id}.json")
+            lineage_pending_guard(root, admitted)
+            if admitted.get("lineage_recovery"):
+                fail("Initiative amendment after lineage recovery is not supported")
             applied = {e["launch_digest"] for e in admitted.get("initiative_amendments", [])}
             outstanding = set(custody) - applied
             durable = bool(outstanding)
@@ -5322,7 +5392,7 @@ def initiative_amend_offline(args):
                 durable = True
                 amendment_write_once(root, envelope_path, amendment_bytes(envelope))
             amendment_write_once(root, before_path, raw)
-            entry = {"schema_version": 1, "previous_effective_receipt_digest": launch["previous_effective_receipt_digest"],
+            entry = {"schema_version": launch["schema_version"], "previous_effective_receipt_digest": launch["previous_effective_receipt_digest"],
                      "receipt": launch["receipt"], "before_record_sha256": amendment_hash(raw),
                      "preimage_locator": str(before_path.relative_to(common_git_dir(root))),
                      "launch_digest": digest, "reason": args.reason, "approval_method": method,
@@ -5355,6 +5425,457 @@ def command_initiative_amend(args):
                       else ["amendment_recovery_required" if status == "recovery_required" else "amendment_blocked"],
                       "next_action": "continue" if status in {"applied", "already_applied"} else
                       "approve_exact_plan" if status == "preflight" else "retain_and_reconcile"}, sort_keys=True))
+    if status in {"blocked", "recovery_required"}:
+        raise SystemExit(75 if status == "recovery_required" else 1)
+
+
+def lineage_location(root, cycle_id, digest, name):
+    if (not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id)
+            or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            or name not in {"plan.json", "before.json", "envelope.json", "outcome.json"}):
+        fail("invalid lineage recovery custody")
+    return cycle_dir(root) / "evidence" / cycle_id / "lineage-recovery" / digest / name
+
+
+LINEAGE_CUSTODY_CAP = 32 * 1024 * 1024
+
+
+def lineage_write_once(root, path, data):
+    """Publish single-link immutable custody; interrupted staging stays private."""
+    if not isinstance(data, bytes) or len(data) > LINEAGE_CUSTODY_CAP:
+        fail("lineage recovery artifact exceeds private read bounds")
+    managed_directory(root, path.parent, create=True)
+    os.chmod(path.parent, 0o700)
+    if os.path.lexists(path):
+        if amendment_read(root, path) != data:
+            fail("conflicting lineage recovery evidence")
+    else:
+        # Cooperating writers hold the same cycle/target locks. Staging outside
+        # custody avoids hard-linked or unknown custody leaves after SIGKILL.
+        staging = cycle_dir(root) / "lineage-recovery-staging"
+        managed_directory(root, staging, create=True)
+        os.chmod(staging, 0o700)
+        descriptor, temporary = tempfile.mkstemp(prefix="custody-", dir=staging)
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if os.path.lexists(path):
+            fail("lineage recovery destination appeared during publication")
+        os.replace(temporary, path)
+        fsync_directory(staging)
+    current = path.parent
+    while True:
+        fsync_directory(current)
+        if current == cycle_dir(root):
+            break
+        current = current.parent
+
+
+class LineageCustodyError(RuntimeError):
+    """Retained recovery custody needs reconciliation, never an overwrite."""
+
+
+def lineage_custody(root, cycle_id):
+    try:
+        return lineage_custody_entries(root, cycle_id)
+    except (RuntimeError, OSError):
+        raise LineageCustodyError("lineage recovery custody requires reconciliation") from None
+
+
+def lineage_custody_entries(root, cycle_id):
+    directory = lineage_location(root, cycle_id, "0" * 64, "plan.json").parent.parent
+    if not os.path.lexists(directory):
+        return {}
+    managed_directory(root, directory)
+    children = list(directory.iterdir())
+    if len(children) > 64:
+        fail("lineage recovery custody exceeds bounds")
+    found = {}
+    for child in children:
+        if child.is_symlink() or not child.is_dir() or not re.fullmatch(r"[0-9a-f]{64}", child.name):
+            fail("unsafe lineage recovery custody")
+        managed_directory(root, child)
+        leaves = list(child.iterdir())
+        if any(p.name not in {"plan.json", "before.json", "envelope.json", "outcome.json"} for p in leaves):
+            fail("unknown lineage recovery evidence")
+        found[child.name] = {p.name for p in leaves}
+    return found
+
+
+def lineage_pending_guard(root, record):
+    found = lineage_custody(root, record["cycle_id"])
+    applied = record.get("lineage_recovery", {}).get("launch_digest")
+    for digest, leaves in found.items():
+        if leaves - {"plan.json"} and digest != applied:
+            fail("prepared lineage recovery requires reconciliation")
+
+
+def lineage_oid(value):
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value):
+        fail("invalid lineage recovery object")
+    return value
+
+
+def lineage_git(root, *args):
+    # Keep the existing bounded-pipe authority while honoring this operation's
+    # offline context; the CI reader has a separate environment contract.
+    if LOCAL_COMPLETION_GIT.get() is None:
+        fail("lineage Git reads require the offline context")
+    child = subprocess.Popen(["git", *args], cwd=root, env=git_environment(INSPECT_ENV),
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=True)
+    output, errors = preservation_output(child, limit=1024 * 1024, timeout=5)
+    if child.returncode or errors.strip():
+        fail("lineage committed objects are unavailable")
+    return output.decode("utf-8")
+
+
+def lineage_ancestor(root, older, newer):
+    older, newer = lineage_oid(older), lineage_oid(newer)
+    return lineage_git(root, "merge-base", older, newer).strip() == older
+
+
+def lineage_document_blobs(root, blobs):
+    """Resolve every historical blob offline under one bounded batch budget."""
+    if not blobs or len(blobs) > 8192 or LOCAL_COMPLETION_GIT.get() is None:
+        fail("invalid lineage documentation blob population")
+    selected = sorted(lineage_oid(blob) for blob in blobs)
+    request_bytes = ("\n".join(selected) + "\n").encode("ascii")
+    if len(request_bytes) > 1024 * 1024:
+        fail("lineage documentation blob request exceeds bounds")
+    with tempfile.TemporaryFile() as request:
+        request.write(request_bytes)
+        request.seek(0)
+        child = subprocess.Popen(["git", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+            cwd=root, env=git_environment(INSPECT_ENV), stdin=request,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        output, errors = preservation_output(child, limit=1024 * 1024, timeout=5)
+    if child.returncode or errors.strip() or output.decode("ascii").splitlines() != [b + " blob" for b in selected]:
+        fail("historical lineage documentation blobs are unavailable")
+
+
+def lineage_merge_tree(root, first, second):
+    objects = Path(lineage_git(root, "rev-parse", "--git-path", "objects").strip())
+    objects = objects if objects.is_absolute() else root / objects
+    objects = objects.resolve(strict=True)
+    if "\n" in str(objects) or "\r" in str(objects):
+        fail("unsupported lineage object store")
+    object_format = lineage_git(root, "rev-parse", "--show-object-format").strip()
+    if object_format not in {"sha1", "sha256"}:
+        fail("unsupported lineage object format")
+    with tempfile.TemporaryDirectory(prefix="dbsctr-lineage-merge-") as directory:
+        temporary = Path(directory)
+        bare = temporary / "control.git"
+        lineage_git(temporary, "init", "--bare", "--template=", "--initial-branch=control",
+                    "--object-format=" + object_format, str(bare))
+        (bare / "objects/info/alternates").write_text(str(objects) + "\n")
+        result = lineage_git(bare, "merge-tree", "--write-tree", first, second).splitlines()
+        if len(result) != 1:
+            fail("lineage merge is not an exact clean merge")
+        return lineage_oid(result[0])
+
+
+def lineage_history(root, before, head, accepted, target):
+    baseline = lineage_oid(before["git"]["head"])
+    head, accepted, target = map(lineage_oid, (head, accepted, target))
+    if not lineage_ancestor(root, baseline, target) or not lineage_ancestor(root, accepted, target):
+        fail("accepted lineage base is outside the bound upstream")
+    actual = lineage_git(root, "rev-list", "--first-parent", "--reverse", "--max-count=1025",
+                         baseline + ".." + head).splitlines()
+    if not actual or len(actual) > 1024 or any(lineage_oid(oid) != oid for oid in actual):
+        fail("lineage exceeds recovery bounds")
+    recorded = before["commits"]
+    if (not isinstance(recorded, list) or not recorded or any(not isinstance(c, dict)
+            or set(c) != {"id", "gates"} or not isinstance(c["gates"], list)
+            or any(g not in GATES for g in c["gates"]) for c in recorded)):
+        fail("invalid recorded lineage")
+    ids = [lineage_oid(c["id"]) for c in recorded]
+    if len(ids) != len(set(ids)) or [oid for oid in actual if oid in ids] != ids:
+        fail("recorded lineage is missing, duplicate or reordered")
+    known = {c["id"]: c for c in recorded}
+    missing = [oid for oid in actual if oid not in known]
+    if not missing or len(missing) > 32:
+        fail("missing lineage exceeds recovery bounds")
+    proofs, merges, blobs = [], 0, set()
+    for oid in missing:
+        fields = lineage_git(root, "show", "-s", "--format=%T %P", oid).strip().split()
+        tree, parents = lineage_oid(fields[0]), fields[1:]
+        if len(parents) == 2:
+            merges += 1
+            if merges > 1 or parents[1] != accepted or lineage_merge_tree(root, *parents) != tree:
+                fail("missing merge is not the exact selected accepted base")
+            proofs.append({"id": oid, "kind": "accepted_base_merge", "parents": parents, "tree": tree})
+        elif len(parents) == 1:
+            raw = lineage_git(root, "diff-tree", "--no-commit-id", "--raw", "--no-abbrev",
+                              "--no-renames", "-r", "-z", parents[0], oid).split("\0")
+            if not raw or raw[-1] != "" or (len(raw) - 1) % 2 or not 1 <= (len(raw) - 1) // 2 <= 128:
+                fail("documentation recovery requires bounded nonempty changes")
+            changes = []
+            for index in range(0, len(raw) - 1, 2):
+                fields, name = raw[index].split(), raw[index + 1]
+                path = PurePosixPath(name)
+                if (len(fields) != 5 or fields[0] not in {":000000", ":100644"}
+                        or fields[1] not in {"000000", "100644"} or fields[4] not in {"A", "M", "D"}
+                        or len(name.encode()) > 4096 or name != path.as_posix()
+                        or path.is_absolute() or len(path.parts) < 2 or path.parts[0] != "docs"
+                        or not name.endswith(".md") or "\\" in name
+                        or any(part in {".", ".."} for part in path.parts)
+                        or any(ord(c) < 32 or ord(c) == 127 for c in name)):
+                    fail("missing commit is not reviewed regular documentation")
+                for blob in (fields[2], fields[3]):
+                    lineage_oid(blob)
+                    if int(blob, 16):
+                        blobs.add(blob)
+                changes.append({"path": name, "old_mode": fields[0][1:], "mode": fields[1],
+                                "old_blob": fields[2], "blob": fields[3], "status": fields[4]})
+            proofs.append({"id": oid, "kind": "documentation", "parents": parents,
+                           "tree": tree, "changes": changes})
+        else:
+            fail("unsupported missing lineage commit")
+    if blobs:
+        lineage_document_blobs(root, blobs)
+    return [known.get(oid, {"id": oid, "gates": []}) for oid in actual], proofs
+
+
+def lineage_admission(before):
+    if (before.get("schema_version") != 5 or before.get("state") != "active"
+            or not native_workspace_execution(before) or before["execution"]["origin"] != "registered"
+            or not isinstance(before.get("initiative"), dict) or not before.get("initiative_approval")
+            or before.get("initiative_amendments") or before.get("initiative_authority_checkpoints")
+            or before.get("lineage_recovery") or before.get("delivery_intent") != "draft_pr"
+            or before.get("delivery", {}).get("github", {}).get("host") != "github.com"):
+        fail("unsupported lineage recovery cycle")
+
+
+def lineage_plan(root, before, raw, head, target, accepted, reason):
+    recovered, proofs = lineage_history(root, before, head, accepted, target)
+    return {"schema_version": 1, "cycle_id": before["cycle_id"],
+            "before_record_sha256": amendment_hash(raw), "head": head,
+            "tree": lineage_git(root, "rev-parse", head + "^{tree}").strip(),
+            "accepted_base": accepted, "target": target, "reason": reason,
+            "checkout": {"root": str(root.resolve()), "git_dir": str(git_dir(root).resolve()),
+                         "common_dir": str(common_git_dir(root).resolve()),
+                         "branch": branch(root), "upstream": upstream(root)},
+            "delivery": before["delivery"], "engineering_profile": before["engineering_profile"],
+            "applicability_plan": before["applicability_plan"],
+            "recorded_commits": before["commits"], "recovered_commits": recovered, "proofs": proofs}
+
+
+def lineage_replacement(before, plan, entry):
+    result = json.loads(json.dumps(before))
+    result["commits"] = plan["recovered_commits"]
+    result["lineage_recovery"] = entry
+    review = result["gates"]["review_integrate"]
+    review["result"] = "pending"
+    review.pop("evidence", None)
+    review.pop("exception", None)
+    return result
+
+
+def lineage_payloads(before, plan, raw, digest, envelope):
+    entry = {"schema_version": 1, "launch_digest": digest,
+             "approval_method": envelope["approval_method"], "approved_at": envelope["approved_at"]}
+    replacement = lineage_replacement(before, plan, entry)
+    expected = amendment_bytes(replacement)
+    outcome = {"schema_version": 1, "replacement": expected.decode(), "replacement_sha256": amendment_hash(expected)}
+    payloads = {"plan.json": amendment_bytes(plan), "envelope.json": amendment_bytes(envelope),
+                "before.json": raw, "outcome.json": amendment_bytes(outcome)}
+    if any(len(data) > LINEAGE_CUSTODY_CAP for data in payloads.values()):
+        fail("lineage recovery artifacts exceed private read bounds")
+    return replacement, payloads
+
+
+def validate_lineage_recovery(root, record):
+    entry = record["lineage_recovery"]
+    if (not isinstance(entry, dict)
+            or set(entry) != {"schema_version", "launch_digest", "approval_method", "approved_at"}
+            or type(entry["schema_version"]) is not int or entry["schema_version"] != 1
+            or entry["approval_method"] not in {"agent_confirmed", "interactive_cli"}):
+        fail("invalid lineage recovery provenance")
+    datetime.fromisoformat(entry["approved_at"].replace("Z", "+00:00"))
+    digest, cycle = entry["launch_digest"], record["cycle_id"]
+    paths = {name: lineage_location(root, cycle, digest, name)
+             for name in ("plan.json", "before.json", "envelope.json", "outcome.json")}
+    custody = lineage_custody(root, cycle)
+    if (custody.get(digest) != set(paths)
+            or any(leaves - {"plan.json"} for other, leaves in custody.items() if other != digest)):
+        fail("incomplete or competing lineage recovery custody")
+    plan = amendment_json(root, paths["plan.json"])
+    raw = amendment_read(root, paths["before.json"])
+    before = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    lineage_admission(before)
+    if set(plan) != {"schema_version", "cycle_id", "before_record_sha256", "head", "tree", "accepted_base",
+                     "target", "reason", "checkout", "delivery", "engineering_profile", "applicability_plan",
+                     "recorded_commits", "recovered_commits", "proofs"}:
+        fail("invalid lineage recovery plan")
+    if (continuation_digest(plan) != digest or type(plan["schema_version"]) is not int or plan["schema_version"] != 1
+            or plan["cycle_id"] != cycle or plan["before_record_sha256"] != amendment_hash(raw)
+            or plan["delivery"] != before["delivery"] or plan["engineering_profile"] != before["engineering_profile"]
+            or plan["applicability_plan"] != before["applicability_plan"]
+            or plan["recorded_commits"] != before["commits"]
+            or lineage_git(root, "rev-parse", lineage_oid(plan["head"]) + "^{tree}").strip() != plan["tree"]):
+        fail("lineage recovery plan identity changed")
+    checkout = plan["checkout"]
+    if (not isinstance(checkout, dict) or set(checkout) != {"root", "git_dir", "common_dir", "branch", "upstream"}
+            or any(not isinstance(v, str) or not v or len(v.encode()) > 4096 for v in checkout.values())
+            or any(not Path(checkout[k]).is_absolute() for k in ("root", "git_dir", "common_dir"))
+            or checkout["branch"] != before["git"]["branch"] or checkout["upstream"] != before["git"]["upstream"]):
+        fail("invalid lineage recovery checkout binding")
+    recovered, proofs = lineage_history(root, before, plan["head"], plan["accepted_base"], plan["target"])
+    if recovered != plan["recovered_commits"] or proofs != plan["proofs"]:
+        fail("lineage recovery proof changed")
+    envelope = amendment_json(root, paths["envelope.json"])
+    if type(envelope.get("schema_version")) is not int or envelope != {"schema_version": 1, "plan": plan,
+                    "approval_method": entry["approval_method"], "approved_at": entry["approved_at"]}:
+        fail("lineage recovery approval changed")
+    replacement = lineage_replacement(before, plan, entry)
+    expected = amendment_bytes(replacement)
+    outcome = amendment_json(root, paths["outcome.json"])
+    if type(outcome.get("schema_version")) is not int or outcome != {"schema_version": 1, "replacement": expected.decode(), "replacement_sha256": amendment_hash(expected)}:
+        fail("lineage recovery outcome changed")
+    if record.get("initiative_amendments") or record.get("initiative_authority_checkpoints"):
+        fail("lineage recovery with Initiative amendment is not supported")
+    amendment_progress(replacement, record)
+    review = record["gates"]["review_integrate"]
+    if review["result"] in {"passed", "failed", "unavailable"}:
+        identifier = review.get("evidence")
+        item = record.get("evidence", {}).get("items", {}).get(identifier)
+        if (not isinstance(item, dict) or identifier in before["evidence"]["items"]
+                or item.get("gate") != "review_integrate" or item.get("result") != review["result"]
+                or datetime.fromisoformat(item["started_at"].replace("Z", "+00:00"))
+                < datetime.fromisoformat(entry["approved_at"].replace("Z", "+00:00"))):
+            fail("lineage recovery requires fresh review evidence")
+    return plan, outcome
+
+
+def lineage_snapshot(root, args):
+    if (not isinstance(args.reason, str) or not args.reason.strip() or len(args.reason.encode()) > 4096
+            or "\0" in args.reason):
+        fail("invalid private lineage recovery reason")
+    pointer = resolved_active_path(root, bindings=False)
+    if active_pointer_id(root, pointer) != args.cycle_id:
+        fail("lineage recovery active pointer changed")
+    path = cycle_dir(root) / "cycles" / (args.cycle_id + ".json")
+    raw = amendment_read(root, path)
+    record = read_cycle_record(root, path, historical=True)
+    if record.get("cycle_id") != args.cycle_id or raw != amendment_read(root, path):
+        fail("lineage recovery record changed")
+    if not record_worktree_matches(root, record, root, bindings=False):
+        fail("lineage recovery checkout changed")
+    if record.get("lineage_recovery"):
+        require_current_profile(root, record)
+        if (branch(root) != record["git"]["branch"] or upstream(root) != record["git"]["upstream"]
+                or remote_destination(root, upstream(root)) != record["git"]["remote"]):
+            fail("lineage recovery delivery binding changed")
+        github_remote_url(root, record["delivery"]["remote"], record["delivery"]["github"]["repository"])
+        return path, record, raw, None
+    lineage_admission(record)
+    if amendment_custody(root, args.cycle_id):
+        fail("prepared Initiative amendment blocks lineage recovery")
+    require_current_profile(root, record)
+    require_local_read_filters(root)
+    if status_paths(root) or record["git"].get("pre_cycle_ahead_commits"):
+        fail("lineage recovery requires a clean owned checkout")
+    for operation in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
+        if git(root, "rev-parse", "--verify", "-q", operation, check=False).returncode == 0:
+            fail("lineage recovery refuses active Git operations")
+    if (branch(root) != record["git"]["branch"] or upstream(root) != record["git"]["upstream"]
+            or remote_destination(root, upstream(root)) != record["git"]["remote"]):
+        fail("lineage recovery delivery binding changed")
+    github = record["delivery"]["github"]
+    github_remote_url(root, record["delivery"]["remote"], github["repository"])
+    target = lineage_git(root, "rev-parse", "--verify", record["git"]["upstream"] + "^{commit}").strip()
+    head = lineage_git(root, "rev-parse", "HEAD").strip()
+    return path, record, raw, lineage_plan(root, record, raw, head, target,
+                                          lineage_oid(args.accepted_base), args.reason)
+
+
+def lineage_recover_offline(args):
+    digest, durable = None, False
+    try:
+        root = root_dir()
+        if not OPAQUE_ID.fullmatch(args.cycle_id):
+            fail("invalid lineage cycle")
+        with evidence_lock(root, "local-mutation-" + args.cycle_id, timeout=1), evidence_lock(root, args.cycle_id, timeout=1):
+            found = lineage_custody(root, args.cycle_id)
+            durable = any(leaves - {"plan.json"} for leaves in found.values())
+            record_path = cycle_dir(root) / "cycles" / (args.cycle_id + ".json")
+            admitted = read_cycle_record(root, record_path, historical=True)
+            if admitted.get("lineage_recovery"):
+                durable = False
+            path, record, raw, plan = lineage_snapshot(root, args)
+            with target_lock(root, record):
+                if record.get("lineage_recovery"):
+                    plan, outcome = validate_lineage_recovery(root, record)
+                    digest = record["lineage_recovery"]["launch_digest"]
+                    durable = False  # Qualified completed custody, not an uncertain write.
+                    if (args.preflight or args.expected_launch_digest != digest or args.reason != plan["reason"]
+                            or args.accepted_base != plan["accepted_base"] or raw != outcome["replacement"].encode()
+                            or lineage_git(root, "rev-parse", "HEAD").strip() != plan["head"]
+                            or lineage_git(root, "rev-parse", record["git"]["upstream"]).strip() != plan["target"]
+                            or status_paths(root)):
+                        fail("stale lineage recovery replay")
+                    return "already_applied", digest
+                digest = continuation_digest(plan)
+                outstanding = {d for d, leaves in found.items() if leaves - {"plan.json"}}
+                if outstanding and outstanding != {digest}:
+                    fail("unreconciled prepared lineage recovery")
+                location = lambda name: lineage_location(root, args.cycle_id, digest, name)
+                if args.preflight:
+                    if digest not in found and len(found) >= 64:
+                        fail("lineage recovery plan custody is full")
+                    if outstanding:
+                        fail("prepared lineage recovery needs exact replay")
+                    capacity = {"schema_version": 1, "plan": plan, "approval_method": "agent_confirmed",
+                                "approved_at": "2000-01-01T00:00:00.000000Z"}
+                    lineage_payloads(record, plan, raw, digest, capacity)
+                    lineage_write_once(root, location("plan.json"), amendment_bytes(plan))
+                    return "preflight", digest
+                if args.expected_launch_digest != digest or amendment_json(root, location("plan.json")) != plan:
+                    fail("lineage recovery approval is stale")
+                if args.approval == "interactive":
+                    if not sys.stdin.isatty():
+                        fail("lineage recovery requires operator confirmation")
+                    print(f"Type RECOVER {args.cycle_id} {digest}: ", file=sys.stderr, end="", flush=True)
+                    if sys.stdin.readline(512).strip() != f"RECOVER {args.cycle_id} {digest}":
+                        fail("lineage recovery confirmation declined")
+                method = "agent_confirmed" if args.approval == "agent-confirmed" else "interactive_cli"
+                if lineage_snapshot(root, args)[3] != plan:
+                    fail("lineage recovery state changed during approval")
+                if os.path.lexists(location("envelope.json")):
+                    envelope = amendment_json(root, location("envelope.json"))
+                    if (envelope.get("plan") != plan or envelope.get("approval_method") != method
+                            or set(envelope) != {"schema_version", "plan", "approval_method", "approved_at"}):
+                        fail("conflicting lineage recovery approval")
+                else:
+                    envelope = {"schema_version": 1, "plan": plan, "approval_method": method, "approved_at": now()}
+                replacement, payloads = lineage_payloads(record, plan, raw, digest, envelope)
+                durable = True
+                for name in ("envelope.json", "before.json", "outcome.json"):
+                    lineage_write_once(root, location(name), payloads[name])
+                validate_lineage_recovery(root, replacement)
+                if lineage_snapshot(root, args)[3] != plan:
+                    fail("lineage recovery state changed before replacement")
+                private_json(path, replacement, strict=True)
+                return "applied", digest
+    except LineageCustodyError:
+        return "recovery_required", digest
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
+        return ("recovery_required" if durable else "blocked"), digest
+
+
+def command_lineage_recover(args):
+    with local_completion_git_context():
+        status, digest = lineage_recover_offline(args)
+    print(json.dumps({"schema_version": 1,
+        "cycle_id": args.cycle_id if OPAQUE_ID.fullmatch(args.cycle_id) else None,
+        "status": status, "state_digest": digest,
+        "reasons": [] if status in {"preflight", "applied", "already_applied"} else [
+            "lineage_recovery_required" if status == "recovery_required" else "lineage_recovery_blocked"],
+        "next_action": "continue" if status in {"applied", "already_applied"} else
+            "approve_exact_plan" if status == "preflight" else "retain_and_reconcile"}, sort_keys=True))
     if status in {"blocked", "recovery_required"}:
         raise SystemExit(75 if status == "recovery_required" else 1)
 
@@ -5501,6 +6022,27 @@ def invalidate_later(record, gate_name):
             gate.pop("exception", None)
             record.setdefault("metrics", {}).setdefault("gate_reopen_count", 0)
             record["metrics"]["gate_reopen_count"] += 1
+
+
+def apply_gate_result(record: dict, gate_name: str, result: str, evidence: str | None = None) -> None:
+    """Apply an admitted result without executing evidence or persisting state."""
+    gate = record["gates"][gate_name]
+    previous_result = gate["result"]
+    was_disposed = disposed(gate)
+    metrics = record.setdefault("metrics", {"gate_failure_count": 0, "gate_reopen_count": 0,
+                                              "remediation_round_count": 0})
+    gate.pop("exception", None)
+    gate["result"] = result
+    if evidence is not None:
+        gate["evidence"] = evidence
+    elif result == "pending":
+        gate.pop("evidence", None)
+    if is_v32(record) and was_disposed and not disposed(gate):
+        invalidate_later(record, gate_name)
+    if result in ("failed", "unavailable") and previous_result not in ("failed", "unavailable"):
+        metrics["gate_failure_count"] += 1
+    if previous_result in ("failed", "unavailable") and result == "passed":
+        metrics["remediation_round_count"] += 1
 
 
 def require_current_profile(root, record):
@@ -5792,6 +6334,8 @@ def command_start(args):
     with registration_lock(root, args):
         record = start_cycle(root, args, plan)
     print(record["cycle_id"])
+    return {"validation_registration": {"worktree": root.resolve(), "cycle": record["cycle_id"],
+        "feedback_target": getattr(args, "validation_feedback_target", None)}}
 
 
 def require_legacy_start_network(root):
@@ -6115,6 +6659,8 @@ def begin_registration(args):
         "worktree": str(worktree), "upstream": target,
         **({"initiative": initiative} if initiative is not None else {}),
     }, sort_keys=True))
+    return {"validation_registration": {"worktree": worktree.resolve(), "cycle": record["cycle_id"],
+        "feedback_target": getattr(args, "validation_feedback_target", None)}}
 
 
 def cycle_runtime_locator(runtime, worktree, source):
@@ -6892,7 +7438,8 @@ def inventory_policy_sources():
     policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
     if (not isinstance(policy, dict) or type(policy.get("schema_version")) is not int
             or policy["schema_version"] != 1 or set(policy) - {
-                "schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming"}
+                "schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming",
+                "activation_binding"}
             or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", policy.get("source_commit", ""))
             or policy.get("policy_digest") != continuation_digest({
                 k: v for k, v in policy.items() if k != "policy_digest"})):
@@ -9353,6 +9900,7 @@ def local_cli_mutation_guard(args, selected):
                 or not pointer.exists() or active_pointer_id(root, pointer) != record["cycle_id"]
                 or not record_worktree_matches(root, record, root, bindings=False)):
             fail("local-only mutation binding changed")
+        lineage_pending_guard(root, record)
         if args.command in {"final-push", "reconcile-target"}:
             require_pushable(record)
         else:
@@ -17288,15 +17836,7 @@ def command_record_evidence(args):
         envelope["content"] = content
         evidence_id = envelope["id"]
         record["evidence"]["items"][evidence_id] = envelope
-        previous_result = gate["result"]
-        gate.pop("exception", None)
-        gate.update({"result": result, "evidence": evidence_id})
-        metrics = record.setdefault("metrics", {"gate_failure_count": 0, "gate_reopen_count": 0,
-                                                  "remediation_round_count": 0})
-        if result in ("failed", "unavailable") and previous_result not in ("failed", "unavailable"):
-            metrics["gate_failure_count"] += 1
-        if previous_result in ("failed", "unavailable") and result == "passed":
-            metrics["remediation_round_count"] += 1
+        apply_gate_result(record, args.gate, result, evidence_id)
         save(path, record)
         print(evidence_id)
 
@@ -17323,22 +17863,7 @@ def command_set_gate(args):
         fail("not_applicable gates can only use not_run")
     if gate["applicability"] == "required" and args.result in ("passed", "failed", "unavailable") and not args.evidence:
         fail(f"{args.result} required gate needs evidence")
-    previous_result = gate["result"]
-    was_disposed = disposed(gate)
-    gate.pop("exception", None)
-    gate["result"] = args.result
-    if args.evidence is not None:
-        gate["evidence"] = args.evidence
-    elif args.result == "pending":
-        gate.pop("evidence", None)
-    if is_v32(record) and was_disposed and not disposed(gate):
-        invalidate_later(record, args.gate)
-    metrics = record.setdefault("metrics", {"gate_failure_count": 0, "gate_reopen_count": 0,
-                                              "remediation_round_count": 0})
-    if args.result in ("failed", "unavailable") and previous_result not in ("failed", "unavailable"):
-        metrics["gate_failure_count"] += 1
-    if previous_result in ("failed", "unavailable") and args.result == "passed":
-        metrics["remediation_round_count"] += 1
+    apply_gate_result(record, args.gate, args.result, args.evidence)
     save(path, record)
 
 
@@ -18102,8 +18627,105 @@ def command_gate_commit(args):
     return {"worktree": root.resolve(), "cycle": record["cycle_id"], "head": commit, "gates": list(args.gates)}
 
 
+def managed_validation_enabled(*, automatic: bool = False):
+    """Inspect only the private feature flag before optional imports or Git."""
+    if type(automatic) is not bool:
+        raise RuntimeError("continuous_validation_origin_invalid")
+    policy_path = Path.home() / ".config/dotfiles-ai/continuous-validation-policy.json"
+    if not os.path.lexists(policy_path):
+        return False
+    if (any(parent.is_symlink() for parent in (policy_path, *policy_path.parents))
+            or not policy_path.is_absolute()):
+        raise RuntimeError("continuous_validation_policy_unavailable")
+    descriptor = os.open(policy_path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1
+                or info.st_mode & 0o077 or info.st_size > 1024 * 1024):
+            raise RuntimeError("continuous_validation_policy_unavailable")
+        selected = json.loads(stream.read(1024 * 1024 + 1), object_pairs_hook=no_duplicate_keys)
+    if not isinstance(selected, dict):
+        raise RuntimeError("continuous_validation_policy_unavailable")
+    return selected.get("enabled") is True and not (automatic and selected.get("enrollment") == "explicit-only")
+
+def managed_validation_action(action, event):
+    """Bind optional delegation to one real managed owner after policy admission."""
+    automatic = action == "enroll" and event.get("automatic", False)
+    if not managed_validation_enabled(automatic=automatic):
+        return {"status": "disabled", "advisory": True}
+    policy_path = Path.home() / ".config/dotfiles-ai/continuous-validation-policy.json"
+    source = Path(__file__).resolve().parents[2] / "private_dot_config/dotfiles-ai"
+    selected = source if (source / "continuous_validation/cli.py").is_file() else Path.home() / ".config/dotfiles-ai"
+    previous_path = sys.path[:]
+    try:
+        selected = selected.resolve(strict=True)
+        package = selected / "continuous_validation"
+        if package.resolve(strict=True) != package or any(
+                not stat.S_ISREG((package / name).lstat().st_mode) for name in ("__init__.py", "cli.py")):
+            raise RuntimeError("continuous_validation_owner_unavailable")
+
+        def validate_cached_owner():
+            for name, module in tuple(sys.modules.items()):
+                if name == "continuous_validation" or name.startswith("continuous_validation."):
+                    location = getattr(module, "__file__", None)
+                    if not isinstance(location, str) or not Path(location).resolve(strict=True).is_relative_to(package):
+                        raise RuntimeError("continuous_validation_owner_unavailable")
+
+        validate_cached_owner()
+        sys.path.insert(0, str(selected))
+        owner = __import__("continuous_validation.cli", fromlist=["managed_action"])
+        validate_cached_owner()
+        if Path(owner.__file__).resolve(strict=True) != package / "cli.py":
+            raise RuntimeError("continuous_validation_owner_unavailable")
+        return owner.managed_action(action, worktree=event["worktree"], cycle=event["cycle"], policy_path=policy_path,
+            feedback_target=event.get("feedback_target"), gate=event.get("gate"), purpose=event.get("purpose"),
+            expected_ids=event.get("expected_ids"), head=event.get("head"), checkpoint_id=event.get("checkpoint_id"),
+            lifecycle_path=Path(__file__), automatic=automatic)
+    except Exception:
+        raise RuntimeError("continuous_validation_owner_unavailable") from None
+    finally:
+        sys.path[:] = previous_path
+
+def optional_validation_registration(event):
+    """Publish a genuinely new task only after lifecycle locks have closed."""
+    try:
+        managed_validation_action("enroll", {**event, "automatic": True})
+    except Exception:
+        print("continuous_validation_enrollment_unavailable", file=sys.stderr)
+
+def command_validation_checkpoint(args):
+    if not managed_validation_enabled():
+        print(json.dumps({"status": "disabled", "advisory": True}))
+        return
+    root = root_dir()
+    _, record = load(root)
+    result = managed_validation_action("checkpoint", {"worktree": root.resolve(), "cycle": record["cycle_id"],
+        "gate": args.gate, "purpose": args.purpose, "expected_ids": args.expected_test_id})
+    print(json.dumps(result, sort_keys=True))
+
+def command_validation_opt_out(args):
+    if not managed_validation_enabled():
+        print(json.dumps({"status": "disabled", "advisory": True}))
+        return
+    root = root_dir()
+    _, record = load(root)
+    print(json.dumps(managed_validation_action("opt-out", {"worktree": root.resolve(), "cycle": record["cycle_id"]}),
+                     sort_keys=True))
+
+
 def optional_shadow_checkpoint(checkpoint):
     """Bounded optional enqueue after lifecycle locks; missing binding is inert."""
+    try:
+        gate = max(checkpoint["gates"], key=GATES.index)
+        purpose = ("artifact" if gate in {"domain", "behavior", "spec"} else "regression" if gate == "refactor"
+            else "final-reconcile" if gate in {"review_integrate", "release", "deploy", "operate", "maintain_retire"}
+            else "green-validation")
+        result = managed_validation_action("checkpoint", {**checkpoint, "gate": gate, "purpose": purpose,
+            "checkpoint_id": "gate-" + checkpoint["head"] + "-" + gate})
+        if result.get("status") not in {"disabled", "not_enrolled", "legacy_enrolled"}:
+            return
+    except Exception:
+        print("continuous_validation_checkpoint_unavailable", file=sys.stderr)
     registry = Path.home() / ".local/state/dotfiles-ai/continuous-validation/checkpoint-bindings"
     if not os.path.lexists(registry):
         return
@@ -18518,7 +19140,9 @@ def pr_review_policy_snapshot(root):
         if pr_review_private_bytes(source, 256 * 1024) != raw:
             fail("pr_review_policy_changed")
         policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
-        if (not isinstance(policy, dict) or set(policy) != {"schema_version", "source_commit", "policy_digest",
+        # The selected helper has validated optional activation metadata above;
+        # it is not delivery authority and remains covered by the full digest.
+        if (not isinstance(policy, dict) or set(policy) - {"activation_binding"} != {"schema_version", "source_commit", "policy_digest",
                 "root", "cache_root", "repositories", "naming"}
                 or type(policy["schema_version"]) is not int or policy["schema_version"] != 1
                 or policy["policy_digest"] != pr_review_digest({k: v for k, v in policy.items() if k != "policy_digest"})):
@@ -18646,6 +19270,167 @@ def pr_review_rebind(root, prior, updated, merged, gates):
             fail("pr_review_checkpoint_changed")
     # No check evidence or waiver is returned or copied. Their old base bindings
     # cannot authorize the rebound recommendation; collection belongs to CI.
+
+
+def ci_repair_ledger(root, repository):
+    directory = cycle_dir(root) / "qualifications"
+    managed_directory(root, directory, create=True)
+    anchor = directory / "ci-repair-anchor.json"
+    path = directory / "ci-repairs.json"
+    identity = {"schema_version": 1, "repository": repository}
+    if not anchor.exists() and not anchor.is_symlink():
+        if path.exists() or path.is_symlink():
+            fail("ci_repair_accounting_incomplete")
+        return path, anchor, identity, {"schema_version": 1, "entries": {}}
+    established = json.loads(pr_review_private_bytes(anchor, 4096), object_pairs_hook=no_duplicate_keys)
+    if (not isinstance(established, dict) or type(established.get("schema_version")) is not int
+            or established != identity):
+        fail("ci_repair_accounting_identity_mismatch")
+    value = json.loads(pr_review_private_bytes(path, 1024 * 1024), object_pairs_hook=no_duplicate_keys)
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "entries"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or not isinstance(value["entries"], dict) or len(value["entries"]) > 2048):
+        fail("ci_repair_accounting_invalid")
+    for fingerprint, attempts in value["entries"].items():
+        if not re.fullmatch(r"[0-9a-f]{64}", fingerprint) or not isinstance(attempts, list) or not 1 <= len(attempts) <= 3:
+            fail("ci_repair_accounting_invalid")
+        for number, attempt in enumerate(attempts, 1):
+            if (not isinstance(attempt, dict) or set(attempt) != {"number", "plan_digest", "reserved_at"}
+                    or type(attempt["number"]) is not int or attempt["number"] != number
+                    or not isinstance(attempt["plan_digest"], str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", attempt["plan_digest"])
+                    or not isinstance(attempt["reserved_at"], str)):
+                fail("ci_repair_accounting_invalid")
+    return path, anchor, identity, value
+
+
+def ci_repair_plan(root, args, *, request=None):
+    request = request or workflow_github
+    if any(type(number) is not int or not 0 < number <= 2**53 - 1
+           for number in (args.pull_request, args.job_id)):
+        fail("ci_repair_native_identity_invalid")
+    if not isinstance(args.github_account, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,38}", args.github_account):
+        fail("ci_repair_account_invalid")
+    remote, separator, target = (upstream(root) or "").partition("/")
+    if not separator:
+        fail("ci_repair_upstream_required")
+    repository = github_repository_from_url(
+        git(root, "remote", "get-url", "--push", remote).stdout.strip(), "ci_repair_repository_invalid")
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    deadline = time.monotonic() + 90
+
+    def native(endpoint):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            fail("ci_repair_native_evidence_unavailable")
+        result = request(args.github_account, "GET", f"repos/{repository}/{endpoint}", {}, min(30, remaining))
+        if not isinstance(result, dict) or result.get("status") != "success" or not isinstance(result.get("value"), dict):
+            fail("ci_repair_native_evidence_unavailable")
+        return result["value"]
+
+    pull = native(f"pulls/{args.pull_request}")
+    job = native(f"actions/jobs/{args.job_id}")
+    run_id = job.get("run_id")
+    if type(run_id) is not int or not 0 < run_id <= 2**53 - 1:
+        fail("ci_repair_native_identity_invalid")
+    run = native(f"actions/runs/{run_id}")
+    for side in ("head", "base"):
+        if not isinstance(pull.get(side), dict) or not isinstance(pull[side].get("repo"), dict):
+            fail("ci_repair_native_identity_invalid")
+    if not isinstance(run.get("repository"), dict):
+        fail("ci_repair_native_identity_invalid")
+    if (pull.get("number") != args.pull_request or pull.get("state") != "open"
+            or pull.get("head", {}).get("repo", {}).get("full_name") != repository
+            or pull.get("base", {}).get("repo", {}).get("full_name") != repository
+            or pull.get("head", {}).get("sha") != head
+            or pull.get("head", {}).get("ref") != branch(root)
+            or pull.get("base", {}).get("ref") != target
+            or run.get("repository", {}).get("full_name") != repository
+            or type(run.get("id")) is not int or run["id"] != run_id
+            or type(job.get("id")) is not int or type(job.get("run_attempt")) is not int
+            or type(run.get("run_attempt")) is not int
+            or run["run_attempt"] < 1 or job.get("run_attempt") != run["run_attempt"]
+            or not isinstance(run.get("pull_requests"), list)
+            or not any(isinstance(item, dict) and item.get("number") == args.pull_request
+                       and isinstance(item.get("head"), dict) and item["head"].get("sha") == head
+                       and isinstance(item.get("base"), dict) and item["base"].get("sha") == pull["base"].get("sha")
+                       for item in run["pull_requests"])
+            or run.get("event") != "pull_request" or run.get("head_sha") != head
+            or job.get("head_sha") != head or job.get("id") != args.job_id
+            or job.get("status") != "completed" or job.get("conclusion") != "failure"):
+        fail("ci_repair_native_identity_mismatch")
+    base = pull["base"].get("sha", "")
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", base):
+        fail("ci_repair_base_invalid")
+    workflow = run.get("path", "")
+    if not re.fullmatch(r"\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml", workflow):
+        fail("ci_repair_workflow_invalid")
+    paths = sorted(set(safe_paths(root, args.paths)))
+    specification = safe_paths(root, [args.specification])[0]
+    for name in paths + [specification]:
+        current = root
+        for part in PurePosixPath(name).parts:
+            current = current / part
+            if current.is_symlink():
+                fail("ci_repair_scope_unsafe")
+    spec = git(root, "show", f"{head}:{specification}").stdout
+    if not (root / specification).is_file() or (root / specification).read_text() != spec:
+        fail("ci_repair_specification_changed")
+    signature = " ".join(evidence_text(args.signature, 512, "failure signature").split())
+    job_name = evidence_text(job.get("name", ""), 256, "job name")
+    problem = {"repository": repository,
+               "workflow": workflow, "job_name": job_name, "signature": signature,
+               "specification": specification}
+    plan = {"schema_version": 1, "problem": problem, "head": head, "base": base,
+            "pull_request": args.pull_request,
+            "github_account": args.github_account, "branch": branch(root),
+            "target_ref": f"refs/heads/{target}", "run_attempt": run["run_attempt"],
+            "run_id": run_id, "job_id": args.job_id,
+            "workflow_digest": hashlib.sha256(git(root, "show", f"{head}:{workflow}").stdout.encode()).hexdigest(),
+            "specification_digest": hashlib.sha256(spec.encode()).hexdigest(),
+            "paths": evidence_path_blobs(root, paths)}
+    fingerprint = pr_review_digest(problem)
+    return repository, fingerprint, plan
+
+
+def command_ci_repair(args):
+    root = root_dir()
+    if args.preflight and (args.approval or args.expected_repair_digest):
+        fail("ci_repair_preflight_is_not_approval")
+    if not args.preflight and (args.approval != "agent-confirmed"
+                               or not isinstance(args.expected_repair_digest, str)
+                               or not re.fullmatch(r"[0-9a-f]{64}", args.expected_repair_digest)):
+        fail("ci_repair_exact_approval_required")
+    try:
+        # One common-Git lock covers linked worktrees and process restarts.
+        with evidence_lock(root, "ci-repair-reservations", timeout=0):
+            repository, fingerprint, plan = ci_repair_plan(root, args)
+            path, anchor, identity, ledger = ci_repair_ledger(root, repository)
+            attempts = ledger["entries"].get(fingerprint, [])
+            if len(attempts) >= 3:
+                fail("ci_repair_attempts_exhausted")
+            if not attempts and len(ledger["entries"]) >= 2048:
+                fail("ci_repair_accounting_full")
+            plan["attempt"] = len(attempts) + 1
+            digest = pr_review_digest(plan)
+            if args.preflight:
+                print(json.dumps({"status": "preflight", "repair_digest": digest, "plan": plan}, sort_keys=True))
+                return
+            if digest != args.expected_repair_digest:
+                fail("ci_repair_plan_changed")
+            # Establish loss detection first. Interrupted initialization blocks,
+            # rather than treating an absent established ledger as zero attempts.
+            if not anchor.exists():
+                private_json(anchor, identity, strict=True)
+            ledger["entries"][fingerprint] = attempts + [{"number": plan["attempt"],
+                "plan_digest": digest, "reserved_at": now()}]
+            if len(json.dumps(ledger).encode()) > 1024 * 1024:
+                fail("ci_repair_accounting_full")
+            private_json(path, ledger, strict=True)
+            print(json.dumps({"status": "reserved", "repair_digest": digest, "attempt": plan["attempt"],
+                              "approval": "caller_assertion", "merge_authority": False}, sort_keys=True))
+    except (OSError, ValueError, TypeError, KeyError):
+        fail("ci_repair_evidence_unavailable")
 
 
 def check_pr_review(root, record, source, *, prior_source=None, merge_commit=None, repair_check=None, ci_source=None):
@@ -18781,7 +19566,9 @@ def github_environment(account):
 
 
 def github_json(root, env, *args):
-    result = subprocess.run(["gh", *args], cwd=root, env=env, text=True, capture_output=True)
+    bounds = {"timeout": 30} if args[:3] == ("api", "--hostname", "github.com") else {}
+    result = subprocess.run(["gh", *args], cwd=root, env=env, text=True, capture_output=True,
+                            **bounds)
     if result.returncode:
         fail(result.stderr.strip() or "GitHub CLI command failed")
     try:
@@ -19444,8 +20231,289 @@ def refuse_local_delivery(record):
         fail("local-only cycles cannot use Final Push or target reconciliation; use complete-local")
 
 
+def external_oid(value, width=None):
+    return (isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value) is not None
+            and (width is None or len(value) == width))
+
+
+def external_timestamp(value):
+    if not isinstance(value, str) or len(value) > 64:
+        return False
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).utcoffset() == timedelta(0)
+    except ValueError:
+        return False
+
+
+def validate_external_completion(record):
+    """Validate additive provenance without converting it into cleanup authority."""
+    value = record["external_completion"]
+    fields = {"schema_version", "status", "proof", "cycle_id", "repository", "pull_request",
+              "head", "tree", "merge", "merge_parent", "target_branch", "target_head",
+              "merged_at", "verified_at", "recorded_commits"}
+    delivery = record.get("delivery", {})
+    github = delivery.get("github", {})
+    if (not isinstance(github, dict) or set(github) != {"host", "repository", "account"}
+            or not isinstance(record.get("commits"), list)
+            or not all(isinstance(item, dict) and "id" in item for item in record["commits"])):
+        fail("invalid external completion record identity")
+    if (not isinstance(value, dict) or set(value) != fields
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or record.get("schema_version") not in (3, 4, 5)
+            or record.get("delivery_intent") != "draft_pr" or record.get("state") != "completed"
+            or value["status"] != "delivered_external" or value["proof"] != "exact_tree"
+            or value["cycle_id"] != record.get("cycle_id")
+            or value["repository"] != github or github.get("host") != "github.com"
+            or value["target_branch"] != delivery.get("base_branch")
+            or value["verified_at"] != record.get("completed_at")
+            or not external_timestamp(value["merged_at"]) or not external_timestamp(value["verified_at"])
+            or not isinstance(value["recorded_commits"], list) or not value["recorded_commits"]
+            or value["recorded_commits"] != [item["id"] for item in record.get("commits", [])]):
+        fail("invalid external completion receipt")
+    width = len(value["head"]) if isinstance(value["head"], str) else None
+    if any(not external_oid(value[name], width) for name in ("head", "tree", "merge", "merge_parent", "target_head")):
+        fail("invalid external completion object identity")
+    pull = value["pull_request"]
+    if (not isinstance(pull, dict) or set(pull) != {"number", "url"}
+            or type(pull["number"]) is not int or not 1 <= pull["number"] < 2**53
+            or pull["url"] != f"https://github.com/{github.get('repository')}/pull/{pull['number']}"):
+        fail("invalid external completion pull request")
+
+
+def require_completion_dvc(root, record, changed):
+    """Keep paired data obligations identical across delivery and reconciliation."""
+    relevant = any(name.endswith(".dvc") or name in ("dvc.yaml", "dvc.lock", ".dvc/config", ".dvcignore")
+                   for name in changed)
+    if not relevant:
+        return
+    targets = sorted(name for name in changed if name.endswith(".dvc"))
+    if any(name in changed for name in ("dvc.yaml", "dvc.lock")):
+        targets.append("dvc.yaml")
+    if targets:
+        result = subprocess.run(["dvc", "status", *targets], cwd=root, text=True, capture_output=True)
+        if result.returncode:
+            fail(result.stderr.strip() or "dvc status failed")
+        if "Data and pipelines are up to date." not in result.stdout:
+            fail("dvc status reports changed or missing data")
+    pushed = record.get("dvc_push")
+    if not pushed or pushed["head"] != git(root, "rev-parse", "HEAD").stdout.strip():
+        fail("DVC repository requires separately approved `dvc push` evidence at current HEAD")
+
+
+def external_source(root, record, expected_head):
+    require_completion_source(root, record)
+    if any(gate["applicability"] == "required" and gate["result"] != "passed"
+           and not (gate["result"] in {"failed", "unavailable"} and valid_gate_exception(gate))
+           for gate in record["gates"].values()):
+        fail("required gates have not all passed or received valid approved exceptions")
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    if not external_oid(expected_head, len(head)) or head != expected_head:
+        fail("external completion source does not match expected head")
+    baseline, delivery = record["git"], record["delivery"]
+    if baseline["pre_cycle_ahead_commits"] and delivery.get("published_feature_head") != baseline["head"]:
+        fail("pre-cycle ahead commits are not owned by this cycle")
+    if baseline.get("remote") != remote_destination(root, upstream(root)):
+        fail("remote push destination changed")
+    base = baseline["head"]
+    if git(root, "merge-base", "--is-ancestor", base, head, check=False).returncode:
+        fail("external completion baseline is outside the source lineage")
+    commits = [item["id"] for item in record["commits"]]
+    actual = git(root, "rev-list", "--reverse", "--first-parent", f"{base}..{head}").stdout.splitlines()
+    if not commits or actual != commits:
+        fail("first-parent commits are not exactly the recorded cycle commits")
+    changed = set(git(root, "diff", "--name-only", f"{base}..{head}").stdout.splitlines())
+    if record["artifact_reviews"]["CHANGELOG"]["path"] not in changed:
+        fail("reviewed CHANGELOG path is not committed in this cycle")
+    require_completion_dvc(root, record, changed)
+    return head, git(root, "rev-parse", f"{head}^{{tree}}").stdout.strip(), commits
+
+
+def external_github(root, env, endpoint):
+    try:
+        value = github_json(root, env, "api", "--hostname", "github.com", endpoint)
+        if len(json.dumps(value).encode()) > 1024 * 1024:
+            fail("external merge response exceeds its metadata bound")
+        return value
+    except (RuntimeError, OSError, subprocess.SubprocessError, ValueError):
+        fail("external merge native GitHub verification unavailable")
+
+
+def external_merge_proof(root, record, args, env, head, tree, commits):
+    delivery, github = record["delivery"], record["delivery"]["github"]
+    repository = github["repository"]
+    actor = external_github(root, env, "user")
+    if not isinstance(actor, dict) or str(actor.get("login", "")).casefold() != github["account"].casefold():
+        fail("external merge authenticated GitHub account does not match the cycle")
+    url = f"https://github.com/{repository}/pull/{args.pr_number}"
+    endpoint = f"repos/{repository}/pulls/{args.pr_number}"
+    pull = external_github(root, env, endpoint)
+
+    def identity(value):
+        if not isinstance(value, dict):
+            fail("external merge pull request metadata is invalid")
+        for side, ref in (("head", delivery["branch"]), ("base", delivery["base_branch"])):
+            item = value.get(side)
+            if (not isinstance(item, dict) or item.get("ref") != ref
+                    or not isinstance(item.get("repo"), dict)
+                    or str(item["repo"].get("full_name", "")).casefold() != repository.casefold()):
+                fail("external merge pull request repository or branch does not match")
+        if (type(value.get("number")) is not int or value["number"] != args.pr_number
+                or not isinstance(value.get("html_url"), str) or value["html_url"].casefold() != url.casefold()
+                or value.get("state") != "closed"
+                or value.get("merged") is not True or not external_timestamp(value.get("merged_at"))
+                or value.get("merge_commit_sha") != args.expected_merge
+                or value["head"].get("sha") != head):
+            fail("external merge pull request does not match the pinned merged source")
+        return value["merged_at"]
+
+    merged_at = identity(pull)
+    old_pull = delivery.get("pull_request")
+    if old_pull is not None and (
+            not isinstance(old_pull, dict) or old_pull.get("number") != args.pr_number
+            or not isinstance(old_pull.get("url"), str) or old_pull["url"].casefold() != url.casefold()):
+        fail("external completion conflicts with recorded pull request")
+    remote = delivery["remote"]
+    remote_url = github_remote_url(root, remote, repository)
+    fetch_github_branch(root, remote, remote_url, delivery["base_branch"], env)
+    target = git(root, "rev-parse", f"refs/remotes/{remote}/{delivery['base_branch']}").stdout.strip()
+    merge = args.expected_merge
+    native = external_github(root, env, f"repos/{repository}/git/commits/{merge}")
+    parents = git(root, "show", "-s", "--format=%P", merge).stdout.split()
+    merge_tree = git(root, "rev-parse", f"{merge}^{{tree}}").stdout.strip()
+    native_tree = native.get("tree") if isinstance(native, dict) else None
+    native_parents = native.get("parents") if isinstance(native, dict) else None
+    if (not isinstance(native, dict) or native.get("sha") != merge
+            or not isinstance(native_tree, dict) or native_tree.get("sha") != merge_tree
+            or not isinstance(native_parents, list) or len(native_parents) != len(parents)
+            or not all(isinstance(item, dict) for item in native_parents)
+            or [item.get("sha") for item in native_parents] != parents
+            or merge_tree != tree or len(parents) not in (1, 2)):
+        fail("external merge object is not the expected native exact-tree commit")
+    if len(parents) == 2:
+        # An ordinary two-parent merge is admitted only as an exact-tree merge of
+        # the retained source: the retained head is the literal second parent and
+        # the pre-merge base tip was already contained in it, so the merge
+        # contributed no content and rewrote no history.
+        if (parents[1] != head
+                or git(root, "merge-base", "--is-ancestor", parents[0], head, check=False).returncode):
+            fail("external two-parent merge is not an exact-tree merge of the retained head")
+    parent = parents[0]
+    if (git(root, "merge-base", "--is-ancestor", merge, target, check=False).returncode
+            or git(root, "merge-base", "--is-ancestor", record["git"]["head"], parent, check=False).returncode):
+        fail("external merge is outside the protected base lineage")
+    imported_anchor = merge if len(parents) == 2 else parent
+    for commit in commits:
+        imported = git(root, "show", "-s", "--format=%P", commit).stdout.split()[1:]
+        if any(git(root, "merge-base", "--is-ancestor", item, imported_anchor, check=False).returncode for item in imported):
+            fail("recorded source imports history outside the historical merged base")
+    current = external_github(root, env, f"repos/{repository}/git/ref/heads/{quote(delivery['base_branch'], safe='')}")
+    if (not isinstance(current, dict) or current.get("ref") != f"refs/heads/{delivery['base_branch']}"
+            or not isinstance(current.get("object"), dict)
+            or current["object"].get("type") != "commit" or current["object"].get("sha") != target
+            or identity(external_github(root, env, endpoint)) != merged_at):
+        fail("external merge protected-base or pull-request identity changed during verification")
+    return {"schema_version": 1, "status": "delivered_external", "proof": "exact_tree",
+            "cycle_id": record["cycle_id"], "repository": dict(github),
+            "pull_request": {"number": args.pr_number, "url": url}, "head": head, "tree": tree,
+            "merge": merge, "merge_parent": parent, "target_branch": delivery["base_branch"],
+            "target_head": target, "merged_at": merged_at, "verified_at": now(),
+            "recorded_commits": commits}
+
+
+def command_complete_external(args):
+    root = root_dir()
+    pointer = resolved_active_path(root, bindings=False)
+    explicit = args.cycle_id is not None
+    if explicit:
+        if not OPAQUE_ID.fullmatch(args.cycle_id):
+            fail("invalid external completion cycle ID")
+        path = cycle_dir(root) / "cycles" / f"{args.cycle_id}.json"
+        continuation_private(path)
+        record = read_cycle_record(root, path, historical=True)
+        if record.get("state") != "completed" or "external_completion" not in record:
+            fail("explicit cycle ID requires an already externally completed record")
+    else:
+        path, record = load(root)
+    identifier = record["cycle_id"]
+    github = record.get("delivery", {}).get("github")
+    if (record.get("schema_version") not in (3, 4, 5) or record.get("delivery_intent") != "draft_pr"
+            or not isinstance(github, dict) or set(github) != {"host", "repository", "account"}
+            or github["host"] != "github.com"
+            or not isinstance(github["repository"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", github["repository"])
+            or not isinstance(github["account"], str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}", github["account"])):
+        fail("external completion requires a supported GitHub draft_pr cycle")
+    if type(args.pr_number) is not int or not 1 <= args.pr_number < 2**53 or not external_oid(args.expected_merge):
+        fail("invalid external completion PR number or merge pin")
+    with evidence_lock(root, identifier, timeout=1), target_lock(root, record):
+        record = read_cycle_record(root, path, historical=True)
+        admitted = json.dumps(record, sort_keys=True)
+        if not record_worktree_matches(root, record, root, bindings=False):
+            fail("external completion requires its original checkout and task branch")
+        own_pointer = pointer.exists() and active_pointer_id(root, pointer) == identifier
+        if pointer.exists() and not own_pointer or not explicit and not own_pointer:
+            fail("external completion active pointer changed")
+        if record["state"] not in ("active", "finalizing", "completed"):
+            fail("cycle is not available for external completion")
+        if record["state"] == "completed" and "external_completion" not in record:
+            fail("cycle already completed through another delivery route")
+        with local_completion_git_context():
+            head, tree, commits = external_source(root, record, args.expected_head)
+        if not external_oid(args.expected_merge, len(head)):
+            fail("external merge pin has the wrong object format")
+        env = github_environment(record["delivery"]["github"]["account"])
+        env = {key: value for key, value in {**GIT_REPOSITORY_ENV, **env}.items()
+               if key not in GIT_REPOSITORY_REDIRECTS}
+        env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1")
+        token = LOCAL_COMPLETION_GIT.set(env)
+        try:
+            receipt = external_merge_proof(root, record, args, env, head, tree, commits)
+        finally:
+            LOCAL_COMPLETION_GIT.reset(token)
+        previous = record.get("external_completion")
+        if previous is not None:
+            stable = set(receipt) - {"verified_at", "target_head"}
+            if any(previous[key] != receipt[key] for key in stable):
+                fail("completed external delivery receipt changed")
+            receipt = previous
+        with local_completion_git_context():
+            if external_source(root, record, args.expected_head) != (head, tree, commits):
+                fail("external completion source changed during verification")
+        if json.dumps(read_cycle_record(root, path, historical=True), sort_keys=True) != admitted:
+            fail("external completion record changed during verification")
+        if own_pointer != pointer.exists() or own_pointer and active_pointer_id(root, pointer) != identifier:
+            fail("external completion active pointer changed during verification")
+        # The expensive authority can execute DVC status. Reobserve cheap local
+        # facts after it, immediately before persistence, rather than returning
+        # a head/tree cached before an external process changed the checkout.
+        with local_completion_git_context():
+            if (status_paths(root) or branch(root) != record["git"]["branch"]
+                    or upstream(root) != record["git"]["upstream"]
+                    or git(root, "rev-parse", "HEAD").stdout.strip() != head
+                    or git(root, "rev-parse", "HEAD^{tree}").stdout.strip() != tree
+                    or not record_worktree_matches(root, record, root, bindings=False)):
+                fail("external completion source changed immediately before persistence")
+        if not args.preview:
+            if previous is None:
+                record.update(state="completed", completed_at=receipt["verified_at"], external_completion=receipt,
+                              source_sync={"status": "not_applicable", "reason": "external_merge_completion"})
+                record["delivery"].setdefault("pull_request", {
+                    **receipt["pull_request"], "draft": False, "state": "MERGED", "verified_at": receipt["verified_at"]})
+                validate_external_completion(record)
+                save(path, record)
+            if own_pointer:
+                if active_pointer_id(root, pointer) != identifier:
+                    fail("external completion pointer changed; completed receipt retained")
+                pointer.unlink()
+                fsync_directory(pointer.parent)
+        print(json.dumps(receipt, sort_keys=True))
+
+
 def finish_push(root, path, record):
     refuse_local_delivery(record)
+    if "external_completion" in record:
+        fail("cycle was delivered externally; use complete-external to verify its retained receipt")
     pointer = resolved_active_path(root)
     if record["state"] == "completed":
         pointer.unlink(missing_ok=True)
@@ -19529,21 +20597,7 @@ def finish_push(root, path, record):
     changelog_path = record["artifact_reviews"]["CHANGELOG"]["path"]
     if changelog_path not in changed:
         fail("reviewed CHANGELOG path is not committed in this cycle")
-    dvc_relevant = any(name.endswith(".dvc") or name in ("dvc.yaml", "dvc.lock", ".dvc/config", ".dvcignore")
-                       for name in changed)
-    if dvc_relevant:
-        dvc_targets = sorted(name for name in changed if name.endswith(".dvc"))
-        if any(name in changed for name in ("dvc.yaml", "dvc.lock")):
-            dvc_targets.append("dvc.yaml")
-        if dvc_targets:
-            dvc_status = subprocess.run(["dvc", "status", *dvc_targets], cwd=root, text=True, capture_output=True)
-            if dvc_status.returncode:
-                fail(dvc_status.stderr.strip() or "dvc status failed")
-            if "Data and pipelines are up to date." not in dvc_status.stdout:
-                fail("dvc status reports changed or missing data")
-        dvc_push = record.get("dvc_push")
-        if not dvc_push or dvc_push["head"] != git(root, "rev-parse", "HEAD").stdout.strip():
-            fail("DVC repository requires separately approved `dvc push` evidence at current HEAD")
+    require_completion_dvc(root, record, changed)
     record["phase_profile"] = (validate_phase_profile(record["phase_profile"], record["cycle_id"])
                                if "phase_profile" in record
                                else unavailable_phase_report(record["cycle_id"]))
@@ -20171,12 +21225,23 @@ def graphify_timeout(value):
 def parser():
     result = argparse.ArgumentParser(prog="dbsctrctl")
     commands = result.add_subparsers(dest="command", required=True)
+
+    recovery = commands.add_parser("lineage-recover")
+    recovery.add_argument("--cycle-id", required=True)
+    recovery.add_argument("--accepted-base", required=True)
+    recovery.add_argument("--reason", required=True)
+    recovery.add_argument("--preflight", action="store_true")
+    recovery.add_argument("--expected-launch-digest")
+    recovery.add_argument("--approval", choices=("interactive", "agent-confirmed"), default="interactive")
+    recovery.add_argument("--json", action="store_true")
+    recovery.set_defaults(func=command_lineage_recover)
     start = commands.add_parser("start")
     start.add_argument("--cycle-id", required=True)
     start.add_argument("--context", required=True)
     start.add_argument("--risk", required=True, choices=("routine", "elevated", "critical"))
     start.add_argument("--delivery-intent", required=True, choices=DELIVERY_INTENTS)
     start.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
+    start.add_argument("--validation-feedback-target", help="private qualified exact-session target JSON")
     start.add_argument("--github-account")
     start.add_argument("--github-repository")
     start.add_argument("--base-branch", default="main")
@@ -20187,6 +21252,7 @@ def parser():
     begin.add_argument("--risk", required=True, choices=("routine", "elevated", "critical"))
     begin.add_argument("--delivery-intent", required=True, choices=DELIVERY_INTENTS)
     begin.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
+    begin.add_argument("--validation-feedback-target", help="private qualified exact-session target JSON")
     begin.add_argument("--github-account")
     begin.add_argument("--github-repository")
     begin.add_argument("--forge-provider")
@@ -20234,6 +21300,15 @@ def parser():
     orphan.add_argument("--preview", action="store_true")
     orphan.add_argument("--expected-state")
     orphan.set_defaults(func=command_workspace_recover_orphan)
+    validation = commands.add_parser("validation-checkpoint")
+    validation.add_argument("--gate", required=True, choices=GATES)
+    validation.add_argument("--purpose", required=True,
+        choices=("artifact", "red-proof", "green-validation", "regression", "final-reconcile"))
+    validation.add_argument("--expected-test-id", action="append", default=[])
+    validation.set_defaults(func=command_validation_checkpoint)
+    validation = commands.add_parser("validation-opt-out")
+    validation.add_argument("--on", action="store_true", required=True)
+    validation.set_defaults(func=command_validation_opt_out)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=command_status)
@@ -20649,6 +21724,17 @@ def parser():
     evidence.add_argument("--path", action="append")
     evidence.add_argument("program", nargs="+")
     evidence.set_defaults(func=command_record_evidence)
+    repair = commands.add_parser("ci-repair", help="reserve an explicitly approved supervised mechanical CI repair; never execute or merge")
+    repair.add_argument("--pull-request", required=True, type=int)
+    repair.add_argument("--job-id", required=True, type=int)
+    repair.add_argument("--github-account", required=True)
+    repair.add_argument("--signature", required=True, help="bounded sanitized failure signature, never raw private logs")
+    repair.add_argument("--specification", required=True)
+    repair.add_argument("--paths", required=True, nargs="+")
+    repair.add_argument("--preflight", action="store_true")
+    repair.add_argument("--expected-repair-digest")
+    repair.add_argument("--approval", choices=("agent-confirmed",), help="caller assertion of explicit chat approval, not authenticated identity")
+    repair.set_defaults(func=command_ci_repair)
     check = commands.add_parser("check")
     check.add_argument("subject", choices=("artifacts", "pr-review"))
     check.add_argument("--recommendations", help="private schema-1 policy-approved recommendations; read-only, never merge authority")
@@ -20665,6 +21751,13 @@ def parser():
     complete_local = commands.add_parser("complete-local")
     complete_local.add_argument("--cycle-id", help="retry an already completed local-only cycle in its native checkout")
     complete_local.set_defaults(func=command_complete_local)
+    complete_external = commands.add_parser("complete-external")
+    complete_external.add_argument("--cycle-id", help="verify/retry an already externally completed cycle")
+    complete_external.add_argument("--pr-number", required=True, type=int)
+    complete_external.add_argument("--expected-head", required=True)
+    complete_external.add_argument("--expected-merge", required=True)
+    complete_external.add_argument("--preview", action="store_true")
+    complete_external.set_defaults(func=command_complete_external)
     final = commands.add_parser("final-push")
     final.set_defaults(func=command_final_push)
     reconcile = commands.add_parser("reconcile-target")
@@ -20783,7 +21876,8 @@ def agent_analytics_output(action):
 def main():
     capture = None
     checkpoint = None
-    quiet_local = sys.argv[1:2] == ["complete-local"]
+    registration = None
+    quiet_local = sys.argv[1:2] in (["complete-local"], ["complete-external"])
     try:
         if forgejo_internal_main(sys.argv[1:]):
             return 0
@@ -20791,7 +21885,11 @@ def main():
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
         args = parser().parse_args()
-        if args.command == "initiative-amend":
+        if args.command in {"validation-checkpoint", "validation-opt-out"}:
+            # Advisory queue mutation owns private locks, not formal gate locks.
+            args.func(args)
+            return 0
+        if args.command in {"initiative-amend", "lineage-recover"}:
             # This command owns offline admission, locks and bounded error output.
             # No generic telemetry, continuation transport or credential discovery.
             args.func(args)
@@ -20816,8 +21914,12 @@ def main():
                 outcome = args.func(args)
                 if args.command == "gate-commit":
                     checkpoint = outcome
+                elif args.command in {"begin", "start"} and isinstance(outcome, dict):
+                    registration = outcome.get("validation_registration")
             if not quiet_local:
                 workflow_operation_finish(capture, True)
+        if registration is not None:
+            optional_validation_registration(registration)
         if checkpoint is not None:
             optional_shadow_checkpoint(checkpoint)
     except SourceIndexUnavailable:

@@ -1,7 +1,6 @@
 ---
 name: discovery
 description: Discover and persist a DBSCTR-ready bounded context or multi-context Initiative, profiles, behaviors, contracts, risks, and validation strategy.
-trigger: /discovery
 ---
 
 # Discovery — DBSCTR V3
@@ -37,6 +36,13 @@ Propose one home repository and dependencies for each bounded context, then get
 user approval for the complete context map before starting Context Discovery
 lanes. No material statement may remain uncovered unless explicitly deferred or
 rejected.
+
+Within an Initiative, each slice's `execution_owner` is `discovery` or `build`;
+only Build-owned slices issue launch receipts. Discovery owns approved normative
+contracts, acceptance criteria, dependencies and scope. A material implementation
+finding returns `readiness_reopened` to Discovery before those artifacts change;
+Build records completion evidence after implementation. Reviewer helpers report
+gaps read-only and whole-cycle QA remains with the primary.
 
 Run project-selected publication checks before receipt, preflight, or push.
 Validate the exact candidate artifact set, including documents carried by import
@@ -93,8 +99,7 @@ the freshly fetched approved base and set its intended upstream. Import the
 complete changed-document closure through the existing Initiative route after
 fresh receipt/preflight and exact approval. Never reset authority, publish docs
 prematurely, invent resume semantics or claim a shell directory change retargets
-the conversation. Follow managed AGENTS for current-live return to a synchronized
-primary; idle historical checkouts need no manufactured session or identity shim.
+the conversation. Preserve native permission and workspace boundaries.
 
 ## Retrieve
 

@@ -1,6 +1,6 @@
 # Workflow agent guidance and compression evaluation
 
-**SPECIFICATION READY, NOT IMPLEMENTED — not runtime qualified.** Owner: control-plane Discovery
+**SOURCE IMPLEMENTED — runtime qualification remains capability-specific.** Owner: control-plane Discovery
 primary. Profile: [../PROFILE.md](../PROFILE.md); risk: elevated; modules:
 ML/AI, Security. Covers convergence INT-024–INT-025, INT-028, INT-044–INT-052,
 Q-12–Q-13 in the [Initiative](../../../initiatives/dbsctr-workflow-convergence/README.md).
@@ -10,9 +10,9 @@ No prompt rollout, install, routing change or measured benefit is claimed.
 
 | Concern | Frozen contract |
 |---|---|
-| Communication | Canonical installed `caveman` skill selected once through AGENTS; concise prose preserves conclusions, evidence, caveats, decisions and next actions; no full prompt copy is added to this repository |
-| Engineering | Canonical installed `ponytail` skill selected once through AGENTS; inspect existing functionality/callers/shared owner, use minimum correct change, retain validation/security/data preservation; distribution provenance is Build acceptance, not invented source ownership |
-| Routing | Managed `private_dot_config/opencode/AGENTS.md` selects defaults once; DBSCTR phase instructions reference authority rather than copying full prompts repeatedly |
+| Communication | Activated DBSCTR selects canonical `caveman` once; concise prose preserves conclusions, evidence, caveats, decisions and next actions |
+| Engineering | Activated DBSCTR selects canonical `ponytail` once; preserve validation/security/data handling and upstream distribution provenance |
+| Routing | The [shared activation contract](../../dotfiles_ai_distribution/features/global-agent-instructions.md) owns global policy; skill methods are not copied into globals or injected per phase |
 | Provider overlay | Existing `dot_agents/skills/dbsctr/references/{openai,anthropic}.md`; small verified deltas only, loaded only by corresponding provider-affine primary, never selected merely by model label |
 | Compression | RTK command-output filtering and trim-1 query-conditioned line selection are different mechanisms from terse generated prose; research does not enable either |
 
@@ -24,6 +24,10 @@ bounded independent work with explicit ownership and affordable reconciliation;
 helpers never register/own cycles or claim gates. Keep Build-GPT OpenAI and
 Build-Claude configured Vertex routes; native model-inheriting helpers retain
 selected provider. Missing capability is unavailable, not silent family fallback.
+
+The distribution contract supersedes this feature's earlier AGENTS-owned
+activation defaults. Its historical compression evaluation contract remains
+source-only and does not authorize filter activation or a measured savings claim.
 
 Missing canonical skill yields explicit `canonical_skill_unavailable` and no
 copied substitute. Preserve substantive native instructions and required safety;

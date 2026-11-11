@@ -1,0 +1,11 @@
+# Shared remote baseline; project toolchains keep their own mise/uv selections.
+[tools]
+{{ if .dotfiles_ai.prefect_mcp.enabled -}}
+python = {{ .dotfiles_ai.remote_user_environment.prefect_python_version | quote }}
+{{ end }}
+[env]
+UV_PYTHON_DOWNLOADS = "never"
+
+[settings]
+idiomatic_version_file_enable_tools = ["python"]
+python.compile = false

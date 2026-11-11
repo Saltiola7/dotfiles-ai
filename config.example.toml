@@ -39,6 +39,23 @@ refresh_timeout_seconds = 3600
 [data.dotfiles_ai.codex]
 channel = "stable"
 
+[data.dotfiles_ai.jfrog_cli]
+# Optional missing-only CLI 2.129.0; preserves compatible existing installer owners.
+# No login, platform setup, plugin, Agent Guard or MCP registration is performed.
+enabled = false
+
+# Optional local inspection adapter for an existing self-hosted Prefect API.
+# Select exactly one target mode: an explicit profile file/name, or api_url.
+# Credentials stay in the private profile or a named caller environment variable.
+# Do not put credential values in this configuration. No backend is provisioned.
+# [data.dotfiles_ai.prefect_mcp]
+# enabled = true
+# profiles_path = "/Users/you/.prefect/profiles.toml"
+# profile = "local"
+# api_url = ""
+# api_auth_string_env = ""
+# api_key_env = ""
+
 [data.dotfiles_ai.cline_desktop]
 # Optional macOS app, installed through Homebrew's cline-app cask.
 enabled = false
@@ -57,6 +74,8 @@ model = "claude-sonnet-5-5@default" # or claude-opus-5-5@default
 hub_port = 25464
 
 [data.dotfiles_ai.opencode]
+# Empty leaves tabs.mode unmanaged; choose auto, on or off per user.
+# tab_bar_mode = "off"
 version = "1.18.25"
 linux_amd64_asset_url = "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-x64.tar.gz"
 linux_amd64_asset_sha256 = "58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78"
@@ -140,7 +159,6 @@ project = "example-project"
 zone = "example-region-a"
 instance = "example-workspace"
 account = "user@example.com" # blank uses the selected gcloud account
-tailscale_host = "" # optional FQDN for the alternate SSH path
 
 [data.dotfiles_ai.remote_user_environment]
 # Distinct from the local remote_workspace client above. Enable only inside a

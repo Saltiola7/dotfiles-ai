@@ -1,0 +1,34 @@
+--- a/references/workspace-binding.md
++++ b/references/workspace-binding.md
+@@ -1,7 +1,16 @@
++# Binding execution boundary
++
++Review scripts before use. Preserve the selected workspace/configuration owner,
++private preimages and all unrelated state. Installing guidance executes no merge
++and starts no hook. The helper writes only `repositories` and can drop unknown
++top-level fields: reconcile such fields before use rather than silently losing
++them. Concrete task consent persists; do not impose repeated confirmation.
++
+ # `.jfrog/local/package-resolution.json` — Workspace Binding File
+ 
+-This skill records workspace repo bindings in a file the session-start hook
+-reads to override org defaults from `~/.jfrog/skills-cache/package-resolution.json`.
++This records non-secret workspace decisions for an explicitly selected binding.
++A separately installed SessionStart hook may consume them; standalone skills do
++not install that hook or make a marker proof of active routing.
+ 
+ The file is the **decisions** record, not a credential store. Tokens live
+ in `jf config` and in package-manager-native files written by `jf setup` itself.
+@@ -65,9 +74,9 @@
+ 
+ | Case | Action |
+ |---|---|
+-| Missing type in `repositories` | Check the repo key, run `jf setup`, and merge in Step 6. |
+-| Same repo key | **Skip** `jf setup` — hook already applies overrides on session start. |
+-| Different repo key | Show diff and confirm via AskQuestion before overwriting. |
++| Missing type in `repositories` | Validate selected repo and authorized config change; merge only after actual setup success. |
++| Same repo key | Verify actual unchanged native configuration/selected hook before skipping; the marker alone is not readiness proof. |
++| Different repo key | Review native owner/preimages and perform the concretely authorized change; ask only for missing material selection or authority. |
+ | Value fails `^[A-Za-z0-9._-]+$` | Not the current binding. Do not diff it or pass it through. Stop and ask for a replacement key. Other types in the file stay usable. |
+ 
+ APR's `normalizeWorkspaceConfig` drops the same unsafe keys when the hook

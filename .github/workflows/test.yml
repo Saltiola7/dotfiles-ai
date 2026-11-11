@@ -17,20 +17,30 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
-    name: ${{ matrix.worktrunk-version == '0.81.0' && format('test ({0})', matrix.python-version) || format('test ({0}, {1})', matrix.python-version, matrix.worktrunk-version) }}
+  test-shard:
+    name: Full suite (${{ matrix.python-version }}, ${{ matrix.worktrunk-version }}, partition ${{ matrix.shard }})
     runs-on: macos-26
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        # PR/main feedback uses one full native suite. Compatibility stays full
-        # on the weekly schedule and explicit manual runs.
+        # Every lane retains the complete collection across four partitions.
         python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14"]' || '["3.14"]') }}
         worktrunk-version: ["0.81.0"]
+        shard: [0, 1, 2, 3]
         include:
           - python-version: "3.14"
             worktrunk-version: "0.80.0"
+            shard: 0
+          - python-version: "3.14"
+            worktrunk-version: "0.80.0"
+            shard: 1
+          - python-version: "3.14"
+            worktrunk-version: "0.80.0"
+            shard: 2
+          - python-version: "3.14"
+            worktrunk-version: "0.80.0"
+            shard: 3
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -92,4 +102,61 @@ jobs:
         run: >-
           uv run --group test pytest
           tests/test_herdr_launchagent.py::test_herdr_host_swift_source_compiles_with_warnings_as_errors -q
-      - run: uv run --group test pytest --maxfail=1
+      - name: Check full-suite partition
+        env:
+          CI_PYTHON_VERSION: ${{ matrix.python-version }}
+          CI_WORKTRUNK_VERSION: ${{ matrix.worktrunk-version }}
+          CI_SHARD: ${{ matrix.shard }}
+          PYTEST_ADDOPTS: ""
+          PYTEST_PLUGINS: ""
+        run: >-
+          uv run --frozen --group test python tests/ci_shard.py run
+          --shard "$CI_SHARD" --python-version "$CI_PYTHON_VERSION"
+          --worktrunk-version "$CI_WORKTRUNK_VERSION"
+          --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
+          --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+          --output ci-results
+      - name: Retain partition evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pytest-${{ matrix.python-version }}-${{ matrix.worktrunk-version }}-${{ matrix.shard }}
+          path: ci-results/
+          if-no-files-found: error
+          retention-days: 7
+
+  test:
+    name: ${{ matrix.worktrunk-version == '0.81.0' && format('test ({0})', matrix.python-version) || format('test ({0}, {1})', matrix.python-version, matrix.worktrunk-version) }}
+    needs: test-shard
+    if: ${{ always() }}
+    runs-on: macos-26
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14"]' || '["3.14"]') }}
+        worktrunk-version: ["0.81.0"]
+        include:
+          - python-version: "3.14"
+            worktrunk-version: "0.80.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: pytest-${{ matrix.python-version }}-${{ matrix.worktrunk-version }}-*
+          path: ci-results
+      - name: Verify complete lane coverage
+        env:
+          CI_PYTHON_VERSION: ${{ matrix.python-version }}
+          CI_WORKTRUNK_VERSION: ${{ matrix.worktrunk-version }}
+          CI_WORKERS_RESULT: ${{ needs.test-shard.result }}
+        run: >-
+          uv run --frozen --group test python tests/ci_shard.py verify
+          --python-version "$CI_PYTHON_VERSION"
+          --worktrunk-version "$CI_WORKTRUNK_VERSION"
+          --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
+          --run-id "$GITHUB_RUN_ID" --attempt "$GITHUB_RUN_ATTEMPT"
+          --workers-result "$CI_WORKERS_RESULT" --output ci-results

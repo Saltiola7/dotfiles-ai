@@ -1,5 +1,12 @@
 # OpenCode Control Plane
 
+**RRW-002 successor Discovery:** Initiative `rhel-remote-workspace`, slice
+`rrw-002-rhel-user-runtime`, approves RHEL 10 x86_64 as the standalone remote
+successor. Implementation, deployment, release qualification, and readiness are
+not established; coordinator authority and primary verification remain pending.
+Existing completion statements and RWUE evidence below retain their original
+cycle/platform scope and do not qualify RHEL.
+
 ## Retirement recovery Discovery
 
 [Supported retirement journey](features/cycle-retirement-journey.md) specifies
@@ -59,38 +66,13 @@ qualification and any activation remain separate; no service restart, model-rout
 change or new Incident authority is implied. Scope and order are in the
 [Initiative](../../initiatives/dbsctr-workflow-convergence/README.md).
 
-**WORKFLOW-NATIVE-HANDOFF source:** managed AGENTS owns the ordered handoff:
-preserve work, resolve/safely fast-forward a unique compatible primary, move only
-the current conversation through native `session_move`, then check quiescence and
-preservation outside the former checkout before separately authorized Worktrunk
-removal. Missing native proof retains work; a shell directory change or supplied
-identity is not authentication. Successful movement survives failed cleanup, and
-idle completed checkouts need no manufactured conversation. DBSCTR and Discovery
-reference this route without introducing a continuation plugin or actor shim.
-
-Eligible native linked checkouts can be reused across phases. If unmerged
-Discovery authority prevents HEAD-equals-approved-base registration, retain it
-and import its complete changed-document closure into one code-only Build
-checkout through the existing receipt/preflight/approval protocol. No extra
-environment/data copy, authority reset or premature documentation publication.
-Owner: dotfiles maintainer; requalify after native interface/registration changes.
-Rollback restores prior managed guidance after checking active work, retaining
-all checkout/evidence/session state. Source regression and permission/role tests
-do not qualify installed message, attachment or compaction preservation. That
-requires separately approved native rollout, without private-history transport,
-paid provider calls, forced restarts or cross-provider fallback.
-
-**WORKFLOW-PROMPT-AUTHORITY source:** managed AGENTS remains the single canonical
-communication/engineering guidance owner. Missing installed guidance reports
-`canonical_skill_unavailable`, with no copied substitute; installed version/content
-provenance is required before later distribution. DBSCTR references that owner
-without phase prompt duplication. Provider references link verified GPT-6 model
-guidance and Opus 5.5 prompting, distinguish public facts from configured harness
-capability, and preserve provider affinity and exact approvals. Performance audits
-retain unavailable telemetry and denied-context boundaries, native state and raw
-recovery. Source tests check these instruction contracts and unchanged routing;
-they do not measure provider behavior, savings or deployed permissions. Compression
-evaluation, prompt activation and dependency upgrades remain separate work.
+**Shared activation policy:** the [distribution contract](../dotfiles_ai_distribution/features/global-agent-instructions.md)
+supersedes the prior global handoff protocol and AGENTS-owned engineering and
+communication defaults. Globals contain activation policy only. Discovery and
+DBSCTR own their methods; activated DBSCTR selects Caveman and Ponytail once.
+Native workspace preservation, permissions and configured helper routes remain
+with their existing owners. The historical workflow-convergence specifications
+retain their evidence without making a session-move protocol mandatory.
 
 **NATIVE-HELPER-DELEGATION:** The [native helper contract](features/native-helper-delegation.md)
 supersedes blanket Task denial and historical model tables below. Primaries may
@@ -200,12 +182,37 @@ plugin failure, role retention, replaced Task allowlists and early child rejecti
 | Deliverable | Managed OpenCode providers, agents, commands, permissions, skills, and routing |
 | Languages/frameworks | JSON/JSONC configuration, Markdown agent prompts, Python contract tests |
 | Modules | ML/AI |
-| Runtime/platform support | OpenCode on the managed macOS host and managed Fedora 44 Lima guests; Python `>=3.12` tests |
+| Runtime/platform support | OpenCode on the managed macOS host and managed Fedora 44 Lima guests; intended RHEL 10 x86_64 remote successor with release qualification pending; Python `>=3.12` tests |
 | Public compatibility | Preserve native Plan-to-Build and provider-affine Build workflows; retire provider entries that current authentication cannot use |
 | Trust/data classification | Local configuration and public provider metadata; credentials remain outside the repository |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
-### RWUE-002 Initiative Override
+### RRW-002 RHEL Successor Override — Discovery Only
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: independent authenticated OpenCode state for users of a shared remote host |
+| Delivery intent | Normal PR approval without admin bypass; disposable UBI10 userland proof, with actual RHEL qualification and private rollout separate |
+| Scope | RHEL 10 x86_64 user-local OpenCode install/configuration, credential-free render/startup, and content-free per-user readiness |
+| Overrides | Both users are supported targets; no owner/peer credential copying; colleague readiness is unverified until independently exercised |
+
+Given either remote user has a valid shared foundation, when OpenCode renders or
+starts, it requires no login. Each user explicitly authenticates into their own
+stores; readiness retains only the safe local-evidence contract in the
+[distribution runtime specification](../dotfiles_ai_distribution/features/remote-user-rollout-runtime.md),
+not proof of online credential validity. User-local tools remain native; optional
+UBI10 Toolbx introduces no new containerized toolchain.
+
+Given CI uses `registry.access.redhat.com/ubi10/ubi`, a successful smoke is only
+userland evidence, not full RHEL VM, SELinux, rootless Podman, systemd, or IAP
+qualification. The standalone remote client is IAP-only without a Tailscale
+requirement; unrelated macOS/Fedora Lima Tailscale paths remain unchanged.
+RRW-002 gate applicability/results remain pending. Existing provider-routing
+visuals retain their bounded scope; no provider or delegation topology changes.
+
+### Historical RWUE-002 Initiative Override
+
+The predecessor contract below retains its CentOS scope, not RHEL acceptance.
 
 | Field | Value |
 |---|---|

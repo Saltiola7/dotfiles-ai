@@ -1,0 +1,138 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,78 +1,74 @@
+ ---
+-name: workflows
+-description: Inspect and troubleshoot Prefect workflows, deployments, work pools, and releases with Prefect MCP tools. Use for Prefect operational questions, failure diagnosis, documentation lookup, and safe guidance when a requested mutation requires a separately configured Prefect CLI.
++name: prefect-operations
++description: Inspect and diagnose existing Prefect flows, runs, deployments and work pools using an explicitly selected API and available tools. Use for concrete Prefect operations; preserve project SDK and CLI ownership.
+ ---
+ 
+-# Prefect Workflows
++# Prefect operations
+ 
+-Use the Prefect MCP tools as the canonical source for Prefect state, documentation,
+-and release notes. They return structured data with complete identifiers and are
+-read-only unless a tool explicitly says otherwise.
++Preserve the project's Prefect/Python versions, deployment owner, target and task
++authorization. Flow authoring or source review can use its existing SDK, CLI and
++tests without MCP. Do not install or connect MCP merely to edit flow code.
+ 
+-## Choose a Workspace
++## Bind the operational target
+ 
+-The hosted MCP server authenticates with Prefect Cloud OAuth. If a tool needs a
+-`workspace_id` and the user has not selected one:
++Inspect available capabilities and existing selection before querying live state.
++The managed local adapter exposes inspection tools for a selected self-hosted API;
++it omits Cloud workspace discovery and the external docs proxy. Other connections
++may have different capabilities. Distinguish their server names and identities.
+ 
+-1. Call `list_authorized_workspaces`.
+-2. Use the only workspace automatically when exactly one is available.
+-3. When several are available, choose from explicit conversation context or ask
+-   the user which workspace they mean.
+-4. Pass the selected `workspace_id` consistently to subsequent tool calls.
++Use `get_identity` to verify the intended API and backend version before further
++queries. Inspect structured `success`, `identity` and `error` fields: a successful
++MCP transport call can still report an API failure. Missing configuration, failed
++authentication or an unavailable backend remains a gap; do not start a backend,
++use an ephemeral replacement, switch global profiles or select another account.
++Keep credentials and private settings out of transcripts.
+ 
+-Never guess a workspace ID or copy one from an unrelated result.
++Self-hosted calls omit `workspace_id`. For a separately selected Cloud OAuth
++connection, use its actual workspace-discovery capability and consented identifiers.
++Use the only authorized workspace when that connection supports it; otherwise
++resolve the intended workspace from context. Never invent an ID or copy one from
++an unrelated connection. Cloud OAuth is not required for the local adapter.
+ 
+-## Diagnose Operational Problems
++## Diagnose with bounded evidence
+ 
+-Start broad and narrow only as needed:
++- Start from known run/deployment IDs. Use `get_dashboard` for an actual overview
++  question, then narrow to affected runs, tasks, deployments, work pools or events.
++- Inspect `get_flow_runs`, `get_flow_run_logs`, `get_task_runs`, `get_deployments`,
++  `get_work_pools` or `read_events` at the implicated layer. Preserve complete UUIDs
++  and bound filters, time ranges and log/result limits to the question.
++- Reuse selected identifiers instead of repeatedly fetching broad lists. Resolve
++  schema/filter differences against the selected backend and available tool schema.
++- Distinguish observed failures, hypotheses, proposed repairs and verified results.
++  Logs and parameters can contain secrets; return only relevant non-secret evidence.
+ 
+-1. Use `get_dashboard` for an overview of recent failures, lateness, deployments,
+-   and work-pool health.
+-2. Use `get_flow_runs` to inspect the affected run and preserve its full UUID.
+-3. Use `get_deployments`, `get_work_pools`, `get_task_runs`, or `read_events` for
+-   the specific layer implicated by the run.
+-4. Explain the evidence, distinguish the observed failure from likely causes,
+-   and recommend the smallest next check or action.
++## Use version-matched guidance
+ 
+-Do not repeatedly fetch broad lists when a specific ID is already known.
++Resolve CLI/SDK/deployment syntax from the project's selected versions and official
++documentation. The local adapter does not provide documentation-search tools;
++use available primary documentation or installed source/help when needed. For
++release questions, obtain the exact release/version/date from an authoritative
++source rather than treating semantic search or a remembered version as current.
+ 
+-## Documentation and Release Notes
++Flow code remains under project validation and lifecycle ownership. Review task
++boundaries, retries, caching, concurrency and side effects against the actual
++workflow; this operational snapshot is not a universal architecture prescription.
+ 
+-Use the Prefect documentation tools for current CLI, SDK, deployment, and release
+-information. For release questions, search for the current structured release
+-notes and report the exact version and release date returned by the source.
++## Keep mutations explicit
+ 
+-Do not answer version-sensitive questions from memory when the documentation tools
+-are available.
++The managed adapter is read-only. Do not claim that it triggered, cancelled,
++created, updated or deleted anything. A project-selected CLI/SDK is a separate
++path for an operation already authorized by the task. Verify its version and
++effective target/authentication independently; MCP identity does not prove the
++CLI uses the same profile or environment.
+ 
+-## Mutations and the Prefect CLI
++Prefer complete UUIDs from verified results, supported noninteractive flags and
++structured output. Inspect selected-version help for operations such as deployment
++run, flow-run cancellation or automation creation. If execution is unavailable,
++return a proposed command with its target assumptions and do not imply it ran.
++Never use a truncated table identifier or change global authentication to avoid
++a target mismatch.
+ 
+-The hosted Prefect MCP surface is read-only. Do not claim that it triggered,
+-cancelled, created, updated, or deleted anything unless an exposed tool actually
+-performed that operation.
+-
+-A local Prefect CLI is a separate, advanced path. Use it only when all of these are
+-true:
+-
+-- the current client can execute local shell commands;
+-- `prefect version` succeeds;
+-- the local Prefect profile is already authenticated to the intended workspace;
+-- the user explicitly requested the mutation.
+-
+-Otherwise, explain that the connected MCP tools are read-only and provide the
+-exact CLI command for the user to run without pretending it was executed.
+-
+-When a configured local CLI is appropriate:
+-
+-- prefer complete UUIDs obtained from MCP results;
+-- use `prefect --no-prompt` for commands that would otherwise prompt;
+-- prefer `prefect api` or `-o json` when machine-readable output is needed;
+-- never use a truncated identifier from a rendered table.
+-
+-Common commands:
+-
+-```bash
+-prefect deployment run 'flow-name/deployment-name'
+-prefect --no-prompt flow-run cancel <flow-run-uuid>
+-prefect automation create --from-file automation.yaml
+-```
++Return the diagnosis or change, actual target/version evidence, checks performed
++and remaining gaps to the existing primary and QA. Runtime installation, tool
++discovery, backend connectivity and workflow readiness are distinct observations.
++Provenance and exact license: [UPSTREAM.md](UPSTREAM.md).

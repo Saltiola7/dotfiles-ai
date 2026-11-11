@@ -17,6 +17,148 @@ dependency checks and explicit updates. It resolves this selected source even
 when invoked from another project. It reads this runbook rather than maintaining
 a second inventory. Source preparation does not install the skill automatically.
 
+## Remote-user setup inputs
+
+### Default worktree activation (RRW-007E)
+
+Explicit remote apply initializes missing activation at the exact default
+`$HOME/.local/state/worktrees` on the home filesystem. No new flag/manual step
+is needed for a fresh default. Existing activation is never overwritten; changed
+source/policy, Worktrunk version or mount bindings still require review. See the
+[activation contract](specs/dotfiles_ai_distribution/features/remote-worktree-activation.md).
+
+### OpenCode after remote boot (RRW-F01)
+
+The remote profile enables `opencode-shared.service` under the user's default
+target. Fork A supplies systemd lingering for declared users; no login is needed
+for the manager to start this loopback-only foreground native shared service.
+Reapply does not restart healthy sessions, including pre-existing native services
+which the unit leaves intact until a later boot. A native version update may still
+need an owner-coordinated restart before the wrapper accepts attachment. See the
+[boot-service contract](specs/dotfiles_ai_distribution/features/remote-opencode-service.md).
+
+### Native mise lock formatting (RRW-F04)
+
+The managed remote lock matches native mise's exact generated header, blank lines
+and final newline. Interpreter pins and artifact hashes are unchanged. If native
+mise has rewritten only that known formatting, the updated desired bytes match
+the existing file and ordinary apply converges without a reset or `--force`.
+Do not overwrite a live lock to conceal other drift; investigate it separately.
+
+### Repository Python version files (RRW-F05)
+
+Remote mise enables `idiomatic_version_file_enable_tools = ["python"]`.
+Repository `.python-version` files now select project Python instead of inheriting
+the global Prefect baseline. Install the requested interpreter with mise in that
+repository; uv still never downloads interpreters. Foundation calls remain
+isolated from project/HOME version files and keep their pinned adapter Python.
+
+### Remote Worktrunk activation (RRW-F03)
+
+The remote profile renders private workflow-policy.json from the workspace data
+alongside native Worktrunk config. Apply does not activate it. The owner must
+review `workflow-policy snapshot` and separately install that exact proposal as
+mode-0600 workflow-policy.activation.json; see the
+[owner activation steps](specs/dotfiles_ai_distribution/features/remote-worktrunk-policy.md).
+Fork A may document this step, but neither fork writes the owner's activation.
+Without it new allocation still refuses; existing work remains retained.
+
+### Existing Codex users upgrading the foundation
+
+`codex-project` preserves native top-level `tui` and `notice` tables, including
+first-launch screen-reader detection, without accepting edits to managed models,
+hooks, approval/sandbox controls or arbitrary project-trust entries. Automatic
+legacy migration requires a verifiable managed baseline; unknown drift remains
+blocked. Do not reset `CODEX_HOME/config.toml` or delete its ownership manifest.
+The version-2 private manifest separates managed-setting fingerprints from full
+file digests; exact private preimages and transaction recovery remain in place.
+Old projectors cannot read version 2, so downgrading to one needs separately
+reviewed metadata migration, not an unconditional rollback/reset.
+
+Fork A owns the subsequent immutable source pin, revision fetch through
+`remote-user-bootstrap`, convergence observer, and authorized rollout. This repair
+does not touch the owner's live config, sessions, history or authentication.
+Keep native config writers quiescent for a guaranteed upgrade snapshot; projector
+locks coordinate projectors, not an independently writing Codex process. Observed
+intervening writes cause refusal with the journal retained, not an automatic reset.
+
+### Setup keys and supported flags
+
+RRW-007A keeps the user-owned remote source independent of the personal overlay.
+Start from `config.remote-user.example.toml`; keep it mode 0600. The setup owner
+supplies these non-secret settings before foundation apply:
+
+| TOML key | Type / value | Ownership |
+|---|---|---|
+| `sourceDir` | absolute path to the pinned shared clone | Setup |
+| `persistentState` | absolute user-owned chezmoi state file | Setup |
+| `data.dotfiles_ai.remote_user_environment.enabled` | boolean `true` | Remote role selection |
+| `data.dotfiles_ai.workspaces.schema_version` | integer `1` | Existing Worktrunk policy |
+| `data.dotfiles_ai.workspaces.root` | absolute `HOME/.local/state/worktrees` | Setup creates the root; policy retains `<repo>-<path-hash>/<branch>` |
+| `data.dotfiles_ai.herdr.launchagent` | boolean `false` | macOS host machinery remains unavailable |
+| `data.dotfiles_ai.herdr.host_enabled` | boolean `false` | No GUI host app |
+
+`remote-user-foundation supported-flags` prints the canonical flag-to-data-key
+mapping as JSON, without reading credentials or starting services. Fork A's
+`pins.toml` `supported_flags` uses the names in the first column below; the setup
+script writes the TOML key in the second column.
+
+| Supported flag | TOML key | Type / default |
+|---|---|---|
+| `onepassword` | `data.dotfiles_ai.onepassword.enabled` | boolean / `false` |
+| `prefect_mcp` | `data.dotfiles_ai.prefect_mcp.enabled` | boolean / `false` |
+| `pm_kernel` | `data.dotfiles_ai.pm_kernel.enabled` | boolean / `false` |
+| `jfrog_cli` | `data.dotfiles_ai.jfrog_cli.enabled` | boolean / `false` |
+| `history_projection` | `data.dotfiles_ai.history_projection.enabled` | boolean / `false` |
+| `opencode.vertex_project` | `data.dotfiles_ai.opencode.vertex_project` | string / empty |
+
+Keep `data.dotfiles_ai.knowledge_store.enabled`,
+`data.dotfiles_ai.hermes.enabled` and `data.dotfiles_ai.rnd.enabled` false. Remote
+render and foundation configuration reject enabling them. Existing per-user
+options retain their owners: Vertex location/account, 1Password account selection,
+and Prefect profile/API URL plus credential **environment-variable names** may be
+supplied through their existing documented tables. Never put tokens or copied
+provider state in setup config. Enabling a feature does not log the user in or
+grant permission to copy another user's data. PM Kernel's local CLI does not imply
+PostgreSQL activation; history projection does not imply a Linux refresh daemon.
+
+The foundation installs checksum-pinned user-local `mise` and `gh`. Enabling
+`prefect_mcp` additionally installs pinned user-local `uv` and **mise-managed
+Python 3.13.18** through the reviewed global config/lock. RRW-007C supersedes the
+earlier host-provisioned Python prerequisite; Fork A only verifies enabled Prefect
+on the next setup run. The existing adapter retains its frozen lock,
+`--system` interpreter selection and `--no-python-downloads`; no Python download
+by uv or lock migration is implied. Remote integrity checks effective local data and
+the installed tool bytes. The source owns pins; local config cannot override them.
+The bounded tool check runs on every apply without redownloading matching bytes;
+same-revision retry repairs damaged tools before foundation success is recorded.
+
+Worktrunk root qualification/activation remains separately governed by
+`workflow-policy`; creating the root or setting a data key does not bypass its
+storage checks. Existing checkouts do not move. The foundation owns `.bashrc` and
+sources readable `.bashrc.d/*.sh` snippets in shell glob order; another source may
+own disjoint snippets, not `.bashrc` itself. Remote Herdr receives its release's
+generated skill, native OpenCode integration, and enabled agent-session restore.
+
+The remote shared source owns `.config/mise/config.toml`, its Linux-x64
+`mise.lock`, and `.bashrc.d/00-dotfiles-ai-mise.sh`. Its locked native installer
+runs after the mise/gh/uv bootstrap and before the frozen Prefect installer. A
+cached reapply does not upgrade interpreters; source changes and missing installs
+use the same mise owner. Disabling Prefect leaves installed Python/environments
+intact. mise shims are available noninteractively; interactive activation retains
+each repository's own version selection. uv never downloads interpreters, and a
+global `UV_PYTHON` value does not override project toolchains. See the
+[remote mise contract](specs/dotfiles_ai_distribution/features/remote-mise-toolchain.md).
+Foundation/adapter installation uses the thin `remote-mise` context to isolate
+that reviewed global config from HOME/project configs and global fragments.
+Remote Prefect's source-owned `.python-version` participates in its immutable
+generation digest: a pin update creates a new qualified generation and retains
+the older environment, rather than silently reusing a different interpreter.
+
+This is a source contract, not a live RHEL acceptance receipt. Record the actual
+merged foundation SHA and bootstrap checksum only after protected delivery; live
+setup, authentication, owner overlay and colleague acceptance remain separate.
+
 ## Check after a package-manager upgrade
 
 A check is read-only. Use the owner table and bounded version/health probes below;
@@ -103,7 +245,7 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 | Herdr | Chezmoi owns the version/protocol/asset URL/SHA-256 tuple in [defaults](../.chezmoidata.toml), with selected local TOML overrides. Review/update the coherent tuple for each supported architecture, installers and matching skill; this is not a `herdr update` command. The [macOS installer](../run_onchange_before_install-herdr.sh.tmpl) checks the asset, version and server protocol, then uses supported live handoff without killing/restarting panes. It refuses incompatible clients, missing handoff support or more than 64 panes. The [Linux installer](../run_onchange_after_install-00-remote-herdr.sh.tmpl) refuses an executable upgrade while its server is active; defer to a separately approved maintenance plan, not an automatic stop. See the operational hold below. |
 | Worktrunk | Homebrew owns the Mac executable. The source validator supports exact **0.80.0 and 0.81.0 on macOS**, and only **0.80.0 on Linux**; activation binds the actual version. The macOS bundle hook requires and pins 0.81.0 before non-upgrading reapply. [Linux workstation](../run_onchange_after_install-workstation-tools.sh.tmpl) and [guest/remote](../run_onchange_after_install-guest-development-tools.sh.tmpl) remain on checksum-pinned 0.80.0. [CI](../.github/workflows/test.yml) exercises both Mac versions. Follow [Worktrunk on macOS](#worktrunk-on-macos); source support does not activate a host. |
 | Homebrew and host prerequisites | Brewfile contains only the Anomaly tap, `mise` and `worktrunk`; it is not a complete host inventory. Chezmoi, Git, Python, uv, Bun, Lima and other preinstalled host prerequisites retain their actual native installation owner unless a source installer explicitly owns them. Review each owner's supported update procedure separately; no blanket Brew/OS upgrade or second competing installer. |
-| Python / uv / Bun / CI | [pyproject.toml](../pyproject.toml) requires Python >=3.12 and a pytest test group; [uv.lock](../uv.lock) owns its resolved transitive test dependencies. Review constraints and regenerate/review the lock together when changing that family; updating uv itself is separate from updating this lock. [CI](../.github/workflows/test.yml) owns Python 3.12–3.14, Node 26.12.1, Node-24-based setup actions, Bun 1.4.4 and the separate `opencode-ai@1.19.4` test fixture. Those are not live OpenCode pins or permission for a global Bun upgrade. Review the [CentOS workflow](../.github/workflows/centos-remote-user.yml) independently. |
+| Python / uv / Bun / CI | [pyproject.toml](../pyproject.toml) requires Python >=3.12 and a pytest test group; [uv.lock](../uv.lock) owns its resolved transitive test dependencies. Review constraints and regenerate/review the lock together when changing that family; updating uv itself is separate from updating this lock. [CI](../.github/workflows/test.yml) owns Python 3.12–3.14, Node 26.12.1, Node-24-based setup actions, Bun 1.4.4 and the separate `opencode-ai@1.19.4` test fixture. Those are not live OpenCode pins or permission for a global Bun upgrade. Review the [RHEL userland workflow](../.github/workflows/rhel-remote-user.yml) independently. |
 | Optional Hermes | Disabled by default. [Installer](../run_onchange_before_install-hermes.sh.tmpl) pins Hermes 0.19.0 wheel/SHA and Python 3.13.16 and rejects unsupported existing versions. README documents manual `hermes update --backup` followed by profile health verification, but a newer version can conflict with that installer guard. Reconcile/requalify the source pin before approved maintenance; do not promise any latest release works on reapply. Preserve the backup and authenticate only interactively in that environment. |
 | Lima, guest OS and remote user | [Lima template](../private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl) selects Fedora 44, minimum Lima 2.1.4, and separately pinned guest Herdr 0.9.1/chezmoi 2.69.4 assets; changing host TOML does not update those literals. [Guest/remote installer](../run_onchange_after_install-guest-development-tools.sh.tmpl) owns pinned Compose, Worktrunk, 1Password CLI and gcloud assets. Guest OS packages use the guest package owner; host Lima uses its installed owner. Guest recreation, OS updates and remote activation are separate reviewed work, not host dependency refresh. Never boot, recreate or update every guest/remote automatically. |
 | Optional local Dagger shadow | Distribution's [explicit local-engine bootstrap](../private_dot_config/dotfiles-ai/continuous_validation/local_engine.py) owns a private checksum-pinned Dagger 0.21.10 CLI, the isolated locked Python SDK environment, and one dedicated 2-CPU/4-GiB Lima worker. `continuous-validation engine plan` is read-only; only `engine setup --enable-shadow` installs or starts this optional worker. Its Fedora image, Dagger engine, and Python/uv image are digest-pinned; rootful Podman is confined to this worker, with no host mounts or SSH-agent forwarding and a private Unix socket. Existing agent guests keep their rootless policy. Ordinary checks never provision the host CLI/SDK or start a VM; repository-owned uv commands may sync their frozen workload environments. Reuse requires the owned stamp and unchanged configuration; version drift requires reviewed requalification. This source route is not evidence of a deployed or qualified engine. |
@@ -116,6 +258,8 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 | Optional DKS Graphify | The [quality installer](../run_onchange_after_install-dbsctr-quality-services.sh.tmpl) stages the separate hash-pinned SQL runtime 0.9.48 used by [dbsctr-graphify](../dot_local/bin/executable_dbsctr-graphify). Package, Python, runtime and producer identities are jointly bound. Preserve it and its disabled state; updating the global CLI neither updates nor qualifies this consumer. |
 | OpenCode plugins and SDKs | [Managed configuration](../.chezmoitemplates/opencode.json.tmpl) selects `@dietrichgebert/ponytail@4.10.3` and unversioned `@ai-sdk/openai-compatible` provider adapters. Repository [DKS tool](../private_dot_config/opencode/tools/dks.ts) and [maintenance observer](../private_dot_config/dotfiles-ai/opencode-maintenance-observer/tui.ts) consume distinct OpenCode plugin APIs. Review their native runtime compatibility and actual resolver ownership; source identifiers alone are not a transitive lock. Preserve vendor-owned caches/locks excluded by [.chezmoiignore](../.chezmoiignore). Loading/installing a plugin is not a read-only probe. |
 | MCP and Node tooling | [Managed configuration](../.chezmoitemplates/opencode.json.tmpl) declares remote Context7, macOS `1password-mcp`, and disabled browser tools `chrome-devtools-mcp@1.12.0` / `@playwright/mcp@0.0.83`. Node/npm/npx and the 1Password MCP executable retain their installed owners. `npx` may download packages; do not invoke it merely to inventory a disabled server. Authentication and enabling a server are separate actions. |
+| Optional JFrog CLI and skills | The default-off [missing-only installer](../run_onchange_after_install-jfrog-cli.sh.tmpl) owns official 2.129.0 assets only when no selected CLI exists. Preserve existing compatible native owners; do not silently upgrade an older CLI. Review upstream release, all supported hashes, isolated qualification and failure/idempotence tests before updating. Seven complete [skills](../dot_agents/skills/jfrog/UPSTREAM.md) share immutable provenance and reversible adaptations in the specialist inventory; review the full resource/helper tree and local ownership patches together. Skill updates do not install a plugin, Agent Guard or MCP, log in, change native client settings or bypass project scans. Retain private deployment preimages and existing authentication for rollback. |
+| Optional self-hosted Prefect MCP | [Dedicated project and lock](../private_dot_config/dotfiles-ai/runtime/prefect-mcp/pyproject.toml) bind official source commit, runtime closure and hash-pinned isolated build constraints. The [launcher](../dot_local/bin/executable_prefect-mcp) is the explicit installer/qualifier; use an existing Python 3.13, never a project environment or interpreter download. Review upstream factory/settings/tool changes and advisory results before regenerating the lock; run offline qualification and native stdio/catalog tests again. Native clients own registration, private settings own API/authentication selection, and the existing Prefect owner retains backend service/profile changes. Disabling opt-in does not uninstall a generation or remove a previously registered Codex entry: remove only the exact reviewed entry with the native writer and explicitly reconcile its projector. Retain generations and private preimages for rollback. |
 | Inference providers and local models | [Defaults](../.chezmoidata.toml), [managed configuration](../.chezmoitemplates/opencode.json.tmpl) and [agent definitions](../private_dot_config/opencode/agents/) select hosted model IDs and optional LM Studio models. IDs such as an `@default` model are service selections, not immutable artifact checksums. Report configured identities without issuing paid requests; separately qualify availability, capabilities and any changed model behavior. LM Studio owns its installation and model downloads. |
 | Optional PostgreSQL/pgvector build | [Containerfile](../dot_local/share/pm-kernel/Containerfile.pgvector) pins the PostgreSQL 19beta3 base digest, development-package version and pgvector 0.8.6 source tuple. [Image builder](../dot_local/bin/executable_pm-postgres-image-build) owns building; configured runtime image selection is separate. Build tools still resolve from the package repository. Image rebuild, data migration, backup and service activation each require their own reviewed scope. |
 | Optional Atuin server | [Quadlet](../private_dot_config/containers/systemd/atuin.container) pins Atuin 18.17.1 by image digest and stores SQLite state. This is distinct from the platform's Atuin client owner; changing a client does not update or qualify the server. Preserve server data and review compatibility before container replacement. |
@@ -142,9 +286,17 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
   pins chezmoi 2.69.4 on Linux AMD64. Lima's guest literals and ordinary Codex guest
   bootstrap are independent of the current host's native installation.
 - CI action tags and runner/container tags may move. The
-  [CentOS job](../.github/workflows/centos-remote-user.yml) uses `ubuntu-latest` and
-  `stream10`; OS package managers own their package versions. Review CI changes
+  [RHEL userland job](../.github/workflows/rhel-remote-user.yml) uses `ubuntu-latest` and
+  `registry.access.redhat.com/ubi10/ubi`; OS package managers own their package versions. Review CI changes
   as CI input changes, not evidence that the live host was updated.
+- RRW-002 replaces the remote-user image for RHEL 10 userland qualification.
+  Native x86_64 UBI smoke passed in RRW-002; full RHEL-host acceptance remains
+  separate. Record the selected base revision,
+  runtime versions and any workflow/check-name migration in implementation
+  evidence; UBI installation does not establish live RHEL, SELinux, systemd,
+  OS Login or rootless-Podman qualification. Remote-only local Atuin history must
+  not disable host/Fedora sync. See the
+  [RHEL successor contract](specs/dotfiles_ai_distribution/features/remote-user-rollout-runtime.md#approved-rhel-successor-rrw-002).
 - Explicitly select the supported validation interpreter. An unconstrained
   `uv run` may choose a newer installed Python than the tested CI matrix even
   while `python3` resolves another interpreter. Package lock identity does not

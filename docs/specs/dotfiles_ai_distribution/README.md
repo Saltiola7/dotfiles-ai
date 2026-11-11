@@ -1,5 +1,119 @@
 # dotfiles-ai Distribution
 
+The [remote Herdr runtime contract](features/remote-herdr-runtime.md) owns explicit
+per-user `[data.dotfiles_ai.herdr] runtime = "herdr-core" | "tui"` selection
+(`tui` by default). The foundation installs checksum-pinned core 0.1.18; native
+transient units remain its process owners. `remote-herdr switch`, `restore` and
+`recover` preserve exact OpenCode sessions and private layout receipts without
+restarting the shared backend. Unowned target replacement requires explicit
+`--replace-target`; ambiguous ownership or unapproved target replacement refuses. Disposable
+hosted qualification is distinct from Fork A's separately authorized live rollout.
+Plain-shell recovery accepts core 0.1.18's omitted empty session label while
+retaining exact owner/pane and process proofs. Existing switch receipts need no
+hand edits; use explicit `remote-herdr recover` for an unfinished switch.
+TUI process proof also accepts its native idle default, exact argument-free
+`/bin/sh`; command-bearing shells remain unsupported.
+
+Selected-core restore adopts the current desktop document, preserves user edits,
+retires closed views and adopts later exact `--session` clients after process,
+directory and duplicate proofs. Manifest schema 2 retains stable leaf bindings;
+older adapters must refuse it rather than regenerate the edited document.
+Only proven owned terminal references are CAS-rebound. A completed controller stop
+has separate private evidence; it is not mistaken for a user closure. Fresh selected
+core with no document/endpoint is a quiet no-op. Inventory disappearance settles
+within five seconds; permission failures and native mutations are never retried.
+Unnamed TUI views use persisted public identities and nullable naming provenance,
+not guessed display names; explicit empty, whitespace and numeric names stay exact.
+No new configuration keys or CLI inputs are required. Wrapper/config/activation
+follow-ups belong to RRW-007H and overlay editor recovery to RRW-007I. Schema-1
+edited receipts with unresolved old mutation intents still require conservative
+recovery; no automatic downgrade or hand-edited receipt migration is supported.
+
+RRW-007G-R1 reconciles a current-document pending shell kill under the original
+ownership, process, exit and document/version proofs. Display-only terminal churn
+does not block it: complete the proven original live-shell kill, or observe its
+already-finished outcome without another kill. New private intents optionally
+retain exact actual/launch identity; legacy intents retain their original proofs
+without inventing historical argv. Real identity/layout changes still refuse with
+fixed field labels that expose no values. Do not hand-edit journals or discard
+pending evidence. Older adapters refuse extended intents; Fork A owns pinning and
+any live recovery. Bootstrap, binary pins and setup inputs are unchanged.
+
+RRW-007G-R2 compares only the complete `remote-herdr-*` ownership namespace:
+desktop display labels (`where`, `herdr.seen`, `herdr.space`, `herdr.tab`) do not
+invalidate ownership, while missing/changed/extra ownership keys still refuse.
+Current app documents use distinct space/tab/tree-node ID namespaces, allowing a
+tab and its one-child row root to share an ID without allowing duplicate nodes.
+Retained `restore_pending` recovers through `remote-herdr recover` without journal
+edits; already-live clients, raw document and original exit/version checks remain.
+Native qualification distinguishes fixture-authored app-shaped documents from
+actual Desktop UI producer evidence. Fork A owns live recovery and pinning.
+
+The [remote default activation](features/remote-worktree-activation.md) initializes
+missing activation during explicit remote apply at the qualified exact home
+default only. Existing activation is never overwritten or automatically refreshed.
+Source-only foundation revisions retain valid activation through semantic policy
+identity or a validated legacy preimage; actual policy/version/filesystem drift
+still refuses allocation. [RRW-007H profile follow-ups](features/remote-profile-followups.md)
+also define `[data.dotfiles_ai.opencode] tab_bar_mode = "off"` for Mac and remote
+CLI tab bars (`auto`/`on`/`off`; empty leaves local mode unmanaged), and exact wrapper
+separator handling without automatic `--auto` after `--`. Fork A owns setup and rollout.
+
+The [remote OpenCode boot service](features/remote-opencode-service.md) starts the
+native shared service through the lingering user's default target without
+restarting healthy sessions during foundation reapply.
+
+The [remote Worktrunk policy](features/remote-worktrunk-policy.md) supplies the
+shared remote storage guard's policy. Explicit remote apply initializes absent
+activation at the qualified home-backed default; nondefault roots and stale
+existing bindings still require separate owner review.
+
+The [remote global mise baseline](features/remote-mise-toolchain.md) owns optional
+pinned Python for the frozen Prefect adapter. Project toolchains keep their own
+mise/uv selections; host Python remains for OS/host scripts.
+
+The [Codex runtime-state projection contract](features/codex-projection-runtime-state.md)
+preserves native UI/notice state during verified managed upgrades while rejecting
+edits to owned settings. Legacy migration remains conservative; live rollout and
+backward metadata migration are separately governed.
+
+## Shared global instructions
+
+The [global activation contract](features/global-agent-instructions.md) owns one
+portable source for OpenCode and Codex CLI/Desktop instructions. Global prompts
+govern skill activation; explicitly activated skills own their methods. Caveman
+Commit is the automatic formatting exception. Source delivery and authorized
+local rollout retain separate qualification evidence.
+
+The [PY-09 retained-CI precursor](features/validation-execution-performance.md#py-09-retained-ci-baseline-precursor)
+defines opt-in analysis of existing job metadata/logs through the shared evidence
+contract. It starts no CI jobs and changes no workflow, runtime or required-check
+authority. Its source tooling and evidence collection remain pending Build.
+
+The [complete official JFrog skill collection](features/jfrog-skills.md) adds seven
+portable, narrowly routed workflows and an independent optional missing-only CLI
+installer. Native discovery, CLI readiness, MCP connection and live platform
+operations remain separate observations. No plugin, Agent Guard, platform target,
+authentication or MCP activation is implied by skill deployment. Project
+enumeration stays live without persistent credential-derived cache fingerprints;
+a typed project selection alone does not prove existence or access.
+
+The optional [self-hosted Prefect inspection capability](features/prefect-mcp.md)
+adds reviewed operational guidance and an independently installed frozen stdio
+adapter. Private selection owns the existing API and credentials; native clients
+own registration and process lifetime. Backend availability remains separate from
+installation and tool discovery. The adapter does not provision a Prefect service
+or make MCP a prerequisite for project SDK/CLI flow work.
+
+## History Projection Refresh Duration
+
+The distribution-owned scheduler reports completed refresh duration as whole
+elapsed seconds, measured independently of wall-clock changes. Run timestamps
+remain Unix milliseconds. The existing
+[refresh schedule contract](features/history-projection-refresh-schedule.md)
+defines rounding, retained-summary compatibility and the bounded PY-06 delivery
+slice; lifecycle snapshot authority remains in its owning context.
+
 ## Optional Cline Domain
 
 Cline Desktop and Cline CLI are independently enabled developer tools. Their
@@ -436,13 +550,23 @@ Its rollout slice is captured; prior deployment does not qualify the correction.
 | Deliverable | Public standalone chezmoi source for DBSCTR, OpenCode, Herdr, and opt-in Hermes R&D orchestration |
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, launchd plist |
 | Modules | Python, Security, Cloud |
-| Runtime/platform support | Apple Silicon macOS host; Fedora 44 aarch64 Lima guests on VZ; CentOS Stream 10 x86_64 remote workspaces; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
+| Runtime/platform support | Apple Silicon macOS host; Fedora 44 aarch64 Lima guests on VZ; RHEL 10 x86_64 remote workspaces (RRW-002 successor qualification pending); chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
 | Public compatibility | Stable local TOML keys and managed target paths; sanitized defaults |
 | Trust/data classification | Public configuration; credentials and machine identifiers remain local |
 | Operational owner | Project maintainers own releases, compatibility, and migration guidance |
 | Product Intent | `docs/specs/dotfiles_ai_distribution/PRODUCT.md` |
 
-### RWUE-001 Initiative Override
+### Remote User Platform Successor (RRW-002)
+
+The approved `rhel-remote-workspace` / `rrw-002-rhel-user-runtime` Discovery
+replaces the standalone remote platform with RHEL 10 x86_64, makes its client
+IAP-only, and keeps remote Atuin history local-only. The
+[successor contract](features/remote-user-rollout-runtime.md#approved-rhel-successor-rrw-002)
+owns intent coverage, compatibility, validation and pending gates. No RHEL
+implementation or deployment is claimed here. Historical RWUE overrides below
+describe their original CentOS scope; their evidence is not RHEL qualification.
+
+### RWUE-001 Initiative Override (Historical)
 
 | Field | Value |
 |---|---|
@@ -487,7 +611,7 @@ shell/TOML/JSON, verify x86_64 release digests, scan public output for private
 identity, compare cross-source target ownership, and prove install, idempotency,
 update, failure, and rollback in a disposable CentOS x86_64 environment.
 
-### RWUE-005A Initiative Override
+### RWUE-005A Initiative Override (Historical)
 
 | Field | Value |
 |---|---|
@@ -499,6 +623,21 @@ update, failure, and rollback in a disposable CentOS x86_64 environment.
 The normative behavior, interfaces, state transitions, trust boundary, Gate
 Ledger, and validation are in
 [`features/remote-user-rollout-runtime.md`](features/remote-user-rollout-runtime.md).
+
+### PY-01 First-Clone Repair
+
+`PY-01` is an elevated-risk, source-only correction to remote-user bootstrap.
+An absent source must reach the exact requested clean detached commit before
+configuration, installation or foundation apply. Existing dirty sources, including
+legacy no-checkout leftovers, remain preserved and refused. Failed new preparation
+must permit same-revision retry without poisoning the final source directory.
+
+Scope, acceptance scenarios, recovery limits, validation and the
+DBSCTR applicability plan are captured in the existing
+[remote-user rollout runtime specification](features/remote-user-rollout-runtime.md#py-01-first-clone-repair).
+Delivery is a feature branch and draft pull request; live rollout is separate.
+Profile/Product Intent remain unchanged. A known adjacent cross-revision retry-pin
+gap is explicitly deferred; this correction does not claim broader rollout readiness.
 
 ### DAI-005 Cycle Overrides
 
@@ -793,6 +932,12 @@ launchers, desktop separation, install flow, and target transitions are
 canonical in [`features/codex-cli.md`](features/codex-cli.md); both views are
 required until Codex deployment updates this delivered topology.
 
+RRW-007F's remote-user activation and transfer boundaries are canonical in the
+[remote Herdr transition table](features/remote-herdr-runtime.md#visual-evidence)
+and its Text Equivalent. That view distinguishes the foundation binary owner,
+native process owners and serialized client transfer. It does not change the
+existing macOS/Fedora topology below or authorize live remote adoption.
+
 ```mermaid
 flowchart LR
     accTitle: dotfiles-ai host and workspace trust boundaries
@@ -971,6 +1116,17 @@ feature branch with a draft pull request; the operator retains merge authority.
   then every `limactl` subprocess receives that path through `LIMA_HOME`.
 - Given a relative or non-string Lima home, when sandbox configuration is
   validated, then the controller fails before invoking Lima.
+
+### Sandbox Command Deadline Repair (PY-05)
+
+The [command deadline contract](features/sandbox-command-deadlines.md) governs
+the existing synchronous `sandbox-vm.command` helper. All owned pipe I/O and final child wait share one
+monotonic execution deadline after successful process creation, followed by a
+separate bounded cleanup allowance. Existing output limits, private-data handling,
+caller deadlines and recovery authority remain binding. Source delivery is one
+reviewed pull request; local activation and live operations are separate work.
+Local process and caller qualification is source evidence; managed Lima rollout
+and live guest qualification remain separate.
 
 ### Optional Personal Atuin Service
 
@@ -1424,17 +1580,19 @@ feature branch with a draft pull request; the operator retains merge authority.
   host/guest staging, activation, recovery, and post-commit retirement of the
   legacy guest provision. Once package state exists, managed launch fails closed
   rather than falling back to Homebrew.
-- `[dotfiles_ai.remote_workspace]` is disabled by default and contains only a
-  local repository path plus non-secret project, zone, instance, optional account,
-  and optional alternate host values. When enabled, chezmoi renders them into a
-  private local environment file.
+- The approved RRW-002 successor for `[dotfiles_ai.remote_workspace]` is disabled
+  by default and contains only a local repository path plus non-secret project,
+  zone, instance and optional account. Its private environment no longer exports
+  alternate-host values. Implementation is pending under the linked successor
+  contract; the historical client can still render those values until delivery.
 - `remote-workspace TASK [ARG ...]` sources that file and forwards unchanged to
   `mise run` in the configured repository; `remote-workspace doctor` invokes the
   prerequisite check.
-- `remote-workspace-doctor` verifies the local gcloud, mise, SSH, and Herdr
-  commands, requires a usable root `mise.toml` in the configured repository plus endpoint coordinates,
-  resolves an omitted account from gcloud, and requires the Tailscale client only
-  when an alternate host is configured. It performs no remote mutation.
+- `remote-workspace-doctor` verifies local gcloud, mise, SSH and Herdr commands,
+  a usable root `mise.toml`, endpoint coordinates and an omitted account resolved
+  from gcloud. It performs no remote mutation. RRW-002 retires its conditional
+  Tailscale prerequisite even when stale alternate-host configuration is present;
+  this is pending implementation, not a claim about the current executable.
 - `remote-user-bootstrap bootstrap REVISION` accepts one full public commit,
   rejects user-home symlink or ownership escapes, verifies or clones the fixed
   public source, installs checksum-pinned chezmoi `2.69.4` under the invoking

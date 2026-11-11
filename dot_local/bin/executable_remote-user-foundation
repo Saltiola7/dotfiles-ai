@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,74 @@ STATES = {
     "absent", "foundation_pending", "foundation_ready", "auth_pending",
     "ready", "failed_retryable",
 }
+SUPPORTED_FLAGS = {
+    "onepassword": "dotfiles_ai.onepassword.enabled",
+    "prefect_mcp": "dotfiles_ai.prefect_mcp.enabled",
+    "pm_kernel": "dotfiles_ai.pm_kernel.enabled",
+    "jfrog_cli": "dotfiles_ai.jfrog_cli.enabled",
+    "history_projection": "dotfiles_ai.history_projection.enabled",
+    "opencode.vertex_project": "dotfiles_ai.opencode.vertex_project",
+}
+
+
+def configuration() -> dict:
+    """Merge public defaults with this user's explicit TOML, never provider state."""
+    safe_path(CONFIG, "file", 0o600)
+    defaults = SOURCE / ".chezmoidata.toml"
+    safe_path(defaults, "file")
+    data = tomllib.loads(defaults.read_text())["dotfiles_ai"]
+    local_data = tomllib.loads(CONFIG.read_text()).get("data", {})
+    if not isinstance(local_data, dict):
+        raise RuntimeError("foundation configuration is invalid")
+    local = local_data.get("dotfiles_ai", {})
+
+    def merge(base: dict, override: dict) -> dict:
+        result = dict(base)
+        for key, value in override.items():
+            result[key] = merge(base[key], value) if isinstance(base.get(key), dict) and isinstance(value, dict) else value
+        return result
+
+    if not isinstance(data, dict) or not isinstance(local, dict):
+        raise RuntimeError("foundation configuration is invalid")
+    effective = merge(data, local)
+    herdr = effective.get('herdr', {})
+    if (not isinstance(herdr, dict) or not isinstance(herdr.get('runtime', 'tui'), str)
+            or herdr.get('runtime', 'tui') not in {'tui', 'herdr-core'}):
+        raise RuntimeError('foundation Herdr runtime must be herdr-core or tui')
+    if effective.get('herdr_core') != data.get('herdr_core'):
+        raise RuntimeError('foundation Herdr core pin cannot be overridden')
+    for name in (*tuple(flag for flag in SUPPORTED_FLAGS if "." not in flag),
+                 "knowledge_store", "hermes", "rnd"):
+        section = effective.get(name, {})
+        if not isinstance(section, dict) or type(section.get("enabled", False)) is not bool:
+            raise RuntimeError("foundation feature flag is invalid")
+        if name in {"knowledge_store", "hermes", "rnd"} and section.get("enabled", False):
+            raise RuntimeError("foundation feature is unavailable on remote")
+    opencode = effective.get("opencode", {})
+    if not isinstance(opencode, dict) or not isinstance(opencode.get("vertex_project", ""), str):
+        raise RuntimeError("foundation Vertex project must be a string")
+    if "workspaces" in effective:
+        options = effective["workspaces"]
+        if (not isinstance(options, dict) or type(options.get("schema_version")) is not int
+                or options["schema_version"] != 1):
+            raise RuntimeError("foundation workspace configuration is invalid")
+        for name in ("root", "cache_root"):
+            if name not in options:
+                continue
+            value = options[name]
+            if not isinstance(value, str) or not value or "\x00" in value:
+                raise RuntimeError("foundation workspace root is invalid")
+            directory = Path(value).expanduser()
+            if not directory.is_absolute() or ".." in directory.parts:
+                raise RuntimeError("foundation workspace root is invalid")
+            safe_path(directory)
+            if directory.exists():
+                safe_path(directory, "directory")
+    pins = data.get("remote_user_environment", {})
+    selected = effective.get("remote_user_environment", {})
+    if not isinstance(selected, dict) or any(selected.get(key) != value for key, value in pins.items() if key != "enabled"):
+        raise RuntimeError("foundation remote tool pins cannot be overridden")
+    return effective
 
 
 def safe_path(path: Path, kind: str | None = None, mode: int | None = None) -> None:
@@ -177,7 +246,10 @@ def apply(revision: str) -> None:
         git("diff", "--quiet", capture=True)
         git("diff", "--cached", "--quiet", capture=True)
         git("checkout", "--detach", revision, capture=True)
+        data = configuration()
+        provision_workspace_directories(data)
         command("chezmoi", "-c", str(CONFIG), "-S", str(SOURCE), "apply", capture=True)
+        validate_tool_integrity(data)
         targets = command(
             "chezmoi", "-c", str(CONFIG), "-S", str(SOURCE), "managed", capture=True,
         ).stdout.splitlines()
@@ -194,7 +266,7 @@ def apply(revision: str) -> None:
             "schema_version": 1,
             "state": "foundation_ready",
         })
-    except (OSError, RuntimeError, subprocess.CalledProcessError):
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError, subprocess.CalledProcessError):
         failed = dict(current)
         failed.update({
             "attempt": attempt,
@@ -204,6 +276,52 @@ def apply(revision: str) -> None:
         })
         write_state(failed)
         raise SystemExit("foundation apply failed") from None
+
+
+def provision_workspace_directories(data: dict) -> None:
+    options = {"cache_root": str(HOME / ".cache/dotfiles-ai/dvc"), **data.get("workspaces", {})}
+    for name in ("root", "cache_root"):
+        if name in options:
+            directory = Path(options[name]).expanduser()
+            safe_path(directory)
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            safe_path(directory, "directory")
+
+
+def validate_tool_integrity(data: dict) -> None:
+    binaries = HOME / ".local/bin"
+    core = data.get('herdr_core', {})
+    if 'binary_sha256' in core:
+        path = binaries / 'herdr-core'
+        safe_path(path, 'executable', 0o755)
+        if path.stat().st_nlink != 1 or hashlib.sha256(path.read_bytes()).hexdigest() != core['binary_sha256']:
+            raise RuntimeError('foundation Herdr core integrity changed')
+    pins = data.get("remote_user_environment", {})
+    tools = [("mise", "mise_sha256"), ("gh", "gh_binary_sha256")]
+    if data.get("prefect_mcp", {}).get("enabled", False):
+        tools.append(("uv", "uv_binary_sha256"))
+    for name, key in tools:
+        if key in pins:
+            path = binaries / name
+            safe_path(path, "executable")
+            if hashlib.sha256(path.read_bytes()).hexdigest() != pins[key]:
+                raise RuntimeError("foundation remote tool integrity changed")
+    if data.get("prefect_mcp", {}).get("enabled", False):
+        safe_path(binaries / "remote-mise", "executable")
+        selected = command(str(binaries / "remote-mise"), "exec", "--", str(binaries / "uv"), "python", "find", "--system",
+                           "--no-python-downloads", "3.13", capture=True).stdout.strip()
+        if "prefect_python_version" in pins:
+            version = pins["prefect_python_version"]
+            install = HOME / ".local/share/mise/installs/python" / version
+            safe_path(install, "directory")
+            interpreter = Path(selected).resolve(strict=True)
+            if not interpreter.is_relative_to(install):
+                raise RuntimeError("foundation Python is not the mise-selected pin")
+            safe_path(interpreter, "executable")
+            observed = command(str(interpreter), "-I", "-c",
+                'import sys; print(".".join(map(str, sys.version_info[:3])))', capture=True).stdout.strip()
+            if observed != version:
+                raise RuntimeError("foundation Python pin changed")
 
 
 def validate_integrity(state: dict) -> Path:
@@ -221,7 +339,18 @@ def validate_integrity(state: dict) -> Path:
     status = command(
         "chezmoi", "-c", str(CONFIG), "-S", str(SOURCE), "status", capture=True,
     ).stdout.splitlines()
-    if sorted(status) != [" R update-codex.sh", " R update-opencode.sh"]:
+    data = configuration()
+    expected_status = [" R update-codex.sh", " R update-opencode.sh"]
+    if "mise_sha256" in data.get("remote_user_environment", {}):
+        expected_status.insert(0, " R install-02-remote-tools.sh")
+    if "prefect_python_version" in data.get("remote_user_environment", {}):
+        expected_status.insert(1, " R install-03-remote-mise.sh")
+        expected_status.insert(2, " R install-04-remote-opencode-service.sh")
+        expected_status.append(" R zz-remote-worktree-activation.sh")
+    if data.get('herdr_core'):
+        expected_status.append(' R install-05-remote-herdr-runtime.sh')
+    expected_status.sort()
+    if sorted(status) != expected_status:
         raise RuntimeError("foundation managed targets changed")
     for target in state["managed_targets"]:
         if os.path.lexists(HOME / target):
@@ -230,9 +359,7 @@ def validate_integrity(state: dict) -> Path:
     safe_path(opencode_config, "file")
     if not isinstance(json.loads(opencode_config.read_text()), dict):
         raise RuntimeError("foundation configuration is invalid")
-    data_path = SOURCE / ".chezmoidata.toml"
-    safe_path(data_path, "file")
-    data = tomllib.loads(data_path.read_text())["dotfiles_ai"]
+    validate_tool_integrity(data)
     binaries = HOME / ".local/bin"
     required = {"herdr": f"herdr {data['herdr']['version']}", "wt": "wt v0.80.0"}
     for name in ("codex", "gcloud", "op", "opencode", "remote-agent-readiness", *required):
@@ -287,7 +414,11 @@ def run_operation() -> None:
     subparsers.add_parser("rollback")
     subparsers.add_parser("status")
     subparsers.add_parser("refresh-auth")
+    subparsers.add_parser("supported-flags")
     arguments = parser.parse_args()
+    if arguments.operation == "supported-flags":
+        print(json.dumps(SUPPORTED_FLAGS, sort_keys=True, separators=(",", ":")))
+        return
     state = read_state()
     if arguments.operation == "status":
         print(json.dumps(state, sort_keys=True, separators=(",", ":")))
@@ -314,7 +445,7 @@ def run_operation() -> None:
 def main() -> None:
     try:
         run_operation()
-    except (OSError, RuntimeError, json.JSONDecodeError):
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError):
         raise SystemExit("foundation operation failed") from None
 
 

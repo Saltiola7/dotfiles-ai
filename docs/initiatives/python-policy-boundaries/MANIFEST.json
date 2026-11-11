@@ -1,0 +1,404 @@
+{
+  "schema_version": 1,
+  "id": "python-policy-boundaries",
+  "title": "Python policy boundaries",
+  "state": "discovering",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "Make existing pure PM frontmatter and sanitized-envelope policy boundaries explicit inside standalone pmctl as the first independent source slice.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/features/python-policy-boundaries.md"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "kind": "decision",
+      "text": "Use the approved staged existing-context map: PM first, lifecycle after its gate repair, validation after its storage repairs, and offline DKS deferred.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "kind": "constraint",
+      "text": "Preserve accepted and rejected inputs, exception types and text, validation order, finding order, CLI output, canonical serialization and original-byte digest identity.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/features/python-policy-boundaries.md"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "kind": "requirement",
+      "text": "Distinguish raw decoded objects, syntax-approved frontmatter, safety-approved envelopes and source-contract-approved envelopes through runtime validation and honest types.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/features/python-policy-boundaries.md"
+      ]
+    },
+    {
+      "id": "INT-005",
+      "kind": "decision",
+      "text": "Select pinned ty 0.0.95 for complete affected production and test files in the root test environment, with explicit extensionless paths and Python 3.12 target.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/PROFILE.md"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "kind": "decision",
+      "text": "Select Hypothesis 6.170.14 as a test-only dependency with bounded deterministic per-property settings and durable synthetic counterexamples.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/PROFILE.md",
+        "docs/specs/pm_kernel/features/python-policy-boundaries.md"
+      ]
+    },
+    {
+      "id": "INT-007",
+      "kind": "requirement",
+      "text": "Reconcile every changed or new Python artifact and fixture; distinguish analyzed population, diagnostic cleanliness and unknown or suppression exposure.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/PROFILE.md"
+      ]
+    },
+    {
+      "id": "INT-008",
+      "kind": "constraint",
+      "text": "Keep Python >=3.12, stdlib-only installed PM runtime and standalone source/installed CLI placement; add no companion module or schema migration.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/PROFILE.md",
+        "docs/specs/pm_kernel/features/python-policy-boundaries.md"
+      ]
+    },
+    {
+      "id": "INT-009",
+      "kind": "constraint",
+      "text": "Keep Discovery ticket-blind and use only synthetic property inputs and disposable fake adapters; actual PM data, credentials and private runtime evidence remain outside public artifacts.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/features/python-policy-boundaries.md",
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-010",
+      "kind": "decision",
+      "text": "Deliver the first PM slice as source-only draft PR without managed installation, live reporting, database activation or independent release.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/PROFILE.md",
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-011",
+      "kind": "requirement",
+      "text": "Use existing kernel, review and maintenance gates plus reasoned source-only completion-gate non-applicability; no new lifecycle or checker gate subsystem.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/PM-SOURCE.plan.json"
+      ]
+    },
+    {
+      "id": "INT-012",
+      "kind": "constraint",
+      "text": "Require publication checks, committed complete document closure, fresh receipt, native checkout preflight and separate exact launch approval before registration.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-013",
+      "kind": "requirement",
+      "text": "Reconcile integrated PY-02 gate-evidence invalidation before discovering lifecycle identity types and remaining policy properties; do not duplicate its transition extraction.",
+      "disposition": "blocked",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-014",
+      "kind": "requirement",
+      "text": "Reconcile integrated PY-03 journal storage and PY-04 observation reservations before discovering remaining validation policy types and properties.",
+      "disposition": "blocked",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-015",
+      "kind": "constraint",
+      "text": "Any later validation extraction must preserve runner consumers and exception identity and include the effective policy-module closure in cache identity.",
+      "disposition": "deferred",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-016",
+      "kind": "requirement",
+      "text": "Consider pure DKS chunking and ranking offline only after active slices finish; keep the retired runtime disabled.",
+      "disposition": "deferred",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-017",
+      "kind": "non-goal",
+      "text": "Do not implement other audit repairs, reactivate DKS, access model services, install tools during Discovery, or alter shared lifecycle routing.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-018",
+      "kind": "constraint",
+      "text": "Keep DKS canonical JSONL and PM sanitized-envelope contracts separate and preserve their existing bounded-context ownership.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-019",
+      "kind": "requirement",
+      "text": "Establish checker setup, environment resolution and diagnostic conflict census before remediation; setup success never masks a required typing failure.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/PROFILE.md"
+      ]
+    },
+    {
+      "id": "INT-020",
+      "kind": "requirement",
+      "text": "Maintain selected tool pins, reviewed counterexamples, source rollback and separate managed-install obligations through the existing owners.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/pm_kernel/features/python-policy-boundaries.md"
+      ]
+    },
+    {
+      "id": "INT-021",
+      "kind": "constraint",
+      "text": "A future physical module-layout or activation change requires approved distribution scope and source/installed/cache compatibility before implementation.",
+      "disposition": "deferred",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    },
+    {
+      "id": "INT-022",
+      "kind": "non-goal",
+      "text": "Make no speedup, full-repository semantic-review, whole-repository typing or runtime-qualification claim from this Discovery.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "id": "pm_kernel",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "dbsctr_v3_lifecycle",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "approved",
+      "depends_on": []
+    },
+    {
+      "id": "continuous_validation",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "approved",
+      "depends_on": []
+    },
+    {
+      "id": "dbsctr_knowledge_store",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "deferred",
+      "depends_on": []
+    }
+  ],
+  "slices": [
+    {
+      "id": "pm-source",
+      "context": "pm_kernel",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-001",
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-009",
+        "INT-010",
+        "INT-011",
+        "INT-012",
+        "INT-017",
+        "INT-018",
+        "INT-019",
+        "INT-020",
+        "INT-022"
+      ],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md",
+        "docs/initiatives/python-policy-boundaries/PM-SOURCE.plan.json",
+        "docs/specs/pm_kernel/features/python-policy-boundaries.md",
+        "docs/specs/pm_kernel/PROFILE.md",
+        "docs/specs/pm_kernel/README.md",
+        "docs/specs/pm_kernel/PRODUCT.md",
+        "docs/specs/pm_kernel/CHANGELOG.md"
+      ],
+      "release_group": "pm-policy"
+    },
+    {
+      "id": "gate-repair-readiness",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "blocked",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-013"
+      ],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ],
+      "release_group": "lifecycle-policy"
+    },
+    {
+      "id": "lifecycle-source",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "blocked",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-002",
+        "INT-003",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-009",
+        "INT-012",
+        "INT-013"
+      ],
+      "depends_on": [
+        "pm-source",
+        "gate-repair-readiness"
+      ],
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ],
+      "release_group": "lifecycle-policy"
+    },
+    {
+      "id": "storage-repair-readiness",
+      "context": "continuous_validation",
+      "state": "blocked",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-014"
+      ],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ],
+      "release_group": "validation-policy"
+    },
+    {
+      "id": "validation-source",
+      "context": "continuous_validation",
+      "state": "blocked",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-002",
+        "INT-003",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-009",
+        "INT-012",
+        "INT-014",
+        "INT-015"
+      ],
+      "depends_on": [
+        "lifecycle-source",
+        "storage-repair-readiness"
+      ],
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ],
+      "release_group": "validation-policy"
+    },
+    {
+      "id": "dks-offline-source",
+      "context": "dbsctr_knowledge_store",
+      "state": "deferred",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-002",
+        "INT-006",
+        "INT-016",
+        "INT-018",
+        "INT-021"
+      ],
+      "depends_on": [
+        "validation-source"
+      ],
+      "artifacts": [
+        "docs/initiatives/python-policy-boundaries/README.md"
+      ],
+      "release_group": "dks-offline-policy"
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "pm-policy",
+      "members": [
+        "pm-source"
+      ],
+      "state": "ready"
+    },
+    {
+      "id": "lifecycle-policy",
+      "members": [
+        "gate-repair-readiness",
+        "lifecycle-source"
+      ],
+      "state": "blocked"
+    },
+    {
+      "id": "validation-policy",
+      "members": [
+        "storage-repair-readiness",
+        "validation-source"
+      ],
+      "state": "blocked"
+    },
+    {
+      "id": "dks-offline-policy",
+      "members": [
+        "dks-offline-source"
+      ],
+      "state": "deferred"
+    }
+  ]
+}

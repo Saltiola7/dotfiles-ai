@@ -1,7 +1,7 @@
 #!/bin/bash
 
 set -euo pipefail
-{{ if not (or (eq .chezmoi.os "darwin") .dotfiles_ai.linux_workstation.enabled) -}}
+{{ if not (or (eq .chezmoi.os "darwin") .dotfiles_ai.linux_workstation.enabled .dotfiles_ai.remote_user_environment.enabled) -}}
 exit 0
 {{ end -}}
 
@@ -21,6 +21,12 @@ trap '/bin/rm -f "$temporary"' EXIT
 /bin/mkdir -p "${destination%/*}"
 /bin/chmod 0644 "$temporary"
 if [[ -f "$destination" ]] && /usr/bin/cmp -s "$temporary" "$destination"; then
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+    "$HERDR" integration install opencode
+{{ end -}}
     exit 0
 fi
 /bin/mv -f "$temporary" "$destination"
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+"$HERDR" integration install opencode
+{{ end -}}

@@ -1,0 +1,13 @@
+[Unit]
+Description=Selected default Herdr TUI server
+After=opencode-shared.service
+Wants=opencode-shared.service
+
+[Service]
+Type=exec
+UMask=0077
+ExecStart=%h/.local/bin/remote-herdr exec-tui
+KillMode=control-group
+TimeoutStopSec=30s
+# Deliberately not enabled or restarted independently: only the serialized
+# selected-runtime controller starts this unit. Core has its own transient owner.

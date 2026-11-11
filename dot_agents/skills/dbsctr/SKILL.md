@@ -1,7 +1,6 @@
 ---
 name: dbsctr
 description: Deliver behavior and downstream-visible changes through the DBSCTR V3 development kernel and every applicable review, release, deployment, operations, maintenance, and retirement gate.
-trigger: /dbsctr
 ---
 
 # DBSCTR V3
@@ -18,6 +17,12 @@ validation, contract, or downstream-visible changes. Skip trivial, formatting,
 git-only, dependency-only, or non-behavioral configuration work unless invoked.
 
 ## Start
+
+Invocation activates DBSCTR for the conversation, including its specialist router.
+Load canonical `caveman` full and `ponytail` full once through native discovery or
+the bundled resolver; reuse relevant loaded guidance. Missing canonical guidance
+is `canonical_skill_unavailable`, not a successful load or permission to copy a
+substitute. Skill activation does not grant external-action authority.
 
 1. Read project instructions, matching specs/ADRs, configured validation, and
    relevant source. Reuse existing artifacts.
@@ -62,6 +67,9 @@ authority before mutation; changed state requires fresh preflight and approval.
 Resume an already registered matching cycle without renewed registration consent.
 Local same-repository Discovery does not need its own published upstream or
 separate documentation PR for draft delivery.
+Within an Initiative, preserve Discovery's approved contracts, acceptance criteria
+and scope. Material implementation findings reopen Discovery readiness before
+those normative artifacts change.
 
 Load only matching modules before Domain. Multiple modules may apply.
 
@@ -160,6 +168,8 @@ Consider phases in dependency order; each consumes the prior artifact. Iterate
 back when examples or tests reveal a domain, behavior, interface, or contract
 error. Routine work may compress adjacent artifacts when existing stable context
 and focused evidence already cover them; no concern is skipped silently.
+Read the relevant sections and reuse stable artifacts rather than reloading or
+rewriting them for each small change. Artifact review does not require an edit.
 
 ### 1. Domain
 
@@ -245,6 +255,13 @@ operator authorization and its blocking managed user pre-remove hook:
 24 hours; failed gates, unknown delivery, dirty/private data or unavailable
 process evidence block removal. Never bypass hooks, force removal, delete branches
 automatically or garbage-collect shared caches. DBSCTR cleanup is retired.
+
+Keep operational evidence private in the existing common-Git-directory store or
+verified ignored/external scratch storage. Keep credentials, transcripts, private
+URLs, environment values and machine paths out of shared Git evidence; publish
+checked summaries and relevant reproducible tests. Gitignore is not redaction or
+model/service disclosure approval. Preserve existing output filtering and use the
+repository's publication authority rather than creating another evidence store.
 
 DVC worktrees start code-only. Explicit `worktree-dvc-setup --cache PATH` selects
 the repository-scoped external cache and reflink-only mode; `--check` verifies
@@ -363,9 +380,12 @@ applicable Capability Requirement.
 
 ## Delegation And OpenCode
 
-Follow managed AGENTS guidance once; avoid phase-by-phase prompt injection or
-copied skill bodies. After compaction, re-read committed Initiative authority and
-preserve opaque native state. Tool/delegation budgets never waive gates, privacy,
+Load relevant skill guidance once; avoid phase-by-phase prompt injection or
+copied skill bodies. Re-read and validate current committed Initiative authority
+after compaction; use its manifest with `dbsctrctl initiative-check --manifest`
+and obtain a fresh `initiative-receipt --manifest` before launch. Missing, invalid
+or stale authority blocks readiness. Preserve opaque native state;
+tool/delegation budgets never waive gates, privacy,
 evidence or exact approvals; report unavailable capability rather than invent it.
 
 DBSCTR retains the current primary and may delegate bounded helpers under native
@@ -381,14 +401,6 @@ Plan is read-only and ends with a Build Handoff. Build verifies source and
 artifact freshness before writing. Request the mode change in the same conversation,
 not another checkout/session as a workaround. Todos hold current state; specs and
 Git are durable authority. File access never overrides lifecycle authorization.
-
-Follow the managed current-conversation handoff order before separately authorized
-retirement: preserve work, synchronize a unique safe primary, use the current
-native session move, then check quiescence/preservation from outside the old checkout.
-Keep prior successful move evidence if cleanup fails; never manufacture a session
-for idle completed work. A native session move is not CLI actor authentication;
-unavailable proof retains work, never a shell/API identity workaround. Installed
-history/attachment/compaction qualification remains a separate activation gate.
 
 ## Critical-Path Profiling And Safe Concurrency
 
@@ -438,7 +450,8 @@ files. After one gate or a small adjacent gate group passes:
 3. Stage only intended files; never stage secrets, unrelated drift, or known
    failing required work.
 4. Create one atomic Gate Commit with `dbsctrctl gate-commit --gates ...`; the
-   helper rejects incomplete associated gates. Use the repository convention. Combine tiny
+   helper rejects incomplete associated gates. Use `caveman-commit` for message
+   formatting, preserving required repository metadata and trailers. Combine tiny
    adjacent gates when separate commits would add noise; skip gates with no file
    changes.
 5. Verify the commit and remaining worktree state before continuing.
@@ -456,13 +469,22 @@ matches Final Push HEAD.
 The primary alone stages, commits, and pushes. If hooks reject a commit, fix the
 issue and create a new commit; never bypass hooks or rewrite published history.
 
-After all required gates pass, perform one Final Push with `dbsctrctl final-push`
+After all required gates pass and the operator's goal or approved delivery plan
+authorizes publication, perform one Final Push with `dbsctrctl final-push`
 without another confirmation when the worktree is clean and only cycle-owned
-commits are ahead. The user's standing DBSCTR policy authorizes only the recorded
+commits are ahead. The authorized delivery scope covers only the recorded
 feature-branch push and verified draft pull request into the protected base
 branch; direct cycle delivery to `main` is prohibited. Verify synchronization and
 report pushed commit IDs plus the draft pull-request URL. Draft delivery leaves
 the recorded original checkout untouched.
+
+If the operator already merged a GitHub PR externally, use
+`dbsctrctl complete-external --pr-number NUMBER --expected-head OID --expected-merge OID`
+after the existing completion gates pass. `--preview` verifies without completing;
+`--cycle-id ID` verifies/retries an already externally completed record. The helper
+checks authenticated PR identity and exact-tree delivery, including a squash,
+while retaining source/evidence and granting no cleanup authority. Never rerun
+Final Push to recreate an already merged PR or hand-edit its cycle to completed.
 
 Stop before push when HEAD is detached, no upstream exists, the destination
 changed, pre-cycle ahead commits would be included, required evidence failed,

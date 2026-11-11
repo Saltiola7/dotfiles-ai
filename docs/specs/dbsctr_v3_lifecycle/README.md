@@ -1,5 +1,58 @@
 # DBSCTR V3 Lifecycle
 
+[Retained cross-repository Initiative authority](features/cross-repository-initiative-amendment.md)
+extends the amendment route for a separate coordinator checkout without importing
+its documents into the Build repository. Exact approval, retained native custody,
+fresh gates and a local Engineering Profile checkpoint remain required.
+
+Supervised mechanical CI repair accounting is specified in
+[`features/supervised-ci-repairs.md`](features/supervised-ci-repairs.md).
+It is independent of automatic integration policy, grants no merge or gate
+authority and requires separate reviewed managed activation before consumer use.
+
+[Evidence rerun invalidation](features/gate-evidence-invalidation.md) specifies
+the PY-02 repair: replacing a disposed gate with failed or unavailable evidence
+reopens later required passed gates, even when the source HEAD is unchanged.
+Historical evidence, current exception rules, schema compatibility and command
+admission remain intact. Evidence and manual result replacement share the same
+internal transition policy. Source validation and managed installation remain
+separate claims.
+
+The [PY-09 measurement foundation](features/python-performance.md#py-09-measurement-only-foundation)
+adds opt-in synthetic CLI benchmarks and shared evidence before optimization.
+The CLI foundation is implemented as repository-owned stdlib tooling. Retained-CI
+analysis and isolated snapshot-memory evidence remain dependent source slices,
+owned by distribution and continuous-validation respectively. No measured gain
+or runtime activation is claimed.
+
+Run from a clean committed checkout with an existing supported Python interpreter
+and qualified native Git. Choose a fresh private output directory outside the
+checkout; resolving the temporary parent avoids symlinked system temporary paths:
+
+```sh
+output_parent="$(python -c 'import pathlib, tempfile; print(pathlib.Path(tempfile.mkdtemp()).resolve())')"
+python tests/benchmarks/python_performance.py cli --source-tree . --output "$output_parent/baseline"
+python tests/benchmarks/python_performance.py report --input "$output_parent/baseline/timing-1-help.json" --output "$output_parent/report"
+```
+
+The default run measures eight workload/history cells in separate timing and
+Git-count cohorts, with one warmup and ten recorded attempts per cell. `--smoke`
+uses one recorded attempt and does not satisfy a full baseline. `--profile` adds
+a separate attribution cohort and retains private profiles. Repeat `--input` to
+validate more records; reports keep input files separate and mark authenticity
+unverified. Raw output, paths and profiles remain private. The runner refuses
+changed source/tool identities, unsafe paths or unqualified Git configuration;
+it never installs tools, activates the harness or profiles private stores.
+Standard system Git LFS definitions are accepted only with fresh proof that no
+path selects a filter. Active filters, altered definitions and submodule sources
+remain unavailable; the runner never edits host Git configuration to qualify.
+
+The [behavior-preserving Python performance specification](features/python-performance.md)
+owns the current source-only optimization tranche: query scaling, bounded
+optional telemetry, diagnostic correctness, profiling and compatible CI/startup
+evaluation. Its implementation and performance gains remain pending; existing
+harness behavior and activation authorities are unchanged.
+
 [Platform and language specialists](features/platform-specialists.md) extends
 conditional selection to shell, host/container/cloud operations, async Python,
 modernization review and Mojo while preserving existing lifecycle and QA ownership.
@@ -126,6 +179,17 @@ to configure native profiles and signing for normal lifecycle commits. Git
 configuration supplies these defaults; this reference adds no lifecycle policy,
 record schema, or runtime identity checks. Inspect the effective settings in the
 actual checkout before committing.
+
+## Completion after an external merge
+
+The [external completion contract](features/external-merge-completion.md) adds
+`complete-external --pr-number NUMBER --expected-head OID --expected-merge OID`.
+It reconciles an already merged GitHub PR with the retained cycle source, including
+an identical-tree squash, without pushing or creating another draft. Existing
+completion gates, evidence and source ownership remain required. `--preview`
+verifies without completing; `--cycle-id` verifies/retries an already externally
+completed record. This proof grants no merge, deployment or checkout-removal
+authority and does not change automatic delivery's merge-only execution contract.
 
 ## Forgejo local-only source interface
 
@@ -459,7 +523,11 @@ has not been qualified. This source implementation does not qualify live cutover
 [Early delivery checks](features/early-delivery-checks.md) require the existing
 publication authority before Discovery handoff, include downstream instruction
 tests, and distinguish bounded editorial remediation from material readiness
-changes. Exact approval and provenance requirements remain unchanged.
+changes. Full hosted pytest lanes use four bounded partitions with exact
+collection/execution reconciliation and an always-run, fail-closed native required
+check. Existing runtime/tool lanes, test outcomes, 90-minute worker bounds and
+native merge protections remain. Exact approval and provenance requirements
+remain unchanged.
 
 Checkout-independent continuation and explicit unfinished-cycle release have
 [approved corrective Discovery](../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md).
@@ -784,12 +852,13 @@ ledger.
 
 ### Feature: OpenCode Entry Points
 
-**Scenario: Route lifecycle work to V3**
-- Given OpenCode reads the managed global routing instructions
-- When a request changes behavior, contracts, schemas, validation, services,
-  pipelines, orchestration, or downstream-visible output
-- Then OpenCode loads the unversioned `dbsctr` skill
-- And it loads `discovery` first when intent or the bounded context is unclear
+**Scenario: Activate lifecycle work explicitly**
+- Given native global instructions follow the
+  [shared activation contract](../dotfiles_ai_distribution/features/global-agent-instructions.md)
+- When a request could benefit from lifecycle orchestration
+- Then the agent suggests DBSCTR and waits for the operator's decision
+- And an explicit `/dbsctr` request activates the unversioned skill for the conversation
+- And activated DBSCTR selects its applicable dependencies and specialists
 
 **Scenario: Invoke public commands**
 - Given the managed commands are deployed
@@ -2779,7 +2848,7 @@ tool and provider examples and load only when useful.
 | `dbsctrctl graphify-check` | Run a selected adapter in a disposable worktree and retain a private receipt | Feature-cycle graph evidence without canonical output mutation |
 | `dbsctrctl batch-finalize` | Close source admission and commit canonical graph output once | Integration-owned Graph Promotion |
 | `dbsctrctl batch-record-dvc-push` | Bind separately approved DVC evidence to the graph commit | Publication readiness for DVC-relevant promotion |
-| `private_dot_config/opencode/AGENTS.md` | Default V3 routing and execution policy | Route lifecycle work to V3 |
+| `.chezmoitemplates/agent-activation.md` | Shared operator-controlled skill activation | Keep lifecycle methods with their skill owners |
 | `docs/_archive/opencode/skills/v2/**` | Non-deployed V2 source history | Preserve V2 as source history only |
 | `.chezmoiremove` | Remove deployed V2 skills and commands | Version migration |
 | `tests/test_dbsctr_lifecycle.py` | Deterministic lifecycle and migration contracts | All static contracts |
@@ -3849,3 +3918,67 @@ opt-in or enqueue failure cannot change the native commit, ledger result, stdout
 or exit status. Status, evidence recording, set-gate and final delivery never
 trigger execution. Only an explicitly running shared worker executes checks;
 shadow evidence grants no lifecycle or delivery authority.
+
+### Installed validation compatibility
+
+The lifecycle helper preserves the managed `validation-checkpoint` and
+`validation-opt-out` commands, `--validation-feedback-target` registration input,
+new-task enrollment and successful Gate Commit routing. These optional commands
+delegate to a separately managed continuous-validation component. Its current
+installed implementation is an external compatibility dependency, not implicit
+qualification of an unfinished producer branch or active executor readiness.
+
+| Given | When | Required outcome |
+|---|---|---|
+| Policy is missing or disabled | Any optional managed action is considered | Return advisory disabled before owner imports, Git access or state writes |
+| Enrollment is explicit-only | Automatic registration is considered | Preserve opt-out; do not import, inspect Git or enqueue work |
+| A genuinely new native registration succeeds | Lifecycle mutation locks close | Attempt optional enrollment once; resume/preflight do not enroll |
+| A durable Gate Commit succeeds | Lifecycle mutation locks close | Route a bounded managed checkpoint, preserving the legacy opt-in fallback |
+| Optional enrollment or enqueue is unavailable | Formal operation finishes | Preserve its actual result, stdout and exit code; emit bounded diagnostics |
+| Recovery, status, evidence, set-gate or final delivery runs | An advisory action could be inferred | Do not enroll, enqueue or execute checks |
+| An enabled action resolves its owner | A source managed CLI exists | Select that source owner; otherwise select the declared installed owner |
+| The selected owner is malformed, fails to import or conflicts with cached modules | Delegation is attempted | Report unavailable without switching owners or mutating formal gate results |
+
+Owner selection requires the actual managed `continuous_validation/cli.py` file;
+a directory containing older checkpoint code is insufficient. Resolve the
+selected package once, require regular `__init__.py` and `cli.py` files before
+import, validate cached/imported modules belong to it, and do not
+fall back after selection. Keep legacy checkpoint routing and native offline
+lineage admission intact. Retaining a disabled feature does not activate it.
+
+| Boundary / direction | Contract and authority |
+|---|---|
+| Lifecycle registration or Gate Commit to optional producer | Only the post-lock event crosses the boundary; formal gates remain owned by lifecycle |
+| Selected source or installed owner to managed API | The helper forwards typed action fields to the selected component; source identity conflicts remain unavailable |
+| Accepted helper to managed generation | Owner-supported rendering binds exact retained component files and the accepted helper; actual generation verification checks readback |
+
+The separate targeted rollout must preserve the exact retained component,
+dependency files, other entrypoints, platform/state root, controller flag and
+policy. Reconcile the helper's changed digest through the existing generation
+renderer and managed template, including its derived generation identity; do not
+edit a stored digest manually. A reviewed private component assembly may retain
+existing external bytes for this bounded reconciliation. It does not authorize
+producer-cycle mutation, broader installation, controller loading, policy
+activation or live task execution. Retain separate source/installed preimages and
+refuse drift; repeat the scoped managed diff and actual generation verification.
+After any recovered record exists, rollback must retain compatible readers and
+custody guards.
+
+**Text Equivalent:** Optional validation remains a separate advisory owner.
+Missing or disabled policy is inert. Only successful registration and durable
+Gate Commit produce their declared events after formal locks close. Selection
+binds one real managed owner, and its failures confer no gate or delivery power.
+Managed rollout preserves the external component and uses its generation owner
+to bind the accepted helper. Canonical source: the behavior and boundary tables
+in this subsection. Dependency/deployment uses the generation handoff row.
+Owner: lifecycle and continuous-validation maintainers.
+Update trigger: command surface, enrollment, routing, owner, generation or rollout
+compatibility changes. Boundary, interaction, state and data/trust concerns use
+these tables; schema is unchanged and quantitative evidence is not applicable.
+
+## Explicit historical lineage recovery
+
+The [audited lineage recovery feature](features/lineage-recovery.md) specifies a
+critical, digest-bound recovery transaction for omitted historical documentation
+commits and exact accepted-base merges in registered schema-5 Initiative cycles.
+It grants no gate credit and preserves normal delivery guards and private history.

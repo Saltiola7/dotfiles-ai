@@ -20,6 +20,17 @@ enabled = false
 [dotfiles_ai.codex]
 channel = "stable"
 
+[dotfiles_ai.jfrog_cli]
+enabled = false
+
+[dotfiles_ai.prefect_mcp]
+enabled = false
+profiles_path = ""
+profile = ""
+api_url = ""
+api_auth_string_env = ""
+api_key_env = ""
+
 [dotfiles_ai.cline_desktop]
 enabled = false
 
@@ -43,8 +54,11 @@ default_model = "openai/gpt-6-astra"
 small_model = "openai/gpt-6-luna"
 lmstudio_base_url = "http://127.0.0.1:1234/v1"
 theme = "catppuccin"
+# Empty preserves local tabs.mode; explicit values: auto, on, off.
+tab_bar_mode = ""
 
 [dotfiles_ai.herdr]
+runtime = "tui"
 theme = "catppuccin"
 agent_panel_sort = "priority"
 launchagent = true
@@ -77,6 +91,12 @@ server_enabled = false
 enabled = false
 ssh = false
 
+[dotfiles_ai.herdr_core]
+version = "0.1.18"
+archive_url = "https://releases.herdr.dev/core/0.1.18/herdr-core-linux-x86_64.tar.gz"
+archive_sha256 = "5b2f97cb4b2a9d7a6b2cc5942628203ed9fbb7cc0c2b4b09ad8a6f5648e246b7"
+binary_sha256 = "baa9d208d6400556a6e379152455fe1301e0e1acdbc114ff60b79d64425179cf"
+
 [dotfiles_ai.remote_workspace]
 enabled = false
 repository = ""
@@ -84,7 +104,6 @@ project = ""
 zone = ""
 instance = ""
 account = ""
-tailscale_host = ""
 
 # Native Linux desktop, independent of the CentOS remote-user profile.
 [dotfiles_ai.linux_workstation]
@@ -92,6 +111,15 @@ enabled = false
 
 [dotfiles_ai.remote_user_environment]
 enabled = false
+mise_version = "2026.11.2"
+mise_sha256 = "fa4f10af83e7131854ceecdf909fc4e4717c8b4d4eb921cf38451d61f118d267"
+gh_version = "2.103.3"
+gh_archive_sha256 = "4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d"
+gh_binary_sha256 = "b768184570b12536be4ac1528893f6340d1c6a7b40b56ad45bca9cd0e87ad34d"
+uv_version = "0.13.6"
+uv_archive_sha256 = "5d61f26b6c7213779eda90edc6971ea6b0b796bfb8d49a574c8ad69b59838548"
+uv_binary_sha256 = "f56ca7e29e708e20ed6b96f9a8cb89ac45129239c6166481cc3ae3cbab286a0f"
+prefect_python_version = "3.13.18"
 
 [dotfiles_ai.rnd]
 enabled = false

@@ -17,6 +17,13 @@ from test_herdr_launchagent import ROOT, _render_herdr_script
 SCRIPT = ROOT / "dot_local/bin/executable_herdr-opencode-restore"
 
 
+@pytest.fixture(autouse=True)
+def isolated_recovery_home(tmp_path, monkeypatch):
+    home = tmp_path / 'recovery-home'
+    home.mkdir()
+    monkeypatch.setenv('HOME', str(home))
+
+
 def entry(tmp_path, state=None):
     value = {"pane_id": "w1:p1", "directory": str(tmp_path), "session_id": "ses_saved"}
     if state:
