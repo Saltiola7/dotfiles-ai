@@ -122,9 +122,15 @@ def cycle(monkeypatch, request, capsys):
         return original_git(target, *arguments, **kwargs)
 
     monkeypatch.setattr(core, "git", git_at_transport)
+    plan_path = fixture.plan_path("draft_pr")
+    if getattr(request, "param", None) == "source-only":
+        plan = json.loads(plan_path.read_text())
+        for gate in ("deploy", "operate"):
+            plan["gates"][gate] = {"applicability": "not_applicable", "reason": "Source-only synthetic delivery."}
+        plan_path.write_text(json.dumps(plan))
     args = core.parser().parse_args([
         "start", "--cycle-id", "cycle-1", "--context", "test", "--risk", "routine",
-        "--delivery-intent", "draft_pr", "--plan", str(fixture.plan_path("draft_pr")),
+        "--delivery-intent", "draft_pr", "--plan", str(plan_path),
         "--base-branch", "main", "--github-account", ACCOUNT,
         "--github-repository", REPOSITORY,
     ])
@@ -172,7 +178,7 @@ def ready(cycle, monkeypatch, capsys):
             arguments.extend(["--path", "docs/specs/test/CHANGELOG.md"])
         core.command_review(core.parser().parse_args(arguments))
     for gate in core.GATES:
-        if gate not in {"domain", "release"}:
+        if gate != "domain" and core.load(root)[1]["gates"][gate]["applicability"] == "required":
             record_evidence(cycle, gate)
     cycle.head = core.git(root, "rev-parse", "HEAD").stdout.strip()
     cycle.tree = core.git(root, "rev-parse", "HEAD^{tree}").stdout.strip()
@@ -739,7 +745,8 @@ def test_existing_draft_delivery_receipt_is_preserved_or_conflict_rejected(ready
     }
 
 
-def test_interrupted_pointer_removal_retries_durable_completion_without_rewriting(ready, monkeypatch, capsys):
+@pytest.mark.parametrize("advance_target", [False, True])
+def test_interrupted_pointer_removal_retries_durable_completion_without_rewriting(ready, monkeypatch, capsys, advance_target):
     pointer = ready.core.resolved_active_path(ready.root, bindings=False)
     original = Path.unlink
 
@@ -757,6 +764,11 @@ def test_interrupted_pointer_removal_retries_durable_completion_without_rewritin
     assert record["state"] == "completed"
     assert record["external_completion"]["merge"] == ready.merge
     assert pointer.read_text() == "cycle-1\n"
+    if advance_target:
+        later_tree = rebased_tree(ready, ready.head, extra="Unrelated later target work\n")
+        later = ready.core.git(ready.root, "commit-tree", later_tree, "-p", ready.merge,
+                               "-m", "Later unrelated target change").stdout.strip()
+        ready.core.git(ready.root, "update-ref", "refs/remotes/origin/main", later)
     assert ready.invoke(*arguments(ready, "--cycle-id", "cycle-1")) == 0
     assert json.loads(capsys.readouterr().out) == record["external_completion"]
     assert ready.path.read_bytes() == durable

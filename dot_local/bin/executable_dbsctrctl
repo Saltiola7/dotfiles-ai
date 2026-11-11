@@ -12,6 +12,7 @@ import fcntl
 import fnmatch
 import functools
 import hashlib
+import hmac
 import io
 import json
 import math
@@ -3187,6 +3188,10 @@ def read_cycle_record(root, path, label="Cycle Record", *, historical=False, max
                 fail("invalid lineage recovery custody")
     if "external_completion" in record:
         validate_external_completion(record)
+    if "completion_reconciliation" in record:
+        with local_completion_git_context():
+            validate_completion_reconciliation(root, record)
+    validate_record_evidence_bindings(root, record)
     return record
 
 
@@ -3276,7 +3281,7 @@ def validate_schema6_record(root, record):
     if (not isinstance(profile, dict) or set(profile) != {"path", "blob"} or not oid(profile["blob"])
             or not isinstance(profile["path"], str) or not profile["path"].startswith("docs/specs/")
             or not isinstance(plan, dict) or not {"profile", "gates"} <= set(plan)
-            or not set(plan) <= {"profile", "gates", "graphify"} or plan["profile"] != profile["path"]
+            or not set(plan) <= {"profile", "gates", "graphify", "evidence_policy"} or plan["profile"] != profile["path"]
             or not isinstance(record["gates"], dict) or set(record["gates"]) != set(GATES)
             or not isinstance(plan["gates"], dict) or set(plan["gates"]) != set(GATES)):
         fail("invalid local-only profile or gate plan")
@@ -3292,7 +3297,8 @@ def validate_schema6_record(root, record):
                 or (gate["applicability"] == "required" and gate["result"] == "not_run")
                 or ("exception" in gate and not valid_gate_exception(gate))):
             fail("invalid local-only gate state")
-    if (not isinstance(record["evidence"], dict) or set(record["evidence"]) != {"version", "items"}
+    if (not isinstance(record["evidence"], dict) or not {"version", "items"} <= set(record["evidence"])
+            or not set(record["evidence"]) <= {"version", "items", "bindings"}
             or type(record["evidence"]["version"]) is not int or record["evidence"]["version"] != 1
             or not isinstance(record["evidence"]["items"], dict)
             or not isinstance(record["artifact_reviews"], dict) or set(record["artifact_reviews"]) != set(ARTIFACTS)
@@ -3313,7 +3319,7 @@ def validate_schema6_record(root, record):
     for identifier, item in record["evidence"]["items"].items():
         fields = {"id", "gate", "authority", "argv", "paths", "head", "started_at", "finished_at",
                   "result", "raw", "summary", "urls", "content"}
-        if (not isinstance(item, dict) or not fields <= set(item) or not set(item) <= fields | {"commit"}
+        if (not isinstance(item, dict) or not fields <= set(item) or not set(item) <= fields | {"commit", "absences"}
                 or not isinstance(identifier, str) or not re.fullmatch(r"ev-[0-9a-f]{32}", identifier)
                 or item["id"] != identifier or item["gate"] not in GATES
                 or item["result"] not in {"passed", "failed", "unavailable"}
@@ -3332,6 +3338,7 @@ def validate_schema6_record(root, record):
         initiative_paths(list(item["paths"]), "local-only evidence paths")
         if any(value is not None and not oid(value) for value in item["paths"].values()):
             fail("invalid local-only evidence blob")
+        verify_evidence_absences(root, item)
         content = item["content"]
         if not isinstance(content, dict):
             fail("invalid local-only evidence content")
@@ -3585,6 +3592,7 @@ def save(path, record):
             validate_schema6_record(root_dir(), record)
         except (KeyError, TypeError, ValueError, AttributeError):
             fail("invalid local-only outgoing Cycle Record")
+    validate_record_evidence_bindings(root_dir(), record)
     atomic_json(path, record)
 
 
@@ -4980,11 +4988,62 @@ def amendment_local_profile(root, profile, blob):
     return closure
 
 
+def evidence_policy_revision(before, policy, receipt):
+    validate_evidence_policy(policy, before["gates"], receipt["requirements"])
+    previous = effective_evidence_policy(before)
+    old_ids = set(effective_initiative(before)["requirements"])
+    new_ids = set(receipt["requirements"])
+    dispositions = {}
+    for identifier in sorted(old_ids | new_ids):
+        if identifier not in old_ids:
+            dispositions[identifier] = "added"
+        elif identifier not in new_ids:
+            dispositions[identifier] = "superseded"
+        elif previous is not None:
+            old, new = previous["requirements"][identifier], policy["requirements"][identifier]
+            structural = (set(old["depends_on"]) != set(new["depends_on"]) or set(old["gates"]) != set(new["gates"]))
+            if structural and old["revision"] == new["revision"]:
+                fail("changed requirement dependency or gate coverage needs a new semantic revision")
+            dispositions[identifier] = "changed" if structural or old["revision"] != new["revision"] else "unchanged"
+        else:
+            dispositions[identifier] = "unchanged"  # Intent correspondence only; legacy evidence has no binding.
+    return {"schema_version": 1, "kind": "revise" if previous is not None else "enroll",
+            "previous_policy_digest": continuation_digest(previous) if previous is not None else None,
+            "policy_digest": continuation_digest(policy), "policy": policy, "requirement_dispositions": dispositions}
+
+
+def evidence_policy_affected_gates(before, revision):
+    previous, current = effective_evidence_policy(before), revision["policy"]
+    required = {name for name, gate in before["gates"].items() if gate["applicability"] == "required"}
+    if previous is None:
+        return required
+    changed = {name for name, disposition in revision["requirement_dispositions"].items() if disposition != "unchanged"}
+    affected = set()
+    for gate in required:
+        if (gate not in previous["gates"] or gate not in current["gates"]
+                or evidence_gate_policy_digest(previous, gate) != evidence_gate_policy_digest(current, gate)
+                or before["gates"][gate].get("evidence") not in before.get("evidence", {}).get("bindings", {})):
+            affected.add(gate)
+            changed.update(name for policy in (previous, current) for name, item in policy["requirements"].items()
+                           if gate in item["gates"])
+    while True:
+        dependants = {name for policy in (previous, current) for name, item in policy["requirements"].items()
+                      if set(item["depends_on"]) & changed}
+        if dependants <= changed:
+            break
+        changed |= dependants
+    affected.update(gate for policy in (previous, current) for name in changed
+                    for gate in policy["requirements"].get(name, {}).get("gates", []))
+    return affected & required
+
+
 def amendment_replacement(before, entry):
     replacement = json.loads(json.dumps(before))
     replacement.setdefault("initiative_amendments", []).append(entry)
-    for gate in replacement["gates"].values():
-        if gate["applicability"] == "required":
+    affected = (evidence_policy_affected_gates(before, entry["evidence_policy_revision"])
+                if entry.get("schema_version") == 3 else set(replacement["gates"]))
+    for name, gate in replacement["gates"].items():
+        if gate["applicability"] == "required" and name in affected:
             gate["result"] = "pending"
             gate.pop("evidence", None)
             gate.pop("exception", None)
@@ -5066,8 +5125,10 @@ def validate_initiative_amendments(root, record):
               "preimage_locator", "launch_digest", "reason", "approval_method", "approved_at", "plan_digest",
               "envelope_sha256", "envelope_locator"}
     for index, entry in enumerate(entries):
-        if (not isinstance(entry, dict) or set(entry) != fields or type(entry["schema_version"]) is not int
-                or entry["schema_version"] not in (1, 2) or entry["launch_digest"] in digests
+        version = entry.get("schema_version") if isinstance(entry, dict) else None
+        expected_fields = fields | ({"evidence_policy_revision"} if version == 3 else set())
+        if (not isinstance(entry, dict) or set(entry) != expected_fields or type(version) is not int
+                or version not in (1, 2, 3) or entry["launch_digest"] in digests
                 or entry["previous_effective_receipt_digest"] != continuation_digest(prior)
                 or entry["approval_method"] not in {"interactive_cli", "agent_confirmed"}
                 or not isinstance(entry["reason"], str) or not entry["reason"].strip()
@@ -5109,7 +5170,14 @@ def validate_initiative_amendments(root, record):
             fail("invalid Initiative amendment receipt")
         if receipt["schema_version"] == 2:
             validate_local_initiative_receipt(receipt)
-        if entry["schema_version"] == 2:
+        if version == 3:
+            revision = entry["evidence_policy_revision"]
+            if (evidence_policy_revision(before, revision["policy"], receipt) != revision
+                    or plan.get("evidence_policy_revision") != revision):
+                fail("invalid evidence policy amendment revision")
+        elif "evidence_policy_revision" in plan:
+            fail("unversioned evidence policy amendment")
+        if entry["schema_version"] == 2 or version == 3 and plan["schema_version"] == 2:
             if (type(plan.get("schema_version")) is not int or plan["schema_version"] != 2
                     or not isinstance(plan.get("authority"), dict)):
                 fail("invalid cross-repository Initiative amendment")
@@ -5158,7 +5226,9 @@ def validate_initiative_amendments(root, record):
             continue
         identifier = gate.get("evidence")
         item = record["evidence"]["items"].get(identifier)
-        if (identifier in latest_before["evidence"]["items"] or not item
+        retained = (entries[-1]["schema_version"] == 3
+                    and name not in evidence_policy_affected_gates(latest_before, entries[-1]["evidence_policy_revision"]))
+        if (identifier in latest_before["evidence"]["items"] and not retained or not item
                 or item.get("gate") != name or item.get("result") != gate["result"]):
             fail("invalid or stale amended gate evidence")
         if "exception" in gate and (gate["result"] not in {"failed", "unavailable"}
@@ -5195,7 +5265,10 @@ def amendment_fresh_evidence(root, record, identifier):
     if envelopes:
         entry = record["initiative_amendments"][-1]
         before = amendment_json(root, common_git_dir(root) / entry["preimage_locator"])
-        if identifier in before.get("evidence", {}).get("items", {}):
+        retained = (entry["schema_version"] == 3 and any(
+            gate.get("evidence") == identifier and name not in evidence_policy_affected_gates(before, entry["evidence_policy_revision"])
+            for name, gate in before["gates"].items()))
+        if identifier in before.get("evidence", {}).get("items", {}) and not retained:
             fail("gate evidence predates effective Initiative authority")
 
 
@@ -5218,8 +5291,29 @@ def require_amendment_completion(root, record):
     envelopes = validate_initiative_amendments(root, record)
     if not envelopes:
         return
-    digest = record["initiative_amendments"][-1]["launch_digest"]
+    entries = record["initiative_amendments"]
+    digest = entries[-1]["launch_digest"]
     checkpoints = record.get("initiative_authority_checkpoints", [])
+    if entries[-1]["schema_version"] == 3 and entries[-1]["previous_effective_receipt_digest"] == continuation_digest(entries[-1]["receipt"]):
+        # A policy-only enrollment changes no Git document authority. Its exact
+        # approved private source point replaces neither a Gate Commit nor any
+        # earlier authority checkpoint, and creates no execution credit.
+        for entry, envelope in reversed(list(zip(entries, envelopes))):
+            policy_only = (entry["schema_version"] == 3
+                           and entry["previous_effective_receipt_digest"] == continuation_digest(entry["receipt"]))
+            if not policy_only:
+                if not any(checkpoint["launch_digest"] == entry["launch_digest"] and not git(
+                        root, "merge-base", "--is-ancestor", checkpoint["commit"], "HEAD", check=False).returncode
+                           for checkpoint in checkpoints):
+                    fail("earlier Initiative authority needs its exact Gate Commit checkpoint")
+                break
+            point = envelope["plan"]["checkout"]["head"]
+            if (git(root, "merge-base", "--is-ancestor", point, "HEAD", check=False).returncode
+                    or not amendment_tree(root, point, envelope["plan"]["closure"])):
+                fail("policy enrollment source checkpoint unavailable")
+        if not amendment_tree(root, "HEAD", envelopes[-1]["plan"]["closure"]):
+            fail("effective policy authority document closure changed")
+        return
     if (not checkpoints or checkpoints[-1]["launch_digest"] != digest
             or git(root, "merge-base", "--is-ancestor", checkpoints[-1]["commit"], "HEAD", check=False).returncode
             or not amendment_tree(root, "HEAD", envelopes[-1]["plan"]["closure"])):
@@ -5268,7 +5362,8 @@ def amendment_selection(root, args):
     normalized = {"profile": profile, "gates": {name: {k: v for k, v in gate.items()
                    if k in ("applicability", "reason")} for name, gate in gates.items()},
                   **({"graphify": graphify} if graphify else {})}
-    if (normalized != record["applicability_plan"]
+    if ({key: value for key, value in normalized.items() if key != "evidence_policy"}
+            != {key: value for key, value in record["applicability_plan"].items() if key != "evidence_policy"}
             or record["engineering_profile"] != {"path": profile, "blob": blob}):
         fail("Initiative amendment applicability changed")
     retained = amendment_external_authority(str(authority), receipt) if external else None
@@ -5289,12 +5384,15 @@ def amendment_selection(root, args):
     launch = {"schema_version": 2 if external else 1, "cycle_id": args.cycle_id, "receipt": receipt,
               "previous_effective_receipt_digest": continuation_digest(effective_initiative(record)),
               "before_record_sha256": amendment_hash(raw), "plan_digest": args.expected_plan_digest,
-              "applicability_plan": normalized, "risk": record["risk"], "delivery": record["delivery"],
+              "applicability_plan": record["applicability_plan"], "risk": record["risk"], "delivery": record["delivery"],
               "reason": reason, "source_commit": receipt["manifest_commit"], "closure": closure,
               "destination": destination,
               "checkout": amendment_checkout(root, [c["path"] for c in closure])}
     if external:
         launch["authority"] = retained
+    policy = plan.get("evidence_policy", effective_evidence_policy(record))
+    if policy is not None:
+        launch["evidence_policy_revision"] = evidence_policy_revision(record, policy, receipt)
     return path, record, raw, launch
 
 
@@ -5334,8 +5432,6 @@ def initiative_amend_offline(args):
                 durable, digest = True, args.expected_launch_digest
             admitted = read_cycle_record(root, cycle_dir(root) / "cycles" / f"{args.cycle_id}.json")
             lineage_pending_guard(root, admitted)
-            if admitted.get("lineage_recovery"):
-                fail("Initiative amendment after lineage recovery is not supported")
             applied = {e["launch_digest"] for e in admitted.get("initiative_amendments", [])}
             outstanding = set(custody) - applied
             durable = bool(outstanding)
@@ -5354,6 +5450,9 @@ def initiative_amend_offline(args):
             if not args.preflight and previous:
                 envelope = amendment_json(root, common_git_dir(root) / previous["envelope_locator"])
                 original = envelope["plan"]
+                if (previous["schema_version"] == 3 and "evidence_policy_revision" in launch
+                        and launch["evidence_policy_revision"]["policy_digest"] == previous["evidence_policy_revision"]["policy_digest"]):
+                    launch = {**launch, "evidence_policy_revision": original["evidence_policy_revision"]}
                 outcome = amendment_json(root, amendment_location(root, args.cycle_id, expected, "outcome.json"))
                 unchanged = {k: v for k, v in launch.items() if k not in {"before_record_sha256", "previous_effective_receipt_digest"}}
                 bound = {k: v for k, v in original.items() if k not in {"before_record_sha256", "previous_effective_receipt_digest"}}
@@ -5362,8 +5461,13 @@ def initiative_amend_offline(args):
                     durable = False  # Verified history plus normal progress: stale replay, not uncertain custody.
                     fail("stale Initiative amendment replay")
                 return "already_applied", digest
-            if launch["receipt"] == effective_initiative(record):
+            if record.get("lineage_recovery") and "evidence_policy_revision" not in launch:
+                fail("legacy Initiative amendment after lineage recovery is not supported; select qualified policy enrollment")
+            if launch["receipt"] == effective_initiative(record) and "evidence_policy_revision" not in launch:
                 fail("Initiative authority is unchanged")
+            if (launch["receipt"] == effective_initiative(record) and "evidence_policy_revision" in launch
+                    and launch["evidence_policy_revision"]["previous_policy_digest"] == launch["evidence_policy_revision"]["policy_digest"]):
+                fail("Initiative authority and evidence policy are unchanged")
             plan_path = amendment_location(root, args.cycle_id, digest, "plan.json")
             if args.preflight:
                 amendment_write_once(root, plan_path, amendment_bytes(launch))
@@ -5398,7 +5502,9 @@ def initiative_amend_offline(args):
                      "launch_digest": digest, "reason": args.reason, "approval_method": method,
                      "approved_at": envelope["approved_at"], "plan_digest": args.expected_plan_digest,
                      "envelope_sha256": amendment_hash(amendment_bytes(envelope)),
-                     "envelope_locator": str(envelope_path.relative_to(common_git_dir(root)))}
+                      "envelope_locator": str(envelope_path.relative_to(common_git_dir(root)))}
+            if "evidence_policy_revision" in launch:
+                entry.update(schema_version=3, evidence_policy_revision=launch["evidence_policy_revision"])
             replacement = amendment_replacement(record, entry)
             replacement_bytes = amendment_bytes(replacement)
             outcome = {"schema_version": 1, "envelope_sha256": entry["envelope_sha256"],
@@ -5739,7 +5845,8 @@ def validate_lineage_recovery(root, record):
     outcome = amendment_json(root, paths["outcome.json"])
     if type(outcome.get("schema_version")) is not int or outcome != {"schema_version": 1, "replacement": expected.decode(), "replacement_sha256": amendment_hash(expected)}:
         fail("lineage recovery outcome changed")
-    if record.get("initiative_amendments") or record.get("initiative_authority_checkpoints"):
+    if (record.get("initiative_amendments") or record.get("initiative_authority_checkpoints")) and any(
+            entry.get("schema_version") != 3 for entry in record.get("initiative_amendments", [])):
         fail("lineage recovery with Initiative amendment is not supported")
     amendment_progress(replacement, record)
     review = record["gates"]["review_integrate"]
@@ -5964,9 +6071,699 @@ def validate_graphify_selection(root, value, commit="HEAD", require_clean=False)
     return normalized
 
 
+def evidence_policy_paths(values, *, absolute=False):
+    initiative_strings(values, "evidence policy paths")
+    if len(values) > 256:
+        fail("evidence policy path population exceeds bounds")
+    for name in values:
+        path = PurePosixPath(name)
+        if (not path.parts or name != path.as_posix() or name.startswith((":", "//"))
+                or path.is_absolute() and not absolute or "\\" in name
+                or any(char in name for char in "*?[]") or len(name.encode("utf-8")) > 4096
+                or any(part in {".", ".."} for part in path.parts)
+                or any(ord(char) < 32 or ord(char) == 127 for char in name)
+                or urlsplit(name).scheme or urlsplit(name).netloc):
+            fail("evidence policy path is not canonical")
+        if any(part.lower() in SECRET_NAMES or part.lower() == ".env" or part.lower().startswith(".env.")
+               or PurePosixPath(part).suffix.lower() in {".key", ".pem"} for part in path.parts):
+            fail("evidence policy cannot select secret paths")
+
+
+def evidence_policy_argv(value):
+    if (not isinstance(value, list) or not 1 <= len(value) <= 64
+            or any(not isinstance(arg, str) or not arg or "\0" in arg
+                   or len(arg.encode("utf-8")) > 4096 or SECRET_VALUE.search(arg) for arg in value)):
+        fail("invalid evidence policy command")
+
+
+def validate_evidence_policy(value, gates, requirement_ids=None):
+    """Validate declaration shape only; approval/capture remain separate proof."""
+    initiative_fields(value, {"schema_version", "requirements", "gates"}, "evidence policy")
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        fail("unsupported evidence policy version")
+    try:
+        # Canonical ASCII escaping must not disguise unsupported surrogate input.
+        json.dumps(value, ensure_ascii=False).encode("utf-8")
+        encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError, RecursionError):
+        fail("invalid evidence policy encoding")
+    if len(encoded) > 1024 * 1024:
+        fail("evidence policy exceeds metadata bounds")
+    requirements, declarations = value["requirements"], value["gates"]
+    if (not isinstance(requirements, dict) or not 1 <= len(requirements) <= 1024
+            or not isinstance(declarations, dict) or not set(declarations) <= set(GATES)):
+        fail("invalid evidence policy population")
+    if requirement_ids is not None and set(requirements) != set(requirement_ids):
+        fail("evidence policy requirements differ from approved authority")
+    edges = 0
+    for identifier, requirement in requirements.items():
+        if not isinstance(identifier, str) or not OPAQUE_ID.fullmatch(identifier):
+            fail("invalid evidence policy requirement identity")
+        initiative_fields(requirement, {"revision", "depends_on", "gates"}, "evidence policy requirement")
+        revision = requirement["revision"]
+        if (not isinstance(revision, str) or not revision or len(revision.encode("utf-8")) > 128
+                or any(ord(char) < 32 or ord(char) == 127 for char in revision)):
+            fail("invalid evidence policy requirement revision")
+        initiative_strings(requirement["depends_on"], "evidence policy dependencies")
+        initiative_strings(requirement["gates"], "evidence policy gate coverage", allow_empty=False)
+        if (not set(requirement["depends_on"]) <= set(requirements)
+                or any(name not in GATES or gates.get(name, {}).get("applicability") != "required"
+                       for name in requirement["gates"])):
+            fail("evidence policy refers to unknown dependency or nonrequired gate")
+        edges += len(requirement["depends_on"])
+    if edges > 4096:
+        fail("evidence policy dependency population exceeds bounds")
+    remaining = {name: set(item["depends_on"]) for name, item in requirements.items()}
+    ready = [name for name, dependencies in remaining.items() if not dependencies]
+    visited = set()
+    while ready:
+        name = ready.pop()
+        if name in visited:
+            continue
+        visited.add(name)
+        for dependant, dependencies in remaining.items():
+            if name in dependencies:
+                dependencies.remove(name)
+                if not dependencies:
+                    ready.append(dependant)
+    if len(visited) != len(requirements):
+        fail("evidence policy requirements contain a dependency cycle")
+    fields = {"authority", "argv", "inputs", "environment", "toolchain_paths", "scope_complete"}
+    for name, declaration in declarations.items():
+        if not isinstance(declaration, dict):
+            fail("invalid evidence policy gate declaration")
+        initiative_fields(declaration, fields | ({"runtime"} if "runtime" in declaration else set()),
+                          "evidence policy gate declaration")
+        if (gates.get(name, {}).get("applicability") != "required"
+                or declaration["scope_complete"] is not True):
+            fail("evidence policy requires an approved complete input scope")
+        if not isinstance(declaration["authority"], str):
+            fail("invalid evidence policy authority")
+        evidence_text(declaration["authority"], 128, "policy authority")
+        evidence_policy_argv(declaration["argv"])
+        evidence_policy_paths(declaration["inputs"])
+        if not declaration["inputs"]:
+            fail("evidence policy input scope is empty")
+        evidence_policy_paths(declaration["toolchain_paths"], absolute=True)
+        environment = declaration["environment"]
+        initiative_strings(environment, "evidence policy environment")
+        if (len(environment) > 128 or "DBSCTR_EVIDENCE_OUTPUT" in environment
+                or any(not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) for key in environment)):
+            fail("invalid evidence policy environment selection")
+        runtime = declaration.get("runtime")
+        if name in {"deploy", "operate"} and runtime is None:
+            fail("runtime gate requires an identity capture and probe declaration")
+        if "runtime" in declaration:
+            initiative_fields(runtime, {"probe_argv", "probe_timeout_seconds", "max_age_seconds"},
+                              "evidence policy runtime")
+            evidence_policy_argv(runtime["probe_argv"])
+            if (type(runtime["probe_timeout_seconds"]) is not int or not 1 <= runtime["probe_timeout_seconds"] <= 60
+                    or type(runtime["max_age_seconds"]) is not int or not 1 <= runtime["max_age_seconds"] < 2**31):
+                fail("invalid evidence policy runtime bounds")
+    return value
+
+
+def evidence_gate_policy_digest(policy, gate_name):
+    """Project only approved gate-local semantics, not global provenance IDs."""
+    declaration = json.loads(json.dumps(policy["gates"][gate_name]))
+    for name in ("inputs", "environment", "toolchain_paths"):
+        declaration[name] = sorted(declaration[name])
+    requirements = policy["requirements"]
+    covered = sorted(name for name, item in requirements.items() if gate_name in item["gates"])
+    closure, pending = set(), [dependency for name in covered for dependency in requirements[name]["depends_on"]]
+    while pending:
+        name = pending.pop()
+        if name not in closure:
+            closure.add(name)
+            pending.extend(requirements[name]["depends_on"])
+    prerequisites = [{"id": name, "revision": requirements[name]["revision"],
+                      "depends_on": sorted(requirements[name]["depends_on"]),
+                      "gates": sorted(requirements[name]["gates"])} for name in sorted(closure)]
+    return continuation_digest({"gate": gate_name, "declaration": declaration,
+        "coverage": [{"id": name, "revision": requirements[name]["revision"]} for name in covered],
+        "prerequisites": prerequisites})
+
+
+def evidence_binding_bytes(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def evidence_binding_hmac(key, purpose, cycle_id, value):
+    if (not isinstance(key.get("key"), bytes) or len(key["key"]) != 32
+            or purpose not in {"environment", "location"}):
+        fail("evidence comparison key unavailable")
+    message = ("DBSCTR:" + purpose + ":v1\0" + cycle_id + "\0").encode() + evidence_binding_bytes(value)
+    return hmac.new(key["key"], message, hashlib.sha256).hexdigest()
+
+
+def effective_evidence_policy(record):
+    policy = record.get("applicability_plan", {}).get("evidence_policy")
+    for entry in record.get("initiative_amendments", []):
+        if entry.get("schema_version") == 3:
+            policy = entry["evidence_policy_revision"]["policy"]
+    return policy
+
+
+def evidence_binding_key(root, cycle_id, *, create=False):
+    parent = amendment_location(root, cycle_id, "0" * 64, "plan.json").parent.parent.parent
+    path = parent / "evidence-bindings" / "comparison-key.json"
+    if not os.path.lexists(path):
+        if not create:
+            fail("evidence comparison key unavailable; revalidation enrollment required")
+        value = {"schema_version": 1, "key_id": uuid.uuid4().hex, "key": os.urandom(32).hex()}
+        amendment_write_once(root, path, evidence_binding_bytes(value))
+    raw = amendment_read(root, path)
+    value = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "key_id", "key"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or not isinstance(value["key_id"], str) or not re.fullmatch(r"[0-9a-f]{32}", value["key_id"])
+            or not isinstance(value["key"], str) or not re.fullmatch(r"[0-9a-f]{64}", value["key"])
+            or evidence_binding_bytes(value) != raw):
+        fail("invalid evidence comparison key custody")
+    return {"key_id": value["key_id"], "key": bytes.fromhex(value["key"])}
+
+
+def evidence_runtime_identity(value):
+    fields = {"schema_version", "artifact_digest", "configuration_digest", "target_digest", "environment_digest"}
+    initiative_fields(value, fields, "runtime identity")
+    if (type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or any(not isinstance(value[name], str) or not re.fullmatch(r"[0-9a-f]{64}", value[name])
+                   for name in fields - {"schema_version"})):
+        fail("runtime identity unavailable")
+    return value
+
+
+def evidence_runtime_output(path):
+    with evidence_input_descriptor(Path(path.anchor), str(path.relative_to(path.anchor))) as descriptor, \
+            os.fdopen(os.dup(descriptor), "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or before.st_nlink != 1
+                or before.st_mode & 0o077 or before.st_size > 65536):
+            fail("runtime identity output custody unavailable")
+        raw = stream.read(65537)
+        after = os.fstat(stream.fileno())
+    if (len(raw) > 65536 or (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+            != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns)):
+        fail("runtime identity output changed")
+    return evidence_runtime_identity(json.loads(raw.decode("utf-8"), object_pairs_hook=no_duplicate_keys))
+
+
+def store_evidence_binding(root, record, envelope, policy, snapshot, *, runtime=None):
+    gate = envelope["gate"]
+    payload = {"schema_version": 1, "cycle_id": record["cycle_id"], "evidence_id": envelope["id"], "gate": gate,
+        "policy_digest": continuation_digest(policy), "authority_receipt_digest": continuation_digest(effective_initiative(record)),
+        "coverage": [{"id": name, "revision": item["revision"]} for name, item in sorted(policy["requirements"].items())
+                     if gate in item["gates"]],
+        "gate_policy_digest": evidence_gate_policy_digest(policy, gate),
+        "command_digest": continuation_digest(policy["gates"][gate]["argv"]),
+        **snapshot, "observed_at": envelope["finished_at"],
+        "runtime": {"identity": runtime, "validated_at": envelope["finished_at"]} if runtime is not None else None}
+    raw = evidence_binding_bytes(payload)
+    if len(raw) > 1024 * 1024:
+        fail("evidence binding exceeds custody bounds")
+    digest = write_sidecar(root, record["cycle_id"], raw)
+    target = cycle_dir(root) / "evidence" / record["cycle_id"] / digest
+    if amendment_read(root, target) != raw:
+        fail("evidence binding write changed")
+    fsync_directory(target.parent)
+    return {"schema_version": 1, "sha256": digest}
+
+
+def load_evidence_binding(root, record, evidence_id):
+    try:
+        return _load_evidence_binding(root, record, evidence_id)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, UnicodeError):
+        fail("invalid evidence binding custody")
+
+
+def _load_evidence_binding(root, record, evidence_id):
+    reference = record.get("evidence", {}).get("bindings", {}).get(evidence_id)
+    if (not isinstance(reference, dict) or set(reference) != {"schema_version", "sha256"}
+            or type(reference["schema_version"]) is not int or reference["schema_version"] != 1
+            or not isinstance(reference["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", reference["sha256"])):
+        fail("evidence binding unavailable; revalidate through record-evidence")
+    path = cycle_dir(root) / "evidence" / record["cycle_id"] / reference["sha256"]
+    raw = amendment_read(root, path)
+    if len(raw) > 1024 * 1024 or amendment_hash(raw) != reference["sha256"]:
+        fail("evidence binding custody changed")
+    payload = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    fields = {"schema_version", "cycle_id", "evidence_id", "gate", "policy_digest", "authority_receipt_digest",
+              "coverage", "gate_policy_digest", "command_digest", "inputs", "toolchain", "environment", "observed_at", "runtime"}
+    initiative_fields(payload, fields, "evidence binding")
+    envelope = record["evidence"]["items"][evidence_id]
+    policies = [record.get("applicability_plan", {}).get("evidence_policy")]
+    policies.extend(entry["evidence_policy_revision"]["policy"] for entry in record.get("initiative_amendments", [])
+                    if entry.get("schema_version") == 3)
+    policy = next((policy for policy in policies if policy and continuation_digest(policy) == payload["policy_digest"]), None)
+    receipts = [record.get("initiative"), *(entry["receipt"] for entry in record.get("initiative_amendments", []))]
+    if (type(payload["schema_version"]) is not int or payload["schema_version"] != 1
+            or payload["cycle_id"] != record["cycle_id"] or payload["evidence_id"] != evidence_id
+            or payload["gate"] != envelope["gate"] or payload["observed_at"] != envelope["finished_at"]
+            or not external_timestamp(payload["observed_at"])
+            or payload["authority_receipt_digest"] not in {continuation_digest(receipt) for receipt in receipts if receipt}
+            or not policy or payload["gate"] not in policy["gates"] or evidence_binding_bytes(payload) != raw):
+        fail("evidence binding identity changed")
+    gate = payload["gate"]
+    expected = [{"id": name, "revision": item["revision"]} for name, item in sorted(policy["requirements"].items()) if gate in item["gates"]]
+    if (payload["coverage"] != expected or payload["gate_policy_digest"] != evidence_gate_policy_digest(policy, gate)
+            or payload["command_digest"] != continuation_digest(policy["gates"][gate]["argv"])):
+        fail("evidence binding policy or coverage changed")
+    for field, key, keys in (("inputs", "path", {"path", "mode", "sha256", "predecessor"}),
+                             ("toolchain", "selection_digest", {"selection_digest", "location_hmac", "mode", "sha256"})):
+        items = payload[field]
+        if not isinstance(items, list) or len(items) > 8192:
+            fail("invalid evidence binding population")
+        ordered = []
+        for item in items:
+            initiative_fields(item, keys, "evidence binding input")
+            ordered.append(item[key])
+            if field == "inputs":
+                evidence_policy_paths([item["path"]])
+            else:
+                if any(not isinstance(item[name], str) or not re.fullmatch(r"[0-9a-f]{64}", item[name])
+                       for name in ("selection_digest", "location_hmac")):
+                    fail("invalid evidence toolchain identity")
+            if field == "inputs" and item["predecessor"] is not None:
+                prior = item["predecessor"]
+                initiative_fields(prior, {"commit", "mode", "blob"}, "evidence tracked absence")
+                if (item["mode"] is not None or item["sha256"] is not None
+                        or not external_oid(prior["commit"]) or not external_oid(prior["blob"], len(prior["commit"]))
+                        or prior["mode"] not in {"100644", "100755", "120000"}):
+                    fail("invalid evidence tracked absence")
+            elif (item["mode"] not in {"100644", "100755"} or not isinstance(item["sha256"], str)
+                  or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])):
+                fail("invalid evidence file identity")
+        if ordered != sorted(set(ordered)):
+            fail("noncanonical evidence input population")
+    environment = payload["environment"]
+    initiative_fields(environment, {"algorithm", "key_id", "values_hmac"}, "evidence environment")
+    if (environment["algorithm"] != "hmac-sha256" or not isinstance(environment["key_id"], str)
+            or not re.fullmatch(r"[0-9a-f]{32}", environment["key_id"])
+            or not isinstance(environment["values_hmac"], str) or not re.fullmatch(r"[0-9a-f]{64}", environment["values_hmac"])):
+        fail("invalid evidence environment identity")
+    if "runtime" in policy["gates"][gate]:
+        initiative_fields(payload["runtime"], {"identity", "validated_at"}, "evidence runtime binding")
+        evidence_runtime_identity(payload["runtime"]["identity"])
+        if payload["runtime"]["validated_at"] != payload["observed_at"]:
+            fail("runtime evidence timestamp changed")
+    elif payload["runtime"] is not None:
+        fail("unexpected runtime evidence identity")
+    return payload
+
+
+def validate_record_evidence_bindings(root, record):
+    policy = record.get("applicability_plan", {}).get("evidence_policy")
+    if policy is not None:
+        authority = record.get("initiative")
+        if not isinstance(authority, dict) or not record.get("initiative_approval"):
+            fail("evidence policy has no approved requirement authority")
+        validate_evidence_policy(policy, record["gates"], authority["requirements"])
+    for entry in record.get("initiative_amendments", []):
+        if entry.get("schema_version") == 3:
+            validate_evidence_policy(entry["evidence_policy_revision"]["policy"], record["gates"], entry["receipt"]["requirements"])
+    bindings = record.get("evidence", {}).get("bindings", {})
+    if not isinstance(bindings, dict) or len(bindings) > 4096 or not set(bindings) <= set(record.get("evidence", {}).get("items", {})):
+        fail("invalid evidence binding inventory")
+    for identifier in bindings:
+        load_evidence_binding(root, record, identifier)
+
+
+@contextlib.contextmanager
+def evidence_input_descriptor(root, name, *, directory=False):
+    """Open through directory descriptors; branch-owned symlinks are never followed."""
+    with contextlib.ExitStack() as stack:
+        descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        stack.callback(os.close, descriptor)
+        parts = PurePosixPath(name).parts
+        if not parts:
+            fail("empty evidence input path")
+        for part in parts[:-1]:
+            descriptor = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            stack.callback(os.close, descriptor)
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | (os.O_DIRECTORY if directory else 0)
+        leaf = os.open(parts[-1], flags, dir_fd=descriptor)
+        stack.callback(os.close, leaf)
+        yield leaf
+
+
+def evidence_input_identity(root, name):
+    with evidence_input_descriptor(root, name) as descriptor:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > 32 * 1024 * 1024:
+            fail("evidence input is not a bounded regular file")
+        digest, count = hashlib.sha256(), 0
+        while block := os.read(descriptor, 65536):
+            count += len(block)
+            if count > 32 * 1024 * 1024:
+                fail("evidence input exceeds read bounds")
+            digest.update(block)
+        after = os.fstat(descriptor)
+    stable = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns, item.st_mode)
+    if stable(before) != stable(after) or count != before.st_size:
+        fail("evidence input changed during capture")
+    return {"mode": "100755" if before.st_mode & 0o111 else "100644", "sha256": digest.hexdigest()}
+
+
+def evidence_ignore_selection(root):
+    """Read native ignore selection without running configured hooks or monitors."""
+    environment = {key: value for key, value in os.environ.items()
+                   if key not in GIT_REPOSITORY_REDIRECTS and not key.startswith("GIT_CONFIG_")}
+    environment.update(GIT_NO_LAZY_FETCH="1", GIT_NO_REPLACE_OBJECTS="1", GIT_OPTIONAL_LOCKS="0")
+    result = subprocess.run(["git", "-c", "core.fsmonitor=false", "config", "--path", "--get", "core.excludesFile"],
+                            cwd=root, env=environment, stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+    if result.returncode not in (0, 1) or len(result.stdout) > 4096:
+        fail("evidence ignore configuration unavailable")
+    if result.returncode == 0:
+        value = result.stdout.decode("utf-8").removesuffix("\n")
+        if not value or "\n" in value or "\0" in value:
+            fail("evidence ignore configuration unavailable")
+        selected = Path(value)
+        return selected if selected.is_absolute() else root / selected
+    home = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+    return home / "git/ignore"
+
+
+def evidence_binding_snapshot(root, declaration, key, *, cycle_id="snapshot", baseline=None, profile=None):
+    """Capture complete declared inputs; no command execution, network or source writes."""
+    try:
+        if profile is not None:
+            declaration = {**declaration, "inputs": sorted(set(declaration["inputs"]) | {profile})}
+        return _evidence_binding_snapshot(Path(root).resolve(), declaration, key, cycle_id, baseline)
+    except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
+        fail("evidence input capture unavailable")
+
+
+def evidence_input_ignored(root, name):
+    # check-ignore has literal filename semantics and rejects --literal-pathspecs.
+    result = git(root, "check-ignore", "--quiet", "--", name, check=False)
+    if result.returncode not in (0, 1):
+        fail("evidence ignore observation unavailable")
+    return result.returncode == 0
+
+
+def _evidence_binding_snapshot(root, declaration, key, cycle_id, baseline):
+    evidence_policy_paths(declaration["inputs"])
+    evidence_policy_paths(declaration["toolchain_paths"], absolute=True)
+    deadline = time.monotonic() + 60
+    ignored = evidence_ignore_selection(root)
+    tools = list(declaration["toolchain_paths"])
+    if os.path.lexists(ignored):
+        resolved = ignored.resolve(strict=True)
+        evidence_input_identity(Path(resolved.anchor), str(resolved.relative_to(resolved.anchor)))
+        tools.append(str(ignored))
+    with local_completion_git_context():
+        selected = LOCAL_COMPLETION_GIT.get()
+        index = int(selected["GIT_CONFIG_COUNT"])
+        selected["GIT_CONFIG_KEY_" + str(index)] = "core.excludesFile"
+        selected["GIT_CONFIG_VALUE_" + str(index)] = str(ignored)
+        selected["GIT_CONFIG_COUNT"] = str(index + 1)
+        current = set(filter(None, lineage_git(root, "ls-files", "--cached", "--others", "--exclude-standard", "-z").split("\0")))
+        if len(current) > 8192:
+            fail("evidence input population exceeds bounds; partition scope")
+        population = set()
+        ignore_candidates = {".gitignore"}
+        traversed = 0
+        for name in declaration["inputs"]:
+            path = root / name
+            ignore_candidates.update((parent / ".gitignore").as_posix()
+                                     for parent in PurePosixPath(name).parents if parent != PurePosixPath("."))
+            if path.is_dir():
+                with evidence_input_descriptor(root, name, directory=True):
+                    pass
+                if evidence_input_ignored(root, name):
+                    fail("evidence input directory is ignored")
+                pending = [name]
+                while pending:
+                    directory = pending.pop()
+                    with evidence_input_descriptor(root, directory, directory=True) as descriptor:
+                        with os.scandir(descriptor) as entries:
+                            for entry in entries:
+                                traversed += 1
+                                if traversed > 8192 or time.monotonic() >= deadline:
+                                    fail("evidence directory traversal exceeds bounds; partition scope")
+                                relative = directory + "/" + entry.name
+                                if entry.name == ".gitignore":
+                                    ignore_candidates.add(relative)
+                                if relative not in current and evidence_input_ignored(root, relative):
+                                    continue
+                                info = entry.stat(follow_symlinks=False)
+                                if entry.name == ".git" or stat.S_ISLNK(info.st_mode):
+                                    fail("nested Git or symlink dependency unsupported")
+                                if stat.S_ISDIR(info.st_mode):
+                                    pending.append(relative)
+                                elif not stat.S_ISREG(info.st_mode):
+                                    fail("special evidence input unsupported")
+            elif path.is_symlink():
+                fail("evidence input symlink is unsupported")
+            elif os.path.lexists(path):
+                evidence_input_identity(root, name)
+                if name not in current:
+                    fail("evidence input is ignored or unavailable")
+            matched = {item for item in current if item == name or item.startswith(name + "/")}
+            population.update(matched)
+            for revision in dict.fromkeys(["HEAD", *( [baseline] if baseline else [])]):
+                old = lineage_git(root, "--literal-pathspecs", "ls-tree", "-r", "--name-only", "-z", revision, "--", name)
+                population.update(filter(None, old.split("\0")))
+            if not matched and not path.is_dir() and name not in population:
+                # Parent tracking supports validation after an already committed deletion.
+                parent = git(root, "rev-parse", "--verify", "HEAD^", check=False)
+                if parent.returncode == 0:
+                    old = lineage_git(root, "--literal-pathspecs", "ls-tree", "-r", "--name-only", "-z",
+                                      parent.stdout.strip(), "--", name)
+                    population.update(filter(None, old.split("\0")))
+                if not any(item == name or item.startswith(name + "/") for item in population):
+                    fail("evidence input has no tracked predecessor")
+        ignore_names = {name for name in current if PurePosixPath(name).name == ".gitignore"
+                        and any(name == ".gitignore" or name.startswith(selected + "/")
+                                or selected.startswith(str(PurePosixPath(name).parent) + "/")
+                                for selected in declaration["inputs"])}
+        tools.extend(sorted(ignore_names))
+        tools.extend(sorted(name for name in ignore_candidates if os.path.lexists(root / name)))
+        exclude = Path(lineage_git(root, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude").strip())
+        if os.path.lexists(exclude):
+            tools.append(str(exclude))
+        if len(population) > 8192:
+            fail("evidence input population exceeds bounds; partition scope")
+        inputs = []
+        for name in sorted(population):
+            if time.monotonic() >= deadline:
+                fail("evidence input capture timed out; partition scope")
+            evidence_policy_paths([name])
+            if os.path.lexists(root / name):
+                identity = evidence_input_identity(root, name)
+                inputs.append({"path": name, **identity, "predecessor": None})
+            else:
+                predecessor = None
+                # Select the most recent file-changing revision that still has
+                # the file, not whichever unrelated HEAD/baseline was consulted.
+                revisions = lineage_git(root, "--literal-pathspecs", "log", "-n", "64", "--format=%H",
+                                        "HEAD", "--", name).splitlines()
+                for revision in dict.fromkeys(revisions):
+                    predecessor = tracked_predecessor(root, name, revision)
+                    if predecessor:
+                        predecessor = {"commit": lineage_git(root, "rev-parse", revision).strip(), **predecessor}
+                        break
+                if not predecessor:
+                    fail("evidence absence predecessor unavailable")
+                inputs.append({"path": name, "mode": None, "sha256": None, "predecessor": predecessor})
+    argv_zero = declaration["argv"][0]
+    executable = (str(root / argv_zero) if "/" in argv_zero and not Path(argv_zero).is_absolute()
+                  else argv_zero if Path(argv_zero).is_absolute() else shutil.which(argv_zero))
+    if not executable:
+        fail("evidence executable unavailable")
+    selections = [("executable", argv_zero, Path(executable))]
+    selections.extend(("toolchain_path", name, Path(name) if Path(name).is_absolute() else root / name)
+                      for name in sorted(set(tools)))
+    toolchain = []
+    for kind, name, path in selections:
+        if time.monotonic() >= deadline:
+            fail("evidence toolchain capture timed out")
+        path = path.resolve(strict=True)
+        evidence_policy_paths([str(path)], absolute=True)
+        identity = evidence_input_identity(Path(path.anchor), str(path.relative_to(path.anchor)))
+        toolchain.append({"selection_digest": continuation_digest({"kind": kind, "value": name}),
+                          "location_hmac": evidence_binding_hmac(key, "location", cycle_id, str(path)), **identity})
+    environment = [{"name": name, "present": name in os.environ, "value": os.environ.get(name)}
+                   for name in sorted(declaration["environment"])]
+    json.dumps(environment, ensure_ascii=False).encode("utf-8")
+    return {"inputs": inputs, "toolchain": sorted(toolchain, key=lambda item: item["selection_digest"]),
+            "environment": {"algorithm": "hmac-sha256", "key_id": key["key_id"],
+                            "values_hmac": evidence_binding_hmac(key, "environment", cycle_id, environment)}}
+
+
+def evidence_runtime_probe(root, record, declaration, snapshot, cache):
+    runtime = declaration["runtime"]
+    if local_only_cycle(record):
+        fail("runtime probing unavailable for local-only completion")
+    identity = continuation_digest({"policy": continuation_digest(effective_evidence_policy(record)),
+                                   "argv": runtime["probe_argv"], "snapshot": snapshot})
+    if identity in cache:
+        cached = cache[identity]
+        if cached["result"] != "passed":
+            fail("runtime identity probe unavailable")
+        return cached["identity"]
+    deadline = cache.setdefault("deadline", time.monotonic() + 60)
+    count = cache.setdefault("count", 0)
+    remaining = deadline - time.monotonic()
+    if count >= 32 or remaining <= 0:
+        fail("runtime probe budget unavailable; partition validation")
+    cache["count"] = count + 1
+    observation = {"schema_version": 1, "cycle_id": record["cycle_id"], "kind": "runtime_probe",
+                   "command_digest": continuation_digest(runtime["probe_argv"]),
+                   "inputs_digest": continuation_digest(snapshot), "result": "unavailable", "identity": None}
+    try:
+        directory = cycle_dir(root) / "evidence" / record["cycle_id"]
+        managed_directory(root, directory)
+        with tempfile.TemporaryDirectory(prefix=".binding-probe-", dir=directory) as temporary:
+            output = Path(temporary) / "identity.json"
+            descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            os.close(descriptor)
+            environment = dict(os.environ)
+            environment["DBSCTR_EVIDENCE_OUTPUT"] = str(output)
+            result = _forgejo_run(runtime["probe_argv"], cwd=root, env=environment,
+                                  timeout=min(runtime["probe_timeout_seconds"], remaining))
+            observation["exit_code"] = result.returncode
+            if result.returncode != 0:
+                observation["result"] = "failed"
+                fail("runtime identity probe failed")
+            observation["identity"] = evidence_runtime_output(output)
+            comparison_key = evidence_binding_key(root, record["cycle_id"])
+            after = evidence_binding_snapshot(root, declaration, comparison_key, cycle_id=record["cycle_id"],
+                baseline=record["git"]["head"], profile=record["engineering_profile"]["path"])
+            if after != snapshot or time.monotonic() > deadline:
+                fail("runtime probe inputs changed")
+            observation["result"] = "passed"
+    except (RuntimeError, OSError, ValueError, UnicodeError, subprocess.SubprocessError):
+        observation["observed_at"] = now()
+        observation["reference"] = {"schema_version": 1, "sha256": write_sidecar(root, record["cycle_id"], evidence_binding_bytes(observation))}
+        cache[identity] = observation
+        fail("runtime identity probe unavailable; revalidate or restore prerequisite")
+    observation["observed_at"] = now()
+    observation["reference"] = {"schema_version": 1, "sha256": write_sidecar(root, record["cycle_id"], evidence_binding_bytes(observation))}
+    cache[identity] = observation
+    return observation["identity"]
+
+
+def evidence_binding_applicability(root, record, gate_name, *, allow_runtime=False, probe_cache=None):
+    """Original execution stays immutable; this decision grants only applicable reuse."""
+    policy = effective_evidence_policy(record)
+    if policy is None or gate_name not in policy["gates"]:
+        return {"disposition": "unavailable", "reason_code": "undeclared_input_scope"}
+    try:
+        gate = record["gates"][gate_name]
+        payload = load_evidence_binding(root, record, gate["evidence"])
+        if payload["gate_policy_digest"] != evidence_gate_policy_digest(policy, gate_name):
+            return {"disposition": "rerun_required", "reason_code": "policy_scope_changed"}
+        key = evidence_binding_key(root, record["cycle_id"])
+        if key["key_id"] != payload["environment"]["key_id"]:
+            return {"disposition": "unavailable", "reason_code": "comparison_key_unavailable"}
+        declaration = policy["gates"][gate_name]
+        snapshot = evidence_binding_snapshot(root, declaration, key, cycle_id=record["cycle_id"],
+            baseline=record["git"]["head"], profile=record["engineering_profile"]["path"])
+        if any(snapshot[name] != payload[name] for name in ("inputs", "toolchain", "environment")):
+            return {"disposition": "rerun_required", "reason_code": "validation_inputs_changed"}
+        result = {"disposition": "retained", "reason_code": "trusted_inputs_equivalent", "evidence": gate["evidence"]}
+        if "runtime" in declaration:
+            validated = datetime.fromisoformat(payload["runtime"]["validated_at"].replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - validated).total_seconds()
+            if not 0 <= age <= declaration["runtime"]["max_age_seconds"]:
+                return {"disposition": "rerun_required", "reason_code": "runtime_acceptance_stale"}
+            if not allow_runtime:
+                if local_only_cycle(record):
+                    return {"disposition": "unavailable", "reason_code": "offline_runtime_probe_unavailable"}
+                return {**result, "runtime_status": "not_evaluated"}
+            observed = evidence_runtime_probe(root, record, declaration, snapshot, probe_cache if probe_cache is not None else {})
+            if observed != payload["runtime"]["identity"]:
+                return {"disposition": "rerun_required", "reason_code": "runtime_identity_changed"}
+            result["runtime_status"] = "passed"
+        return result
+    except (RuntimeError, OSError, KeyError, TypeError, ValueError, AttributeError):
+        return {"disposition": "unavailable", "reason_code": "binding_prerequisite_unavailable"}
+
+
+def completion_evidence_dispositions(root, record, *, strict_source=False, allow_runtime=False, probe_cache=None, source_head=None):
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    policy = effective_evidence_policy(record)
+    decisions = {}
+    for name, gate in record["gates"].items():
+        if gate["applicability"] != "required":
+            continue
+        try:
+            if gate["result"] != "passed" and not (gate["result"] in {"failed", "unavailable"} and valid_gate_exception(gate)):
+                fail("required gate disposition unavailable")
+            item = verify_envelope(root, record, name, require_head=False)
+            point = item.get("commit") or item["head"]
+            if item.get("commit") and not any(entry["id"] == point and name in entry["gates"] for entry in record["commits"]):
+                fail("evidence commit is not bound to its gate")
+            if gate["result"] != "passed":
+                if point != head:
+                    fail("exception source equivalence unavailable")
+                decision = {"disposition": "retained", "reason_code": "approved_exception", "evidence": item["id"]}
+            elif policy is not None and name in policy["gates"]:
+                decision = evidence_binding_applicability(root, record, name, allow_runtime=allow_runtime, probe_cache=probe_cache)
+            elif strict_source and name in {"deploy", "operate"}:
+                decision = {"disposition": "unavailable", "reason_code": "runtime_binding_enrollment_required"}
+            elif (point == head or not strict_source and item.get("commit")
+                  or source_head == point and lineage_git(root, "rev-parse", point + "^{tree}").strip()
+                     == lineage_git(root, "rev-parse", head + "^{tree}").strip()):
+                decision = {"disposition": "retained", "reason_code": "legacy_source_rule", "evidence": item["id"]}
+            else:
+                decision = {"disposition": "rerun_required", "reason_code": "legacy_input_scope_unavailable"}
+            decisions[name] = decision
+        except (RuntimeError, OSError, ValueError, TypeError, KeyError):
+            decisions[name] = {"disposition": "unavailable", "reason_code": "gate_evidence_unavailable"}
+    if policy is not None:
+        changed = {name for name, item in policy["requirements"].items()
+                   if any(decisions.get(gate, {}).get("disposition") != "retained" for gate in item["gates"])}
+        while True:
+            dependants = {name for name, item in policy["requirements"].items() if set(item["depends_on"]) & changed}
+            if dependants <= changed:
+                break
+            changed |= dependants
+        for name in changed:
+            for gate in policy["requirements"][name]["gates"]:
+                if decisions.get(gate, {}).get("disposition") == "retained":
+                    decisions[gate] = {"disposition": "rerun_required", "reason_code": "requirement_dependency_changed"}
+    return decisions
+
+
+def require_completion_bindings(root, record, *, strict_source=False, allow_runtime=False, probe_cache=None, source_head=None):
+    decisions = completion_evidence_dispositions(root, record, strict_source=strict_source,
+                                                 allow_runtime=allow_runtime, probe_cache=probe_cache, source_head=source_head)
+    if any(item["disposition"] != "retained" for item in decisions.values()):
+        fail("completion evidence revalidation required")
+    return decisions
+
+
+def completion_requirement_dispositions(record, decisions):
+    policy = effective_evidence_policy(record)
+    if policy is None:
+        return {"mode": "legacy_holistic", "requirements": []}
+    dispositions = {}
+    while len(dispositions) < len(policy["requirements"]):
+        progressed = False
+        for name, item in policy["requirements"].items():
+            if name in dispositions or not set(item["depends_on"]) <= set(dispositions):
+                continue
+            applicable = all(decisions.get(gate, {}).get("disposition") == "retained" for gate in item["gates"])
+            prior = [dispositions[dependency]["disposition"] for dependency in item["depends_on"]]
+            if not applicable or "rerun_required" in prior:
+                disposition = "rerun_required"
+            elif "accepted_exception" in prior or any(decisions[gate]["reason_code"] == "approved_exception" for gate in item["gates"]):
+                disposition = "accepted_exception"
+            else:
+                disposition = "satisfied"
+            dispositions[name] = {"id": name, "revision": item["revision"], "gates": sorted(item["gates"]),
+                                  "depends_on": sorted(item["depends_on"]), "disposition": disposition}
+            progressed = True
+        if not progressed:
+            fail("requirement disposition graph unavailable")
+    return {"mode": "declared", "requirements": [dispositions[name] for name in sorted(dispositions)]}
+
+
 def validate_plan(root, context, intent, plan, recorded_profile=None):
-    if not set(plan) <= {"profile", "gates", "graphify"}:
-        fail("applicability plan allows only profile, gates, and optional graphify")
+    if not set(plan) <= {"profile", "gates", "graphify", "evidence_policy"}:
+        fail("applicability plan allows only profile, gates, optional graphify and evidence_policy")
     profile = f"docs/specs/{context}/PROFILE.md"
     profile_blob = git(root, "rev-parse", f"HEAD:{profile}", check=False).stdout.strip()
     expected_profile = recorded_profile or (profile if re.fullmatch(r"[0-9a-f]+", profile_blob)
@@ -6009,6 +6806,8 @@ def validate_plan(root, context, intent, plan, recorded_profile=None):
     graphify = None
     if "graphify" in plan:
         graphify = validate_graphify_selection(root, plan["graphify"], require_clean=True)
+    if "evidence_policy" in plan:
+        validate_evidence_policy(plan["evidence_policy"], normalized)
     return expected_profile, blob, normalized, graphify
 
 
@@ -6059,6 +6858,8 @@ def require_current_profile(root, record):
 
 
 def apply_stricter_plan(root, record, plan):
+    if plan.get("evidence_policy") != record["applicability_plan"].get("evidence_policy"):
+        fail("evidence policy enrollment or revision requires approved initiative-amend")
     profile_path, profile_blob, gates, graphify = validate_plan(
         root, record["context"], record["delivery_intent"], plan,
         record["engineering_profile"]["path"],
@@ -6091,7 +6892,8 @@ def apply_stricter_plan(root, record, plan):
     record["applicability_plan"] = {"profile": profile_path, "gates": {
         name: {key: value for key, value in gate.items() if key in ("applicability", "reason")}
         for name, gate in gates.items()
-    }, **({"graphify": graphify} if graphify else {})}
+    }, **({"graphify": graphify} if graphify else {}),
+       **({"evidence_policy": plan["evidence_policy"]} if "evidence_policy" in plan else {})}
 
 
 def artifact_check(record):
@@ -6205,6 +7007,10 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
     profile_path, profile_blob, gates, graphify = validate_plan(
         root, args.context, args.delivery_intent, plan
     )
+    if "evidence_policy" in plan:
+        if initiative is None or initiative_approval is None:
+            fail("evidence policy requires exact approved Initiative registration")
+        validate_evidence_policy(plan["evidence_policy"], gates, initiative["requirements"])
     current_branch = branch(root)
     current_upstream = upstream(root)
     delivery_remote, delivery_branch = configured_upstream(root)
@@ -6291,7 +7097,8 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
         "applicability_plan": {"profile": profile_path, "gates": {
             name: {key: value for key, value in gate.items() if key in ("applicability", "reason")}
             for name, gate in gates.items()
-        }, **({"graphify": graphify} if graphify else {})},
+        }, **({"graphify": graphify} if graphify else {}),
+           **({"evidence_policy": plan["evidence_policy"]} if "evidence_policy" in plan else {})},
         "git": {"head": git(root, "rev-parse", "HEAD").stdout.strip(), "branch": current_branch,
                 "upstream": current_upstream, "dirty_paths": dirty_paths,
                 "pre_cycle_ahead_commits": pre_cycle_ahead,
@@ -6510,6 +7317,10 @@ def begin_registration(args):
         profile_source = (initiative_source if common_git_dir(source).resolve() == common_git_dir(initiative_source).resolve()
                           else source)
         validate_plan(profile_source, args.context, args.delivery_intent, plan)
+    if "evidence_policy" in plan:
+        if initiative is None:
+            fail("evidence policy requires exact approved Initiative registration")
+        validate_evidence_policy(plan["evidence_policy"], plan["gates"], initiative["requirements"])
     target = upstream(source)
     remote, remote_branch = configured_upstream(source)
     if (initiative is not None and (args.delivery_intent == "draft_pr" or forge is not None)
@@ -6565,7 +7376,8 @@ def begin_registration(args):
         expected_plan = {"profile": profile_path, "gates": {
             name: {key: value for key, value in gate.items() if key in ("applicability", "reason")}
             for name, gate in gates.items()
-        }, **({"graphify": graphify} if graphify else {})}
+        }, **({"graphify": graphify} if graphify else {}),
+           **({"evidence_policy": plan["evidence_policy"]} if "evidence_policy" in plan else {})}
         protected_base = record.get("delivery", {}).get(
             "base_branch" if args.delivery_intent == "draft_pr" or forge is not None else "protected_base_branch")
         expected_github = ({"host": "github.com", "account": args.github_account,
@@ -8229,6 +9041,15 @@ def command_status(args):
     _, record = load(root)
     native = native_workspace_execution(record)
     if args.json:
+        policy = effective_evidence_policy(record)
+        if policy is not None:
+            summary = {"schema_version": 1, "status": "private", "policy_digest": continuation_digest(policy),
+                       "requirements": sorted(policy["requirements"]), "gates": sorted(policy["gates"])}
+            record = {**record, "evidence_policy": summary,
+                      "applicability_plan": {**record["applicability_plan"],
+                          **({"evidence_policy": {"schema_version": 1, "status": "private",
+                             "policy_digest": continuation_digest(record["applicability_plan"]["evidence_policy"])}}
+                             if "evidence_policy" in record["applicability_plan"] else {})}}
         if native:
             record = {**record, "historical_runtime": record.get("runtime", {}), "runtime": {"adapters": {}}}
         if record.get("initiative_amendments"):
@@ -17753,6 +18574,7 @@ def verify_envelope(root, record, gate_name, require_bound=False, require_head=T
         fail(f"evidence HEAD is stale: {gate_name}")
     if require_bound and not item.get("commit"):
         fail(f"evidence is not bound to a commit: {gate_name}")
+    verify_evidence_absences(root, item)
     content = item.get("content", {})
     if content.get("status") == "sidecar":
         if content.get("path") != f"evidence/{record['cycle_id']}/{content.get('sha256')}":
@@ -17765,6 +18587,40 @@ def verify_envelope(root, record, gate_name, require_bound=False, require_head=T
     elif content.get("status") not in ("withheld", "no_content"):
         fail("invalid evidence content")
     return item
+
+
+def tracked_predecessor(root, name, revision="HEAD"):
+    """Read exact tracking from a tree, independently of staged deletion."""
+    with local_completion_git_context():
+        raw = git(root, "--literal-pathspecs", "ls-tree", "-z", revision, "--", name).stdout
+    if not raw:
+        return None
+    fields = raw.removesuffix("\0").split("\t")
+    if len(fields) != 2 or fields[1] != name:
+        fail("tracked predecessor path is ambiguous")
+    mode, kind, blob = fields[0].split()
+    if mode not in {"100644", "100755", "120000"} or kind != "blob" or not external_oid(blob):
+        fail("unsupported tracked predecessor")
+    return {"mode": mode, "blob": blob}
+
+
+def evidence_absences(root, paths, revision="HEAD"):
+    absent = {}
+    for name, blob in paths.items():
+        if blob is None:
+            predecessor = tracked_predecessor(root, name, revision)
+            if predecessor is None:
+                fail("absent evidence path has no tracked predecessor")
+            absent[name] = predecessor
+    return absent
+
+
+def verify_evidence_absences(root, item):
+    # Historical envelopes without this additive binding retain their meaning.
+    if "absences" not in item:
+        return
+    if item["absences"] != evidence_absences(root, item["paths"], item["head"]):
+        fail("evidence tracked predecessor changed")
 
 
 def evidence_path_blobs(root, paths, index=False, commit=None):
@@ -17788,20 +18644,49 @@ def command_record_evidence(args):
     root = root_dir()
     authority = evidence_text(args.authority, 128, "authority")
     argv, sanitized = list(args.program), sanitized_argv(args.program)
-    path_blobs = evidence_path_blobs(root, args.path or [])
-    with evidence_lock(root, resolved_active_path(root).read_text(encoding="utf-8").strip()):
+    with evidence_lock(root, resolved_active_path(root).read_text(encoding="utf-8").strip()), contextlib.ExitStack() as capture:
         path, record = load(root)
         require_active(record)
+        admitted_bytes = amendment_read(root, path)
+        path_blobs = evidence_path_blobs(root, args.path or [])
+        absence_proof = evidence_absences(root, path_blobs)
         if record.get("schema_version") not in (3, 4, 5, 6):
             fail("record-evidence requires a schema 3 or 4 Cycle Record")
         gate = record["gates"][args.gate]
         if gate["applicability"] != "required":
             fail("evidence gate is not required")
+        policy = effective_evidence_policy(record)
+        declaration = policy["gates"].get(args.gate) if policy else None
+        binding_before, binding_after, runtime_identity, output_path = None, None, None, None
+        binding_error, child_environment = None, None
+        if declaration:
+            child_environment = dict(os.environ)
+            child_environment.pop("DBSCTR_EVIDENCE_OUTPUT", None)
+            if declaration["authority"] != authority or declaration["argv"] != argv:
+                binding_error = "invocation_mismatch"
+            else:
+                try:
+                    comparison_key = evidence_binding_key(root, record["cycle_id"], create=True)
+                    binding_before = evidence_binding_snapshot(root, declaration, comparison_key, cycle_id=record["cycle_id"],
+                        baseline=record["git"]["head"], profile=record["engineering_profile"]["path"])
+                    if "runtime" in declaration:
+                        if local_only_cycle(record):
+                            fail("runtime capture requires an online qualified cycle")
+                        directory = capture.enter_context(tempfile.TemporaryDirectory(
+                            prefix=".binding-capture-", dir=cycle_dir(root) / "evidence" / record["cycle_id"]))
+                        output_path = Path(directory) / "identity.json"
+                        descriptor = os.open(output_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                        os.close(descriptor)
+                        child_environment["DBSCTR_EVIDENCE_OUTPUT"] = str(output_path)
+                except (RuntimeError, OSError, ValueError, KeyError, UnicodeError):
+                    binding_error = "input_capture_unavailable"
         started, observed, cutoff, start_error = now(), 0, None, False
         raw = bytearray()
         try:
+            if binding_error:
+                raise OSError("evidence binding precondition unavailable")
             process = subprocess.Popen(argv, cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, shell=False, start_new_session=True)
+                                       stderr=subprocess.STDOUT, shell=False, start_new_session=True, env=child_environment)
             selector = selectors.DefaultSelector()
             selector.register(process.stdout, selectors.EVENT_READ)
             deadline = datetime.now(timezone.utc).timestamp() + args.timeout
@@ -17844,6 +18729,16 @@ def command_record_evidence(args):
             start_error, process = True, None
         finished = now()
         result = "unavailable" if start_error or cutoff else "passed" if process.returncode == 0 else "failed"
+        if declaration and binding_before is not None and result == "passed":
+            try:
+                binding_after = evidence_binding_snapshot(root, declaration, comparison_key, cycle_id=record["cycle_id"],
+                    baseline=record["git"]["head"], profile=record["engineering_profile"]["path"])
+                if binding_after != binding_before:
+                    binding_error = "validation_input_drift"
+                elif output_path is not None:
+                    runtime_identity = evidence_runtime_output(output_path)
+            except (RuntimeError, OSError, ValueError, KeyError, UnicodeError):
+                binding_error = "binding_verification_unavailable"
         if result == "passed":
             incomplete = [name for name in GATES[:GATES.index(args.gate)] if not disposed(record["gates"][name])]
             if incomplete:
@@ -17855,6 +18750,8 @@ def command_record_evidence(args):
                     "started_at": started, "finished_at": finished, "result": result,
                     "raw": {"byte_count": observed, "lower_bound": bool(cutoff), "truncated": bool(cutoff)},
                     "summary": "passed" if result == "passed" else "failed" if result == "failed" else "unavailable", "urls": []}
+        if absence_proof:
+            envelope["absences"] = absence_proof
         if retained is not None:
             retained, truncated = retained[:EVIDENCE_SIDECAR_CAP], len(retained) > EVIDENCE_SIDECAR_CAP
             digest = write_sidecar(root, record["cycle_id"], retained)
@@ -17863,9 +18760,22 @@ def command_record_evidence(args):
         envelope["content"] = content
         evidence_id = envelope["id"]
         record["evidence"]["items"][evidence_id] = envelope
+        if declaration and result == "passed" and binding_error is None:
+            try:
+                reference = store_evidence_binding(root, record, envelope, policy, binding_after, runtime=runtime_identity)
+                record["evidence"].setdefault("bindings", {})[evidence_id] = reference
+            except (RuntimeError, OSError, ValueError, UnicodeError):
+                binding_error = "binding_custody_unavailable"
         apply_gate_result(record, args.gate, result, evidence_id)
+        if amendment_read(root, path) != admitted_bytes:
+            # Keep a privately owned original execution even when a foreign writer
+            # changed the record; never overwrite that writer to attach it.
+            write_sidecar(root, record["cycle_id"], evidence_binding_bytes(envelope))
+            fail("record changed during evidence execution; execution retained privately")
         save(path, record)
         print(evidence_id)
+        if binding_error:
+            fail("evidence binding unavailable: " + binding_error)
 
 
 def command_set_gate(args):
@@ -18594,7 +19504,7 @@ def safe_paths(root, paths):
             if not verified_upstream_template(root, name):
                 fail(f"refusing possible secret path: {name}")
         tracked = git(root, "ls-files", "--error-unmatch", "--", name, check=False).returncode == 0
-        if not (root / pure).is_file() and not tracked:
+        if not (root / pure).is_file() and not tracked and tracked_predecessor(root, name) is None:
             fail(f"path does not exist: {name}")
         if git(root, "check-ignore", "--quiet", "--", name, check=False).returncode == 0:
             fail(f"path is ignored: {name}")
@@ -18626,7 +19536,11 @@ def command_gate_commit(args):
         fail("unrelated staged paths present: " + ", ".join(staged))
     if git(root, "diff", "--check", check=False).returncode:
         fail("git diff --check failed")
-    git(root, "add", "--", *paths)
+    to_stage = [name for name in paths if os.path.lexists(root / name)
+                or git(root, "--literal-pathspecs", "ls-files", "--error-unmatch", "--", name,
+                       check=False).returncode == 0]
+    if to_stage:
+        git(root, "--literal-pathspecs", "add", "--", *to_stage)
     for name, item in schema3_items:
         if evidence_path_blobs(root, args.paths, index=True) != item["paths"]:
             fail(f"staged paths differ from evidence: {name}")
@@ -20145,6 +21059,8 @@ def require_completion_source(root, record):
     require_amendment_completion(root, record)
     require_current_profile(root, record)
     require_graphify_check(root, record)
+    policy = effective_evidence_policy(record)
+    decisions = require_completion_bindings(root, record) if policy is not None else {}
     if record.get("schema_version") in (3, 4, 5, 6):
         final_head = git(root, "rev-parse", "HEAD").stdout.strip()
         for name, gate in record["gates"].items():
@@ -20153,7 +21069,9 @@ def require_completion_source(root, record):
                 gate_commits = {entry["id"] for entry in record["commits"] if name in entry["gates"]}
                 if item.get("commit") and item["commit"] not in gate_commits:
                     fail(f"evidence commit is not bound to its gate: {name}")
-                if not item.get("commit") and item.get("head") != final_head:
+                if (not item.get("commit") and item.get("head") != final_head
+                        and not (policy is not None and name in policy["gates"]
+                                 and decisions.get(name, {}).get("disposition") == "retained")):
                     fail(f"uncommitted gate evidence HEAD is stale: {name}")
     if any(gate["applicability"] == "required" and gate["result"] != "passed"
            and not (gate["result"] in {"failed", "unavailable"} and valid_gate_exception(gate)
@@ -20245,6 +21163,8 @@ def complete_local_offline(args):
                     fail("local completion active pointer changed")
                 if json.dumps(read_cycle_record(root, path, historical=True), sort_keys=True) != admitted_record:
                     fail("local completion record changed during validation")
+                if effective_evidence_policy(record) is not None:
+                    require_completion_bindings(root, record)
                 save(path, record)
             if not explicit:
                 if active_pointer_id(root, pointer) != identifier:
@@ -20272,16 +21192,21 @@ def external_timestamp(value):
         return False
 
 
-def validate_external_completion(record):
+def validate_external_completion(record, *, composed_segment=False):
     """Validate additive provenance without converting it into cleanup authority."""
     value = record["external_completion"]
     fields = {"schema_version", "status", "proof", "cycle_id", "repository", "pull_request",
               "head", "tree", "merge", "merge_parent", "target_branch", "target_head",
               "merged_at", "verified_at", "recorded_commits"}
     version = value.get("schema_version") if isinstance(value, dict) else None
-    rebased = type(version) is int and version == 2
+    rebased = type(version) is int and (version == 2 or composed_segment and version == 4)
+    reconciled = type(version) is int and version == 3
     if rebased:
         fields |= {"landed_base", "commit_mapping", "source_retention_ref"}
+        if version == 4:
+            fields.add("source_base")
+    if reconciled:
+        fields |= {"segments", "reconciliation_digest"}
     delivery = record.get("delivery", {})
     github = delivery.get("github", {})
     if (not isinstance(github, dict) or set(github) != {"host", "repository", "account"}
@@ -20289,11 +21214,11 @@ def validate_external_completion(record):
             or not all(isinstance(item, dict) and "id" in item for item in record["commits"])):
         fail("invalid external completion record identity")
     if (not isinstance(value, dict) or set(value) != fields
-            or type(version) is not int or version not in (1, 2)
+            or type(version) is not int or version not in ((1, 4) if composed_segment else (1, 2, 3))
             or record.get("schema_version") not in (3, 4, 5)
             or record.get("delivery_intent") != "draft_pr" or record.get("state") != "completed"
             or value["status"] != "delivered_external"
-            or value["proof"] != ("rebased_commits" if rebased else "exact_tree")
+            or value["proof"] != ("reconciled_segments" if reconciled else "rebased_commits" if rebased else "exact_tree")
             or value["cycle_id"] != record.get("cycle_id")
             or value["repository"] != github or github.get("host") != "github.com"
             or value["target_branch"] != delivery.get("base_branch")
@@ -20311,10 +21236,36 @@ def validate_external_completion(record):
             or pull["url"] != f"https://github.com/{github.get('repository')}/pull/{pull['number']}"):
         fail("invalid external completion pull request")
 
+    if reconciled:
+        segments = value["segments"]
+        if (not isinstance(segments, list) or not 1 <= len(segments) <= 32
+                or not isinstance(value["reconciliation_digest"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", value["reconciliation_digest"])
+                or record.get("completion_reconciliation") != {
+                    "schema_version": 1, "digest": value["reconciliation_digest"]}):
+            fail("invalid reconciled completion receipt")
+        seen = set()
+        for segment in segments:
+            if not isinstance(segment, dict) or segment.get("schema_version") not in (1, 4):
+                fail("unsupported delivery segment proof")
+            number = segment.get("pull_request", {}).get("number")
+            if number in seen:
+                fail("duplicate delivery segment")
+            seen.add(number)
+            historical = {**record, "external_completion": segment,
+                          "completed_at": segment.get("verified_at"),
+                          "commits": [{"id": oid, "gates": []} for oid in segment.get("recorded_commits", [])]}
+            validate_external_completion(historical, composed_segment=True)
+        if any(value[key] != segments[-1][key] for key in (
+                "pull_request", "head", "tree", "merge", "merge_parent", "repository", "target_branch")):
+            fail("reconciled final segment changed")
+
     if rebased:
         mapping = value["commit_mapping"]
         if (not external_oid(value["landed_base"], width)
-                or value["source_retention_ref"] != rebased_source_ref(record)
+                or value["source_retention_ref"] != ("refs/dbsctr/reconciliation/" + record["cycle_id"] + "/" + value["head"]
+                                                      if version == 4 else rebased_source_ref(record))
+                or version == 4 and not external_oid(value["source_base"], width)
                 or not isinstance(mapping, list) or not 1 <= len(mapping) <= 1024
                 or len(mapping) != len(value["recorded_commits"])
                 or any(not isinstance(item, dict) or set(item) != {"original", "landed"}
@@ -20459,15 +21410,12 @@ def require_completion_dvc(root, record, changed):
 
 
 def external_source(root, record, expected_head):
-    require_completion_source(root, record)
-    if any(gate["applicability"] == "required" and gate["result"] != "passed"
-           and not (gate["result"] in {"failed", "unavailable"} and valid_gate_exception(gate))
-           for gate in record["gates"].values()):
-        fail("required gates have not all passed or received valid approved exceptions")
     head = git(root, "rev-parse", "HEAD").stdout.strip()
     if not external_oid(expected_head, len(head)) or head != expected_head:
         fail("external completion source does not match expected head")
     baseline, delivery = record["git"], record["delivery"]
+    if not baseline["upstream"] or upstream(root) != baseline["upstream"]:
+        fail("upstream is missing or changed")
     if baseline["pre_cycle_ahead_commits"] and delivery.get("published_feature_head") != baseline["head"]:
         fail("pre-cycle ahead commits are not owned by this cycle")
     if baseline.get("remote") != remote_destination(root, upstream(root)):
@@ -20479,6 +21427,11 @@ def external_source(root, record, expected_head):
     actual = git(root, "rev-list", "--reverse", "--first-parent", f"{base}..{head}").stdout.splitlines()
     if not commits or actual != commits:
         fail("first-parent commits are not exactly the recorded cycle commits")
+    require_completion_source(root, record)
+    if any(gate["applicability"] == "required" and gate["result"] != "passed"
+           and not (gate["result"] in {"failed", "unavailable"} and valid_gate_exception(gate))
+           for gate in record["gates"].values()):
+        fail("required gates have not all passed or received valid approved exceptions")
     changed = set(git(root, "diff", "--name-only", f"{base}..{head}").stdout.splitlines())
     if record["artifact_reviews"]["CHANGELOG"]["path"] not in changed:
         fail("reviewed CHANGELOG path is not committed in this cycle")
@@ -20496,7 +21449,7 @@ def external_github(root, env, endpoint):
         fail("external merge native GitHub verification unavailable")
 
 
-def external_merge_proof(root, record, args, env, head, tree, commits):
+def external_merge_proof(root, record, args, env, head, tree, commits, *, observed_target=None, composed_segment=False):
     delivery, github = record["delivery"], record["delivery"]["github"]
     repository = github["repository"]
     actor = external_github(root, env, "user")
@@ -20541,8 +21494,11 @@ def external_merge_proof(root, record, args, env, head, tree, commits):
         fail("external completion conflicts with recorded pull request")
     remote = delivery["remote"]
     remote_url = github_remote_url(root, remote, repository)
-    fetch_github_branch(root, remote, remote_url, delivery["base_branch"], env)
-    target = git(root, "rev-parse", f"refs/remotes/{remote}/{delivery['base_branch']}").stdout.strip()
+    if observed_target is None:
+        fetch_github_branch(root, remote, remote_url, delivery["base_branch"], env)
+        target = git(root, "rev-parse", f"refs/remotes/{remote}/{delivery['base_branch']}").stdout.strip()
+    else:
+        target = observed_target
     merge = args.expected_merge
     native = external_github(root, env, f"repos/{repository}/git/commits/{merge}")
     parents = git(root, "show", "-s", "--format=%P", merge).stdout.split()
@@ -20579,7 +21535,11 @@ def external_merge_proof(root, record, args, env, head, tree, commits):
             introduced = external_github(root, env,
                 f"repos/{repository}/commits/{pair['landed']}/pulls?per_page=2")
             require_rebased_introduction(introduced, repository, {"number": args.pr_number, "url": url}, merged_at)
-        rebased_source_retention(root, record, head)
+        if composed_segment:
+            correspondence["source_retention_ref"] = "refs/dbsctr/reconciliation/" + record["cycle_id"] + "/" + head
+            correspondence["source_base"] = record["git"]["head"]
+        else:
+            rebased_source_retention(root, record, head)
     imported_anchor = merge if len(parents) == 2 else parent
     for commit in commits:
         imported = git(root, "show", "-s", "--format=%P", commit).stdout.split()[1:]
@@ -20593,13 +21553,570 @@ def external_merge_proof(root, record, args, env, head, tree, commits):
         fail("external merge protected-base or pull-request identity changed during verification")
     if rebased:
         default_identity()
-    return {"schema_version": 2 if rebased else 1, "status": "delivered_external",
+    return {"schema_version": (4 if composed_segment else 2) if rebased else 1, "status": "delivered_external",
             "proof": "rebased_commits" if rebased else "exact_tree",
             "cycle_id": record["cycle_id"], "repository": dict(github),
             "pull_request": {"number": args.pr_number, "url": url}, "head": head, "tree": tree,
             "merge": merge, "merge_parent": parent, "target_branch": delivery["base_branch"],
             "target_head": target, "merged_at": merged_at, "verified_at": now(),
             "recorded_commits": commits, **correspondence}
+
+
+def completion_segment_selectors(args):
+    selected = []
+    for raw in getattr(args, "delivery_segment", []):
+        if not isinstance(raw, str) or len(raw) > 160:
+            fail("invalid delivery segment selector")
+        parts = raw.split(":")
+        if (len(parts) != 3 or not parts[0].isascii() or not parts[0].isdigit()
+                or not 1 <= int(parts[0]) < 2**53
+                or not external_oid(parts[1]) or not external_oid(parts[2], len(parts[1]))):
+            fail("invalid delivery segment selector")
+        selected.append((int(parts[0]), parts[1], parts[2]))
+    selected.append((args.pr_number, args.expected_head, args.expected_merge))
+    if (not 1 <= len(selected) <= 32 or len({item[0] for item in selected}) != len(selected)
+            or len({item[1] for item in selected}) != len(selected)
+            or len({item[2] for item in selected}) != len(selected)):
+        fail("delivery segments must be distinct and bounded")
+    return selected
+
+
+def completion_range(root, base, head):
+    if not external_oid(base) or not external_oid(head, len(base)) or not lineage_ancestor(root, base, head):
+        fail("completion range is outside the recorded baseline")
+    values = lineage_git(root, "rev-list", "--topo-order", "--reverse", "--max-count=4097",
+                         base + ".." + head).splitlines()
+    if len(values) > 4096:
+        fail("completion range exceeds bounds; partition delivery proof")
+    return values
+
+
+def completion_documentation(root, record, oid, final_head):
+    fields = lineage_git(root, "show", "-s", "--format=%T %P", oid).split()
+    if len(fields) != 2:
+        return None
+    raw = lineage_git(root, "diff-tree", "--no-commit-id", "--raw", "--no-abbrev", "--no-renames",
+                      "-r", "-z", fields[1], oid).split("\0")
+    if not raw or raw[-1] != "" or (len(raw) - 1) % 2 or not 1 <= (len(raw) - 1) // 2 <= 128:
+        return None
+    names, blobs = [], set()
+    for index in range(0, len(raw) - 1, 2):
+        metadata, name = raw[index].split(), raw[index + 1]
+        path = PurePosixPath(name)
+        if (len(metadata) != 5 or metadata[0] not in {":000000", ":100644"}
+                or metadata[1] not in {"000000", "100644"} or metadata[4] not in {"A", "M", "D"}
+                or len(name.encode()) > 4096 or name != path.as_posix() or path.is_absolute()
+                or len(path.parts) < 2 or path.parts[0] != "docs" or not name.endswith(".md")
+                or "\\" in name or any(part in {".", ".."} for part in path.parts)
+                or any(ord(char) < 32 or ord(char) == 127 for char in name)):
+            return None
+        names.append(name)
+        for blob in metadata[2:4]:
+            lineage_oid(blob)
+            if int(blob, 16):
+                blobs.add(blob)
+    review = record["gates"]["review_integrate"]
+    if review.get("result") != "passed":
+        return None
+    item = verify_envelope(root, record, "review_integrate", require_head=False)
+    if (item.get("commit") or item["head"]) != final_head or not set(names) <= set(item["paths"]):
+        return None
+    if evidence_path_blobs(root, names, commit=final_head) != {name: item["paths"][name] for name in names}:
+        return None
+    lineage_document_blobs(root, blobs)
+    return {"id": oid, "kind": "reviewed_documentation", "evidence": item["id"], "paths": names}
+
+
+def completion_segment_structure(root, record, selected, *, authority_verified=False):
+    """Classify physical DAGs in delivery order, before any credential request."""
+    rebased_git_safety(root)
+    if not authority_verified:
+        verify_discovery_import(root, record)
+    baseline = record["git"]["head"]
+    known = {item["id"]: "cycle_commit" for item in record["commits"]}
+    if not known or len(known) != len(record["commits"]):
+        fail("invalid recorded completion commit inventory")
+    imported = record.get("discovery_import")
+    if imported:
+        known[imported["commit"]] = "authority_import"
+    observed, proofs, previous = set(), [], None
+    deadline = time.monotonic() + 60
+    for number, head, merge in selected:
+        lineage_oid(head)
+        lineage_oid(merge)
+        parents = lineage_git(root, "show", "-s", "--format=%P", merge).split()
+        if len(parents) not in (1, 2) or not lineage_ancestor(root, baseline, parents[0]):
+            fail("delivery segment has unsupported base parents")
+        if previous and not lineage_ancestor(root, previous, parents[0]):
+            fail("delivery segments are not ordered on the approved target")
+        current = []
+        for oid in completion_range(root, baseline, head):
+            if time.monotonic() >= deadline:
+                fail("completion classification timed out; partition delivery proof")
+            if oid in known:
+                observed.add(oid)
+                kind = known[oid]
+            elif lineage_ancestor(root, oid, parents[0]):
+                kind = "accepted_target"
+            else:
+                document = completion_documentation(root, record, oid, selected[-1][1])
+                if document is None:
+                    fail("unclassified source commit; review its scope before completion")
+                current.append(document)
+                continue
+            current.append({"id": oid, "kind": kind})
+        proofs.append({"number": number, "head": head, "merge": merge,
+                       "parent": parents[0], "classification": current})
+        previous = merge
+    if set(known) - observed:
+        fail("delivery segments do not cover every recorded source commit")
+    return proofs
+
+
+def completion_target_equivalence(root, record, source, target):
+    """Native acceptance must preserve delivered work and every validation input."""
+    lineage_oid(source)
+    lineage_oid(target)
+    changed = set(filter(None, lineage_git(root, "diff", "--name-only", "-z", source, target, "--").split("\0")))
+    if len(changed) > 8192:
+        fail("accepted target comparison exceeds bounds; partition proof")
+    delivered = set(filter(None, lineage_git(root, "diff", "--name-only", "-z", record["git"]["head"], source, "--").split("\0")))
+    if changed & delivered:
+        fail("accepted target changes delivered source paths; revalidate current delivery")
+    policy = effective_evidence_policy(record)
+    if changed:
+        for name, gate in record["gates"].items():
+            if gate["applicability"] != "required":
+                continue
+            if policy is None or name not in policy["gates"] or gate["result"] != "passed":
+                fail("accepted target input scope unavailable; enroll and revalidate")
+            declaration = policy["gates"][name]
+            roots = [*declaration["inputs"], record["engineering_profile"]["path"],
+                     *(path for path in declaration["toolchain_paths"] if not Path(path).is_absolute())]
+            if any(PurePosixPath(path).name == ".gitignore" or any(path == root or path.startswith(root + "/")
+                       for root in roots) for path in changed):
+                fail("accepted target changes validation inputs; revalidate affected gates")
+    return {"source": source, "target": target,
+            "source_tree": lineage_git(root, "rev-parse", source + "^{tree}").strip(),
+            "target_tree": lineage_git(root, "rev-parse", target + "^{tree}").strip(),
+            "unrelated_paths_digest": continuation_digest(sorted(changed))}
+
+
+def completion_acceptance_context(root, selected, head, target=None):
+    source, merge = selected[-1][1:]
+    if head == source:
+        return
+    if not lineage_ancestor(root, merge, head):
+        fail("checkout is neither final PR source nor accepted-target integration")
+    if target is None:
+        return
+    target_tree = lineage_git(root, "rev-parse", target + "^{tree}").strip()
+    if lineage_git(root, "rev-parse", head + "^{tree}").strip() != target_tree:
+        fail("acceptance checkout tree differs from observed target")
+    anchor = source if lineage_ancestor(root, source, head) else merge
+    for commit in completion_range(root, anchor, head):
+        if lineage_ancestor(root, commit, target):
+            continue
+        parents = lineage_git(root, "show", "-s", "--format=%P", commit).split()
+        if (len(parents) != 2 or not all(lineage_ancestor(root, parent, target) or parent == source for parent in parents)
+                or lineage_git(root, "rev-parse", commit + "^{tree}").strip() != target_tree):
+            fail("unclassified acceptance-context commit; retain checkout for recovery")
+
+
+def reconciliation_location(root, cycle, digest, name):
+    # Reuse the existing custody path validator, not its amendment namespace.
+    validated = amendment_location(root, cycle, digest, name)
+    return validated.parent.parent.parent / "completion-reconciliation" / digest / name
+
+
+def reconciliation_plan_digest(plan):
+    # Observation timestamps are evidence, not transaction identity. Exact retry
+    # reuses the first prepared proof rather than manufacturing a new execution.
+    stable = {key: value for key, value in plan.items() if key != "verified_at"}
+    stable["segments"] = [{key: value for key, value in segment.items() if key != "verified_at"}
+                          for segment in plan["segments"]]
+    if "runtime_observations" in stable:
+        stable["runtime_observations"] = [{key: value for key, value in observation.items()
+                                           if key not in {"reference", "observed_at"}}
+                                          for observation in stable["runtime_observations"]]
+    return continuation_digest(stable)
+
+
+def reconciliation_source_refs(root, cycle, selected, *, create=False, acceptance_head=None):
+    """Separate namespace preserves all segment sources without repointing v2 refs."""
+    refs = []
+    for head in dict.fromkeys([item[1] for item in selected] + ([acceptance_head] if acceptance_head else [])):
+        # Validate opaque identity through the custody owner before making a ref.
+        reconciliation_location(root, cycle, "0" * 64, "plan.json")
+        lineage_oid(head)
+        ref = "refs/dbsctr/reconciliation/" + cycle + "/" + head
+        fields = lineage_git(root, "for-each-ref", "--format=%(refname) %(objectname) %(symref)", ref).splitlines()
+        if fields:
+            if fields != [ref + " " + head + " "]:
+                fail("completion source retention ref changed")
+        elif create:
+            lineage_git(root, "update-ref", "--no-deref", ref, head, "0" * len(head))
+        else:
+            fail("completion source retention unavailable")
+        refs.append(ref)
+    return refs
+
+
+def completion_structural_report(root, record, selected, expected_head):
+    """Aggregate independent local blockers; never launch credentials or live checks."""
+    stages = {name: {"status": "not_evaluated", "reason_codes": []} for name in (
+        "authority", "source", "topology", "evidence", "delivery", "runtime", "cleanup")}
+    stages["cleanup"]["reason_codes"] = ["cleanup_independent"]
+
+    def check(stage, code, function):
+        try:
+            function()
+        except (RuntimeError, OSError, ValueError, KeyError, TypeError):
+            stages[stage]["status"] = "blocked"
+            stages[stage]["reason_codes"].append(code)
+
+    for code, function in (
+            ("discovery_import_unavailable", lambda: verify_discovery_import(root, record)),
+            ("effective_authority_unavailable", lambda: require_amendment_completion(root, record)),
+            ("profile_stale", lambda: require_current_profile(root, record)),
+            ("graphify_evidence_unavailable", lambda: require_graphify_check(root, record))):
+        check("authority", code, function)
+    head = lineage_git(root, "rev-parse", "HEAD").strip()
+    tree = lineage_git(root, "rev-parse", "HEAD^{tree}").strip()
+    baseline = record["git"]
+    try:
+        destination_changed = baseline.get("remote") != remote_destination(root, upstream(root))
+    except (RuntimeError, OSError, ValueError, TypeError):
+        destination_changed = True
+    head_pin_mismatch = head != expected_head
+    if head_pin_mismatch:
+        try:
+            head_pin_mismatch = not lineage_ancestor(root, selected[-1][2], head)
+        except (RuntimeError, OSError, ValueError, TypeError):
+            pass
+    source_conditions = {
+        "head_pin_mismatch": head_pin_mismatch,
+        "tracked_source_dirty": bool(status_paths(root)),
+        "source_branch_changed": not baseline["branch"] or branch(root) != baseline["branch"],
+        "source_upstream_changed": not baseline["upstream"] or upstream(root) != baseline["upstream"],
+        "pre_cycle_ownership_unavailable": bool(baseline["pre_cycle_ahead_commits"]),
+        "source_destination_changed": destination_changed,
+        "unsafe_index_flags": any(entry and not entry.startswith("H ") for entry in
+                                  lineage_git(root, "ls-files", "-v", "-z").split("\0")),
+    }
+    for code, blocked in source_conditions.items():
+        if blocked:
+            stages["source"]["status"] = "blocked"
+            stages["source"]["reason_codes"].append(code)
+    check("source", "acceptance_context_unavailable", lambda: completion_acceptance_context(root, selected, head))
+    structure = None
+    if stages["authority"]["status"] != "blocked":
+        try:
+            structure = completion_segment_structure(root, record, selected, authority_verified=True)
+        except (RuntimeError, OSError, ValueError, KeyError, TypeError):
+            stages["topology"].update(status="blocked", reason_codes=["provenance_unavailable"])
+    decisions = completion_evidence_dispositions(root, record, strict_source=True, source_head=selected[-1][1])
+    runtime_pending = False
+    for name, decision in decisions.items():
+        stage = "runtime" if name in {"deploy", "operate"} else "evidence"
+        if decision["disposition"] != "retained":
+            stages[stage]["status"] = "blocked"
+            stages[stage]["reason_codes"].append(name + "_" + decision["reason_code"])
+        if decision.get("runtime_status") == "not_evaluated":
+            runtime_pending = True
+    check("evidence", "artifact_reviews_incomplete", lambda: completion_artifact_check(record))
+    changed = set(lineage_git(root, "diff", "--name-only", baseline["head"], head).splitlines())
+    changelog = record["artifact_reviews"]["CHANGELOG"].get("path")
+    if changelog not in changed:
+        stages["evidence"]["status"] = "blocked"
+        stages["evidence"]["reason_codes"].append("reviewed_changelog_not_committed")
+    for name in ("authority", "source", "evidence", "runtime"):
+        if stages[name]["status"] != "blocked":
+            stages[name]["status"] = "passed"
+    if structure is not None:
+        stages["topology"]["status"] = "passed"
+    if runtime_pending and stages["runtime"]["status"] != "blocked":
+        stages["runtime"].update(status="not_evaluated", reason_codes=["runtime_probe_required"])
+    blocked = any(stage["status"] == "blocked" for stage in stages.values())
+    if blocked:
+        # Runtime freshness is local evidence here, not a new live observation.
+        # No delivery or expensive DVC/native operation has been launched.
+        print(json.dumps({"schema_version": 1, "status": "blocked", "stages": stages, "evidence_dispositions": decisions,
+                          "next_action": "resolve_reported_prerequisites"}, sort_keys=True))
+        fail("completion reconciliation preflight blocked")
+    return structure, head, tree, changed, decisions
+
+
+def reconciliation_source_unchanged(root, path, raw, record, pointer, head, source_head=None):
+    baseline = record["git"]
+    if (status_paths(root) or branch(root) != baseline["branch"] or upstream(root) != baseline["upstream"]
+            or git(root, "rev-parse", "HEAD").stdout.strip() != head
+            or remote_destination(root, upstream(root)) != baseline["remote"]
+            or amendment_read(root, path) != raw
+            or not pointer.exists() or active_pointer_id(root, pointer) != record["cycle_id"]
+            or not record_worktree_matches(root, record, root, bindings=False)):
+        fail("completion reconciliation inputs changed")
+    policy = effective_evidence_policy(record)
+    if policy is not None:
+        require_completion_bindings(root, record, strict_source=True, source_head=source_head)
+        for name, declaration in policy["gates"].items():
+            if "runtime" not in declaration or record["gates"][name]["result"] != "passed":
+                continue
+            payload = load_evidence_binding(root, record, record["gates"][name]["evidence"])
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(payload["runtime"]["validated_at"].replace("Z", "+00:00"))).total_seconds()
+            if not 0 <= age <= declaration["runtime"]["max_age_seconds"]:
+                fail("runtime acceptance expired before completion persistence")
+
+
+def reconciliation_target(root, record, env):
+    delivery = record["delivery"]
+    endpoint = ("repos/" + delivery["github"]["repository"] + "/git/ref/heads/"
+                + quote(delivery["base_branch"], safe=""))
+    value = external_github(root, env, endpoint)
+    if (not isinstance(value, dict) or value.get("ref") != "refs/heads/" + delivery["base_branch"]
+            or not isinstance(value.get("object"), dict) or value["object"].get("type") != "commit"
+            or not external_oid(value["object"].get("sha"))):
+        fail("completion target observation unavailable")
+    target = value["object"]["sha"]
+    url = github_remote_url(root, delivery["remote"], delivery["github"]["repository"])
+    require_canonical_github_url(root, url, env)
+    # Fetch objects only: no remote-tracking refs, reflogs or FETCH_HEAD writes.
+    git(root, "fetch", "--no-write-fetch-head", "--no-tags", "--refmap=", url,
+        "refs/heads/" + delivery["base_branch"], env=env)
+    lineage_git(root, "cat-file", "-e", target + "^{commit}")
+    return target
+
+
+def require_completion_target_pin(root, record, env, target):
+    branch_name = record["delivery"]["base_branch"]
+    current = external_github(root, env, "repos/" + record["delivery"]["github"]["repository"]
+                              + "/git/ref/heads/" + quote(branch_name, safe=""))
+    obj = current.get("object") if isinstance(current, dict) else None
+    if (not isinstance(current, dict) or current.get("ref") != "refs/heads/" + branch_name
+            or not isinstance(obj, dict) or obj.get("type") != "commit" or obj.get("sha") != target):
+        fail("protected target changed before completion persistence; retry fresh proof")
+
+
+def validate_completion_reconciliation(root, record):
+    entry = record["completion_reconciliation"]
+    if (not isinstance(entry, dict) or set(entry) != {"schema_version", "digest"}
+            or type(entry["schema_version"]) is not int or entry["schema_version"] != 1):
+        fail("unsupported completion reconciliation custody")
+    cycle, digest = record["cycle_id"], entry["digest"]
+    plan = amendment_json(root, reconciliation_location(root, cycle, digest, "plan.json"))
+    raw = amendment_read(root, reconciliation_location(root, cycle, digest, "before.json"))
+    before = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    outcome = amendment_json(root, reconciliation_location(root, cycle, digest, "outcome.json"))
+    if (set(plan) != {"schema_version", "cycle_id", "before_sha256", "head", "tree", "structure", "segments",
+                     "evidence_dispositions", "requirements", "runtime_observations", "verified_at", "accepted_target"}
+            or type(plan["schema_version"]) is not int or plan["schema_version"] != 1
+            or reconciliation_plan_digest(plan) != digest or plan["cycle_id"] != cycle
+            or amendment_hash(raw) != plan["before_sha256"]
+            or before.get("completion_reconciliation") is not None
+            or before.get("external_completion") is not None):
+        fail("invalid completion reconciliation preimage")
+    selected = [(item["pull_request"]["number"], item["head"], item["merge"]) for item in plan["segments"]]
+    if completion_segment_structure(root, before, selected) != plan["structure"]:
+        fail("completion reconciliation provenance changed")
+    for segment in plan["segments"]:
+        if segment["schema_version"] == 4:
+            view = json.loads(json.dumps(before))
+            view["git"]["head"] = segment["source_base"]
+            view["commits"] = [{"id": commit, "gates": []} for commit in segment["recorded_commits"]]
+            mapping = rebased_mapping(root, view, segment["merge"])
+            if any(mapping[key] != segment[key] for key in ("landed_base", "commit_mapping")):
+                fail("reconciled rebased segment correspondence changed")
+    reconciliation_source_refs(root, cycle, selected, acceptance_head=plan["head"])
+    completion_acceptance_context(root, selected, plan["head"], plan["segments"][-1]["target_head"])
+    if completion_target_equivalence(root, before, selected[-1][1], plan["segments"][-1]["target_head"]) != plan["accepted_target"]:
+        fail("completion accepted target applicability changed")
+    decisions = plan["evidence_dispositions"]
+    required = {name for name, gate in before["gates"].items() if gate["applicability"] == "required"}
+    if (not isinstance(decisions, dict) or set(decisions) != required
+            or any(item.get("disposition") != "retained" or item.get("evidence") != before["gates"][name].get("evidence")
+                   for name, item in decisions.items())
+            or plan["requirements"] != completion_requirement_dispositions(before, decisions)
+            or not external_timestamp(plan["verified_at"])):
+        fail("completion reconciliation requirement or evidence disposition changed")
+    for name, decision in decisions.items():
+        if decision["reason_code"] == "trusted_inputs_equivalent":
+            binding = load_evidence_binding(root, before, decision["evidence"])
+            declaration = effective_evidence_policy(before)["gates"][name]
+            if binding["gate_policy_digest"] != evidence_gate_policy_digest(effective_evidence_policy(before), name):
+                fail("completion applicability policy changed")
+            if "runtime" in declaration:
+                validated = datetime.fromisoformat(binding["runtime"]["validated_at"].replace("Z", "+00:00"))
+                verified = datetime.fromisoformat(plan["verified_at"].replace("Z", "+00:00"))
+                snapshot_digest = continuation_digest({key: binding[key] for key in ("inputs", "toolchain", "environment")})
+                if (decision.get("runtime_status") != "passed" or not 0 <= (verified - validated).total_seconds() <= declaration["runtime"]["max_age_seconds"]
+                        or not any(observation.get("identity") == binding["runtime"]["identity"]
+                                   and observation.get("command_digest") == continuation_digest(declaration["runtime"]["probe_argv"])
+                                   and observation.get("inputs_digest") == snapshot_digest
+                                   and external_timestamp(observation.get("observed_at"))
+                                   and validated <= datetime.fromisoformat(observation["observed_at"].replace("Z", "+00:00")) <= verified
+                                   for observation in plan["runtime_observations"])):
+                    fail("completion runtime applicability observation unavailable")
+        elif decision["reason_code"] not in {"legacy_source_rule", "approved_exception"}:
+            fail("unsupported completion applicability decision")
+    for observation in plan["runtime_observations"]:
+        reference = observation["reference"]
+        if (set(reference) != {"schema_version", "sha256"} or reference["schema_version"] != 1
+                or not isinstance(reference["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", reference["sha256"])):
+            fail("invalid runtime observation reference")
+        data = amendment_read(root, cycle_dir(root) / "evidence" / cycle / reference["sha256"])
+        if (amendment_hash(data) != reference["sha256"]
+                or json.loads(data, object_pairs_hook=no_duplicate_keys) != {key: value for key, value in observation.items() if key != "reference"}
+                or observation["result"] != "passed" or observation["exit_code"] != 0
+                or observation["cycle_id"] != cycle or not external_timestamp(observation["observed_at"])):
+            fail("runtime observation custody changed")
+    replacement = json.loads(outcome.get("replacement", ""), object_pairs_hook=no_duplicate_keys)
+    if (set(outcome) != {"schema_version", "replacement", "replacement_sha256"}
+            or type(outcome["schema_version"]) is not int or outcome["schema_version"] != 1
+            or amendment_hash(outcome["replacement"].encode()) != outcome["replacement_sha256"]
+            or replacement != record
+            or record["external_completion"]["segments"] != plan["segments"]
+            or record["external_completion"]["head"] != selected[-1][1]
+            or record["external_completion"]["tree"] != lineage_git(root, "rev-parse", selected[-1][1] + "^{tree}").strip()
+            or lineage_git(root, "rev-parse", plan["head"] + "^{tree}").strip() != plan["tree"]):
+        fail("completion reconciliation outcome changed")
+    permitted = {"state", "completed_at", "external_completion", "completion_reconciliation", "source_sync", "delivery"}
+    if {k: v for k, v in before.items() if k not in permitted} != {
+            k: v for k, v in record.items() if k not in permitted}:
+        fail("completion reconciliation changed original evidence")
+    if {k: v for k, v in before["delivery"].items() if k != "pull_request"} != {
+            k: v for k, v in record["delivery"].items() if k != "pull_request"}:
+        fail("completion reconciliation changed delivery authority")
+
+
+def complete_external_segments(root, path, record, pointer, args, explicit):
+    selected = completion_segment_selectors(args)
+    cycle = record["cycle_id"]
+    with evidence_lock(root, cycle, timeout=1), target_lock(root, record):
+        record = read_cycle_record(root, path, historical=True)
+        raw = amendment_read(root, path)
+        own_pointer = pointer.exists() and active_pointer_id(root, pointer) == cycle
+        if (not record_worktree_matches(root, record, root, bindings=False)
+                or pointer.exists() and not own_pointer or not explicit and not own_pointer):
+            fail("completion reconciliation checkout or pointer changed")
+        with local_completion_git_context():
+            if record.get("external_completion"):
+                previous = record["external_completion"]
+                pins = [(s["pull_request"]["number"], s["head"], s["merge"]) for s in previous.get("segments", [])]
+                retained_plan = amendment_json(root, reconciliation_location(root, cycle, record["completion_reconciliation"]["digest"], "plan.json"))
+                if pins != selected or git(root, "rev-parse", "HEAD").stdout.strip() != retained_plan["head"]:
+                    fail("completed delivery segment selection changed")
+                validate_completion_reconciliation(root, record)
+                if not args.preview and own_pointer:
+                    pointer.unlink()
+                    fsync_directory(pointer.parent)
+                print(json.dumps(previous, sort_keys=True))
+                return
+            if record["state"] not in {"active", "finalizing"}:
+                fail("cycle is not available for completion reconciliation")
+            structure, head, tree, changed, decisions = completion_structural_report(root, record, selected, args.expected_head)
+            baseline = record["git"]
+            require_completion_dvc(root, record, changed)
+        env = github_environment(record["delivery"]["github"]["account"])
+        env = {key: value for key, value in {**GIT_REPOSITORY_ENV, **env}.items() if key not in GIT_REPOSITORY_REDIRECTS}
+        env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1")
+        receipts = []
+        token = LOCAL_COMPLETION_GIT.set(env)
+        try:
+            target = reconciliation_target(root, record, env)
+            for number, source, merge in selected:
+                subset = [item for item in record["commits"] if lineage_ancestor(root, item["id"], source)]
+                if not subset:
+                    fail("delivery segment contains no recorded cycle work")
+                view = json.loads(json.dumps(record))
+                view["commits"] = subset
+                # A previous PR is provenance, not the final PR identity.
+                old_pull = view["delivery"].pop("pull_request", None)
+                if old_pull and old_pull.get("number") not in {item[0] for item in selected}:
+                    fail("delivery segments omit the previously recorded pull request")
+                source_tree = lineage_git(root, "rev-parse", source + "^{tree}").strip()
+                parents = lineage_git(root, "show", "-s", "--format=%P", merge).split()
+                rebased = args.proof == "rebased_commits" and len(parents) == 1
+                segment_args = argparse.Namespace(pr_number=number, expected_merge=merge,
+                                                   proof="rebased_commits" if rebased else "exact_tree")
+                if rebased:
+                    chain, point = [], source
+                    while not lineage_ancestor(root, point, parents[0]):
+                        if len(chain) >= 1024:
+                            fail("rebased segment source exceeds bounds")
+                        chain.append(point)
+                        prior = lineage_git(root, "show", "-s", "--format=%P", point).split()
+                        if len(prior) != 1:
+                            fail("rebased segment source is not a linear qualified range")
+                        point = prior[0]
+                    if not chain:
+                        fail("rebased segment contains no distinct source changes")
+                    view["git"]["head"] = point
+                    view["commits"] = [{"id": commit, "gates": []} for commit in reversed(chain)]
+                receipts.append(external_merge_proof(root, view, segment_args, env, source, source_tree,
+                    [item["id"] for item in view["commits"]], observed_target=target, composed_segment=True))
+        finally:
+            LOCAL_COMPLETION_GIT.reset(token)
+        if len({item["target_head"] for item in receipts}) != 1:
+            fail("delivery target changed between segment proofs")
+        with local_completion_git_context():
+            completion_acceptance_context(root, selected, head, receipts[-1]["target_head"])
+            accepted_target = completion_target_equivalence(root, record, selected[-1][1], receipts[-1]["target_head"])
+        probes = {}
+        if effective_evidence_policy(record) is not None:
+            decisions = require_completion_bindings(root, record, strict_source=True, allow_runtime=True, probe_cache=probes,
+                                                    source_head=selected[-1][1])
+        # Native observations have now independently established candidate bases.
+        with local_completion_git_context():
+            if completion_segment_structure(root, record, selected) != structure:
+                fail("completion reconciliation structure changed")
+            reconciliation_source_unchanged(root, path, raw, record, pointer, head, selected[-1][1])
+        plan = {"schema_version": 1, "cycle_id": cycle, "before_sha256": amendment_hash(raw),
+                "head": head, "tree": tree, "structure": structure, "segments": receipts,
+                "evidence_dispositions": decisions, "requirements": completion_requirement_dispositions(record, decisions),
+                "runtime_observations": [value for value in probes.values() if isinstance(value, dict) and value.get("kind") == "runtime_probe"],
+                "verified_at": now(), "accepted_target": accepted_target}
+        digest = reconciliation_plan_digest(plan)
+        prepared = reconciliation_location(root, cycle, digest, "plan.json")
+        if os.path.lexists(prepared):
+            retained = amendment_json(root, prepared)
+            if reconciliation_plan_digest(retained) != digest:
+                fail("conflicting prepared completion reconciliation")
+            plan = retained
+            receipts = plan["segments"]
+        final_fields = {key: value for key, value in receipts[-1].items()
+                        if key not in {"source_base", "landed_base", "commit_mapping", "source_retention_ref"}}
+        receipt = {**final_fields, "schema_version": 3, "proof": "reconciled_segments",
+                   "segments": receipts, "reconciliation_digest": digest,
+                   "verified_at": plan["verified_at"],
+                   "recorded_commits": [item["id"] for item in record["commits"]]}
+        if args.preview:
+            print(json.dumps(receipt, sort_keys=True))
+            return
+        replacement = json.loads(json.dumps(record))
+        replacement.update(state="completed", completed_at=receipt["verified_at"], external_completion=receipt,
+                           completion_reconciliation={"schema_version": 1, "digest": digest},
+                           source_sync={"status": "not_applicable", "reason": "external_merge_completion"})
+        replacement["delivery"]["pull_request"] = {**receipt["pull_request"], "draft": False,
+                                                   "state": "MERGED", "verified_at": receipt["verified_at"]}
+        validate_external_completion(replacement)
+        expected = amendment_bytes(replacement)
+        outcome = {"schema_version": 1, "replacement": expected.decode(), "replacement_sha256": amendment_hash(expected)}
+        for name, data in (("before.json", raw), ("plan.json", amendment_bytes(plan)),
+                           ("outcome.json", amendment_bytes(outcome))):
+            amendment_write_once(root, reconciliation_location(root, cycle, digest, name), data)
+        with local_completion_git_context():
+            reconciliation_source_refs(root, cycle, selected, create=True, acceptance_head=head)
+            validate_completion_reconciliation(root, replacement)
+            reconciliation_source_unchanged(root, path, raw, record, pointer, head, selected[-1][1])
+        require_completion_target_pin(root, record, env, receipts[-1]["target_head"])
+        with local_completion_git_context():
+            reconciliation_source_unchanged(root, path, raw, record, pointer, head, selected[-1][1])
+        save(path, replacement)
+        if active_pointer_id(root, pointer) != cycle:
+            fail("completion reconciliation pointer changed; completed record retained")
+        pointer.unlink()
+        fsync_directory(pointer.parent)
+        print(json.dumps(receipt, sort_keys=True))
 
 
 def command_complete_external(args):
@@ -20628,6 +22145,16 @@ def command_complete_external(args):
         fail("external completion requires a supported GitHub draft_pr cycle")
     if type(args.pr_number) is not int or not 1 <= args.pr_number < 2**53 or not external_oid(args.expected_merge):
         fail("invalid external completion PR number or merge pin")
+    if getattr(args, "delivery_segment", []) or record.get("completion_reconciliation"):
+        return complete_external_segments(root, path, record, pointer, args, explicit)
+    if not record.get("external_completion"):
+        with local_completion_git_context():
+            changed_context = git(root, "rev-parse", "HEAD").stdout.strip() != args.expected_head
+            original_chain = lineage_git(root, "rev-list", "--reverse", "--first-parent",
+                                         record["git"]["head"] + ".." + args.expected_head).splitlines()
+        if (changed_context or record.get("initiative_amendments") or record.get("lineage_recovery")
+                or original_chain != [entry["id"] for entry in record["commits"]]):
+            return complete_external_segments(root, path, record, pointer, args, explicit)
     with evidence_lock(root, identifier, timeout=1), target_lock(root, record):
         record = read_cycle_record(root, path, historical=True)
         admitted = json.dumps(record, sort_keys=True)
@@ -20653,8 +22180,13 @@ def command_complete_external(args):
         token = LOCAL_COMPLETION_GIT.set(env)
         try:
             receipt = external_merge_proof(root, record, args, env, head, tree, commits)
+            if effective_evidence_policy(record) is not None:
+                completion_target_equivalence(root, record, head, receipt["target_head"])
         finally:
             LOCAL_COMPLETION_GIT.reset(token)
+        if effective_evidence_policy(record) is not None:
+            require_completion_bindings(root, record, allow_runtime=True, probe_cache={})
+        observed_target = receipt["target_head"]
         previous = record.get("external_completion")
         if previous is not None:
             stable = set(receipt) - {"verified_at", "target_head"}
@@ -20668,6 +22200,7 @@ def command_complete_external(args):
                 fail("external completion source changed during verification")
         if receipt["proof"] == "rebased_commits":
             rebased_source_retention(root, record, head, required=not args.preview)
+        require_completion_target_pin(root, record, env, observed_target)
         if json.dumps(read_cycle_record(root, path, historical=True), sort_keys=True) != admitted:
             fail("external completion record changed during verification")
         if own_pointer != pointer.exists() or own_pointer and active_pointer_id(root, pointer) != identifier:
@@ -20682,6 +22215,8 @@ def command_complete_external(args):
                     or git(root, "rev-parse", "HEAD^{tree}").stdout.strip() != tree
                     or not record_worktree_matches(root, record, root, bindings=False)):
                 fail("external completion source changed immediately before persistence")
+            if effective_evidence_policy(record) is not None:
+                require_completion_bindings(root, record)
         if not args.preview:
             if previous is None:
                 record.update(state="completed", completed_at=receipt["verified_at"], external_completion=receipt,
@@ -20786,6 +22321,8 @@ def finish_push(root, path, record):
     if changelog_path not in changed:
         fail("reviewed CHANGELOG path is not committed in this cycle")
     require_completion_dvc(root, record, changed)
+    if effective_evidence_policy(record) is not None:
+        require_completion_bindings(root, record, allow_runtime=True, probe_cache={})
     record["phase_profile"] = (validate_phase_profile(record["phase_profile"], record["cycle_id"])
                                if "phase_profile" in record
                                else unavailable_phase_report(record["cycle_id"]))
@@ -21850,7 +23387,10 @@ def parser():
     initiative_cycle_check.add_argument("--cycle-id", required=True)
     initiative_cycle_check.add_argument("--receipt-json", required=True)
     initiative_cycle_check.set_defaults(func=command_initiative_cycle_check)
-    amend = commands.add_parser("initiative-amend")
+    amend = commands.add_parser("initiative-amend", description=(
+        "Digest-bound Initiative amendment. Supports evidence_policy v1, "
+        "binding payload v1 and amendment v3 enrollment/revision; "
+        "enrollment alone grants no evidence credit."))
     amend.add_argument("--cycle-id", required=True)
     amend.add_argument("--initiative-manifest", required=True)
     amend.add_argument("--initiative-slice", required=True)
@@ -21945,6 +23485,8 @@ def parser():
     complete_external.add_argument("--pr-number", required=True, type=int)
     complete_external.add_argument("--expected-head", required=True)
     complete_external.add_argument("--expected-merge", required=True)
+    complete_external.add_argument("--delivery-segment", action="append", default=[],
+                                   help="preceding merged PR segment as PR:HEAD:MERGE; repeat in delivery order")
     complete_external.add_argument("--preview", action="store_true")
     complete_external.set_defaults(func=command_complete_external)
     final = commands.add_parser("final-push")

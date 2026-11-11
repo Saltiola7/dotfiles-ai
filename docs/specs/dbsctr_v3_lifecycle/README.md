@@ -11,6 +11,15 @@ input/requirement declarations, helper-owned capture, runtime freshness probes a
 supported legacy enrollment. Neither changed paths nor old status bits substitute
 for these identities; this is a source contract, not installed qualification.
 
+The source implementation extends the existing completion and amendment owners:
+reconciliation receipts use version 3, with exact-tree segment proofs and separate
+version-4 rebased segment payloads. Those segment payloads use reconciliation refs,
+not standalone version-2 retention claims. Evidence-policy revisions append
+amendment version 3 without replacing the original applicability plan. Historical
+reading stays offline; runtime observations occur only on the explicit completion
+path after structural checks. Source delivery does not activate managed tooling
+or recover a consumer; the distribution slice owns that separate qualification.
+
 [Verified rebased delivery](features/rebased-delivery.md) adds explicit
 `complete-external --proof rebased_commits` source support. It retains original
 phase IDs/evidence, verifies each landed change and native introducing PR, and

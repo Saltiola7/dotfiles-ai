@@ -1,5 +1,26 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-11 — Completion reconciliation source (COMPLETION-RECONCILIATION-CORE)
+
+- Added approved-plan evidence bindings, semantic requirement/dependency coverage,
+  private environment comparisons and helper-owned runtime identity capture with
+  bounded read-only completion probes. Policy enrollment/revision preserves the
+  original plan, approvals, executions and failures; unknown scope needs supported
+  revalidation rather than inferred success.
+- Added one/multiple-PR reconciliation, exact-tree and independently retained
+  rebased segments, accepted-checkout context, delivered-target equivalence,
+  structural refusal reports and immutable interruption/retry custody. Standalone
+  exact-tree/rebased receipts retain their original meanings. Tracked deletions
+  bind stable predecessor identity across validation and commit.
+- Source qualification covers synthetic native transport with real Git/files,
+  selective reuse/reopening, runtime-output custody, denied probes, target drift,
+  retention and historical offline reading. Actual results, review dispositions,
+  Gate Commits and draft-push outcome remain in the Cycle Record. No Gate Exception
+  is granted by this entry; intended Final Push is the feature draft PR into `main`.
+- Source-only: no managed installation, consumer recovery, external merge, cloud
+  apply or checkout removal. Journey and distribution slices retain those owners;
+  successful completion never grants cleanup authority.
+
 ## 2026-11-10 — Verified rebased completion (REBASE-COMPLETE-001)
 
 - Added explicit version-2 original-to-landed commit proof, native introducing-PR
