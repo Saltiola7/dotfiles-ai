@@ -399,6 +399,417 @@ def test_r2_source_requires_real_native_labels_retained_recover_and_r1_guards():
     assert 'NOT actual Desktop UI producer evidence' in source
 
 
+class AppClientSourceTests(unittest.TestCase):
+    """Synthetic documents and scripted core calls only; no native execution."""
+
+    def setUp(self):
+        self.fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        self.document: dict = {'metadata': {'opaque': [None, {'terminal': 'ta'}]}, 'spaces': [
+            {'id': 'alpha', 'opaque': True, 'tabs': [
+                {'id': 'tab', 'name': 'Retain', 'root': {'id': 'row', 'type': 'row',
+                    'size': {'weight': 7}, 'opaque': {'keep': True}, 'children': [
+                        {'id': 'live', 'type': 'block', 'content': {'terminal': 't7', 'opaque': 3},
+                         'size': {'weight': 2}},
+                        {'id': 'historical', 'type': 'block', 'content': {'terminal': 'ta'}},
+                        {'id': 'foreign', 'type': 'block', 'content': {'terminal': 't7'}}]}},
+                {'id': 'empty-tab', 'root': {'id': 'column', 'type': 'column', 'children': [
+                    {'id': 'closed-tab', 'type': 'block', 'content': {'terminal': 'tb'}}]}}]},
+            {'id': 'beta', 'tabs': [{'id': 'last-tab', 'root': {
+                'id': 'closed-space', 'type': 'block', 'content': {'terminal': 'tc'}}}]}]}
+
+    def test_prune_preserves_opaque_fields_weights_ids_and_foreign_views(self):
+        before = copy.deepcopy(self.document)
+        owned = {'live', 'closed-tab', 'closed-space'}
+        expected = copy.deepcopy(before)
+        expected['spaces'].pop()
+        expected['spaces'][0]['tabs'].pop()
+        expected['spaces'][0]['tabs'][0]['root']['children'].pop(0)
+        result = self.fixture['fixture_prune_finished'](before, owned, {'t7', 'tb', 'tc'})
+        self.assertEqual(result, expected)
+        self.assertEqual(before, self.document)
+        refs = self.fixture['fixture_references'](result)
+        self.assertEqual(refs, {'historical': 'ta', 'foreign': 't7'})
+        self.assertEqual(self.fixture['fixture_prune_finished'](before, owned, {'tz'}), before)
+
+    def test_empty_branches_are_dropped_without_collapsing_remaining_rows(self):
+        result = self.fixture['fixture_prune_finished'](self.document, {'live'}, {'t7'})
+        row = result['spaces'][0]['tabs'][0]['root']
+        self.assertEqual(row['id'], 'row')
+        self.assertEqual(row['size'], {'weight': 7})
+        self.assertEqual(len(row['children']), 2)
+        all_refs = self.fixture['fixture_references'](self.document)
+        empty = self.fixture['fixture_prune_finished'](self.document, all_refs, set(all_refs.values()))
+        self.assertEqual(empty, {'metadata': self.document['metadata'], 'spaces': []})
+
+    def scripted_client(self, *, mutation_failure=False, observation_failure=False, paused=False):
+        document = copy.deepcopy(self.document)
+        calls = []
+        inventories = iter([
+            {'t7': 'live', 'ta': 'finished', 'tb': 'live', 'tc': 'live'},
+            {'t7': 'finished', 'ta': 'finished', 'tb': 'live', 'tc': 'live'}])
+        def core(method, params):
+            calls.append((method, copy.deepcopy(params)))
+            if observation_failure:
+                raise ValueError('PRIVATE-NATIVE-PAYLOAD')
+            if method == 'terminal.list':
+                self.assertEqual(params, {'all': True})
+                return {'terminals': [{'address': a, 'state': s} for a, s in next(inventories).items()]}
+            if method == 'doc.get':
+                self.assertEqual(params, {'name': 'herdr-app'})
+                return {'version': 17, 'value': copy.deepcopy(document)}
+            self.assertEqual(method, 'doc.set')
+            self.assertEqual(params['version'], 17)
+            self.assertEqual(params['name'], 'herdr-app')
+            if mutation_failure:
+                raise ValueError('PRIVATE-CAS-OUTCOME')
+            return {'version': 18}
+        client = self.fixture['FixtureAppClient'](core, {'live', 'historical'})
+        class Stop:
+            def __init__(self): self.calls = 0
+            def wait(self, seconds):
+                self.calls += 1
+                return self.calls > 1
+        client.stop = Stop()
+        if paused:
+            client.release.clear()
+        client._observe()  # Scripted in this thread, no host services or sockets.
+        return client, calls
+
+    def test_observer_uses_live_finish_events_and_one_observed_version_cas(self):
+        client, calls = self.scripted_client()
+        client.check()
+        self.assertTrue(client.seen({'t7'}))
+        self.assertTrue(client.observed_live('t7'))
+        self.assertEqual([m for m, _ in calls], ['terminal.list', 'terminal.list', 'doc.get', 'doc.set'])
+        refs, live = client.events['t7']
+        self.assertEqual(refs['live'], 't7')
+        self.assertNotIn('t7', live)
+        updated = calls[-1][1]['value']
+        expected = copy.deepcopy(self.document)
+        expected['spaces'][0]['tabs'][0]['root']['children'].pop(0)
+        self.assertEqual(updated, expected)  # Preexisting finished 'ta' stays.
+        self.assertNotIn('ta', client.events)
+
+    def test_pause_prevents_document_write_and_unknown_failures_never_retry(self):
+        paused, calls = self.scripted_client(paused=True)
+        paused.check()
+        self.assertEqual([m for m, _ in calls], ['terminal.list', 'terminal.list'])
+        self.assertFalse(paused.events)
+        for kwargs in ({'mutation_failure': True}, {'observation_failure': True}):
+            with self.subTest(**kwargs):
+                client, calls = self.scripted_client(**kwargs)
+                with self.assertRaises(self.fixture['CommandFailure']) as caught:
+                    client.check()
+                self.assertEqual(caught.exception.reason, 'app-client-observation-or-cas-failed')
+                self.assertNotIn('PRIVATE', str(caught.exception))
+                self.assertLessEqual(sum(m == 'doc.set' for m, _ in calls), 1)
+                self.assertFalse(client.events)
+
+    def test_rebound_leaf_is_not_pruned_when_original_finishes(self):
+        rebound = copy.deepcopy(self.document)
+        rebound['spaces'][0]['tabs'][0]['root']['children'][0]['content']['terminal'] = 'tz'
+        self.assertEqual(self.fixture['fixture_prune_finished'](rebound, {'live'}, {'t7'}), rebound)
+
+    def test_legacy_serializer_is_pre_writer_small_and_does_not_modify_input(self):
+        from types import SimpleNamespace
+        repair = {'terminal': 't7', 'pane': {'session_id': 'ses_synthetic', 'cwd': '/fixture'},
+                  'created': None, 'pids': None, 'stopped': False,
+                  'source': {'private': 'not-published'}, 'create_id': 'a' * 32,
+                  'labels': {'remote-herdr-repair': 'a' * 32}}
+        old = copy.deepcopy(repair)
+        original = lambda *args: ({'spaces': []}, {}, {}, {'uuid-leaf': copy.deepcopy(repair)})
+        backend = SimpleNamespace(_labels=lambda txid, pane: {
+            'remote-herdr-owner': txid, 'remote-herdr-pane': pane['key'],
+            'remote-herdr-session': pane['session_id']})
+        project = self.fixture['legacy_repair_projection'](original, backend)
+        result = project({}, [], {}, {'txid': 'synthetic'})[3]['uuid-leaf']
+        self.assertEqual(repair, old)
+        self.assertNotIn('source', result)
+        self.assertNotIn('create_id', result)
+        self.assertEqual(result['labels'], {'remote-herdr-owner': 'synthetic',
+            'remote-herdr-pane': 'uuid-leaf', 'remote-herdr-session': 'ses_synthetic'})
+        for key in ('terminal', 'pane', 'created', 'pids', 'stopped'):
+            self.assertEqual(result[key], repair[key])
+
+    def test_legacy_mixed_fault_publishes_original_intents_before_effects_and_never_runs_third(self):
+        from types import ModuleType, SimpleNamespace
+        import sys
+        keys = ['alpha', 'later', 'beta', 'remaining0', 'remaining1']
+        repairs = {key: {'terminal': 't' + str(i + 1),
+            'pane': {'key': key, 'session_id': 'ses_synthetic' + str(i), 'cwd': '/fixture'},
+            'created': None, 'stopped': False, 'pids': None,
+            'create_id': str(i) * 32, 'labels': {'remote-herdr-repair': str(i) * 32}}
+            for i, key in enumerate(keys)}
+        receipt = {'txid': 'synthetic', 'bindings': {k: k for k in keys},
+                   'terminals': {k: r['terminal'] for k, r in repairs.items()}, 'repairs': {}, 'pending': None}
+        manifest = {'plan': {'spaces': []}, 'receipt': copy.deepcopy(receipt)}
+        terminals = {r['terminal']: {'address': r['terminal'], 'pid': 100 + i, 'state': 'live'}
+                     for i, r in enumerate(repairs.values())}
+        timeline = []
+        published = []
+        document = {'spaces': []}
+        class Backend:
+            store = SimpleNamespace(read=lambda name: copy.deepcopy(manifest))
+            def _document(self): return copy.deepcopy(document), 9
+            def _terminals(self): return copy.deepcopy(list(terminals.values()))
+            def _current_projection(self, *args):
+                return ({'spaces': []}, {k: {'leaf': k, 'terminal': r['terminal']} for k, r in repairs.items()},
+                        {k: {'remote-herdr-owner': 'synthetic'} for k in keys}, copy.deepcopy(repairs))
+            def _labels(self, txid, pane):
+                return {'remote-herdr-owner': txid, 'remote-herdr-pane': pane['key'],
+                        'remote-herdr-session': pane['session_id']}
+            def _receipt(self, value):
+                published.append(copy.deepcopy(value))
+                pending = value['pending']
+                timeline.append(('write', pending['operation'] if pending else None,
+                                 pending.get('leaf') if pending else None))
+            def _terminal(self, address): return copy.deepcopy(terminals[address])
+            def _shell_proof(self, terminal):
+                self_test.assertEqual(terminal['state'], 'live')
+            def _pid_proofs(self, pids):
+                return [{'pid': p, 'start_ticks': 1} for p in sorted(set(pids))]
+            def _kill_identity(self, terminal): return {'synthetic-pid': terminal['pid']}
+            def _complete_current_kill(self, value):
+                self_test.assertEqual(published[-1], value)
+                pending = value['pending']
+                timeline.append(('kill', pending['leaf']))
+                terminals[pending['terminal']]['state'] = 'finished'
+                value['repairs'][pending['leaf']]['stopped'] = True
+            def core(self, method, params):
+                self_test.assertEqual(method, 'terminal.run')
+                pending = published[-1]['pending']
+                self_test.assertEqual(pending['operation'], method)
+                self_test.assertEqual(params['labels'], pending['labels'])
+                timeline.append(('run', pending['leaf']))
+                address = 'ta' if pending['leaf'] == 'alpha' else 'tb'
+                terminals[address] = {'address': address, 'labels': params['labels'], 'state': 'live'}
+                return copy.deepcopy(terminals[address])
+            def _same_labels(self, left, right): return left == right
+            def _wait_created_core(self, address, pane, labels):
+                self_test.assertEqual(published[-1]['pending']['operation'], 'terminal.run')
+                timeline.append(('ready', address))
+            def _replacement_proof(self, repair):
+                self_test.assertEqual(terminals[repair['created']]['state'], 'live')
+        self_test = self
+        # Only the public address regex dependency is supplied; no native module
+        # initialization, DB, filesystem, process, Store or socket is involved.
+        previous = sys.modules.get('layout')
+        dependency = ModuleType('layout')
+        setattr(dependency, '_TERMINAL', re.compile(r't[0-9a-z]+'))
+        sys.modules['layout'] = dependency
+        try:
+            admitted = self.fixture['legacy_mixed_admission'](Backend(), manifest['plan'], keys[:3],
+                before_last=lambda: timeline.append(('barrier',)))
+        finally:
+            if previous is None:
+                del sys.modules['layout']
+            else:
+                sys.modules['layout'] = previous
+        self.assertEqual(published[-1], admitted)
+        self.assertEqual(admitted['pending']['leaf'], 'beta')
+        self.assertEqual(admitted['pending']['operation'], 'terminal.run')
+        self.assertIsNone(admitted['repairs']['beta']['created'])
+        self.assertEqual([event for event in timeline if event[0] == 'run'], [('run', 'alpha'), ('run', 'later')])
+        self.assertEqual([event for event in timeline if event[0] == 'kill'],
+                         [('kill', 'alpha'), ('kill', 'later'), ('kill', 'beta')])
+        self.assertLess(timeline.index(('barrier',)), timeline.index(('kill', 'beta')))
+        for key in keys:
+            self.assertNotIn('create_id', admitted['repairs'][key])
+            self.assertNotIn('source', admitted['repairs'][key])
+        for key in keys[:3]:
+            self.assertLess(timeline.index(('write', 'terminal.kill', key)), timeline.index(('kill', key)))
+        for key in keys[:2]:
+            self.assertLess(timeline.index(('write', 'terminal.run', key)), timeline.index(('run', key)))
+        self.assertEqual(manifest['receipt'], receipt)  # No published input mutated.
+
+    def test_app_worker_shutdown_is_owned_bounded_and_surfaces_failures(self):
+        from types import SimpleNamespace
+        client = self.fixture['FixtureAppClient'](lambda *args: {}, set())
+        joined = []
+        client.thread = SimpleNamespace(join=lambda seconds: joined.append(seconds), is_alive=lambda: False)
+        client.__exit__()
+        self.assertTrue(client.stop.is_set())
+        self.assertEqual(joined, [35])
+        client.thread.is_alive = lambda: True
+        with self.assertRaises(self.fixture['CommandFailure']) as caught:
+            client.__exit__()
+        self.assertEqual(caught.exception.reason, 'app-client-join-deadline')
+        client.thread.is_alive = lambda: False
+        client.failure = True
+        with self.assertRaises(self.fixture['CommandFailure']) as caught:
+            client.__exit__()
+        self.assertEqual(caught.exception.reason, 'app-client-observation-or-cas-failed')
+
+    def ordering_backend(self):
+        from types import SimpleNamespace
+        baseline: dict = {'metadata': {'opaque': [None, 7]}, 'spaces': [{'id': 'space',
+            'tabs': [{'id': 'tab', 'root': {'id': 'leaf', 'type': 'block',
+                'size': {'weight': 3}, 'content': {'terminal': 'ta'}}}]}]}
+        pane = {'key': 'pane', 'session_id': 'ses_synthetic', 'cwd': '/fixture'}
+        source = {'address': 'ta', 'pid': 101, 'state': 'live', 'argv': ['/bin/bash', '-l'],
+                  'cwd': '/fixture', 'keep': True, 'labels': {'remote-herdr-owner': 'synthetic',
+                    'remote-herdr-pane': 'original-pane', 'remote-herdr-session': 'ses_synthetic'}}
+        labels = {'remote-herdr-owner': 'synthetic', 'remote-herdr-pane': 'leaf',
+                  'remote-herdr-session': 'ses_synthetic', 'remote-herdr-repair': 'a' * 32}
+        new = dict(source, address='tb', pid=202, labels=labels,
+                   argv=['/fixture/opencode', '--session', 'ses_synthetic'])
+        document = copy.deepcopy(baseline)
+        document['spaces'][0]['tabs'][0]['root']['content']['terminal'] = 'tb'
+        def proof(pid): return [{'pid': pid, 'start_ticks': 17}]
+        def identity(t):
+            return {'pid': t['pid'], 'foreground_pid': t['pid'], 'argv': t['argv'], 'cwd': t['cwd'],
+                    'launch': {k: t[k] for k in ('argv', 'cwd', 'keep')}}
+        replacement = {'identity': identity(new), 'pids': proof(202)}
+        receipt = {'document': copy.deepcopy(baseline), 'doc_version': 1,
+            'bindings': {'pane': 'leaf'}, 'terminals': {'pane': 'ta'},
+            'repairs': {'leaf': {'terminal': 'ta', 'created': 'tb', 'pane': pane, 'pids': proof(101),
+                'source': identity(source), 'create_id': 'a' * 32, 'labels': copy.deepcopy(labels)}},
+            'pending': {'operation': 'terminal.kill', 'terminal': 'ta', 'pane': 'pane', 'leaf': 'leaf',
+                'identity': identity(source), 'pids': proof(101), 'rebound': {
+                    'document': copy.deepcopy(document), 'version': 2, 'replacement': replacement}}}
+        state: dict = {'document': document, 'version': 2, 'receipt': receipt,
+            'terminals': {'ta': copy.deepcopy(source), 'tb': copy.deepcopy(new)},
+            'clients': [{'pid': 202, 'session_id': 'ses_synthetic'}],
+            'ticks': {101: 17, 202: 17}, 'cwd': {101: '/fixture', 202: '/fixture'}, 'reads': []}
+        def read(name):
+            self.assertEqual(name, 'receipt-synthetic.json')
+            state['reads'].append(name)
+            return copy.deepcopy(state['receipt'])
+        def mutation(*args): raise AssertionError('ordering oracle must never mutate')
+        backend = SimpleNamespace(
+            store=SimpleNamespace(read=read, write=mutation), core=mutation,
+            _document=lambda: (copy.deepcopy(state['document']), state['version']),
+            _terminal=lambda address: copy.deepcopy(state['terminals'][address]),
+            _pid_proofs=lambda pids: [{'pid': p, 'start_ticks': state['ticks'][p]} for p in sorted(set(pids))],
+            process_argv=lambda pid: copy.deepcopy(next(t['argv'] for t in state['terminals'].values()
+                                                       if t['pid'] == pid)),
+            process_cwd=lambda pid: state['cwd'][pid],
+            _actual_core_program=lambda t: (None if t['address'] == 'ta' else 'ses_synthetic',
+                                            state['cwd'][t['pid']]),
+            scan=lambda sessions: copy.deepcopy(state['clients']))
+        return (backend, baseline, 'leaf', source, pane, proof(101), 'synthetic', 'pane'), state
+
+    def test_before_kill_oracle_accepts_live_exact_rebound_and_is_read_only(self):
+        args, state = self.ordering_backend()
+        before = copy.deepcopy(state)
+        self.assertEqual(self.fixture['fixture_before_repair_kill'](*args), 'tb')
+        self.assertEqual(state['reads'], ['receipt-synthetic.json'])
+        state['reads'] = []
+        self.assertEqual(state, before)
+
+    def test_fast_kill_first_cannot_be_hidden_by_same_poll_cycle_run_and_cas(self):
+        args, state = self.ordering_backend()
+        # No thread, sleep or polling deadline: all proposed effects would run
+        # back-to-back before the app observer's next sample. The FIRST effect
+        # must instead refuse at its synchronous pre-forward boundary.
+        state['document'] = copy.deepcopy(args[1])
+        effects = []
+        def kill_first_then_immediate_run_cas():
+            self.fixture['fixture_before_repair_kill'](*args)
+            effects.append('terminal.kill')
+            effects.append('terminal.run')
+            state['document']['spaces'][0]['tabs'][0]['root']['content']['terminal'] = 'tb'
+            effects.append('doc.set')
+        with self.assertRaises(self.fixture['CommandFailure']) as caught:
+            kill_first_then_immediate_run_cas()
+        self.assertEqual(caught.exception.reason, 'app-ordering-old-still-referenced')
+        self.assertEqual(effects, [])
+        self.assertEqual(state['reads'], [])  # Raw reference alone rejects canary/old intent.
+        self.assertEqual(state['document'], args[1])
+
+    def test_before_kill_oracle_refuses_changed_process_or_binding_facts(self):
+        for case in ('stale-old-pid', 'old-cwd', 'new-cwd', 'duplicate-session', 'ref-old',
+                     'finished-new', 'generation-label', 'replacement-proof', 'opaque-change',
+                     'intent-version', 'old-label'):
+            with self.subTest(case=case):
+                args, state = self.ordering_backend()
+                if case == 'stale-old-pid': state['ticks'][101] += 1
+                elif case == 'old-cwd': state['cwd'][101] = '/foreign'
+                elif case == 'new-cwd': state['cwd'][202] = '/foreign'
+                elif case == 'duplicate-session': state['clients'].append({'pid': 303, 'session_id': 'ses_synthetic'})
+                elif case == 'ref-old': state['document'] = copy.deepcopy(args[1])
+                elif case == 'finished-new': state['terminals']['tb']['state'] = 'finished'
+                elif case == 'generation-label': state['terminals']['tb']['labels']['remote-herdr-repair'] = 'b' * 32
+                elif case == 'replacement-proof': state['receipt']['pending']['rebound']['replacement']['pids'][0]['start_ticks'] += 1
+                elif case == 'opaque-change': state['document']['metadata']['opaque'].append('changed')
+                elif case == 'intent-version': state['receipt']['pending']['rebound']['version'] += 1
+                elif case == 'old-label': state['terminals']['ta']['labels']['remote-herdr-owner'] = 'foreign'
+                with self.assertRaises((RuntimeError, self.fixture['CommandFailure'])):
+                    self.fixture['fixture_before_repair_kill'](*args)
+
+    def test_native_case_boundaries_original_writers_and_both_new_markers(self):
+        source = (FIXTURE / 'verify-user.py').read_text()
+        tree = ast.parse(source)
+        functions = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+        bodies = {name: ast.get_source_segment(source, node) or '' for name, node in functions.items()}
+        observer = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'FixtureAppClient')
+        observer_source = ast.get_source_segment(source, observer) or ''
+        self.assertNotRegex(observer_source, r'\bStore\(|store\.(?:read|write)|terminal\.(?:kill|run)|server\.stop')
+        for witness in ("'terminal.list'", "'doc.get'", "'doc.set'", "prior.get(a) == 'live'",
+                        'self.thread.join(35)', 'self.stop.set()', 'self.check()', 'self.release.is_set()'):
+            self.assertIn(witness, observer_source)
+        for name in ('legacy_mixed_admission', 'kept_shell_kill_recovery',
+                     'app_connected_repair', 'app_closed_pending_run_recovery'):
+            body = bodies[name]
+            self.assertNotRegex(body, r'store\.write\(|\.write_(?:text|bytes)\(')
+        legacy = bodies['legacy_mixed_admission']
+        for witness in ('legacy_repair_projection(', 'original_receipt = backend._receipt',
+                        'original_receipt(receipt)', 'backend._complete_current_kill(receipt)',
+                        "receipt['pending'] = {'operation': 'terminal.run'", "if index == 2:",
+                        "backend.core('terminal.run'", 'backend._replacement_proof(repair)'):
+            self.assertIn(witness, legacy)
+        r1 = bodies['kept_shell_kill_recovery']
+        self.assertIn('backend._current_projection = legacy_repair_projection(', r1)
+        self.assertLess(r1.index("identity = repair.pop('source')"), r1.index('original_receipt(receipt)'))
+        kept = bodies['fixture_idle_agents']
+        for witness in ('os.pidfd_open(', 'signal.pidfd_send_signal(fd, signal.SIGKILL)',
+                        'backend._client_argv(', 'backend.process_cwd(', '== NATIVE',
+                        'backend._pid_proofs(', 'backend._shell_proof(current)', 'backend._pids_absent(old)'):
+            self.assertIn(witness, kept)
+        canary = bodies['fixture_app_canary']
+        for witness in ("backend.core('terminal.run'", "backend.core('doc.set'", "backend.core('terminal.kill'",
+                        'app.observed_live(address)', 'app.seen({address})', 'backend._document()[0] == document',
+                        'backend._shell_proof(', 'backend._pid_proofs(', 'layout._TERMINAL.fullmatch(address)'):
+            self.assertIn(witness, canary)
+        self.assertLess(canary.index('fixture_before_repair_kill('), canary.index("backend.core('terminal.kill'"))
+        self.assertIn("error.reason == 'app-ordering-old-still-referenced'", canary)
+        oracle = bodies['fixture_before_repair_kill']
+        self.assertNotRegex(oracle, r'\b(?:core|write|_rebound_kill_guard|_replacement_proof|_current_kill_guard)\(')
+        for witness in ('fixture_references(document)', 'expected_leaf_rebind(baseline, leaf, old, new)',
+                        "backend.store.read('receipt-' + txid + '.json')", "pending['rebound']['replacement']",
+                        "repair['create_id']", "replacement['state'] == 'live'", 'backend.scan(',
+                        'backend._pid_proofs(', "backend._actual_core_program(original) == (None, pane['cwd'])"):
+            self.assertIn(witness, oracle)
+        normal = bodies['app_connected_repair']
+        for witness in ("cli('restore')", "cli('recover')", 'app.events[old]', 'new in live',
+                        '== other_proofs', '== other', 'expected_leaf_rebind(', 'app.__exit__()',
+                        'Controller(store, backend).restore()', 'backend.core = observed_core',
+                        'backend.core = original_core', 'forwarded == 1', 'forwarded == 0',
+                        'F07: app-connected-repair-ordering-complete'):
+            self.assertIn(witness, normal)
+        self.assertLess(normal.index('fixture_before_repair_kill('), normal.index('forwarded += 1'))
+        self.assertLess(normal.index('forwarded += 1'), normal.index('return original_core(method, params)'))
+        self.assertLess(normal.index('Controller(store, backend).restore()'), normal.index("cli('restore')"))
+        retained = bodies['app_closed_pending_run_recovery']
+        for witness in ("journal['phase'] == 'complete'", "store.read('transaction.json') == journal",
+                        'fresh_app_leaf_ids()', 'fixture_idle_agents(', 'legacy_mixed_admission(',
+                        'app.release.clear()', 'app.release.set()', 'active_app.seen({closed_address})',
+                        "store.read('receipt-' + txid + '.json') == saved", "cli('recover')",
+                        'fixture_prune_finished(', 'expected_leaf_rebind(', 'replacement == created[key]',
+                        '== other_proofs', '== other_clients', "receipt['repairs'] == {}",
+                        'backend._repair_candidates(', 'backend._same_labels(', 'backend._terminals()',
+                        'not backend.scan({closed_session})', 'backend_pid() == pid',
+                        'write(EXPECTED, expected_plan)', 'F07: app-closed-pending-run-recovery-complete'):
+            self.assertIn(witness, retained)
+        prepare = bodies['prepare_fixture']
+        self.assertLess(prepare.index('kept_shell_kill_recovery(plan, pid, lost_reply=True)'),
+                        prepare.index('app_connected_repair(plan, pid)'))
+        self.assertLess(prepare.index('app_connected_repair(plan, pid)'),
+                        prepare.index('plan = app_closed_pending_run_recovery(plan, pid)'))
+        self.assertLess(prepare.index('plan = app_closed_pending_run_recovery(plan, pid)'),
+                        prepare.index("STEP = 'arm-core-boot'"))
+
+
 def test_observation_diagnostics_separate_coverage_and_native_ownership():
     source = (FIXTURE / 'verify-user.py').read_text()
     functions = {node.name: node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef)}
