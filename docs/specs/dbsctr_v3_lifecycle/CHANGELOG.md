@@ -21,6 +21,19 @@
   apply or checkout removal. Journey and distribution slices retain those owners;
   successful completion never grants cleanup authority.
 
+## 2026-11-11 — Forgejo transport cleanup race
+
+- Reap an exited child before group signaling and retry the exit race once;
+  retain descendant cleanup even after leader exit. Persistent cleanup denial
+  remains sanitized and unavailable, with bounded reaping and owned-pipe closure.
+- Add deterministic cleanup failure regressions and preserve native overflow,
+  timeout and descendant checks. Keep disposable nested Git fixture commits
+  independent of personal commit-signing settings. Affected typing, source and benchmark checks
+  qualify the source repair; native current-head CI remains required for merge.
+- No Gate Exception or managed activation. Cycle `ASVS-CI-REPAIR-001` retains
+  original failures and targets the existing PR #305 feature branch; actual
+  commit, push and merge outcomes remain in private lifecycle evidence.
+
 ## 2026-11-10 — Verified rebased completion (REBASE-COMPLETE-001)
 
 - Added explicit version-2 original-to-landed commit proof, native introducing-PR
