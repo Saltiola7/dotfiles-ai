@@ -1,6 +1,6 @@
 ---
 name: security-toolkit
-description: Select and verify dotfiles-ai managed security skills for secure coding, scoped reviews, independent audits, CI review, or known-bug variants.
+description: Select and verify managed security skills for secure coding, scoped reviews, ASVS assessments, independent audits, CI review or known-bug variants.
 ---
 
 # Security Toolkit

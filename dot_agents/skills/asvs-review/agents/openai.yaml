@@ -1,0 +1,4 @@
+interface:
+  display_name: "ASVS Review"
+  short_description: "Review scoped ASVS controls and evidence coverage"
+  default_prompt: "Use $asvs-review to assess selected ASVS requirements and report evidence and coverage gaps."

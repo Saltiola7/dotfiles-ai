@@ -42,6 +42,34 @@ This review is evidence for these pins, not a guarantee about future versions.
   intended credential transport from unauthorized disclosure. Upstream evaluation
   is limited and is not evidence of this toolkit's detection effectiveness.
 
+## ASVS interactive specialist (reviewed 2026-11-10)
+
+The community project `TarkinLarson/asvs-auditor`, commit
+`2ca0ad8e1367060080fccf3028690d1292358069`, supplies the selected interactive
+bundle: its entrypoint and eighteen reference files. It is independent of OWASP.
+All 345 requirement IDs, levels and texts match official ASVS 5.0.0, released at
+`OWASP/ASVS` commit `5cf9b032440be53ce345ab3c130fda46ba1ce7a2`
+(tag `v5.0.0_release`): 70 L1, 183 L2 and 92 L3 requirements. Upstream's
+`v5.0.0` citation tag is absent from live Git refs; packaged chapter links use
+the verified immutable release commit. The MIT methodology and CC-BY-SA 4.0
+reference/license remain separately attributed.
+
+The adaptation replaces the large persona/example prompt with a concise scoped
+entrypoint and lazy common workflow. It preserves requirement text and useful
+taint-flow, endpoint, absence-control and coverage techniques. It removes
+ASVS-as-exhaustive-security-catalog claims, blanket example-file secret
+exemptions and mandatory-lockfile/update-bot claims that exceed ASVS wording.
+One defect may map to multiple requirements without duplicating remediation.
+Project risk policy remains authoritative. Missing, sampled, externally enforced
+and inconclusive evidence cannot become complete-assessment or compliance claims.
+
+Upstream recently corrected shallow coverage, inconsistent requirement mapping
+and sampled evidence reported as full. Its CI example gates on a model-produced
+`pass`; JSON shape and partial smoke checks cannot establish truthful or complete
+coverage. The CI variant, schema, provider launcher, paid smoke runner and
+generator are not packaged or executed. Independent bounded synthetic cases
+qualify the adapted interaction; they do not benchmark production recall.
+
 ## Deferred or excluded material
 
 - **CodeGuard omitted nine rules:** additional cryptography (overlap and KMS

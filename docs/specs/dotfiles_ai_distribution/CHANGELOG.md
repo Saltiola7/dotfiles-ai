@@ -40,6 +40,47 @@
   account for every remaining live terminal against durable receipt/repair facts.
   Unknown live terminals still block fixture-wide stop; production rules unchanged.
 
+## 2026-11-11 — ASVS current-main refresh
+
+- Reconcile accepted rebased-completion bookkeeping from main while preserving
+  the reviewed ASVS/toolkit package and the imported lifecycle implementation.
+  Add explicit non-null guards to two imported test helpers for type safety;
+  report unavailable native process inspection after verifying safe retention.
+- Combined ASVS and delivery regression checks validate the integration. No new
+  deployment, dependency or gate exception. Follow-up `ASVS-INTEGRATE-002` targets
+  the same feature branch and PR #305; native current-head CI and the final merge
+  remain verified separately in private evidence.
+
+## 2026-11-11 — ASVS PR base reconciliation
+
+- Reconcile the accepted Herdr recovery changes from current main into the ASVS
+  feature branch, retaining both documentation entries. ASVS/toolkit bundles and
+  upstream Herdr implementation remain byte-identical to their reviewed sources.
+- Combined validation: 850 tests and 68 subtests pass; one existing native
+  capability test is skipped. Independent integration review found no blocker.
+  No live Herdr rollout, dependency change, CI-policy change or gate exception.
+  Follow-up cycle `ASVS-INTEGRATE-001` delivers through the same `feat/asvs-review`
+  branch and PR #305; native current-base CI and final merge remain separately
+  verified in private evidence.
+
+## 2026-11-10 — Scoped ASVS review specialist
+
+- Add the pinned, portable interactive `asvs-review` adaptation through the
+  existing security-toolkit router. Keep one coordinator, current activation
+  policy, selected chapter loading and explicit coverage limits; CI integration
+  remains outside this delivery.
+- Preserve all 345 official requirement IDs, levels and texts, correct stale
+  upstream source links to the immutable OWASP release, and retain full MIT and
+  CC-BY-SA terms. Complete resources and reversible patches join the existing
+  source inventory. The entrypoint is 2,340 bytes; its lazy workflow is 9,101.
+- Scoped validation: 125 tests pass and one existing native capability test is
+  skipped; the new reference/resource tests and original creator validators pass.
+  Independent static review and three synthetic review cases found no blocker;
+  these are not production detection or compliance evidence. Managed shared-file
+  deployment and actual delivery receipts belong to the private Cycle Record.
+  Gate history starts `afec9f81`; intended Final Push is `feat/asvs-review` and a
+  draft PR into protected `main`. No gate exceptions or new runtime dependencies.
+
 ## 2026-11-10 — App-connected restore ordering (RRW-007G-R3)
 
 - Repair INT-082 under #524: new repairs create/verify a live client, CAS its owned
