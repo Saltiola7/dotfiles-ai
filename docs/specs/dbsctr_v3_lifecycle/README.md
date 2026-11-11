@@ -1,5 +1,11 @@
 # DBSCTR V3 Lifecycle
 
+[Completion reconciliation](features/workflow-completion-reconciliation.md)
+specifies the new Discovery-defined successful-completion route: multi-PR and
+amendment provenance, affected evidence reuse, early structural preflight and
+cleanup-independent completion. It is normative Discovery, not installed behavior;
+historical receipt meanings remain unchanged.
+
 [Verified rebased delivery](features/rebased-delivery.md) adds explicit
 `complete-external --proof rebased_commits` source support. It retains original
 phase IDs/evidence, verifies each landed change and native introducing PR, and

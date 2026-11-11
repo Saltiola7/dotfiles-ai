@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution
 
+[Completion reconciliation rollout](features/workflow-completion-rollout.md)
+specifies compatible managed activation and one privately nominated successful
+cycle recovery after merged source. It preserves evidence and separates logical
+completion from physical cleanup; Discovery is not a live activation claim.
+
 The [remote Herdr runtime contract](features/remote-herdr-runtime.md) owns explicit
 per-user `[data.dotfiles_ai.herdr] runtime = "herdr-core" | "tui"` selection
 (`tui` by default). The foundation installs checksum-pinned core 0.1.18; native
