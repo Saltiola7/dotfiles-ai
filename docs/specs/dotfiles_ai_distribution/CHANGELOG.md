@@ -1,5 +1,23 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-10 — Preserve Herdr recovery during Python qualification
+
+- Incorporate protected-main PR #303's app-connected Herdr recovery and its
+  README addition while preserving all thirteen PY-08 requirements, runtime
+  ownership, support floor and qualification targets.
+- Retain upstream recovery code and tests exactly. Existing Herdr contract,
+  runtime matrix and publication checks pass after reconciliation. The Python
+  workflow, root metadata, frozen lock, helper and help oracles are unchanged
+  by this merge; their earlier source results remain retained.
+- Qualify the combined source through fresh oldest/newest affected regressions
+  and exact-source hosted CI. The approved switch preserves obsolete results,
+  uses normal PR supersession and ends only the obsolete owned manual matrix
+  before requesting its replacement. Retry limits and required gates remain.
+- Actual qualification, Gate Commits and delivery outcomes belong to the Cycle
+  Record. Intended Final Push remains the recorded feature branch and draft
+  PR #276, followed by ordinary protected merge. No runtime activation or gate
+  exception is selected.
+
 ## 2026-11-10 — App-connected restore ordering (RRW-007G-R3)
 
 - Repair INT-082 under #524: new repairs create/verify a live client, CAS its owned
