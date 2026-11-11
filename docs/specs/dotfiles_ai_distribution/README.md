@@ -1989,6 +1989,10 @@ The `security-toolkit` inventory distinguishes source bundles, live discovery,
 provider/scanner prerequisites and validated audit coverage. Updates use complete
 source review and exact-target isolated/host application; no scanner, provider
 permission or audit starts as an installation side effect.
+Its optional ASVS specialist reviews selected chapters and reports requirement
+coverage under the existing coordinator; incomplete evidence is not compliance.
+Current operator activation policy applies, with specialist selection delegated
+to DBSCTR only while DBSCTR is active.
 
 **Portable specialists:** the [original Python feature](../dbsctr_v3_lifecycle/features/python-specialists.md)
 and [platform/language expansion](../dbsctr_v3_lifecycle/features/platform-specialists.md)

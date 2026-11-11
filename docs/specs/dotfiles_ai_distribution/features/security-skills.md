@@ -18,7 +18,8 @@ runtime readiness and validated audit coverage are distinct states.
 
 The selected profile includes Cloudflare `security-audit` intact, adapted Trail
 of Bits `variant-analysis` Markdown, adapted Sentry `gha-security-review` and `secret-serialization`, and a
-14-rule conditional CodeGuard profile. Each bundle preserves its upstream
+14-rule conditional CodeGuard profile, plus the scoped interactive `asvs-review`
+adaptation. Each bundle preserves its upstream
 license and attribution. CC-BY-SA content keeps that license separately from
 repository MIT. Exact pins and review reasons are in
 [`sources.lock.json`](../../../../dot_agents/skills/security-toolkit/references/sources.lock.json)
@@ -110,6 +111,7 @@ chezmoi --source "$TASK_SOURCE" --config "$MACHINE_CONFIG" --exclude scripts \
   "$HOME/.agents/skills/security-audit" "$HOME/.agents/skills/variant-analysis" \
   "$HOME/.agents/skills/gha-security-review" "$HOME/.agents/skills/codeguard" \
   "$HOME/.agents/skills/secret-serialization" \
+  "$HOME/.agents/skills/asvs-review" \
   "$HOME/.agents/skills/dbsctr/modules/security.md"
 ```
 
