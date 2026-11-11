@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-10 — Requalify external completion on current main
+
+- Import the separately accepted Herdr changes into the existing external-retry
+  draft after its protected base advanced. Preserve the exact helper correction,
+  tests, contracts, benchmark oracle and published history; no completion behavior
+  or runtime deployment changes.
+- Retain source-bound local qualification for unchanged inputs. Check this
+  editorial update with current publication contracts and require fresh complete
+  native CI on the reconciled head and current base before ordinary merge and
+  guarded helper activation. Actual results remain in the private Cycle Record.
+
 ## 2026-11-10 — Refresh external-completion recovery integration
 
 - Reconcile the retained retry correction with accepted current lifecycle source,

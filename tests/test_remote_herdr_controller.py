@@ -74,6 +74,9 @@ class Backend:
     def verify(self, target, value, receipt):
         self.step('verify')
 
+    def restore_current(self):
+        self.step('restore_current')
+
 
 def test_store_private_atomic_and_no_unsafe_names(tmp_path):
     c = module()
@@ -85,6 +88,21 @@ def test_store_private_atomic_and_no_unsafe_names(tmp_path):
         for name in ['../escape', '/escape', 'x/y.json', '.hidden', 'invalid']:
             with pytest.raises(c.ControllerError):
                 store.write(name, {})
+
+
+@pytest.mark.parametrize('selected', ['herdr-core', 'tui'])
+def test_complete_journal_recover_only_dispatches_selected_core(tmp_path, selected):
+    c = module()
+    with c.Store(tmp_path / 'state') as store:
+        journal = {'schema_version': 1, 'phase': 'complete', 'history': {'retained': ['private']}}
+        store.write('transaction.json', journal)
+        before = (store.root / 'transaction.json').read_bytes()
+        backend = Backend(store)
+        backend.choice = selected
+        c.Controller(store, backend).recover()
+        assert backend.events == (['restore_current'] if selected == 'herdr-core' else [])
+        assert (store.root / 'transaction.json').read_bytes() == before
+        assert store.read('transaction.json') == journal
 
 
 def test_store_refuses_links_duplicates_and_second_owner(tmp_path):
