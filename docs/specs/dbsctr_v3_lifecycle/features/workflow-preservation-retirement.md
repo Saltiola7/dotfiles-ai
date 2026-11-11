@@ -277,6 +277,12 @@ All predicates must hold together for automatic retirement:
    and current checkout HEAD, into that ultimate default. Cached tracking refs,
    feature upstreams, branch-name resemblance or temporary-target merge do not
     suffice. Squash/rebase without recorded ancestry does not satisfy this contract.
+   The separately scoped [rebased-delivery feature](rebased-delivery.md) implements
+   an explicit version-2 correspondence alternative for this history predicate
+   only. It rechecks original-source custody, per-commit replay, fresh native
+   introducing-PR observations and landed ancestry. Runtime qualification remains
+   separate. Version-1 exact-tree receipts never grant the alternative; all
+   non-history preservation and removal guards remain required.
 3. Every artifact is classified/preserved and all applicable declared DVC objects
    are verified at the exact approved remote. Intermediate targets and their
    retained task branches remain until final default integration/preservation.
