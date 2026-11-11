@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tomllib
 from pathlib import Path, PurePosixPath
 from urllib.parse import unquote, urlsplit
@@ -40,8 +41,12 @@ def inventory(root):
     result = {}
     for path in root.rglob("*"):
         assert not path.is_symlink(), f"linked resource: {path}"
+        relative = path.relative_to(root)
+        # Chezmoi excludes generated cache directories, not managed bytecode files.
+        if "__pycache__" in relative.parts[:-1]:
+            continue
         if path.is_file():
-            result[path.relative_to(root).as_posix()] = digest(path.read_bytes())
+            result[relative.as_posix()] = digest(path.read_bytes())
         else:
             assert path.is_dir(), f"unsupported resource: {path}"
     return result
@@ -70,6 +75,35 @@ def assert_bundles(skills_root, packages, *, installed=False):
             expected = {name: value for name, value in expected.items()
                         if name not in package.get("source_only_files", [])}
         assert inventory(skills_root / package["name"]) == expected, package["name"]
+
+
+def test_complete_inventory_excludes_import_cache_only(tmp_path):
+    bundle = tmp_path / "bundle"
+    helper = bundle / "scripts/helper.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("VALUE = 42\n")
+    (bundle / "SKILL.md").write_text("# Temporary method\n")
+    expected = inventory(bundle)
+    subprocess.run(
+        [sys.executable, "-E", "-c",
+         "import importlib.util, sys; "
+         "spec = importlib.util.spec_from_file_location('helper', sys.argv[1]); "
+         "module = importlib.util.module_from_spec(spec); "
+         "spec.loader.exec_module(module); assert module.VALUE == 42",
+         str(helper)],
+        check=True, capture_output=True, timeout=10,
+    )
+    assert list((helper.parent / "__pycache__").glob("helper.*.pyc"))
+    package = {"name": bundle.name, "files": expected}
+    assert_bundles(tmp_path, [package])
+
+    # A cache-like filename outside a generated cache is still a managed resource.
+    for relative in ("unexpected.pyc", "__pycache__"):
+        resource = bundle / relative
+        resource.write_bytes(b"unrecorded managed resource")
+        with pytest.raises(AssertionError):
+            assert_bundles(tmp_path, [package])
+        resource.unlink()
 
 
 def copy_stack_resources(skills_root):
