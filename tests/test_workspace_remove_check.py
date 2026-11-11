@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 import test_dbsctrctl as harness
 from test_worktrunk_registration import fixture, git, task
+from test_dbsctr_external_completion import cycle, rebased, rebase_arguments
 
 
 @pytest.fixture
@@ -549,3 +550,53 @@ def test_strict_standalone_dvc_and_ignored_plans_remain_unpreserved(removal, mon
     assert "data_disposition_required" in result["reasons"]
     assert ["dvc", "data", "status", "--unchanged", "--json"] in calls
     assert (target / ".dbsctr/plan.json").exists()
+
+
+
+@pytest.mark.parametrize("problem", [None, "ref-drift", "mapping", "new-work", "wrong-merge", "foreign-base"])
+def test_rebased_default_oracle_rechecks_mapping_and_original_custody(rebased, capsys, problem):
+    core, target = rebased.core, rebased.root
+    assert rebased.invoke(*rebase_arguments(rebased)) == 0
+    capsys.readouterr()
+    record = json.loads(rebased.path.read_text())
+    primary = core.primary_worktree(target)
+    core.git(primary, "branch", "--set-upstream-to", "origin/main", "main")
+    core.git(primary, "merge", "--ff-only", rebased.merge)
+    pull = {"number": 17, "url": record["delivery"]["pull_request"]["url"],
+            "repository": record["delivery"]["github"]["repository"], "state": "MERGED",
+            "baseRefName": "main", "headRefName": core.branch(target), "headRefOid": rebased.head,
+            "mergeCommit": {"oid": rebased.merge}}
+    observation = {"repository": pull["repository"], "repository_after": pull["repository"],
+                   "remote": "origin", "default": "main", "default_after": "main",
+                   "head": rebased.merge, "head_after": rebased.merge, "fetched_head": rebased.merge,
+                   "pull_requests": {"17": pull},
+                   "commit_pull_requests": {oid: [dict(rebased.native.pull)] for oid in rebased.landed}}
+    if problem == "ref-drift":
+        core.git(target, "update-ref", "refs/dbsctr/evidence/cycle-1", rebased.base)
+    elif problem == "mapping":
+        record["external_completion"]["commit_mapping"][0]["landed"] = rebased.landed_base
+    elif problem == "new-work":
+        (target / "unrecorded.txt").write_text("Retain new work\n")
+        core.git(target, "add", "unrecorded.txt")
+        core.git(target, "commit", "-m", "Unrecorded source work")
+    elif problem == "wrong-merge":
+        pull["mergeCommit"]["oid"] = rebased.landed_base
+    elif problem == "foreign-base":
+        foreign = core.git(target, "commit-tree", rebased.tree, "-m", "Foreign owned history").stdout.strip()
+        record["git"]["pre_cycle_ahead_commits"] = [foreign]
+    result = core.removal_default_predicates(target, [record], observation)
+    assert result == [] if problem is None else bool(result)
+    assert target.is_dir()
+
+
+def test_rebased_receipt_does_not_enable_unqualified_runtime_cleanup(rebased, capsys):
+    core, target = rebased.core, rebased.root
+    assert rebased.invoke(*rebase_arguments(rebased)) == 0
+    capsys.readouterr()
+    result = core.workspace_remove_check(target)
+    assert result["eligible"] is False
+    assert "removal_reservation_unavailable" in result["reasons"]
+    legacy = core.legacy_workspace_remove_check(target)
+    assert legacy["eligible"] is False
+    assert "git_default_unavailable" in legacy["reasons"]
+    assert target.is_dir()
