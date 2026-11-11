@@ -49,6 +49,8 @@ def backend(tmp_path):
                       '[data.other]\nsecret = "private"\n')
     (home / 'source').mkdir()
     b = native.Native(home, Memory())
+    b.test_boot_id = '00000001-0000-4000-8000-000000000001'
+    b.process_boot_id = lambda: b.test_boot_id
     b.proc_root = tmp_path / 'proc'
     b.proc_root.mkdir()
     b.run_root = tmp_path / 'run'
@@ -79,6 +81,118 @@ def synthetic_db(backend):
     with sqlite3.connect(path) as db:
         db.execute('CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT)')
         db.execute('INSERT INTO session VALUES (?, ?)', ('ses_abc', '/work'))
+
+
+@pytest.mark.parametrize('newline', [b'', b'\n'])
+def test_r4_boot_reader_uses_only_bounded_synthetic_proc_file(backend, newline):
+    path = backend.proc_root / 'sys/kernel/random/boot_id'
+    path.parent.mkdir(parents=True)
+    path.write_bytes(backend.test_boot_id.encode('ascii') + newline)
+    path.chmod(0o600)
+    assert native.Native.process_boot_id(backend) == backend.test_boot_id
+
+
+@pytest.mark.parametrize('data', [b'', b'PRIVATE_VALUE', b'\xff', b'0' * 1000,
+    b'00000000-0000-0000-0000-000000000000',
+    b'ABCDEF01-0000-4000-8000-000000000001',
+    b'00000001-0000-4000-8000-000000000001\n\n',
+    b'00000001-0000-4000-8000-000000000001 extra'])
+def test_r4_boot_reader_invalid_synthetic_bytes_are_value_free(backend, data):
+    path = backend.proc_root / 'sys/kernel/random/boot_id'
+    path.parent.mkdir(parents=True)
+    path.write_bytes(data)
+    path.chmod(0o600)
+    with pytest.raises(native.NativeError, match='^native boot identity unavailable$'):
+        native.Native.process_boot_id(backend)
+
+
+@pytest.mark.parametrize('kind', ['missing', 'symlink', 'directory', 'writable'])
+def test_r4_boot_reader_refuses_uncertain_synthetic_file(backend, kind):
+    path = backend.proc_root / 'sys/kernel/random/boot_id'
+    path.parent.mkdir(parents=True)
+    if kind == 'symlink':
+        target = path.parent / 'synthetic-target'
+        target.write_text(backend.test_boot_id)
+        path.symlink_to(target)
+    elif kind == 'directory':
+        path.mkdir()
+    elif kind == 'writable':
+        path.write_text(backend.test_boot_id)
+        path.chmod(0o666)
+    with pytest.raises(native.NativeError, match='^native boot identity unavailable$'):
+        native.Native.process_boot_id(backend)
+
+
+def test_r4_boot_proofs_preserve_exact_legacy_form_without_inventing_boot(backend):
+    proof = backend._pid_proofs([20])[0]
+    assert proof == {'pid': 20, 'start_ticks': 10, 'boot_id': backend.test_boot_id}
+    legacy = {'pid': 20, 'start_ticks': 10}
+    backend._validate_pid_proofs([legacy])
+    assert not backend._pids_absent([legacy])
+    backend.test_boot_id = '00000002-0000-4000-8000-000000000001'
+    assert backend._pids_absent([proof])
+    assert not backend._pids_absent([legacy])
+    synthetic_process(backend, 20, ['/foreign'], ticks=10)
+    assert not backend._pids_absent([legacy])
+    assert legacy == {'pid': 20, 'start_ticks': 10}
+
+
+@pytest.mark.parametrize('bad', ['null', 'uppercase', 'extra', 'duplicate', 'mixed-form', 'mixed-boot', 'bool-start'])
+def test_r4_pid_proof_extensions_are_exact_and_coherent(backend, bad):
+    proofs = backend._pid_proofs([20])
+    proof = proofs[0]
+    if bad == 'null':
+        proof['boot_id'] = None
+    elif bad == 'uppercase':
+        proof['boot_id'] = 'ABCDEF01-0000-4000-8000-000000000001'
+    elif bad == 'extra':
+        proof['extra'] = True
+    elif bad == 'duplicate':
+        proofs.append(copy.deepcopy(proof))
+    elif bad in ('mixed-form', 'mixed-boot'):
+        other = {'pid': 21, 'start_ticks': 10}
+        if bad == 'mixed-boot':
+            other['boot_id'] = '00000002-0000-4000-8000-000000000001'
+        proofs.append(other)
+    else:
+        proof['start_ticks'] = True
+    with pytest.raises(native.NativeError):
+        backend._validate_pid_proofs(proofs)
+    with pytest.raises(native.NativeError):
+        backend._pids_absent(proofs)
+
+
+@pytest.mark.parametrize('unavailable', [None, '', 'PRIVATE_VALUE', 'ABCDEF01-0000-4000-8000-000000000001'])
+def test_r4_unavailable_current_boot_never_establishes_exit(backend, unavailable, monkeypatch):
+    proofs = backend._pid_proofs([20])
+    backend.test_boot_id = unavailable
+    def forbidden_pid_probe(*args):
+        raise AssertionError('PID evidence inspected before boot validation')
+    monkeypatch.setattr(native.processes, 'identity', forbidden_pid_probe)
+    with pytest.raises(native.NativeError, match='^native boot identity unavailable$'):
+        backend._pid_proofs([20])
+    with pytest.raises(native.NativeError, match='^native boot identity unavailable$'):
+        backend._pids_absent(proofs)
+
+
+def test_r4_missing_boot_read_never_establishes_exit(backend):
+    proofs = backend._pid_proofs([20])
+    backend.process_boot_id = lambda: native.Native.process_boot_id(backend)
+    with pytest.raises(native.NativeError, match='^native boot identity unavailable$'):
+        backend._pids_absent(proofs)
+
+
+@pytest.mark.parametrize('operation', ['capture', 'exit'])
+def test_r4_boot_must_remain_stable_across_observation(backend, operation):
+    proofs = backend._pid_proofs([20])
+    values = iter(['00000002-0000-4000-8000-000000000001',
+                   '00000003-0000-4000-8000-000000000001'])
+    backend.process_boot_id = lambda: next(values)
+    with pytest.raises(native.NativeError, match='^native boot identity changed$'):
+        if operation == 'capture':
+            backend._pid_proofs([20])
+        else:
+            backend._pids_absent(proofs)
 
 
 @pytest.mark.parametrize('legacy_present', [False, True])
@@ -258,6 +372,40 @@ class FakeCore:
         else:
             raise AssertionError('unexpected fake command')
         return {}
+
+    def restart(self, *, keep_processes=False, keep_addresses=(), reuse_identities=False, same_boot=False):
+        """Keep native records/labels, but replace every live process with Bash.
+
+        Only this fake's synthetic proc tree is touched. Finished history stays
+        finished; no old process survives the simulated core/VM restart.
+        """
+        if keep_processes:
+            self.active = True
+            return
+        identities = {a: self.backend._pid_proofs([t['pid']])[0] for a, t in self.terminals.items()
+                      if t['state'] == 'live'} if reuse_identities else {}
+        retained_pids = {str(pid) for address in keep_addresses
+                         for pid in (self.terminals[address]['pid'],
+                                     (self.terminals[address].get('foreground') or self.terminals[address])['pid'])}
+        for directory in self.backend.proc_root.iterdir():
+            if directory.is_dir() and directory.name not in retained_pids:
+                for entry in directory.iterdir():
+                    entry.unlink()
+                directory.rmdir()
+        generation = getattr(self, 'restart_generation', 0) + 1
+        self.restart_generation = generation
+        if not keep_addresses and not same_boot:
+            self.backend.test_boot_id = f'{generation + 1:08x}-0000-4000-8000-000000000001'
+        for index, terminal in enumerate(self.terminals.values()):
+            if terminal['state'] != 'live' or terminal['address'] in keep_addresses:
+                continue
+            pid = 10000 * generation + index + 100
+            ticks = 100 + generation
+            if reuse_identities:
+                pid, ticks = identities[terminal['address']]['pid'], identities[terminal['address']]['start_ticks']
+            synthetic_process(self.backend, pid, ['/bin/bash', '-l'], terminal['cwd'], ticks=ticks)
+            terminal.update(pid=pid, foreground=None)
+        self.active = True
 
     def rpc(self, method, params):
         self.calls.append((method, copy.deepcopy(params)))
@@ -493,6 +641,11 @@ def test_current_controller_stop_revival_requires_durable_proof(backend, change)
     stop = backend.store.read('source-stop.json')
     if change == 'unfinished':
         stop['completed'] = False
+        # R4 can observationally reconcile a genuine published checkpoint only
+        # after *all* captured identities exited. Keep this negative unfinished
+        # in fact, not merely by flipping a completed record's boolean.
+        proof = stop['pids'][0]
+        synthetic_process(backend, proof['pid'], wrapper_argv(backend), ticks=proof['start_ticks'])
     elif change == 'missing-backup':
         stop['backup'] = 'backup-unavailable.json'
     else:
@@ -2685,7 +2838,8 @@ def test_tui_default_posix_shell_requires_exact_argument_free_argv(backend, argv
     synthetic_process(backend, 40, argv)
     facts = [{'shell_pid': 40, 'foreground_processes': [{'pid': 40, 'name': 'bash'}]}]
     if allowed:
-        assert backend._tui_process_proofs(facts, []) == [{'pid': 40, 'start_ticks': 10}]
+        assert backend._tui_process_proofs(facts, []) == [
+            {'pid': 40, 'start_ticks': 10, 'boot_id': backend.process_boot_id()}]
     else:
         with pytest.raises(native.NativeError, match='unknown foreground'):
             backend._tui_process_proofs(facts, [])

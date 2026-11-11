@@ -371,6 +371,16 @@ state and refuse rather than guessing. Retained legacy schema-1/2 forms remain
 readable; any private proof extensions require exact validation and conservative
 older-adapter refusal. Completed switch history remains unchanged.
 
+The private retained-shell hop uses exact `retained_shell: true` CAS/cleanup
+intents: bind a proven live shell before retiring a separately proven source,
+then admit the ordinary next repair generation. New PID proofs include private
+`boot_id`, a validated canonical Linux boot UUID alongside PID/start ticks.
+Validate it before accepting old-process exit or new-process authority; re-read
+around proof collection. PID and start ticks can alias across boots. Legacy
+two-field proofs remain readable but cannot establish an ambiguous boot change;
+missing/invalid boot evidence never proves exit. No boot ID enters public output
+or configuration. Retain prior receipts in private backups before replacing proofs.
+
 The reported retained-state regression has a complete journal, 54 repairs, two
 legacy unbound created replacements now plain shells with their original labels,
 finished original terminals, a stopped repair whose leaf is absent and no desired
