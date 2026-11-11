@@ -96,6 +96,7 @@ def cycle(monkeypatch, request, capsys):
     monkeypatch.delenv("GIT_NO_REPLACE_OBJECTS", raising=False)
     loader = importlib.machinery.SourceFileLoader("external_completion_under_test", str(harness.SCRIPT))
     spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
     core = importlib.util.module_from_spec(spec)
     loader.exec_module(core)
     core.git(fixture.repo, "branch", "-m", "main")

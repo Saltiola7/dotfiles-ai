@@ -1,5 +1,23 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-11 — Preserve retry guards across accepted transport cleanup
+
+- Mechanically integrate accepted Forgejo cleanup and ASVS source into the
+  existing retry draft. Preserve the full reviewed completion handler and exact
+  accepted transport cleanup; introduce no new retry behavior.
+- Qualify 81 selected source cases through 79 native Python 3.14.10 passes and
+  two exact positive replacements on trusted native Python 3.14.9. Preserve the
+  original failed run and executable-alias metadata correction. Retain the
+  qualified historical 201-case semantic closure; do not claim fresh 201 or
+  203 green. Native host-inventory limitations and failed evidence remain visible.
+- Seventy CI/performance tests with 11 subtests pass; fresh smoke qualification
+  yields 72 records and 48 profiles, with isolated helper apply/repeat/rollback.
+  Current affected Python compiles on 3.12, 3.13 and 3.14. No Gate Exception.
+- Source-only delivery targets the existing draft PR into `main`; the Cycle
+  Record retains exact commits and actual validation. Fresh current-base CI,
+  resulting-head approval, ordinary merge and helper activation remain separate.
+  No business cycle, runtime, credential, branch or checkout is retired here.
+
 ## 2026-11-11 — Reconcile Initiative retry guards with accepted rebased delivery
 
 - Preserve accepted rebased correspondence, receipt validation, original-source
@@ -21,6 +39,18 @@
   PR into `main`; exact commits and actual results remain in the Cycle Record.
   Fresh current-base CI, revised-head approval and verified managed installation
   remain separate. No consumer closure or runtime deployment is performed.
+## 2026-11-11 — Forgejo transport cleanup race
+
+- Reap an exited child before group signaling and retry the exit race once;
+  retain descendant cleanup even after leader exit. Persistent cleanup denial
+  remains sanitized and unavailable, with bounded reaping and owned-pipe closure.
+- Add deterministic cleanup failure regressions and preserve native overflow,
+  timeout and descendant checks. Keep disposable nested Git fixture commits
+  independent of personal commit-signing settings. Affected typing, source and benchmark checks
+  qualify the source repair; native current-head CI remains required for merge.
+- No Gate Exception or managed activation. Cycle `ASVS-CI-REPAIR-001` retains
+  original failures and targets the existing PR #305 feature branch; actual
+  commit, push and merge outcomes remain in private lifecycle evidence.
 
 ## 2026-11-10 — Verified rebased completion (REBASE-COMPLETE-001)
 

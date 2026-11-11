@@ -61,6 +61,7 @@ runtime blocker, not permission to start a login or broaden credentials.
 | Local-only Cycle | A native schema 6 cycle whose delivery mode permits local validation and denies remote delivery. |
 | Comparison Base | An explicitly fetched base ref and immutable commit used to bind registration; it is not a push destination. |
 | Credential Selection | Private exact origin/account/repository lookup through native macOS Keychain; it is not independent API principal proof. |
+| Controlled transport | Owns its child process group and pipes; bounded failure cleanup does not establish any delivery authority. |
 | Local Completion | Successful required gates plus exact source/evidence validation, retained locally with manual delivery pending. |
 | Manual Delivery | A later, separately authorized and reviewed Git operation outside this cycle's delivery machinery. |
 | Lifecycle maintainer | Owns helper behavior, versioned schemas, compatibility, managed installation and preservation. |
@@ -85,6 +86,8 @@ runtime blocker, not permission to start a login or broaden credentials.
 | Missing credentials, endpoint mismatch, redirect or unsafe Git configuration | A controlled fetch is requested | Fail safely without another account, interactive login, credential enrollment or remote write. |
 | Zero, ambiguous or malformed native credential matches | Exact metadata selection runs | Refuse before requesting any password data. A unique match permits only a reference-bound single-item read, followed by attribute revalidation. |
 | Git has an isolated home | Its dedicated credential child starts | Bind only that child's native lookup home to the current operating-system UID; malformed account-home metadata refuses before lookup. |
+| Output exceeds the bound and its child leader has exited | Cleanup runs | Reap the leader and still terminate the owned group; preserve the sanitized output failure when the group is gone or signaled. |
+| Group cleanup remains denied or the child cannot be reaped within its cleanup bound | Transport exits | Close owned pipes and report fixed cleanup-unavailable without claiming successful descendant cleanup. |
 
 ## Interfaces and schemas
 
@@ -232,6 +235,15 @@ no automatic authentication retries. Failure reports a fixed safe category and
 preserves existing authority. Qualify effective Git configuration and destination
 binding, not just the command's displayed URL. The transport must not inherit a
 repository-configured command, helper, hook or credential-bearing header.
+
+Failure cleanup polls/reaps the leader before signaling its owned process group,
+including when the leader has exited and descendants may remain. A permission
+denial permits one reap-and-signal retry to resolve the exit race; only a
+successful group signal or an absent group resolves that cleanup. Persistent
+signal denial remains `Forgejo transport cleanup unavailable`, even if the
+known leader can be killed separately. Reap the owned leader with a one-second
+cleanup wait and close all owned pipes on every exit. Never expose raw cleanup
+exceptions, treat leader exit as descendant cleanup proof, or wait indefinitely.
 
 The Git transport keeps its isolated temporary home and XDG directory. Only the
 dedicated get-only credential child restores `HOME` from the operating system's
@@ -391,7 +403,7 @@ when the represented interface, state, trust boundary or delivery order changes.
 | Order | Sender to receiver | Permitted action and guard |
 |---|---|---|
 | 1 | Discovery authority to lifecycle primary | Read committed safe requirements, typed receipt and profile/plan. |
-| 2 | Primary to controlled Git transport | Fetch exact selected base read-only; bind origin, selection and immutable base. |
+| 2 | Primary to controlled Git transport | Fetch exact selected base read-only; bind origin, selection and immutable base. Bound child/group cleanup and close owned pipes on failure. |
 | 3 | Preflight to operator | Present exact scope/risk/target and launch digest without registration. |
 | 4 | Operator to registration | Approve exact digest; registration repeats checks/fetch before native cycle creation. |
 | 5 | Native cycle to local completion | Pass required gates and validate exact source/evidence without network activity. |
@@ -401,11 +413,13 @@ when the represented interface, state, trust boundary or delivery order changes.
 through controlled read-only Git, and obtain approval of its complete launch
 digest before registration rechecks and creates the native cycle. Required local
 validation can then complete without network activity. Its retained source is
-pending a separately reviewed manual delivery operation.
+pending a separately reviewed manual delivery operation. Transport cleanup failure
+returns only a fixed unavailable category and grants no new authority.
 
 | State | Guard and transition | Publication meaning |
 |---|---|---|
 | Specification ready | Complete bounded contracts permit actual preflight | None; no launch is approved. |
+| Transport cleanup unavailable | Unresolved group denial or bounded reap failure refuses the read and closes owned pipes | None; retain existing authority without claiming cleanup success. |
 | Preflight verified | Exact fresh digest may be presented for operator approval | None; no cycle exists. |
 | Active local-only cycle | Exact approval and rechecks permit local gate execution | None; no remote delivery is enabled. |
 | Completion refused | Missing/stale/failed evidence preserves active state and failures | None; repair requires existing lifecycle rules. |
@@ -417,7 +431,8 @@ pending a separately reviewed manual delivery operation.
 Only exact approved registration creates an active cycle. Failed completion
 preserves active state and evidence. Successful local completion is terminal for
 local validation, idempotent for the same source, and still pending publication;
-it cannot authorize removal.
+it cannot authorize removal. Unproven transport cleanup reports unavailable
+without completing the read or granting publication authority.
 
 | Source to sink | Data and trust decision |
 |---|---|
@@ -426,6 +441,7 @@ it cannot authorize removal.
 | Private selector to native Keychain lookup | Exact origin/account/repository selection; lookup grants no API principal or mutation claim. |
 | Operating-system account record to credential child | Bind the current UID's native home before Keychain discovery; Git's home, XDG and configuration remain isolated. |
 | Lookup to controlled Git fetch | Secret stays in private memory and is released only for exact selected HTTPS destination. |
+| Transport cleanup to caller | Fixed safe failure category only; no raw process, permission or provider diagnostic escapes. |
 | Git/profile/plan/receipt to native Cycle Record | Exact non-secret provenance, private selections and gate evidence; no raw provider error or token. |
 | Native record to local completion | Validated source/base/tree and pending manual-delivery status; no export. |
 
@@ -434,7 +450,8 @@ contracts only. Private identities and credential selections remain local to the
 consumer and runtime record. Only the credential child's native home comes from
 the current operating-system UID; the Git transport remains isolated. Secret bytes flow only from exact Keychain lookup
 to controlled Git fetch. Local completion retains source evidence privately and
-exports nothing.
+exports nothing. Cleanup errors cross the caller boundary only as fixed safe
+categories.
 
 | Dependency | Permitted successor |
 |---|---|

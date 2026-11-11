@@ -26,7 +26,7 @@ def test_source_inventory_is_pinned_and_matches_complete_bundles():
     lock = json.loads(LOCK.read_text())
     assert lock["schema_version"] == 1
     assert {p["name"] for p in lock["packages"]} == {
-        "security-audit", "variant-analysis", "gha-security-review", "codeguard", "secret-serialization"}
+        "security-audit", "variant-analysis", "gha-security-review", "codeguard", "secret-serialization", "asvs-review"}
     for package in lock["packages"]:
         assert package["state"] == "vendored"
         assert len(bytes.fromhex(package["commit"])) == 20
@@ -95,6 +95,7 @@ def test_local_patches_reconstruct_original_selected_files(tmp_path):
 def load_local_tools():
     import importlib.util
     specification = importlib.util.spec_from_file_location("local_security_tools", TOOLKIT / "scripts/local_tools.py")
+    assert specification is not None and specification.loader is not None
     module = importlib.util.module_from_spec(specification)
     previous = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
