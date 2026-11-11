@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-03 — Preserve partitioned Python qualification
+
+- Preserved merged-main lineage recovery and four-partition full-suite execution
+  while admitting standard CPython 3.15 in both worker and aggregate matrices
+  and the existing receipt identity boundary. Retained Python 3.14 PR/main,
+  the Python 3.12 floor, frozen root/PATH interpreter checks and runtime pins.
+- Reproduced the 3.15 identity rejection before correction. The focused runtime,
+  partition, receipt and lifecycle checks passed 161 tests on each of Python
+  3.12 and 3.15. Preserved upstream 3.12–3.14 help oracles and bound the 3.15
+  oracle only after observing the combined helper's actual output.
+- Fresh candidate qualification uses the repository's worker receipts and
+  aggregates across all seven logical lanes. Hosted completion and ordinary
+  protected merge remain pending; earlier source results remain historical.
+
 ## 2026-11-03 — Preserve external completion during runtime qualification
 
 - Combined protected-main external-completion and lifecycle-validation changes
