@@ -109,6 +109,13 @@ commit the same normalized path set; stage ordering must not change admissibilit
 
 ## Affected evidence reconciliation
 
+[Trusted evidence bindings](workflow-evidence-bindings.md) defines the concrete
+approved-plan declarations, helper-owned capture, bounded runtime probes and
+active legacy enrollment/revalidation protocol required by this section. Changed
+Gate Commit paths alone are not complete validation-input declarations. Missing
+metadata is a supported revalidation obligation, never fabricated equivalence or
+a permanent refusal with no capture interface.
+
 Compute the affected closure from trusted requirement/dependency declarations and
 actual blob/mode/configuration deltas, not extension-only or branch-authored claims.
 Unknown dependency scope invalidates conservatively; it never proves unaffected.

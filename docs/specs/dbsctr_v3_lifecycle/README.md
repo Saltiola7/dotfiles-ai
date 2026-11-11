@@ -6,6 +6,11 @@ amendment provenance, affected evidence reuse, early structural preflight and
 cleanup-independent completion. It is normative Discovery, not installed behavior;
 historical receipt meanings remain unchanged.
 
+[Evidence bindings](features/workflow-evidence-bindings.md) specifies its trusted
+input/requirement declarations, helper-owned capture, runtime freshness probes and
+supported legacy enrollment. Neither changed paths nor old status bits substitute
+for these identities; this is a source contract, not installed qualification.
+
 [Verified rebased delivery](features/rebased-delivery.md) adds explicit
 `complete-external --proof rebased_commits` source support. It retains original
 phase IDs/evidence, verifies each landed change and native introducing PR, and

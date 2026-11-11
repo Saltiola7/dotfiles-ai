@@ -24,6 +24,7 @@ with their existing private owner. No PM ticket or new telemetry store is create
 ## Normative contracts and precedence
 
 - [Lifecycle reconciliation](../../specs/dbsctr_v3_lifecycle/features/workflow-completion-reconciliation.md)
+- [Trusted evidence capture and applicability](../../specs/dbsctr_v3_lifecycle/features/workflow-evidence-bindings.md)
 - [Primary journey](../../specs/opencode_control_plane/features/workflow-completion-journey.md)
 - [Managed rollout](../../specs/dotfiles_ai_distribution/features/workflow-completion-rollout.md)
 
@@ -76,6 +77,22 @@ cycles or implement the repair. Dependent slices remain captured until delivered
 predecessors permit fresh promotion; specification completeness is separate.
 
 ## RCA evidence and risk
+
+### Approved implementation-time refinement
+
+Build reopened readiness for the missing concrete evidence capture/verification
+protocol. The operator approved versioned declarations in the existing exact-plan
+owner, helper-captured immutable bindings, bounded read-only runtime identity probes
+and conservative supported legacy revalidation. The linked binding contract now
+owns those wire formats and trust boundaries. This does not loosen gates, infer
+metadata from old passes or grant installation/live-consumer authority. The active
+Build cycle needs its supported digest-bound authority amendment before adopting
+changed normative interfaces; preserve its draft implementation and all evidence.
+
+The core source plan/profile and three-context delivery order are unchanged.
+Qualification must prove a successful legacy enrollment/capture/completion path,
+not merely rejection when old metadata is absent. Current source is still a draft;
+no installed runtime or nominated-consumer outcome is asserted here.
 
 See [source-backed RCA](COMPLETION-RCA.md). The main risk is laundering unknown
 changes or stale execution evidence into success. DAG classification, immutable
