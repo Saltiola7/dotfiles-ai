@@ -49,6 +49,20 @@ edits; already-live clients, raw document and original exit/version checks remai
 Native qualification distinguishes fixture-authored app-shaped documents from
 actual Desktop UI producer evidence. Fork A owns live recovery and pinning.
 
+RRW-007G-R3 makes new kept-shell repair safe with a connected desktop: create and
+verify a replacement, CAS-rebind its proven leaf, then stop only the captured old
+shell and prove exit. Per-leaf publication prevents later failures from stranding
+earlier creations unbound. Private creation generations distinguish new effects
+from finished history; R1/R2 retained intents remain readable. If a pending run's
+leaf is gone and no live or finished terminal carries its labels, reconcile it as
+closed without replaying creation, then continue remaining repairs. Explicit
+`recover` also reconciles selected-core receipts with a complete switch journal,
+without rewriting completed history. Conflicting ownership, duplicate clients or
+process/version drift still refuse; post-CAS drift conservatively retains cleanup
+intent. No new inputs, bootstrap or binary pins. App-like protocol qualification
+and a deterministic pre-kill observer are not actual Desktop GUI execution.
+Fork A alone owns live recovery/timers; RRW-007I remains paused until R3 delivery.
+
 The [remote default activation](features/remote-worktree-activation.md) initializes
 missing activation during explicit remote apply at the qualified exact home
 default only. Existing activation is never overwritten or automatically refreshed.
