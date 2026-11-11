@@ -1,5 +1,11 @@
 # Completion after an external merge
 
+[Verified rebased delivery](rebased-delivery.md) specifies a separate explicit
+version-2 proof for individual commit correspondence and source preservation.
+Its source implementation is additive; managed activation and consumer
+qualification remain separate. The version-1 exact-tree contract below remains
+unchanged and does not acquire cleanup authority.
+
 Context: `dbsctr_v3_lifecycle`. Risk: elevated. Python support remains `>=3.12`.
 This additive interface observes an already performed GitHub merge. It does not
 change the merge-only execution contract in [automatic delivery](automatic-delivery.md).

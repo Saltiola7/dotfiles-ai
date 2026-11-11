@@ -1,5 +1,16 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-11 — ASVS current-main refresh
+
+- Reconcile accepted rebased-completion bookkeeping from main while preserving
+  the reviewed ASVS/toolkit package and the imported lifecycle implementation.
+  Add explicit non-null guards to two imported test helpers for type safety;
+  report unavailable native process inspection after verifying safe retention.
+- Combined ASVS and delivery regression checks validate the integration. No new
+  deployment, dependency or gate exception. Follow-up `ASVS-INTEGRATE-002` targets
+  the same feature branch and PR #305; native current-head CI and the final merge
+  remain verified separately in private evidence.
+
 ## 2026-11-11 — ASVS PR base reconciliation
 
 - Reconcile the accepted Herdr recovery changes from current main into the ASVS
