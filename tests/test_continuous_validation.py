@@ -616,8 +616,11 @@ def test_inherited_git_redirection_cannot_retarget_snapshot_mutations(worktree, 
 def test_adapter_stderr_is_bounded_before_it_reaches_disk(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, 'MAX_LOG', 1024)
     log = tmp_path / 'logs/stderr.log'
+    # Keep the producer alive so the log-bound check owns its termination.
     with pytest.raises(runner.Interrupted, match='log_limit'):
-        runner.process([sys.executable, '-c', "import sys;sys.stderr.write('x'*10000);print('{}')"],
+        runner.process([sys.executable, '-c',
+                        "import signal,sys;sys.stderr.write('x'*10000);"
+                        "sys.stderr.flush();print('{}',flush=True);signal.pause()"],
                        {}, tmp_path, log, 3)
     assert log.stat().st_size <= 1024
 

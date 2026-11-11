@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-11 — Stabilize the stderr-limit qualification fixture
+
+- Hold the fixture's producer alive after flushing its output so the log-bound
+  check exercises termination of a live child instead of racing its natural exit.
+- Retain the expected `log_limit` error, the on-disk byte limit and production
+  cleanup behavior. Preserve the observed Python 3.14/3.15 CI failures; focused
+  oldest/newest regressions and fresh hosted qualification remain required.
+
 ## 2026-11-10 — Preserve Herdr recovery during Python qualification
 
 - Incorporate protected-main PR #303's app-connected Herdr recovery and its
