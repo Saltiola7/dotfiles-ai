@@ -9,7 +9,9 @@ import io
 import json
 import os
 from pathlib import Path
+import selectors
 import shutil
+import signal
 import subprocess
 import tempfile
 import sys
@@ -30,13 +32,16 @@ class ForgejoTransportTest(unittest.TestCase):
     def setUp(self):
         loader = importlib.machinery.SourceFileLoader("forgejo_transport", str(SCRIPT))
         spec = importlib.util.spec_from_loader(loader.name, loader)
+        assert spec is not None
         self.core = importlib.util.module_from_spec(spec)
         loader.exec_module(self.core)
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name) / "source"
         self.root.mkdir()
-        self.git = str(Path(shutil.which("git")).resolve())
+        git = shutil.which("git")
+        assert git is not None
+        self.git = str(Path(git).resolve())
         self.env = {"PATH": "/usr/bin:/bin", "HOME": self.directory.name,
                     "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
         self.local_git("init", "--initial-branch=main")
@@ -323,10 +328,10 @@ class ForgejoTransportTest(unittest.TestCase):
                 return value
 
         core, security = Framework(), Framework()
-        core.CFDictionaryCreateMutable = Function(lambda *arguments: allocate({}))
-        core.CFStringCreateWithCString = Function(lambda allocator, value, encoding: allocate(value.decode()))
-        core.CFNumberCreate = Function(lambda allocator, kind, value: allocate(value._obj.value))
-        core.CFDictionarySetValue = Function(lambda dictionary, key, value: values[dictionary].__setitem__(values[key], values[value]))
+        setattr(core, "CFDictionaryCreateMutable", Function(lambda *arguments: allocate({})))
+        setattr(core, "CFStringCreateWithCString", Function(lambda allocator, value, encoding: allocate(value.decode())))
+        setattr(core, "CFNumberCreate", Function(lambda allocator, kind, value: allocate(value._obj.value)))
+        setattr(core, "CFDictionarySetValue", Function(lambda dictionary, key, value: values[dictionary].__setitem__(values[key], values[value])))
 
         def get_interaction(pointer):
             pointer._obj.value = 1
@@ -337,9 +342,9 @@ class ForgejoTransportTest(unittest.TestCase):
             copied.append(values[dictionary])
             return -25308  # errSecInteractionNotAllowed; no real framework call.
 
-        security.SecKeychainGetUserInteractionAllowed = Function(get_interaction)
-        security.SecKeychainSetUserInteractionAllowed = Function(lambda state: interactions.append(state) or 0)
-        security.SecItemCopyMatching = Function(copy_matching)
+        setattr(security, "SecKeychainGetUserInteractionAllowed", Function(get_interaction))
+        setattr(security, "SecKeychainSetUserInteractionAllowed", Function(lambda state: interactions.append(state) or 0))
+        setattr(security, "SecItemCopyMatching", Function(copy_matching))
         with mock.patch.object(ctypes, "CDLL", side_effect=[core, security]), \
                 mock.patch.object(ctypes, "c_void_p", Pointer), mock.patch.object(ctypes, "c_byte", Byte), \
                 mock.patch.object(self.core.sys, "platform", "darwin"):
@@ -368,13 +373,14 @@ class ForgejoTransportTest(unittest.TestCase):
                 setattr(self, name, value)
                 return value
         core, security = Framework(), Framework()
-        security.SecKeychainGetUserInteractionAllowed = Function(-1)
-        security.SecItemCopyMatching = mock.Mock(side_effect=AssertionError("must not query credentials"))
+        setattr(security, "SecKeychainGetUserInteractionAllowed", Function(-1))
+        lookup = mock.Mock(side_effect=AssertionError("must not query credentials"))
+        setattr(security, "SecItemCopyMatching", lookup)
         with mock.patch.object(ctypes, "CDLL", side_effect=[core, security]), \
                 mock.patch.object(self.core.sys, "platform", "darwin"):
             with self.assertRaisesRegex(RuntimeError, "Forgejo native credential unavailable"):
                 self.core._forgejo_security_lookup({})
-        security.SecItemCopyMatching.assert_not_called()
+        lookup.assert_not_called()
 
     @unittest.skipUnless(sys.platform == "darwin", "requires native CoreFoundation ABI")
     def test_native_metadata_query_accepts_nonexistent_selection_without_password_access(self):
@@ -554,12 +560,12 @@ class ForgejoTransportTest(unittest.TestCase):
                 # These are the only Security entry points the adapter invokes.
                 # Replace them before calling it; real Security symbols are read
                 # only to construct native CF values, never to access storage.
-                security.SecKeychainGetUserInteractionAllowed = Function(get_interaction)
-                security.SecKeychainSetUserInteractionAllowed = Function(lambda state: ui_states.append(state) or 0)
+                setattr(security, "SecKeychainGetUserInteractionAllowed", Function(get_interaction))
+                setattr(security, "SecKeychainSetUserInteractionAllowed", Function(lambda state: ui_states.append(state) or 0))
                 # Synthetic CFData stands in for an opaque Keychain item reference;
                 # no real item is opened or created by this ABI fixture.
-                security.SecKeychainItemGetTypeID = Function(lambda: core.CFDataGetTypeID())
-                security.SecItemCopyMatching = Function(copy_matching)
+                setattr(security, "SecKeychainItemGetTypeID", Function(lambda: core.CFDataGetTypeID()))
+                setattr(security, "SecItemCopyMatching", Function(copy_matching))
                 try:
                     with mock.patch.object(ctypes, "CDLL", side_effect=[core, security]):
                         if accepted:
@@ -620,7 +626,7 @@ raise SystemExit(module.main())
             self.assertEqual(len(children), 1)
             self.assertEqual(group, children[0].pid)
             signals.append(sent)
-            if sent == self.core.signal.SIGKILL:
+            if sent == self.core.signal.SIGKILL and children[0].returncode is None:
                 # The original output producer stays unchanged. Observe its
                 # natural exit without reaping before attempting the real signal.
                 deadline = time.monotonic() + 2
@@ -710,11 +716,11 @@ raise SystemExit(module.main())
 
             with self.subTest(probe=probe), self.cleanup_subject() as subjects, \
                     mock.patch.object(self.core.os, "killpg", side_effect=denied_or_unknown):
-                with self.assertRaisesRegex(RuntimeError, "^Forgejo transport unavailable$") as failure:
+                with self.assertRaisesRegex(RuntimeError, "^Forgejo transport cleanup unavailable$") as failure:
                     self.core._forgejo_run([sys.executable, "-I", "-B", "-c",
                                            "import time; time.sleep(10)"],
                                           cwd=self.root, env=self.core._forgejo_environment(), timeout=.05)
-                self.assertEqual(signals, [self.core.signal.SIGKILL, 0])
+                self.assertEqual(signals, [self.core.signal.SIGKILL, self.core.signal.SIGKILL])
                 self.assertNotIn("PRIVATE_CLEANUP_SENTINEL", "".join(traceback.format_exception(failure.exception)))
                 self.assertIsInstance(failure.exception.__context__, RuntimeError)
                 self.assertIn("timed out", str(failure.exception.__context__))
@@ -724,7 +730,7 @@ raise SystemExit(module.main())
 
     def test_cleanup_reap_failure_is_bounded_and_sanitized(self):
         with self.cleanup_subject(wait_failure=True) as subjects:
-            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport unavailable$") as failure:
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport cleanup unavailable$") as failure:
                 self.core._forgejo_run([sys.executable, "-I", "-B", "-c", "import time; time.sleep(10)"],
                                       cwd=self.root, env=self.core._forgejo_environment(), timeout=.05)
             self.assertNotIn("PRIVATE_CLEANUP_SENTINEL", "".join(traceback.format_exception(failure.exception)))
@@ -735,7 +741,7 @@ raise SystemExit(module.main())
 
     def test_cleanup_stream_failure_cannot_return_success(self):
         with self.cleanup_subject(close_failure=True) as subjects:
-            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport unavailable$") as failure:
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport cleanup unavailable$") as failure:
                 self.core._forgejo_run([sys.executable, "-I", "-B", "-c", "print('{}')"],
                                       cwd=self.root, env=self.core._forgejo_environment(), timeout=2)
             self.assertNotIn("PRIVATE_CLEANUP_SENTINEL", "".join(traceback.format_exception(failure.exception)))
@@ -753,15 +759,140 @@ raise SystemExit(module.main())
                     cwd=self.root, env=self.core._forgejo_environment(), timeout=deadline)
             self.assertLess(time.monotonic() - start, 3)
 
+    @contextlib.contextmanager
+    def overflow_cleanup(self):
+        """Reach cleanup without creating an unkillable native process."""
+        process = mock.Mock(pid=424242, returncode=None)
+        process.poll.return_value = None
+        process.wait.return_value = 0
+        selector = mock.MagicMock()
+        selector.__enter__.return_value = selector
+        selector.get_map.return_value = {process.stdout: True, process.stderr: True}
+        selector.select.return_value = [(mock.Mock(fileobj=process.stdout), 1)]
+        with mock.patch.object(self.core.subprocess, "Popen", return_value=process), \
+                mock.patch.object(self.core.selectors, "DefaultSelector", return_value=selector), \
+                mock.patch.object(self.core.os, "set_blocking"), \
+                mock.patch.object(self.core.os, "read", return_value=b"x" * 8192), \
+                mock.patch.object(self.core.os, "killpg") as kill:
+            yield process, kill
+
+    def assert_cleanup_finalized(self, process):
+        for stream in (process.stdin, process.stdout, process.stderr):
+            stream.close.assert_called()
+        process.wait.assert_called()
+        for call in process.wait.call_args_list:
+            timeout = call.kwargs.get("timeout", call.args[0] if call.args else None)
+            self.assertIsNotNone(timeout)
+            self.assertGreater(timeout, 0)
+            self.assertLessEqual(timeout, 1)
+
+    def run_overflow(self):
+        return self.core._forgejo_run(["synthetic-child"], cwd=self.root,
+            env=self.core._forgejo_environment(), input="synthetic input")
+
+    def test_overflow_reaps_terminal_leader_before_group_signal(self):
+        with self.overflow_cleanup() as (process, kill):
+            reaped = False
+
+            def poll():
+                nonlocal reaped
+                reaped = True
+                process.returncode = 0
+                return 0
+
+            def signal_group(*_):
+                if not reaped:
+                    raise PermissionError("RAW_CLEANUP_SENTINEL")
+                raise ProcessLookupError()
+
+            process.poll.side_effect = poll
+            kill.side_effect = signal_group
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport output unavailable$"):
+                self.run_overflow()
+            kill.assert_called_once_with(process.pid, signal.SIGKILL)
+            self.assert_cleanup_finalized(process)
+
+    def test_overflow_reaps_poll_to_signal_race_and_retries_group(self):
+        with self.overflow_cleanup() as (process, kill):
+            polls = 0
+
+            def poll():
+                nonlocal polls
+                polls += 1
+                return None if polls == 1 else 0
+
+            process.poll.side_effect = poll
+            kill.side_effect = [PermissionError("RAW_CLEANUP_SENTINEL"), ProcessLookupError()]
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport output unavailable$"):
+                self.run_overflow()
+            self.assertEqual(kill.call_count, 2)
+            self.assertGreaterEqual(process.poll.call_count, 2)
+            self.assert_cleanup_finalized(process)
+
+    def test_live_leader_signal_denial_fails_safely_after_owned_cleanup(self):
+        with self.overflow_cleanup() as (process, kill):
+            kill.side_effect = PermissionError("RAW_CLEANUP_SENTINEL")
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport cleanup unavailable$") as error:
+                self.run_overflow()
+            self.assertNotIn("RAW_CLEANUP_SENTINEL", str(error.exception))
+            process.kill.assert_called_once_with()
+            self.assert_cleanup_finalized(process)
+
+    def test_exited_leader_does_not_excuse_denied_descendant_cleanup(self):
+        with self.overflow_cleanup() as (process, kill):
+            process.poll.return_value = process.returncode = 0
+            kill.side_effect = PermissionError("RAW_CLEANUP_SENTINEL")
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport cleanup unavailable$"):
+                self.run_overflow()
+            kill.assert_called()
+            process.kill.assert_not_called()
+            self.assert_cleanup_finalized(process)
+
+    def test_cleanup_wait_is_bounded_and_closes_streams_on_timeout(self):
+        with self.overflow_cleanup() as (process, _):
+            process.wait.side_effect = subprocess.TimeoutExpired("synthetic-child", 1)
+            with self.assertRaisesRegex(RuntimeError, "^Forgejo transport cleanup unavailable$"):
+                self.run_overflow()
+            self.assert_cleanup_finalized(process)
+
     @unittest.skipUnless(hasattr(os, "fork"), "requires POSIX process groups")
     def test_timeout_kills_process_group_after_group_leader_exits(self):
         code = "import os, time\nif os.fork() == 0:\n time.sleep(10)\n"
-        real_killpg = os.killpg
-        with mock.patch.object(self.core.os, "killpg", wraps=real_killpg) as kill:
-            with self.assertRaisesRegex(RuntimeError, "timed out"):
-                self.core._forgejo_run([sys.executable, "-I", "-B", "-c", code],
-                    cwd=self.root, env=self.core._forgejo_environment(), timeout=.2)
-        kill.assert_called_once()
+        real_killpg, real_popen = os.killpg, subprocess.Popen
+        children, readers = [], []
+
+        def reaped_leader(*args, **kwargs):
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            child.wait(timeout=2)
+            self.assertEqual(child.returncode, 0)
+            assert child.stdout is not None
+            readers.append(os.dup(child.stdout.fileno()))
+            return child
+
+        try:
+            with mock.patch.object(self.core.subprocess, "Popen", side_effect=reaped_leader), \
+                    mock.patch.object(self.core.os, "killpg", wraps=real_killpg) as kill:
+                with self.assertRaisesRegex(RuntimeError, "timed out"):
+                    self.core._forgejo_run([sys.executable, "-I", "-B", "-c", code],
+                        cwd=self.root, env=self.core._forgejo_environment(), timeout=.2)
+            kill.assert_called_once_with(children[0].pid, signal.SIGKILL)
+            with selectors.DefaultSelector() as selector:
+                selector.register(readers[0], selectors.EVENT_READ)
+                self.assertTrue(selector.select(2), "descendant still holds the output pipe")
+                self.assertEqual(os.read(readers[0], 1), b"")
+        finally:
+            for child in children:
+                try:
+                    real_killpg(child.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                child.wait(timeout=2)
+                for stream in (child.stdin, child.stdout, child.stderr):
+                    if stream is not None:
+                        stream.close()
+            for descriptor in readers:
+                os.close(descriptor)
 
     def test_internal_dispatcher_is_closed_and_returns_quit_on_invalid_input(self):
         self.assertFalse(self.core.forgejo_internal_main(["status"]))

@@ -22,6 +22,7 @@ def removal(fixture, monkeypatch):
     target = task(fixture)
     loader = importlib.machinery.SourceFileLoader("workspace_removal", str(harness.SCRIPT))
     spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
     core = importlib.util.module_from_spec(spec)
     loader.exec_module(core)
     monkeypatch.setattr(core, "workspace_processes", lambda _root: [])
@@ -259,8 +260,12 @@ def test_open_file_process_blocks_even_when_its_cwd_is_elsewhere(fixture):
     with subprocess.Popen([sys.executable, "-c", code, str(target / "tracked.txt")], cwd=fixture.repo,
                           stdout=subprocess.PIPE, text=True) as child:
         try:
+            assert child.stdout is not None
             assert child.stdout.readline().strip() == "ready"
             result = json.loads(harness.run(target, "workspace-remove-check", "--json", ok=False).stdout)
+            if result["reasons"] == ["process_inventory_unavailable"]:
+                assert result["eligible"] is False and target.is_dir()
+                pytest.skip("native process inventory unavailable; checker correctly retained target")
             assert "running_processes" in result["reasons"]
             assert target.is_dir()
         finally:
