@@ -483,8 +483,15 @@ If the operator already merged a GitHub PR externally, use
 after the existing completion gates pass. `--preview` verifies without completing;
 `--cycle-id ID` verifies/retries an already externally completed record. The helper
 checks authenticated PR identity and exact-tree delivery, including a squash,
-while retaining source/evidence and granting no cleanup authority. Never rerun
-Final Push to recreate an already merged PR or hand-edit its cycle to completed.
+while retaining source/evidence and granting no cleanup authority. For a
+qualified individual-commit rebase, explicitly select `--proof rebased_commits`.
+That source capability preserves original evidence, verifies landed changes and
+their native introducing PR, and retains source objects under a private evidence
+ref. Changed hashes alone do not reopen development gates. Unsupported/missing
+correspondence retains work; cleanup separately rechecks mapping, source custody
+and every existing non-history guard. Managed capability qualification is required
+before consumer use. Never rerun Final Push to recreate an already merged PR or
+hand-edit its cycle to completed.
 
 Stop before push when HEAD is detached, no upstream exists, the destination
 changed, pre-cycle ahead commits would be included, required evidence failed,

@@ -15,6 +15,23 @@
 Existing active cycles remain bound to the profile path recorded in their Cycle
 Record. New cycles use this file.
 
+## Rebased delivery source slice
+
+[Verified rebased delivery](features/rebased-delivery.md) is a critical-risk
+Python/Security extension because its receipt participates in retirement
+eligibility. The source slice preserves the six-phase workflow, historical
+GitHub schemas 3/4/5 and version-1 exact-tree receipts while specifying an explicit
+version-2 correspondence proof and private original-source retention. Native Git
+and existing authenticated GitHub metadata are the proof authorities; a mapping
+or final-tree resemblance alone is insufficient. Unsupported transformations
+remain retained rather than partially attributed.
+
+Kernel, Review/Integrate and Maintain/Retire gates apply. Release, Deploy and
+Operate are not applicable to the source-only draft PR, with managed installation,
+native-route qualification and consumer activation separately required. No new
+runner, merge queue, repair transport or host policy is activated. The feature
+owns canonical visual evidence and compatibility/retention obligations.
+
 ## Python typing policy slice
 
 The [typing coverage feature](features/python-typing-coverage.md) is elevated risk:

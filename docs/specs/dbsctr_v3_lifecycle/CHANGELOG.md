@@ -1,5 +1,32 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-10 — Verified rebased completion (REBASE-COMPLETE-001)
+
+- Added explicit version-2 original-to-landed commit proof, native introducing-PR
+  identity and conflict-free per-commit replay. Original evidence and gate IDs
+  remain unchanged; private Git refs retain their objects after feature deletion.
+- Revalidate mapped default history and source custody for cleanup-history
+  eligibility while preserving all other guards and unavailable runtime controls.
+  Keep completed/finalizing native-cycle reconciliation under existing locks and
+  lineage protection. Version-1 exact-tree behavior remains compatible.
+- Real-Git tests cover attribution, refusals, GC retention, interrupted completion
+  and custody races on supported runtimes. Independent review findings are fixed.
+  Source commit `e67ff906ca20`; later gate/delivery identities remain in the Cycle
+  Record. No Gate Exception. Intended Final Push: draft feature PR into `main`.
+- Source-only: no managed activation, queue or CI feedback transport. A live
+  process-inventory smoke remains unavailable on this host and reproduces on the
+  unchanged base; removal remains refused. This is outside source qualification.
+
+## 2026-11-10 — Rebased delivery Discovery
+
+- Specified original-to-landed phase attribution, private source retention and
+  guarded retirement after a verified rebase, preserving original gate evidence.
+- Scoped the first source slice to existing completion/preservation interfaces;
+  recorded the CI-to-owning-agent repair loop and independently available queue
+  as adoption work for the existing validation owner.
+- Implementation, managed activation and launch feasibility remain unverified.
+  This is a documentation checkpoint, not a completed DBSCTR cycle or gate pass.
+
 ## 2026-11-05 — Retained coordinator amendments (CROSS-REPO-AMEND-001)
 
 - Added version-2 Initiative amendments for an existing Build cycle whose
