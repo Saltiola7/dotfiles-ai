@@ -1,0 +1,107 @@
+#!/usr/bin/python3 -I
+"""Default-session Herdr ownership transfer; never controls OpenCode's backend."""
+import argparse
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+
+
+class NoState:
+    def read(self, name: str) -> dict | None:
+        raise ValueError('state unavailable outside controller')
+
+    def write(self, name: str, value: dict) -> None:
+        raise ValueError('state unavailable outside controller')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest='operation', required=True)
+    switch = sub.add_parser('switch', help='capture, stop, transfer and verify runtime ownership')
+    switch.add_argument('runtime', choices=('herdr-core', 'tui'))
+    switch.add_argument('--replace-target', action='store_true', help='back up and replace an unowned target layout')
+    switch.add_argument('--from-file', type=Path, help='offline snapshot or labelled space plan; source must already be stopped')
+    sub.add_parser('restore', help='restore only the selected runtime; unfinished switches block')
+    sub.add_parser('recover', help='reconcile a retained switch without blindly repeating mutations')
+    sub.add_parser('selected', help='print the explicit selection (compatibility default: tui)')
+    sub.add_parser('exec-tui', help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    try:
+        home = Path.home()
+        modules = home / '.local/share/dotfiles-ai/remote-herdr'
+        # Isolated Python never imports code from cwd, PYTHONPATH or an unchecked
+        # module path. Installed source is owned by the foundation, not the state.
+        for path in (home, home / '.local', home / '.local/share', modules.parent, modules):
+            info = path.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
+                raise ValueError()
+        for name in ('controller.py', 'native.py', 'layout.py', 'protocol.py', 'processes.py'):
+            info = (modules / name).lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_nlink != 1 or info.st_mode & 0o022):
+                raise ValueError()
+        sys.path.insert(0, str(modules))
+        from controller import Controller, Store
+        from native import Native
+        import layout
+        import protocol
+        root = home / '.local/state/dotfiles-ai/herdr-runtime'
+        if args.operation in {'selected', 'exec-tui'}:
+            # A TUI unit starts while the switch controller holds the lock. Read
+            # selection only here; the unit never owns a second transaction.
+            backend = Native(home, NoState())
+            if args.operation == 'selected':
+                print(backend.selected())
+                return 0
+            if backend.selected() != 'tui' or backend.endpoint_present('herdr-core'):
+                return 78
+            try:
+                journal = backend._json(root / 'transaction.json')
+            except FileNotFoundError:
+                journal = None
+            try:
+                boot = backend._json(root / 'boot.json')
+            except FileNotFoundError:
+                boot = None
+            switch_start = (journal is not None and journal.get('target') == 'tui'
+                            and journal.get('phase') == 'restore_pending')
+            boot_start = (boot is not None and boot.get('runtime') == 'tui'
+                          and boot.get('status') == 'start_pending'
+                          and (journal is None or journal.get('phase') == 'complete'))
+            if not (switch_start or boot_start):
+                return 78
+            executable = backend._binary('tui')
+            env = {'HOME': str(home), 'PATH': str(home / '.local/bin') + ':/usr/bin:/bin',
+                   'XDG_CONFIG_HOME': str(home / '.config'), 'XDG_DATA_HOME': str(home / '.local/share'),
+                   'XDG_STATE_HOME': str(home / '.local/state'), 'LANG': 'C.UTF-8',
+                   'XDG_RUNTIME_DIR': f'/run/user/{os.getuid()}'}
+            os.execve(executable, [str(executable), '--session', 'default', 'server'], env)
+        with Store(root) as store:
+            backend = Native(home, store)
+            controller = Controller(store, backend)
+            if args.operation == 'switch':
+                imported = None
+                if args.from_file:
+                    value = json.loads(backend._read(args.from_file.absolute(), layout.MAX_BYTES),
+                                       object_pairs_hook=protocol.unique)
+                    if isinstance(value, list):
+                        imported = layout.from_space_plan(value)
+                    elif value.get('version') == 3:
+                        imported = layout.from_tui_snapshot(value)
+                    else:
+                        imported = layout.validate_plan(value)
+                controller.switch(args.runtime, replace_target=args.replace_target, imported=imported)
+            elif args.operation == 'recover':
+                controller.recover()
+            else:
+                controller.restore()
+        return 0
+    except Exception:
+        print('Herdr operation refused or incomplete; retained state requires inspection/recovery', file=sys.stderr)
+        return 75
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

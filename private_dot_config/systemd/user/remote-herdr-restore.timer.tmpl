@@ -1,0 +1,11 @@
+[Unit]
+Description=Selected Herdr boot restore and restart reconciliation
+
+[Timer]
+OnBootSec=15s
+OnUnitInactiveSec=30s
+AccuracySec=1s
+Unit=remote-herdr-restore.service
+
+[Install]
+WantedBy=timers.target

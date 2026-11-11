@@ -1,5 +1,28 @@
 # Continuous Validation Changelog
 
+## 2026-11-10 — Deterministic capacity-admission regression
+
+Repair the capacity test's shared 100 ms deadline: a delayed preparation-journal
+write could defer the whole request before selection, producing a request-level
+`admission_deferred` instead of exercising the selected expensive check. A private
+150 ms write-delay reproduction produces the original failure and passes after
+the test repair. Keep the configured preparation deadline and advance a scoped
+virtual clock only while the expensive admission slot waits under pressure.
+
+Retain real admission/reservation code and every assertion: one deferred observation
+consumes the final slot, executes nothing, and the following request refuses at
+capacity. Assert both cheap and expensive admission occurred and the virtual
+deadline expired. No production timeout, runtime, schema, dependency or admission
+policy changes; canonical domain/contract/visuals remain unchanged.
+
+All 489 continuous-validation tests pass on the existing local Python 3.14
+environment. Affected typing retains ten pre-existing test-fixture assignment
+diagnostics; compare exact diagnostics against the base rather than suppressing
+them. Hosted checks and delivery identities remain in the Cycle Record. Intended
+draft delivery: `dbsctr/continuous_validation/RRW-R3-CI-ADMISSION`; never main.
+This separately scoped test fix does not waive R3 CI or authorize its merge,
+another workflow rerun, installation or live recovery.
+
 ## 2026-11-01 — CVS-STORAGE-005-BASE: current-base reconciliation
 
 Integrate protected main `adc34a17` after its independently reviewed JFrog skill

@@ -184,6 +184,25 @@ applicability; actual gate results and delivery evidence remain in the Cycle Rec
 
 ## Approved RHEL Successor: RRW-002
 
+### Source Qualification Evidence
+
+The successor contracts below are implemented in RRW-002: IAP-only rendered
+client settings and doctor, remote-only empty Atuin endpoint with automatic sync
+disabled, and no remote enrollment of the Atuin server even when its old enable
+flag is inherited. Other platforms retain their existing configuration. Current
+`main`'s PY-01 clone admission, retry-safe cleanup and negative tests are preserved.
+
+Native x86_64 GitHub UBI 10 qualification passed at source commit
+`76c8f631a897ced2ec56c95ddd3f2a7971f57c0b`:
+[run 41705268407](https://github.com/Saltiola7/dotfiles-ai/actions/runs/41705268407).
+The job passed 22 offline bootstrap tests and the full installation, local/synthetic
+readiness, reapply, damage/retry, update and rollback smoke, including OpenCode
+`v2.2.5`. This proves disposable UBI userland, not live RHEL or online provider
+authentication. Earlier failed attempts remain in private cycle evidence. No
+Gate Exception is inferred, and a merged INT-021 implementation SHA is reported
+only after actual merge. This evidence supersedes the historical Discovery-only
+implementation status below, not its requirements or live-platform boundaries.
+
 **Discovery only:** `rhel-remote-workspace` / `rrw-002-rhel-user-runtime`
 defines the RHEL 10 x86_64 successor to the historical RWUE runtime below.
 This document does not establish implementation, container qualification, live
@@ -392,6 +411,47 @@ RWUE-003 in the separately owned personal source.
 - Rollback preserves authentication, sessions, history, personal overlays, and
   unrelated files.
 
+## RRW-007A Foundation Personalisation
+
+The merged `rhel-remote-workspace` extension owns INT-036/041/042/044. Extend
+the existing remote role, not its host/desktop counterpart or the personal
+overlay. The public foundation owns checksum-pinned user-local `mise` and `gh`,
+and verifies their installed executable bytes during integrity admission. When
+Prefect MCP is enabled it also owns checksum-pinned user-local `uv`; Fork A's
+global mise baseline supplies pinned Python 3.13 under RRW-007C (superseding the
+original host prerequisite). The adapter retains its existing
+frozen runtime and `--no-python-downloads` contract.
+
+The canonical setup input and supported-flag table is
+[`docs/UPDATES.md`](../../../UPDATES.md#remote-user-setup-inputs).
+`remote-user-foundation supported-flags` returns that mapping as content-free
+JSON. Foundation apply and integrity merge source defaults with the user's local
+non-secret data, validate boolean flag types and Vertex project string type, and
+refuse local release-pin overrides. Remote rendering and foundation configuration
+reject `knowledge_store`, `hermes` and `rnd` enablement before downstream apply.
+
+The existing `dotfiles_ai.workspaces.root` input selects
+`HOME/.local/state/worktrees`; preserve schema version 1, the existing
+`<repo>-<path-hash>/<branch>` policy, branch sanitization and all qualification /
+activation checks. Existing checkouts do not move. The shared `.bashrc` sources
+readable `.bashrc.d/*.sh` snippets; another source can contribute disjoint snippets
+without taking ownership of `.bashrc`.
+
+Remote Herdr installs the skill emitted by the pinned Herdr executable, installs
+its native OpenCode integration, and enables `session.resume_agents_on_restore`.
+No GUI application, macOS host app, provider login, authentication-state transfer
+or private overlay apply is introduced. Retry and rollback keep the existing
+foundation state/counter and unrelated-state preservation contracts.
+
+Acceptance adds: mismatched tool bytes fail integrity; wrong download checksums
+never replace installed executables; an unchanged install does not redownload;
+the bounded tool check runs on every apply so same-revision retry repairs damaged
+tools without forcing unrelated installers, and verified bytes precede success;
+unsupported feature flags fail before apply; enabled Prefect receives only its
+own runtime/config closure and requires the existing Python 3.13 owner; Bash
+snippets run without transferring shared startup ownership; UBI proves the new
+install/reapply/integrity/recovery behavior without claiming live RHEL acceptance.
+
 ## Visual Evidence
 
 The distribution owner maintains the ownership/state view below when bootstrap,
@@ -412,10 +472,12 @@ the successor behavior above rather than duplicating the private deployment view
 ```mermaid
 flowchart LR
     accTitle: Portable rollout runtime ownership and state
-    accDescr: Public dotfiles-ai bootstraps one user-owned revision and refreshes content-free state. Private infrastructure only triggers and aggregates. Users perform interactive authentication themselves.
+    accDescr: Public dotfiles-ai bootstraps one user-owned revision, verifies pinned tools, and refreshes content-free state. Private infrastructure provides the host Python prerequisite, triggers and aggregates. Users perform interactive authentication themselves.
     I[Private first-login trigger] -->|full public revision| B[Portable user bootstrap]
     B -->|structural failure| F[failed_retryable]
     B -->|foundation valid| R[Content-free auth refresh]
+    B -->|native locked install when Prefect enabled| H[Global mise Python 3.13]
+    B -->|verify pinned tools| T[User-local mise, gh and optional uv]
     R -->|login incomplete| P[auth_pending]
     R -->|all local evidence present| D[ready]
     U[Unix user] -->|interactive login| A[Per-user provider stores]
@@ -426,7 +488,10 @@ flowchart LR
 ```
 
 **Text Equivalent:** Private infrastructure supplies one immutable public
-revision to a user-owned bootstrap. Structural failure is retryable. A valid
+revision to a user-owned bootstrap. The shared global mise baseline provides
+Python 3.13 when Prefect is enabled; the foundation owns and verifies mise, gh
+and conditional uv.
+Structural failure is retryable. A valid
 foundation runs content-free authentication checks: incomplete login waits in
 `auth_pending`, while complete local checks reach `ready`, without proving online
 credential validity. No provider request, token refresh or service start occurs

@@ -154,12 +154,34 @@ def child_environment(generation, url, credentials):
 
 def input_identity(base):
     hashes = {}
-    for name in INPUTS:
+    names = (*INPUTS, ".python-version") if os.path.lexists(base / ".python-version") else INPUTS
+    for name in names:
         path = base / name
         safe(path)
         hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
     encoded = json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest(), hashes
+
+
+def python_pin(base):
+    path = base / ".python-version"
+    if not os.path.lexists(path):
+        return
+    safe(path, max_bytes=128)
+    version = path.read_text().strip()
+    if not re.fullmatch(r"3\.13\.(?:0|[1-9][0-9]*)", version):
+        raise Unavailable("invalid_interpreter_pin")
+    return version
+
+
+def validate_python_pin(layout, identity):
+    version = python_pin(layout.base)
+    if version is None:
+        return
+    prefix = layout.home / ".local/share/mise/installs/python" / version
+    if (identity["version"] != [int(part) for part in version.split(".")]
+            or not Path(identity["path"]).is_relative_to(prefix)):
+        raise Unavailable("interpreter_pin_mismatch")
 
 
 class CommandInterrupted(Exception):
@@ -315,6 +337,7 @@ def resolve_runtime(layout):
             or not isinstance(identity["path"], str) or str(python.resolve(strict=True)) != identity["path"]
             or python_identity(identity["path"]) != identity):
         raise Unavailable("interpreter_identity_mismatch")
+    validate_python_pin(layout, identity)
     if distribution_identity(generation, python) != record["distributions"]:
         raise Unavailable("runtime_dependency_drift")
     return generation, python
@@ -343,7 +366,7 @@ def install(layout):
             qualify(resolved, python)
             return digest
         generation.mkdir(mode=0o700)
-        for name in INPUTS:
+        for name in inputs:
             with (generation / name).open("xb") as stream:
                 stream.write((layout.base / name).read_bytes())
         for path in (generation / "home", generation / "home/prefect", generation / "work"):
@@ -354,9 +377,13 @@ def install(layout):
         find_env = {"HOME": str(layout.home), "PATH": os.environ.get("PATH", os.defpath)}
         if os.environ.get("XDG_DATA_HOME"):
             find_env["XDG_DATA_HOME"] = os.environ["XDG_DATA_HOME"]
-        selected = run_command([uv, "python", "find", "--system", "--no-python-downloads", "3.13"],
+        version_pin = python_pin(layout.base)
+        if version_pin is not None:
+            find_env["UV_PYTHON_PREFERENCE"] = "only-system"
+        selected = run_command([uv, "python", "find", "--system", "--no-python-downloads", version_pin or "3.13"],
                                cwd=generation / "work", env=find_env).decode().strip()
         interpreter = python_identity(selected)
+        validate_python_pin(layout, interpreter)
         env = {"HOME": str(generation / "home"), "PATH": os.pathsep.join(
             [str(Path(uv).parent), str(Path(interpreter["path"]).parent), os.defpath]),
             "UV_PROJECT_ENVIRONMENT": str(generation / ".venv")}

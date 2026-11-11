@@ -1,0 +1,8 @@
+#!/bin/bash
+# pins: {{ .dotfiles_ai.herdr_core | toJson | sha256sum }}
+# installer: {{ include "dot_local/bin/executable_remote-herdr-core" | sha256sum }}
+set -euo pipefail
+{{ if not .dotfiles_ai.remote_user_environment.enabled -}}
+exit 0
+{{ end -}}
+exec "$HOME/.local/bin/remote-herdr-core" install

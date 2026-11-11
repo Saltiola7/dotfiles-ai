@@ -8,7 +8,26 @@ export DOTFILES_AI_SYSTEMCTL=/tmp/dotfiles-ai-test-bin/systemctl
 export DOTFILES_AI_SOURCE="$source_root"
 install -d -m 0700 "$HOME"
 install -d -m 0755 /tmp/dotfiles-ai-test-bin
-printf '#!/bin/sh\nexit 0\n' >"$DOTFILES_AI_SYSTEMCTL"
+cat >"$DOTFILES_AI_SYSTEMCTL" <<'EOF'
+#!/bin/bash
+# Ordinary userland smoke only: emulate start, not a systemd/boot pass.
+case "$*" in
+  '--user is-active --quiet opencode-shared.service')
+    exec "$HOME/.local/bin/opencode" service status >/dev/null 2>&1
+    ;;
+  '--user start opencode-shared.service')
+    cd "$HOME"
+    # This container has no systemd child reaper. Retain a waiting parent so
+    # native stop observes its service PID disappear, rather than a zombie.
+    (
+      "$HOME/.local/bin/opencode" serve --service --hostname 127.0.0.1 --port 0 &
+      service_pid=$!
+      wait "$service_pid"
+    ) </dev/null >/dev/null 2>&1 &
+    ;;
+esac
+exit 0
+EOF
 chmod 0755 "$DOTFILES_AI_SYSTEMCTL"
 install -d -m 0700 "$HOME/.local/libexec/dotfiles-ai" "$HOME/.local/state/dotfiles-ai/codex-package"
 cat >"$HOME/.local/libexec/dotfiles-ai/codex" <<'EOF'
@@ -46,7 +65,18 @@ path.chmod(0o600)
 PY
 
 revision=$(git -C "$source_root" rev-parse HEAD)
-"$source_root/dot_local/bin/executable_remote-user-bootstrap" bootstrap "$revision"
+bootstrap_with_fixture_diagnostics() {
+  if "$source_root/dot_local/bin/executable_remote-user-bootstrap" bootstrap "$revision"; then
+    return 0
+  fi
+  # This fixture starts credential-free with public config only. Replay here,
+  # never in the production bootstrap, to expose the hidden apply failure.
+  echo 'UBI fixture bootstrap failed; replaying apply for diagnostics' >&2
+  "$HOME/.local/bin/chezmoi" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" \
+    -S "$source_root" apply --verbose || true
+  return 1
+}
+bootstrap_with_fixture_diagnostics
 native_before=$(sha256sum "$HOME/.opencode/bin/opencode")
 config_before=$(sha256sum "$HOME/.config/opencode/opencode.json")
 remote-user-bootstrap bootstrap "$revision"
@@ -54,11 +84,54 @@ remote-user-bootstrap bootstrap "$revision"
 remote-user-foundation apply "$revision"
 test "$(sha256sum "$HOME/.opencode/bin/opencode")" = "$native_before"
 test "$(sha256sum "$HOME/.config/opencode/opencode.json")" = "$config_before"
-expected_status=$(printf ' R update-codex.sh\n R update-opencode.sh')
+expected_status=$(printf ' R install-02-remote-tools.sh\n R install-03-remote-mise.sh\n R install-04-remote-opencode-service.sh\n R install-05-remote-herdr-runtime.sh\n R update-codex.sh\n R update-opencode.sh\n R zz-remote-worktree-activation.sh')
 test "$(chezmoi -S "$source_root" -D "$HOME" -c "$HOME/.config/dotfiles-ai/chezmoi.toml" status)" = "$expected_status"
 
 "$HOME/.local/bin/starship" --version
 "$HOME/.local/bin/atuin" --version
+"$HOME/.local/bin/mise" --version
+"$HOME/.local/bin/gh" --version
+test -s "$HOME/.agents/skills/herdr/SKILL.md"
+grep -q '^name: herdr$' "$HOME/.agents/skills/herdr/SKILL.md"
+herdr integration status | grep -E '^opencode: current'
+python3 - <<'PY'
+import hashlib, os, tomllib
+from pathlib import Path
+home = Path.home()
+source = Path(os.environ['DOTFILES_AI_SOURCE'])
+pins = tomllib.loads((source / '.chezmoidata.toml').read_text())['dotfiles_ai']['remote_user_environment']
+for name, key in [('mise', 'mise_sha256'), ('gh', 'gh_binary_sha256')]:
+    assert hashlib.sha256((home / '.local/bin' / name).read_bytes()).hexdigest() == pins[key]
+herdr = tomllib.loads((home / '.config/herdr/config.toml').read_text())
+assert herdr['session']['resume_agents_on_restore'] is True
+worktrunk = tomllib.loads((home / '.config/worktrunk/config.toml').read_text())
+assert worktrunk['worktree-path'].startswith(str(home / '.local/state/worktrees') + '/')
+assert '{{ repo_path | hash }}' in worktrunk['worktree-path']
+assert worktrunk['pre-switch'] and worktrunk['pre-remove']
+PY
+# A tampered foundation tool must fail integrity before any auth observation.
+printf '#!/bin/sh\nexit 42\n' >"$HOME/.local/bin/mise"
+if remote-user-foundation refresh-auth; then
+  echo 'tampered mise unexpectedly passed integrity' >&2
+  exit 1
+fi
+remote-user-foundation retry
+python3 - <<'PY'
+import hashlib, os, tomllib
+from pathlib import Path
+pins = tomllib.loads((Path(os.environ['DOTFILES_AI_SOURCE']) / '.chezmoidata.toml').read_text())['dotfiles_ai']['remote_user_environment']
+assert hashlib.sha256((Path.home() / '.local/bin/mise').read_bytes()).hexdigest() == pins['mise_sha256']
+PY
+remote-user-foundation supported-flags | python3 -c \
+  'import json,sys;v=json.load(sys.stdin);assert set(v)=={"onepassword","prefect_mcp","pm_kernel","jfrog_cli","history_projection","opencode.vertex_project"}'
+python3 - <<'PY'
+import tomllib
+from pathlib import Path
+config = tomllib.loads((Path.home() / ".config/atuin/config.toml").read_text())
+assert config["auto_sync"] is False
+assert config["sync_address"] == ""
+assert config["daemon"]["enabled"] is False
+PY
 "$HOME/.local/bin/op" --version
 "$HOME/.local/bin/gcloud" version --format=json >/dev/null
 "$HOME/.local/bin/codex" --version
@@ -97,6 +170,9 @@ printf '{}\n' >"$HOME/.config/op/config"
 chmod 0600 "$HOME/.local/state/dotfiles-ai/codex/auth.json" \
   "$HOME/.config/gcloud/application_default_credentials.json" "$HOME/.config/op/config"
 # Synthetic metadata only: never log in or send a provider/model request.
+# Stop only the disposable native process started by the fixture above before
+# replacing its registration with this existing synthetic auth-readiness server.
+"$HOME/.local/bin/opencode" service stop
 python3 - <<'PY' &
 import json, os
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -157,11 +233,27 @@ printf keep-auth >"$HOME/.local/state/dotfiles-ai/codex/auth.json"
 printf keep-history >"$HOME/.local/share/atuin/history.db"
 git -C "$source_root" config user.name Test
 git -C "$source_root" config user.email test@example.com
+# Source-only upgrades, rollback and retry must preserve activation without repair.
+activation_identity() {
+  python3 - <<'PY'
+import hashlib
+from pathlib import Path
+target = Path.home() / '.config/dotfiles-ai/workflow-policy.activation.json'
+assert target.is_file() and not target.is_symlink() and target.stat().st_nlink == 1
+print(f'{target.stat().st_ino}:{hashlib.sha256(target.read_bytes()).hexdigest()}')
+PY
+}
+activation_before=$(activation_identity)
+assert_activation_retained() {
+  test "$(activation_identity)" = "$activation_before"
+}
 git -C "$source_root" commit --allow-empty -m update >/dev/null
 update_revision=$(git -C "$source_root" rev-parse HEAD)
 remote-user-foundation apply "$update_revision"
+assert_activation_retained
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$update_revision"
 remote-user-foundation rollback
+assert_activation_retained
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$revision"
 test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
 test "$(cat "$HOME/.local/share/atuin/history.db")" = keep-history
@@ -177,8 +269,185 @@ set -e
 test "$failure_status" -ne 0
 install -m 0600 /tmp/chezmoi.toml "$HOME/.config/dotfiles-ai/chezmoi.toml"
 remote-user-foundation retry
+assert_activation_retained
 test "$(remote-user-foundation status | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')" = "$retry_revision"
 remote-user-foundation rollback
+assert_activation_retained
 test "$(cat "$HOME/.local/state/dotfiles-ai/codex/auth.json")" = keep-auth
 test "$(cat "$HOME/.local/share/atuin/history.db")" = keep-history
 printf 'remote user environment smoke passed\n'
+
+# Default-home foundation apply initializes activation without manual writes.
+python3 - <<'PY'
+from pathlib import Path
+import tomllib
+home = Path.home()
+config = tomllib.loads((home / '.config/dotfiles-ai/chezmoi.toml').read_text())
+assert config['data']['dotfiles_ai']['workspaces'] == {
+    'schema_version': 1, 'root': str(home / '.local/state/worktrees')}
+PY
+remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
+test -f "$HOME/.config/dotfiles-ai/workflow-policy.json"
+test -f "$HOME/.config/dotfiles-ai/workflow-policy.activation.json"
+# Explicit owner provisioning for the existing default cache, not hydration.
+install -d -m 0700 "$HOME/.cache/dotfiles-ai/dvc" "$HOME/src/fixture-worktree"
+git init -q "$HOME/src/fixture-worktree"
+git -C "$HOME/src/fixture-worktree" -c user.name=Fixture -c user.email=fixture@example.invalid \
+  -c commit.gpgsign=false commit --allow-empty -qm baseline
+git init --bare -q "$HOME/fixture-remote.git"
+git -C "$HOME/src/fixture-worktree" remote add origin "$HOME/fixture-remote.git"
+git -C "$HOME/src/fixture-worktree" push -q origin HEAD:refs/heads/fixture/remote-work
+git -C "$HOME/src/fixture-worktree" fetch -q origin
+(
+  cd "$HOME/src/fixture-worktree"
+  proposal=$(mktemp "$HOME/.config/dotfiles-ai/workflow-policy.proposal.XXXXXX")
+  workflow-policy snapshot >"$proposal"
+  python3 - "$proposal" <<'PY'
+import json, os, stat, sys
+from pathlib import Path
+home = Path.home()
+proposal = json.loads(Path(sys.argv[1]).read_text())
+policy = home / '.config/dotfiles-ai/workflow-policy.json'
+assert stat.S_IMODE(policy.stat().st_mode) == 0o600
+assert proposal['schema_version'] == 2
+assert proposal['semantic_digest'] == json.loads(policy.read_text())['activation_binding']['semantic_digest']
+root = next(item for item in proposal['roots'] if item['canonical_path'] == str(home / '.local/state/worktrees'))
+assert root['kind'] == 'owned_home' and Path(root['mountpoint']).is_absolute()
+activation = home / '.config/dotfiles-ai/workflow-policy.activation.json'
+assert stat.S_IMODE(activation.stat().st_mode) == 0o600
+assert activation.stat().st_nlink == 1
+assert json.loads(activation.read_bytes()) == proposal
+PY
+  workflow-policy check
+  wt switch fixture/remote-work --no-cd --yes
+  python3 - <<'PY'
+import re, subprocess
+from pathlib import Path
+blocks = subprocess.check_output(['git', 'worktree', 'list', '--porcelain'], text=True).split('\n\n')
+selected = next(block for block in blocks if 'branch refs/heads/fixture/remote-work' in block.splitlines())
+path = Path(selected.splitlines()[0].removeprefix('worktree '))
+root = Path.home() / '.local/state/worktrees'
+assert path.is_dir() and path.parent.parent == root
+assert re.fullmatch(r'fixture-worktree-[a-z0-9]{3}', path.parent.name)
+assert path.name == 'fixture-remote-work'
+PY
+)
+activation_before=$(sha256sum "$HOME/.config/dotfiles-ai/workflow-policy.activation.json")
+remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
+test "$(sha256sum "$HOME/.config/dotfiles-ai/workflow-policy.activation.json")" = "$activation_before"
+printf 'remote Worktrunk default apply activation qualification passed\n'
+
+# Enable the optional toolchain using only public fixture configuration. The
+# frozen adapter is qualified locally without an API URL, credentials or calls.
+python3 - <<'PY'
+import re
+from pathlib import Path
+path = Path.home() / '.config/dotfiles-ai/chezmoi.toml'
+assert not (Path.home() / '.local/share/mise/installs/python').exists()
+previous = path.read_text()
+updated, count = re.subn(r'(\[data\.dotfiles_ai\.prefect_mcp\]\n(?:#[^\n]*\n)*)enabled = false',
+                         r'\1enabled = true', previous, count=1)
+assert count == 1
+path.write_text(updated)
+PY
+# Only this disposable public fixture exposes captured subprocess diagnostics.
+# Keep the production command, locking, failure status and logging unchanged.
+python3 - "$(git -C "$source_root" rev-parse HEAD)" "$HOME/.local/bin/remote-user-foundation" <<'PY'
+# BEGIN optional-apply diagnostics
+import runpy
+import subprocess
+import sys
+
+revision, helper = sys.argv[1:]
+module = runpy.run_path(helper, run_name='smoke_diagnostics')
+original = module['command']
+
+def diagnostic_command(*args, **kwargs):
+    try:
+        return original(*args, **kwargs)
+    except subprocess.CalledProcessError as error:
+        for output in (error.stdout, error.stderr):
+            if output:
+                print(output, file=sys.stderr)
+        raise
+
+module['main'].__globals__['command'] = diagnostic_command
+sys.argv = [helper, 'apply', revision]
+module['main']()
+# END optional-apply diagnostics
+PY
+bash -lc 'cd "$HOME"; . "$HOME/.common_profile"; command -v python3.13; [[ $(python3.13 --version) == "Python 3.13.18" ]]'
+# Native mise may serialize its lock again during normal use. Its exact bytes
+# must already match chezmoi's template, not merely contain the same pin values.
+lock_before=$(sha256sum "$HOME/.config/mise/mise.lock")
+"$HOME/.local/bin/remote-mise" exec -- "$HOME/.local/bin/mise" lock --global --platform linux-x64
+test "$(sha256sum "$HOME/.config/mise/mise.lock")" = "$lock_before"
+remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
+test "$(sha256sum "$HOME/.config/mise/mise.lock")" = "$lock_before"
+printf 'remote native mise lock and enabled Prefect reapply passed\n'
+# Project idiomatic pins override the global baseline for normal shells only.
+idiomatic_project="$HOME/fixture-python-project"
+install -d -m 0700 "$idiomatic_project"
+printf '3.14\n' >"$idiomatic_project/.python-version"
+"$HOME/.local/bin/mise" --cd "$idiomatic_project" install python@3.14
+bash -lc 'cd "$1"; . "$HOME/.common_profile"; [[ $(python3 --version) == Python\ 3.14.* ]]' bash "$idiomatic_project"
+# Even a HOME-level idiomatic pin cannot redirect foundation installation/checks.
+printf '3.14\n' >"$HOME/.python-version"
+(
+  cd "$idiomatic_project"
+  test "$("$HOME/.local/bin/remote-mise" exec -- python --version)" = 'Python 3.13.18'
+)
+test "$(sha256sum "$HOME/.config/mise/mise.lock")" = "$lock_before"
+printf 'remote idiomatic Python version file qualification passed\n'
+python3 - <<'PY'
+from pathlib import Path
+# Deliberately invalid extra configs must not enter foundation tool installation.
+home = Path.home()
+extras = home / '.config/mise/conf.d'
+extras.mkdir(parents=True, exist_ok=True)
+for candidate in (home / 'mise.toml', home / '.config/mise/config.local.toml',
+                  home / '.config/mise/config.override.toml', extras / 'unreviewed.toml',
+                  home / '.miserc.toml', home / '.miserc.local.toml'):
+    candidate.write_text('unreviewed = [\n')
+PY
+remote-user-foundation apply "$(git -C "$source_root" rev-parse HEAD)"
+"$HOME/.local/bin/prefect-mcp" check-runtime | python3 -c \
+  'import json,sys;v=json.load(sys.stdin);assert v=={"qualified":True,"backend_health":"not_checked"}'
+python3 - <<'PY'
+import hashlib, json, os, subprocess, tomllib
+from pathlib import Path
+home = Path.home()
+pins = tomllib.loads((Path(os.environ['DOTFILES_AI_SOURCE']) / '.chezmoidata.toml').read_text())['dotfiles_ai']['remote_user_environment']
+environment = {**os.environ, 'PATH': str(home / '.local/share/mise/shims') + ':' + os.environ['PATH'],
+               'UV_PYTHON_DOWNLOADS': 'never'}
+project = home / 'fixture-project'
+project.mkdir(exist_ok=True)
+(project / 'mise.toml').write_text('[tools]\npython = "3.13.17"\n')
+(project / '.miserc.toml').write_text('unreviewed = [\n')
+selected = Path(subprocess.check_output([str(home / '.local/bin/remote-mise'), 'exec', '--',
+    str(home / '.local/bin/uv'), 'python', 'find',
+    '--system', '--no-python-downloads', '3.13'], cwd=project, env=environment, text=True).strip()).resolve()
+assert selected.is_relative_to(home / '.local/share/mise/installs/python' / pins['prefect_python_version'])
+version = subprocess.check_output([str(selected), '-I', '-c',
+    'import sys;print(".".join(map(str,sys.version_info[:3])))'], text=True).strip()
+assert version == pins['prefect_python_version']
+runtime = home / '.config/dotfiles-ai/runtime/prefect-mcp'
+records = [json.loads(path.read_text()) for path in (runtime / 'generations').glob('*/.complete.json')]
+assert any(record['python']['path'] == str(selected) and record['python']['version'] == [3, 13, 18]
+           for record in records)
+before = hashlib.sha256(selected.read_bytes()).hexdigest()
+subprocess.run(['remote-user-foundation', 'apply', subprocess.check_output(
+    ['git', '-C', os.environ['DOTFILES_AI_SOURCE'], 'rev-parse', 'HEAD'], text=True).strip()], check=True)
+assert hashlib.sha256(selected.read_bytes()).hexdigest() == before
+config = home / '.config/dotfiles-ai/chezmoi.toml'
+contents = config.read_text()
+disabled, count = __import__('re').subn(r'(\[data\.dotfiles_ai\.prefect_mcp\]\n(?:#[^\n]*\n)*)enabled = true',
+                                      r'\1enabled = false', contents, count=1)
+assert count == 1
+config.write_text(disabled)
+subprocess.run(['remote-user-foundation', 'apply', subprocess.check_output(
+    ['git', '-C', os.environ['DOTFILES_AI_SOURCE'], 'rev-parse', 'HEAD'], text=True).strip()], check=True)
+assert selected.exists() and hashlib.sha256(selected.read_bytes()).hexdigest() == before
+assert tomllib.loads((home / '.config/mise/config.toml').read_text())['tools'] == {}
+PY
+printf 'remote mise and frozen Prefect qualification passed\n'

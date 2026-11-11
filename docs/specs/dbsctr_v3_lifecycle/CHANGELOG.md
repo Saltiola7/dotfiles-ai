@@ -1,5 +1,107 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-05 — Retained coordinator amendments (CROSS-REPO-AMEND-001)
+
+- Added version-2 Initiative amendments for an existing Build cycle whose
+  committed Discovery authority lives in a retained coordinator checkout. Bind
+  its native identity, repository, exact HEAD and document closure; require that
+  custody on subsequent reads and completion. No network, source fallback or
+  foreign-document import is granted.
+- Keep the Build Engineering Profile/checkpoint local. Preserve original
+  registration, approvals, evidence and commit history; exact fresh approval
+  reopens required gates. Version-1 same-repository behavior is unchanged.
+- Source-only qualification covers independent Git authority, apply/replay,
+  checkpoints and fail-closed drift/loss. Managed activation and real consumer
+  amendment remain separately approved; no consumer readiness is claimed here.
+
+## 2026-11-05 — Managed-account CI repair selection (CI-REPAIR-EMU-001)
+
+- Accepted underscores in `ci-repair --github-account` so Enterprise Managed
+  Users can select their existing native credentials. The 39-character bound,
+  leading alphanumeric rule and other input rejection remain unchanged.
+- Reproduced the original underscore rejection, then covered accepted account
+  propagation, invalid input before native reads, reservation and replay refusal.
+  Authentication transport, plan binding, durable budgets and merge prohibitions
+  are unchanged. Managed helper activation remains separate from source delivery.
+
+## 2026-11-04 — Operator-controlled skill activation
+
+- Moved portable lifecycle, scope, compaction and privacy obligations out of
+  global prompts and into their existing Discovery/DBSCTR owners. Removed the
+  mandatory session-move handoff protocol and obsolete global routing assertions.
+- Explicit DBSCTR activation lasts for the conversation, loads canonical Caveman
+  and Ponytail once, and enables its existing specialist router. Stable artifacts
+  and guidance are reused; applicable gates and evidence remain required.
+- Final Push requires publication authority from the operator's goal or approved
+  delivery plan. Caveman Commit formats Gate Commits without granting mutation
+  authority. Review skills and Review/Integrate policy remain unchanged; PR-Agent
+  integration is deferred to separate work.
+- Source checks and independent activation review pass; private Cycle Record
+  retains original red evidence and exact gates. No Gate Exception. Source
+  delivery targets a draft feature PR into `main`; live adoption follows merge.
+
+## 2026-11-04 — Exact-tree two-parent external completion (EXT-MERGE-001)
+
+- `complete-external` now also admits an ordinary two-parent native merge object
+  under the same `exact_tree` proof, when the retained head is the literal second
+  parent, the pre-merge base tip was already contained in it, and the merge tree
+  equals the retained head tree. Such a merge contributed no content and rewrote
+  no history, so exact-tree delivery is provable without a squash.
+- Imported secondary parents are anchored to the delivered history: the
+  single-parent shape keeps the historical first-parent anchor; the two-parent
+  shape anchors them to the merge object, where the retained head already carries
+  them into the protected base. Recorded commits, gates, evidence and the receipt
+  schema are unchanged; any other two-parent shape, including reconciliation
+  merges whose tree differs, remains refused.
+- Motivated by a completed-gates cycle whose ordinary protected merge could not be
+  recorded: `final-push` miscounts imported merge ancestry when the base has not
+  advanced. No fabricated completion was made; the record stayed active until
+  this reviewed fix. Managed helper activation follows the update runbook.
+
+## 2026-11-03 — CI repair benchmark requalification (CI-REPAIR-002)
+
+- Preserved CI-REPAIR-001's signed source as merge ancestry. Its new `ci-repair`
+  command changed the pinned helper SHA-256 and help output, which that cycle
+  omitted from its validation closure; the hosted `helper_oracle_unavailable`
+  failure is retained.
+- Reconciled accepted external-merge completion, then lineage recovery and
+  partitioned CI. Only this changelog and the benchmark pin fixture conflicted;
+  the helper merged automatically and every validation command is preserved.
+- Requalified the combined helper SHA-256 and exact help-output hashes from actual
+  output on isolated Python 3.12.15, 3.13.1 and 3.14.10; 3.14.9 output is
+  identical. Help changes beyond accepted main are limited to `ci-repair`.
+  Workloads, profile assertions and timeouts are unchanged; no oracle is bypassed.
+- Local full-union runs exceeded their unchanged evidence deadline and remain
+  unavailable; 14 completed synthetic cohorts were partial evidence only. Native
+  hosted CI on the reconciled head and current base, including every full-suite
+  partition, benchmark/profile smoke and security analysis, is the integration
+  qualification.
+- Source-only delivery: no managed installation, consumer qualification, failure
+  waiver or automatic repair. The superseded draft, its branch and private failed
+  evidence remain retained; actual delivery identities belong to this cycle's
+  private record and final report.
+
+## 2026-11-03 — Supervised CI repair reservations (CI-REPAIR-001)
+
+- Added explicit native-failure preflight and digest-approved attempt reservation
+  through `ci-repair`, reusing the bounded authenticated GitHub reader and managed
+  Git-common private state/locks. No patch execution, gate pass, cycle reopening,
+  waiver, push, merge, authentication setup or automatic integration is granted.
+- The three-attempt budget survives head changes, linked worktrees, process
+  restarts and replacement PRs. Negative tests cover stale jobs/bases/approvals,
+  denied APIs, unsafe scope/accounting, lost state, interrupted initialization,
+  replay and concurrent reservation. Original automatic-repair rejection remains.
+- Affected Python/CLI/publication/instruction tests pass; compatibility checks
+  pass on Python 3.12 and 3.13. The original skill validator passes using the
+  existing pre-commit Python environment. Full-helper typing retains 89 verified
+  baseline diagnostics without new messages; this is not a clean full-helper
+  typing claim. Independent helper review was unavailable due native read denial;
+  primary review and validation remain the source evidence.
+- Source-only delivery targets an isolated feature branch/draft PR into `main`.
+  No Gate Exception or managed activation; exact-head merge approval and reviewed
+  post-merge installation/consumer qualification remain separate. Actual Gate
+  Commit and Final Push outcomes belong to the private Cycle Record.
+
 ## 2026-11-03 — Preserve native subtest reporting
 
 Receipt schema 2 separates actual pytest subtest occurrences from unique ordinary

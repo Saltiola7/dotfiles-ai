@@ -24,6 +24,7 @@ def policy():
     path = ROOT / "dot_local/bin/executable_workflow-policy"
     loader = importlib.machinery.SourceFileLoader("workflow_policy", str(path))
     spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
@@ -38,7 +39,9 @@ def storage_home(tmp_path):
 
 
 @pytest.fixture
-def generation_source(tmp_path):
+def generation_source(tmp_path, monkeypatch):
+    # Rendering must never inspect the operator's deployed XDG policy/config.
+    monkeypatch.delenv('XDG_CONFIG_HOME', raising=False)
     source = tmp_path.resolve() / "source"
     source.mkdir()
     for relative in ("dot_local/bin/executable_workflow-policy", ".chezmoitemplates/workflow-policy.tmpl",
@@ -49,7 +52,8 @@ def generation_source(tmp_path):
         shutil.copyfile(ROOT / relative, destination)
     git(source, "init")
     git(source, "add", ".")
-    git(source, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "fixture")
+    git(source, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+        "-c", "commit.gpgsign=false", "commit", "-m", "fixture")
     return source
 
 
@@ -92,6 +96,7 @@ def test_pr_review_uses_actual_disposable_validator_without_requiring_activation
     path.chmod(0o600)
     loader = importlib.machinery.SourceFileLoader("pr_review_native", str(ROOT / "dot_local/bin/executable_dbsctrctl"))
     spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
     core = importlib.util.module_from_spec(spec)
     loader.exec_module(core)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "DVC_", "DBSCTR_", "WORKTRUNK_"))}
@@ -110,6 +115,8 @@ def test_pr_review_uses_actual_disposable_validator_without_requiring_activation
     activation.chmod(0o600)
     selected = core.pr_review_policy_snapshot(fixture.repo)
     assert not selected["delivery"]["enabled"]
+    repositories, roots, fingerprint = core.inventory_policy_sources()
+    assert str(fixture.repo.resolve()) in repositories and roots and fingerprint
     assert core.pr_review_birth_policy(fixture.repo) == selected
     assert git(fixture.repo, "worktree", "list", "--porcelain") == before
     linked = home / "Worktrees/linked"
@@ -118,7 +125,8 @@ def test_pr_review_uses_actual_disposable_validator_without_requiring_activation
     original = path.read_bytes()
     changed = json.loads(original)
     changed["repositories"] = []
-    changed["policy_digest"] = core.pr_review_digest({k: v for k, v in changed.items() if k != "policy_digest"})
+    changed["activation_binding"] = {"schema_version": 1, "semantic_digest": policy.semantic_digest(changed)}
+    changed["policy_digest"] = policy.digest(changed)
     path.write_text(json.dumps(changed))
     assert core.pr_review_birth_policy(fixture.repo) is None  # Activation no longer matches.
     activation.write_text(json.dumps(policy.snapshot(changed, home)))
@@ -216,6 +224,7 @@ def test_native_config_preserves_unrelated_values_and_safety(policy, storage_hom
 
 
 def test_mount_replacement_and_partial_generation_refuse(policy, storage_home, monkeypatch):
+    monkeypatch.setattr(policy, 'worktrunk_version', lambda: 'wt v0.80.0')
     value = policy.resolve(None, storage_home)
     external = storage_home.parent / "external"
     external.mkdir()
@@ -228,7 +237,7 @@ def test_mount_replacement_and_partial_generation_refuse(policy, storage_home, m
     monkeypatch.setattr(policy, "mount_identity", lambda path: ("uuid-two", "/mounted"))
     with pytest.raises(ValueError):
         policy.verify_snapshot(value, snapshot, storage_home)
-    snapshot["policy_digest"] = "b" * 64
+    snapshot["semantic_digest"] = "b" * 64
     with pytest.raises(ValueError):
         policy.verify_snapshot(value, snapshot, storage_home)
 
@@ -344,6 +353,95 @@ def test_private_render_binds_clean_source_and_rejects_dirty_or_invalid_input(ge
         render_generation(generation_source, storage_home, template)
 
 
+@pytest.mark.parametrize('selection', ['default', 'empty', 'xdg', 'explicit'])
+def test_render_cli_uses_one_private_config_context(policy, generation_source, storage_home,
+                                                   monkeypatch, capsys, selection):
+    home = storage_home
+    config = home / ('.config' if selection in {'default', 'empty'} else 'selected-config')
+    (config / 'worktrunk').mkdir(parents=True)
+    (config / 'worktrunk/config.toml').write_text('[list]\nfull = true\n')
+    directory = config / 'dotfiles-ai'
+    directory.mkdir()
+    prior = policy.resolve(None, home)
+    prior.update(source_commit='a' * 40)
+    prior['policy_digest'] = policy.digest(prior)
+    path = directory / 'workflow-policy.json'
+    path.write_text(json.dumps(prior))
+    path.chmod(0o600)
+    monkeypatch.setattr(sys, 'argv', ['workflow-policy', 'render', '--source', str(generation_source),
+                                    '--home', str(home), '--options', 'null'] +
+                        (['--config-home', str(config)] if selection == 'explicit' else []))
+    if selection == 'xdg':
+        monkeypatch.setenv('XDG_CONFIG_HOME', str(config))
+    elif selection == 'empty':
+        monkeypatch.setenv('XDG_CONFIG_HOME', '')
+    elif selection == 'explicit':
+        monkeypatch.setenv('XDG_CONFIG_HOME', str(home / 'unused'))
+    before = sorted(home.rglob('*'))
+    policy.main()
+    result = json.loads(capsys.readouterr().out)
+    assert result['worktrunk']['list']['full'] is True
+    assert result['policy']['activation_binding']['legacy_policy_digest'] == prior['policy_digest']
+    assert sorted(home.rglob('*')) == before
+    path.write_text(json.dumps(result['policy']))
+    policy.main()
+    assert json.loads(capsys.readouterr().out) == result
+
+
+def test_independent_template_includes_have_deployment_fixed_point(generation_source, storage_home):
+    home = storage_home
+    document_template = (ROOT / 'private_dot_config/dotfiles-ai/private_workflow-policy.json.tmpl').read_text()
+    combined = '{{ includeTemplate "workflow-policy.tmpl" . }}'
+    first = json.loads(render_generation(generation_source, home, combined))
+    assert json.loads(render_generation(generation_source, home, document_template)) == first['policy']
+    assert tomllib.loads(render_generation(generation_source, home, CONFIG.read_text())) == first['worktrunk']
+    directory = home / '.config/dotfiles-ai'
+    directory.mkdir(parents=True)
+    path = directory / 'workflow-policy.json'
+    path.write_text(json.dumps(first['policy']))
+    path.chmod(0o600)
+    assert tomllib.loads(render_generation(generation_source, home, CONFIG.read_text())) == first['worktrunk']
+    assert json.loads(render_generation(generation_source, home, combined)) == first
+
+
+def test_clean_source_bumps_and_rollback_preserve_legacy_file(policy, generation_source, storage_home, monkeypatch):
+    home, source = storage_home, generation_source
+    root = home / '.local/state/worktrees'
+    root.mkdir(parents=True)
+    options = {'schema_version': 1, 'root': str(root)}
+    monkeypatch.setattr(policy.platform, 'system', lambda: 'Linux')
+    monkeypatch.setattr(policy, 'worktrunk_version', lambda: 'wt v0.80.0')
+    monkeypatch.setattr(policy, 'mount_identity', lambda *a, **kw: ('fixture-home', '/'))
+    directory = home / '.config/dotfiles-ai'
+    directory.mkdir(parents=True)
+    path = directory / 'workflow-policy.json'
+    old = policy.resolve(options, home)
+    old.update(source_commit='a' * 40)
+    old['policy_digest'] = policy.digest(old)
+    path.write_text(json.dumps(old))
+    path.chmod(0o600)
+    saved = policy.snapshot(old, home)
+    saved.pop('semantic_digest')
+    saved.update(schema_version=1, policy_digest=old['policy_digest'])
+    activation = directory / 'workflow-policy.activation.json'
+    activation.write_text(json.dumps(saved))
+    activation.chmod(0o600)
+    before, inode = activation.read_bytes(), activation.stat().st_ino
+    original = git(source, 'rev-parse', 'HEAD').strip()
+    for step in ('first', 'bump', 'another', 'rollback'):
+        if step in {'bump', 'another'}:
+            git(source, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-m', step)
+        elif step == 'rollback':
+            git(source, 'checkout', '--detach', original)
+        fresh = policy.render(source, home, options, {},
+                              previous_policy=policy.previous_policy(home / '.config', home))['policy']
+        assert fresh['source_commit'] == git(source, 'rev-parse', 'HEAD').strip()
+        path.write_text(json.dumps(fresh))
+        policy.initialize_default_home(fresh, home, home / '.config')
+        assert activation.read_bytes() == before and activation.stat().st_ino == inode
+
+
 def test_private_template_has_real_chezmoi_private_attribute(generation_source, storage_home):
     data = {"chezmoi": {"homeDir": str(storage_home)}, "dotfiles_ai": {}}
     dump = subprocess.run(["chezmoi", "-S", str(generation_source), "--config", "/dev/null", "--config-format", "toml",
@@ -417,8 +515,10 @@ def test_native_user_hook_blocks_forced_dirty_removal_then_preserves_branch(fixt
                PATH=f"{tools}:{os.environ['PATH']}", WORKTRUNK_CONFIG_PATH=str(config),
                WORKTRUNK_SYSTEM_CONFIG_PATH=str(base / "no-system-config"))
 
+    wt_binary = shutil.which("wt")
+    assert wt_binary is not None
     def wt(*argv, ok=True):
-        value = subprocess.run([shutil.which("wt"), *argv], cwd=fixture.repo, env=env,
+        value = subprocess.run([wt_binary, *argv], cwd=fixture.repo, env=env,
                                text=True, capture_output=True, timeout=90)
         assert (value.returncode == 0) is ok, value.stderr + value.stdout
         return value
@@ -480,7 +580,7 @@ def test_native_user_hook_blocks_forced_dirty_removal_then_preserves_branch(fixt
     assert "dirty_worktree" in refused.stdout + refused.stderr
     assert (target / "tracked.txt").read_text() == "disposable dirty fixture\n"
     git(target, "restore", "tracked.txt")
-    outcome = subprocess.run([shutil.which("wt"), "remove", "task", "--yes"], cwd=fixture.repo,
+    outcome = subprocess.run([wt_binary, "remove", "task", "--yes"], cwd=fixture.repo,
                              env=env, text=True, capture_output=True, timeout=90)
     if outcome.returncode:
         # Real process visibility may time out on a busy host: unknown must retain.

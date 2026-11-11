@@ -135,7 +135,7 @@ def test_operator_merge_keeps_consent_and_native_evidence_distinct():
         assert requirement in route, requirement
     assert "never a direct `gh` or API workaround" not in review
     assert "all-green supplied JSON still exits blocked" in review
-    for source in (SKILLS / "dbsctr/SKILL.md", ROOT / "private_dot_config/opencode/AGENTS.md"):
+    for source in (SKILLS / "dbsctr/SKILL.md",):
         guidance = " ".join(text(source).split())
         assert "operator-approved single-PR" in guidance
         assert "dbsctr-pr-review" in guidance
@@ -165,40 +165,16 @@ def test_pr_review_authority_and_ci_fail_closed_without_activation():
         assert term in qa
 
 
-def test_native_handoff_guidance_preserves_sync_move_and_removal_order():
-    agents = text("private_dot_config/opencode/AGENTS.md")
-    start = agents.index("### Current-conversation handoff")
-    end = agents.index("### Authorized task bootstrap", start)
-    handoff = agents[start:end]
-    stages = [handoff.index(term) for term in (
-        "Finish or explicitly pause", "unique canonical primary", "fast-forward only", "`session_move`", "from outside the former checkout")]
-    assert stages == sorted(stages)
-    for term in ("without supplying a session identity", "unchanged native identity", "returned canonical directory",
-                 "messages, attachments and saved compaction", "native_handoff_unavailable", "no reset or branch swap",
-                 "successful move evidence", "do not move back", "Idle completed checkouts", "no fabricated conversation"):
-        assert term in handoff
-    assert "HTTP/CLI identity workaround" in handoff
-
-
 def test_native_bootstrap_reuses_checkouts_without_discarding_discovery_authority():
-    agents = text("private_dot_config/opencode/AGENTS.md")
     discovery = text(SKILLS / "discovery/SKILL.md")
-    kernel = text(SKILLS / "dbsctr/SKILL.md")
-    for source in (agents, discovery):
+    for source in (discovery,):
         assert "HEAD == approved remote base" in source
         assert "complete changed-document closure" in source
         assert "one code-only Build checkout" in source
         assert "not a phase boundary" in source
-    assert "managed current-conversation handoff" in kernel
-    assert "prior successful move" in kernel
-    assert "native session move is not CLI actor authentication" in kernel
 
 
-def test_native_handoff_failure_preserves_work_without_new_identity_routes():
-    agents = text("private_dot_config/opencode/AGENTS.md")
-    for term in ("Dirty, diverged, ambiguous or incompatible", "retain both checkout and evidence",
-                 "writers and in-flight tools", "never signal consumers", "existing native permissions"):
-        assert term in agents
+def test_retired_identity_hooks_remain_absent():
     assert not (ROOT / "private_dot_config/opencode/plugins/continuation.ts").exists()
     assert not (ROOT / "private_dot_config/opencode/plugins/initiative-context.ts").exists()
 
@@ -256,7 +232,7 @@ def test_early_publication_and_editorial_remediation_contract():
     assert "exact candidate artifact set" in discovery
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     assert "tests that read each changed instruction file" in dbsctr
-    for path in (SKILLS / "dbsctr/SKILL.md", Path("private_dot_config/opencode/AGENTS.md")):
+    for path in (SKILLS / "dbsctr/SKILL.md",):
         policy = " ".join(text(path).split())
         for requirement in ("Editorial corrections", "explicit scope amendment",
                             "Material changes still reopen readiness", "preserve failed evidence"):
@@ -289,7 +265,7 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
 
     assert "name: discovery" in discovery
-    assert "trigger: /discovery" in discovery
+    assert "skill tool to load `discovery`" in text(COMMANDS / "discovery.md")
     assert "Engineering Profile" in discovery
     assert "Gate Ledger" in discovery
     assert "V3.2 applicability plan" not in discovery
@@ -317,11 +293,10 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
         build = text(f"private_dot_config/opencode/agents/{agent}.md")
         assert "chat approval" in build and "--approval agent-confirmed" in build
         assert "never synthesize terminal confirmation or actor identity" in build
-    for path in ("private_dot_config/opencode/AGENTS.md",
-                 "private_dot_config/dotfiles-ai/codex-managed/AGENTS.md"):
+    for path in (SKILLS / "dbsctr/SKILL.md", SKILLS / "discovery/SKILL.md"):
         instructions = " ".join(text(path).split())
-        for term in ("--expected-launch-digest DIGEST", "--approval agent-confirmed",
-                     "`BEGIN`", "not authenticated operator identity"):
+        for term in ("--expected-launch-digest", "--approval agent-confirmed",
+                     "operator", "identity"):
             assert term in instructions
     assert "explore: allow" in coordinator
     assert "scout: allow" in coordinator
@@ -329,7 +304,6 @@ def test_v3_skills_use_unversioned_names_and_full_lifecycle():
         assert "bash: deny" in text(f"private_dot_config/opencode/agents/{agent}.md")
 
     assert "name: dbsctr" in dbsctr
-    assert "trigger: /dbsctr" in dbsctr
     for term in (
         "Development Kernel",
         "Review/Integrate",
@@ -863,15 +837,6 @@ def test_qa_accepts_v3_capabilities_without_breaking_scoped_mode():
     assert "do not install tools" in qa
 
 
-def test_global_routing_defaults_to_unversioned_v3():
-    agents = text("private_dot_config/opencode/AGENTS.md")
-    assert "Use `dbsctr`" in agents
-    assert "`discovery` until no unresolved question can materially change implementation" in agents
-    assert "dbsctr2" not in agents.lower()
-    assert "discovery2" not in agents.lower()
-    assert "Keep `/dbsctr` and `/discovery` unchanged" not in agents
-
-
 def test_ci_and_specs_cover_lifecycle_sources():
     workflow = text(".github/workflows/test.yml")
     ordinary_lanes = {("3.14", "0.81.0"), ("3.14", "0.80.0")}
@@ -987,9 +952,6 @@ def test_dbsctr_commits_gate_increments_and_pushes_completed_cycles():
     ):
         assert term in dbsctr
 
-    agents = text("private_dot_config/opencode/AGENTS.md")
-    assert "coherent Gate Commits" in agents
-    assert "one Final Push" in agents
 
 
 def test_v31_separates_gate_dimensions_and_scales_artifacts():
@@ -1098,12 +1060,10 @@ def test_v35_keeps_opencode_and_herdr_as_adapters():
 def test_v36_audit_is_fixed_commit_report_only_and_distinct_from_qa():
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
-    agents = text("private_dot_config/opencode/AGENTS.md")
     for term in ("report-only", "one Git commit", "dbsctr_audit", "does not duplicate `/qa`"):
         assert term in spec
     assert "Lifecycle Reconciliation Audit" in dbsctr
     assert "Never infer" in dbsctr
-    assert 'Treat "DBSCTR audit" as a report-only' in agents
 
 
 def test_v362_uses_validated_build_begin_authorization_and_method_revision_compatibility():

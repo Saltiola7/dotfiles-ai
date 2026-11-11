@@ -1,0 +1,27 @@
+# Build context: repository root. COPY is deliberately allowlisted: no .git,
+# .dbsctr, host environment, credentials, or existing user state enters the image.
+FROM registry.access.redhat.com/ubi10/ubi
+ENV container=docker
+RUN dnf -y --setopt=install_weak_deps=False install \
+      systemd systemd-pam dbus-daemon dbus-broker shadow-utils util-linux procps-ng iproute \
+      git-core python3 curl-minimal tar gzip unzip findutils \
+    && dnf clean all \
+    && useradd --uid 1000 --create-home --shell /bin/bash fixture \
+    && systemctl set-default multi-user.target \
+    && systemctl unmask systemd-logind.service \
+    && systemctl add-wants multi-user.target systemd-logind.service dbus.socket
+
+# Minimal real chezmoi source; no fake systemctl, native binary, or registration.
+COPY .chezmoidata.toml /opt/f01/source/.chezmoidata.toml
+COPY config.remote-user.example.toml /opt/f01/source/config.remote-user.example.toml
+COPY dot_local/bin/executable_opencode.tmpl dot_local/bin/executable_opencode-install.tmpl /opt/f01/source/dot_local/bin/
+COPY private_dot_config/systemd/user/opencode-shared.service /opt/f01/source/private_dot_config/systemd/user/opencode-shared.service
+COPY run_onchange_after_install-01-remote-opencode.sh.tmpl run_after_install-04-remote-opencode-service.sh.tmpl /opt/f01/source/
+# Reuse the public checksum-verified chezmoi bootstrap, without applying the
+# unrelated full foundation (Codex, Herdr, cloud clients, shells, and MCPs).
+COPY dot_local/bin/executable_remote-user-bootstrap /opt/f01/bootstrap.py
+COPY tests/remote_opencode_systemd/boot-smoke.sh tests/remote_opencode_systemd/verify-user.py /opt/f01/
+RUN chmod 0755 /opt/f01/boot-smoke.sh \
+    && install -d -m 0700 /var/lib/f01
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]
