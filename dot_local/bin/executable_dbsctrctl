@@ -21801,11 +21801,29 @@ def reconciliation_source_refs(root, cycle, selected, *, create=False, acceptanc
     return refs
 
 
-def completion_structural_report(root, record, selected, expected_head):
-    """Aggregate independent local blockers; never launch credentials or live checks."""
+def completion_preview_report():
     stages = {name: {"status": "not_evaluated", "reason_codes": []} for name in (
         "authority", "source", "topology", "evidence", "delivery", "runtime", "cleanup")}
     stages["cleanup"]["reason_codes"] = ["cleanup_independent"]
+    stages["runtime"]["reason_codes"] = ["runtime_probe_not_selected"]
+    return {"schema_version": 1, "kind": "completion_preview", "status": "unavailable",
+            "verification": "current", "stages": stages, "evidence_dispositions": {},
+            "next_action": "resolve_reported_prerequisites"}
+
+
+def print_completion_preview(report, receipt=None):
+    # Only the public projection is serialized; never errors, probe payloads,
+    # custody paths or the internal current-stage marker.
+    result = {key: report[key] for key in ("schema_version", "kind", "status", "verification",
+                                         "stages", "evidence_dispositions", "next_action")}
+    if receipt is not None:
+        result["receipt"] = receipt
+    print(json.dumps(result, sort_keys=True))
+
+
+def completion_structural_report(root, record, selected, expected_head, report):
+    """Aggregate independent local blockers; never launch credentials or live checks."""
+    stages = report["stages"]
 
     def check(stage, code, function):
         try:
@@ -21855,6 +21873,7 @@ def completion_structural_report(root, record, selected, expected_head):
         except (RuntimeError, OSError, ValueError, KeyError, TypeError):
             stages["topology"].update(status="blocked", reason_codes=["provenance_unavailable"])
     decisions = completion_evidence_dispositions(root, record, strict_source=True, source_head=selected[-1][1])
+    report["evidence_dispositions"] = decisions
     runtime_pending = False
     for name, decision in decisions.items():
         stage = "runtime" if name in {"deploy", "operate"} else "evidence"
@@ -21869,7 +21888,7 @@ def completion_structural_report(root, record, selected, expected_head):
     if changelog not in changed:
         stages["evidence"]["status"] = "blocked"
         stages["evidence"]["reason_codes"].append("reviewed_changelog_not_committed")
-    for name in ("authority", "source", "evidence", "runtime"):
+    for name in ("authority", "source", "evidence"):
         if stages[name]["status"] != "blocked":
             stages[name]["status"] = "passed"
     if structure is not None:
@@ -21880,8 +21899,7 @@ def completion_structural_report(root, record, selected, expected_head):
     if blocked:
         # Runtime freshness is local evidence here, not a new live observation.
         # No delivery or expensive DVC/native operation has been launched.
-        print(json.dumps({"schema_version": 1, "status": "blocked", "stages": stages, "evidence_dispositions": decisions,
-                          "next_action": "resolve_reported_prerequisites"}, sort_keys=True))
+        report["status"] = "blocked"
         fail("completion reconciliation preflight blocked")
     return structure, head, tree, changed, decisions
 
@@ -22154,6 +22172,25 @@ def validate_completion_reconciliation(root, record):
 
 
 def complete_external_segments(root, path, record, pointer, args, explicit):
+    report = completion_preview_report()
+    report["_stage"] = "source"
+    try:
+        return _complete_external_segments(root, path, record, pointer, args, explicit, report)
+    except (RuntimeError, OSError, ValueError, KeyError, TypeError):
+        if args.preview:
+            if report["status"] != "blocked":
+                stage = report["_stage"]
+                status = "unavailable" if stage in {"delivery", "runtime"} else "blocked"
+                report["stages"][stage] = {"status": status, "reason_codes": [stage + "_prerequisite_unavailable"]}
+                report["status"] = status
+            print_completion_preview(report)
+            fail("completion preview blocked; resolve reported prerequisites")
+        if report["status"] == "blocked":
+            print_completion_preview(report)
+        raise
+
+
+def _complete_external_segments(root, path, record, pointer, args, explicit, report):
     selected = completion_segment_selectors(args)
     cycle = record["cycle_id"]
     with evidence_lock(root, cycle, timeout=1), target_lock(root, record):
@@ -22174,13 +22211,24 @@ def complete_external_segments(root, path, record, pointer, args, explicit):
                 if not args.preview and own_pointer:
                     pointer.unlink()
                     fsync_directory(pointer.parent)
-                print(json.dumps(previous, sort_keys=True))
+                if args.preview:
+                    report.update(status="passed", verification="historical", next_action="completed_checkout_retained",
+                                  evidence_dispositions=retained_plan["evidence_dispositions"])
+                    for name in ("authority", "topology", "evidence"):
+                        report["stages"][name] = {"status": "passed", "reason_codes": ["retained_proof_verified"]}
+                    for name in ("source", "delivery", "runtime"):
+                        report["stages"][name] = {"status": "not_evaluated", "reason_codes": ["historical_proof_not_reexecuted"]}
+                    print_completion_preview(report, previous)
+                else:
+                    print(json.dumps(previous, sort_keys=True))
                 return
             if record["state"] not in {"active", "finalizing"}:
                 fail("cycle is not available for completion reconciliation")
-            structure, head, tree, changed, decisions = completion_structural_report(root, record, selected, args.expected_head)
+            structure, head, tree, changed, decisions = completion_structural_report(root, record, selected, args.expected_head, report)
             baseline = record["git"]
+            report["_stage"] = "evidence"
             require_completion_dvc(root, record, changed)
+        report["_stage"] = "delivery"
         env = github_environment(record["delivery"]["github"]["account"])
         env = {key: value for key, value in {**GIT_REPOSITORY_ENV, **env}.items() if key not in GIT_REPOSITORY_REDIRECTS}
         env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1")
@@ -22223,14 +22271,21 @@ def complete_external_segments(root, path, record, pointer, args, explicit):
             LOCAL_COMPLETION_GIT.reset(token)
         if len({item["target_head"] for item in receipts}) != 1:
             fail("delivery target changed between segment proofs")
+        report["stages"]["delivery"] = {"status": "passed", "reason_codes": ["native_delivery_verified"]}
+        report["_stage"] = "source"
         with local_completion_git_context():
             completion_acceptance_context(root, selected, head, receipts[-1]["target_head"])
             accepted_target = completion_target_equivalence(root, record, selected[-1][1], receipts[-1]["target_head"])
         probes = {}
+        report["_stage"] = "runtime"
         if effective_evidence_policy(record) is not None:
             decisions = require_completion_bindings(root, record, strict_source=True, allow_runtime=True, probe_cache=probes,
-                                                    source_head=selected[-1][1])
+                                                     source_head=selected[-1][1])
+        report["evidence_dispositions"] = decisions
+        if any(item.get("runtime_status") == "passed" for item in decisions.values()):
+            report["stages"]["runtime"] = {"status": "passed", "reason_codes": ["fresh_runtime_identity_observed"]}
         # Native observations have now independently established candidate bases.
+        report["_stage"] = "source"
         with local_completion_git_context():
             if completion_segment_structure(root, record, selected) != structure:
                 fail("completion reconciliation structure changed")
@@ -22255,7 +22310,8 @@ def complete_external_segments(root, path, record, pointer, args, explicit):
                    "verified_at": plan["verified_at"],
                    "recorded_commits": [item["id"] for item in record["commits"]]}
         if args.preview:
-            print(json.dumps(receipt, sort_keys=True))
+            report.update(status="passed", next_action="complete_with_verified_selectors")
+            print_completion_preview(report, receipt)
             return
         replacement = json.loads(json.dumps(record))
         replacement.update(state="completed", completed_at=receipt["verified_at"], external_completion=receipt,

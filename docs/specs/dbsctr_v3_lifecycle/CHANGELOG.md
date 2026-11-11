@@ -1,5 +1,18 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-11 — Classified completion previews (COMPLETION-PREVIEW-REPORT)
+
+- Return independently versioned stage reports and original evidence reuse for
+  successful, blocked and unavailable reconciliation previews. Nest delivery
+  receipts without changing their immutable schemas or normal completion output.
+- Label completed-preview verification as historical; do not repeat credentials,
+  native delivery observations or runtime probes. Keep later failure messages
+  bounded and exclude raw credential/provider errors from reports.
+- Qualify public CLI preview, retained retry, privacy and compatibility through
+  disposable fixtures. Actual results and review remain in the Cycle Record.
+  Source-only correction targets existing PR #309; no installation, consumer
+  mutation, Gate Exception, history rewrite or checkout/data removal.
+
 ## 2026-11-11 — Completion reconciliation source (COMPLETION-RECONCILIATION-CORE)
 
 - Added approved-plan evidence bindings, semantic requirement/dependency coverage,

@@ -75,6 +75,19 @@ def test_two_pr_fast_forward_completes_without_rewriting_ledger(ready, monkeypat
     assert ready.invoke(*arguments(ready, "--delivery-segment", selector, "--cycle-id", "cycle-1")) == 0
     capsys.readouterr()
     assert snapshot(ready) == saved
+    def offline(*_args, **_kwargs):
+        raise AssertionError("historical preview must not access credentials or runtime")
+
+    monkeypatch.setattr(ready.core, "github_environment", offline)
+    monkeypatch.setattr(ready.core, "evidence_runtime_probe", offline)
+    assert ready.invoke(*arguments(ready, "--delivery-segment", selector, "--cycle-id", "cycle-1", "--preview")) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["schema_version"] == 1 and report["kind"] == "completion_preview"
+    assert report["verification"] == "historical" and report["receipt"] == receipt
+    assert report["stages"]["delivery"]["status"] == "not_evaluated"
+    assert report["stages"]["runtime"]["status"] == "not_evaluated"
+    assert report["evidence_dispositions"]
+    assert snapshot(ready) == saved
 
 
 def test_multi_segment_preview_never_writes_cycle_or_refs(ready, monkeypatch, capsys):
@@ -84,7 +97,52 @@ def test_multi_segment_preview_never_writes_cycle_or_refs(ready, monkeypatch, ca
     before = snapshot(ready)
     assert ready.invoke(*arguments(ready, "--delivery-segment", selector, "--preview")) == 0
     result = json.loads(capsys.readouterr().out)
-    assert result["schema_version"] == 3
+    assert result["schema_version"] == 1 and result["kind"] == "completion_preview"
+    assert result["status"] == "passed" and result["verification"] == "current"
+    assert result["receipt"]["schema_version"] == 3
+    assert set(result["stages"]) == {"authority", "source", "topology", "evidence", "delivery", "runtime", "cleanup"}
+    assert all(result["stages"][name]["status"] == "passed" for name in
+               ("authority", "source", "topology", "evidence", "delivery"))
+    assert result["stages"]["runtime"]["status"] == "not_evaluated"
+    assert result["stages"]["cleanup"] == {"status": "not_evaluated", "reason_codes": ["cleanup_independent"]}
+    record = json.loads(ready.path.read_text())
+    assert {name: decision["evidence"] for name, decision in result["evidence_dispositions"].items()} == {
+        name: gate["evidence"] for name, gate in record["gates"].items() if gate["applicability"] == "required"}
+    assert snapshot(ready) == before
+
+
+@pytest.mark.parametrize("failure", ["credentials", "native", "runtime"])
+def test_preview_classifies_later_failures_without_private_errors(ready, monkeypatch, capsys, failure):
+    selector, transport = segments(ready)
+    core = ready.core
+    monkeypatch.setattr(core, "github_json", transport)
+    calls = []
+
+    def unavailable(*_args, **_kwargs):
+        calls.append(failure)
+        raise RuntimeError("PRIVATE_SENTINEL /private/fixture/credential")
+
+    if failure == "credentials":
+        monkeypatch.setattr(core, "github_environment", unavailable)
+    elif failure == "native":
+        monkeypatch.setattr(core, "github_json", unavailable)
+    else:
+        # Structural evidence is exact-source; only the subsequent runtime
+        # boundary is selected here. Binding/probe execution has its own suite.
+        monkeypatch.setattr(core, "effective_evidence_policy", lambda _record: {"gates": {}, "requirements": {}})
+        monkeypatch.setattr(core, "require_completion_bindings", unavailable)
+    capsys.readouterr()
+    before = snapshot(ready)
+    assert ready.invoke(*arguments(ready, "--delivery-segment", selector, "--preview")) == 1
+    output = capsys.readouterr()
+    assert "PRIVATE_SENTINEL" not in output.out + output.err
+    assert "/private/fixture" not in output.out + output.err
+    report = json.loads(output.out)
+    assert report["schema_version"] == 1 and report["status"] == "unavailable"
+    stage = "runtime" if failure == "runtime" else "delivery"
+    assert report["stages"][stage]["status"] == "unavailable"
+    assert report["stages"]["cleanup"]["status"] == "not_evaluated"
+    assert calls == [failure]
     assert snapshot(ready) == before
 
 
@@ -124,7 +182,8 @@ def test_mixed_exact_and_rebased_segments_use_separate_source_custody(ready, mon
     assert after["commits"] == before["commits"] and after["evidence"] == before["evidence"]
 
 
-def test_later_target_revert_prevents_composed_completion(ready, monkeypatch, capsys):
+@pytest.mark.parametrize("preview", [False, True])
+def test_later_target_revert_prevents_composed_completion(ready, monkeypatch, capsys, preview):
     selector, transport = segments(ready)
     core, root = ready.core, ready.root
     baseline_tree = core.git(root, "rev-parse", ready.base + "^{tree}").stdout.strip()
@@ -134,9 +193,17 @@ def test_later_target_revert_prevents_composed_completion(ready, monkeypatch, ca
     monkeypatch.setattr(core, "github_json", transport)
     before = snapshot(ready)
     capsys.readouterr()
-    assert ready.invoke(*arguments(ready, "--delivery-segment", selector)) == 1
+    assert ready.invoke(*arguments(ready, "--delivery-segment", selector, *(["--preview"] if preview else []))) == 1
     assert snapshot(ready) == before
-    assert "changes delivered source paths" in capsys.readouterr().err
+    output = capsys.readouterr()
+    if preview:
+        report = json.loads(output.out)
+        assert report["status"] == "blocked"
+        assert report["stages"]["source"]["status"] == "blocked"
+        assert report["stages"]["delivery"]["status"] == "passed"
+        assert report["stages"]["runtime"]["status"] == "not_evaluated"
+    else:
+        assert "changes delivered source paths" in output.err
 
 
 def test_single_pr_fast_forward_checkout_uses_one_segment_reconciliation(ready, capsys):
