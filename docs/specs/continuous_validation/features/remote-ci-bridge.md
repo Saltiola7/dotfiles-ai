@@ -136,6 +136,46 @@ per-job service. Quota-bounded cache may survive engine stops for warm samples;
 report engine startup cost. An unavailable endpoint never silently falls back locally;
 an explicit paired local comparison has its own descriptor, lane and evidence.
 
+### Consumer control interface
+
+The installed helper receives exactly one operation argument (`status`, `open`
+or `stop`) and one JSON request on standard input. Each request and response is
+at most 64 KiB. The request has exactly `schema_version`, `activation_receipt`,
+`activation_sha256`, `execution`, `lease_id`, `work_seconds` and `cleanup_seconds`.
+The parent generates the lease identity before any helper spawn and retains the
+same request for status, opening and cleanup, including after a partial open.
+`execution` has exactly `execution_id`, `repository_id`, `request_id`,
+`snapshot_id`, `manifest_digest`, `selection_digest`, `check_digest` and `check_id`.
+These are existing local source/check/observation identities, not source bytes or
+a remotely attested identity. Control metadata is removed before ordinary
+repository adapter calls; the adapter still receives its normal execution config.
+
+A response has exactly `schema_version`, `request_sha256`, `status`, `lease_id`,
+`runtime`, `budget`, `engine_instance`, `terminal` and `diagnostic_codes`.
+`request_sha256` binds the canonical original request. Status is `ready`, `active`,
+`terminal`, `unavailable` or `unknown`; a zero exit code alone establishes none of
+those outcomes. Runtime contains the five stable engine pins defined below.
+Opening emits one `active` response and keeps its process and forward alive;
+status and stop return one bounded response and exit. The parent owns this process
+group and never treats its disappearance as proof that the remote engine stopped.
+
+The budget reports `boot_id`, `clock_id`, `original_started_monotonic`,
+`original_work_deadline_monotonic`, `original_cleanup_deadline_monotonic`,
+`work_deadline_monotonic`, `cleanup_deadline_monotonic` and `observed_monotonic`.
+Clock identity is `linux-monotonic-v1`; times are finite monotonic seconds. The
+original boot, clock and deadlines cannot change between responses. Work and
+cleanup fit both their original window and the shorter admitted execution window.
+A fresh ready response must leave useful work and cleanup time. Expired work
+cannot open again, while status and exact cleanup remain possible after expiry.
+
+Terminal proof requires `execution_completion: confirmed_terminal` and all five
+booleans true: `unit_inactive`, `container_absent`, `cgroup_empty`, `relay_absent`
+and `idle_lease_absent`. Retain hash-bound private request/response and cleanup
+evidence before releasing admission or raising uncertain termination. A malformed
+open response still requires an exact stop against the original request; another
+attempt cannot erase or replace that lease's uncertainty. Actual enforcement and
+the helper's proof production require separate consumer runtime qualification.
+
 ## Resources, deadline and complete graph
 
 Consumer activation establishes one finite host budget before setup or sync.
