@@ -1724,6 +1724,7 @@ class Native:
                  for k, p in old.items() if k in receipt['terminals']}
         labels, repairs = {}, layout._json_copy(receipt.get('repairs', {}))
         live, proofs, actuals = {}, {}, {}
+        source_guards = {}
         retained_shells = set()
         stop = self.store.read('source-stop.json')
         stopped = {}
@@ -1794,8 +1795,20 @@ class Native:
                         repairs[leaf] = self._retained_source(receipt, leaf, lambda: self._same_document(observed))
                 elif not repair.get('stopped'):
                     actual = lookup[address]
-                    if (not self._same_labels(actual.get('labels'), previous[2])
-                            or self._actual_core_program(actual) != (None, desired['cwd'])):
+                    if not self._same_labels(actual.get('labels'), previous[2]):
+                        raise NativeError('core repair source ownership or program changed')
+                    current_proofs = self._pid_proofs([actual['pid'], (actual.get('foreground') or actual)['pid']])
+                    if 'source' in repair and current_proofs == repair['pids']:
+                        observed = self._document()
+                        if observed[0] != document:
+                            raise NativeError('core repair guard document-version changed')
+                        def guard_source(r=repair, key=previous[1]['key'], observation=observed):
+                            intent = {'pane': key, 'terminal': r['terminal'], 'pids': r['pids'], 'identity': r['source']}
+                            return self._old_shell_guard(receipt, intent, r, lambda: self._same_document(observation))
+                        if guard_source() != 'live':
+                            raise NativeError('core repair guard state changed')
+                        source_guards[leaf] = guard_source
+                    elif self._actual_core_program(actual) != (None, desired['cwd']):
                         raise NativeError('core repair source ownership or program changed')
                     live[leaf] = actual
                     actuals[leaf] = (None, desired['cwd'], self.process_argv((actual.get('foreground') or actual)['pid']))
@@ -1901,8 +1914,14 @@ class Native:
                 raise NativeError('core current inventory changed')
             if self._pid_proofs([p['pid'] for p in proofs[leaf]]) != proofs[leaf]:
                 raise NativeError('core current process identity changed')
-            if (self._actual_core_program(current) != actuals[leaf][:2]
-                    or self.process_argv((current.get('foreground') or current)['pid']) != actuals[leaf][2]):
+            if leaf in source_guards:
+                # Full current source proof keeps actual cwd distinct from
+                # launch cwd when the same PID's foreground report disappears.
+                if source_guards[leaf]() != 'live':
+                    raise NativeError('core current process identity changed')
+            elif self._actual_core_program(current) != actuals[leaf][:2]:
+                raise NativeError('core current process identity changed')
+            if self.process_argv((current.get('foreground') or current)['pid']) != actuals[leaf][2]:
                 raise NativeError('core current process identity changed')
         return projected, bindings, labels, repairs
 
@@ -2239,11 +2258,11 @@ class Native:
             repair['stopped'] = True
             repair.pop('source', None)
         elif original.get('state') == 'live':
-            if self._actual_core_program(original) != (None, repair['pane']['cwd']):
-                raise NativeError('core repair guard argv changed')
             source = self._kill_identity(original)
             pids = self._pid_proofs([source['pid'], source['foreground_pid']])
             if repair.get('source') != source or repair['pids'] != pids:
+                if self._actual_core_program(original) != (None, repair['pane']['cwd']):
+                    raise NativeError('core repair guard argv changed')
                 old_boot = repair['pids'][0].get('boot_id')
                 changed_boot = old_boot is not None and old_boot != pids[0]['boot_id']
                 if not changed_boot and {p['pid'] for p in pids} & {p['pid'] for p in repair['pids']}:
@@ -2362,6 +2381,60 @@ class Native:
         self._current_kill_guard(receipt)
         repair['stopped'] = True
 
+    def _readmit_legacy_kill_source(self, receipt):
+        """Retire boot-less kill *intent*, never assert its historical outcome.
+
+        Matching legacy tokens are only an admission constraint. Current owned
+        Bash is captured with fresh boot-bound proof and repaired replacement-
+        first. The strict old kill guard remains unavailable to legacy proof.
+        """
+        pending = receipt['pending']
+        if ('rebound' in pending or any('boot_id' in p for p in pending['pids'])
+                or self._terminal(pending['terminal']).get('state') != 'live'):
+            return False
+        repair = receipt['repairs'][pending['leaf']]
+        if repair['stopped']:
+            return False
+        terminal = self._terminal(pending['terminal'])
+        pids = [terminal.get('pid'), (terminal.get('foreground') or terminal).get('pid')]
+        if set(pids) != {p['pid'] for p in pending['pids']}:
+            raise NativeError('core repair guard pid changed')
+        proofs = self._pid_proofs(pids)
+        if [{k: v for k, v in p.items() if k != 'boot_id'} for p in proofs] != pending['pids']:
+            raise NativeError('core repair guard start-time changed')
+        observed = layout._json_copy(receipt)
+        observed['pending']['pids'] = proofs
+        observed['repairs'][pending['leaf']]['pids'] = proofs
+        if 'source' in repair:
+            if 'identity' in pending and pending['identity'] != repair['source']:
+                raise NativeError('core repair guard binding changed')
+            observed['pending'].setdefault('identity', repair['source'])
+        # This ephemeral current-proof view is observational only. In
+        # particular it is never passed to a native kill or published as R1.
+        self._current_kill_guard(observed)
+        desired = {repair['pane']['session_id']} if repair['pane']['session_id'] else set()
+        # A generation-less pre-create kill admits no run effect. Its finished
+        # history is not a live creation; retain it and use a fresh generation.
+        # Explicit current-generation records and every live candidate refuse.
+        def creation_uncertain():
+            return any(t.get('state') != 'finished' or 'create_id' in repair
+                       for t in self._repair_candidates(self._terminals(), repair))
+        if self.scan(desired) or creation_uncertain():
+            raise NativeError('core repair guard session changed')
+        self._db_sessions(receipt['plan'])
+        fresh = self._new_repair(receipt['txid'], pending['leaf'], pending['terminal'], repair['pane'])
+        fresh.update(pids=proofs, source=self._kill_identity(self._terminal(pending['terminal'])))
+        if self.scan(desired) or creation_uncertain():
+            raise NativeError('core repair guard session changed')
+        self._current_kill_guard(observed)
+        observed['pending']['identity'] = fresh['source']
+        self._current_kill_guard(observed)
+        receipt['adoption_backup'] = self._backup({'receipt': receipt})
+        receipt['repairs'][pending['leaf']] = fresh
+        receipt['pending'] = None
+        self._receipt(receipt)
+        return True
+
     def _reconcile_ready_source(self, receipt):
         """A kept exact client can outlive its original source shell process."""
         pending = receipt['pending']
@@ -2451,6 +2524,8 @@ class Native:
         if operation == 'terminal.kill':
             if 'rebound' in pending:
                 self._complete_rebound_kill(receipt)
+                return
+            if self._readmit_legacy_kill_source(receipt):
                 return
             self._complete_current_kill(receipt)
         elif operation == 'terminal.run':

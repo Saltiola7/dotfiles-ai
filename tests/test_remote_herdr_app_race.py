@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from test_remote_herdr_native import (
-    FakeCore, backend, manifest_for, native, plan, runtime_controller, synthetic_process, wrapper_argv,
+    FakeCore, arm_legacy_kill, backend, manifest_for, native, plan, runtime_controller, synthetic_process, wrapper_argv,
 )
 
 
@@ -34,6 +34,246 @@ class AppCore(FakeCore):
             if before != self.document:
                 self.version += 1
         return result
+
+
+def retained_bootless_kill(backend, *, identity=True, app=True, launch_cwd=None):
+    core = AppCore(backend) if app else FakeCore(backend)
+    manifest_for(backend, core)
+    synthetic_process(backend, core.terminals['t1']['pid'], ['/bin/bash', '-l'])
+    if launch_cwd is not None:
+        terminal = core.terminals['t1']
+        terminal['cwd'] = launch_cwd
+        terminal['foreground'] = {'pid': terminal['pid'], 'argv': ['/bin/bash', '-l'], 'cwd': '/work'}
+    arm_legacy_kill(backend, core, legacy_pid_proofs=True, identity=identity)
+    publish = backend._receipt
+    def checkpoint(receipt):
+        publish(receipt)
+        pending = receipt.get('pending') or {}
+        if pending.get('operation') == 'terminal.kill' and all('boot_id' not in p for p in pending['pids']):
+            raise native.NativeError('synthetic pre-R4 kill intent checkpoint')
+    backend._receipt = checkpoint
+    with pytest.raises(native.NativeError, match='synthetic pre-R4 kill intent checkpoint'):
+        backend.restore_current()
+    backend._receipt = publish
+    core.calls.clear()
+    return core, backend.store.read('receipt-testtx.json')
+
+
+@pytest.mark.parametrize('identity', [False, True])
+@pytest.mark.parametrize('reboot_alias', [False, True])
+def test_r4_genuine_bootless_live_r1_kill_readmits_source_replacement_first(backend, identity, reboot_alias):
+    core, historical = retained_bootless_kill(backend, identity=identity)
+    if reboot_alias:
+        core.restart(reuse_identities=True)
+    assert all(set(p) == {'pid', 'start_ticks'} for p in historical['pending']['pids'])
+    with pytest.raises(native.NativeError, match='^core repair guard boot identity changed$'):
+        backend._current_kill_guard(historical)
+    old_kill = historical['pending']
+    publish = backend._receipt
+    admitted = []
+    def observe(receipt):
+        publish(receipt)
+        repair = receipt.get('repairs', {}).get('s0-t0-p0')
+        if repair and repair.get('source') and receipt['pending'] is None:
+            admitted.append(copy.deepcopy(receipt))
+    backend._receipt = observe
+    def audit(method, params):
+        if method == 'terminal.kill':
+            intent = backend.store.read('receipt-testtx.json')['pending']
+            assert intent['terminal'] == params['terminal'] == 't1'
+            assert all(p['boot_id'] == backend.test_boot_id for p in intent['pids'])
+            source = core.terminals['t1']
+            assert backend._pid_proofs([source['pid'], (source.get('foreground') or source)['pid']]) == intent['pids']
+            assert backend._kill_identity(source) == intent['identity']
+            assert core.document is not None
+            address = core.document['spaces'][0]['tabs'][0]['root']['content']['terminal']
+            assert address != 't1'
+            assert backend._actual_core_program(core.terminals[address]) == ('ses_abc', '/work')
+        return core.rpc(method, params)
+    backend.core = audit
+    backend.restore_current()
+    assert [m for m, _ in core.calls if m in ('terminal.run', 'doc.set', 'terminal.kill')] == [
+        'terminal.run', 'doc.set', 'terminal.kill']
+    assert admitted
+    fresh = admitted[0]
+    repair = fresh['repairs']['s0-t0-p0']
+    assert repair['created'] is None and repair['stopped'] is False
+    assert all(p['boot_id'] == backend.test_boot_id for p in repair['pids'])
+    assert len(repair['create_id']) == 32
+    backup = backend.store.read(fresh['adoption_backup'])['receipt']
+    assert backup == historical and backup['pending'] == old_kill
+    assert core.document is not None
+    assert core.document['spaces'][0]['tabs'][0]['root']['content']['terminal'] == 't2'
+    assert core.terminals['t1']['state'] == 'finished'
+    assert len(backend.scan({'ses_abc'})) == 1
+    final = backend.store.read('manifest.json')['receipt']
+    assert final['pending'] is None and final['repairs'] == {}
+
+
+@pytest.mark.parametrize('identity', [False, True])
+@pytest.mark.parametrize('change', ['labels', 'pid', 'start', 'foreign', 'cwd', 'foreground',
+                                   'raw', 'version', 'session', 'unbound-created', 'boot'])
+def test_r4_bootless_kill_readmission_negative_preserves_old_intent(backend, identity, change):
+    core, historical = retained_bootless_kill(backend, identity=identity)
+    terminal = core.terminals['t1']
+    if change == 'labels':
+        terminal['labels']['remote-herdr-owner'] = 'PRIVATE_FOREIGN'
+    elif change == 'pid':
+        synthetic_process(backend, 988, ['/bin/bash', '-l'])
+        terminal['pid'] = 988
+    elif change == 'start':
+        synthetic_process(backend, terminal['pid'], ['/bin/bash', '-l'], ticks=999)
+    elif change == 'foreign':
+        synthetic_process(backend, terminal['pid'], ['/PRIVATE_FOREIGN'])
+    elif change == 'cwd':
+        synthetic_process(backend, terminal['pid'], ['/bin/bash', '-l'], '/PRIVATE_DIRECTORY')
+    elif change == 'foreground':
+        synthetic_process(backend, 988, ['/bin/bash', '-l'])
+        terminal['foreground'] = {'pid': 988, 'argv': ['/bin/bash', '-l'], 'cwd': '/work'}
+    elif change == 'raw':
+        core.document['PRIVATE_METADATA'] = True
+    elif change == 'version':
+        core.version += 1
+    elif change == 'session':
+        synthetic_process(backend, 988, wrapper_argv(backend))
+    elif change == 'unbound-created':
+        core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work',
+            'labels': historical['repairs']['s0-t0-p0']['labels']})
+    else:
+        backend.test_boot_id = 'PRIVATE_INVALID_BOOT'
+    core.calls.clear()
+    with pytest.raises(native.NativeError) as error:
+        backend.restore_current()
+    assert 'PRIVATE' not in str(error.value)
+    assert not any(m in ('terminal.run', 'doc.set', 'terminal.kill') for m, _ in core.calls)
+    assert backend.store.read('receipt-testtx.json') == historical
+    assert core.terminals['t1']['state'] == 'live'
+
+
+@pytest.mark.parametrize('change', ['argv', 'launch', 'keep'])
+def test_r4_bootless_kill_keeps_available_historical_identity_constraints(backend, change):
+    core, historical = retained_bootless_kill(backend)
+    terminal = core.terminals['t1']
+    if change == 'argv':
+        synthetic_process(backend, terminal['pid'], ['/bin/bash', '--login'])
+    elif change == 'launch':
+        terminal['argv'] = ['/PRIVATE_CHANGED']
+    else:
+        terminal['keep'] = True
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert not any(m in ('terminal.run', 'doc.set', 'terminal.kill') for m, _ in core.calls)
+    assert backend.store.read('receipt-testtx.json') == historical
+
+
+@pytest.mark.parametrize('identity', [False, True])
+def test_r4_bootless_finished_kill_observes_exit_without_readmission_or_rekill(backend, identity):
+    core, historical = retained_bootless_kill(backend, identity=identity, app=False)
+    core.rpc('terminal.kill', {'terminal': 't1'})
+    core.calls.clear()
+    backend.restore_current()
+    assert [m for m, _ in core.calls if m in ('terminal.run', 'doc.set', 'terminal.kill')] == [
+        'terminal.run', 'doc.set']
+    assert core.terminals['t1']['state'] == 'finished'
+    assert len(backend.scan({'ses_abc'})) == 1
+
+
+@pytest.mark.parametrize('cold', [False, True])
+def test_r4_bootless_readmission_checkpoint_keeps_old_intent_backup(backend, cold):
+    core, historical = retained_bootless_kill(backend)
+    publish = backend._receipt
+    def interrupt(receipt):
+        publish(receipt)
+        repair = receipt.get('repairs', {}).get('s0-t0-p0') or {}
+        if receipt['pending'] is None and repair.get('source'):
+            raise native.NativeError('synthetic fresh-admission checkpoint')
+    backend._receipt = interrupt
+    with pytest.raises(native.NativeError, match='synthetic fresh-admission checkpoint'):
+        backend.restore_current()
+    admitted = backend.store.read('receipt-testtx.json')
+    assert admitted['pending'] is None
+    backup = admitted['adoption_backup']
+    assert backend.store.read(backup)['receipt'] == historical
+    backend._receipt = publish
+    if cold:
+        core.restart()
+    backend.restore_current()
+    assert backend.store.read(backup)['receipt'] == historical
+    assert len(backend.scan({'ses_abc'})) == 1
+    assert core.document is not None
+    assert core.document['spaces'][0]['tabs'][0]['root']['content']['terminal'] == 't2'
+
+
+@pytest.mark.parametrize('change', ['pid', 'start', 'argv', 'cwd', 'foreign-leaf'])
+def test_r4_readmitted_source_is_reverified_before_any_effect(backend, change):
+    core, historical = retained_bootless_kill(backend)
+    publish = backend._receipt
+    changed = False
+    def drift(receipt):
+        nonlocal changed
+        publish(receipt)
+        repair = receipt.get('repairs', {}).get('s0-t0-p0') or {}
+        if changed or receipt['pending'] is not None or not repair.get('source'):
+            return
+        changed = True
+        source = core.terminals['t1']
+        if change == 'pid':
+            synthetic_process(backend, 988, ['/bin/bash', '-l'])
+            source['pid'] = 988
+        elif change == 'start':
+            synthetic_process(backend, source['pid'], ['/bin/bash', '-l'], ticks=999)
+        elif change == 'argv':
+            synthetic_process(backend, source['pid'], ['/PRIVATE_FOREIGN'])
+        elif change == 'cwd':
+            synthetic_process(backend, source['pid'], ['/bin/bash', '-l'], '/PRIVATE_DIRECTORY')
+        else:
+            core.document['spaces'][0]['tabs'][0]['root']['content']['terminal'] = 'foreign'
+            core.version += 1
+    backend._receipt = drift
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert changed
+    assert not any(m in ('terminal.run', 'doc.set', 'terminal.kill') for m, _ in core.calls)
+    saved = backend.store.read('receipt-testtx.json')
+    assert backend.store.read(saved['adoption_backup'])['receipt'] == historical
+    assert core.terminals['t1']['state'] == 'live'
+
+
+def test_r4_bootless_kill_readmission_preserves_finished_history(backend):
+    core, historical = retained_bootless_kill(backend)
+    result = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': '/work',
+        'labels': historical['repairs']['s0-t0-p0']['labels']})
+    core.rpc('terminal.kill', {'terminal': result['address']})
+    finished = copy.deepcopy(core.terminals[result['address']])
+    core.calls.clear()
+    backend.restore_current()
+    assert core.terminals[result['address']] == finished
+    assert [m for m, _ in core.calls if m in ('terminal.run', 'doc.set', 'terminal.kill')] == [
+        'terminal.run', 'doc.set', 'terminal.kill']
+    assert len(backend.scan({'ses_abc'})) == 1
+
+
+@pytest.mark.parametrize('identity', [False, True])
+@pytest.mark.parametrize('lost_run', [False, True])
+def test_r4_bootless_readmission_keeps_actual_cwd_when_foreground_report_disappears(backend, identity, lost_run):
+    core, historical = retained_bootless_kill(backend, identity=identity, launch_cwd='/original-launch')
+    core.terminals['t1']['foreground'] = None
+    if lost_run:
+        def lost(method, params):
+            answer = core.rpc(method, params)
+            if method == 'terminal.run':
+                raise native.NativeError('synthetic lost fresh run reply')
+            return answer
+        backend.core = lost
+        with pytest.raises(native.NativeError, match='synthetic lost fresh run reply'):
+            backend.restore_current()
+        backend.core = core.rpc
+    backend.restore_current()
+    assert len([m for m, _ in core.calls if m == 'terminal.run']) == 1
+    assert core.terminals['t1']['state'] == 'finished'
+    assert core.terminals['t2']['state'] == 'live'
+    assert backend.process_cwd(core.terminals['t2']['pid']) == '/work'
+    assert len(backend.scan({'ses_abc'})) == 1
 
 
 def test_r3_connected_app_rebinds_before_old_shell_finishes(backend):

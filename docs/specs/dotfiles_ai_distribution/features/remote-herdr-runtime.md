@@ -381,6 +381,15 @@ two-field proofs remain readable but cannot establish an ambiguous boot change;
 missing/invalid boot evidence never proves exit. No boot ID enters public output
 or configuration. Retain prior receipts in private backups before replacing proofs.
 
+A live legacy pending kill without boot evidence never receives historical kill
+authority. If its recorded PID/start fingerprints and available identity facts
+still match, exact current ownership, plain-Bash/cwd, document/version and desired
+client absence may independently admit a fresh R3 repair after backing up the
+whole legacy receipt. That new repair binds a live replacement before retiring
+its freshly proven source. This is current admission, not a claim that an old
+process survived or its old kill completed; drift still refuses. Finished legacy
+kills retain their original exit-proof reconciliation.
+
 The reported retained-state regression has a complete journal, 54 repairs, two
 legacy unbound created replacements now plain shells with their original labels,
 finished original terminals, a stopped repair whose leaf is absent and no desired

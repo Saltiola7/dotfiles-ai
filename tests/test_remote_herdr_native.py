@@ -1686,7 +1686,7 @@ def r1_shell(backend):
     return core
 
 
-def arm_legacy_kill(backend, core):
+def arm_legacy_kill(backend, core, *, legacy_pid_proofs=False, identity=True):
     # Serialize the historical kill-first boundary explicitly. These regression
     # tests exercise retained R1 intents, not R3's deliberately changed ordering.
     restore = backend.restore_current
@@ -1707,10 +1707,13 @@ def arm_legacy_kill(backend, core):
         leaf = binding['leaf']
         terminal = core.terminals[binding['terminal']]
         proofs = backend._pid_proofs([terminal['pid'], (terminal.get('foreground') or terminal)['pid']])
+        if legacy_pid_proofs:
+            proofs = [{k: v for k, v in p.items() if k != 'boot_id'} for p in proofs]
         repairs[leaf]['pids'] = proofs
         receipt['pending'] = {'operation': 'terminal.kill', 'pane': key, 'leaf': leaf,
-                              'terminal': terminal['address'], 'pids': proofs,
-                              'identity': backend._kill_identity(terminal)}
+                              'terminal': terminal['address'], 'pids': proofs}
+        if identity:
+            receipt['pending']['identity'] = backend._kill_identity(terminal)
         backend._receipt(receipt)
         restore()
     backend.restore_current = legacy_restore

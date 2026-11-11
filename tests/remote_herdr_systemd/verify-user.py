@@ -1089,6 +1089,16 @@ def legacy_repair_projection(original_projection, backend):
     return project
 
 
+def legacy_pid_fields(receipt):
+    """OLD serializer boundary only; do not rewrite an already-published receipt."""
+    import copy
+    result = copy.deepcopy(receipt)
+    for value in [*result.get('repairs', {}).values(), result.get('pending')]:
+        if isinstance(value, dict) and value.get('pids') is not None:
+            value['pids'] = [{k: p[k] for k in ('pid', 'start_ticks')} for p in value['pids']]
+    return result
+
+
 def fixture_references(document):
     """Independent leaf-only reader; never project through production layout."""
     references = {}
@@ -1141,6 +1151,10 @@ class FixtureAppClient:
         self.ready = threading.Event()
         self.release = threading.Event()
         self.release.set()
+        self.restart_requested = threading.Event()
+        self.restart_paused = threading.Event()
+        self.restart_resume = threading.Event()
+        self.restart_resume.set()
         self.failure = False
         self.events = {}
         self.live_seen = set()
@@ -1161,6 +1175,14 @@ class FixtureAppClient:
             self.ready.set()
             pending = set()
             while not self.stop.wait(0.02):
+                if self.restart_requested.is_set():
+                    # Declared endpoint outage only: acknowledge after the last
+                    # RPC/CAS, retain references/events, and reconnect explicitly.
+                    self.restart_paused.set()
+                    require(self.restart_resume.wait(120))
+                    self.restart_paused.clear()
+                    if self.stop.is_set():
+                        return
                 current = self._states()
                 with self.lock:
                     self.live_seen.update(a for a, state in current.items() if state == 'live')
@@ -1195,6 +1217,22 @@ class FixtureAppClient:
         if self.failure:
             raise CommandFailure('app-client-observation-or-cas-failed')
 
+    def pause_restart(self):
+        self.check()
+        self.restart_resume.clear()
+        self.restart_requested.set()
+        require(self.restart_paused.wait(30))
+        self.check()
+
+    def reconnect(self, core):
+        self.check()
+        require(self.restart_paused.is_set())
+        self.core = core
+        self.restart_requested.clear()
+        self.restart_resume.set()
+        wait(lambda: not self.restart_paused.is_set(), seconds=30)
+        self.check()
+
     def seen(self, addresses):
         self.check()
         with self.lock:
@@ -1217,6 +1255,7 @@ class FixtureAppClient:
 
     def __exit__(self, *_args):
         self.stop.set()
+        self.restart_resume.set()
         self.thread.join(35)
         if self.thread.is_alive():
             raise CommandFailure('app-client-join-deadline')
@@ -1299,7 +1338,14 @@ def fixture_before_repair_kill(backend, baseline, leaf, source, pane, pids, txid
         foreground = (terminal.get('foreground') or terminal)['pid']
         return {'pid': terminal['pid'], 'foreground_pid': foreground,
             'argv': backend.process_argv(foreground), 'cwd': backend.process_cwd(foreground),
-            'launch': {k: terminal.get(k) for k in ('argv', 'cwd', 'keep')}}
+             'launch': {k: terminal.get(k) for k in ('argv', 'cwd', 'keep')}}
+    def current_boot(proofs):
+        boot = backend.process_boot_id()
+        require(type(boot) is str and re.fullmatch(
+            r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', boot) is not None)
+        require(uuid.UUID(boot).int != 0)
+        require(all(set(p) == {'pid', 'start_ticks', 'boot_id'} and p['boot_id'] == boot for p in proofs))
+    current_boot(pids)
     original = backend._terminal(old)
     require(original['state'] == 'live' and ownership(original) == ownership(source))
     require(all(original.get(k) == source.get(k) for k in ('pid', 'argv', 'cwd', 'keep')))
@@ -1313,6 +1359,7 @@ def fixture_before_repair_kill(backend, baseline, leaf, source, pane, pids, txid
     require(backend._actual_core_program(replacement) == (pane['session_id'], pane['cwd']))
     replacement_pids = backend._pid_proofs([
         replacement['pid'], (replacement.get('foreground') or replacement)['pid']])
+    current_boot(replacement_pids)
     replacement_proof = {'identity': identity(replacement), 'pids': replacement_pids}
     require(pending['rebound']['replacement'] == replacement_proof)
     clients = backend.scan({pane['session_id']})
@@ -1330,6 +1377,28 @@ def fixture_before_repair_kill(backend, baseline, leaf, source, pane, pids, txid
     require(identity(final_new) == replacement_proof['identity'])
     require(backend.scan({pane['session_id']}) == clients)
     require(backend._document() == (document, version))
+    return new
+
+
+def fixture_before_legacy_repair_kill(backend, baseline, leaf, source, pane, pids, txid, key, legacy):
+    """Read-only fresh R3 authority oracle, never authorize a boot-less old kill.
+
+    The original receipt must be backed up whole. Its PID tokens constrain fresh
+    admission only; they are neither current kill authority nor historical exit.
+    """
+    new = fixture_before_repair_kill(backend, baseline, leaf, source, pane, pids, txid, key)
+    receipt = backend.store.read('receipt-' + txid + '.json')
+    require(backend.store.read(receipt['adoption_backup']) == {'receipt': legacy})
+    require(legacy['document'] == baseline and legacy['doc_version'] == receipt['doc_version'])
+    pending = legacy['pending']
+    repair = legacy['repairs'][leaf]
+    require(pending['operation'] == 'terminal.kill' and pending['terminal'] == source['address']
+            and pending['leaf'] == leaf and pending['pane'] == key and 'rebound' not in pending)
+    require(repair['created'] is None and not repair['stopped'] and 'create_id' not in repair)
+    require(all(set(p) == {'pid', 'start_ticks'} for p in pending['pids']))
+    require(pending['pids'] == repair['pids'] == [
+        {k: p[k] for k in ('pid', 'start_ticks')} for p in pids])
+    require(receipt['repairs'][leaf]['created'] == new)
     return new
 
 
@@ -1648,6 +1717,186 @@ def app_closed_pending_run_recovery(plan, pid):
     return expected_plan
 
 
+def fixture_core_identity(backend):
+    """Exact disposable supervisor identity, independent of status payload PIDs."""
+    require(os.getuid() == 1000 and Path.home() == HOME)
+    require(backend.endpoint_present('herdr-core') and not backend.endpoint_present('tui'))
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+        peer.connect(str(backend._core_endpoint()))
+        core_pid, uid, _ = struct.unpack('3i', peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+    require(uid == os.getuid() and core_pid != backend_pid())
+    proc = Path('/proc') / str(core_pid)
+    require((proc / 'exe').resolve() == BIN / 'herdr-core')
+    require('hc-serve-' in (proc / 'cgroup').read_text())
+    return backend._pid_proofs([core_pid])
+
+
+def fixture_bootlike_core_restart(backend, app, plan, pid):
+    """Native explicit stop/start, NOT a VM boot or actual Desktop GUI claim.
+
+    SIGTERM alone preserves programs in pinned 3965a46c; the existing explicit
+    server stop lifecycle kills them. Keep the logical protocol observer and its
+    reference/event history, with an acknowledged RPC-free outage barrier. No
+    native record, document, receipt or process identity is manufactured here.
+    """
+    from native import sessions
+    require(backend_pid() == pid)
+    document, _ = backend._document()
+    manifest = backend.store.read('manifest.json')
+    txid = manifest['txid']
+    live = [t for t in backend._terminals() if t['state'] == 'live']
+    require(live and all(t.get('keep') is True and
+                        t.get('labels', {}).get('remote-herdr-owner') == txid for t in live))
+    historical = {t['address']: finished_terminal_facts(t) for t in backend._terminals()
+                  if t['state'] == 'finished'}
+    clients = backend.scan(sessions(plan))
+    stale = backend._pid_proofs([c['pid'] for c in clients])
+    programs = backend._pid_proofs([p for t in live for p in
+        (t['pid'], (t.get('foreground') or t)['pid'])])
+    owner = fixture_core_identity(backend)
+    app.pause_restart()  # No in-flight app CAS may cross the declared outage.
+    require(fixture_core_identity(backend) == owner)
+    require(backend._pid_proofs([p['pid'] for p in programs]) == programs)
+    backend.command(['herdr-core', 'server', 'stop', '--json'])
+    wait(lambda: not backend.endpoint_present('herdr-core') and backend._pids_absent(owner)
+         and backend._pids_absent(programs) and backend._pids_absent(stale), seconds=60)
+    require(backend_pid() == pid)
+    backend.command(['herdr-core', 'server', 'start', '--json'])
+    wait(lambda: backend.endpoint_present('herdr-core'), seconds=30)
+    require(fixture_core_identity(backend) != owner)
+    def retained():
+        for previous in live:
+            current = backend._terminal(previous['address'])
+            if backend._actual_core_program(current) != (None, previous['cwd']):
+                return False
+            backend._shell_proof(current)
+            require(current['labels'] == previous['labels'])
+        return True
+    # Assert native behavior, never assume a warm restart rehydrates Bash.
+    wait(retained, seconds=30)
+    require(not backend.scan(sessions(plan)))
+    require(backend._document()[0] == document)
+    require(all(finished_terminal_facts(backend._terminal(a)) == facts
+                for a, facts in historical.items()))
+    require(backend_pid() == pid)
+    _, Native = adapter()
+    app.reconnect(Native(HOME, backend.store).core)
+    return stale
+
+
+def interrupted_restore_restart_recovery(plan, pid):
+    """Interrupt the ORIGINAL writer after one bound repair and another readiness.
+
+    Runs after the five-client mixed legacy/closure case. Its surviving four-leaf
+    document retains the already-closed view's absence across BOTH restarts.
+    The finer interruption matrix and the 54-repair incident are synthetic tests,
+    not claims about this bounded native fixture.
+    """
+    global STEP
+    import copy
+    from controller import Controller
+    from native import NativeError, panes
+    Store, Native = adapter()
+    STEP = 'interrupted-restore-restart-admission'
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        baseline, _ = backend._document()
+        references = fixture_references(baseline)
+        journal = copy.deepcopy(store.read('transaction.json'))
+        manifest = store.read('manifest.json')
+        original_addresses = dict(manifest['receipt']['terminals'])
+        leaves = dict(manifest['receipt']['bindings'])
+        txid = manifest['txid']
+        require(journal['phase'] == 'complete' and len(list(panes(plan))) == 4)
+        proofs = fixture_idle_agents(backend, plan, set(original_addresses), pid)
+        app = FixtureAppClient(Native(HOME, store).core, references)
+        app.__enter__()
+        try:
+            original_receipt = backend._receipt
+            admitted = None
+            def interrupt(receipt):
+                nonlocal admitted
+                original_receipt(receipt)  # Original durable writer, before fault.
+                completed = [k for k, a in receipt['terminals'].items()
+                             if a != original_addresses[k] and leaves[k] not in receipt['repairs']]
+                created = [r for r in receipt['repairs'].values() if r.get('created')]
+                if completed and created and receipt['pending'] is None:
+                    for key in completed:
+                        pane = next(p for p in panes(plan) if p['key'] == key)
+                        require(fixture_references(backend._document()[0])[leaves[key]] == receipt['terminals'][key])
+                        require(backend._actual_core_program(backend._terminal(receipt['terminals'][key]))
+                                == (pane['session_id'], pane['cwd']))
+                    for repair in created:
+                        backend._replacement_proof(repair)
+                    admitted = copy.deepcopy(receipt)
+                    raise NativeError('fixture partial restore interrupted')
+            backend._receipt = interrupt
+            try:
+                Controller(store, backend).restore()
+            except NativeError as error:
+                require(str(error) == 'fixture partial restore interrupted' and admitted is not None)
+            else:
+                raise CommandFailure('partial-restore-interruption-missing')
+            finally:
+                backend._receipt = original_receipt
+            require(store.read('receipt-' + txid + '.json') == admitted)
+            require(store.read('transaction.json') == journal)
+            STEP = 'interrupted-restore-native-core-restart'
+            stale = fixture_bootlike_core_restart(backend, app, plan, pid)
+            require(store.read('receipt-' + txid + '.json') == admitted)
+        except BaseException:
+            app.__exit__()
+            raise
+    try:
+        for completed_restore in (False, True):
+            STEP = ('completed' if completed_restore else 'interrupted') + '-restore-installed-recovery'
+            cli('recover')
+            cli('restore')
+            app.check()
+            with Store(ROOT) as store:
+                backend = Native(HOME, store)
+                current = store.read('manifest.json')
+                receipt = current['receipt']
+                require(current['txid'] == txid and current['plan'] == plan)
+                require(store.read('transaction.json') == journal)
+                require(receipt['pending'] is None and receipt['repairs'] == {})
+                expected = baseline
+                for key, old in original_addresses.items():
+                    expected = expected_leaf_rebind(expected, leaves[key], old, receipt['terminals'][key])
+                require(backend._document()[0] == expected)
+                require(set(fixture_references(expected)) == set(references))
+                require(backend._pids_absent(stale))
+                require(all(backend._pids_absent(p['client']) and backend._pids_absent(p['shell'])
+                            for p in proofs.values()))
+                coverage = backend._coverage(plan)
+                require({t['address'] for t in backend._terminals() if t['state'] == 'live'}
+                        == set(receipt['terminals'].values()))
+                for pane in panes(plan):
+                    terminal = backend._terminal(receipt['terminals'][pane['key']])
+                    require(terminal['labels']['remote-herdr-owner'] == txid)
+                    require(backend._actual_core_program(terminal) == (pane['session_id'], pane['cwd']))
+                final = {t['address'] for t in backend._terminals()}
+            cli('restore')
+            cli('recover')
+            with Store(ROOT) as store:
+                backend = Native(HOME, store)
+                require(backend._document()[0] == expected and backend._coverage(plan) == coverage)
+                require({t['address'] for t in backend._terminals()} == final)
+            observe('herdr-core', plan)  # Real executable, cwd, TCP and unique-session proofs.
+            require(backend_pid() == pid)
+            app.check()
+            if completed_restore:
+                print('F07: completed-restore-restart-recovery-complete')
+            else:
+                print('F07: interrupted-restore-restart-recovery-complete')
+                STEP = 'completed-restore-native-core-restart'
+                with Store(ROOT) as store:
+                    backend = Native(HOME, store)
+                    stale = fixture_bootlike_core_restart(backend, app, plan, pid)
+    finally:
+        app.__exit__()
+
+
 def kept_shell_kill_recovery(plan, pid, *, lost_reply):
     """Two serial real-kept-Bash faults; installed restore owns all recovery.
 
@@ -1748,14 +1997,14 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
                 snapshot = copy.deepcopy(backend._terminal(address))
                 if not lost_reply:
                     pending.pop('identity')  # Old serializer version emulation, BEFORE writer.
-                original_receipt(receipt)
+                original_receipt(legacy_pid_fields(receipt))
                 if lost_reply:
                     backend._complete_current_kill(receipt)
                     raise CommandFailure('kept-shell-kill-fault-missing')
                 churned = True  # Display-only RPC-result overlay, not native mutation.
                 require(backend._terminal(address) != snapshot)
                 raise NativeError('core recovery process changed before shell stop')
-            return original_receipt(receipt)
+            return original_receipt(legacy_pid_fields(receipt))
         backend.core = fault_core
         backend._receipt = legacy_receipt
         STEP = 'kept-shell-admitted-restore-interruption'
@@ -1774,7 +2023,8 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
         pending = receipt['pending']
         require(receipt['txid'] == txid and receipt['plan'] == plan)
         require(pending['operation'] == 'terminal.kill' and pending['terminal'] == address)
-        require(pending['pids'] == shell_pids and set(receipt['repairs']) == {leaf})
+        require(pending['pids'] == legacy_pid_fields({'pending': {'pids': shell_pids}})['pending']['pids']
+                and set(receipt['repairs']) == {leaf})
         require(('identity' in pending) == lost_reply)
         require(receipt['document'] == baseline and receipt['bindings'][key] == leaf)
         # Actual public native label changes after intent publication; no mocked
@@ -1788,7 +2038,31 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
             require(backend._terminal(address)['state'] == 'live')
             require(backend._pid_proofs([p['pid'] for p in shell_pids]) == shell_pids)
             backend._shell_proof(backend._terminal(address))
+            legacy = copy.deepcopy(receipt)
+            source = backend._terminal(address)
     STEP = 'kept-shell-installed-restore'
+    if not lost_reply:
+        # The installed Native/Controller must retire only the OLD intent, back
+        # it up whole and admit fresh boot-bound R3 authority. Observe immediately
+        # before its native kill; never give the old guard boot-less authority.
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            original_core = backend.core
+            forwarded = 0
+            def observed_core(method, params):
+                nonlocal forwarded
+                if method == 'terminal.kill':
+                    require(params == {'terminal': address} and forwarded == 0)
+                    fixture_before_legacy_repair_kill(backend, baseline, leaf, source, pane,
+                        shell_pids, txid, key, legacy)
+                    forwarded += 1
+                return original_core(method, params)
+            backend.core = observed_core
+            try:
+                Controller(store, backend).restore()
+                require(forwarded == 1)
+            finally:
+                backend.core = original_core
     cli('restore')
     with Store(ROOT) as store:
         backend = Native(HOME, store)
@@ -2211,6 +2485,7 @@ def prepare_fixture(provider):
     print('F07: app-labels-and-tab-identities-recovery-complete')
     app_connected_repair(plan, pid)
     plan = app_closed_pending_run_recovery(plan, pid)
+    interrupted_restore_restart_recovery(plan, pid)
     STEP = 'arm-core-boot'
     require(unit('is-enabled', 'remote-herdr-restore.timer') == 'enabled')
     unit('start', 'remote-herdr-restore.timer')
