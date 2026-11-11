@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-11 — ASVS PR base reconciliation
+
+- Reconcile the accepted Herdr recovery changes from current main into the ASVS
+  feature branch, retaining both documentation entries. ASVS/toolkit bundles and
+  upstream Herdr implementation remain byte-identical to their reviewed sources.
+- Combined validation: 850 tests and 68 subtests pass; one existing native
+  capability test is skipped. Independent integration review found no blocker.
+  No live Herdr rollout, dependency change, CI-policy change or gate exception.
+  Follow-up cycle `ASVS-INTEGRATE-001` delivers through the same `feat/asvs-review`
+  branch and PR #305; native current-base CI and final merge remain separately
+  verified in private evidence.
+
 ## 2026-11-10 — Scoped ASVS review specialist
 
 - Add the pinned, portable interactive `asvs-review` adaptation through the
@@ -17,6 +29,33 @@
   deployment and actual delivery receipts belong to the private Cycle Record.
   Gate history starts `afec9f81`; intended Final Push is `feat/asvs-review` and a
   draft PR into protected `main`. No gate exceptions or new runtime dependencies.
+
+## 2026-11-10 — App-connected restore ordering (RRW-007G-R3)
+
+- Repair INT-082 under #524: new repairs create/verify a live client, CAS its owned
+  leaf, then stop only the proven old shell. Publish per leaf and retain durable
+  create/CAS/cleanup intents. Original ownership/process/exit, duplicate and shared
+  backend guards remain; native address-only kills are not atomic conditional kills.
+- Reconcile a gone legacy pending-run leaf only with no live or finished matching
+  terminal/client; preserve closure and continue remaining repairs without replay.
+  Reuse proven earlier unbound clients. Explicit selected-core `recover` dispatches
+  native receipt recovery even with a complete switch journal, retaining its history.
+- Private repair `source`/`create_id`, generation ownership labels and per-leaf
+  CAS/rebound proofs prevent finished history from aliasing a new create. Legacy
+  schema-1/2 receipts remain readable; unsupported extended active forms refuse on
+  older adapters. Post-CAS raw document/version drift conservatively retains intent.
+- Local affected validation: 924 tests and 68 subtests pass; affected Linux/Python
+  3.12 typing and stdlib qualification checks pass. Independent source reviews found
+  no remaining blocker. Native fixture adds a concurrent finish-event pane pruner,
+  native canary, deterministic pre-kill oracle and installed-CLI retained mixed-state
+  recovery. The ordering case instruments installed Native/Controller; later CLI
+  calls prove uninstrumented idempotence. No actual Desktop GUI execution is claimed.
+- Contract `1bc2e5af`, implementation `5645b0f3`, history guard `ba6b8fdb`, native
+  fixture `30a5b01b`; intended Final Push is draft branch
+  `dbsctr/dotfiles_ai_distribution/RRW-007G-R3`, never main. Exact-head native/full CI
+  and completion evidence belong to the Cycle Record; merge needs separate approval.
+  No new inputs, pin/bootstrap changes, live operations, timer changes or waivers.
+  Fork A owns pins/live recovery; 007I work is preserved and paused until R3 delivery.
 
 ## 2026-11-09 — Remote profile follow-ups (RRW-007H)
 

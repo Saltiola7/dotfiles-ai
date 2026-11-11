@@ -1054,6 +1054,600 @@ def finished_terminal_facts(terminal):
         'reason', 'exit_code', 'exitcode') if key in terminal}
 
 
+def fresh_app_leaf_ids():
+    """Public app CAS prevents old canonical pane history aliasing legacy labels."""
+    Store, Native = adapter()
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        document, version = backend._document()
+        def walk(node):
+            if node['type'] == 'block':
+                node['id'] = 'fixture-app-' + uuid.uuid4().hex
+            for child in node.get('children', []):
+                walk(child)
+        for space in document['spaces']:
+            for tab in space['tabs']:
+                walk(tab['root'])
+        backend.core('doc.set', {'name': 'herdr-app', 'value': document, 'version': version})
+    cli('restore')
+
+
+def legacy_repair_projection(original_projection, backend):
+    """Small OLD admission serializer, before the original receipt writer only.
+
+    Old releases had neither per-create generation labels nor source snapshots.
+    Actual projection, identity guards, native effects and persistence stay native.
+    """
+    def project(*args):
+        projected, bindings, labels, repairs = original_projection(*args)
+        for leaf, repair in repairs.items():
+            repair.pop('create_id', None)
+            repair.pop('source', None)
+            repair['labels'] = backend._labels(args[3]['txid'], {
+                'key': leaf, 'session_id': repair['pane']['session_id']})
+        return projected, bindings, labels, repairs
+    return project
+
+
+def fixture_references(document):
+    """Independent leaf-only reader; never project through production layout."""
+    references = {}
+    def walk(node):
+        if node['type'] == 'block':
+            require(node['id'] not in references)
+            references[node['id']] = node['content']['terminal']
+        for child in node.get('children', []):
+            walk(child)
+    for space in document['spaces']:
+        for tab in space['tabs']:
+            walk(tab['root'])
+    return references
+
+
+def fixture_prune_finished(document, owned, finished):
+    """App-like leaf removal, preserving opaque fields, IDs and remaining weights."""
+    import copy
+    result = copy.deepcopy(document)
+    def prune(node):
+        if node['type'] == 'block':
+            return None if node['id'] in owned and node['content']['terminal'] in finished else node
+        node['children'] = [kept for child in node['children']
+                            if (kept := prune(child)) is not None]
+        return node if node['children'] else None
+    for space in result['spaces']:
+        tabs = []
+        for tab in space['tabs']:
+            root = prune(tab['root'])
+            if root is not None:
+                tab['root'] = root
+                tabs.append(tab)
+        space['tabs'] = tabs
+    result['spaces'] = [space for space in result['spaces'] if space['tabs']]
+    return result
+
+
+class FixtureAppClient:
+    """Concurrent fixture protocol client, NOT the actual Desktop GUI.
+
+    Only terminal.list/doc.get/doc.set via a dedicated Native.core are used.
+    Baseline finished records are history, not events. Uncertain CAS/transport
+    outcomes fail qualification: there is deliberately no mutation retry.
+    """
+    def __init__(self, core, owned):
+        self.core = core
+        self.owned = set(owned)
+        self.lock = threading.Lock()
+        self.stop = threading.Event()
+        self.ready = threading.Event()
+        self.release = threading.Event()
+        self.release.set()
+        self.failure = False
+        self.events = {}
+        self.live_seen = set()
+        self.thread = threading.Thread(target=self._observe, daemon=True)
+
+    def _states(self):
+        result = self.core('terminal.list', {'all': True})['terminals']
+        require(type(result) is list and len(result) <= 512)
+        states = {t['address']: t['state'] for t in result}
+        require(len(states) == len(result))
+        return states
+
+    def _observe(self):
+        try:
+            prior = self._states()
+            with self.lock:
+                self.live_seen.update(a for a, state in prior.items() if state == 'live')
+            self.ready.set()
+            pending = set()
+            while not self.stop.wait(0.02):
+                current = self._states()
+                with self.lock:
+                    self.live_seen.update(a for a, state in current.items() if state == 'live')
+                pending.update(a for a, state in current.items()
+                               if state == 'finished' and prior.get(a) == 'live')
+                prior = current
+                if not pending or not self.release.is_set():
+                    continue
+                answer = self.core('doc.get', {'name': 'herdr-app'})
+                document, version = answer['value'], answer['version']
+                require(type(version) is int and version > 0)
+                with self.lock:
+                    owned = set(self.owned)
+                references = fixture_references(document)
+                updated = fixture_prune_finished(document, owned, pending)
+                if updated != document:
+                    # One observed-version CAS. Even a refused CAS is not blindly
+                    # replayed: the worker reports only a fixed failure label.
+                    result = self.core('doc.set', {'name': 'herdr-app', 'value': updated,
+                                                   'version': version})
+                    require(type(result['version']) is int and result['version'] > version)
+                with self.lock:
+                    for address in pending:
+                        self.events[address] = (references, {a for a, s in current.items() if s == 'live'})
+                pending.clear()
+        except Exception:
+            # No unexpected error is swallowed, and no peer payload is printed.
+            self.failure = True
+            self.ready.set()
+
+    def check(self):
+        if self.failure:
+            raise CommandFailure('app-client-observation-or-cas-failed')
+
+    def seen(self, addresses):
+        self.check()
+        with self.lock:
+            return addresses <= self.events.keys()
+
+    def observed_live(self, address):
+        self.check()
+        with self.lock:
+            return address in self.live_seen
+
+    def __enter__(self):
+        self.thread.start()
+        try:
+            require(self.ready.wait(30))
+            self.check()
+        except BaseException:
+            self.__exit__()
+            raise
+        return self
+
+    def __exit__(self, *_args):
+        self.stop.set()
+        self.thread.join(35)
+        if self.thread.is_alive():
+            raise CommandFailure('app-client-join-deadline')
+        self.check()
+
+
+def fixture_idle_agents(backend, plan, keys, pid):
+    """Signal only exact proven fixture UIs; native keep must supply actual Bash."""
+    from native import panes
+    manifest = backend.store.read('manifest.json')
+    clients = backend._coverage(plan)
+    proofs = {}
+    for pane in panes(plan):
+        key = pane['key']
+        if key not in keys:
+            continue
+        client = next(c for c in clients if c['session_id'] == pane['session_id'])
+        address = manifest['receipt']['terminals'][key]
+        terminal = backend._terminal(address)
+        require(terminal['keep'] is True and client['pid'] != pid)
+        require((terminal.get('foreground') or terminal)['pid'] == client['pid'])
+        require(backend._actual_core_program(terminal) == (pane['session_id'], pane['cwd']))
+        backend._client_argv(client['pid'], pane['session_id'])
+        require((Path('/proc') / str(client['pid']) / 'exe').resolve() == NATIVE)
+        require(backend.process_cwd(client['pid']) == pane['cwd'])
+        old = backend._pid_proofs([client['pid']])
+        fd = os.pidfd_open(client['pid'])
+        try:
+            require(backend._pid_proofs([client['pid']]) == old)
+            backend._client_argv(client['pid'], pane['session_id'])
+            require((Path('/proc') / str(client['pid']) / 'exe').resolve() == NATIVE)
+            require(backend.process_cwd(client['pid']) == pane['cwd'])
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
+        finally:
+            os.close(fd)
+        def idle():
+            current = backend._terminal(address)
+            if not backend._pids_absent(old):
+                return False
+            if backend._actual_core_program(current) != (None, pane['cwd']):
+                return False
+            backend._shell_proof(current)
+            return current
+        shell = wait(idle)
+        proofs[key] = {'client': old, 'shell': backend._pid_proofs([
+            shell['pid'], (shell.get('foreground') or shell)['pid']])}
+    require(set(proofs) == set(keys) and backend_pid() == pid)
+    return proofs
+
+
+def fixture_before_repair_kill(backend, baseline, leaf, source, pane, pids, txid, key):
+    """Fixture-only synchronous ordering oracle, NOT actual Desktop GUI evidence.
+
+    Read raw native facts and original durable intent immediately before forwarding
+    kill. Never call the production rebound guard, mutate, retry, or reorder work.
+    The polling app client alone establishes pruning, NOT mutation ordering.
+    """
+    old = source['address']
+    document, version = backend._document()
+    new = fixture_references(document).get(leaf)
+    if new is None or new == old:
+        raise CommandFailure('app-ordering-old-still-referenced')
+    require(document == expected_leaf_rebind(baseline, leaf, old, new))
+    receipt = backend.store.read('receipt-' + txid + '.json')
+    pending = receipt['pending']
+    repair = receipt['repairs'][leaf]
+    require(pending['operation'] == 'terminal.kill' and pending['terminal'] == old
+            and pending['leaf'] == leaf and pending['pane'] == key)
+    require(receipt['bindings'][key] == leaf and receipt['terminals'][key] == old
+            and repair['terminal'] == old and repair['created'] == new and repair['pane'] == pane)
+    require(receipt['document'] == baseline and pending['rebound']['document'] == document
+            and pending['rebound']['version'] == version and version > receipt['doc_version'])
+    require(re.fullmatch(r'[0-9a-f]{32}', repair['create_id']) is not None)
+    expected_labels = {'remote-herdr-owner': txid, 'remote-herdr-pane': leaf,
+        'remote-herdr-session': pane['session_id'], 'remote-herdr-repair': repair['create_id']}
+    require(repair['labels'] == expected_labels)
+    def ownership(terminal):
+        return {k: v for k, v in terminal['labels'].items() if k.startswith('remote-herdr-')}
+    def identity(terminal):
+        foreground = (terminal.get('foreground') or terminal)['pid']
+        return {'pid': terminal['pid'], 'foreground_pid': foreground,
+            'argv': backend.process_argv(foreground), 'cwd': backend.process_cwd(foreground),
+            'launch': {k: terminal.get(k) for k in ('argv', 'cwd', 'keep')}}
+    original = backend._terminal(old)
+    require(original['state'] == 'live' and ownership(original) == ownership(source))
+    require(all(original.get(k) == source.get(k) for k in ('pid', 'argv', 'cwd', 'keep')))
+    require((original.get('foreground') or original)['pid'] == (source.get('foreground') or source)['pid'])
+    require(backend._actual_core_program(original) == (None, pane['cwd']))
+    require(backend._pid_proofs([p['pid'] for p in pids]) == pids)
+    require(pending['pids'] == repair['pids'] == pids)
+    require(pending['identity'] == repair['source'] == identity(original))
+    replacement = backend._terminal(new)
+    require(replacement['state'] == 'live' and ownership(replacement) == expected_labels)
+    require(backend._actual_core_program(replacement) == (pane['session_id'], pane['cwd']))
+    replacement_pids = backend._pid_proofs([
+        replacement['pid'], (replacement.get('foreground') or replacement)['pid']])
+    replacement_proof = {'identity': identity(replacement), 'pids': replacement_pids}
+    require(pending['rebound']['replacement'] == replacement_proof)
+    clients = backend.scan({pane['session_id']})
+    require(len(clients) == 1 and clients[0]['pid'] == replacement_proof['identity']['foreground_pid'])
+    # Recheck across observation boundaries, without claiming cross-RPC atomicity.
+    require(backend._document() == (document, version))
+    require(backend._pid_proofs([p['pid'] for p in pids]) == pids)
+    require(backend._pid_proofs([p['pid'] for p in replacement_pids]) == replacement_pids)
+    final_old, final_new = backend._terminal(old), backend._terminal(new)
+    require(final_old['state'] == final_new['state'] == 'live')
+    require(ownership(final_old) == ownership(source) and ownership(final_new) == expected_labels)
+    require(backend._actual_core_program(final_old) == (None, pane['cwd']))
+    require(backend._actual_core_program(final_new) == (pane['session_id'], pane['cwd']))
+    require(identity(final_old) == pending['identity'])
+    require(identity(final_new) == replacement_proof['identity'])
+    require(backend.scan({pane['session_id']}) == clients)
+    require(backend._document() == (document, version))
+    return new
+
+
+def fixture_app_canary(backend, app):
+    """Positive control: a real Bash finish must cause a real native pane CAS."""
+    import copy
+    import layout
+    document, version = backend._document()
+    canary = backend.core('terminal.run', {'argv': ['/bin/bash', '-l'],
+        'cwd': str(HOME), 'keep': True, 'no_parent': True, 'no_notify': True, 'wait': False})
+    address = canary['address']
+    require(layout._TERMINAL.fullmatch(address) is not None)
+    def ready():
+        terminal = backend._terminal(address)
+        if backend._actual_core_program(terminal) != (None, str(HOME)):
+            return False
+        backend._shell_proof(terminal)
+        return terminal
+    terminal = wait(ready)
+    proof = backend._pid_proofs([terminal['pid'], (terminal.get('foreground') or terminal)['pid']])
+    leaf = 'fixture-canary-' + uuid.uuid4().hex
+    updated = copy.deepcopy(document)
+    updated['spaces'][0]['tabs'].append({'id': 'canary-tab-' + uuid.uuid4().hex,
+        'name': 'Fixture event control', 'root': {'id': leaf, 'type': 'block',
+                                               'content': {'terminal': address}}})
+    with app.lock:
+        app.owned.add(leaf)
+    backend.core('doc.set', {'name': 'herdr-app', 'value': updated, 'version': version})
+    # Ensure a newly observed live record precedes its finish (not snapshot prune).
+    wait(lambda: app.observed_live(address), seconds=30)
+    backend._shell_proof(backend._terminal(address))
+    require(backend._pid_proofs([p['pid'] for p in proof]) == proof)
+    # Negative control: the very same pre-forward oracle must reject kill-first,
+    # before consulting R3 intent. Only this explicit canary bypasses that refusal.
+    try:
+        fixture_before_repair_kill(backend, updated, leaf, terminal,
+            {'key': leaf, 'cwd': str(HOME), 'session_id': None}, proof, 'canary', leaf)
+    except CommandFailure as error:
+        require(error.reason == 'app-ordering-old-still-referenced')
+    else:
+        raise CommandFailure('app-ordering-negative-control-missed')
+    backend.core('terminal.kill', {'terminal': address})
+    wait(lambda: app.seen({address}), seconds=30)
+    require(backend._pids_absent(proof) and backend._document()[0] == document)
+    with app.lock:
+        require(app.events[address][0].get(leaf) == address)
+
+
+def app_connected_repair(plan, pid):
+    """Installed Native/Controller with fixture-only pre-forward kill observation.
+
+    Production restore owns all ordering and native effects. This synchronous
+    read-only observer can refuse a bad order, never fix it or retry a mutation.
+    CLI restore/recover subsequently prove uninstrumented idempotence.
+    """
+    global STEP
+    from controller import Controller
+    from native import panes
+    Store, Native = adapter()
+    STEP = 'app-connected-repair-admission'
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        pane = next(p for p in panes(plan) if p['session_id'] is not None)
+        key = pane['key']
+        before = backend._coverage(plan)
+        other = [c for c in before if c['session_id'] != pane['session_id']]
+        other_proofs = backend._pid_proofs([c['pid'] for c in other])
+        proofs = fixture_idle_agents(backend, plan, {key}, pid)
+        manifest = store.read('manifest.json')
+        old = manifest['receipt']['terminals'][key]
+        leaf = manifest['receipt']['bindings'][key]
+        source = backend._terminal(old)
+        baseline, _ = backend._document()
+        app = FixtureAppClient(Native(HOME, store).core, fixture_references(baseline))
+        app.__enter__()
+        try:
+            fixture_app_canary(backend, app)
+            addresses = {t['address'] for t in backend._terminals()}
+            original_core = backend.core
+            forwarded = 0
+            def observed_core(method, params):
+                nonlocal forwarded
+                if method == 'terminal.kill':
+                    require(params == {'terminal': old} and forwarded == 0)
+                    fixture_before_repair_kill(backend, baseline, leaf, source, pane,
+                        proofs[key]['shell'], manifest['txid'], key)
+                    forwarded += 1
+                return original_core(method, params)
+            STEP = 'app-connected-observed-controller-restore'
+            backend.core = observed_core
+            try:
+                Controller(store, backend).restore()
+                require(forwarded == 1)
+            finally:
+                backend.core = original_core
+        except BaseException:
+            app.__exit__()
+            raise
+    try:
+        STEP = 'app-connected-post-restore-observation'
+        wait(lambda: app.seen({old}), seconds=30)
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            receipt = store.read('manifest.json')['receipt']
+            new = receipt['terminals'][key]
+            require(new != old and receipt['bindings'][key] == leaf)
+            expected = expected_leaf_rebind(baseline, leaf, old, new)
+            require(backend._document()[0] == expected)
+            require(receipt['pending'] is None and receipt['repairs'] == {})
+            require({t['address'] for t in backend._terminals()} - addresses == {new})
+            require(backend._actual_core_program(backend._terminal(new)) == (pane['session_id'], pane['cwd']))
+            require(re.fullmatch(r'[0-9a-f]{32}', backend._terminal(new)['labels']['remote-herdr-repair']) is not None)
+            require(backend._pids_absent(proofs[key]['client']) and backend._pids_absent(proofs[key]['shell']))
+            require([c for c in backend._coverage(plan) if c['session_id'] != pane['session_id']] == other)
+            require(backend._pid_proofs([c['pid'] for c in other]) == other_proofs)
+            with app.lock:
+                refs, live = app.events[old]
+                require(refs.get(leaf) == new and old not in refs.values() and new in live)
+            final = {t['address'] for t in backend._terminals()}
+        cli('restore')
+        cli('recover')
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            require(backend._document()[0] == expected)
+            require({t['address'] for t in backend._terminals()} == final)
+    finally:
+        app.__exit__()
+    observe('herdr-core', plan)
+    require(backend_pid() == pid)
+    print('F07: app-connected-repair-ordering-complete')
+
+
+def legacy_mixed_admission(backend, plan, selected, *, before_last):
+    """Bounded OLD serializer/kill-first fault adapter; original writers only.
+
+    Admit all repairs from real projection, stop/create the first two with native
+    guards and RPC, then persist the third run intent without executing that run.
+    No clean receipt, journal or manifest is fabricated after publication.
+    """
+    import copy
+    manifest = backend.store.read('manifest.json')
+    receipt = copy.deepcopy(manifest['receipt'])
+    document, version = backend._document()
+    project = legacy_repair_projection(backend._current_projection, backend)
+    projected, bindings, labels, repairs = project(document, backend._terminals(), plan, receipt)
+    receipt.update(current_document=True, plan=projected, document=document, doc_version=version,
+        terminals={k: b['terminal'] for k, b in bindings.items()},
+        bindings={k: b['leaf'] for k, b in bindings.items()},
+        labels={k: labels[b['leaf']] for k, b in bindings.items()}, repairs=repairs)
+    original_receipt = backend._receipt
+    original_receipt(receipt)
+    for index, key in enumerate(selected):
+        leaf = receipt['bindings'][key]
+        repair = receipt['repairs'][leaf]
+        require('create_id' not in repair and 'source' not in repair)
+        if index == 2:
+            before_last()
+        terminal = backend._terminal(repair['terminal'])
+        backend._shell_proof(terminal)
+        repair['pids'] = backend._pid_proofs([terminal['pid'], (terminal.get('foreground') or terminal)['pid']])
+        receipt['pending'] = {'operation': 'terminal.kill', 'pane': key, 'leaf': leaf,
+            'terminal': repair['terminal'], 'pids': repair['pids'], 'identity': backend._kill_identity(terminal)}
+        original_receipt(receipt)
+        backend._complete_current_kill(receipt)  # Real stop and independent exit proof.
+        receipt['pending'] = {'operation': 'terminal.run', 'pane': key, 'leaf': leaf,
+                              'labels': repair['labels']}
+        original_receipt(receipt)
+        if index == 2:
+            return receipt  # Real pre-run interruption, no third RPC was sent.
+        pane = repair['pane']
+        result = backend.core('terminal.run', {'argv': [str(BIN / 'opencode'), '--session', pane['session_id']],
+            'cwd': pane['cwd'], 'labels': repair['labels'], 'keep': True,
+            'no_parent': True, 'no_notify': True, 'wait': False})
+        import layout
+        require(layout._TERMINAL.fullmatch(result['address']) is not None)
+        require(backend._same_labels(result.get('labels'), repair['labels']))
+        repair['created'] = result['address']
+        original_receipt(receipt)
+        backend._wait_created_core(repair['created'], pane, repair['labels'])
+        backend._replacement_proof(repair)
+        receipt['pending'] = None
+        original_receipt(receipt)
+    raise CommandFailure('app-legacy-fault-admission-missing')
+
+
+def app_closed_pending_run_recovery(plan, pid):
+    """Real complete journal + mixed old receipts, delayed finish event and recover."""
+    global STEP
+    import copy
+    from native import panes
+    Store, Native = adapter()
+    STEP = 'app-closed-pending-run-fresh-leaves'
+    fresh_app_leaf_ids()
+    values = list(panes(plan))
+    require(len(values) == 5 and len(plan['spaces']) == 2)
+    # Original alpha, first later view, beta sole leaf; later views 1/2 stay idle.
+    selected = [plan['spaces'][0]['tabs'][0]['panes'][0]['key'],
+                plan['spaces'][0]['tabs'][1]['panes'][0]['key'],
+                plan['spaces'][1]['tabs'][0]['panes'][0]['key']]
+    expected_plan = copy.deepcopy(plan)
+    expected_plan['spaces'].pop()  # No canonical key renumbering: final space only.
+    app = None
+    try:
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            journal = copy.deepcopy(store.read('transaction.json'))
+            require(journal['phase'] == 'complete')
+            manifest = store.read('manifest.json')
+            require(manifest['txid'] == journal['txid'])
+            txid = manifest['txid']
+            proofs = fixture_idle_agents(backend, plan, {p['key'] for p in values}, pid)
+            baseline, _ = backend._document()
+            old_receipt = manifest['receipt']
+            old = dict(old_receipt['terminals'])
+            leaves = dict(old_receipt['bindings'])
+            closed_key = selected[2]
+            closed_leaf, closed_address = leaves[closed_key], old[closed_key]
+            closed_session = next(p['session_id'] for p in values if p['key'] == closed_key)
+            def before_last():
+                nonlocal app
+                # Initial finished records are excluded from this event observer.
+                app = FixtureAppClient(Native(HOME, store).core, fixture_references(baseline))
+                app.release.clear()  # Delayed app event, not a controller lock.
+                app.__enter__()
+                require(app.observed_live(closed_address))
+            STEP = 'app-closed-pending-run-old-admission'
+            admitted = legacy_mixed_admission(backend, plan, selected, before_last=before_last)
+            pending = copy.deepcopy(admitted['pending'])
+            require(pending['operation'] == 'terminal.run' and pending['leaf'] == closed_leaf)
+            require(admitted['repairs'][closed_leaf]['created'] is None)
+            saved = copy.deepcopy(store.read('receipt-' + txid + '.json'))
+            require(saved == admitted and store.read('transaction.json') == journal)
+            created = {key: saved['repairs'][leaves[key]]['created'] for key in selected[:2]}
+            require(all(created.values()) and len(set(created.values())) == 2)
+            for key in selected:
+                require(backend._terminal(old[key])['state'] == 'finished')
+                require(backend._pids_absent(proofs[key]['shell']))
+            # Include finished records: zero matches is a real native observation,
+            # not a terminal.get overlay or an unexecuted fake process record.
+            require(not any(backend._same_labels(t.get('labels'), pending['labels'])
+                            for t in backend._terminals()))
+            require(not backend._repair_candidates(backend._terminals(), saved['repairs'][closed_leaf]))
+            require(not backend.scan({closed_session}))
+            addresses = {t['address'] for t in backend._terminals()}
+            other_clients = backend.scan({p['session_id'] for p in values
+                                          if p['key'] in selected[:2]})
+            require(len(other_clients) == 2)
+            other_proofs = backend._pid_proofs([c['pid'] for c in other_clients])
+        if app is None:
+            raise CommandFailure('app-client-not-started')
+        active_app = app
+        STEP = 'app-closed-pending-run-delayed-event'
+        app.release.set()
+        wait(lambda: active_app.seen({closed_address}), seconds=30)
+        expected_document = fixture_prune_finished(baseline, {closed_leaf}, {closed_address})
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            require(backend._document()[0] == expected_document)
+            require(closed_leaf not in fixture_references(expected_document))
+            require(store.read('receipt-' + txid + '.json') == saved)
+            require(store.read('transaction.json') == journal)
+            require(not any(backend._same_labels(t.get('labels'), pending['labels'])
+                            for t in backend._terminals()))
+        STEP = 'app-closed-pending-run-installed-recover'
+        cli('recover')  # Complete journal must dispatch current-document restore.
+        remaining_old = {old[p['key']] for p in values if p['key'] not in selected}
+        wait(lambda: active_app.seen(remaining_old), seconds=30)
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            require(store.read('transaction.json') == journal)
+            manifest = store.read('manifest.json')
+            receipt = manifest['receipt']
+            require(manifest['txid'] == txid and manifest['plan'] == expected_plan)
+            require(receipt['pending'] is None and receipt['repairs'] == {})
+            require(backend._pid_proofs([c['pid'] for c in other_clients]) == other_proofs)
+            require(backend.scan({c['session_id'] for c in other_clients}) == other_clients)
+            for pane in panes(expected_plan):
+                key = pane['key']
+                replacement = receipt['terminals'][key]
+                if key in created:
+                    require(replacement == created[key])  # Existing unbound client reused.
+                expected_document = expected_leaf_rebind(expected_document, leaves[key], old[key], replacement)
+                require(backend._actual_core_program(backend._terminal(replacement)) == (pane['session_id'], pane['cwd']))
+                if key not in selected:
+                    with app.lock:
+                        refs, live = app.events[old[key]]
+                        require(refs.get(leaves[key]) == replacement and replacement in live)
+                        # Earlier unbound creations were rebound before any new kill.
+                        require(all(refs.get(leaves[k]) == v and v in live for k, v in created.items()))
+            require(backend._document()[0] == expected_document)
+            require(len({t['address'] for t in backend._terminals()} - addresses) == 2)
+            for key, proof in proofs.items():
+                require(backend._terminal(old[key])['state'] == 'finished')
+                require(backend._pids_absent(proof['client']) and backend._pids_absent(proof['shell']))
+            require(not backend.scan({closed_session}))
+            require(closed_key not in receipt['terminals'])
+            require(not any(backend._same_labels(t.get('labels'), pending['labels'])
+                            for t in backend._terminals()))
+            coverage = backend._coverage(expected_plan)
+            final = {t['address'] for t in backend._terminals()}
+        cli('restore')
+        cli('recover')
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            require(backend._document()[0] == expected_document)
+            require({t['address'] for t in backend._terminals()} == final)
+            require(backend._coverage(expected_plan) == coverage)
+            require(not backend.scan({closed_session}))
+    finally:
+        if app is not None:
+            app.__exit__()
+    observe('herdr-core', expected_plan)
+    require(backend_pid() == pid)
+    write(EXPECTED, expected_plan)
+    print('F07: app-closed-pending-run-recovery-complete')
+    return expected_plan
+
+
 def kept_shell_kill_recovery(plan, pid, *, lost_reply):
     """Two serial real-kept-Bash faults; installed restore owns all recovery.
 
@@ -1069,6 +1663,7 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
     require(os.getuid() == 1000 and Path.home() == HOME)
     Store, Native = adapter()
     adopt_app_compatibility(plan)
+    fresh_app_leaf_ids()
     STEP = 'kept-shell-client-loss'
     with Store(ROOT) as store:
         backend = Native(HOME, store)
@@ -1123,6 +1718,7 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
         addresses = {t['address'] for t in backend._terminals()}
         original_core = backend.core
         original_receipt = backend._receipt
+        backend._current_projection = legacy_repair_projection(backend._current_projection, backend)
         kills = 0
         churned = False
         def fault_core(method, params):
@@ -1140,12 +1736,22 @@ def kept_shell_kill_recovery(plan, pid, *, lost_reply):
             return result
         def legacy_receipt(receipt):
             nonlocal churned
-            pending = receipt.get('pending')
-            if not lost_reply and pending and pending['operation'] == 'terminal.kill':
+            repair = receipt.get('repairs', {}).get(leaf)
+            if repair and 'source' in repair:
+                # OLD kill-first admission, not a post-publication receipt edit.
+                identity = repair.pop('source')
+                receipt['pending'] = {'operation': 'terminal.kill', 'pane': key,
+                                      'leaf': leaf, 'terminal': address,
+                                      'pids': repair['pids'], 'identity': identity}
+                pending = receipt['pending']
                 require(pending['terminal'] == address and pending['leaf'] == leaf)
                 snapshot = copy.deepcopy(backend._terminal(address))
-                pending.pop('identity')  # Old serializer version emulation, BEFORE writer.
+                if not lost_reply:
+                    pending.pop('identity')  # Old serializer version emulation, BEFORE writer.
                 original_receipt(receipt)
+                if lost_reply:
+                    backend._complete_current_kill(receipt)
+                    raise CommandFailure('kept-shell-kill-fault-missing')
                 churned = True  # Display-only RPC-result overlay, not native mutation.
                 require(backend._terminal(address) != snapshot)
                 raise NativeError('core recovery process changed before shell stop')
@@ -1603,6 +2209,8 @@ def prepare_fixture(provider):
     kept_shell_kill_recovery(plan, pid, lost_reply=False)
     kept_shell_kill_recovery(plan, pid, lost_reply=True)
     print('F07: app-labels-and-tab-identities-recovery-complete')
+    app_connected_repair(plan, pid)
+    plan = app_closed_pending_run_recovery(plan, pid)
     STEP = 'arm-core-boot'
     require(unit('is-enabled', 'remote-herdr-restore.timer') == 'enabled')
     unit('start', 'remote-herdr-restore.timer')

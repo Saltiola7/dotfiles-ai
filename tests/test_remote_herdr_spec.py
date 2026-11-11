@@ -139,3 +139,31 @@ def test_r2_completion_artifacts_keep_live_recovery_separate():
                   'genuine controller-written', 'actual Desktop UI', '13ae0c56',
                   'never main', 'exact-head merge approval', '007H', '007I'):
         assert token in entry
+
+
+def test_r3_app_connected_transition_keeps_replacement_live_before_retirement():
+    root = Path(__file__).parents[1]
+    text = (root / 'docs/specs/dotfiles_ai_distribution/features/remote-herdr-runtime.md').read_text()
+    section = text.split('### App-connected repair ordering (RRW-007G-R3 / INT-082)', 1)[1].split('\n### ', 1)[0]
+    for token in ('per-leaf create', 'verify, rebind, then retire', 'original shell remains live',
+                  'document-version CAS', 'never the live', 'pre-create', 'CAS-uncertain',
+                  'live **and finished**', 'resolve that', 'repair as closed',
+                  'present leaf with no terminal match', 'already-created unbound replacements',
+                  'Never', 'hand-edit journals', 'app-like client', 'both-boot',
+                  '0ac1088028a1d3aca0cff09897bdce2ff3cb0829647a6bd885179af70715a8b3',
+                  'Fork A', '007I'):
+        assert token in section
+
+
+def test_r3_completion_artifacts_keep_recovery_authority_and_provenance_exact():
+    root = Path(__file__).parents[1] / 'docs/specs/dotfiles_ai_distribution'
+    readme = (root / 'README.md').read_text()
+    entry = (root / 'CHANGELOG.md').read_text().split(
+        '## 2026-11-10 — App-connected restore ordering (RRW-007G-R3)', 1)[1].split('\n## ', 1)[0]
+    for token in ('RRW-007G-R3', 'CAS-rebind', 'recover', 'complete switch journal',
+                  'closed without replaying', 'Fork A', 'RRW-007I'):
+        assert token in readme
+    for token in ('#524', '924 tests', '68 subtests', 'generation', 'pre-kill oracle',
+                  'Native/Controller', 'uninstrumented idempotence', 'Desktop GUI',
+                  'never main', 'separate approval', '007I', '30a5b01b'):
+        assert token in entry
