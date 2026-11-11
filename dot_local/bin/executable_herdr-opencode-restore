@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from pathlib import Path
 
 HERDR = os.environ.get("HERDR_BIN", "herdr")
@@ -357,7 +358,28 @@ def capture(manifest: Path) -> int:
     return 0
 
 
+def tui_restore_enabled() -> bool:
+    """Honor the same native resume gate as cold TUI restore, including watch."""
+    home = Path.home()
+    config = home / '.config/herdr/config.toml'
+    for parent in (config.parent, config.parent.parent):
+        if parent.is_symlink():
+            raise ValueError('unsafe runtime configuration')
+    if not os.path.lexists(config):
+        return True
+    safe_regular(config)
+    if config.stat().st_nlink != 1:
+        raise ValueError('unsafe runtime configuration')
+    value = tomllib.loads(read_state(config)).get('session', {}).get('resume_agents_on_restore', True)
+    if type(value) is not bool:
+        raise ValueError('invalid runtime configuration')
+    return value
+
+
 def main() -> int:
+    if not tui_restore_enabled():
+        print('Herdr TUI agent restore disabled by runtime selection', file=sys.stderr)
+        return 78 if sys.argv[1:2] == ['--pace-start'] else 0
     if sys.argv[1:2] == ["--pace-start"]:
         return pace_start(sys.argv[2:])
     check = sys.argv[1:] == ["--check"]
@@ -384,6 +406,8 @@ def main() -> int:
         blocked = False
         while True:
             time.sleep(60)
+            if not tui_restore_enabled():
+                return 0
             try:
                 preflight_host()
             except HostPreflightError as error:

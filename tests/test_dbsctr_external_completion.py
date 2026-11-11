@@ -374,13 +374,114 @@ def test_squash_with_different_tree_is_rejected(ready, capsys):
     assert_rejected(ready, capsys)
 
 
-def test_two_parent_merge_is_not_accepted_as_external_squash(ready, capsys):
-    wrong = ready.core.git(ready.root, "commit-tree", ready.tree,
-                           "-p", ready.base, "-p", ready.head, "-m", "Merge, not squash").stdout.strip()
+def exact_tree_merge(ready):
+    merge = ready.core.git(ready.root, "commit-tree", ready.tree,
+                           "-p", ready.base, "-p", ready.head,
+                           "-m", "Exact-tree merge of retained head").stdout.strip()
+    ready.merge = merge
+    ready.native.pull["merge_commit_sha"] = merge
+    ready.core.git(ready.root, "update-ref", "refs/remotes/origin/main", merge)
+    return merge
+
+
+def test_exact_tree_two_parent_merge_records_native_provenance(ready, capsys):
+    merge = exact_tree_merge(ready)
+    before = json.loads(ready.path.read_text())
+    assert ready.invoke(*arguments(ready)) == 0
+    result = json.loads(capsys.readouterr().out)
+    record = ready.core.read_cycle_record(ready.root, ready.path)
+    assert result == record["external_completion"]
+    assert result["status"] == "delivered_external" and result["proof"] == "exact_tree"
+    assert result["head"] == ready.head and result["tree"] == ready.tree
+    assert result["merge"] == merge and result["merge_parent"] == ready.base
+    assert result["target_head"] == merge
+    assert result["recorded_commits"] == [entry["id"] for entry in before["commits"]]
+    assert record["state"] == "completed"
+    assert not ready.core.resolved_active_path(ready.root, bindings=False).exists()
+
+
+def test_two_parent_merge_with_changed_tree_is_rejected(ready, capsys):
+    wrong_tree = ready.core.git(ready.root, "rev-parse", f"{ready.base}^{{tree}}").stdout.strip()
+    wrong = ready.core.git(ready.root, "commit-tree", wrong_tree,
+                           "-p", ready.base, "-p", ready.head,
+                           "-m", "Reconciliation merge, not exact tree").stdout.strip()
     ready.merge = wrong
     ready.native.pull["merge_commit_sha"] = wrong
     ready.core.git(ready.root, "update-ref", "refs/remotes/origin/main", wrong)
     assert_rejected(ready, capsys)
+
+
+def test_two_parent_merge_with_rewritten_head_parent_is_rejected(ready, capsys):
+    rewritten = ready.core.git(ready.root, "commit-tree", ready.tree, "-p", ready.base,
+                               "-m", "Rewritten same-tree head").stdout.strip()
+    wrong = ready.core.git(ready.root, "commit-tree", ready.tree,
+                           "-p", ready.base, "-p", rewritten,
+                           "-m", "Merge of rewritten head").stdout.strip()
+    ready.merge = wrong
+    ready.native.pull["merge_commit_sha"] = wrong
+    ready.core.git(ready.root, "update-ref", "refs/remotes/origin/main", wrong)
+    assert_rejected(ready, capsys)
+
+
+def test_two_parent_merge_with_unrelated_first_parent_is_rejected(ready, capsys):
+    unrelated = ready.core.git(ready.root, "commit-tree", ready.tree,
+                               "-m", "Unrelated base history").stdout.strip()
+    wrong = ready.core.git(ready.root, "commit-tree", ready.tree,
+                           "-p", unrelated, "-p", ready.head,
+                           "-m", "Merge outside base lineage").stdout.strip()
+    ready.merge = wrong
+    ready.native.pull["merge_commit_sha"] = wrong
+    ready.core.git(ready.root, "update-ref", "refs/remotes/origin/main", wrong)
+    assert_rejected(ready, capsys)
+
+
+def test_exact_tree_two_parent_merge_preserves_imported_source_history(cycle, monkeypatch, capsys):
+    core, root = cycle.core, cycle.root
+    branch = core.branch(root)
+    core.git(root, "checkout", "-q", "-b", "auxiliary")
+    (root / "auxiliary.txt").write_text("Imported ancestry\n")
+    core.git(root, "add", "auxiliary.txt")
+    core.git(root, "commit", "-q", "-m", "Imported auxiliary change")
+    auxiliary = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    core.git(root, "checkout", "-q", branch)
+    core.git(root, "merge", "--no-commit", "--no-ff", "auxiliary")
+    (root / "tracked.txt").write_text("Python 3.14 candidate\n")
+    (root / "docs/specs/test/CHANGELOG.md").write_text("Completed fixture change.\n")
+    core.git(root, "add", "tracked.txt", "docs/specs/test/CHANGELOG.md", "auxiliary.txt")
+    paths = ["tracked.txt", "docs/specs/test/CHANGELOG.md", "auxiliary.txt"]
+    record_evidence(cycle, "domain", paths=paths)
+    core.command_gate_commit(core.parser().parse_args([
+        "gate-commit", "--message", "fixture candidate importing ancestry",
+        "--gates", "domain", "--paths", *paths,
+    ]))
+    for artifact, result in (("README", "unchanged"), ("BACKLOG", "unchanged"), ("CHANGELOG", "changed")):
+        arguments_review = ["review-artifact", artifact, "--result", result, "--reason", "fixture review"]
+        if result == "changed":
+            arguments_review.extend(["--path", "docs/specs/test/CHANGELOG.md"])
+        core.command_review(core.parser().parse_args(arguments_review))
+    for gate in core.GATES:
+        if gate not in {"domain", "release"}:
+            record_evidence(cycle, gate)
+    cycle.head = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    cycle.tree = core.git(root, "rev-parse", "HEAD^{tree}").stdout.strip()
+    imported = core.git(root, "show", "-s", "--format=%P", cycle.head).stdout.split()
+    assert imported == [core.git(root, "rev-parse", f"{cycle.head}^1").stdout.strip(), auxiliary]
+    cycle.merge = core.git(root, "commit-tree", cycle.tree, "-p", cycle.base, "-p", cycle.head,
+                           "-m", "External exact-tree merge PR #17").stdout.strip()
+    core.git(root, "update-ref", "refs/remotes/origin/main", cycle.merge)
+    cycle.native = NativeGitHub(core, root, cycle.base, cycle.head, cycle.merge)
+    monkeypatch.setattr(core, "github_environment", cycle.native.environment)
+    monkeypatch.setattr(core, "github_json", cycle.native.json)
+    capsys.readouterr()
+    assert cycle.invoke(*arguments(cycle)) == 0
+    result = json.loads(capsys.readouterr().out)
+    record = core.read_cycle_record(root, cycle.path)
+    assert result == record["external_completion"]
+    assert result["merge_parent"] == cycle.base
+    assert result["recorded_commits"] == [cycle.head]
+    assert record["state"] == "completed"
+    assert core.git(root, "merge-base", "--is-ancestor", auxiliary,
+                    f"refs/remotes/origin/main", check=False).returncode == 0
 
 
 def test_matching_tree_with_unrelated_squash_parent_is_rejected(ready, capsys):

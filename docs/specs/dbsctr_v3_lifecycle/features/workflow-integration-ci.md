@@ -165,6 +165,12 @@ push, reset, branch deletion or history rewrite is part of integration.
 
 ### Bounded watch and repair
 
+The independently approved [supervised repair contract](supervised-ci-repairs.md)
+adds an explicit operator-plan/reservation route without enabling the automatic
+checker below. Its native failure observation, exact consent, durable budget and
+separate activation requirements apply only to that route; no old record acquires
+automation implicitly. Automatic Recommendation/CI-map schemas remain unchanged.
+
 Poll native CI at 30-second intervals for at most 30 minutes per explicit watch
 invocation; never overlap requests. API denial returns blocked immediately;
 transient errors remain unavailable and retry only within that deadline. Permit

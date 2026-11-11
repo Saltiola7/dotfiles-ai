@@ -41,6 +41,10 @@ Render the resolved table as one private mode-0600 user-owned regular file at
 and types as the TOML tables, plus generated `source_commit` (full Git OID of the
 clean managed source generation) and `policy_digest` (canonical JSON SHA-256,
 excluding its own field). These two fields are not user-supplied TOML settings.
+RRW-007H adds optional generated `activation_binding` metadata for semantic
+activation identity and one proven legacy preimage; its complete field contract
+is in [profile follow-ups](remote-profile-followups.md). It is not a TOML setting
+or delivery/consent authority and remains covered by the full document digest.
 Reject activation from dirty managed source or an unavailable release identity;
 do not label arbitrary working bytes as that release. Lifecycle reads that generated policy; it does not
 independently reimplement chezmoi precedence or consult another enable file.
@@ -141,7 +145,7 @@ roots. Configured external roots must already exist, be owned/usable and pass
 separation checks **before any writes**. Missing/replaced mounts never fall back
 to home, sibling paths or an underlying internal mountpoint.
 
-Activation records private `{schema_version: 1, policy_digest, roots:
+Legacy activation records private `{schema_version: 1, policy_digest, roots:
 [{canonical_path, kind, filesystem_uuid, mountpoint}], worktrunk_version}` in the
 existing private configuration/state owner, not a task registry. `kind` is
 `owned_home` or `external`; UUID/mountpoint are nullable only for the owned home
@@ -153,6 +157,17 @@ replacement disk, missing root or changed mountpoint refuses pending renewed
 activation. No daemon or device-name-only assertion. Default owned-home behavior
 claims no external-disk identity guarantee. Native identity parsing and replacement
 fixtures are Build/deployment acceptance, not unresolved design.
+
+New RRW-007H activations use schema 2 and `semantic_digest` instead of a changing
+full policy digest. Existing schema-1 activation is preserved only with a validated
+equivalent-policy digest anchor; the other fields and native identity checks remain
+exact. Source-only updates do not rewrite activation or relax effective-policy guards.
+
+[RRW-F03's remote-home extension](remote-worktrunk-policy.md) recognizes the exact
+Linux `HOME/.local/state/worktrees` root as owned home while reading native findmnt
+identity. It binds an available UUID and mountpoint; null UUID is permitted only
+for this exact default without a replacement-disk guarantee. External-root UUID
+requirements and explicit owner activation remain unchanged.
 
 Schema, policy digest, native version and feature activation are one coherent
 configuration generation. Unknown/mismatched versions or partial render/apply

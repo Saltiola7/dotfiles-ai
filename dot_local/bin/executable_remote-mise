@@ -1,0 +1,63 @@
+#!/usr/bin/python3 -I
+"""Scope foundation mise calls to the reviewed global config, not a project."""
+import os
+from pathlib import Path
+import stat
+import sys
+
+
+def environment(home: Path) -> dict[str, str]:
+    # An absolute filename in the native override list resolves to this one
+    # file at every discovery level. All scopes point at the same reviewed
+    # file; no HOME/project/global fragments or system config enter the call.
+    selected = str(home / '.config/mise/config.toml')
+    if ':' in selected:
+        raise ValueError('unsupported mise config path')
+    result = {key: value for key, value in os.environ.items()
+              if not key.startswith(('MISE_', 'UV_', 'PYTHON', 'PYENV_', 'CONDA_'))
+              and key != 'VIRTUAL_ENV'}
+    result.update(HOME=str(home), PATH=str(home / '.local/bin') + os.pathsep + os.defpath,
+        XDG_CONFIG_HOME=str(home / '.config'), XDG_DATA_HOME=str(home / '.local/share'),
+        XDG_STATE_HOME=str(home / '.local/state'), XDG_CACHE_HOME=str(home / '.cache'),
+        UV_PYTHON_DOWNLOADS='never', UV_PYTHON_PREFERENCE='only-system', MISE_CONFIG_DIR=str(home / '.config/mise'),
+        MISE_DATA_DIR=str(home / '.local/share/mise'), MISE_STATE_DIR=str(home / '.local/state/mise'),
+        MISE_CACHE_DIR=str(home / '.cache/mise'), MISE_GLOBAL_CONFIG_FILE=selected,
+        MISE_SYSTEM_CONFIG_FILE=selected, MISE_OVERRIDE_CONFIG_FILENAMES=selected,
+        MISE_SYSTEM_CONFIG_DIR=str(home / '.config/mise'), MISE_CEILING_PATHS=str(home),
+        MISE_OVERRIDE_TOOL_VERSIONS_FILENAMES='none', MISE_AUTO_ENV='0', MISE_YES='1')
+    return result
+
+
+def main() -> None:
+    home = Path(os.environ.get('HOME', ''))
+    if not home.is_absolute() or '..' in home.parts:
+        raise ValueError('unsafe home')
+    paths = [home / name for name in ('.config/mise/config.toml', '.config/mise/mise.lock', '.local/bin/mise')]
+    for path in paths:
+        part = home
+        for name in ('', *path.relative_to(home).parts):
+            if name:
+                part /= name
+            item = part.lstat()
+            expected = stat.S_ISREG if part == path else stat.S_ISDIR
+            if (not expected(item.st_mode) or item.st_uid != os.getuid() or item.st_mode & 0o022
+                    or part == path and item.st_nlink != 1):
+                raise ValueError('unsafe mise input')
+    binary = paths[-1]
+    for name in ('miserc.toml', 'miserc.local.toml'):
+        if os.path.lexists(home / '.config/mise' / name):
+            raise ValueError('additional global mise rc requires review')
+    if not os.access(binary, os.X_OK) or sys.argv[1:2] not in (['install'], ['exec']):
+        raise ValueError('unsupported mise operation')
+    os.chdir(home)
+    selected = environment(home)
+    if sys.argv[1] == 'exec':
+        selected.update(MISE_EXEC_AUTO_INSTALL='0', MISE_AUTO_INSTALL='0')
+    os.execve(binary, [str(binary), '--cd', str(home), *sys.argv[1:]], selected)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError):
+        raise SystemExit('remote mise context is unsafe or unavailable') from None

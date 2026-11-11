@@ -7,6 +7,13 @@ receive a working DBSCTR, OpenCode, Codex CLI, Herdr, and opt-in Hermes R&D orch
 environment without adopting the maintainer's personal paths, account
 identifiers, or secrets.
 
+Ordinary tasks use native model judgment. The operator controls activation of
+specialist skills and DBSCTR; an accepted skill remains available for the
+conversation. Activated DBSCTR owns its specialist router, while Caveman Commit
+standardizes commit messages in every workflow. The
+[shared activation contract](features/global-agent-instructions.md) owns these
+cross-client defaults and their private-evidence boundaries.
+
 The maintainer must be able to migrate an existing installation without losing
 working configuration or allowing two chezmoi repositories to own the same
 target files.

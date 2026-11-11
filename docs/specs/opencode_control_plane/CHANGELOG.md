@@ -1,5 +1,17 @@
 # OpenCode Control Plane Changelog
 
+## 2026-11-04 — Shared global activation policy
+
+- Global instructions now render from the shared distribution template. Explicit
+  skill activation replaces automatic lifecycle/style routing; activated DBSCTR
+  owns its canonical Caveman and Ponytail dependencies.
+- Retired the managed Ponytail injector without removing unrelated plugins.
+  Superseded the mandatory session-move handoff contract; native permissions,
+  provider boundaries, review procedure and startup choices remain unchanged.
+- Rendering, plugin migration/idempotency, distribution and instruction checks
+  pass. Source delivery precedes the separately authorized local rollout; private
+  evidence retains native qualification and rollback preimages.
+
 ## 2026-10-16 — WORKFLOW-COMPRESSION-EVALUATION source
 
 - Added the embedded ten-case synthetic fixture, strict source/rubric/content

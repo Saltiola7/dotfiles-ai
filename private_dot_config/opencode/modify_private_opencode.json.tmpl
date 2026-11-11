@@ -47,6 +47,13 @@ if prefect is not None and "prefect_local" in mcp["servers"]:
         sys.exit("OpenCode MCP prefect_local conflicts with managed entry; original left unchanged")
 local["mcp"] = mcp
 config = merge(local, managed)
+# Retire the managed prompt injector while preserving unrelated native plugins.
+plugins = config.get("plugin")
+if isinstance(plugins, list):
+    package = "@dietrichgebert/ponytail"
+    config["plugin"] = [value for value in plugins if not (
+        isinstance(value, str) and (value == package or value.startswith(package + "@"))
+    )]
 retired = """status attach preflight begin initiative_begin initiative_launch reconcile
 continuation_enroll continuation_recover continuation_finish continuation_bind
 continuation_release continuation_handover continuation_provider continuation_storage_recover

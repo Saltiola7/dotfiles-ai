@@ -20,6 +20,90 @@ STAGING = ".dotfiles-ai-staging"
 MAX_FILES = 64
 MAX_FILE_SIZE = 1024 * 1024
 MAX_TOTAL_SIZE = 4 * 1024 * 1024
+NATIVE_CONFIG_TABLES = {"tui", "notice"}
+
+
+def config_fingerprint(config):
+    owned = {key: value for key, value in config.items() if key not in NATIVE_CONFIG_TABLES}
+    try:
+        encoded = json.dumps(owned, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    except (TypeError, ValueError):
+        raise ValueError("unsupported managed config value") from None
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def toml_native_string(value):
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
+
+
+def toml_native_value(value):
+    """Encode bounded JSON-compatible UI values without adding a TOML dependency."""
+    if isinstance(value, dict):
+        return "{" + ", ".join(toml_native_string(key) + " = " + toml_native_value(item)
+                                 for key, item in value.items()) + "}"
+    if isinstance(value, list):
+        return "[" + ", ".join(toml_native_value(item) for item in value) + "]"
+    if type(value) not in (bool, int, float, str):
+        raise ValueError("unsupported native config value")
+    return toml_native_string(value) if isinstance(value, str) else json.dumps(value, allow_nan=False)
+
+
+def private_config(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
+                or stat.S_IMODE(before.st_mode) != 0o600 or before.st_nlink != 1
+                or before.st_size > MAX_FILE_SIZE):
+            raise ValueError("unsafe managed target")
+        raw = stream.read(MAX_FILE_SIZE + 1)
+        after = os.fstat(stream.fileno())
+    identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns,
+                              value.st_ctime_ns, value.st_mode, value.st_nlink)
+    if len(raw) > MAX_FILE_SIZE or identity(before) != identity(after) or identity(after) != identity(path.lstat()):
+        raise ValueError("managed target changed while reading")
+    return raw
+
+
+def project_config(source, target, expected, previous_owned, reconcile):
+    raw = source.read_bytes()
+    owned = tomllib.loads(raw.decode())
+    if NATIVE_CONFIG_TABLES.intersection(owned):
+        raise ValueError("native config tables cannot be managed source")
+    desired_owned = config_fingerprint(owned)
+    if expected is None or not target.exists():
+        return raw, expected, False, desired_owned, None
+    local_raw = private_config(target)
+    observed = hashlib.sha256(local_raw).hexdigest()
+    drift = observed != expected
+    try:
+        local = tomllib.loads(local_raw.decode())
+    except (ValueError, UnicodeError):
+        raise ValueError("managed target changed") from None
+    for key in NATIVE_CONFIG_TABLES.intersection(local):
+        if not isinstance(local[key], dict):
+            raise ValueError("native config state must be a table")
+        toml_native_value(local[key])
+    current_owned = config_fingerprint(local)
+    hooks_only = set(owned) == {"hooks"} and isinstance(owned["hooks"], dict)
+    if hooks_only and (not isinstance(local.get("hooks"), dict) or any(
+            local["hooks"].get(event) != hooks for event, hooks in owned["hooks"].items())):
+        raise ValueError("managed hooks differ; explicit hook migration required")
+    if observed != expected:
+        baseline = previous_owned if previous_owned is not None else desired_owned
+        if current_owned != baseline and not (hooks_only and reconcile):
+            raise ValueError("managed target changed")
+        expected = observed
+    if hooks_only or current_owned == desired_owned:
+        merged = local_raw
+    else:
+        native = "".join(key + " = " + toml_native_value(local[key]) + "\n"
+                         for key in sorted(NATIVE_CONFIG_TABLES.intersection(local)))
+        merged = (native + "\n").encode() + raw if native else raw
+    if len(merged) > MAX_FILE_SIZE:
+        raise ValueError("local config exceeds bound")
+    fingerprint = config_fingerprint(tomllib.loads(merged.decode()))
+    return merged, expected, drift, fingerprint, local_raw
 
 
 def digest(path):
@@ -118,9 +202,16 @@ def read_manifest(target):
     if path.is_symlink():
         raise ValueError("unsafe ownership manifest")
     if not path.exists():
-        return {}
+        return {}, None
     value = read_json(path)
-    if not isinstance(value, dict) or set(value) != {"schema_version", "files"} or value["schema_version"] != 1:
+    if not isinstance(value, dict) or type(value.get("schema_version")) is not int:
+        raise ValueError("invalid ownership manifest")
+    version = value["schema_version"]
+    keys = {"schema_version", "files"} | ({"config_owned_sha256"} if version == 2 else set())
+    if version not in (1, 2) or set(value) != keys:
+        raise ValueError("invalid ownership manifest")
+    owned = value.get("config_owned_sha256")
+    if version == 2 and (not isinstance(owned, str) or not re.fullmatch(r"[0-9a-f]{64}", owned)):
         raise ValueError("invalid ownership manifest")
     files = value["files"]
     if not isinstance(files, dict) or len(files) > MAX_FILES:
@@ -130,7 +221,9 @@ def read_manifest(target):
         if (not isinstance(value_digest, str) or len(value_digest) != 64
                 or any(character not in "0123456789abcdef" for character in value_digest)):
             raise ValueError("invalid ownership manifest")
-    return files
+    if version == 2 and "config.toml" not in files:
+        raise ValueError("invalid ownership manifest")
+    return files, owned
 
 
 def atomic_json(path, value, *, native=False):
@@ -207,13 +300,21 @@ def recover(target):
             raise ValueError("orphaned managed staging")
         return
     journal = read_json(journal_path)
-    if not isinstance(journal, dict) or set(journal) != {"schema_version", "entries", "manifest"} \
-            or journal["schema_version"] != 1 or not isinstance(journal["entries"], list):
+    if not isinstance(journal, dict) or type(journal.get("schema_version")) is not int:
+        raise ValueError("invalid managed journal")
+    version = journal["schema_version"]
+    keys = {"schema_version", "entries", "manifest"} | ({"config_owned_sha256"} if version == 2 else set())
+    if version not in (1, 2) or set(journal) != keys or not isinstance(journal["entries"], list):
+        raise ValueError("invalid managed journal")
+    owned = journal.get("config_owned_sha256")
+    if version == 2 and (not isinstance(owned, str) or not re.fullmatch(r"[0-9a-f]{64}", owned)):
         raise ValueError("invalid managed journal")
     manifest = journal["manifest"]
     if not isinstance(manifest, dict) or len(manifest) > MAX_FILES:
         raise ValueError("invalid managed journal")
     seen = set()
+    publications = []
+    config_path = None
     for entry in journal["entries"]:
         if not isinstance(entry, dict) or set(entry) != {"path", "old", "new"}:
             raise ValueError("invalid managed journal")
@@ -231,6 +332,8 @@ def recover(target):
         if current.is_symlink():
             raise ValueError("managed target is a symlink")
         if current.exists() and recovery_digest(current) == entry["new"]:
+            if name == "config.toml":
+                config_path = current
             continue
         if entry["old"] == "absent":
             if current.exists():
@@ -240,10 +343,31 @@ def recover(target):
         staged = staging / name
         if staged.is_symlink() or not staged.is_file() or digest(staged) != entry["new"]:
             raise ValueError("managed staging is invalid")
-        publish_entry(staged, current)
+        publications.append((staged, current, entry["old"], entry["new"]))
+        if name == "config.toml":
+            config_path = staged
     if seen != set(manifest):
         raise ValueError("invalid managed journal")
-    atomic_json(target / MANIFEST, {"schema_version": 1, "files": manifest})
+    metadata = {"schema_version": version, "files": manifest}
+    if version == 2:
+        if config_path is None or config_fingerprint(
+                tomllib.loads(private_config(config_path).decode())) != owned:
+            raise ValueError("managed config ownership fingerprint changed")
+        metadata["config_owned_sha256"] = owned
+    for staged, current, old, new in publications:
+        if old == "absent":
+            if os.path.lexists(current):
+                raise ValueError("managed recovery changed before publication")
+        elif not current.exists() or recovery_digest(current) != old:
+            raise ValueError("managed recovery changed before publication")
+        if staged.is_symlink() or recovery_digest(staged) != new:
+            raise ValueError("managed staging changed before publication")
+        publish_entry(staged, current)
+    for entry in journal["entries"]:
+        current = target / entry["path"]
+        if not current.exists() or recovery_digest(current) != entry["new"]:
+            raise ValueError("managed recovery changed before manifest commit")
+    atomic_json(target / MANIFEST, metadata)
     if staging.exists():
         shutil.rmtree(staging)
         fsync_directory(target)
@@ -488,37 +612,29 @@ def project(source, target, reconcile_config=False):
         verify_locked_directory(lock, target)
         desired = source_files(source)
         verify_locked_directory(lock, target)
-        previous = read_manifest(anchored)
+        previous, previous_owned = read_manifest(anchored)
         if set(previous) - set(desired):
             raise ValueError("managed source removal requires explicit migration")
         entries = []
         preserved_config = None
+        preimage_config = None
         backup_config = False
+        owned_fingerprint = None
         for name, new_digest in desired.items():
             expected = previous.get(name)
-            if name == "config.toml" and expected is not None and (anchored / name).exists():
-                owned = tomllib.loads((source / name).read_text())
-                if set(owned) == {"hooks"} and isinstance(owned["hooks"], dict):
-                    recovery_digest(anchored / name)
-                    if (anchored / name).stat().st_size > MAX_FILE_SIZE:
-                        raise ValueError("local config exceeds bound")
-                    preserved_config = (anchored / name).read_bytes()
-                    local = tomllib.loads(preserved_config.decode())
-                    if not isinstance(local.get("hooks"), dict) or any(
-                            local["hooks"].get(event) != hooks for event, hooks in owned["hooks"].items()):
-                        raise ValueError("managed hooks differ; explicit hook migration required")
-                    new_digest = hashlib.sha256(preserved_config).hexdigest()
-                    desired[name] = new_digest
-                    if reconcile_config and expected != new_digest:
-                        expected = new_digest
-                        backup_config = True
+            if name == "config.toml":
+                preserved_config, expected, backup_config, owned_fingerprint, preimage_config = project_config(
+                    source / name, anchored / name, expected, previous_owned, reconcile_config)
+                new_digest = hashlib.sha256(preserved_config).hexdigest()
+                desired[name] = new_digest
             old_digest = validate_current(anchored, name, expected)
             entries.append({"path": name, "old": old_digest or "absent", "new": new_digest})
         if backup_config:
+            assert preimage_config is not None
             backups = anchored / ".dotfiles-ai-config-backups"
             private_directory(backups)
             backup = Path(tempfile.mkdtemp(prefix="reconcile-", dir=backups))
-            for name, content in (("config.toml", preserved_config), (MANIFEST, (anchored / MANIFEST).read_bytes())):
+            for name, content in (("config.toml", preimage_config), (MANIFEST, (anchored / MANIFEST).read_bytes())):
                 with (backup / name).open("xb") as stream:
                     os.fchmod(stream.fileno(), 0o600)
                     stream.write(content)
@@ -543,7 +659,8 @@ def project(source, target, reconcile_config=False):
         directories = {staging, *(path.parent for path in staging.rglob("*") if path.is_file())}
         for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
             fsync_directory(directory)
-        atomic_json(anchored / JOURNAL, {"schema_version": 1, "entries": entries, "manifest": desired})
+        atomic_json(anchored / JOURNAL, {"schema_version": 2, "entries": entries, "manifest": desired,
+                                        "config_owned_sha256": owned_fingerprint})
         verify_locked_directory(lock, target)
         recover(anchored)
         verify_locked_directory(lock, target)

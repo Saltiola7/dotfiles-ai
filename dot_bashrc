@@ -5,6 +5,14 @@ fi
 
 [[ $- != *i* ]] && return
 
+# Separate sources contribute snippets without owning this shared startup file.
+for dotfiles_ai_snippet in "$HOME"/.bashrc.d/*.sh; do
+    if [[ -f $dotfiles_ai_snippet && -r $dotfiles_ai_snippet ]]; then
+        . "$dotfiles_ai_snippet"
+    fi
+done
+unset dotfiles_ai_snippet
+
 if command -v wt >/dev/null; then
     eval "$(wt config shell init bash)"
 fi

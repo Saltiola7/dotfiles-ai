@@ -1,0 +1,66 @@
+#!/bin/bash
+# Always verify cached bytes so same-revision retry can repair damaged tools.
+set -euo pipefail
+{{ if not .dotfiles_ai.remote_user_environment.enabled -}}
+exit 0
+{{ end -}}
+[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || exit 1
+umask 077
+mise_version={{ .dotfiles_ai.remote_user_environment.mise_version | quote }}
+mise_sha256={{ .dotfiles_ai.remote_user_environment.mise_sha256 | quote }}
+gh_version={{ .dotfiles_ai.remote_user_environment.gh_version | quote }}
+gh_archive_sha256={{ .dotfiles_ai.remote_user_environment.gh_archive_sha256 | quote }}
+gh_binary_sha256={{ .dotfiles_ai.remote_user_environment.gh_binary_sha256 | quote }}
+bin="$HOME/.local/bin"
+for directory in "$HOME" "$HOME/.local" "$bin"; do
+    [[ ! -L $directory && ( ! -e $directory || ( -d $directory && -O $directory ) ) ]] || {
+        echo 'remote tool directory is unsafe' >&2; exit 1;
+    }
+done
+install -d -m 0755 "$bin"
+temporary=$(mktemp -d "$bin/.remote-tools.XXXXXX")
+trap 'rm -rf "$temporary"' EXIT
+for name in mise gh{{ if .dotfiles_ai.prefect_mcp.enabled }} uv{{ end }}; do
+    [[ ! -L "$bin/$name" && ( ! -e "$bin/$name" || ( -f "$bin/$name" && -O "$bin/$name" ) ) ]] || {
+        echo 'remote tool target is unsafe' >&2; exit 1;
+    }
+done
+if ! { [[ -x "$bin/mise" ]] && printf '%s  %s\n' "$mise_sha256" "$bin/mise" | sha256sum -c - >/dev/null 2>&1; }; then
+    curl -fsSL --retry 3 --retry-all-errors \
+        "https://github.com/jdx/mise/releases/download/v$mise_version/mise-v$mise_version-linux-x64-musl" \
+        -o "$temporary/mise"
+    printf '%s  %s\n' "$mise_sha256" "$temporary/mise" | sha256sum -c -
+    chmod 0755 "$temporary/mise"
+    "$temporary/mise" --version >/dev/null
+    mv -f "$temporary/mise" "$bin/mise"
+fi
+if ! { [[ -x "$bin/gh" ]] && printf '%s  %s\n' "$gh_binary_sha256" "$bin/gh" | sha256sum -c - >/dev/null 2>&1; }; then
+    curl -fsSL --retry 3 --retry-all-errors \
+        "https://github.com/cli/cli/releases/download/v$gh_version/gh_${gh_version}_linux_amd64.tar.gz" \
+        -o "$temporary/gh.tar.gz"
+    printf '%s  %s\n' "$gh_archive_sha256" "$temporary/gh.tar.gz" | sha256sum -c -
+    tar --no-same-owner -xzf "$temporary/gh.tar.gz" -C "$temporary" "gh_${gh_version}_linux_amd64/bin/gh"
+    candidate="$temporary/gh_${gh_version}_linux_amd64/bin/gh"
+    printf '%s  %s\n' "$gh_binary_sha256" "$candidate" | sha256sum -c -
+    chmod 0755 "$candidate"
+    "$candidate" --version >/dev/null
+    mv -f "$candidate" "$bin/gh"
+fi
+{{ if .dotfiles_ai.prefect_mcp.enabled -}}
+# The Prefect adapter owns its frozen environment; the next mise hook owns Python.
+uv_version={{ .dotfiles_ai.remote_user_environment.uv_version | quote }}
+uv_archive_sha256={{ .dotfiles_ai.remote_user_environment.uv_archive_sha256 | quote }}
+uv_binary_sha256={{ .dotfiles_ai.remote_user_environment.uv_binary_sha256 | quote }}
+if ! { [[ -x "$bin/uv" ]] && printf '%s  %s\n' "$uv_binary_sha256" "$bin/uv" | sha256sum -c - >/dev/null 2>&1; }; then
+    curl -fsSL --retry 3 --retry-all-errors \
+        "https://github.com/astral-sh/uv/releases/download/$uv_version/uv-x86_64-unknown-linux-musl.tar.gz" \
+        -o "$temporary/uv.tar.gz"
+    printf '%s  %s\n' "$uv_archive_sha256" "$temporary/uv.tar.gz" | sha256sum -c -
+    tar --no-same-owner -xzf "$temporary/uv.tar.gz" -C "$temporary" uv-x86_64-unknown-linux-musl/uv
+    candidate="$temporary/uv-x86_64-unknown-linux-musl/uv"
+    printf '%s  %s\n' "$uv_binary_sha256" "$candidate" | sha256sum -c -
+    chmod 0755 "$candidate"
+    "$candidate" --version >/dev/null
+    mv -f "$candidate" "$bin/uv"
+fi
+{{ end -}}

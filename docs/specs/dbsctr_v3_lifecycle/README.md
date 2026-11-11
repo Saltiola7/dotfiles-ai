@@ -1,5 +1,15 @@
 # DBSCTR V3 Lifecycle
 
+[Retained cross-repository Initiative authority](features/cross-repository-initiative-amendment.md)
+extends the amendment route for a separate coordinator checkout without importing
+its documents into the Build repository. Exact approval, retained native custody,
+fresh gates and a local Engineering Profile checkpoint remain required.
+
+Supervised mechanical CI repair accounting is specified in
+[`features/supervised-ci-repairs.md`](features/supervised-ci-repairs.md).
+It is independent of automatic integration policy, grants no merge or gate
+authority and requires separate reviewed managed activation before consumer use.
+
 [Evidence rerun invalidation](features/gate-evidence-invalidation.md) specifies
 the PY-02 repair: replacing a disposed gate with failed or unavailable evidence
 reopens later required passed gates, even when the source HEAD is unchanged.
@@ -814,12 +824,13 @@ ledger.
 
 ### Feature: OpenCode Entry Points
 
-**Scenario: Route lifecycle work to V3**
-- Given OpenCode reads the managed global routing instructions
-- When a request changes behavior, contracts, schemas, validation, services,
-  pipelines, orchestration, or downstream-visible output
-- Then OpenCode loads the unversioned `dbsctr` skill
-- And it loads `discovery` first when intent or the bounded context is unclear
+**Scenario: Activate lifecycle work explicitly**
+- Given native global instructions follow the
+  [shared activation contract](../dotfiles_ai_distribution/features/global-agent-instructions.md)
+- When a request could benefit from lifecycle orchestration
+- Then the agent suggests DBSCTR and waits for the operator's decision
+- And an explicit `/dbsctr` request activates the unversioned skill for the conversation
+- And activated DBSCTR selects its applicable dependencies and specialists
 
 **Scenario: Invoke public commands**
 - Given the managed commands are deployed
@@ -2809,7 +2820,7 @@ tool and provider examples and load only when useful.
 | `dbsctrctl graphify-check` | Run a selected adapter in a disposable worktree and retain a private receipt | Feature-cycle graph evidence without canonical output mutation |
 | `dbsctrctl batch-finalize` | Close source admission and commit canonical graph output once | Integration-owned Graph Promotion |
 | `dbsctrctl batch-record-dvc-push` | Bind separately approved DVC evidence to the graph commit | Publication readiness for DVC-relevant promotion |
-| `private_dot_config/opencode/AGENTS.md` | Default V3 routing and execution policy | Route lifecycle work to V3 |
+| `.chezmoitemplates/agent-activation.md` | Shared operator-controlled skill activation | Keep lifecycle methods with their skill owners |
 | `docs/_archive/opencode/skills/v2/**` | Non-deployed V2 source history | Preserve V2 as source history only |
 | `.chezmoiremove` | Remove deployed V2 skills and commands | Version migration |
 | `tests/test_dbsctr_lifecycle.py` | Deterministic lifecycle and migration contracts | All static contracts |

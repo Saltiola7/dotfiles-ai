@@ -1,5 +1,10 @@
 # Workflow native handoff
 
+**Historical contract:** the mandatory global session-move protocol is retired by
+the [shared activation contract](../../dotfiles_ai_distribution/features/global-agent-instructions.md).
+This document retains prior research and evidence; it does not select a handoff
+workflow. Native preservation and cleanup authorities remain independently owned.
+
 For explicitly approved non-success retirement, the
 [retirement journey](cycle-retirement-journey.md) and lifecycle archival contract
 replace merge proof with verified local preservation before handoff/removal.

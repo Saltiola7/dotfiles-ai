@@ -4941,6 +4941,45 @@ def amendment_receipt(root, receipt):
         fail("Initiative amendment receipt disagrees with committed manifest")
 
 
+def amendment_external_authority(directory, receipt):
+    """Retain native coordinator custody; never fetch or import foreign documents."""
+    if repository_equal(receipt["coordinator_repository"], receipt["repository"]):
+        fail("same-repository clones cannot select cross-repository amendments")
+    path = Path(directory)
+    if (not path.is_absolute() or path.is_symlink() or not path.is_dir()
+            or any(parent.is_symlink() for parent in path.parents)):
+        fail("unsafe Initiative amendment authority checkout")
+    authority = repo_root(path)
+    if authority != path or authority.resolve() != path:
+        fail("Initiative amendment authority checkout changed")
+    require_local_read_filters(authority)
+    require_repository_home(authority, receipt["coordinator_repository"])
+    if git(authority, "rev-parse", "HEAD").stdout.strip() != receipt["manifest_commit"]:
+        fail("Initiative amendment authority HEAD changed")
+    amendment_receipt(authority, receipt)
+    # The coordinator owns normative documents, not the consumer's profile.
+    closure = amendment_closure(authority, receipt, {"profile": receipt["manifest_path"]})
+    amendment_clean_documents(authority, closure)
+    custody = []
+    for directory in (authority, common_git_dir(authority).resolve(), git_dir(authority).resolve()):
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            fail("unsafe Initiative amendment native authority custody")
+        custody.append([str(directory), info.st_dev, info.st_ino, info.st_uid])
+    identity = continuation_digest(custody)
+    return {"directory": str(authority), "identity_digest": identity,
+            "repository": receipt["coordinator_repository"],
+            "commit": receipt["manifest_commit"], "closure": closure}
+
+
+def amendment_local_profile(root, profile, blob):
+    closure = amendment_closure(root, {"artifacts": [], "manifest_path": profile,
+                                       "manifest_commit": "HEAD"}, {"profile": profile})
+    if len(closure) != 1 or closure[0]["blob"] != blob:
+        fail("Initiative amendment source profile changed")
+    return closure
+
+
 def amendment_replacement(before, entry):
     replacement = json.loads(json.dumps(before))
     replacement.setdefault("initiative_amendments", []).append(entry)
@@ -5028,7 +5067,7 @@ def validate_initiative_amendments(root, record):
               "envelope_sha256", "envelope_locator"}
     for index, entry in enumerate(entries):
         if (not isinstance(entry, dict) or set(entry) != fields or type(entry["schema_version"]) is not int
-                or entry["schema_version"] != 1 or entry["launch_digest"] in digests
+                or entry["schema_version"] not in (1, 2) or entry["launch_digest"] in digests
                 or entry["previous_effective_receipt_digest"] != continuation_digest(prior)
                 or entry["approval_method"] not in {"interactive_cli", "agent_confirmed"}
                 or not isinstance(entry["reason"], str) or not entry["reason"].strip()
@@ -5070,10 +5109,23 @@ def validate_initiative_amendments(root, record):
             fail("invalid Initiative amendment receipt")
         if receipt["schema_version"] == 2:
             validate_local_initiative_receipt(receipt)
-        amendment_receipt(root, receipt)
-        if (plan["closure"] != amendment_closure(root, receipt, before["applicability_plan"])
-                or not amendment_tree(root, receipt["manifest_commit"], plan["closure"])):
-            fail("Initiative amendment approved document closure changed")
+        if entry["schema_version"] == 2:
+            if (type(plan.get("schema_version")) is not int or plan["schema_version"] != 2
+                    or not isinstance(plan.get("authority"), dict)):
+                fail("invalid cross-repository Initiative amendment")
+            authority = plan["authority"]
+            if (amendment_external_authority(authority["directory"], receipt) != authority
+                    or common_git_dir(Path(authority["directory"])).resolve() == common_git_dir(root).resolve()
+                    or plan["closure"] != amendment_local_profile(root, before["engineering_profile"]["path"],
+                                                                 before["engineering_profile"]["blob"])):
+                fail("Initiative amendment retained authority changed")
+        else:
+            if plan.get("schema_version") != 1 or "authority" in plan:
+                fail("invalid same-repository Initiative amendment")
+            amendment_receipt(root, receipt)
+            if (plan["closure"] != amendment_closure(root, receipt, before["applicability_plan"])
+                    or not amendment_tree(root, receipt["manifest_commit"], plan["closure"])):
+                fail("Initiative amendment approved document closure changed")
         replacement = amendment_replacement(before, entry)
         expected = amendment_bytes(replacement)
         outcome = amendment_json(root, paths["outcome.json"])
@@ -5188,8 +5240,7 @@ def amendment_selection(root, args):
     if not re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]*/MANIFEST\.json", args.initiative_manifest):
         fail("unsafe Initiative amendment manifest")
     authority = repo_root(args.initiative_source) if args.initiative_source else root
-    if common_git_dir(authority).resolve() != common_git_dir(root).resolve():
-        fail("Initiative amendment requires native same-repository authority")
+    external = common_git_dir(authority).resolve() != common_git_dir(root).resolve()
     require_local_read_filters(authority)
     receipt = initiative_receipt(authority / args.initiative_manifest, args.initiative_slice, authority)
     receipt["manifest_path"] = args.initiative_manifest
@@ -5220,10 +5271,14 @@ def amendment_selection(root, args):
     if (normalized != record["applicability_plan"]
             or record["engineering_profile"] != {"path": profile, "blob": blob}):
         fail("Initiative amendment applicability changed")
-    closure = amendment_closure(authority, receipt, plan)
-    if next(c["blob"] for c in closure if c["path"] == profile) != blob:
-        fail("Initiative amendment source profile changed")
-    amendment_clean_documents(authority, closure)
+    retained = amendment_external_authority(str(authority), receipt) if external else None
+    if external:
+        closure = amendment_local_profile(root, profile, blob)
+    else:
+        closure = amendment_closure(authority, receipt, plan)
+        if next(c["blob"] for c in closure if c["path"] == profile) != blob:
+            fail("Initiative amendment source profile changed")
+        amendment_clean_documents(authority, closure)
     # Selected checkout documents must match their current HEAD, not new authority.
     if git(root, "status", "--porcelain=v1", "--", *[c["path"] for c in closure]).stdout:
         fail("Initiative amendment selected documents are dirty")
@@ -5231,13 +5286,15 @@ def amendment_selection(root, args):
     reason = args.reason
     if not isinstance(reason, str) or not reason.strip() or len(reason.encode()) > 4096 or "\0" in reason:
         fail("invalid Initiative amendment reason")
-    launch = {"schema_version": 1, "cycle_id": args.cycle_id, "receipt": receipt,
+    launch = {"schema_version": 2 if external else 1, "cycle_id": args.cycle_id, "receipt": receipt,
               "previous_effective_receipt_digest": continuation_digest(effective_initiative(record)),
               "before_record_sha256": amendment_hash(raw), "plan_digest": args.expected_plan_digest,
               "applicability_plan": normalized, "risk": record["risk"], "delivery": record["delivery"],
               "reason": reason, "source_commit": receipt["manifest_commit"], "closure": closure,
               "destination": destination,
               "checkout": amendment_checkout(root, [c["path"] for c in closure])}
+    if external:
+        launch["authority"] = retained
     return path, record, raw, launch
 
 
@@ -5335,7 +5392,7 @@ def initiative_amend_offline(args):
                 durable = True
                 amendment_write_once(root, envelope_path, amendment_bytes(envelope))
             amendment_write_once(root, before_path, raw)
-            entry = {"schema_version": 1, "previous_effective_receipt_digest": launch["previous_effective_receipt_digest"],
+            entry = {"schema_version": launch["schema_version"], "previous_effective_receipt_digest": launch["previous_effective_receipt_digest"],
                      "receipt": launch["receipt"], "before_record_sha256": amendment_hash(raw),
                      "preimage_locator": str(before_path.relative_to(common_git_dir(root))),
                      "launch_digest": digest, "reason": args.reason, "approval_method": method,
@@ -7381,7 +7438,8 @@ def inventory_policy_sources():
     policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
     if (not isinstance(policy, dict) or type(policy.get("schema_version")) is not int
             or policy["schema_version"] != 1 or set(policy) - {
-                "schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming"}
+                "schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming",
+                "activation_binding"}
             or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", policy.get("source_commit", ""))
             or policy.get("policy_digest") != continuation_digest({
                 k: v for k, v in policy.items() if k != "policy_digest"})):
@@ -19082,7 +19140,9 @@ def pr_review_policy_snapshot(root):
         if pr_review_private_bytes(source, 256 * 1024) != raw:
             fail("pr_review_policy_changed")
         policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
-        if (not isinstance(policy, dict) or set(policy) != {"schema_version", "source_commit", "policy_digest",
+        # The selected helper has validated optional activation metadata above;
+        # it is not delivery authority and remains covered by the full digest.
+        if (not isinstance(policy, dict) or set(policy) - {"activation_binding"} != {"schema_version", "source_commit", "policy_digest",
                 "root", "cache_root", "repositories", "naming"}
                 or type(policy["schema_version"]) is not int or policy["schema_version"] != 1
                 or policy["policy_digest"] != pr_review_digest({k: v for k, v in policy.items() if k != "policy_digest"})):
@@ -19210,6 +19270,167 @@ def pr_review_rebind(root, prior, updated, merged, gates):
             fail("pr_review_checkpoint_changed")
     # No check evidence or waiver is returned or copied. Their old base bindings
     # cannot authorize the rebound recommendation; collection belongs to CI.
+
+
+def ci_repair_ledger(root, repository):
+    directory = cycle_dir(root) / "qualifications"
+    managed_directory(root, directory, create=True)
+    anchor = directory / "ci-repair-anchor.json"
+    path = directory / "ci-repairs.json"
+    identity = {"schema_version": 1, "repository": repository}
+    if not anchor.exists() and not anchor.is_symlink():
+        if path.exists() or path.is_symlink():
+            fail("ci_repair_accounting_incomplete")
+        return path, anchor, identity, {"schema_version": 1, "entries": {}}
+    established = json.loads(pr_review_private_bytes(anchor, 4096), object_pairs_hook=no_duplicate_keys)
+    if (not isinstance(established, dict) or type(established.get("schema_version")) is not int
+            or established != identity):
+        fail("ci_repair_accounting_identity_mismatch")
+    value = json.loads(pr_review_private_bytes(path, 1024 * 1024), object_pairs_hook=no_duplicate_keys)
+    if (not isinstance(value, dict) or set(value) != {"schema_version", "entries"}
+            or type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or not isinstance(value["entries"], dict) or len(value["entries"]) > 2048):
+        fail("ci_repair_accounting_invalid")
+    for fingerprint, attempts in value["entries"].items():
+        if not re.fullmatch(r"[0-9a-f]{64}", fingerprint) or not isinstance(attempts, list) or not 1 <= len(attempts) <= 3:
+            fail("ci_repair_accounting_invalid")
+        for number, attempt in enumerate(attempts, 1):
+            if (not isinstance(attempt, dict) or set(attempt) != {"number", "plan_digest", "reserved_at"}
+                    or type(attempt["number"]) is not int or attempt["number"] != number
+                    or not isinstance(attempt["plan_digest"], str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", attempt["plan_digest"])
+                    or not isinstance(attempt["reserved_at"], str)):
+                fail("ci_repair_accounting_invalid")
+    return path, anchor, identity, value
+
+
+def ci_repair_plan(root, args, *, request=None):
+    request = request or workflow_github
+    if any(type(number) is not int or not 0 < number <= 2**53 - 1
+           for number in (args.pull_request, args.job_id)):
+        fail("ci_repair_native_identity_invalid")
+    if not isinstance(args.github_account, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,38}", args.github_account):
+        fail("ci_repair_account_invalid")
+    remote, separator, target = (upstream(root) or "").partition("/")
+    if not separator:
+        fail("ci_repair_upstream_required")
+    repository = github_repository_from_url(
+        git(root, "remote", "get-url", "--push", remote).stdout.strip(), "ci_repair_repository_invalid")
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    deadline = time.monotonic() + 90
+
+    def native(endpoint):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            fail("ci_repair_native_evidence_unavailable")
+        result = request(args.github_account, "GET", f"repos/{repository}/{endpoint}", {}, min(30, remaining))
+        if not isinstance(result, dict) or result.get("status") != "success" or not isinstance(result.get("value"), dict):
+            fail("ci_repair_native_evidence_unavailable")
+        return result["value"]
+
+    pull = native(f"pulls/{args.pull_request}")
+    job = native(f"actions/jobs/{args.job_id}")
+    run_id = job.get("run_id")
+    if type(run_id) is not int or not 0 < run_id <= 2**53 - 1:
+        fail("ci_repair_native_identity_invalid")
+    run = native(f"actions/runs/{run_id}")
+    for side in ("head", "base"):
+        if not isinstance(pull.get(side), dict) or not isinstance(pull[side].get("repo"), dict):
+            fail("ci_repair_native_identity_invalid")
+    if not isinstance(run.get("repository"), dict):
+        fail("ci_repair_native_identity_invalid")
+    if (pull.get("number") != args.pull_request or pull.get("state") != "open"
+            or pull.get("head", {}).get("repo", {}).get("full_name") != repository
+            or pull.get("base", {}).get("repo", {}).get("full_name") != repository
+            or pull.get("head", {}).get("sha") != head
+            or pull.get("head", {}).get("ref") != branch(root)
+            or pull.get("base", {}).get("ref") != target
+            or run.get("repository", {}).get("full_name") != repository
+            or type(run.get("id")) is not int or run["id"] != run_id
+            or type(job.get("id")) is not int or type(job.get("run_attempt")) is not int
+            or type(run.get("run_attempt")) is not int
+            or run["run_attempt"] < 1 or job.get("run_attempt") != run["run_attempt"]
+            or not isinstance(run.get("pull_requests"), list)
+            or not any(isinstance(item, dict) and item.get("number") == args.pull_request
+                       and isinstance(item.get("head"), dict) and item["head"].get("sha") == head
+                       and isinstance(item.get("base"), dict) and item["base"].get("sha") == pull["base"].get("sha")
+                       for item in run["pull_requests"])
+            or run.get("event") != "pull_request" or run.get("head_sha") != head
+            or job.get("head_sha") != head or job.get("id") != args.job_id
+            or job.get("status") != "completed" or job.get("conclusion") != "failure"):
+        fail("ci_repair_native_identity_mismatch")
+    base = pull["base"].get("sha", "")
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", base):
+        fail("ci_repair_base_invalid")
+    workflow = run.get("path", "")
+    if not re.fullmatch(r"\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml", workflow):
+        fail("ci_repair_workflow_invalid")
+    paths = sorted(set(safe_paths(root, args.paths)))
+    specification = safe_paths(root, [args.specification])[0]
+    for name in paths + [specification]:
+        current = root
+        for part in PurePosixPath(name).parts:
+            current = current / part
+            if current.is_symlink():
+                fail("ci_repair_scope_unsafe")
+    spec = git(root, "show", f"{head}:{specification}").stdout
+    if not (root / specification).is_file() or (root / specification).read_text() != spec:
+        fail("ci_repair_specification_changed")
+    signature = " ".join(evidence_text(args.signature, 512, "failure signature").split())
+    job_name = evidence_text(job.get("name", ""), 256, "job name")
+    problem = {"repository": repository,
+               "workflow": workflow, "job_name": job_name, "signature": signature,
+               "specification": specification}
+    plan = {"schema_version": 1, "problem": problem, "head": head, "base": base,
+            "pull_request": args.pull_request,
+            "github_account": args.github_account, "branch": branch(root),
+            "target_ref": f"refs/heads/{target}", "run_attempt": run["run_attempt"],
+            "run_id": run_id, "job_id": args.job_id,
+            "workflow_digest": hashlib.sha256(git(root, "show", f"{head}:{workflow}").stdout.encode()).hexdigest(),
+            "specification_digest": hashlib.sha256(spec.encode()).hexdigest(),
+            "paths": evidence_path_blobs(root, paths)}
+    fingerprint = pr_review_digest(problem)
+    return repository, fingerprint, plan
+
+
+def command_ci_repair(args):
+    root = root_dir()
+    if args.preflight and (args.approval or args.expected_repair_digest):
+        fail("ci_repair_preflight_is_not_approval")
+    if not args.preflight and (args.approval != "agent-confirmed"
+                               or not isinstance(args.expected_repair_digest, str)
+                               or not re.fullmatch(r"[0-9a-f]{64}", args.expected_repair_digest)):
+        fail("ci_repair_exact_approval_required")
+    try:
+        # One common-Git lock covers linked worktrees and process restarts.
+        with evidence_lock(root, "ci-repair-reservations", timeout=0):
+            repository, fingerprint, plan = ci_repair_plan(root, args)
+            path, anchor, identity, ledger = ci_repair_ledger(root, repository)
+            attempts = ledger["entries"].get(fingerprint, [])
+            if len(attempts) >= 3:
+                fail("ci_repair_attempts_exhausted")
+            if not attempts and len(ledger["entries"]) >= 2048:
+                fail("ci_repair_accounting_full")
+            plan["attempt"] = len(attempts) + 1
+            digest = pr_review_digest(plan)
+            if args.preflight:
+                print(json.dumps({"status": "preflight", "repair_digest": digest, "plan": plan}, sort_keys=True))
+                return
+            if digest != args.expected_repair_digest:
+                fail("ci_repair_plan_changed")
+            # Establish loss detection first. Interrupted initialization blocks,
+            # rather than treating an absent established ledger as zero attempts.
+            if not anchor.exists():
+                private_json(anchor, identity, strict=True)
+            ledger["entries"][fingerprint] = attempts + [{"number": plan["attempt"],
+                "plan_digest": digest, "reserved_at": now()}]
+            if len(json.dumps(ledger).encode()) > 1024 * 1024:
+                fail("ci_repair_accounting_full")
+            private_json(path, ledger, strict=True)
+            print(json.dumps({"status": "reserved", "repair_digest": digest, "attempt": plan["attempt"],
+                              "approval": "caller_assertion", "merge_authority": False}, sort_keys=True))
+    except (OSError, ValueError, TypeError, KeyError):
+        fail("ci_repair_evidence_unavailable")
 
 
 def check_pr_review(root, record, source, *, prior_source=None, merge_commit=None, repair_check=None, ci_source=None):
@@ -20166,15 +20387,24 @@ def external_merge_proof(root, record, args, env, head, tree, commits):
             or not isinstance(native_parents, list) or len(native_parents) != len(parents)
             or not all(isinstance(item, dict) for item in native_parents)
             or [item.get("sha") for item in native_parents] != parents
-            or len(parents) != 1 or merge_tree != tree):
-        fail("external merge object is not the expected native exact-tree single-parent commit")
+            or merge_tree != tree or len(parents) not in (1, 2)):
+        fail("external merge object is not the expected native exact-tree commit")
+    if len(parents) == 2:
+        # An ordinary two-parent merge is admitted only as an exact-tree merge of
+        # the retained source: the retained head is the literal second parent and
+        # the pre-merge base tip was already contained in it, so the merge
+        # contributed no content and rewrote no history.
+        if (parents[1] != head
+                or git(root, "merge-base", "--is-ancestor", parents[0], head, check=False).returncode):
+            fail("external two-parent merge is not an exact-tree merge of the retained head")
     parent = parents[0]
     if (git(root, "merge-base", "--is-ancestor", merge, target, check=False).returncode
             or git(root, "merge-base", "--is-ancestor", record["git"]["head"], parent, check=False).returncode):
         fail("external merge is outside the protected base lineage")
+    imported_anchor = merge if len(parents) == 2 else parent
     for commit in commits:
         imported = git(root, "show", "-s", "--format=%P", commit).stdout.split()[1:]
-        if any(git(root, "merge-base", "--is-ancestor", item, parent, check=False).returncode for item in imported):
+        if any(git(root, "merge-base", "--is-ancestor", item, imported_anchor, check=False).returncode for item in imported):
             fail("recorded source imports history outside the historical merged base")
     current = external_github(root, env, f"repos/{repository}/git/ref/heads/{quote(delivery['base_branch'], safe='')}")
     if (not isinstance(current, dict) or current.get("ref") != f"refs/heads/{delivery['base_branch']}"
@@ -21507,6 +21737,17 @@ def parser():
     evidence.add_argument("--path", action="append")
     evidence.add_argument("program", nargs="+")
     evidence.set_defaults(func=command_record_evidence)
+    repair = commands.add_parser("ci-repair", help="reserve an explicitly approved supervised mechanical CI repair; never execute or merge")
+    repair.add_argument("--pull-request", required=True, type=int)
+    repair.add_argument("--job-id", required=True, type=int)
+    repair.add_argument("--github-account", required=True)
+    repair.add_argument("--signature", required=True, help="bounded sanitized failure signature, never raw private logs")
+    repair.add_argument("--specification", required=True)
+    repair.add_argument("--paths", required=True, nargs="+")
+    repair.add_argument("--preflight", action="store_true")
+    repair.add_argument("--expected-repair-digest")
+    repair.add_argument("--approval", choices=("agent-confirmed",), help="caller assertion of explicit chat approval, not authenticated identity")
+    repair.set_defaults(func=command_ci_repair)
     check = commands.add_parser("check")
     check.add_argument("subject", choices=("artifacts", "pr-review"))
     check.add_argument("--recommendations", help="private schema-1 policy-approved recommendations; read-only, never merge authority")

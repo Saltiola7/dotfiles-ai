@@ -2,8 +2,14 @@
 # project: {{ include "private_dot_config/dotfiles-ai/runtime/prefect-mcp/pyproject.toml" | sha256sum }}
 # lock: {{ include "private_dot_config/dotfiles-ai/runtime/prefect-mcp/uv.lock" | sha256sum }}
 # bootstrap: {{ include "private_dot_config/dotfiles-ai/runtime/prefect-mcp/server.py" | sha256sum }}
+# remote interpreter: {{ if .dotfiles_ai.remote_user_environment.enabled }}{{ includeTemplate "private_dot_config/dotfiles-ai/runtime/prefect-mcp/dot_python-version.tmpl" . | sha256sum }}{{ end }}
 set -euo pipefail
 {{ if not .dotfiles_ai.prefect_mcp.enabled -}}
 exit 0
+{{ end -}}
+{{ if .dotfiles_ai.remote_user_environment.enabled -}}
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
+export UV_PYTHON_DOWNLOADS=never
+exec "$HOME/.local/bin/remote-mise" exec -- "$HOME/.local/bin/prefect-mcp" install
 {{ end -}}
 exec "$HOME/.local/bin/prefect-mcp" install

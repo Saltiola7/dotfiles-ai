@@ -1,4 +1,4 @@
-name: centos-remote-user
+name: rhel-remote-user
 
 on:
   workflow_dispatch:
@@ -7,7 +7,16 @@ on:
       - ".chezmoidata.toml"
       - ".chezmoiignore"
       - "config.remote-user.example.toml"
+      - "private_dot_config/atuin/**"
+      - "private_dot_config/herdr/config.toml.tmpl"
+      - "dot_bashrc"
+      - "dot_common_profile.tmpl"
+      - "dot_bashrc.d/**"
+      - "private_dot_config/mise/**"
       - "dot_local/bin/executable_codex-install.tmpl"
+      - "dot_local/bin/executable_codex-project"
+      - "run_onchange_after_project-codex.sh.tmpl"
+      - "private_dot_config/dotfiles-ai/codex-managed/**"
       - "dot_local/bin/executable_agent-worktree"
       - "dot_local/bin/executable_worktree-dvc-setup"
       - "dot_local/bin/executable_dbsctrctl"
@@ -16,21 +25,40 @@ on:
       - "dot_local/bin/executable_remote-agent-readiness.tmpl"
       - "dot_local/bin/executable_remote-user-bootstrap"
       - "dot_local/bin/executable_remote-user-foundation"
+      - "dot_local/bin/executable_remote-mise"
+      - "dot_local/bin/executable_prefect-mcp"
+      - "private_dot_config/dotfiles-ai/runtime/prefect-mcp/**"
       - "dot_local/bin/executable_vertex-reauth.tmpl"
       - "run_onchange_after_install-*.sh.tmpl"
+      - "run_after_install-02-remote-tools.sh.tmpl"
+      - "run_after_install-03-remote-mise.sh.tmpl"
       - "tests/test_remote_user_environment.py"
+      - "tests/test_remote_personalisation.py"
+      - "tests/test_codex_runtime_state.py"
+      - "tests/test_remote_mise.py"
+      - "tests/test_remote_opencode_service.py"
+      - "private_dot_config/systemd/user/opencode-shared.service"
+      - "run_after_install-04-remote-opencode-service.sh.tmpl"
+      - "tests/fixtures/remote-mise-native.lock"
+      - "tests/test_remote_workflow_policy.py"
+      - "tests/test_remote_worktree_activation.py"
+      - "run_after_zz-remote-worktree-activation.sh.tmpl"
+      - "dot_local/bin/executable_workflow-policy"
+      - "private_dot_config/dotfiles-ai/private_workflow-policy.json.tmpl"
+      - "private_dot_config/worktrunk/config.toml.tmpl"
+      - ".chezmoitemplates/workflow-policy.tmpl"
       - "pyproject.toml"
       - "uv.lock"
       - "tests/remote_user_environment_smoke.sh"
-      - ".github/workflows/centos-remote-user.yml"
+      - ".github/workflows/rhel-remote-user.yml"
 
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    container: quay.io/centos/centos:stream10
+    container: registry.access.redhat.com/ubi10/ubi
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - run: dnf -y install ca-certificates curl git gzip python3 tar unzip findutils lsof xz
+      - run: dnf -y install ca-certificates curl git gzip python3 tar unzip diffutils findutils lsof xz util-linux
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         with:
           python-version: "3.12"
@@ -39,6 +67,10 @@ jobs:
           uv run --frozen --group test pytest
           tests/test_remote_user_environment.py
           -k remote_user_bootstrap -q
+      - name: Check legacy Codex projection upgrades
+        run: >-
+          uv run --frozen --group test pytest
+          tests/test_codex_runtime_state.py -q
       - name: Run smoke
         run: |
           unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE

@@ -1,5 +1,305 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-09 — Remote profile follow-ups (RRW-007H)
+
+- Add per-user `opencode.tab_bar_mode` for managed Mac/remote CLI `tabs.mode`:
+  explicit auto/on/off owns only that key; empty preserves existing local tabs.
+  Invalid mode/type or non-object managed tabs refuse without overwriting.
+- New activation snapshots bind semantic policy, native version and filesystem
+  identity. Legacy continuity requires one validated equivalent-policy preimage;
+  source-only updates/rollbacks preserve activation bytes and inode. Real drift,
+  unsafe files and unsupported schemas still refuse. Full policy provenance and
+  integrity remain source-bound. Existing policy consumers accept the metadata
+  without treating it as permission; the smoke no longer rewrites activation.
+- Both wrapper branches stop parsing at a true `--` and skip automatic `--auto`
+  injection, retaining option values, empty arguments and shared-service routing.
+- Local affected validation: 606 tests and 3 subtests pass; 4 explicitly selected
+  native-binary tests are skipped locally, not claimed passed. Helper/new tests
+  are type-clean; existing CLI (91) and native V2 fixture (15) diagnostics are
+  unchanged from the retained base. Independent source reviews found no blocker.
+  Refresh the performance fixture's exact helper hash without changing workload
+  or runtime/help expectations; benchmark smoke and performance regressions pass.
+- Native/disposable qualification passed `532b4e1f`: RHEL source-only upgrade and
+  rollback preserve activation, shared OpenCode boot succeeds, and Herdr recovery,
+  adoption, held-turn transfer and both boot phases pass. Final-head full-suite
+  and lifecycle evidence belong to the Cycle Record. Earlier failures remain
+  retained; no live deployment, gate waiver or full-file typing pass is implied.
+- Gate history begins `79f5d2d`; intended Final Push is
+  `dbsctr/dotfiles_ai_distribution/RRW-007H` and a draft PR, never main. Bootstrap
+  and pins unchanged. Fork A owns setup preference, pins and rollout; 007I editor
+  recovery stays separate. Pre-support helper rollback still needs explicit review.
+## 2026-11-10 — Desktop ownership and ID compatibility (RRW-007G-R2)
+
+- Correct INT-082 ownership matching at every shared matcher and two raw-label
+  guards: ignore app display metadata, compare the complete `remote-herdr-*`
+  namespace exactly. Keep required owner/pane, session compatibility, malformed
+  record refusal and duplicate-creation guards. Private receipts remain intact.
+- Separate space, tab and all-tree-node ID namespaces. Permit app tab/root reuse
+  and one-child rows, but still refuse missing/duplicate same-kind IDs across
+  spaces/tabs, branch/leaf aliasing, duplicate terminal/session and unsafe bounds.
+  Preserve raw documents and leaf-only CAS.
+- Synthetic retained-journal recovery covers mixed live/repair clients and both
+  R1 interruption points. Disposable native qualification adds actual public
+  `terminal.label` effects and three fixture-authored app-shaped tabs, then uses
+  installed `recover` against genuine controller-written `restore_pending`.
+  Fixture documents do not claim actual Desktop UI producer execution.
+- Local affected validation: 775 tests and 55 subtests pass; affected Linux/Python
+  3.12 typing is clean. Independent source reviews found no blocker. Hosted/native
+  and full-suite evidence belongs to the Cycle Record; no live recovery, hand-edited
+  journals, timeout relaxation or gate exception is implied.
+- Contract `b925d036`, implementation `13ae0c56`, fixture `579f1000`; intended Final
+  Push is draft branch `dbsctr/dotfiles_ai_distribution/RRW-007G-R2`, never main.
+  Separate exact-head merge approval is required. Bootstrap, binary pins, inputs
+  and receipt/manifest schemas unchanged. Fork A owns pins/live recovery; 007H
+  builds on this hotfix with fresh qualification, and 007I remains separate.
+
+## 2026-11-09 — Pending kept-shell recovery (RRW-007G-R1)
+
+- Repair INT-082 current-document kill reconciliation: ignore display-only churn,
+  finish a proven original live-shell kill or observe its completed outcome without
+  another kill. Preserve ownership, PID/start-time, actual argv/directory, native
+  launch identity, exit, desired-session absence and raw-document/version guards.
+  Identity/layout changes retain the intent and refuse with fixed field labels.
+- New private kill intents optionally capture bounded identity facts; legacy
+  intents remain readable under their original proofs without invented historical
+  argv. No new CLI/configuration inputs, bootstrap change or binary pin change.
+  Older adapters refuse unsupported extended intents; never hand-edit journals.
+- Local affected validation: 719 tests and 55 subtests pass; affected Linux/Python
+  3.12 typing is clean. Independent source reviews found no remaining blocker.
+  Hosted fixtures exercise real native-kept shells, legacy pre-effect interruption
+  and lost successful kill replies, then resume through the installed CLI while
+  preserving backend identity, other clients and independent leaf-only expectations.
+  Hosted/native/full-suite results remain separate Cycle Record evidence, not a
+  live deployment claim. No gate exceptions or timeout relaxations.
+- Gate history begins `4ecc381c`, implementation `a60663c4`, hosted fixture
+  `60644736`; intended Final Push is the draft branch
+  `dbsctr/dotfiles_ai_distribution/RRW-007G-R1`, never main. Merge needs separate
+  exact-head approval. Fork A owns pins and live recovery; 007H reconciliation and
+  007I editor recovery remain separate. Native kill is address-only; repeated
+  observations narrow races but do not promise an atomic conditional kill.
+
+## 2026-11-09 — Restore current desktop bindings (RRW-007G)
+
+- Adopt the selected core's current document, retire closed/finished views and
+  adopt later proven exact-session clients. Schema 2 separates stable leaf identity
+  and observed labels from display positions; repair uses owned-leaf-only CAS and
+  preserves opaque desktop metadata. Existing schema-1 migration recovery remains.
+- Retain durable kill/create/CAS intent, private backups, actual argv/PID/start-time,
+  directory and duplicate proofs. Completed controller stops retain their bindings;
+  user closures do not. Presentation/status updates are not process identities.
+- Normalize unnamed TUI views through persisted public IDs and nullable naming
+  provenance without rewriting explicit names. Retry only complete read-only
+  process inventories after transient disappearance, at most five seconds/26 attempts.
+- Native qualification passed implementation head `46a7347e`, including retained
+  recovery, held-turn transfer, desktop edits and closures, three later exact
+  clients, same-journal completion, idempotence, restart/stop and both runtime boots.
+  All 17 applicable checks passed that implementation head. Source regressions
+  cover ownership/races, uncertain replies and multi-pane crash recovery;
+  646 affected tests, 55 subtests and Linux/Python 3.12 typing pass. Final-head CI and
+  lifecycle evidence belong to the Cycle Record; no failed evidence is waived.
+- Edited legacy-v1 receipts with unresolved old mutation intents remain strict
+  refusals. No new keys/inputs, bootstrap change, core pin change or live deployment.
+  Fork A owns reviewed rollout/recovery. RRW-007H config/activation/wrapper fixes
+  and RRW-007I editor recovery remain separate.
+- Gate history starts at `24f87004`; intended Final Push targets
+  `dbsctr/dotfiles_ai_distribution/RRW-007G` and draft PR #299, never main.
+
+## 2026-11-08 — Recover retained plain-shell switches (RRW-007F-R1)
+
+- Core 0.1.18 omits empty label values. Emit no shell session label and match its
+  omitted/legacy-empty forms consistently across ownership and recovery checks.
+  Exact owner/pane, agent session, program, directory and duplicate proofs remain.
+- Source regression recovers a retained one-shell receipt with no manifest into
+  64 panes (10 shells, 54 exact sessions), reusing that shell and creating only 63
+  terminals. Legacy uncertain-create intents also reconcile without duplication.
+  Native qualification now includes a shell pane and generates the old failure
+  through controller writes before invoking the unmodified CLI's `recover`.
+- Admit TUI's native argument-free `/bin/sh` default in capture/pre-stop proof.
+  Command-bearing shells, flags, aliases and other executable paths still refuse;
+  core shell policy stays unchanged.
+- Native lifecycle qualification passed `dea82203`, including genuine retained
+  shell recovery through the installed CLI, held-turn preservation, bidirectional
+  switching, restart/explicit-stop recovery and both runtime boot phases. Final
+  documentation-head qualification remains recorded in the Cycle Record; no
+  failed or mixed-attempt CI evidence is waived.
+- Scoped validation: 520 tests, 55 subtests and Linux/Python 3.12 typing pass.
+  Exact-head hosted/native qualification and completion evidence belong to the
+  Cycle Record; no live recovery or gate exception is claimed. Gate history starts
+  at `c1da3b7b`; intended Final Push is
+  `dbsctr/dotfiles_ai_distribution/RRW-007F-R1` and a draft PR, never main.
+- Bootstrap and core 0.1.18 pin unchanged. Fork A retains pinning and live recovery.
+  INT-082 daily-layout adoption, unnamed labels, diagnostics and editor repair
+  remain separate follow-up work, not completed by this hotfix.
+
+## 2026-11-08 — Selected remote Herdr runtime (RRW-007F)
+
+- Add foundation-owned, archive/binary-verified core 0.1.18 installation and
+  explicit core/TUI selection, selected-only boot restore and guarded switches.
+  Private receipts preserve layout, exact sessions and interrupted work; unknown
+  programs, unexplained target edits and unproven source exit block activation.
+- All 19 hosted checks passed `24de7482`, including full-suite partitions,
+  native bidirectional/held-turn transfer, interruption and core restart/stop
+  recovery, both runtime boot phases, F01 boot and RHEL userland smoke. The
+  kept-spawn wait covers the native 60-second backoff; TUI stop rechecks actual
+  programs after durable intent. Final-head evidence stays in the Cycle Record.
+- Gate history includes `d2d1be01` and `24de7482`. Intended Final Push targets
+  `dbsctr/dotfiles_ai_distribution/RRW-007F`, draft PR #297, not main. No gate
+  exception, bootstrap change or live deployment; Fork A retains desktop adoption,
+  version coordination and combined rollout of 007B/007E/007F after approved merge.
+
+## 2026-11-07 — Initial remote default activation (RRW-007E)
+
+- Explicit remote apply initializes missing activation for the exact home-backed
+  default with native bindings and private no-replace publication. Existing or
+  stale activation is never refreshed. Preview/snapshot remain read-only.
+- Race/private-file/binding regressions, native UBI apply/switch/reapply and
+  separate lingering-user F01 boot proof pass the implementation head, along
+  with all 18 hosted checks including eight full-suite partitions. Final-head
+  requalification and actual Final Push remain recorded in the cycle.
+- No new default setup flag, live rollout or bootstrap change. Existing/stale
+  activation is never refreshed, including source-revision-only binding changes.
+
+## 2026-11-06 — Remote shared-service boot startup (RRW-F01)
+
+- Add a remote-only systemd user unit for foreground native shared OpenCode on
+  loopback, enabled under default.target with bounded restart-on-failure.
+- Preserve healthy managed or pre-existing native services during reapply.
+  Host lingering stays with Fork A; native private state and wrapper version/
+  authentication checks stay unchanged. Actual disposable boot proof and hosted
+  results remain in the cycle; live rollout is separately approved.
+
+## 2026-11-06 — Native mise lock bytes (RRW-F04)
+
+- Match native mise's generated header and terminating-newline format without
+  changing any Python pin or artifact identity. Native serialization no longer
+  introduces known formatting-only drift against chezmoi's managed bytes.
+- Add disposable non-forced chezmoi convergence regressions and explicit UBI
+  native-lock/second-apply checks after enabled Prefect installation. No live
+  lock reset, force-apply, provider access or bootstrap change is performed.
+
+## 2026-11-06 — Repository Python version files (RRW-F05)
+
+- Enable Python idiomatic version-file discovery in remote global mise settings.
+  Repository `.python-version` selections override the global baseline in normal
+  shells; mise still installs interpreters and uv never downloads them.
+- Extend UBI qualification with a repository Python 3.14 selection and unchanged
+  isolated foundation Python 3.13.18/lock. Global pins and project trust do not
+  change. Delivered with RRW-F04; live rollout stays separately approved.
+
+## 2026-11-06 — Remote Worktrunk policy (RRW-F03)
+
+- Include private remote workflow-policy rendering from workspace data without
+  managing activation. Recognize the exact Linux home worktree root and bind
+  native findmnt identity; null UUID is permitted only for that owned-home root,
+  never for configured external roots.
+- Document separate owner snapshot review/0600 activation and add native UBI
+  refusal/allocation/reapply qualification. Preserve hooks, namespace and existing
+  work; no live activation, pane migration or bootstrap change is performed.
+
+## 2026-11-06 — Shared remote mise toolchain (RRW-007C)
+
+- Added remote-only global mise config/lock and pinned Python 3.13.18 when
+  Prefect MCP is enabled, using the native mise owner with a reviewed artifact
+  checksum. The host no longer provisions this optional interpreter.
+- Put mise shims on shell/install/integrity paths without overriding repository
+  Python selection. Keep the adapter's frozen uv lock and no-interpreter-download
+  policy; disabling preserves installed interpreters and environments.
+- Order locked mise installation after bootstrap tools and before Prefect;
+  reapply uses native cached installs. Local and UBI evidence belongs to the
+  cycle, not a claim of live RHEL acceptance or provider authentication.
+
+## 2026-11-06 — Preserve Codex first-launch state (RRW-007A-R1)
+
+- Preserve native `tui` and `notice` tables during verified Codex projection
+  upgrades, including first-launch screen-reader detection. Version-2 private
+  manifests separate managed-setting fingerprints from complete file digests;
+  ambiguous legacy state and edits to owned settings still refuse.
+- Keep exact config/manifest preimages, validate complete journal metadata before
+  publication, and recover both legacy and new transactions. Existing explicit
+  hooks-only reconciliation remains opt-in. Older projectors cannot consume the
+  new manifest; backward migration needs separate review rather than reset.
+- Added disposable legacy-upgrade, native-state, managed-edit, preimage and
+  interrupted-recovery regressions, including UBI qualification. Actual gate and
+  hosted results remain in the cycle; no owner config or live rollout is changed.
+
+## 2026-11-05 — RRW-007A foundation personalisation
+
+- Added pinned checksum-verified user-local mise and GitHub CLI, with installed
+  binary integrity checks. Enabled Prefect MCP adds pinned uv; the host setup
+  owner supplies Python 3.13 and the existing frozen/no-download runtime remains.
+- Foundation apply/integrity use effective per-user data for supported opt-ins;
+  remote source rendering rejects knowledge_store, Hermes and R&D enablement.
+  Documented machine-readable supported flags and the exact setup TOML keys.
+- Exposed the existing Worktrunk root setting without changing hashed layout or
+  storage checks. Added shared Bash drop-ins and remote Herdr skill, native
+  OpenCode integration and agent restore. No GUI applications or provider login.
+- Local checks, UBI qualification and delivery identities belong to the cycle
+  record; no live RHEL, owner-overlay or colleague acceptance is claimed here.
+
+## 2026-11-04 — Global activation integration
+
+- Reconciled the published activation change with the accepted RHEL runtime.
+  Preserved both change histories and their owners; activation policy and review
+  protections remain unchanged. Combined affected-scope evidence is retained in
+  the successor integration Cycle Record. Intended Final Push updates the same
+  feature branch and PR #286; local adoption follows the guarded main merge.
+
+## 2026-11-04 — Shared global skill activation
+
+- Replaced independent global prompts with one activation-policy template for
+  OpenCode and Codex. Skills require conversation-scoped operator activation;
+  Caveman Commit remains automatic. Activated DBSCTR owns specialist routing,
+  Caveman/Ponytail guidance, lifecycle rules and private-evidence policy.
+- Imported the selected canonical Caveman, Caveman Commit and Ponytail bundles
+  with immutable provenance and original MIT licenses. Removed the managed
+  Ponytail prompt injector while preserving unrelated plugin configuration.
+- Source validation passed 259 affected tests with five opt-in native checks
+  unselected. Changed typing checks pass; 22 diagnostics in two existing native
+  fixtures match their unchanged baselines. Independent activation review passed after
+  clarifying that skill activation grants no publication authority.
+- Fresh Codex and OpenCode native processes discovered the five selected skills
+  and loaded the same global policy. Loopback-only synthetic responses qualify
+  discovery/loading, not universal model compliance or provider behavior.
+- No Gate Exception or review-policy change. Gate Commit `b981e20f` implements
+  the contract from `2bdf3347`. Intended Final Push is the recorded feature branch
+  and draft PR into `main`; authorized local adoption follows merge with private
+  preimages, native qualification and an idempotency check.
+
+## 2026-11-04 — RRW-002R runtime reconciliation with accepted main
+
+- Imported RRW-002's completed signed source unchanged as merge ancestry onto
+  accepted main (external-merge completion, lineage recovery, partitioned CI and
+  supervised CI repairs). The merge was conflict-free; no runtime behavior, test
+  assertion or timeout changed.
+- Requalified the RHEL runtime and portable-distribution checks on the combined
+  tree. Native hosted CI on the reconciled head, including the UBI runtime smoke,
+  supplies integration and deployment qualification; results belong to the cycle
+  record.
+- PR #279's compatibility job failed in the pre-existing, load-sensitive Herdr
+  resume-spacing test, which this slice does not touch; that failure is retained,
+  not waived. This delivery supersedes #279, which remains retained.
+- RHEL-host, owner/colleague acceptance and INT-021's merged revision remain
+  unclaimed until merge and a separately approved rollout.
+
+## 2026-11-03 — RRW-002 portable RHEL successor source
+
+- Replaced CentOS userland CI with UBI 10, removed remote-client alternate-host
+  settings and Tailscale prerequisites, and kept remote Atuin local-only without
+  enrolling its server. Unrelated macOS/Fedora behavior and private history/auth
+  state retain their owners.
+- Preserved the stronger PY-01 first-clone admission repair merged on `main`,
+  including retry-safe cleanup and negative tests, while adding remote migration
+  and preservation regressions. Gate Commits include `16bc409a`, `fe729a8a`, and
+  reconciliation `76c8f631`.
+- Native x86_64 UBI run `41705268407` passed 22 offline bootstrap checks and full
+  install/readiness/reapply/retry/update/rollback smoke. Focused post-conflict
+  bootstrap/publication checks passed (58); runtime/portable/instruction checks
+  also passed. Earlier failed/unavailable attempts are retained, not waived.
+- Operator-approved early qualification draft is PR #279, not Final Push or a
+  live deployment. Full hosted CI and final cycle delivery remain separately
+  recorded; RHEL-host, owner/colleague acceptance and INT-021's merged revision
+  are not claimed. No Gate Exception or provider login was performed.
+
 ## 2026-11-02 — RRW-002 RHEL remote-user Discovery
 
 - Defined the RHEL 10 x86_64 successor, IAP-only portable client, remote-only

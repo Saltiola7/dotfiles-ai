@@ -1,5 +1,90 @@
 # dotfiles-ai Distribution
 
+The [remote Herdr runtime contract](features/remote-herdr-runtime.md) owns explicit
+per-user `[data.dotfiles_ai.herdr] runtime = "herdr-core" | "tui"` selection
+(`tui` by default). The foundation installs checksum-pinned core 0.1.18; native
+transient units remain its process owners. `remote-herdr switch`, `restore` and
+`recover` preserve exact OpenCode sessions and private layout receipts without
+restarting the shared backend. Unowned target replacement requires explicit
+`--replace-target`; ambiguous ownership or unapproved target replacement refuses. Disposable
+hosted qualification is distinct from Fork A's separately authorized live rollout.
+Plain-shell recovery accepts core 0.1.18's omitted empty session label while
+retaining exact owner/pane and process proofs. Existing switch receipts need no
+hand edits; use explicit `remote-herdr recover` for an unfinished switch.
+TUI process proof also accepts its native idle default, exact argument-free
+`/bin/sh`; command-bearing shells remain unsupported.
+
+Selected-core restore adopts the current desktop document, preserves user edits,
+retires closed views and adopts later exact `--session` clients after process,
+directory and duplicate proofs. Manifest schema 2 retains stable leaf bindings;
+older adapters must refuse it rather than regenerate the edited document.
+Only proven owned terminal references are CAS-rebound. A completed controller stop
+has separate private evidence; it is not mistaken for a user closure. Fresh selected
+core with no document/endpoint is a quiet no-op. Inventory disappearance settles
+within five seconds; permission failures and native mutations are never retried.
+Unnamed TUI views use persisted public identities and nullable naming provenance,
+not guessed display names; explicit empty, whitespace and numeric names stay exact.
+No new configuration keys or CLI inputs are required. Wrapper/config/activation
+follow-ups belong to RRW-007H and overlay editor recovery to RRW-007I. Schema-1
+edited receipts with unresolved old mutation intents still require conservative
+recovery; no automatic downgrade or hand-edited receipt migration is supported.
+
+RRW-007G-R1 reconciles a current-document pending shell kill under the original
+ownership, process, exit and document/version proofs. Display-only terminal churn
+does not block it: complete the proven original live-shell kill, or observe its
+already-finished outcome without another kill. New private intents optionally
+retain exact actual/launch identity; legacy intents retain their original proofs
+without inventing historical argv. Real identity/layout changes still refuse with
+fixed field labels that expose no values. Do not hand-edit journals or discard
+pending evidence. Older adapters refuse extended intents; Fork A owns pinning and
+any live recovery. Bootstrap, binary pins and setup inputs are unchanged.
+
+RRW-007G-R2 compares only the complete `remote-herdr-*` ownership namespace:
+desktop display labels (`where`, `herdr.seen`, `herdr.space`, `herdr.tab`) do not
+invalidate ownership, while missing/changed/extra ownership keys still refuse.
+Current app documents use distinct space/tab/tree-node ID namespaces, allowing a
+tab and its one-child row root to share an ID without allowing duplicate nodes.
+Retained `restore_pending` recovers through `remote-herdr recover` without journal
+edits; already-live clients, raw document and original exit/version checks remain.
+Native qualification distinguishes fixture-authored app-shaped documents from
+actual Desktop UI producer evidence. Fork A owns live recovery and pinning.
+
+The [remote default activation](features/remote-worktree-activation.md) initializes
+missing activation during explicit remote apply at the qualified exact home
+default only. Existing activation is never overwritten or automatically refreshed.
+Source-only foundation revisions retain valid activation through semantic policy
+identity or a validated legacy preimage; actual policy/version/filesystem drift
+still refuses allocation. [RRW-007H profile follow-ups](features/remote-profile-followups.md)
+also define `[data.dotfiles_ai.opencode] tab_bar_mode = "off"` for Mac and remote
+CLI tab bars (`auto`/`on`/`off`; empty leaves local mode unmanaged), and exact wrapper
+separator handling without automatic `--auto` after `--`. Fork A owns setup and rollout.
+
+The [remote OpenCode boot service](features/remote-opencode-service.md) starts the
+native shared service through the lingering user's default target without
+restarting healthy sessions during foundation reapply.
+
+The [remote Worktrunk policy](features/remote-worktrunk-policy.md) supplies the
+shared remote storage guard's policy. Explicit remote apply initializes absent
+activation at the qualified home-backed default; nondefault roots and stale
+existing bindings still require separate owner review.
+
+The [remote global mise baseline](features/remote-mise-toolchain.md) owns optional
+pinned Python for the frozen Prefect adapter. Project toolchains keep their own
+mise/uv selections; host Python remains for OS/host scripts.
+
+The [Codex runtime-state projection contract](features/codex-projection-runtime-state.md)
+preserves native UI/notice state during verified managed upgrades while rejecting
+edits to owned settings. Legacy migration remains conservative; live rollout and
+backward metadata migration are separately governed.
+
+## Shared global instructions
+
+The [global activation contract](features/global-agent-instructions.md) owns one
+portable source for OpenCode and Codex CLI/Desktop instructions. Global prompts
+govern skill activation; explicitly activated skills own their methods. Caveman
+Commit is the automatic formatting exception. Source delivery and authorized
+local rollout retain separate qualification evidence.
+
 The [PY-09 retained-CI precursor](features/validation-execution-performance.md#py-09-retained-ci-baseline-precursor)
 defines opt-in analysis of existing job metadata/logs through the shared evidence
 contract. It starts no CI jobs and changes no workflow, runtime or required-check
@@ -846,6 +931,12 @@ topology. The deployed Codex host/guest homes, managed
 launchers, desktop separation, install flow, and target transitions are
 canonical in [`features/codex-cli.md`](features/codex-cli.md); both views are
 required until Codex deployment updates this delivered topology.
+
+RRW-007F's remote-user activation and transfer boundaries are canonical in the
+[remote Herdr transition table](features/remote-herdr-runtime.md#visual-evidence)
+and its Text Equivalent. That view distinguishes the foundation binary owner,
+native process owners and serialized client transfer. It does not change the
+existing macOS/Fedora topology below or authorize live remote adoption.
 
 ```mermaid
 flowchart LR
