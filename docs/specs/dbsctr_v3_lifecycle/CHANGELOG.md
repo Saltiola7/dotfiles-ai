@@ -1,5 +1,54 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-11 — Reconcile Initiative retry guards with accepted rebased delivery
+
+- Preserve accepted rebased correspondence, receipt validation, original-source
+  retention and retirement checks while reconciling the retained retry draft.
+  Keep all prior source cycles, Gate Commits and failed/passed evidence.
+- Reuse existing native Initiative dispatch, its shared writer lease, lineage
+  protection and continuation privacy/adoption-backup checks. Specify only the
+  remaining filename/ID, locked binding and explicit completed-retry guards;
+  ordinary mutation admission and both external proof routes retain their owners.
+- Add eight handler lines for exact cycle identity and locked binding admission.
+  Source qualification covers 201 completion/retirement cases (197 unchanged
+  passing cases and four passing observer corrections), nine adjacent safety
+  cases, and 70 CI/performance tests with 11 subtests. Preserve the original
+  203-case run: 197 passed, five failed and one skipped. Two unchanged host
+  process-visibility checks reproduce on accepted main and remain unavailable
+  outside this source slice; removal remains refused. No Gate Exception.
+- Fresh Python 3.12/3.13/3.14 smokes produce 72 records and 48 profiles; isolated
+  helper apply, repeat and rollback pass. Delivery targets the existing draft
+  PR into `main`; exact commits and actual results remain in the Cycle Record.
+  Fresh current-base CI, revised-head approval and verified managed installation
+  remain separate. No consumer closure or runtime deployment is performed.
+
+## 2026-11-10 — Verified rebased completion (REBASE-COMPLETE-001)
+
+- Added explicit version-2 original-to-landed commit proof, native introducing-PR
+  identity and conflict-free per-commit replay. Original evidence and gate IDs
+  remain unchanged; private Git refs retain their objects after feature deletion.
+- Revalidate mapped default history and source custody for cleanup-history
+  eligibility while preserving all other guards and unavailable runtime controls.
+  Keep completed/finalizing native-cycle reconciliation under existing locks and
+  lineage protection. Version-1 exact-tree behavior remains compatible.
+- Real-Git tests cover attribution, refusals, GC retention, interrupted completion
+  and custody races on supported runtimes. Independent review findings are fixed.
+  Source commit `e67ff906ca20`; later gate/delivery identities remain in the Cycle
+  Record. No Gate Exception. Intended Final Push: draft feature PR into `main`.
+- Source-only: no managed activation, queue or CI feedback transport. A live
+  process-inventory smoke remains unavailable on this host and reproduces on the
+  unchanged base; removal remains refused. This is outside source qualification.
+
+## 2026-11-10 — Rebased delivery Discovery
+
+- Specified original-to-landed phase attribution, private source retention and
+  guarded retirement after a verified rebase, preserving original gate evidence.
+- Scoped the first source slice to existing completion/preservation interfaces;
+  recorded the CI-to-owning-agent repair loop and independently available queue
+  as adoption work for the existing validation owner.
+- Implementation, managed activation and launch feasibility remain unverified.
+  This is a documentation checkpoint, not a completed DBSCTR cycle or gate pass.
+
 ## 2026-11-10 — Requalify external completion on current main
 
 - Import the separately accepted Herdr changes into the existing external-retry

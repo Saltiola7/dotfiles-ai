@@ -989,6 +989,485 @@ def test_adopted_older_cycle_retains_schema_history_and_adoption_backup(ready, m
     assert backup.read_bytes() == legacy_bytes
 
 
+def rebased_tree(cycle, source, *, extra="unrelated base work\n", phase=None):
+    """Construct the integration tree independently of the replay verifier."""
+    core, root = cycle.core, cycle.root
+    index = Path(cycle.fixture.temp.name) / "rebased-fixture-index"
+    env = {**core.GIT_REPOSITORY_ENV, "GIT_INDEX_FILE": str(index)}
+    core.git(root, "read-tree", source, env=env)
+    contents = {"unrelated.txt": extra}
+    if phase is not None:
+        contents["phase.py"] = phase
+    for name, content in contents.items():
+        blob_file = Path(cycle.fixture.temp.name) / "rebased-fixture-blob"
+        blob_file.write_text(content)
+        blob = core.git(root, "hash-object", "-w", str(blob_file)).stdout.strip()
+        core.git(root, "update-index", "--add", "--cacheinfo", f"100644,{blob},{name}", env=env)
+    return core.git(root, "write-tree", env=env).stdout.strip()
+
+
+@pytest.fixture
+def rebased(cycle, monkeypatch, capsys, request):
+    core, root = cycle.core, cycle.root
+    sources = []
+    phases = (
+        ("domain", {"tracked.txt": "Domain work\n", "docs/specs/test/CHANGELOG.md": "Rebased phase history.\n"}),
+        ("behavior", {"phase.py": "def phase():\n    return 1\n"}),
+        ("spec", {"phase.py": "def phase():\n    return 2\n"}),
+    )
+    attribute = getattr(request, "param", None)
+    if attribute is not None:
+        assert attribute in {"merge", "filter"}
+        phases[0][1][".gitattributes"] = f"*.py {attribute}=fixture\n"
+    for gate, changes in phases:
+        for name, content in changes.items():
+            (root / name).write_text(content)
+        record_evidence(cycle, gate, paths=list(changes))
+        core.command_gate_commit(core.parser().parse_args([
+            "gate-commit", "--message", f"[{gate}] fixture phase", "--gates", gate,
+            "--paths", *changes,
+        ]))
+        sources.append(core.git(root, "rev-parse", "HEAD").stdout.strip())
+    for artifact, result in (("README", "unchanged"), ("BACKLOG", "unchanged"), ("CHANGELOG", "changed")):
+        review = ["review-artifact", artifact, "--result", result, "--reason", "fixture review"]
+        if result == "changed":
+            review.extend(["--path", "docs/specs/test/CHANGELOG.md"])
+        core.command_review(core.parser().parse_args(review))
+    for gate in core.GATES:
+        if gate not in {"domain", "behavior", "spec", "release"}:
+            record_evidence(cycle, gate)
+    cycle.sources = sources
+    cycle.head = sources[-1]
+    cycle.tree = core.git(root, "rev-parse", "HEAD^{tree}").stdout.strip()
+    base_tree = rebased_tree(cycle, cycle.base)
+    cycle.landed_base = core.git(root, "commit-tree", base_tree, "-p", cycle.base,
+                                 "-m", "Independent base change").stdout.strip()
+    parent = cycle.landed_base
+    cycle.landed = []
+    for source, (gate, _) in zip(sources, phases):
+        tree = rebased_tree(cycle, source)
+        parent = core.git(root, "commit-tree", tree, "-p", parent,
+                          "-m", f"[{gate}] fixture phase").stdout.strip()
+        cycle.landed.append(parent)
+    cycle.merge = parent
+    core.git(root, "update-ref", "refs/remotes/origin/main", cycle.merge)
+    cycle.native = NativeGitHub(core, root, cycle.landed_base, cycle.head, cycle.merge)
+    cycle.default_branch = "main"
+    cycle.introductions = {oid: [copy.deepcopy(cycle.native.pull)] for oid in cycle.landed}
+    original_read = cycle.native.json
+
+    def native_read(root, env, *arguments):
+        if arguments[-1] == f"repos/{REPOSITORY}":
+            cycle.native.calls.append(arguments)
+            return {"full_name": REPOSITORY, "default_branch": cycle.default_branch}
+        prefix, suffix = f"repos/{REPOSITORY}/commits/", "/pulls?per_page=2"
+        if arguments[-1].startswith(prefix) and arguments[-1].endswith(suffix):
+            cycle.native.calls.append(arguments)
+            oid = arguments[-1][len(prefix):-len(suffix)]
+            return copy.deepcopy(cycle.introductions.get(oid, []))
+        return original_read(root, env, *arguments)
+
+    monkeypatch.setattr(core, "github_environment", cycle.native.environment)
+    monkeypatch.setattr(core, "github_json", native_read)
+    capsys.readouterr()
+    return cycle
+
+
+def rebase_arguments(cycle, *extra):
+    return (*arguments(cycle), "--proof", "rebased_commits", *extra)
+
+
+def reject_rebased(cycle, capsys):
+    before = snapshot(cycle)
+    assert cycle.invoke(*rebase_arguments(cycle)) == 1
+    output = capsys.readouterr()
+    assert "dbsctrctl:" in output.err
+    assert "synthetic-token-never-print" not in output.out + output.err
+    assert snapshot(cycle) == before
+
+
+def replace_rebased_result(cycle, tree, parent):
+    cycle.merge = cycle.core.git(cycle.root, "commit-tree", tree, "-p", parent,
+                                  "-m", "Altered integration result").stdout.strip()
+    cycle.native.pull["merge_commit_sha"] = cycle.merge
+    cycle.core.git(cycle.root, "update-ref", "refs/remotes/origin/main", cycle.merge)
+
+
+def test_rebased_phases_preserve_original_evidence_and_landed_attribution(rebased, capsys):
+    before = json.loads(rebased.path.read_text())
+    assert rebased.invoke(*rebase_arguments(rebased)) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    record = rebased.core.read_cycle_record(rebased.root, rebased.path)
+    assert receipt == record["external_completion"]
+    assert receipt["schema_version"] == 2
+    assert receipt["proof"] == "rebased_commits"
+    assert receipt["landed_base"] == rebased.landed_base
+    assert receipt["commit_mapping"] == [
+        {"original": source, "landed": landed}
+        for source, landed in zip(rebased.sources, rebased.landed)
+    ]
+    assert all(source != landed for source, landed in zip(rebased.sources, rebased.landed))
+    assert receipt["head"] == rebased.head
+    assert receipt["tree"] == rebased.tree
+    assert receipt["merge"] == rebased.merge
+    assert receipt["source_retention_ref"] == "refs/dbsctr/evidence/cycle-1"
+    assert rebased.core.git(rebased.root, "rev-parse", receipt["source_retention_ref"]).stdout.strip() == rebased.head
+    assert rebased.core.git(rebased.root, "rev-parse", f"{rebased.merge}^{{tree}}").stdout.strip() != rebased.tree
+    for field in ("git", "worktree", "commits", "gates", "evidence", "artifact_reviews"):
+        assert record[field] == before[field]
+    assert not rebased.core.resolved_active_path(rebased.root, bindings=False).exists()
+
+
+def test_rebased_preview_has_no_completion_or_retention_ref_side_effects(rebased, capsys):
+    before = snapshot(rebased)
+    assert rebased.invoke(*rebase_arguments(rebased, "--preview")) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["proof"] == "rebased_commits"
+    assert snapshot(rebased) == before
+
+
+def test_rebased_retry_preserves_original_receipt_after_later_target_advance(rebased, capsys):
+    assert rebased.invoke(*rebase_arguments(rebased)) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    saved = rebased.path.read_bytes()
+    later = rebased.core.git(rebased.root, "commit-tree", f"{rebased.merge}^{{tree}}",
+                              "-p", rebased.merge, "-m", "Later target advance").stdout.strip()
+    rebased.core.git(rebased.root, "update-ref", "refs/remotes/origin/main", later)
+    assert rebased.invoke(*rebase_arguments(rebased, "--cycle-id", "cycle-1")) == 0
+    assert json.loads(capsys.readouterr().out) == receipt
+    assert rebased.path.read_bytes() == saved
+
+
+def test_rebased_ref_collision_preserves_original_owner(rebased, capsys):
+    ref = "refs/dbsctr/evidence/cycle-1"
+    rebased.core.git(rebased.root, "update-ref", ref, rebased.base)
+    reject_rebased(rebased, capsys)
+
+
+def test_rebased_existing_matching_retention_ref_recovers_after_interruption(rebased, capsys):
+    ref = "refs/dbsctr/evidence/cycle-1"
+    rebased.core.git(rebased.root, "update-ref", ref, rebased.head)
+    assert rebased.invoke(*rebase_arguments(rebased)) == 0
+    assert json.loads(capsys.readouterr().out)["source_retention_ref"] == ref
+
+
+def test_rebased_completed_ref_drift_is_not_silently_repaired(rebased, capsys):
+    assert rebased.invoke(*rebase_arguments(rebased)) == 0
+    capsys.readouterr()
+    rebased.core.git(rebased.root, "update-ref", "refs/dbsctr/evidence/cycle-1", rebased.base)
+    before = snapshot(rebased)
+    assert rebased.invoke(*rebase_arguments(rebased, "--cycle-id", "cycle-1")) == 1
+    capsys.readouterr()
+    assert snapshot(rebased) == before
+
+
+def test_rebased_intermediate_branch_is_not_ultimate_delivery(rebased, capsys):
+    rebased.default_branch = "production"
+    reject_rebased(rebased, capsys)
+
+
+@pytest.mark.parametrize("problem", ["squash", "drop", "edit", "whitespace", "reorder"])
+def test_rebased_non_corresponding_phase_history_is_retained(rebased, capsys, problem):
+    core, root = rebased.core, rebased.root
+    if problem == "squash":
+        tree, parent = rebased_tree(rebased, rebased.head), rebased.landed_base
+    elif problem == "drop":
+        tree, parent = rebased_tree(rebased, rebased.head), rebased.landed[0]
+    elif problem in {"edit", "whitespace"}:
+        phase = "def phase():\n    return 3\n" if problem == "edit" else "def phase():\n\treturn 2\n"
+        tree, parent = rebased_tree(rebased, rebased.head, phase=phase), rebased.landed[1]
+    else:
+        # The same final tree does not prove the intermediate phases survived.
+        first = core.git(root, "commit-tree", rebased_tree(rebased, rebased.sources[0]),
+                         "-p", rebased.landed_base, "-m", "Domain phase").stdout.strip()
+        middle = core.git(root, "commit-tree", rebased_tree(rebased, rebased.sources[2]),
+                          "-p", first, "-m", "Final behavior introduced early").stdout.strip()
+        tree, parent = rebased_tree(rebased, rebased.head), middle
+    replace_rebased_result(rebased, tree, parent)
+    reject_rebased(rebased, capsys)
+
+
+def test_rebased_pending_gate_cannot_be_closed_by_merged_pr(rebased, capsys):
+    record = json.loads(rebased.path.read_text())
+    record["gates"]["maintain_retire"]["result"] = "pending"
+    record["gates"]["maintain_retire"].pop("evidence", None)
+    rebased.path.write_text(json.dumps(record))
+    reject_rebased(rebased, capsys)
+
+
+@pytest.mark.parametrize("problem", ["dirty", "native-parent", "native-head"])
+def test_rebased_changed_source_or_native_identity_is_retained(rebased, capsys, problem):
+    if problem == "dirty":
+        (rebased.root / "tracked.txt").write_text("Uncommitted retained work\n")
+    elif problem == "native-parent":
+        rebased.native.commit_override = {"parents": [{"sha": rebased.base}]}
+    else:
+        rebased.native.pull["head"]["sha"] = rebased.base
+    reject_rebased(rebased, capsys)
+
+
+@pytest.mark.parametrize("shape", ["empty", "merge"])
+def test_rebased_non_linear_or_empty_source_is_not_partially_attributed(rebased, capsys, shape):
+    core, root = rebased.core, rebased.root
+    source_args = ["commit-tree", rebased.tree, "-p", rebased.head]
+    if shape == "merge":
+        source_args[1] = rebased_tree(rebased, rebased.head)
+        source_args.extend(["-p", rebased.landed_base])
+    source = core.git(root, *source_args, "-m", f"Recorded {shape} source commit").stdout.strip()
+    core.git(root, "update-ref", "refs/heads/" + core.branch(root), source, rebased.head)
+    core.git(root, "read-tree", "--reset", "-u", source)
+    record = json.loads(rebased.path.read_text())
+    record["commits"].append({"id": source, "gates": []})
+    rebased.path.write_text(json.dumps(record))
+    rebased.head = source
+    rebased.tree = core.git(root, "rev-parse", "HEAD^{tree}").stdout.strip()
+    rebased.native.pull["head"]["sha"] = source
+    for gate in core.GATES:
+        if gate != "release":
+            record_evidence(rebased, gate)
+    # Count and terminal contents are still consistent; the unsupported source
+    # shape itself must not receive a fabricated correspondence.
+    replace_rebased_result(rebased, rebased_tree(rebased, source), rebased.landed[-1])
+    capsys.readouterr()
+    reject_rebased(rebased, capsys)
+
+
+def test_rebased_interrupted_pointer_removal_keeps_receipt_and_source_ref(rebased, monkeypatch, capsys):
+    core, root = rebased.core, rebased.root
+    pointer = core.resolved_active_path(root, bindings=False)
+    original_unlink = Path.unlink
+
+    def interrupted(path, *args, **kwargs):
+        if path == pointer:
+            raise OSError("fixture interruption")
+        return original_unlink(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", interrupted)
+        assert rebased.invoke(*rebase_arguments(rebased)) == 1
+    assert "fixture interruption" in capsys.readouterr().err
+    durable = rebased.path.read_bytes()
+    receipt = json.loads(durable)["external_completion"]
+    assert receipt["proof"] == "rebased_commits"
+    assert core.git(root, "rev-parse", receipt["source_retention_ref"]).stdout.strip() == rebased.head
+    assert pointer.exists()
+    assert rebased.invoke(*rebase_arguments(rebased)) == 0
+    assert json.loads(capsys.readouterr().out) == receipt
+    assert rebased.path.read_bytes() == durable
+    assert not pointer.exists()
+
+
+def test_rebased_evidence_ref_keeps_original_commits_after_feature_refs_and_gc(rebased, capsys):
+    assert rebased.invoke(*rebase_arguments(rebased)) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    core = rebased.core
+    mirror = Path(rebased.fixture.temp.name) / "retention-proof.git"
+    core.git(rebased.root, "clone", "--mirror", "--no-local",
+             str(core.common_git_dir(rebased.root)), str(mirror))
+    refs = core.git(mirror, "for-each-ref", "--format=%(refname)").stdout.splitlines()
+    for ref in refs:
+        if ref != receipt["source_retention_ref"]:
+            core.git(mirror, "update-ref", "-d", ref)
+    core.git(mirror, "reflog", "expire", "--expire=now", "--all")
+    core.git(mirror, "gc", "--prune=now")
+    assert core.git(mirror, "for-each-ref", "--format=%(refname)").stdout.splitlines() == [receipt["source_retention_ref"]]
+    for original in rebased.sources:
+        assert core.git(mirror, "cat-file", "-t", original).stdout.strip() == "commit"
+
+
+def test_rebased_phase_already_introduced_by_prior_pr_is_not_attributed_again(rebased, capsys):
+    # Walking three commits backwards and replaying all three deltas still
+    # matches perfectly. The first one was introduced by an earlier PR, though;
+    # this current PR only adds the last two, so it did not preserve all phases.
+    rebased.native.pull["base"]["sha"] = rebased.landed[0]
+    for oid in rebased.landed:
+        rebased.introductions[oid] = [copy.deepcopy(rebased.native.pull)]
+    older = copy.deepcopy(rebased.native.pull)
+    older.update(number=NUMBER - 1, html_url=f"https://github.com/{REPOSITORY}/pull/{NUMBER - 1}",
+                 merged_at="2026-07-11T12:00:00Z")
+    rebased.introductions[rebased.landed[0]] = [older]
+    reject_rebased(rebased, capsys)
+
+
+@pytest.mark.parametrize("membership", ["absent", "ambiguous", "foreign"])
+def test_rebased_landed_commit_requires_one_native_introducing_pr(rebased, capsys, membership):
+    current = copy.deepcopy(rebased.native.pull)
+    if membership == "absent":
+        introductions = []
+    elif membership == "ambiguous":
+        introductions = [current, copy.deepcopy(current)]
+    else:
+        current["base"]["repo"]["full_name"] = "another-owner/another-repository"
+        introductions = [current]
+    rebased.introductions[rebased.landed[1]] = introductions
+    reject_rebased(rebased, capsys)
+
+
+@pytest.mark.parametrize("changed", ["source", "record", "pointer"])
+def test_rebased_change_during_source_ref_creation_is_never_overwritten(rebased, monkeypatch, capsys, changed):
+    core, root = rebased.core, rebased.root
+    pointer = core.resolved_active_path(root, bindings=False)
+    before_record, before_pointer = rebased.path.read_bytes(), pointer.read_bytes()
+    original_git = core.lineage_git
+    external_record = None
+    mutations = 0
+
+    def ref_write(target, *args):
+        nonlocal external_record, mutations
+        result = original_git(target, *args)
+        if args[:3] == ("update-ref", "--no-deref", "refs/dbsctr/evidence/cycle-1"):
+            mutations += 1
+            if changed == "source":
+                (root / "tracked.txt").write_text("Concurrent uncommitted source edit\n")
+            elif changed == "record":
+                record = json.loads(rebased.path.read_text())
+                record["metrics"]["remediation_round_count"] += 1
+                external_record = json.dumps(record).encode()
+                rebased.path.write_bytes(external_record)
+            else:
+                pointer.write_text("other-cycle\n")
+        return result
+
+    monkeypatch.setattr(core, "lineage_git", ref_write)
+    assert rebased.invoke(*rebase_arguments(rebased)) == 1
+    assert "dbsctrctl:" in capsys.readouterr().err
+    assert mutations == 1
+    assert rebased.path.read_bytes() == (external_record if changed == "record" else before_record)
+    assert pointer.read_bytes() == (b"other-cycle\n" if changed == "pointer" else before_pointer)
+    assert json.loads(rebased.path.read_text())["state"] != "completed"
+    if changed == "source":
+        assert (root / "tracked.txt").read_text() == "Concurrent uncommitted source edit\n"
+    # Keeping this orphan is safe; completing over the competing state is not.
+    assert core.git(root, "rev-parse", "refs/dbsctr/evidence/cycle-1").stdout.strip() == rebased.head
+
+
+@pytest.mark.parametrize("state", ["completed", "finalizing"])
+def test_rebased_native_dispatch_allows_handler_owned_completion_states(rebased, monkeypatch, capsys, state):
+    core, root = rebased.core, rebased.root
+    pointer = core.resolved_active_path(root, bindings=False)
+    if state == "completed":
+        assert rebased.invoke(*rebase_arguments(rebased)) == 0
+        capsys.readouterr()
+        before = rebased.path.read_bytes()
+        assert not pointer.exists()
+    else:
+        record = json.loads(rebased.path.read_text())
+        record["state"] = "finalizing"
+        rebased.path.write_text(json.dumps(record))
+        before = None
+    monkeypatch.setattr(core, "local_dispatch_selection", lambda args: (
+        root, pointer, rebased.path, core.read_cycle_record(root, rebased.path, historical=True)))
+    extra = ("--cycle-id", "cycle-1") if state == "completed" else ()
+    assert rebased.invoke(*rebase_arguments(rebased, *extra)) == 0
+    assert json.loads(capsys.readouterr().out)["proof"] == "rebased_commits"
+    assert json.loads(rebased.path.read_text())["state"] == "completed"
+    assert not pointer.exists()
+    if before is not None:
+        assert rebased.path.read_bytes() == before
+
+
+def test_rebased_native_dispatch_preserves_pending_lineage_guard(rebased, monkeypatch, capsys):
+    core, root = rebased.core, rebased.root
+    pointer = core.resolved_active_path(root, bindings=False)
+    monkeypatch.setattr(core, "local_dispatch_selection", lambda args: (
+        root, pointer, rebased.path, core.read_cycle_record(root, rebased.path, historical=True)))
+    called = []
+
+    def pending(target, record):
+        assert target == root and record["cycle_id"] == "cycle-1"
+        called.append(True)
+        raise RuntimeError("prepared lineage recovery requires reconciliation")
+
+    monkeypatch.setattr(core, "lineage_pending_guard", pending)
+    before = snapshot(rebased)
+    assert rebased.invoke(*rebase_arguments(rebased)) == 1
+    assert "prepared lineage recovery requires reconciliation" in capsys.readouterr().err
+    assert called == [True]
+    assert snapshot(rebased) == before
+    assert rebased.native.calls == []
+
+
+@pytest.mark.parametrize("setting", ["merge.fixture.driver", "filter.fixture.clean"])
+def test_rebased_configured_executable_transform_is_refused_without_execution(rebased, capsys, setting):
+    marker = Path(rebased.fixture.temp.name) / "transform-executed"
+    rebased.core.git(rebased.root, "config", "--local", setting, f"touch '{marker}'")
+    reject_rebased(rebased, capsys)
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("rebased", ["merge", "filter"], indirect=True)
+def test_rebased_declared_transform_attributes_are_refused(rebased, capsys):
+    reject_rebased(rebased, capsys)
+
+
+def test_rebased_grafts_are_refused(rebased, capsys):
+    core, root = rebased.core, rebased.root
+    graft = Path(core.git(root, "rev-parse", "--git-path", "info/grafts").stdout.strip())
+    graft = graft if graft.is_absolute() else root / graft
+    graft.parent.mkdir(parents=True, exist_ok=True)
+    graft.write_text(rebased.head + " " + rebased.base + "\n")
+    reject_rebased(rebased, capsys)
+
+
+@pytest.mark.parametrize("field", ["head", "merge_parent"])
+def test_rebased_malformed_receipt_object_identity_fails_closed(rebased, capsys, field):
+    assert rebased.invoke(*rebase_arguments(rebased)) == 0
+    capsys.readouterr()
+    record = json.loads(rebased.path.read_text())
+    record["external_completion"][field] = [rebased.head]
+    rebased.path.write_text(json.dumps(record))
+    before = snapshot(rebased)
+    rebased.native.calls.clear()
+    assert rebased.invoke(*rebase_arguments(rebased, "--cycle-id", "cycle-1")) == 1
+    assert "invalid external completion" in capsys.readouterr().err
+    assert snapshot(rebased) == before
+    assert rebased.native.calls == []
+
+
+
+@pytest.mark.parametrize("field", ["head", "merge_parent"])
+def test_rebased_correspondence_relationships_are_validated_on_record_read(rebased, capsys, field):
+    assert rebased.invoke(*rebase_arguments(rebased)) == 0
+    capsys.readouterr()
+    record = json.loads(rebased.path.read_text())
+    record["external_completion"][field] = rebased.sources[0] if field == "head" else rebased.base
+    rebased.path.write_text(json.dumps(record))
+    before = snapshot(rebased)
+    rebased.native.calls.clear()
+    assert rebased.invoke(*rebase_arguments(rebased, "--cycle-id", "cycle-1")) == 1
+    assert "invalid rebased completion correspondence" in capsys.readouterr().err
+    assert snapshot(rebased) == before
+    assert rebased.native.calls == []
+
+
+
+@pytest.mark.parametrize("changed", ["drift", "missing"])
+def test_rebased_retention_changed_during_final_source_check_blocks_completion(rebased, monkeypatch, capsys, changed):
+    core, root = rebased.core, rebased.root
+    pointer = core.resolved_active_path(root, bindings=False)
+    before_record, before_pointer = rebased.path.read_bytes(), pointer.read_bytes()
+    original_source = core.external_source
+    calls = 0
+
+    def inspect_source(*args):
+        nonlocal calls
+        result = original_source(*args)
+        calls += 1
+        if calls == 2:
+            ref = "refs/dbsctr/evidence/cycle-1"
+            if changed == "missing":
+                core.git(root, "update-ref", "-d", ref)
+            else:
+                core.git(root, "update-ref", ref, rebased.base)
+        return result
+
+    monkeypatch.setattr(core, "external_source", inspect_source)
+    assert rebased.invoke(*rebase_arguments(rebased)) == 1
+    assert "source retention ref" in capsys.readouterr().err
+    assert calls == 2
+    assert rebased.path.read_bytes() == before_record
+    assert pointer.read_bytes() == before_pointer
+
 @pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
 @pytest.mark.parametrize("preview", [False, True], ids=["retry", "preview"])
 def test_native_initiative_external_completion_and_completed_retry(ready, capsys, preview):
@@ -1221,7 +1700,7 @@ def assert_lineage_blocks_external(cycle, monkeypatch, capsys, preview, message)
     custody_reads, credential_reads = [], []
 
     def observe_custody(target, identifier):
-        assert target == root and identifier == "cycle-1"
+        assert target.resolve() == root.resolve() and identifier == "cycle-1"
         with lease.open("r+") as stream:
             with pytest.raises(BlockingIOError):
                 fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1319,3 +1798,60 @@ def test_native_initiative_plan_only_lineage_custody_allows_external_completion(
         assert snapshot(ready) == before
     else:
         assert json.loads(ready.path.read_text())["state"] == "completed"
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("drift", ["delivery", "worktree", "execution", "completed-predicate"])
+def test_native_initiative_revalidates_admission_after_evidence_lock(
+        ready, monkeypatch, capsys, drift):
+    """A valid record drift before the locked reread must precede credentials."""
+    import contextlib
+
+    core = ready.core
+    if drift == "completed-predicate":
+        assert ready.invoke(*arguments(ready)) == 0
+        capsys.readouterr()
+    original_lock = core.evidence_lock
+    observed = {"injected": False, "credentials": [], "snapshot": None}
+    native_reads = len(ready.native.calls)
+
+    @contextlib.contextmanager
+    def changed_after_lock(target, identifier, *args, **kwargs):
+        with original_lock(target, identifier, *args, **kwargs):
+            if identifier == "cycle-1" and not observed["injected"]:
+                changed = json.loads(ready.path.read_text())
+                if drift == "delivery":
+                    changed["delivery"]["github"]["account"] = "other-synthetic-user"
+                elif drift == "worktree":
+                    changed["worktree"]["created_by_dbsctr"] = not changed["worktree"]["created_by_dbsctr"]
+                elif drift == "execution":
+                    changed.pop("execution")
+                else:
+                    changed["state"] = "finalizing"
+                    for name in ("external_completion", "completed_at", "source_sync"):
+                        changed.pop(name, None)
+                ready.path.write_text(json.dumps(changed))
+                # Real validation admits this historical record; schema failure
+                # must not masquerade as the handler's binding revalidation.
+                assert core.read_cycle_record(ready.root, ready.path, historical=True) == changed
+                observed["injected"] = True
+                observed["snapshot"] = snapshot(ready)
+            yield
+
+    def observed_environment(account):
+        observed["credentials"].append(account)
+        raise AssertionError("Credential read preceded locked admission revalidation")
+
+    monkeypatch.setattr(core, "evidence_lock", changed_after_lock)
+    monkeypatch.setattr(core, "github_environment", observed_environment)
+    extra = ["--cycle-id", "cycle-1"] if drift == "completed-predicate" else []
+    assert ready.invoke(*arguments(ready, *extra)) == 1
+    output = capsys.readouterr()
+    assert observed["injected"]
+    expected = ("explicit cycle ID requires an already externally completed record"
+                if drift == "completed-predicate" else "binding changed")
+    assert expected in output.err
+    assert not observed["credentials"]
+    assert len(ready.native.calls) == native_reads
+    assert snapshot(ready) == observed["snapshot"]
+    assert "synthetic-token-never-print" not in output.out + output.err

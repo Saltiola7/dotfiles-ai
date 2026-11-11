@@ -1,5 +1,13 @@
 # DBSCTR V3 Lifecycle
 
+[Verified rebased delivery](features/rebased-delivery.md) adds explicit
+`complete-external --proof rebased_commits` source support. It retains original
+phase IDs/evidence, verifies each landed change and native introducing PR, and
+preserves original objects through a private evidence ref. Cleanup-history
+verification rechecks that custody and correspondence; other runtime guards
+remain authoritative. Managed activation and queue/CI feedback adoption stay
+with the existing owners through the delivery Initiative handoff.
+
 [Retained cross-repository Initiative authority](features/cross-repository-initiative-amendment.md)
 extends the amendment route for a separate coordinator checkout without importing
 its documents into the Build repository. Exact approval, retained native custody,
@@ -158,8 +166,10 @@ an identical-tree squash, without pushing or creating another draft. Existing
 completion gates, evidence and source ownership remain required. `--preview`
 verifies without completing; `--cycle-id` verifies/retries an already externally
 completed record, including a native Initiative whose active pointer was removed.
-The completion handler owns the shared mutation lease before evidence/target
-locks; generic active-only admission does not preempt completed recovery.
+Native Initiative completion reuses the existing generic shared mutation lease
+and continuation checks. The handler verifies the requested cycle and filename,
+then rereads delivery, worktree and execution bindings under evidence/target
+locks; completed retries retain the original receipt.
 This proof grants no merge, deployment or checkout-removal
 authority and does not change automatic delivery's merge-only execution contract.
 
