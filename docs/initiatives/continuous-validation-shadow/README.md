@@ -60,7 +60,10 @@ maintenance pins and authorized disposal.
 
 ## Deferred work
 
-Controlled remote execution and authoritative local-evidence admission are explicitly deferred. They do not block measuring an advisory local pilot, and they cannot be represented as delivered.
+Controlled remote execution was deferred from the local source slice. The
+separately bounded `remote-ci-bridge` extension below now selects its generic
+contract. Other remote targets, provisioning and scaling remain deferred, as
+does authoritative local-evidence admission. None is represented as delivered.
 
 ## Visual Evidence
 
@@ -132,3 +135,48 @@ existing receipt/preflight route. Targeted private deployment and merge require
 the selected checks and native protections; preflight never registers a cycle or
 implements the repair. Oversized-journal recovery tools, compact public responses
 and adjacent store-count admission remain outside this slice.
+
+## Trusted native remote bridge extension
+
+The operator approved the existing owner split: continuous validation owns
+shared execution, snapshots, scheduling, telemetry, the default-off flag and
+checkpoint/feedback integration; consumers retain checks and infrastructure.
+Existing lifecycle, native control planes and distribution keep their adjacent
+responsibilities. Concrete endpoints, identities and resource values stay in
+the consumer repository.
+
+[remote-ci-bridge](../../specs/continuous_validation/features/remote-ci-bridge.md)
+and [REMOTE-BRIDGE.plan.json](REMOTE-BRIDGE.plan.json) define an elevated-risk,
+source-only delivery. Reuse the merged local runner, pinned Python Dagger SDK,
+immutable snapshots, observations, storage and qualified CLI feedback. Earlier
+unmerged worker code is candidate reuse, not a prerequisite or activation grant.
+New requirement IDs preserve allocations held by retained earlier work.
+
+The selected transport is native Dagger RPC. Lightweight Python control stays
+local; containers execute on the consumer VM. The non-login CI account owns an
+ephemeral private Unix relay to the administrator-managed privileged engine.
+The admitted human's existing IAP SSH route forwards a private local Unix socket
+to that relay. Native Dagger handles source sync, execution, logs and exports;
+there is no custom bulk protocol, remote SDK client, job broker or second
+scheduler. Temporary engine API capability is explicitly accepted for trusted
+operator-enrolled code; it is not check-only RBAC or hostile-code isolation.
+
+Only small host lifecycle controls remain: qualify the existing profile, grant
+a bounded execution lease, report status and stop exact owned engine/relay state.
+Independent deadlines and existing hard quotas remain consumer-owned. Missing
+support refuses execution; ordinary checks never enable quotas, change host
+configuration, start a stopped VM or discover another endpoint. An unknown
+cleanup result keeps admission charged. Review the trust decision before
+expanding submitters or automatic PR execution.
+
+Source readiness is separate from runtime activation. A later explicitly
+approved pilot must qualify the actual account/socket/IAP path, all write-path
+quotas, aggregate resource enforcement, independent expiry, quiet-job idle
+coordination, native affected/full execution and promised exact-session feedback.
+Matched comparison preserves existing required CI and formal gate authority.
+No measured speedup, installed capability or runtime gate pass is claimed here.
+
+Publication/instruction checks cover the complete indexed candidate closure.
+Build obtains a fresh receipt and exact digest-bound preflight in its explicit
+clean task checkout before registration; launch feasibility is unverified until
+then. Discovery starts no worker, registers no cycle and authorizes no rollout.
