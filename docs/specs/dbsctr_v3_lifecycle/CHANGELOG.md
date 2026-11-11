@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-10 — Rebased delivery Discovery
+
+- Specified original-to-landed phase attribution, private source retention and
+  guarded retirement after a verified rebase, preserving original gate evidence.
+- Scoped the first source slice to existing completion/preservation interfaces;
+  recorded the CI-to-owning-agent repair loop and independently available queue
+  as adoption work for the existing validation owner.
+- Implementation, managed activation and launch feasibility remain unverified.
+  This is a documentation checkpoint, not a completed DBSCTR cycle or gate pass.
+
 ## 2026-11-05 — Retained coordinator amendments (CROSS-REPO-AMEND-001)
 
 - Added version-2 Initiative amendments for an existing Build cycle whose
