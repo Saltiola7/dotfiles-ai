@@ -1,5 +1,22 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-10 — Reconcile Python qualification with current main
+
+- Preserve the approved Python runtime qualification alongside current main's
+  runtime-owner documentation, lifecycle commands, skill activation and remote
+  runtime changes. All thirteen PY-08 requirements and the root support floor,
+  PR/main selection and weekly/manual Python 3.15 target remain intact.
+- The combined source passed 185 focused tests and 65 subtests on each of Python
+  3.12 and 3.15. The remaining Codex lock fixture also passed on both runtimes
+  after isolating its synthetic Git commit from host signing configuration.
+  Retain the earlier timeout and environment failure as historical evidence.
+- Preserve current-main Python 3.12–3.14 help oracles; observe the combined
+  helper's actual Python 3.15 output before binding its oracle and helper hash.
+  Existing deployed runtime pins remain owned by their respective installers.
+- Fresh hosted qualification remains required before ordinary protected merge
+  of PR #276. Candidate publication targets only the recorded feature branch;
+  it is not Final Push, runtime deployment or a gate exception.
+
 ## 2026-11-09 — Remote profile follow-ups (RRW-007H)
 
 - Add per-user `opencode.tab_bar_mode` for managed Mac/remote CLI `tabs.mode`:
