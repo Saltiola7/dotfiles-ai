@@ -1,7 +1,9 @@
 """Whole-selection storage admission and generation freshness contracts."""
 
 import json
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -435,7 +437,32 @@ def test_compute_admission_deferral_still_consumes_observation_slot(configured, 
     state = Path(value["state_dir"])
     seed_observations(state, 199)
     select_checks(monkeypatch, ["slow"])
-    private_json(path, {**value, "admission_timeout_seconds": 0.1})
+    original_slot = runner.Budget.slot
+    admission_timeout = runner.load_enrollment(path)["admission_timeout_seconds"]
+    elapsed = 0.0
+    admitted_kinds = []
+
+    def advance(seconds):
+        nonlocal elapsed
+        # Model a queued wait resuming after its deadline without real sleeps.
+        elapsed += admission_timeout + seconds
+
+    @contextmanager
+    def slot(budget, kind, *args, **kwargs):
+        admitted_kinds.append(kind)
+        if kind == "expensive":
+            # Only admission waits use virtual time; adapter subprocesses and
+            # cheap preparation keep their real clock and configured deadline.
+            with monkeypatch.context() as clock:
+                clock.setattr(runner, "time", SimpleNamespace(
+                    monotonic=lambda: elapsed, sleep=advance))
+                with original_slot(budget, kind, *args, **kwargs) as queued:
+                    yield queued
+        else:
+            with original_slot(budget, kind, *args, **kwargs) as queued:
+                yield queued
+
+    monkeypatch.setattr(runner.Budget, "slot", slot)
     monkeypatch.setattr(runner, "pressure", lambda _: True)
     executions = watch_executions(monkeypatch)
 
@@ -450,6 +477,8 @@ def test_compute_admission_deferral_still_consumes_observation_slot(configured, 
     assert deferred["executed"] is False
     assert deferred["cache_reused"] is False
     assert executions == []
+    assert admitted_kinds == ["cheap", "expensive"]
+    assert elapsed > admission_timeout
     assert len(retained_records(state)) == 200
     assert_capacity_refusal(runner.run_request({
         **request(path, "checkpoint"), "request_id": "after-deferred-slot"}))
