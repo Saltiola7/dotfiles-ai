@@ -113,3 +113,13 @@ checkout, removes dirty work, or bypasses failed or pending checks.
 - No squash or rebase merge support in the first delivery contract.
 - No mutation of repositories that do not opt in.
 - No attempt to move one OpenCode session identity between worktree paths.
+
+## Durable coordination amendment
+
+[INTEGRATION-COORDINATOR.md](INTEGRATION-COORDINATOR.md) extends the approved
+context map with one shared GitHub-hosted coordinator and per-repository adapters.
+Its first release preserves current CI triggers; Dagger stays a separately opted-in
+shadow observer. The current delivery work owns coordinator/native adoption; the
+validation owner consumes the handoff. Source, personal installation and hosted
+activation remain distinct. Earlier merge-commit-only and cleanup assumptions
+remain historical contracts, not authority for the new rebase coordinator.

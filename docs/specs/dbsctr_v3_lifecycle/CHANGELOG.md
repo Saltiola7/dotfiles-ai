@@ -55,6 +55,10 @@
   PR into `main`; exact commits and actual results remain in the Cycle Record.
   Fresh current-base CI, revised-head approval and verified managed installation
   remain separate. No consumer closure or runtime deployment is performed.
+
+## 2026-11-11 — Durable coordinator Discovery
+
+- Specify one portable per-target coordinator, durable admission, native guards, rebase attribution and same-slot operator fallback. Keep source-only core, later hooks and live enrollment distinct; existing CI triggers and Dagger shadow authority are preserved.
 ## 2026-11-11 — Forgejo transport cleanup race
 
 - Reap an exited child before group signaling and retry the exit race once;
