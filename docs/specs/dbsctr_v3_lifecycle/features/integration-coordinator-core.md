@@ -57,14 +57,31 @@ A later source version/adoption contract must qualify code-changing resubmission
 
 Pure operations: request, admit, claim, wait for operator, invalidate candidate,
 record failure, reserve merge, mark uncertain, resolve no-effect and record delivery.
-Each returns a new Snapshot. Admission/qualification/no-effect/delivery arguments
+Each returns a new Snapshot. Admission receipt digests and complete no-effect
+references remain in the ticket. Delivery callbacks bind both reserved operation
+and invocation IDs; reconciled operation IDs cannot be reused. Generation and
+native mutation identity remain separate fences.
+
+| Record | Important serialized bindings |
+|---|---|
+| SourceSeries | repository/PR, head, ordered phase commits, separate wrappers, authority digest |
+| Candidate | generation, source digest, head/base/tested object and parents/tree, plan and policy digests |
+| Ticket | handle, immutable source/requester, state/sequence/generation, admission digest, candidate/qualification/reservation, retained reconciliations, delivery/failure references |
+| Target | repository/default branch, ledger root/policy, generation/next sequence, queue/active handle/count and last append operation |
+| AppendRequest | immutable before/committed snapshots; exact additions are derived from a replay-validated single transition |
+
+Admission/qualification/no-effect/delivery arguments
 are bound references supplied by qualified ports later; they are not native proof
 merely because constructed or decoded. The current default path never invokes them
 against GitHub. No clocks, age-based lease, retry worker or network client is added.
 
 `build_append(before, after, expected_head, control_branch, operation_id)` returns
 GraphQL `createCommitOnBranch` input, including `branchName`, `expectedHeadOid`,
-bounded base64 additions and correlation ID. It never calls GitHub. Native CAS,
+bounded base64 additions and correlation ID. Default/control branch names are
+canonical unqualified names; the control branch cannot equal the default. The
+last append operation is committed into Target; client correlation alone is
+insufficient. Additions cannot omit required ticket writes or add arbitrary paths.
+It never calls GitHub. Native CAS,
 ledger rules/root continuity, uncertain append reconciliation and provenance must
 be qualified by the later persistence owner; clientMutationId is correlation,
 not native deduplication. Source-only fixtures prove neither persistence nor
@@ -95,6 +112,12 @@ Both raw input and canonical writes enforce bounds. Nested dataclass serializati
 is canonical JSON; decoding and encoding preserve content and immutable aliases.
 Unknown errors do not echo payloads. Parser recursion errors are bounded refusals.
 
+Before reserving a native mutation, qualify canonical byte capacity for every
+possible uncertain/delivered/no-effect outcome and one additional retained
+reconciliation. Exhausted count or byte headroom blocks before reservation. Size
+envelopes are never admitted as receipts or evidence. No phase mapping or history
+is truncated to fit a native result after the effect occurred.
+
 A stale generation, occupied slot, foreign PR/source/policy, incompatible duplicate,
 capacity limit, missing qualification or outstanding reservation refuses atomically.
 Delivery requires all original phase IDs in order, unique landed IDs, matching PR
@@ -113,7 +136,8 @@ Source rollback removes only these new unused files through normal reviewed Git.
 It changes no installed generation, state branch or ongoing task. Future schema
 or supported-runtime changes require explicit compatibility qualification. The
 lifecycle maintainer owns failures and security intake; do not retire retained
-sources/receipts or bootstrap a missing ledger. No Release/Deploy/Operate applies
+sources/receipts or bootstrap a missing ledger. Documentation-only Refactor changes no executable type-bearing artifacts and
+reuses the unchanged implementation checks. No Release/Deploy/Operate applies
 to this draft source slice. Maintain/Retire retains the original custody boundaries.
 
 ## Visual Evidence

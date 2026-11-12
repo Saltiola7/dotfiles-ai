@@ -4009,3 +4009,9 @@ authoritative and Dagger remains shadow-only. Existing recommendation schema 1,
 blocked runtime checks and narrow local completion APIs retain their semantics.
 New source, lifecycle hooks, distribution and live activation are separate slices;
 no installed capability or unattended merge is claimed by this Discovery.
+
+The [offline core source contract](features/integration-coordinator-core.md)
+defines the first implemented foundation: immutable records, guarded transitions,
+expected-head append input and bounded offline validation/status. Native adapters,
+lifecycle hooks and runtime enrollment remain separate. Source JSON and fixture
+receipts confer no native check, merge, completion or cleanup authority.
