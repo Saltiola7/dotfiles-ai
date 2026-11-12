@@ -148,6 +148,12 @@ intact; no checker runtime, skill, module or shared wrapper was added.
 
 ## Effective Initiative authority source interface
 
+The [published-feature follow-up prerequisite](features/published-feature-followup.md)
+specifies explicit new-cycle admission on one existing published GitHub PR head,
+with digest-bound Initiative approval and accepted-default reconciliation. It
+preserves prior completed cycles and does not claim installed qualification or
+waive native CI, exact-head merge approval, managed activation or data safeguards.
+
 [Digest-bound authority amendment](features/initiative-authority-amendment.md)
 defines the narrow source interface for explicitly updating effective
 Initiative authority on an existing ACTIVE native-owned schema 3/4/5/6 cycle.
