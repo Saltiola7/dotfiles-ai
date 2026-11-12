@@ -56,6 +56,31 @@
   Fresh current-base CI, revised-head approval and verified managed installation
   remain separate. No consumer closure or runtime deployment is performed.
 
+## 2026-11-11 — Offline integration coordinator core
+
+- Add immutable closed records, FIFO admission and a single fenced candidate,
+  retained native-operation identities, original phase correspondence and guarded
+  expected-head append construction. The offline CLI validates structure/status;
+  live operations return unavailable before input or credentials are read.
+- Replay one legal transition and derive its complete write set; reject default
+  branch aliases, arbitrary paths, stale callbacks and reused operation IDs.
+  Qualify byte/count headroom for every native outcome before reservation without
+  truncating mapping or reconciliation history. Independent review findings have
+  focused red regressions and passing replacements; no blocker remains in scope.
+- Validation: 38 focused cases including generated serialization and outcome
+  headroom properties; 130 scoped/publication cases pass with one existing skip.
+  All five new Python artifacts are checked by the selected ty in both 3.12 and
+  3.14 target environments, with no suppressions or diagnostics. Actual Python
+  3.12/3.14 compilation and offline CLI smokes pass. No dependency or CI change.
+- Source gates: contracts `572ed544`, implementation `b55dcf03`, documentation
+  Refactor `2d92bd7d`; final review/maintenance identity and actual Final Push are
+  retained in the private Cycle Record. No Gate Exception. Release, Deploy and
+  Operate are not applicable to this draft source slice; installation, hosted
+  adapters, lifecycle hooks, credentials and activation remain separate.
+- README and existing follow-up ownership are reviewed. Preserve records/source
+  custody and existing Dagger guidance; no cleanup or schema migration is granted.
+  Intended delivery is the recorded feature branch and draft PR into `main`.
+
 ## 2026-11-11 — Durable coordinator Discovery
 
 - Specify one portable per-target coordinator, durable admission, native guards, rebase attribution and same-slot operator fallback. Keep source-only core, later hooks and live enrollment distinct; existing CI triggers and Dagger shadow authority are preserved.
