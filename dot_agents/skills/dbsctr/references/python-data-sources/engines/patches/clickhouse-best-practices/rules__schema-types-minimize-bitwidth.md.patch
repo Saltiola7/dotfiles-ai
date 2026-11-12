@@ -1,0 +1,17 @@
+--- a/rules/schema-types-minimize-bitwidth.md
++++ b/rules/schema-types-minimize-bitwidth.md
+@@ -5,11 +5,13 @@
+ tags: [schema, data-types, numeric, storage]
+ ---
+ 
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
++
+ ## Minimize Bit-Width for Numeric Types
+ 
+ **Impact: HIGH**
+ 
+-Select the smallest numeric type that accommodates your data range. Prefer unsigned types when negative values aren't needed.
++Select a numeric type that accommodates the validated domain range, foreseeable growth, signedness and intermediate arithmetic. Current sample maxima alone do not justify narrowing a public schema. Prefer unsigned types when negative values aren't needed.
+ 
+ **Incorrect (oversized types):**
+ 

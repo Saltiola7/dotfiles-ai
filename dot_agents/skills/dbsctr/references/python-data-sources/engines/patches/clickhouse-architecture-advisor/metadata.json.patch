@@ -1,0 +1,13 @@
+--- a/metadata.json
++++ b/metadata.json
+@@ -11,5 +11,7 @@
+     "https://clickhouse.com/docs/en/sql-reference/dictionaries",
+     "https://clickhouse.com/docs/materialized-view/incremental-materialized-view",
+     "https://clickhouse.com/docs/en/guides/replacing-merge-tree"
+-  ]
+-}
+\ No newline at end of file
++  ],
++  "compatibility": "The original broad version label is historical scope, not support for every example. Verify each selected feature and setting on the actual target/version.",
++  "modificationNotice": "Modified by dotfiles-ai from the pinned upstream source. See UPSTREAM.md for attribution and adaptation details."
++}

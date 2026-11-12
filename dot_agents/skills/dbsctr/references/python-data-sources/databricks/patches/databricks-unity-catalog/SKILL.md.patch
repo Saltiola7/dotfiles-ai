@@ -1,0 +1,148 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,20 +1,50 @@
+ ---
+ name: databricks-unity-catalog
+-description: "Unity Catalog governance, access control, and observability. Use to grant or revoke access (GRANT/REVOKE), reason about the privilege model and ownership, set up row-level security and column masks, create external locations and storage credentials, define catalogs/schemas/tables/volumes, answer \"who can read this table\", and query system tables (audit, lineage, billing) or work with volume files in /Volumes/."
+-compatibility: Requires databricks CLI (>= v1.0.0)
+ metadata:
+   version: "0.3.0"
+-parent: databricks-core
++description: "Review Databricks Unity Catalog ownership, privileges, row filters, masks, external locations and lineage; perform workspace operations only within existing authorization."
++license: LicenseRef-Databricks
+ ---
+ 
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Unity Catalog
++
++## Scope and execution boundaries
++
++Use this bundle only within or connecting to Databricks Services, under the
++included `LICENSE.upstream` and `NOTICE.upstream`. It is not generic Spark guidance.
++
++For a repository audit, review source, SQL, bundle configuration and declared
++runtime/dependency evidence first. Do not install or upgrade tools, authenticate,
++select or change profiles, query a workspace, execute notebooks/examples, or
++deploy resources merely to complete a static review. Record unavailable runtime,
++workspace and performance evidence as coverage gaps. Examples below illustrate
++APIs; they do not authorize their side effects.
++
++For requested live work, retain the already selected workspace, profile,
++authentication provider, runtime and dependency constraints. Resolve a target only
++when missing or conflicting; do not repeatedly ask for an already selected
++profile. Check the selected tool's actual version/help and current official
++documentation for the specific operation. Propose a necessary migration or tool
++upgrade separately instead of requiring the newest CLI for every task.
++
++Read only relevant references. If a named sibling skill is unavailable, state the
++guidance gap and use current official documentation within scope; do not install
++an entire skill bundle. Treat design defaults as workload-dependent recommendations,
++not automatic defects. Keep review findings distinct from measured execution
++results. DBSCTR owns authorized remediation and delivery.
++
++For live CLI, authentication or workspace targeting, read
++[databricks-core](../databricks-core/SKILL.md) and reuse the selected context.
++
+ 
+ Guidance for Unity Catalog **governance** — access control, the privilege model,
+ external locations, securable DDL, and fine-grained access — plus system tables and
+ volume file operations.
+ 
+ > **Before running `databricks` CLI commands, confirm the CLI and the subcommand exist.**
+-> Run `databricks --version` — this skill assumes the unified CLI (**≥ v1.0.0**). Several
++> Inspect the selected version/help for the exact operation rather than enforcing a universal minimum. Several
+ > subcommands shown here (`experimental aitools`, `system-schemas`, `external-lineage`,
+ > `grants`) vary by version or workspace availability; if one is missing or rejects a flag,
+ > fall back to the SQL form or the Python SDK rather than guessing. Each reference notes its
+@@ -142,7 +172,7 @@
+ 
+ ```sql
+ -- Table lineage: What tables feed into this table?
+-SELECT source_table_full_name, source_column_name
++SELECT source_table_full_name, target_table_full_name
+ FROM system.access.table_lineage
+ WHERE target_table_full_name = 'catalog.schema.table'
+   AND event_date >= current_date() - 7;
+@@ -161,6 +191,11 @@
+ GROUP BY workspace_id, sku_name;
+ ```
+ 
++`table_lineage` exposes table/path dependencies. For column-level relationships,
++use `system.access.column_lineage` and its `source_column_name` /
++`target_column_name` fields; do not select column names from `table_lineage`.
++Check the [lineage system-table schemas](https://docs.databricks.com/aws/en/admin/system-tables/lineage).
++
+ ## Running SQL from the CLI
+ 
+ > **`databricks experimental aitools tools query` is an experimental command.** The
+@@ -188,6 +223,7 @@
+ 
+ ```python
+ from databricks.sdk import WorkspaceClient
++from databricks.sdk.service.sql import StatementState
+ 
+ w = WorkspaceClient()
+ resp = w.statement_execution.execute_statement(
+@@ -199,9 +235,33 @@
+         LIMIT 100
+     """,
+ )
+-for row in resp.result.data_array or []:
+-    print(row)
+-```
++state = resp.status.state if resp.status else None
++handle = {"statement_id": resp.statement_id, "state": state.value if state else None}
++if state in {StatementState.PENDING, StatementState.RUNNING}:
++    # Return the handle; follow up with get_statement using the same ID and a
++    # project-selected overall polling deadline. Do not resubmit the statement.
++    print(handle)
++elif state == StatementState.SUCCEEDED:
++    if resp.result is None:
++        print({**handle, "result": "No inline result; fetch by statement ID"})
++    else:
++        for row in resp.result.data_array or []:
++            print(row)
++        if resp.result.next_chunk_index is not None:
++            print({**handle, "next_chunk_index": resp.result.next_chunk_index})
++else:
++    error = resp.status.error if resp.status else None
++    # Preserve failure state/ID/code; route detailed diagnostics through the
++    # existing safe error handler instead of printing raw query/credential data.
++    raise RuntimeError("SQL statement did not succeed", {
++        **handle, "error_code": error.error_code if error else None,
++    })
++```
++
++`execute_statement` can return a pending/running handle after its server-side wait,
++or a terminal failure without result data. Inspect status before accessing results;
++retrieve remaining chunks explicitly when a complete result is required. See the
++[Statement Execution lifecycle](https://docs.databricks.com/aws/en/dev-tools/sql-execution-tutorial).
+ 
+ > **CLI surface varies by version.** If a `databricks` subcommand (e.g. an `experimental`
+ > tool, `system-schemas`, or `external-lineage`) is missing, fall back to the SQL warehouse
+@@ -222,15 +282,15 @@
+ tables, and volumes. For adjacent concerns, use the sibling skill instead:
+ 
+ - **databricks-core** (declared parent) — auth, profile selection, generic CLI, and catalog/table *exploration*
+-- **[databricks-metric-views](../databricks-metric-views/SKILL.md)** — metric view definitions / DDL (`WITH METRICS LANGUAGE YAML`)
+-- **[databricks-iceberg](../databricks-iceberg/SKILL.md)** — Managed Iceberg, External Iceberg Reads (fka Uniform), and **Iceberg REST Catalog (IRC) credential *vending*** for external engines — distinct from UC storage credentials (see [references/2-external-locations.md](references/2-external-locations.md))
+-- **[databricks-ml-training](../databricks-ml-training/SKILL.md)** — UC model registration and `@prod`/`@challenger` aliases
+-- **[databricks-vector-search](../databricks-vector-search/SKILL.md)** — Vector Search indexes
+-- **[databricks-pipelines](../databricks-pipelines/SKILL.md)**, **[databricks-jobs](../databricks-jobs/SKILL.md)**, **[databricks-lakeflow-connect](../databricks-lakeflow-connect/SKILL.md)** — *producing* tables via pipelines/jobs/managed ingestion
+-- **[databricks-lakebase](../databricks-lakebase/SKILL.md)** — Lakebase / synced tables (OLTP)
+-- **[databricks-ai-functions](../databricks-ai-functions/SKILL.md)** — AI functions such as `ai_mask` / `ai_classify` (AI *transforms*, **not** access control — see [references/4-fine-grained-access.md](references/4-fine-grained-access.md))
+-- **[databricks-aibi-dashboards](../databricks-aibi-dashboards/SKILL.md)** — AI/BI dashboards on UC data
+-- **[databricks-synthetic-data-gen](../databricks-synthetic-data-gen/SKILL.md)** — generating data stored in UC volumes
++- **[databricks-metric-views](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-metric-views/SKILL.md)** — metric view definitions / DDL (`WITH METRICS LANGUAGE YAML`)
++- **[databricks-iceberg](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-iceberg/SKILL.md)** — Managed Iceberg, External Iceberg Reads (fka Uniform), and **Iceberg REST Catalog (IRC) credential *vending*** for external engines — distinct from UC storage credentials (see [references/2-external-locations.md](references/2-external-locations.md))
++- **[databricks-ml-training](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-ml-training/SKILL.md)** — UC model registration and `@prod`/`@challenger` aliases
++- **[databricks-vector-search](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-vector-search/SKILL.md)** — Vector Search indexes
++- **[databricks-pipelines](../databricks-pipelines/SKILL.md)**, **[databricks-jobs](../databricks-jobs/SKILL.md)**, **[databricks-lakeflow-connect](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-lakeflow-connect/SKILL.md)** — *producing* tables via pipelines/jobs/managed ingestion
++- **[databricks-lakebase](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-lakebase/SKILL.md)** — Lakebase / synced tables (OLTP)
++- **[databricks-ai-functions](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-ai-functions/SKILL.md)** — AI functions such as `ai_mask` / `ai_classify` (AI *transforms*, **not** access control — see [references/4-fine-grained-access.md](references/4-fine-grained-access.md))
++- **[databricks-aibi-dashboards](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-aibi-dashboards/SKILL.md)** — AI/BI dashboards on UC data
++- **[databricks-synthetic-data-gen](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-synthetic-data-gen/SKILL.md)** — generating data stored in UC volumes
+ 
+ ### Roadmap (not yet covered — deferred to a later version)
+ 

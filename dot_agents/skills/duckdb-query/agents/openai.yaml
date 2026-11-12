@@ -1,0 +1,4 @@
+interface:
+  display_name: "DuckDB Query"
+  short_description: "Review scoped DuckDB SQL and execution bounds"
+  default_prompt: "Use $duckdb-query to review this DuckDB query and its source, semantics and resource bounds."

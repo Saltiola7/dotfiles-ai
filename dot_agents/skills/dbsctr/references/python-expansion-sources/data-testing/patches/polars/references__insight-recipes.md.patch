@@ -1,0 +1,67 @@
+--- a/references/insight-recipes.md
++++ b/references/insight-recipes.md
+@@ -32,6 +32,10 @@
+ `top_k` avoids sorting the whole frame; the final sort is presentational.
+ 
+ ## "Top N per group" (top 3 products per region)
++
++This recipe returns the top three distinct revenue ranks, including all ties;
++it can return more than three products. For exactly three rows, define a stable
++tie-breaker and use a per-group row limit instead.
+ 
+ ```python
+ (
+@@ -56,14 +60,19 @@
+         prev=pl.col("revenue").shift(1),
+     )
+     .with_columns(
+-        growth_pct=(pl.col("revenue") / pl.col("prev") - 1) * 100,
++        growth_pct=pl.when(pl.col("prev").is_not_null() & (pl.col("prev") != 0))
++        .then((pl.col("revenue") / pl.col("prev") - 1) * 100)
++        .otherwise(None),
+     )
+     .collect()
+ )
+ ```
+ 
+ Per-group variant: `.shift(1).over("region")`, sorted by
+-`("region", "month")` first. State the definition used in the answer.
++`("region", "month")` first. This compares the previous observed period.
++If calendar periods are missing, construct the required calendar first and choose
++explicitly whether absent values mean zero, unknown or excluded. The example
++returns null when the prior value is missing or zero; state the selected policy.
+ 
+ ## "What share does each X have of the total?"
+ 
+@@ -72,7 +81,9 @@
+     lf.group_by("category")
+     .agg(pl.col("revenue").sum().alias("revenue"))
+     .with_columns(
+-        share_pct=pl.col("revenue") / pl.col("revenue").sum() * 100
++        share_pct=pl.when(pl.col("revenue").sum() != 0)
++        .then(pl.col("revenue") / pl.col("revenue").sum() * 100)
++        .otherwise(None)
+     )
+     .sort("share_pct", descending=True)
+     .collect()
+@@ -82,6 +93,8 @@
+ After `agg`, `pl.col("revenue").sum()` is the grand total; the division
+ broadcasts. The same trick works pre-aggregation with
+ `.sum().over("region")` for share-within-group.
++The example returns null for a zero denominator; preserve a different established
++domain policy when required.
+ 
+ ## "What does the distribution of X look like?"
+ 
+@@ -199,8 +212,9 @@
+ lf.select(pl.len()).collect()      # input row count for a gut check
+ ```
+ 
+-If a join produced more rows than the left input, the key was not unique
+-on the right side. If an aggregate is null, the source column likely
++For an inner or left equi-join, more rows than the left input indicates matching
++duplicate keys on the right. This inference does not apply to full/cross joins.
++If an aggregate is null, the source column likely
+ contained only nulls after filtering, or a cast with `strict=False`
+ nulled unparsable values; check `lf.head().collect()` for dirty data and
+ move cleaning into the scan (`null_values=[...]`).

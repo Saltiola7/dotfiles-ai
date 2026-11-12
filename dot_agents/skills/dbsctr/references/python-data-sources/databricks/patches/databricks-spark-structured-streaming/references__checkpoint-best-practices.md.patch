@@ -1,0 +1,86 @@
+--- a/references/checkpoint-best-practices.md
++++ b/references/checkpoint-best-practices.md
+@@ -2,6 +2,8 @@
+ name: checkpoint-best-practices
+ description: Configure and manage checkpoint locations for reliable Spark Structured Streaming. Use when setting up new streaming jobs, troubleshooting checkpoint issues, migrating checkpoints, or ensuring exactly-once semantics with proper checkpoint storage and organization.
+ ---
++
++> Modified by dotfiles-ai: preserve recovery evidence and require an explicit replay plan; see the skill's `UPSTREAM.md`.
+ 
+ # Checkpoint Best Practices
+ 
+@@ -151,37 +153,37 @@
+ 
+ ### Lost Checkpoint
+ 
+-```python
+-# Steps to recover:
+-# 1. Delete checkpoint folder
+-dbutils.fs.rm("/checkpoints/stream", recurse=True)
+-
+-# 2. Restart stream with startingOffsets=earliest
+-df.writeStream \
+-    .format("delta") \
+-    .option("checkpointLocation", "/checkpoints/stream") \
+-    .option("startingOffsets", "earliest") \
+-    .start()
+-
+-# 3. Stream reprocesses from beginning
+-# 4. Delta sink handles deduplication (if idempotent writes configured)
+-```
++Preserve any remaining checkpoint files, source offsets, query/run identity, sink
++commit evidence and failure logs. Do not delete the checkpoint or restart against
++an existing target as a generic repair. The project-selected recovery plan must
++choose a verified consistent restore or a new checkpoint with explicit source
++start positions, retention checks, state reconstruction, target reconciliation
++and downstream compatibility. Apply it only within recovery authorization.
++
++A new checkpoint starts a new query history; prior processing and state are not
++automatically retained. Replaying input can duplicate prior output or produce
++different state. For an approved Kafka replay, configure `startingOffsets` on
++`spark.readStream.format("kafka")`, not on the writer. A resumed query follows its
++checkpoint; changing this reader option does not reset checkpointed offsets.
++
++Delta `foreachBatch` idempotency uses the **pair** `txnAppId` and `txnVersion`,
++with stable batch identity for retries within the same query history. A new
++checkpoint resets batch IDs, so it requires a new `txnAppId` to avoid incorrectly
++skipping new writes. That new ID does not deduplicate historical input replay;
++the recovery plan still needs domain-level reconciliation or an equivalent
++validated replay strategy for existing target rows.
++
++See [checkpoint restart semantics](https://docs.databricks.com/aws/en/structured-streaming/checkpoints)
++and [Delta streaming write idempotency](https://docs.databricks.com/aws/en/structured-streaming/delta-lake#use-foreachbatch-for-idempotent-table-writes).
+ 
+ ### Corrupted Checkpoint
+ 
+-```python
+-# Same as lost checkpoint:
+-# 1. Delete checkpoint folder
+-# 2. Restart with startingOffsets=earliest
+-# 3. Or restore from backup if available
+-
+-# Backup checkpoint before major changes
+-dbutils.fs.cp(
+-    "/checkpoints/stream",
+-    "/checkpoints/stream_backup_20240101",
+-    recurse=True
+-)
+-```
++Retain the original checkpoint for diagnosis. Determine whether the failure is
++storage access, an incompatible query/state change or actual corruption before
++choosing recovery. Restore only a verified consistent backup under the project's
++recovery procedure; copying a running checkpoint is not proof of a consistent
++backup. If a fresh checkpoint is required, use the explicit replay/reconciliation
++plan above. Do not delete files to suppress a restart error.
+ 
+ ### Crash During Batch
+ 
+@@ -250,7 +252,7 @@
+ | Issue | Cause | Solution |
+ |-------|-------|----------|
+ | **State growing too large** | Long watermark duration or high cardinality keys | Reduce watermark duration; reduce key cardinality |
+-| **Checkpoint corruption** | File system issues or manual deletion | Delete checkpoint and restart; restore from backup |
++| **Checkpoint corruption** | Storage failure, incompatible state/query change or manual damage | Preserve evidence, establish the cause, then use a verified restore or explicitly selected replay/reconciliation plan |
+ | **Slow state operations** | Partition imbalance | Check partition balance; ensure keys are evenly distributed |
+ | **Can't find commit file** | Normal if job crashed | Spark will reprocess on restart |
+ | **Offsets out of sync** | Offsets without matching commits | Indicates unprocessed batch; will reprocess |

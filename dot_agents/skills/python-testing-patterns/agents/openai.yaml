@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Testing Patterns"
+  short_description: "Design focused Python tests and fixtures"
+  default_prompt: "Use $python-testing-patterns to improve tests for this change with meaningful assertions, isolated fixtures and the selected test runner."

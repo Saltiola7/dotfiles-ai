@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "python-testing-patterns",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/python-development/skills/python-testing-patterns",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "a1020718f31629c2a5b20731cad1804dbb81b18800495c5cebdf16e6cac9c175",
+        "references/advanced-patterns.md": "f560ee8b3cffc0fe971e78269bed21dc74f541c2056eae58d34259d9e537176a",
+        "references/details.md": "39411069cafe265c7000e9a605aa3c17448981756799f3981137ed2d9cc24c20"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "4fe8a4245c55e9e79e70b5f75ab387e2349f91dc",
+        "references/advanced-patterns.md": "da186a91e60c44339a28ddb3b6ce478b7d23af64",
+        "references/details.md": "bf296f1634742776817e8cfbb5800927b72855d2"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/advanced-patterns.md": "100644",
+        "references/details.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "f4882985ec6893cc4f5e61478a2a2ce1a70e383ee51f5d4f5080ad7c20df382a",
+        "UPSTREAM.md": "f935f0308451d511bb509ad8de30656916eba32d6814b225844a5fc0222ef0c6",
+        "agents/openai.yaml": "467f1bf69f5750039fe50b1c27a444cabe2af971ea938a4dabb4a1320293ea5a",
+        "references/advanced-patterns.md": "21ba1d034b1238e3e58242a09f9a98ca66952e4a79bc4e3717def6abae0cad91",
+        "references/details.md": "0a246692da205dc1d501eaf15157e64e876966e93b3c921d6428b0ef730d0558"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/advanced-patterns.md": "100644",
+        "references/details.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/advanced-patterns.md": "100644",
+        "references/details.md": "100644"
+      },
+      "patches": {
+        "patches/python-testing-patterns/SKILL.md.patch": "82a7b5797a60833a3cbee2c77ee7fe2291151814f1a69add83ce1b3a6ec69c8b",
+        "patches/python-testing-patterns/references__advanced-patterns.md.patch": "3a05ef162df27e9d2b38097e9a0c740b8831ba2469938fb24428fd5276f1f3eb",
+        "patches/python-testing-patterns/references__details.md.patch": "02f82cf078decd6a874eb5a913170e0e0c147239e9d5cbc4a8e2412c3bbd2986"
+      },
+      "changes": "Preserved the complete upstream skill resource tree. Bounded runner, dependency, workflow and coverage examples to project policy; retained QA/lifecycle ownership. Corrected yield/async fixture cleanup, deterministic environment tests, mocked request timeouts, selected-engine integration limits, multiset property assertions and a relative resource link. Replaced obsolete workflow-action recipes with project-owned CI invocation and removed blanket coverage exclusions. Added managed provenance and generated discovery metadata."
+    },
+    {
+      "name": "python-type-safety",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/python-development/skills/python-type-safety",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "7798dd109350b73c80bb4642f6e5a0ebaa2ae392484a213d4b44b35e9b4dad66",
+        "references/details.md": "c31ae289ec8de07220ddac57434fb0b764216af8a435dcc078c446d82e6862b5"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "cce23771e21618d659eba1f7e8b1cd4e75926b0f",
+        "references/details.md": "9bcaab64b55ae9a17822e447355391f0fcf71c74"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/details.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "269762a9032e01adc964839c8f99cc7c25f535cc02db030e4fbe21a85fc4edea",
+        "UPSTREAM.md": "82544b8a737f686cc0583f231b116e511ffa17f8c194662768df22c9dc612e5a",
+        "agents/openai.yaml": "52b03d5044f859a86fe50ccfbea0668145dccecaa34497df225b019451acbb2e",
+        "references/details.md": "850f9e3497fe8acf7ac10cad375f2b3b9915d71dfbbb6cd5009512b16227b13a"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644"
+      },
+      "patches": {
+        "patches/python-type-safety/SKILL.md.patch": "786761598d358d81078f9474cf00763164686dfaee05c7dc1f3112e8a443d3db",
+        "patches/python-type-safety/references__details.md.patch": "89f25a179a2bc8c37dc46fc46413f1ceae9e4b6b6aa23e4e1ede83d0fce6327d"
+      },
+      "changes": "Preserved the complete upstream skill resource tree. Scoped this lens to typed-interface design under the selected checker and runtime policy; kept core DBSCTR/QA coverage ownership. Distinguished static typing from runtime validation, replaced the ignored-return Result example with narrowed tagged outcomes that preserve successful None, clarified runtime protocol checks, corrected generic alias/callback examples and made mypy/Pydantic recipes conditional. Added managed provenance and generated discovery metadata."
+    },
+    {
+      "name": "python-resilience",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/python-development/skills/python-resilience",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "ddf3a7dc5bd59dd228a65a3ee7ae60fe740e9dc6e98bfac0ce0be5330fcc5332",
+        "references/details.md": "bacdee07c89f21324069904107b99224afd9b65415f56da8974b20aa03e4aff4"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "89c1e9d9ba0134709f9b1ac876d0b401362afd4d",
+        "references/details.md": "491f93480fed2f54856da04b581e5c6fdae87cbc"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/details.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "48b4c7ac15ad639ae969a095515ecaa4a79fa5a4ccb87cce891e14d0811d0550",
+        "UPSTREAM.md": "58e0694d573615cc5cc7725d09aba57d334e72ba735ddf212f9656f64f99bb49",
+        "agents/openai.yaml": "91131757fb8fd14c9b200dd1236f78041e7a468d57d7a2b83ec3f741c8b49ddc",
+        "references/details.md": "7f42bbdaeb3c714c6decd1a56551293569ec79b2e6f05033c6fbe0f62bafb230"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644"
+      },
+      "patches": {
+        "patches/python-resilience/SKILL.md.patch": "e5774f9d259f7431c2796096b38f8985969c67bc3ddf0ecf386311cf56016598",
+        "patches/python-resilience/references__details.md.patch": "19433669d6916f871aef610ec7a7bbcdbd8b18a6e3e24e45c4ca4d0076703c54"
+      },
+      "changes": "Preserved the complete upstream skill resource tree. Required operation-specific replay safety, ambiguous-write reconciliation, one retry owner, full budget accounting and cancellation propagation. Corrected automatic POST retry and broad error/status recipes into repeatable-read illustrations, exposed retry-stop versus hard-deadline limits and terminal outcomes, removed raw error logging, corrected async callable typing and used explicit recoverable failures with fresh fallback factories. Added managed provenance and generated discovery metadata."
+    },
+    {
+      "name": "python-resource-management",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/python-development/skills/python-resource-management",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "7d79953ee92ef07795ed0929f110c0683e5f416cdf0f33d7cdf8b0a606759c25",
+        "references/details.md": "b9cf1a36f6172812c3509e8a88e2d19de76d9e1fe2c4598df10558b372e88022"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "6f9d63b942bbe416253aedee5a03d955f7b57671",
+        "references/details.md": "a1f1775a20bd150d9e227df8540cf346e2fd8be8"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/details.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "e0220cccf6a4d010fe7dcc7a8f002a28293cb8818c761056f07a3722c84acbaa",
+        "UPSTREAM.md": "043f476731b868f3457231d14db2cd5de5c56d6524cf7de1593316b74804b8ce",
+        "agents/openai.yaml": "cdd66d76526a7bf46b2437350a2e00b6e5578845c8ebd9feaa395b5ac0ceb11e",
+        "references/details.md": "dd5b926198fd1024dce8e55416271e8c49ab7f17924d9e08f079a2cb8cc920da"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644"
+      },
+      "patches": {
+        "patches/python-resource-management/SKILL.md.patch": "2fd7b03a11d1c371a18a4f97ea936581ae1df34c50d79bd84eef74fe7e210218",
+        "patches/python-resource-management/references__details.md.patch": "bcfd7981b20c6c670c403628b2d5d5ff3b5ae29f71f0e672e458ae99c66e04b4"
+      },
+      "changes": "Preserved the complete upstream skill resource tree. Added owned/borrowed handles, failed-entry cleanup, secondary failures, cancellation and engine-specific context semantics. Replaced manual transaction statements with a selected-driver native context illustration and corrected pool-state/row conversion. Used ExitStack for acquired file ownership; bounded retained text, qualified repeated-prefix costs and separated empty/incomplete streaming metrics. Added managed provenance and generated discovery metadata."
+    },
+    {
+      "name": "python-observability",
+      "state": "vendored",
+      "upstream_url": "https://github.com/wshobson/agents",
+      "commit": "7e2fb559cf4b824b27f1fec49fe88f7511066d26",
+      "upstream_path": "plugins/python-development/skills/python-observability",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "bf547d6ee0284ce20bbe521af3e40d53ca9481634dfeaaf16f25c88de6828f56",
+        "references/details.md": "71e2fc7263c1ec20227b9f074cebf66f60e4e5cddd2f341ac18d3291aee4b649"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "326f0a55c96e672fedf9d807ca043c00df05ba0e",
+        "SKILL.md": "5d3b9c844469926164d349be4f91fa80d6e3d927",
+        "references/details.md": "3cc3a05c93c72a1e5bba98ef0078229b710a337e"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/details.md": "100644"
+      },
+      "files": {
+        "LICENSE.upstream": "f89abb55d9f073f38f1703e4518f0613c788c6174be7f13b8dfe48a1c076c746",
+        "SKILL.md": "76a2f4fa0393c61fca117ba1968137d682b275ea6f6295704804bab87065e0d3",
+        "UPSTREAM.md": "4ac32ccc6e21ba2db9bfc1ac8ff8480a1fd6e1eccaef0fc6991f3b7a668d53b4",
+        "agents/openai.yaml": "6c0ceaca3929544c2fef7600b78bb414c94ed4055e5ac27198fd80187a82bf1b",
+        "references/details.md": "87cd441c4a939a20ad4120a07ab8ab01de6ffc82e716916f0dd1df08fd9ab417"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/details.md": "100644"
+      },
+      "patches": {
+        "patches/python-observability/SKILL.md.patch": "658c8094e763ba47e4be411b08f23b7918d91bec40e2d3c6edf7b7a6f07f29a0",
+        "patches/python-observability/references__details.md.patch": "549e3bf8d8475319719b974ee712c82c1ae1a16853f5e2ef300440b16b8525db"
+      },
+      "changes": "Preserved the complete upstream skill resource tree. Kept existing telemetry-stack and exporter authority; required allowlisted fields, sink/privacy review and bounded labels. Scoped and restored correlation context, qualified hybrid/stream lifetimes, removed raw error/payload logging, corrected elapsed/status examples and recorded cancellation separately. Qualified handler metrics, finite error groups and selected application-owned tracing initialization. Added managed provenance and generated discovery metadata."
+    }
+  ]
+}

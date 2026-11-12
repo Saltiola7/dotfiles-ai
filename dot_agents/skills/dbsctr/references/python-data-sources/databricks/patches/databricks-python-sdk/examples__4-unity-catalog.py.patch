@@ -1,0 +1,18 @@
+--- a/examples/4-unity-catalog.py
++++ b/examples/4-unity-catalog.py
+@@ -1,3 +1,6 @@
++# Modified by dotfiles-ai: explicit task context and non-execution notice; see ../UPSTREAM.md.
++# Instructional API examples only. Do not run this whole file: it may mutate Databricks Services.
++# Use only the selected snippet with the already authorized workspace and operation.
+ """
+ Databricks SDK - Unity Catalog Examples
+ 
+@@ -10,7 +13,7 @@
+ from databricks.sdk import WorkspaceClient
+ from databricks.sdk.service.catalog import VolumeType
+ 
+-w = WorkspaceClient()
++w = WorkspaceClient(profile="SELECTED_PROFILE")
+ 
+ # =============================================================================
+ # CATALOGS

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Mutation Testing"
+  short_description: "Review assertion strength with scoped mutations"
+  default_prompt: "Use $python-mutation-testing to assess a selected Python module with a bounded mutation plan and evidence-backed survivor triage."
