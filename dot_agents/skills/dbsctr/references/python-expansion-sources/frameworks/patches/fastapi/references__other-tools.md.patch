@@ -1,0 +1,64 @@
+--- a/references/other-tools.md
++++ b/references/other-tools.md
+@@ -1,26 +1,30 @@
+ # Other Tools
++
++Preserve project-selected package managers, checkers, event-loop boundaries, ORM
++and HTTP clients. Availability of an alternative does not justify adoption or
++a migration; the commands and examples below are conditional on explicit scope.
+ 
+ ## uv
+ 
+-If uv is available, use it to manage dependencies.
++Use the existing dependency owner. uv is one option when already selected.
+ 
+ ## Ruff
+ 
+-If Ruff is available, use it to lint and format the code. Consider enabling the FastAPI rules.
++Use configured lint/format commands. Ruff FastAPI rules may help when Ruff is
++already selected; enabling additional rules is a separate configuration choice.
+ 
+ ## ty
+ 
+-If ty is available, use it to check types.
++Use the configured checker. ty availability does not authorize replacing mypy,
++Pyright or another established checker.
+ 
+ ## Asyncer
+ 
+-When needing to run blocking code inside of async functions, or async code inside of blocking functions, suggest using Asyncer.
+-
+-Prefer it over AnyIO or asyncio.
+-
+-Prefer it over `run_in_threadpool()`.
+-
+-Install:
++When mixing blocking and asynchronous calls, inspect existing AnyIO/asyncio/
++Starlette offloading and cancellation policy first. Asyncer is an optional adapter,
++not a required replacement for `run_in_threadpool()` or another working boundary.
++Verify concurrency limits and cancellation/resource ownership. If Asyncer is
++explicitly selected, dependency-owner syntax might be:
+ 
+ ```bash
+ uv add asyncer
+@@ -67,12 +71,14 @@
+ 
+ ## SQLModel for SQL databases
+ 
+-When working with SQL databases, prefer using SQLModel as it is integrated with Pydantic and will allow declaring data validation with the same models.
+-
+-Prefer it over SQLAlchemy.
++SQLModel is one possible SQL boundary when deliberately selected. Preserve
++SQLAlchemy or another established client, schema owner and transaction policy.
++Sharing validation and persistence models is optional and can expose unwanted
++fields; keep public response contracts deliberate. No database actions are implied.
+ 
+ ## HTTPX
+ 
+-Use HTTPX for handling HTTP communication (e.g. with other APIs). It supports sync and async usage.
+-
+-Prefer it over Requests.
++HTTPX supports sync and async HTTP. Preserve an existing Requests or other client
++when appropriate; do not call a blocking client directly from an async handler.
++Reuse app-owned pools when selected, close owned clients, set deadlines and keep
++credentials out of diagnostics. Local examples do not authorize remote requests.

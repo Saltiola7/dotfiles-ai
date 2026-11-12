@@ -1,0 +1,17 @@
+--- a/rules/query-join-null-handling.md
++++ b/rules/query-join-null-handling.md
+@@ -5,11 +5,13 @@
+ tags: [query, JOIN, NULL, memory]
+ ---
+ 
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
++
+ ## Optimize NULL Handling in Outer JOINs
+ 
+ **Impact: MEDIUM**
+ 
+-Set `join_use_nulls = 0` to use default column values instead of NULL markers, reducing memory overhead compared to Nullable wrappers.
++`join_use_nulls = 0` uses default values rather than NULL for missing outer-join matches. This changes observable semantics: preserve the current contract and do not conflate an unmatched row with a matched zero/empty value for performance. Consider the setting only when that distinction is intentionally unnecessary.
+ 
+ **Example:**
+ 

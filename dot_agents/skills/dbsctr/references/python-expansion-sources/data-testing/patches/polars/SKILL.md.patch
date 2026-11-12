@@ -1,0 +1,134 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,45 +1,38 @@
+ ---
+ name: polars
+-description: >
+-  Writes fast, idiomatic Polars in Python using the lazy API, and answers
+-  natural-language questions about data in one shot. Use this skill whenever
+-  a task involves loading, querying, transforming, aggregating, joining, or
+-  analyzing tabular data (CSV, Parquet, NDJSON, or DataFrames); answering
+-  questions about top-k, trends, period-over-period, distributions, time
+-  series, or share-of-total; querying DataFrames or files with SQL;
+-  writing, debugging, or speeding up Polars code; or translating pandas to
+-  Polars. Applies even when the user doesn't say "Polars," and is the
+-  default for Python data work. Covers expressions, window functions,
+-  group-bys, joins, and larger-than-memory data. Not for Polars Cloud,
+-  On-Prem, distributed, or GPU workloads.
++description: Write, review or optimize actual Polars transformations, lazy queries, joins and sinks, or explicitly requested pandas-to-Polars migrations. Preserve the selected dataframe engine and project version; use for single-node Polars work.
+ license: MIT
+ metadata:
+   author: Polars
+   homepage: https://pola.rs
+   tags: polars, python, dataframes, lazyframe, data-processing, data-analysis, data-transformation, analytics, sql, pandas
+-compatibility: Requires Python 3.10+. Written for Polars >= 2.0; Polars 1.x
+-  differences are in references/lazy-api.md. Run `python -c "import polars
+-  as pl; print(pl.__version__)"` if unsure which version is installed.
++  runtime_compatibility: Examples target Polars 2.0; Polars 1.x differences are in references/lazy-api.md. Resolve the project's selected Python and Polars versions before applying examples.
+ ---
+ 
+ # Polars
+ 
+ ## Default stance
+ 
+-Use Polars for data processing. Always use the lazy API: build the whole
+-query, then execute it with one `.collect()`, so Polars can optimize the plan
+-before any data is read. `.collect()` runs on the streaming engine, which
++Use this skill when the project already uses Polars or the user explicitly
++selects it. Preserve an existing pandas, DuckDB or other engine choice; installing
++this skill does not select a dependency, migration or runtime upgrade. Work only
++with the selected inputs and permitted output paths. Schema discovery, previews
++and scans can perform I/O, including remote reads; keep them within task scope.
++
++For a Polars transformation pipeline, prefer the lazy API: build the whole
++query, then execute it at the intended output boundary, so Polars can optimize
++the plan. On Polars 2.0, `.collect()` runs on the streaming engine, which
+ processes data in batches to reduce memory pressure. Do not collect
+ intermediate results: each `.collect()` materializes data and discards the
+-plan, so everything after it optimizes from scratch. Eager code skips the
+-optimizer and does more work.
+-
+-**Data already in memory is no exception.** When a query starts from a
++plan, so everything after it optimizes from scratch. Preserve a deliberately
++eager interface or small operation when lazy execution adds no useful benefit.
++
++**In-memory data can also benefit from a lazy pipeline.** When a query starts from a
+ `DataFrame` — a function argument, `pl.from_pandas(pdf)`,
+ `pl.DataFrame(...)`, or an earlier `collect()` — call `.lazy()` before the
+ first operation and `.collect()` at the end. `.lazy()` is free (it wraps the
+ data, it does not copy it) and it is what turns a step-by-step eager pipeline
+-into one optimized plan. Do this unless the user asks for eager execution.
++into one optimized plan. Preserve the function's return type and execution boundary.
+ 
+ ```python
+ # start from a file
+@@ -66,7 +59,7 @@
+ 
+ ```python
+ lf = pl.scan_csv("sales.csv")        # or scan_parquet / scan_ndjson
+-print(lf.collect_schema())           # names and dtypes, no data read
++print(lf.collect_schema())           # resolves names/dtypes; may read metadata/samples
+ print(lf.head(5).collect())          # eyeball values, formats, dirt
+ ```
+ 
+@@ -82,30 +75,33 @@
+ 
+ ## Core rules
+ 
+-- **Expressions over Python functions.** Use `map_elements`, `map_batches`,
+-  or `map_groups` only when no expression exists — almost always one does.
+-  Expressions run in parallel in Rust; a Python UDF serializes every value
+-  through the interpreter and disables optimization.
+-- **Filter early.** Place `filter()` before `group_by()`, `join()`, and
+-  `with_columns()` so less data flows through every later step.
+-- **One context, one expression per operation.** Pass all expressions to a
+-  single `with_columns()`; expressions in one context run in parallel, and
+-  repeated calls in a loop serialize them. When the same operation applies
++- **Prefer equivalent native expressions.** Elementwise Python callbacks can
++  add substantial interpreter overhead and limit optimization. A batch UDF can
++  instead pass a whole Series to vectorized/native library code; it does not
++  necessarily process every value in Python. Preserve a justified batch boundary,
++  verify output dtype/null semantics and inspect the actual plan/performance.
++- **Filter early when semantics permit.** Push source-column predicates before
++  expensive operations; keep aggregate, computed-column and outer-join predicates
++  at the boundary their meaning requires. Moving them can change results.
++- **Group independent expressions when useful.** A lazy optimizer can cluster
++  sequential independent `with_columns()` calls; repeated calls do not inherently
++  serialize execution. Dependent expressions may need separate contexts. When the same operation applies
+   to several columns, write one expression that expands over the schema
+   instead of one per column. Rename the expanded set with `.name.suffix()` /
+   `.name.prefix()`; `.alias()` names one output only. Selector forms and
+   caveats: `references/expressions.md`.
+-- **Polars is strictly typed.** No implicit coercion, no mixed-type
+-  columns. Cast explicitly with `.cast()`; use
++- **Check actual dtypes and coercion.** Columns have defined dtypes, but Polars
++  can coerce compatible types during operations. Inspect the schema and result
++  dtype; cast explicitly where the contract requires it. Use
+   `.cast(pl.Float64, strict=False)` to turn unparseable values into nulls
+   instead of errors. Parse strings to dates and datetimes with
+   `str.to_date()` / `str.to_datetime()`, not `.cast()`.
+-- **Respect warnings — never silence them.** A Polars warning names the
+-  exact fix in its message: `PerformanceWarning` and subclasses like
+-  `PolarsInefficientMapWarning` tell you to use `collect_schema()`, or to
+-  rewrite a `map_elements` call as a native expression. Apply the change;
+-  never `warnings.filterwarnings("ignore")` or `warnings.catch_warnings()`
+-  to hide it.
++- **Investigate actionable warnings.** A performance warning signals a possible
++  cost, not proof that a chosen operation is wrong. Apply an equivalent fix when
++  warranted, preserving project warning policy and justified, narrowly scoped
++  filters. `warnings.catch_warnings()` also supports testing/capture; it is not
++  inherently suppression. Avoid blanket ignores that hide unresolved or new
++  warnings, and document the reason for a deliberate exception.
+ 
+ ```python
+ import polars.selectors as cs
+@@ -120,7 +116,8 @@
+ 
+ ## Canonical query pattern
+ 
+-Build queries in this order. Each step reduces data before the next.
++This example filters source rows before joining and aggregating. Adapt operation
++order to the required semantics; joins and computed columns may expand data.
+ 
+ ```python
+ customers = pl.scan_csv("customers.csv")

@@ -1,0 +1,76 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,13 +1,43 @@
+ ---
+ name: databricks-jobs
+-description: Develop and deploy Lakeflow Jobs on Databricks via DABs, Python SDK, or the CLI. Use when creating data engineering jobs with notebooks, Python wheels, SQL, dbt, or pipelines. Invoke BEFORE starting implementation. For compute (serverless, performance mode, classic), also use databricks-serverless.
+-compatibility: Requires databricks CLI (>= v1.0.0)
+ metadata:
+   version: "0.3.0"
+-parent: databricks-core
++description: "Design and review Databricks Lakeflow Jobs task graphs, schedules, retries, timeouts and compute configuration when repository orchestration or a specific job is in scope."
++license: LicenseRef-Databricks
+ ---
+ 
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Lakeflow Jobs Development
++
++## Scope and execution boundaries
++
++Use this bundle only within or connecting to Databricks Services, under the
++included `LICENSE.upstream` and `NOTICE.upstream`. It is not generic Spark guidance.
++
++For a repository audit, review source, SQL, bundle configuration and declared
++runtime/dependency evidence first. Do not install or upgrade tools, authenticate,
++select or change profiles, query a workspace, execute notebooks/examples, or
++deploy resources merely to complete a static review. Record unavailable runtime,
++workspace and performance evidence as coverage gaps. Examples below illustrate
++APIs; they do not authorize their side effects.
++
++For requested live work, retain the already selected workspace, profile,
++authentication provider, runtime and dependency constraints. Resolve a target only
++when missing or conflicting; do not repeatedly ask for an already selected
++profile. Check the selected tool's actual version/help and current official
++documentation for the specific operation. Propose a necessary migration or tool
++upgrade separately instead of requiring the newest CLI for every task.
++
++Read only relevant references. If a named sibling skill is unavailable, state the
++guidance gap and use current official documentation within scope; do not install
++an entire skill bundle. Treat design defaults as workload-dependent recommendations,
++not automatic defects. Keep review findings distinct from measured execution
++results. DBSCTR owns authorized remediation and delivery.
++
++For live CLI, authentication or workspace targeting, read
++[databricks-core](../databricks-core/SKILL.md) and reuse the selected context.
++
+ 
+ **FIRST**: Use the parent `databricks-core` skill for CLI basics, authentication, profile selection, and data exploration commands.
+ 
+@@ -176,14 +206,18 @@
+ SQL tasks, and the SQL of dbt tasks, run on a SQL warehouse (`warehouse_id`, see
+ [Task Types](references/task-types.md)); a pipeline task runs on the pipeline's own compute
+ (`serverless: true` in the pipeline), and the job's `performance_target` sets its mode.
+-If creating or running the job fails because serverless is not available in the workspace, put the
+-whole job on classic and say so (job clusters for the tasks that run on job compute).
+-
+-For everything else about compute, **use the `databricks-serverless` skill**: the performance mode
+-(`performance_target`), libraries (`environments`), existing code that may not run on serverless, and
+-the few workloads that need a classic cluster. If that skill is not installed, run
+-`databricks aitools install`. Either way, set `performance_target` on every job: `STANDARD` to optimize
+-cost, `PERFORMANCE_OPTIMIZED` when the job is time-sensitive, interactive, or other workloads depend on it.
++If creating or running the job fails because serverless is unavailable, report the
++specific capability gap and preserve the job configuration. Propose supported
++classic compute as an alternative with its cost, policy and compatibility impact;
++change compute only when that alternative is selected within the task's authority.
++
++For detailed compute choices, use `databricks-serverless` if available. It is an
++optional sibling outside this managed selection. If absent, report that guidance
++gap and consult current official compute documentation; do not install an entire
++bundle. Preserve selected compute and `performance_target` settings unless measured
++cost/latency, compatibility or task requirements justify a change. For new jobs,
++choose a supported mode against those requirements rather than setting a universal
++default.
+ 
+ ## Job Parameters
+ 

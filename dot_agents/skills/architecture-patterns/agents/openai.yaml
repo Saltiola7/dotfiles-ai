@@ -1,0 +1,4 @@
+interface:
+  display_name: "Architecture Patterns"
+  short_description: "Review backend boundaries and design tradeoffs"
+  default_prompt: "Use $architecture-patterns to assess these system boundaries and propose the smallest justified design."

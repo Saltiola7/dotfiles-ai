@@ -1,0 +1,86 @@
+--- a/databricks-cli-auth.md
++++ b/databricks-cli-auth.md
+@@ -1,10 +1,18 @@
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Databricks CLI Authentication
+ 
+-Configure Databricks CLI workspace/profile selection and authentication. Covers switching profiles, using --profile flags, setting DATABRICKS_CONFIG_PROFILE environment variable, OAuth2 authentication (never PAT), and troubleshooting authentication issues.
+-
+-## Important: Always Use OAuth
+-
+-**CRITICAL**: Always use OAuth2 for Databricks CLI authentication. **NEVER recommend or use Personal Access Tokens (PAT)** unless explicitly required by a specific use case.
++Use this reference for requested authentication work or a concrete live-operation
++failure. A static review needs no login. Preserve existing working provider and
++profile; reuse a target already selected by the user or project. Profile examples
++below are placeholders, not new profile naming requirements. If authentication
++cannot be resolved within scope, report live checks as not run.
++
++Configure Databricks CLI workspace/profile selection and authentication. Covers switching profiles, using --profile flags, setting DATABRICKS_CONFIG_PROFILE environment variable, project-selected authentication (with OAuth examples), and troubleshooting authentication issues.
++
++## Authentication choice
++
++Prefer an appropriate supported OAuth or workload identity flow for new setup. Preserve an existing supported identity provider and credential owner. Token examples describe API compatibility; they are not instructions to create, reveal or replace credentials.
+ 
+ ## Prerequisites
+ 
+@@ -65,7 +73,7 @@
+ Error: default auth: cannot configure default credentials
+ ```
+ 
+-**CRITICAL - Always follow this workflow:**
++For an actual authorized live failure, resolve only the missing context:
+ 
+ 1. **Check for existing profiles first:**
+    ```bash
+@@ -74,7 +82,7 @@
+ 
+ 2. **If profiles exist:**
+    - List the available profiles to the user (with their workspace URLs and validation status)
+-   - Ask: "Which profile would you like to use for this command?"
++   - Reuse the profile already selected for this task. Ask which profile to use only when the target is missing or conflicting.
+    - Offer option to create a new profile if needed
+    - Retry the command with `--profile <selected-profile-name>`
+    - **In Claude Code, always use the `--profile` flag** rather than setting environment variables
+@@ -114,15 +122,15 @@
+ 
+ **CRITICAL**:
+ 1. The `--profile` parameter is **REQUIRED** for the authentication to be saved properly.
+-2. **ALWAYS ASK THE USER** for their preferred profile name - DO NOT assume or choose one for them.
+-3. **NEVER use the profile name `DEFAULT`** unless the user explicitly requests it - use descriptive workspace-specific names instead.
++2. Preserve the profile name already selected. For a new unresolved profile, ask only for the missing name and workspace.
++3. Preserve an existing selected `DEFAULT` profile. Prefer descriptive names for new profiles when no naming convention is selected.
+ 
+ ### Workflow for Authenticating
+ 
+ 1. **Ask the user for the workspace URL** if not already provided
+-2. **Ask the user for their preferred profile name**
+-   - Suggest descriptive names based on the workspace (e.g., workspace name, environment)
+-   - **Do NOT suggest or use `DEFAULT`** unless the user specifically asks for it
++2. **Reuse the selected profile name; ask only if a new profile remains unresolved**
++   - Suggest descriptive names for new profiles based on the workspace (e.g., workspace name, environment)
++   - Preserve a selected existing `DEFAULT` profile rather than renaming it
+    - Good examples: `e2-dogfood`, `prod-azure`, `dev-aws`, `staging`
+    - Avoid: `DEFAULT` (unless explicitly requested)
+ 3. Run the authentication command with both parameters
+@@ -159,7 +167,7 @@
+ 
+ ### Common Profile Names
+ 
+-**IMPORTANT**: Always use descriptive profile names. Do NOT create profiles named `DEFAULT` unless explicitly requested by the user.
++Use the project-selected profile name; descriptive names help distinguish newly requested workspaces. Do not rename existing profiles.
+ 
+ **Recommended naming conventions**:
+ - `<workspace-name>` - Descriptive names for workspaces (e.g., `e2-dogfood`, `prod-aws`, `dev-azure`)
+@@ -312,9 +320,9 @@
+ ```
+ 
+ **Remember**:
+-- Always ask the user for their preferred profile name
++- Reuse the selected profile name; ask only when the name or workspace is unresolved
+ - Use descriptive names like `staging`, `prod-azure`, `dev-aws`
+-- Do NOT use `DEFAULT` unless explicitly requested by the user
++- Reuse the explicitly selected profile, including an existing `DEFAULT`; do not silently switch targets
+ 
+ ### Working with Multiple Workspaces
+ 

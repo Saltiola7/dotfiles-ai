@@ -1,0 +1,19 @@
+--- a/rules/insert-mutation-avoid-update.md
++++ b/rules/insert-mutation-avoid-update.md
+@@ -4,6 +4,8 @@
+ impactDescription: "Use lightweight UPDATE or ReplacingMergeTree instead"
+ tags: [insert, mutation, UPDATE, ReplacingMergeTree]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Avoid ALTER TABLE UPDATE
+ 
+@@ -72,3 +74,7 @@
+ | Lightweight UPDATE | Medium | Occasional updates |
+ 
+ Reference: [Avoid Mutations](https://clickhouse.com/docs/best-practices/avoid-mutations)
++
++## Workload and compatibility qualification
++
++Replacement is eventually merged and requires a stable deduplication key and explicit source version ordering. A default seconds-resolution timestamp can tie and is not a reliable total version order. Preserve all required fields on replacement; retries and late events need a tested contract. Lightweight UPDATE availability and settings must be verified on the actual target.

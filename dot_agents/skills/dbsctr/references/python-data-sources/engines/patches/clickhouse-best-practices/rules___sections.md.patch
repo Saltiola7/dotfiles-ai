@@ -1,0 +1,17 @@
+--- a/rules/_sections.md
++++ b/rules/_sections.md
+@@ -1,3 +1,5 @@
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
++
+ # Sections
+ 
+ This file defines all sections, their ordering, impact levels, and descriptions.
+@@ -9,7 +11,7 @@
+ 
+ **Impact:** CRITICAL
+ 
+-**Description:** Proper schema design is foundational to ClickHouse performance. ORDER BY is immutable after table creation; wrong choices require full data migration. Includes primary key selection, data types, partitioning strategy, and JSON usage. Column types and ordering can impact query speed by orders of magnitude.
++**Description:** Proper schema design is foundational to ClickHouse performance. Sort-key redesign can require a table migration; limited metadata changes exist and must be verified on the selected version. Includes primary key selection, data types, partitioning strategy, and JSON usage. Column types and ordering can impact query speed by orders of magnitude.
+ 
+ ## 2. Query Optimization (query)
+ 

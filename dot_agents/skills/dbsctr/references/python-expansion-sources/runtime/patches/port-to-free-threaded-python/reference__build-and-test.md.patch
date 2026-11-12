@@ -1,0 +1,177 @@
+--- a/reference/build-and-test.md
++++ b/reference/build-and-test.md
+@@ -1,91 +1,100 @@
+-# Building and testing free-threaded wheels
++# Artifacts and bounded concurrency evidence
+ 
+-SKILL steps 6–7. The wheel's ABI tag follows the interpreter you build against: build
+-with a free-threaded (`t`) interpreter and the backend emits a `cp3Xt` wheel
+-automatically. There is no per-backend "free-threading flag" — the work is (a) having
+-the support declaration from step 4 compiled in, and (b) getting a `t` interpreter into
+-the build matrix.
++Local adaptation of pinned Experimental upstream guidance; see bundle UPSTREAM.md.
+ 
+-## Build backends
++Use the project's selected interpreter, backend, versions, support matrix and QA
++commands. Loading this reference does not install runtimes, native dependencies,
++TSan or a parallel-test tool, or start a build. Report unavailable coverage.
+ 
+-For all of these, build under a `t` interpreter (`uv python install 3.14t`); the tag
+-follows.
++## Check imports and GIL state
+ 
+-- **meson-python** — no special config; produces a `cp3Xt` wheel under a `t` build.
+-- **scikit-build-core** — same; CMake finds the `t` interpreter. (If you *also* target
+-  a single stable-ABI wheel, `wheel.py-api = "cp315.cp315t"` gives `abi3.abi3t` — see
+-  [`port-to-python-limited-api`](../../port-to-python-limited-api/reference/build-systems.md).)
+-- **setuptools** — same; the `bdist_wheel` tag follows the interpreter. Ensure the
+-  `Py_GIL_DISABLED`-guarded `Py_mod_gil` / `PyUnstable_Module_SetGIL` declaration is in
+-  the C.
+-- **maturin (PyO3)** — set `gil_used = false` (declaration) and build with `-i
+-  python3.14t`. abi3 and free-threading are independent PyO3 features.
++Run the following Python in a **fresh selected free-threaded interpreter**, replacing
++`your_package` with the actual affected module list. The check requires no forced
++GIL setting; run it without `PYTHON_GIL` or `-X gil=...`. It propagates import errors
++and verifies actual runtime state afterward, rather than matching one warning string.
++This checks a support declaration path; it does not establish thread safety.
+ 
+-## CI: cibuildwheel
++```python
++import importlib
++import os
++import sys
++import sysconfig
+ 
+-Free-threaded targets are **opt-in**:
+-
+-```toml
+-# pyproject.toml
+-[tool.cibuildwheel]
+-enable = ["cpython-freethreading"]     # add the cp3Xt builds
++if "PYTHON_GIL" in os.environ or "gil" in sys._xoptions:
++    raise SystemExit("Run declaration check without a forced GIL setting")
++if sysconfig.get_config_var("Py_GIL_DISABLED") != 1:
++    raise SystemExit("Selected interpreter is not a free-threaded build")
++is_gil_enabled = getattr(sys, "_is_gil_enabled", None)
++if not callable(is_gil_enabled):
++    raise SystemExit("Selected interpreter lacks the runtime GIL check")
++if is_gil_enabled():
++    raise SystemExit("GIL is already enabled before target imports")
++for module_name in ("your_package",):
++    importlib.import_module(module_name)
++if is_gil_enabled():
++    raise SystemExit("Target imports enabled the GIL")
+ ```
+ 
+-or `CIBW_ENABLE=cpython-freethreading` in the environment. Without it, cibuildwheel
+-skips the `t` interpreters and you silently ship no free-threaded wheel. Build the same
+-platforms you already cover; add ARM if you can (see testing).
++An unsuccessful import cannot pass this check. Check each native module required
++by the support claim, including optional imports exercised by the public operation.
++Avoid catching ImportError as a successful optional result for a required module.
++A separate controlled `PYTHON_GIL=0` or `-X gil=0` process can expose races without
++a missing declaration re-enabling the GIL; it cannot replace the unforced check.
+ 
+-## Testing for races
++## Wheels and selected build backends
+ 
+-A clean single-threaded suite proves nothing about thread-safety — exercise the code
+-from many threads.
++Version-specific native wheels built for a free-threaded interpreter normally use
++a `t` ABI tag such as `cp314t`. Verify the resulting artifact, module declaration,
++compiler defines and dependencies; the tag alone does not prove safe behavior.
++Pure-Python wheels do not gain a native `t` ABI requirement solely for this port.
+ 
+-- **`pytest-run-parallel`** — runs your existing tests concurrently from N threads:
+-  ```bash
+-  uv run --python 3.14t pytest --parallel-threads=auto --iterations=10
+-  # or, quarantining known-unsafe tests: --parallel-threads=4 --skip-thread-unsafe=true
+-  ```
+-  The cheapest first pass; flaky failures under it are real races. Mark tests that are
+-  legitimately single-threaded (spawn their own threads, mutate a documented-unsafe
+-  subsystem) with `@pytest.mark.thread_unsafe`, and cap memory-heavy ones with
+-  `@pytest.mark.parallel_threads_limit(n)` — both are how numpy and scipy manage it.
+-- **ThreadSanitizer (TSan)** — the authoritative data-race detector. Build the
+-  extension with `-fsanitize=thread` and run the suite; it reports races even when the
+-  test doesn't assert on the corrupted result. **Use a TSan-instrumented CPython** (and
+-  instrument native deps — numpy's CI TSan-builds OpenBLAS): against a stock
+-  free-threaded interpreter, uninstrumented lock internals produce a flood of false
+-  positives. Ship a suppressions file for benign/upstream races (numpy suppresses e.g.
+-  the Fortran LAPACK `dlamch_` lazy-init race) rather than blocking on them.
+-- **Run on ARM as well as x86.** x86 is strongly ordered and hides memory-ordering
+-  bugs that surface on weakly-ordered ARM. If you only test one, test ARM.
+-- **Force the GIL off** so a missing/incorrect declaration can't mask a race:
+-  `PYTHON_GIL=0` (or `-X gil=0`), and assert `sys._is_gil_enabled()` is `False` at the
+-  top of the test session.
+-- Add **targeted stress tests** for each shared structure you changed in step 5. Use a
+-  `threading.Barrier` so every worker hits the code simultaneously (numpy's
+-  `run_threaded`, scipy's `_run_concurrent_barrier`), then assert an invariant.
++Preserve the selected meson-python, scikit-build-core, setuptools or maturin setup.
++PyO3's declaration syntax differs between releases; follow
++[declaration guidance](declaring-support.md) and the selected version's docs rather
++than always adding `gil_used = false`. Windows may need a compiler define derived
++from the free-threaded interpreter's configuration.
+ 
+-## A release gate worth copying
++For a selected cibuildwheel version, check whether its supported free-threaded
++targets are automatic or opt-in. Some versions use `enable =
++["cpython-freethreading"]` / `CIBW_ENABLE`; do not assume that setting, a new matrix
++or an interpreter upgrade is needed in every project. Build/test only the admitted
++platforms and record skips. Install and test the actual wheel outside the source
++checkout with the selected runtime.
+ 
+-numpy and scipy both fail the wheel build if importing the package re-enables the GIL —
+-the one check that catches a missing/uncompiled declaration in the shipped artifact:
++Stable ABI/`abi3t` is a separate migration with binding/backend support requirements.
++Do not change the Python floor or declare a combined ABI tag from this reference.
++See [background](background.md) for the distinction and optional external guidance.
+ 
+-```bash
+-FT="$(python -c 'import sysconfig; print(bool(sysconfig.get_config_var("Py_GIL_DISABLED")))')"
+-if [[ $FT == "True" ]]; then
+-    if [[ $(python -c "import mypkg" 2>&1) == *"The global interpreter lock (GIL) has been enabled"* ]]; then
+-        echo "Error: importing mypkg re-enables the GIL on the free-threaded build"; exit 1
+-    fi
+-fi
+-```
++## Exercise the admitted concurrency contract
+ 
+-## Confirming the result
++Use existing project tests and targeted concurrent operations against each changed
++shared invariant. Coordinate workers with a barrier when simultaneous access is
++the behavior under test; bound worker count, repetitions, time and memory. Check
++outcomes, exceptions, cleanup and continuing external effects, not merely absence
++of crashes. Include allowed callback/reentrancy and failure paths where affected.
+ 
+-```bash
+-uv run --python 3.14t python -c "import mymod; import sys; print(sys._is_gil_enabled())"
+-# -> False, with NO "GIL has been enabled to load module" warning
+-ls dist/                       # expect *-cp314t-*.whl (and/or *-abi3.abi3t-*.whl)
+-```
++A compatible pytest-run-parallel version can run existing tests concurrently from
++threads, but fixture/global-state assumptions can make tests unsafe to share.
++Triage a parallel failure: it may be an application race, a test-isolation defect,
++an unsupported test contract or another failure. Do not silence a new failure with
++a blanket marker; justify quarantine and its missing coverage explicitly.
+ 
+-A printed GIL-re-enable warning means the declaration (step 4) is missing or not
+-compiled into the wheel you built.
++For native code, ThreadSanitizer can find data races the suite does not assert.
++Use a compatible instrumented CPython and relevant native dependencies to avoid
++uninstrumented-runtime blind spots or misleading reports. Review every suppression
++and distinguish known upstream issues from proved harmless behavior. TSan is not
++a proof of race freedom or a detector for all application-level ordering errors.
++
++Weakly ordered architectures such as ARM can expose ordering defects hidden on
++x86. Select meaningful coverage from the supported targets and resource authority;
++record absent architectures/instrumentation rather than claiming they passed.
++No fixed x86-plus-ARM-plus-TSan sequence overrides the project's accepted QA plan.
++
++Return exact runtime/build identifiers, artifact identities, commands actually run,
++GIL observations, concurrency cases, findings and gaps to the existing primary/QA.
++A static check of this example is not a live free-threaded runtime qualification.
++
++Sources: [CPython free-threading](https://docs.python.org/3/howto/free-threading-python.html),
++[C extension guide](https://docs.python.org/3/howto/free-threading-extensions.html),
++[cibuildwheel options](https://cibuildwheel.pypa.io/en/stable/options/),
++[pytest-run-parallel](https://github.com/Quansight-Labs/pytest-run-parallel).
