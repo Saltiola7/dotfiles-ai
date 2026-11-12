@@ -57,7 +57,10 @@ selection, authority, evidence or delivery boundaries change.
 ## Repository-wide audit domain
 
 `python-audit` is a standalone assessment entrypoint for existing repositories.
-An explicit full audit considers all six specialist lenses, inventories owned
+The [Python/data extension](python-data-specialists.md) and architecture extension
+below define fourteen assessment lenses plus conditional Python database boundary
+and engine delegation. Original six-lens qualification remains historical evidence.
+An explicit full audit considers all fourteen assessment lenses, inventories owned
 Python across production code, tests, scripts, stubs and notebooks, and returns
 evidence-backed recommendations and an ordered refactoring roadmap. It retains
 one primary and reuses QA for configured validation. The target repository is
@@ -71,9 +74,9 @@ authorized implementation. Findings identify compatibility costs and reasons to
 retain a sound existing approach. Audit completion and a clean validation result
 are independent outcomes.
 
-The audit composes the original four skills with the existing
-`async-python-patterns` and `python-modernization-review` skills. Async review
-checks task, cancellation and resource contracts; modernization review owns
+The audit composes the fourteen current assessment skills through one primary.
+The original six include `async-python-patterns` and
+`python-modernization-review`. Async review checks task, cancellation and resource contracts; modernization review owns
 runtime/support and architectural-debt assessment using current primary sources.
 
 The wrapper owns scope, lens coverage, deduplication and synthesis. Existing
@@ -85,8 +88,8 @@ existing bundles and their source inventories remain unchanged.
 
 ### Audit behavior
 
-- Given an explicit repository-wide Python audit, the primary assesses all six
-  specialist lenses and reports actual scope, evidence and a prioritized roadmap.
+- Given an explicit repository-wide Python audit, the primary assesses all fourteen
+  assessment lenses and reports actual scope, evidence and a prioritized roadmap.
   Ordinary scoped development does not automatically start this audit.
 - Given existing project policy, the audit distinguishes compatible improvements
   from proposals that change tooling, runtime support or public contracts. It may
@@ -190,14 +193,14 @@ maintainers update it with corresponding routing changes.
 ## Audit interfaces
 
 The new bundle is `dot_agents/skills/python-audit/`, containing `SKILL.md`,
-`agents/openai.yaml` and `references/report.md`. The entrypoint resolves the six
-existing specialist skills through the native catalog or their managed sibling
-paths. It loads entrypoints for assessment and relevant resources progressively;
+`agents/openai.yaml`, `references/report.md` and the on-demand
+`references/architecture.md`. The entrypoint resolves the fourteen current
+assessment skills through the native catalog or their managed sibling paths. It loads entrypoints for assessment and relevant resources progressively;
 it does not duplicate their bodies or change their pinned files. Existing QA is
 the validation owner. A short link in `references/python-specialists.md` exposes
 the explicit audit route without changing ordinary development selection.
 
-Example request: `Use $python-audit to audit this repository across all six Python
+Example request: `Use $python-audit to audit this repository across all fourteen Python/architecture
 lenses and propose prioritized refactor batches.` The repository defaults to the
 current target; an explicit package or concern narrows the reported scope.
 
@@ -213,7 +216,7 @@ or a new repository-root documentation hierarchy.
 | Handoff | Owner and output |
 |---|---|
 | Project source and policy to inventory | Primary records reviewed snapshot, artifact population and owning environments |
-| Inventory to specialist assessment | Same primary considers six lenses; bounded read-only helpers may report independent evidence |
+| Inventory to specialist assessment | Same primary considers fourteen lenses in full mode or the architecture-focused subset; bounded read-only helpers may report independent evidence |
 | Configured authorities to findings | QA reports actual scope, child results and unavailable capabilities |
 | Findings to roadmap | Primary deduplicates root causes and separates defects, recommendations, migration options and hypotheses |
 | Roadmap to implementation | User selects bounded work; existing DBSCTR handles applicable behavior changes |
@@ -225,7 +228,7 @@ or a new repository-root documentation hierarchy.
 | Not applicable | No owned Python in the declared scope; zero units is not 100% coverage |
 
 **Text Equivalent (audit):** The primary inventories project-owned source, uses
-the six existing techniques and QA results, then returns a report and roadmap.
+the fourteen assessment techniques and QA results, then returns a report and roadmap.
 The user selects implementation separately. Audit disposition describes assessment
 coverage, while validation retains its actual result. Canonical source: these
 tables and the report reference. Owner: lifecycle/skill maintainer. Update when
@@ -233,7 +236,7 @@ audit scope, evidence fields or handoff responsibilities change.
 
 ## Contracts and Validation
 
-- The explicit audit considers all six installed entrypoints as assessment
+- The explicit full audit considers all fourteen installed entrypoints as assessment
   lenses; loading a recipe does not select its migration or authorize execution.
   Missing lenses stay visible and preclude a complete all-lens claim.
 - Inventory covers owned Python, stubs, tests, scripts and notebooks with nested
@@ -328,3 +331,339 @@ original skill creator validator on the six Python specialist entrypoints and
 the audit wrapper. The existing DBSCTR entrypoint is unchanged. Keep independent
 behavioral evaluation artifacts
 and actual deployment/merge evidence in the cycle; publish only sanitized outcomes.
+
+
+## Architecture assessment extension
+
+### Domain and ownership
+
+Architecture assessment for Python projects remains a mode of `python-audit`.
+The default full assessment considers all current language/architecture lenses;
+a focused architecture request considers system boundaries, package organization,
+component design and architectural fitness first. Other techniques enter only
+when the actual boundary or contract needs them. Reusable `architecture-patterns`
+may help non-Python work, but Python audit does not claim full cross-language coverage.
+
+Add `architecture-patterns` for Clean/Hexagonal/DDD and context/dependency decisions,
+`python-project-structure` for packages/public import surfaces, and locally authored
+`python-architecture-fitness` for accepted dependency-rule checks and their limits.
+Existing `python-design-patterns` retains component responsibilities and composition.
+Project policy defines accepted architecture; inferred intent and generic patterns
+remain advisory. No pattern mandates layers, services, repositories, duplicate
+ORM/domain models, a runtime increase or a new checker.
+
+The audit primary owns snapshot, coverage, findings and one refactor roadmap.
+Specialists own techniques, QA owns configured evidence, and DBSCTR owns later
+remediation. Default report-only assessment does not write ADRs, import contracts,
+configuration, tickets or fixes, execute target imports/notebooks, install tools
+or authenticate external systems. Existing execution authorization remains usable.
+
+This cycle builds on the reviewed Python/data source and reconciles merged router/
+infrastructure guidance, preserving both source histories and all gate ancestry.
+It does not remediate unrelated pending pull requests or their validated findings.
+
+### Architecture behaviors
+
+| Given / when | Required outcome |
+|---|---|
+| A full Python audit is requested without a narrower focus | Consider fourteen current assessment lenses and applicable boundaries; keep coverage/evidence gaps visible |
+| Architecture-only review is requested in natural language | Load three architecture lenses plus component design first; other techniques follow actual evidence, not a full automatic tooling/runtime audit |
+| An accepted dependency rule has a concrete contrary source path | Report the rule, witness chain, owning boundary and consequence; distinguish source observation from checker execution |
+| A cycle or layering preference has no accepted project rule | Explain concrete maintenance cost and alternatives as advisory design, not a fabricated contract violation |
+| A small flat library or modular monolith already meets needs | Retain simple design; no mandatory services, DDD layers, interfaces or checker installation |
+| Existing checker is missing, unavailable or configured with exclusions | Continue bounded source review and disclose guidance/check/coverage limits; no invented pass |
+| Re-exports, dynamic plugins, generated or type-only imports affect the boundary | Trace relevant actual paths and expose static-check limitations |
+| Python interacts with other languages | Inspect relevant interface consumers and disclose unreviewed scope; no full cross-language architecture claim |
+| No Python is present | Explain Python-audit scope and use reusable architecture guidance if sufficient, without mislabeling a full Python audit |
+| Audit identifies refactoring or proposed contracts | Return one ordered roadmap; no automatic source/ADR/config changes or second lifecycle ledger |
+
+### Architecture interfaces and visual evidence
+
+The existing Python module owns three new conditional trigger rows. Existing
+Python method notes own technique distinctions and immutable source inventory
+links. Two complete upstream bundles use existing schema 1 provenance at
+`dbsctr/references/architecture-sources/sources.lock.json`, retaining MIT notices,
+original SHA-256/Git blobs/modes and reversible per-file patches. The local fitness
+skill has one on-demand contracts reference; no helper, installer or dispatcher.
+
+`python-audit/SKILL.md` chooses full or architecture focus before lens loading.
+Natural-language invocation: `Use $python-audit to audit architecture only and
+prioritize refactors.` This is a prompt, not a CLI flag or new command. The
+on-demand `references/architecture.md` defines architecture evidence; the existing
+report contract adds actual/declared boundary, witness, tradeoff and contract-plan
+fields without creating another report owner. UI metadata exposes both uses.
+
+| Architecture concern | Evidence owner and permitted handoff |
+|---|---|
+| System/context and dependency design | `architecture-patterns`; options, costs and compatibility at Domain/Spec |
+| Package/module/public surface organization | `python-project-structure`; project layout and consumers at Spec/Refactor |
+| Component responsibilities/composition | Existing `python-design-patterns`; focused structural technique |
+| Accepted dependency contracts and static-check limits | `python-architecture-fitness`; QA executes selected authority at Contract/Test |
+| Snapshot, review coverage, findings and ordered work | Same `python-audit` primary; later selected remediation enters DBSCTR |
+
+**Text Equivalent:** System design, packaging, components and fitness are separate
+techniques feeding one audit primary and existing QA/DBSCTR. Canonical source:
+this table and architecture interfaces; owner: lifecycle maintainer; update when
+mode, ownership, resources or handoffs change. This extends the existing Visual
+Evidence Plan: Boundary/Interaction/Data-trust/Dependency evidence is required in
+this table and the mode/contract text; State uses the behavior/disposition table.
+Schema is not applicable because profiles and Gate Ledger remain unchanged;
+Quantitative is not applicable because no effectiveness or performance claim is made.
+
+### Architecture contracts and validation
+
+Project-declared architecture takes precedence over generic layer examples.
+Distinguish accepted rules, inferred intent and proposed alternatives. Findings
+need concrete locations, actual callers/import witnesses, impact/confidence,
+compatibility and validation; import topology alone does not establish good or
+bad design. Public APIs are not access-controlled by `__all__`. Preserve supported
+Python/tool versions, existing libraries and intentional architecture decisions.
+
+Import Linter is an optional example when selected by the project. Report roots,
+configuration, selected contracts, direct/indirect semantics, type-only/external
+exclusions, dynamic/generated/plugin coverage and cache/environment limits.
+Do not execute target imports to discover topology. A configured custom checker
+can execute code or write caches; inspect effects before using existing execution
+authority. Missing tooling stays a gap, not installation permission. A proposed
+rule is not an accepted gate; narrow exceptions need actual authority and scope.
+
+Architecture focus uses relevant configured checks; it does not silently request
+full typing, packaging or performance validation. Full-mode coverage retains
+existing obligations. Preserve snapshots/dirty overlays and resource privacy.
+Return in conversation by default; artifact writes, fixes, environments, services
+and external actions require the existing user/project scope.
+
+Validate intentional failing composition before authoring new skills. Verify
+complete upstream reconstruction, resource closure, declared mode routing and
+isolated exact-target/idempotent projection; run original creator validators.
+Independent source-only exercises cover a declared-boundary monolith, a simple
+library, focused/full scope and missing guidance/check evidence. Preserve actual
+coverage and target bytes; samples do not prove universal routing or effectiveness.
+Source reconciliation preserves both published Python/data and current-main
+router/infrastructure scopes and revalidates their union before delivery.
+
+
+## Conditional Python stack and runtime expansion
+
+### Domain and ownership
+
+Add seven reviewed technique bundles: `pydantic`, `polars`, `typer`, `fastapi`,
+`atheris`, `secure-python-release-pipeline` and `port-to-free-threaded-python`.
+They supplement the existing fourteen generic audit lenses. Framework, dataframe,
+fuzzing, release and no-GIL methods apply only to relevant project evidence or an
+explicitly selected migration. Installing guidance does not select dependencies,
+a framework, a toolchain, a runtime floor, a fuzz campaign or publication.
+
+The Python module owns the canonical conditional selector table. The Data module
+routes actual Polars work to the same technique; it does not select a dataframe
+engine merely because data is present. `python-audit` keeps one primary, the full
+versus architecture-focused scope, and one deduplicated roadmap. Project policy
+owns tools, runtime compatibility and contracts; QA owns executed evidence; DBSCTR
+owns remediation and applicable Release/Deploy gates. Existing notebook/Rust
+selectors already installed from separately owned work remain preserved; this
+cycle does not adopt or deliver that separate batch.
+
+Preserve complete selected upstream roots, relevant shared resources, exact
+licenses and immutable original identities. The four official framework/data
+bundles are MIT; Atheris guidance retains CC-BY-SA-4.0; the two runtime/release
+bundles retain Apache-2.0 and their Experimental status. Review adaptations across
+supporting resources, including substantive examples, rather than changing only
+the entrypoint. No plugin hooks, authentication setup or unrelated skills are
+installed. User data, credentials and raw evaluation evidence remain private.
+
+### Behavior
+
+| Given / when | Required outcome |
+|---|---|
+| An ordinary edit has no selected framework, dataframe, fuzz, release or free-threaded concern | No new specialist is loaded just because Python is present |
+| Pydantic validates or serializes an actual external boundary | Preserve coercion/strictness, aliases, invalid inputs and exposed fields; do not replace internal domain models automatically |
+| A Polars transformation changes | Check actual schema, lazy execution, joins/null/order and output bounds; schema discovery may perform I/O; preserve selected engine |
+| A Typer CLI changes | Preserve commands/options, exit status, stdout/stderr, automation and existing framework/version conventions |
+| A FastAPI boundary changes | Check dependency/resource scope, response filtering and streaming; keep blocking work out of asynchronous handlers and preserve selected dependencies |
+| A coverage-guided fuzz target is selected | Preserve expected versus unexpected failures, instrument actual target code, bound resources/corpus/output and record crash reproduction; no live or unbounded campaign is implied |
+| A package release path is selected | Check source-distribution contents, built artifacts and installation/smoke evidence; publication remains a separately authorized effect |
+| A free-threaded target is selected | Check shared state and native dependencies, failed imports, actual GIL state and stress evidence; imports alone do not prove thread safety |
+| An explicit full or architecture-focused audit encounters these concerns | Select relevant additional methods within that scope, deduplicate findings and retain fourteen generic lenses |
+| Guidance/tools or relevant runtime are unavailable | Continue useful static assessment and disclose missing coverage; never convert missing evidence into a pass |
+| Shared live routing contains known notebook/Rust selectors | Preserve those selectors and unrelated bundles during this exact-target deployment |
+| Experimental release/no-GIL guidance is consulted | Disclose maturity and verify applicable recipes against project-selected versions and primary authorities |
+
+### Interfaces and visual evidence
+
+| Evidence signal | Technique and checkpoint |
+|---|---|
+| Actual Pydantic input/output models | `pydantic` at Domain/Contract/Test |
+| Actual Polars expressions, lazy frames or sinks | `polars` at Spec/Contract/Test, through Python or Data |
+| Actual Typer command interface | `typer` at Spec/Contract/Test |
+| Actual FastAPI routing/dependencies/responses | `fastapi` at Domain/Contract/Test |
+| Explicit coverage-guided Python/native fuzzing | `atheris` at Contract/Test; scoped QA evidence |
+| Actual Python package release/artifact pipeline | `secure-python-release-pipeline` at Spec/Test/Release |
+| Selected free-threaded Python target or compatibility review | `port-to-free-threaded-python` at Profile/Contract/Test |
+
+Each discoverable bundle lives at `dot_agents/skills/<name>/`, with a concise
+`SKILL.md`, generated `agents/openai.yaml`, exact `LICENSE.upstream`,
+`UPSTREAM.md` and complete relevant resources. Three source inventories under
+`dbsctr/references/python-expansion-sources/{frameworks,data-testing,runtime}/`
+retain schema 1 `sources.lock.json` and reversible patches. Package records
+contain immutable repository/commit/path, original `upstream_files`, `git_blobs`,
+`upstream_modes` and `upstream_paths`, complete adapted `files`/`modes`/
+`installed_modes`, patch hashes, license and adaptation description. Explicit
+original path mappings cover root licenses and shared guardrails copied into a
+selected bundle; generated local resources have no invented upstream identity.
+
+The Python selector table remains canonical. On-demand method guidance lives in
+`dbsctr/references/python-stack-specialists.md`; `python-audit` selects its
+conditional stack methods through `references/stack-specialists.md`, without
+changing its default full/focused modes or adding a coordinator. Data's Polars
+route delegates to the same skill. No new installer, checker or lifecycle schema.
+
+| Visual concern | Disposition and question |
+|---|---|
+| Boundary | Required: the owner/selector tables distinguish method, audit, project, QA and release authority |
+| Interaction | Required: project evidence selects one method; primary reconciles advice; QA records applicable results; authorized delivery follows |
+| State | Required: original verified, adaptation reviewed, isolated projection verified, exact live projection verified; unavailable/failed evidence retains its actual state |
+| Data/trust | Required: immutable public originals enter reviewed source; bounded project context enters method advice; private evidence stays outside source |
+| Schema | Required: package-record field contract above distinguishes original, adapted and installed identities |
+| Dependency/deployment | Required: complete source and resources precede isolated projection, live drift guard, scoped apply and repeat verification |
+| Quantitative | Not applicable: no effectiveness comparison or universal quality threshold is claimed |
+
+**Text Equivalent (stack expansion):** Canonical selectors map actual project
+evidence to a technique and checkpoint. The same primary and existing QA/Release
+owners decide scope and actual evidence. Immutable originals and licenses become
+reviewed, reversible adaptations; isolated verification precedes drift-guarded
+shared installation. Missing guidance or failed checks never advance as passes.
+These tables and package inventories are canonical; lifecycle/distribution
+maintainers update them when selection, ownership, schema or deployment changes.
+
+### Contracts and validation
+
+- The seven names remain normally discoverable, with narrow task-based triggers.
+  Loading them does not choose a framework, dependency, runtime build, operation
+  or new QA gate. Full audit retains fourteen generic lenses; architecture focus
+  passes its structural scope into conditional specialists. Existing notebook/Rust
+  routing and separately deployed method notes remain preserved.
+- Keep complete selected roots and all genuinely required shared resources.
+  Optional unselected siblings use immutable external references. Original file
+  paths, Git blobs, SHA-256 and modes must reconstruct exactly by reversing local
+  patches with zero fuzz; forward application must restore the full adapted set.
+  Keep original license/attribution and Apache modification notices. Experimental
+  status is material guidance, not an instruction to accept missing evidence.
+- Reconcile version-sensitive and opinionated upstream recipes throughout the
+  resource tree. Preserve sync/async ownership; invalid-input/serialization and
+  dataframe null/join/order semantics; CLI output/exit contracts; meaningful fuzz
+  failures and actual instrumentation; build-from-sdist/artifact smoke evidence;
+  failed-import/GIL checks and genuine synchronization requirements. Demonstrated
+  example repairs need focused offline evidence; static syntax alone is weaker.
+- Tests cover immutable provenance, full resource closure, file bytes/modes,
+  reversible patches, bounded isolated projection, unrelated-state preservation
+  and repeat application. Instruction checks read changed Python/Data routing
+  and audit resources. Run original creator validators on all seven entrypoints.
+  Independent forward cases exercise conditional routing and difficult decisions
+  without installs, live data, services, fuzz campaigns or publication.
+- Shared deployment records exact selected source/configuration/targets, prior
+  file sets/hashes/modes and recovery preimages. Compare prior-live state before
+  application; preserve unexpected drift, apply without scripts, verify complete
+  selected bytes/modes and empty repeat diff. Installed files, resolver results,
+  native catalog selection and consumer behavior are distinct claims.
+- Kernel and completion evidence remain in this cycle. Source-only documentation
+  phases have no new executable type artifacts; implementation checks use the
+  existing compatible test environment. Publishing a package, running a campaign,
+  changing credentials or operating a remote service is outside this installation.
+
+## Conditional advanced Python methods
+
+### Domain and ownership
+
+Add five locally authored methods: `python-process-parallelism`,
+`python-data-contracts`, `python-arrow-interchange`, `python-mutation-testing`
+and `python-durable-jobs`. Process ownership, dataframe validation, columnar
+interchange, selected mutation campaigns and durable worker delivery are distinct
+boundaries. Project policy retains runtimes, backends, queues and acceptance
+thresholds. The Python module owns canonical selection; Data delegates actual
+data contracts and Arrow handoffs. The existing audit primary reconciles relevant
+methods and one roadmap. Full audit retains fourteen core lenses and architecture
+focus remains structural. Databricks Jobs retains platform orchestration ownership.
+
+These are original local guidance bundles informed by primary documentation, not
+vendored upstream skills. Existing seven-package provenance remains unchanged.
+No tool installation, interpreter migration, campaign, data read, worker operation
+or publishing follows merely from guidance selection.
+
+### Advanced-method behavior
+
+| Given / when | Required outcome |
+|---|---|
+| Ordinary Python edit without a relevant boundary | No additional method is selected |
+| Process or subinterpreter pool changes | Check selected runtime, serialization, bounded work, ownership and actual shutdown; cancelling a Future does not imply stopping running work |
+| Dataframe schema or value boundary changes | Distinguish schema, value validation, coercion and aggregated errors; preserve actual backend |
+| Arrow batch or dataframe/database interchange changes | Preserve schema, null/time semantics, chunking, lifetime and measured copy/streaming behavior |
+| Mutation testing is requested | Establish green baseline and explicit scope/budget in an isolated source copy; classify raw outcomes without declaring every survivor equivalent |
+| Durable queue/worker behavior changes | Check atomic handoff, claims/leases/fencing, idempotent effects, acknowledgements, redelivery and crash recovery |
+| Report-only full or architecture audit encounters these boundaries | Assess relevant static evidence; retain scope, deduplicate root causes and disclose unexecuted checks |
+| Required tools/runtime/backend are missing | State coverage gap; keep useful static assessment separate from runtime proof |
+
+### Advanced-method interfaces and visual evidence
+
+| Evidence signal | Method | Checkpoint / ownership |
+|---|---|---|
+| Process pools, subinterpreters, IPC or shared memory | `python-process-parallelism` | Contract/Test; async and resource guidance only where needed |
+| Dataframe schema, coercion or value invariants | `python-data-contracts` | Contract/Test; Pydantic retains object/API boundaries |
+| Arrow schemas, batches, IPC or dataframe/database handoffs | `python-arrow-interchange` | Spec/Contract/Test; engine query design stays with engine specialist |
+| Explicit mutation analysis or existing mutation setup | `python-mutation-testing` | Test; campaign execution requires selected scope and budget |
+| Durable enqueue, claims, worker effects or acknowledgement | `python-durable-jobs` | Domain/Contract/Test; Databricks Jobs remains platform owner |
+
+Each bundle contains a concise `SKILL.md`, generated `agents/openai.yaml` with
+normal implicit discovery, and only useful on-demand resources. Primary links and
+version-sensitive decision points belong with the methods. Extend existing
+`dbsctr/references/python-stack-specialists.md` and
+`python-audit/references/stack-specialists.md`; add no coordinator or new gate.
+The canonical Python table and Data delegates reference these same names.
+
+| Visual concern | Disposition and review question |
+|---|---|
+| Boundary | Required: selector/owner table above distinguishes five techniques and adjacent owners |
+| Interaction | Required: project evidence selects relevant method; primary reconciles findings; existing QA records executed evidence |
+| State | Required: researched, reviewed source, isolated projection verified, drift-guarded installation verified; failures remain failures |
+| Data/trust | Required: public primary sources inform original guidance; private project/evaluation inputs stay outside public source |
+| Schema | Not applicable: no new persistent schema or provenance record format |
+| Dependency/deployment | Required: full source/resources precede isolated projection, live-state comparison, scoped apply and repeat diff |
+| Quantitative | Not applicable: no universal score or effectiveness comparison |
+
+**Text Equivalent (advanced methods):** The selector table maps actual evidence
+to one technique and checkpoint. Existing primary, project and QA owners retain
+authority. Public documentation informs original source. Review and isolated
+projection precede guarded shared installation; missing or failed evidence cannot
+advance as a pass. The selector and sequence tables are canonical; lifecycle and
+distribution maintainers update them when selection or deployment changes.
+
+### Advanced-method contracts and validation
+
+- Preserve supported runtimes and installed framework/queue choices. Version-gate
+  process start defaults, interpreter pools, bounded map and worker termination.
+  Cancellation, deadline expiry, shutdown and actual process termination remain
+  distinct outcomes. Shared-memory cleanup has explicit ownership.
+- Data contracts distinguish schema-only planning, full value checks, nullability,
+  coercion, uniqueness and cross-column invariants. Lazy error aggregation does
+  not imply LazyFrame value validation. Arrow zero-copy and bounded memory are
+  conditional on representation, buffer ownership and actual producer/consumer.
+- Mutation guidance requires a passing baseline, exact target/test scope, time
+  budget and source isolation. Preserve original source and raw tool results;
+  surviving, uncovered, equivalent, timeout and invalid mutants are distinct.
+  Static audit does not run a campaign or invent a gate threshold.
+- Durable work separates DB commit from broker publication, claim ownership from
+  stale effects, and business idempotency from acknowledgement. Validate actual
+  engine guarantees and crash windows; do not promise exactly-once delivery.
+- Tests verify complete scoped projection, resource/link closure, ordinary
+  discoverability, bytes/modes, unrelated-state preservation and repeat diff.
+  Read every changed routing/audit resource. Run creator validators for five
+  bundles and independent forward cases with realistic static artifacts. Runtime
+  engine qualification is distinct from static advice and file installation.
+- Deploy only exact managed targets with explicit source/configuration and scripts
+  excluded. Snapshot prior live file sets/bytes/modes, compare before applying,
+  preserve unexpected drift and verify full installed closure plus empty repeat
+  diff. Recovery uses retained preimages and reviewed source. Native catalogue
+  selection is not inferred from filesystem or physical-sibling resolution.
+- Kernel, Review/Integrate, Deploy and Maintain/Retire are required. Release and
+  Operate are not applicable: no independently released package or running service.
+  Source-only artifact phases create no executable type-bearing changes; existing
+  test environment validates implementation contracts without new installations.

@@ -1,0 +1,48 @@
+--- a/rules/query-mv-incremental.md
++++ b/rules/query-mv-incremental.md
+@@ -5,11 +5,19 @@
+ tags: [query, materialized-view, aggregation, real-time]
+ ---
+ 
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
++
+ ## Use Incremental MVs for Real-Time Aggregations
+ 
+ **Impact: HIGH**
+ 
+ Incremental MVs automatically apply the view's query to new data blocks at insert time. Results are written to a target table and partial results merge over time.
++
++**Window contract:** Both examples use the same hour-aligned lower cutoff,
++`toStartOfHour(now() - INTERVAL 7 DAY)`. Fix that cutoff once when comparing
++results. An exact rolling timestamp boundary inside an hour needs raw boundary
++bucket evaluation or a finer aggregation; filtering whole hourly buckets alone
++cannot reproduce that result.
+ 
+ **Incorrect (full aggregation on every query):**
+ 
+@@ -21,7 +29,7 @@
+     count() as events,
+     uniq(user_id) as unique_users
+ FROM events
+-WHERE timestamp >= now() - INTERVAL 7 DAY
++WHERE timestamp >= toStartOfHour(now() - INTERVAL 7 DAY)
+ GROUP BY event_type, hour;
+ -- Scans 7 days of data every time (billions of rows)
+ ```
+@@ -55,7 +63,7 @@
+     countMerge(events) as events,
+     uniqMerge(unique_users) as unique_users
+ FROM events_hourly
+-WHERE hour >= now() - INTERVAL 7 DAY
++WHERE hour >= toStartOfHour(now() - INTERVAL 7 DAY)
+ GROUP BY event_type, hour;
+ -- Reads thousands of rows instead of billions
+ ```
+@@ -66,3 +74,7 @@
+ - Minimal cluster overhead at insert time
+ 
+ Reference: [Use Materialized Views](https://clickhouse.com/docs/best-practices/use-materialized-views)
++
++## Workload and compatibility qualification
++
++Measure insert-side CPU/storage overhead and downstream merge work; it is not universally minimal. Existing rows, later source mutations/deletes, dimension changes and replay/deduplication require explicit design. Validate state/merge functions against data types and avoid double counting during backfill.

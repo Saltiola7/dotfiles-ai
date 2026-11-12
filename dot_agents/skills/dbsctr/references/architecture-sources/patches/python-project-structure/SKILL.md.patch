@@ -1,0 +1,256 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,12 +1,23 @@
+ ---
+ name: python-project-structure
+-description: Python project organization, module architecture, and public API design. Use when setting up new projects, organizing modules, defining public interfaces with __all__, or planning directory layouts.
++license: MIT
++description: Review Python package cohesion, module ownership and public import surfaces when layout or import boundaries change. Preserve project packaging, import conventions and consumer compatibility.
+ ---
+ 
+ # Python Project Structure & Module Architecture
+ 
+-Design well-organized Python projects with clear module boundaries, explicit public interfaces, and maintainable directory structures. Good organization makes code discoverable and changes predictable.
++Group code by coherent responsibility and change patterns, and make supported
++import surfaces clear to consumers. Inspect existing callers, package metadata,
++test discovery, import side effects and project decisions before proposing moves.
++Preserve selected tools, runtimes, layout and compatibility. The current primary
++owns the task; this guidance does not install tools, scaffold a replacement or
++start another audit/lifecycle. See [UPSTREAM.md](UPSTREAM.md) for attribution.
+ 
++A structural assessment is report-only unless remediation is already authorized.
++Offer an incremental change and a retain alternative, with concrete import/caller
++costs and validation. Missing `src/`, `__all__` or a particular folder name is not
++by itself debt. Examples below are choices, not universal requirements.
++
+ ## When to Use This Skill
+ 
+ - Starting a new Python project from scratch
+@@ -24,18 +35,26 @@
+ 
+ ### 2. Explicit Interfaces
+ 
+-Define what's public with `__all__`. Everything not listed is an internal implementation detail.
++Define supported imports through documentation, naming and deliberate re-exports.
++`__all__` optionally controls `from module import *`; it does not make other
++attributes inaccessible or establish an enforcement boundary.
+ 
+ ### 3. Flat Hierarchies
+ 
+-Prefer shallow directory structures. Add depth only for genuine sub-domains.
++Choose nesting from coherent ownership and consumer navigation needs. Flat and
++nested structures can both be appropriate; neither depth nor file count is a gate.
+ 
+ ### 4. Consistent Conventions
+ 
+-Apply naming and organization patterns uniformly across the project.
++Use established project conventions unless evidence justifies a bounded change.
+ 
+-## Quick Start
++## Example layout
+ 
++Use this only when the project selects a `src/` package layout. Preserve a working
++flat layout unless a concrete isolation/packaging need justifies migration; moving
++files also affects package data, entrypoints, test discovery, CI and consumers.
++
++
+ ```
+ myproject/
+ ├── src/
+@@ -51,27 +70,29 @@
+ 
+ ## Fundamental Patterns
+ 
+-### Pattern 1: One Concept Per File
++### Pattern 1: Cohesive modules
+ 
+-Each file should focus on a single concept or closely related set of functions. Consider splitting when a file:
++Keep related behavior and invariants together. Consider a split when unrelated
++responsibilities change independently or an interface isolates a real ownership
++boundary. Consider consolidation when callers must navigate many pass-through
++modules to understand one behavior. File length and one-class-per-file conventions
++are signals, not thresholds or proof of debt.
+ 
+-- Handles multiple unrelated responsibilities
+-- Grows beyond 300-500 lines (varies by complexity)
+-- Contains classes that change for different reasons
+-
+ ```python
+-# Good: Focused files
++# Example: separate responsibilities when that separation earns its cost
+ # user_service.py - User business logic
+ # user_repository.py - User data access
+ # user_models.py - User data structures
+ 
+-# Avoid: Kitchen sink files
+-# user.py - Contains service, repository, models, utilities...
++# A cohesive user.py can also be appropriate; inspect actual coupling first.
+ ```
+ 
+ ### Pattern 2: Explicit Public APIs with `__all__`
+ 
+-Define the public interface for every module. Unlisted members are internal implementation details.
++Use `__all__` when controlled star-import behavior or documented export enumeration
++is useful. It is not required for every module and does not hide unlisted members.
++Explicit imports and attribute access still work. Test supported imports and
++consumer compatibility rather than treating this list as access control.
+ 
+ ```python
+ # mypackage/services/__init__.py
+@@ -86,16 +107,18 @@
+     "ValidationError",
+ ]
+ 
+-# Internal helpers remain private by omission
+-# from .internal_helpers import _validate_input  # Not exported
++# Omission changes star imports, not direct access. Underscore naming and
++# documented contracts communicate internal status; enforcement is separate.
+ ```
+ 
+ ### Pattern 3: Flat Directory Structure
+ 
+-Prefer minimal nesting. Deep hierarchies make imports verbose and navigation difficult.
++Avoid nesting that adds navigation without useful ownership. Keep subpackages
++when they express real domains or isolation; do not flatten a stable package
++solely to shorten paths.
+ 
+ ```
+-# Preferred: Flat structure
++# Option: flat technical groups
+ project/
+ ├── api/
+ │   ├── routes.py
+@@ -109,15 +132,17 @@
+ └── utils/
+     └── validation.py
+ 
+-# Avoid: Deep nesting
++# Review whether each nested level expresses a real responsibility
+ project/core/internal/services/impl/user/
+ ```
+ 
+-Add sub-packages only when there's a genuine sub-domain requiring isolation.
++Add or retain subpackages when their cohesion, public surface or ownership earns the boundary.
+ 
+ ### Pattern 4: Test File Organization
+ 
+-Choose one approach and apply it consistently throughout the project.
++Retain the configured runner/discovery authority. Colocated and parallel test
++layouts are both valid; verify collection and package artifacts after moving
++files. A matching directory tree does not prove behavioral coverage.
+ 
+ **Option A: Colocated Tests**
+ 
+@@ -150,7 +175,11 @@
+ 
+ ### Pattern 5: Package Initialization
+ 
+-Use `__init__.py` to provide a clean public interface for package consumers.
++Deliberate `__init__.py` re-exports can provide a stable consumer surface. Trace
++import-time work, optional dependencies and cycles first: importing a package
++executes initialization, and broad eager re-exports can make unrelated features
++unavailable. Keep expensive I/O and owned resource acquisition out of imports.
++A namespace package need not gain `__init__.py` merely to follow this example.
+ 
+ ```python
+ # mypackage/__init__.py
+@@ -171,7 +200,8 @@
+ __version__ = "1.0.0"
+ ```
+ 
+-Consumers can then import directly from the package:
++The version literal is illustrative: retain the project's authoritative version
++source rather than adding a competing one. Consumers can use deliberate re-exports:
+ 
+ ```python
+ from mypackage import MainClass, Settings
+@@ -179,7 +209,9 @@
+ 
+ ### Pattern 6: Layered Architecture
+ 
+-Organize code by architectural layer for clear separation of concerns.
++If the project selects technical layers, express their actual dependency rules.
++The names below are examples; Pydantic, repositories and duplicated data models
++are not required merely by this directory structure.
+ 
+ ```
+ myapp/
+@@ -193,11 +225,16 @@
+ └── config/        # Configuration
+ ```
+ 
+-Each layer should only depend on layers below it, never above.
++Validate the chosen dependency direction against actual imports and call paths.
++A directory name alone does not establish isolation. Pure dependencies and
++composition-root wiring follow the selected architecture, not visual tree order.
+ 
+ ### Pattern 7: Domain-Driven Structure
+ 
+-For complex applications, organize by business domain rather than technical layer.
++Domain-oriented packages can keep related changes together when business models
++or owners differ. Compare them with the existing structure; a domain package is
++not automatically a separately deployed service, and a shared module needs an
++explicit cohesive owner rather than becoming a dumping ground.
+ 
+ ```
+ ecommerce/
+@@ -222,31 +259,41 @@
+ 
+ - Use `snake_case` for all file and module names: `user_repository.py`
+ - Avoid abbreviations that obscure meaning: `user_repository.py` not `usr_repo.py`
+-- Match class names to file names: `UserService` in `user_service.py`
++- Follow existing naming policy; a cohesive module may contain multiple related classes or functions
+ 
+-### Import Style
++### Import style and compatibility
+ 
+-Use absolute imports for clarity and reliability:
++Both absolute and explicit relative imports are valid Python package mechanisms.
++Follow project conventions, execution mode and public/internal boundary intent.
++For example:
+ 
+ ```python
+-# Preferred: Absolute imports
+-from myproject.services import UserService
+-from myproject.models import User
+-
+-# Avoid: Relative imports
+-from ..services import UserService
+-from . import models
++from myproject.services import UserService  # An absolute package import
++from . import models                        # A relative sibling import
+ ```
+ 
+-Relative imports can break when modules are moved or reorganized.
++Either form can require changes when modules move. Verify supported package
++imports, module execution/CLI entrypoints, import-time side effects and affected
++consumers. Public path changes may need re-export shims and a documented
++migration window; do not conceal a cycle with local imports without explaining
++why that execution-time dependency is appropriate.
+ 
+ ## Best Practices Summary
+ 
+-1. **Keep files focused** - One concept per file, consider splitting at 300-500 lines (varies by complexity)
+-2. **Define `__all__` explicitly** - Make public interfaces clear
+-3. **Prefer flat structures** - Add depth only for genuine sub-domains
+-4. **Use absolute imports** - More reliable and clearer
+-5. **Be consistent** - Apply patterns uniformly across the project
++1. **Keep modules cohesive** - Split or consolidate for actual responsibility and change cost
++2. **Define supported imports** - Use documentation/re-exports and optional `__all__` deliberately
++3. **Justify structure** - Retain useful flat or nested package ownership
++4. **Preserve import semantics** - Honor selected relative/absolute conventions and execution modes
++5. **Preserve project policy** - Change conventions only with concrete reasons
+ 6. **Match names to content** - File names should describe their purpose
+-7. **Separate concerns** - Keep layers distinct and dependencies flowing one direction
+-8. **Document your structure** - Include a README explaining the organization
++7. **Check boundaries** - Verify selected dependency rules with actual evidence
++8. **Document useful decisions** - Reuse existing architecture/API records rather than inventing another required document
++
++
++For repeatable accepted import rules, consult the project's existing checks or
++`python-architecture-fitness` if available. Guidance availability is not authority
++to install a checker. Static import checks complement consumer and behavior tests.
++
++Primary semantics: [Python import statement](https://docs.python.org/3/reference/simple_stmts.html#the-import-statement)
++and [packages](https://docs.python.org/3/tutorial/modules.html#packages). Match
++version-specific changes to the actual supported runtime.

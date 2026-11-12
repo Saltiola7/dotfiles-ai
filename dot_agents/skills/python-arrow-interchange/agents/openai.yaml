@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Arrow Interchange"
+  short_description: "Review columnar data handoffs and ownership"
+  default_prompt: "Use $python-arrow-interchange to review Arrow schemas, batches and ownership at this data handoff."

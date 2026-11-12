@@ -1,0 +1,49 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,13 +1,43 @@
+ ---
+ name: databricks-pipelines
+-description: Develop Lakeflow Spark Declarative Pipelines (formerly Delta Live Tables) on Databricks. Use when building batch or streaming data pipelines with Python or SQL, including Auto CDC from event streams or periodic complete snapshots. Invoke BEFORE starting implementation.
+-compatibility: Requires databricks CLI (>= v1.0.0)
+ metadata:
+   version: "0.3.0"
+-parent: databricks-core
++description: "Develop and review Databricks Lakeflow Spark Declarative Pipelines in Python or SQL, including dataset ownership, CDC, sinks and data quality expectations."
++license: LicenseRef-Databricks
+ ---
+ 
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Lakeflow Spark Declarative Pipelines Development
++
++## Scope and execution boundaries
++
++Use this bundle only within or connecting to Databricks Services, under the
++included `LICENSE.upstream` and `NOTICE.upstream`. It is not generic Spark guidance.
++
++For a repository audit, review source, SQL, bundle configuration and declared
++runtime/dependency evidence first. Do not install or upgrade tools, authenticate,
++select or change profiles, query a workspace, execute notebooks/examples, or
++deploy resources merely to complete a static review. Record unavailable runtime,
++workspace and performance evidence as coverage gaps. Examples below illustrate
++APIs; they do not authorize their side effects.
++
++For requested live work, retain the already selected workspace, profile,
++authentication provider, runtime and dependency constraints. Resolve a target only
++when missing or conflicting; do not repeatedly ask for an already selected
++profile. Check the selected tool's actual version/help and current official
++documentation for the specific operation. Propose a necessary migration or tool
++upgrade separately instead of requiring the newest CLI for every task.
++
++Read only relevant references. If a named sibling skill is unavailable, state the
++guidance gap and use current official documentation within scope; do not install
++an entire skill bundle. Treat design defaults as workload-dependent recommendations,
++not automatic defects. Keep review findings distinct from measured execution
++results. DBSCTR owns authorized remediation and delivery.
++
++For live CLI, authentication or workspace targeting, read
++[databricks-core](../databricks-core/SKILL.md) and reuse the selected context.
++
+ 
+ **FIRST**: Use the parent `databricks-core` skill for CLI basics, authentication, profile selection, and data discovery commands.
+ 

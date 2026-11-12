@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "packages": [
+    {
+      "name": "pydantic",
+      "state": "vendored",
+      "upstream_url": "https://github.com/pydantic/skills",
+      "commit": "98f591c0886eb11df0bdd57804419e11439efc93",
+      "upstream_path": "skills/pydantic",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "82d71c4536e0d956a1b32481d8a184f291987f62f0126571890706dee6286840",
+        "SKILL.md": "7bcdd69da9686e1cacf1745280b23e9fb78ccd7f3a7100fed7ad5fba0dc6ed64"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "cee1fd322c73dac92def4102349ad98faf55de9f",
+        "SKILL.md": "fc47ff9d25bda74d4313c5f85dd8f353af4414e8"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644"
+      },
+      "upstream_paths": {
+        "LICENSE.upstream": "LICENSE",
+        "SKILL.md": "skills/pydantic/SKILL.md"
+      },
+      "files": {
+        "LICENSE.upstream": "82d71c4536e0d956a1b32481d8a184f291987f62f0126571890706dee6286840",
+        "SKILL.md": "2af8cdd35db9a9ee98c9f6b2654623792a5ad338ba901ea7286c8b14d9bc85b7",
+        "UPSTREAM.md": "3680cfeaaac387e119c837ea71914856ca0e7a2fd6f72103662af1d292f2921e",
+        "agents/openai.yaml": "e5f949de3dd017c97e49bff869e3103e7a446c4a453709683f2700ea07dbc417",
+        "references/modeling.md": "758b57ababc6b50f214209a450f8155305d454eca0e42419130fb33d81f287a0",
+        "references/settings.md": "33e060bc6d44d4d6be1383148d956aa284aac501437349badf277f30e64d202d"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/modeling.md": "100644",
+        "references/settings.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/modeling.md": "100644",
+        "references/settings.md": "100644"
+      },
+      "patches": {
+        "patches/pydantic/SKILL.md.patch": "4cd67fbb9e09bd04bd2e0eb8c70fb7ac8d4f50cfec428a9796e3a0f26d2d1c68"
+      },
+      "changes": "Retained the complete selected skill and exact MIT notice, moving adapted modeling examples on demand behind a concise boundary-specific entrypoint. Preserved internal domain-model and project tool/runtime choices; made coercion, strictness, unknown fields, aliases, defaults and public serialization explicit contracts. Scoped unions and forward annotations to actual compatibility instead of blanket bans, version-gated newer syntax and serialization, and added focused optional settings guidance with synthetic source-precedence checks. Added generated UI metadata and reversible immutable provenance. Corrected the sequential generic specialization example to provide the discriminator required by the preceding Sub1 definition; exact source-block execution reproduces the original missing-field failure and verifies retained subclass output after correction."
+    },
+    {
+      "name": "fastapi",
+      "state": "vendored",
+      "upstream_url": "https://github.com/fastapi/fastapi",
+      "commit": "45cb2252c737906f37544f5ba6bee0295fb81468",
+      "upstream_path": "fastapi/.agents/skills/fastapi",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "4ec89ffc81485b97fec584b2d4a961032eeffe834453894fd9c1274906cc744e",
+        "SKILL.md": "353cf43e70602453ba902a800f3c03f0b6c2e71130cfc0da0f1f60764d47defe",
+        "references/dependencies.md": "60e92fc8544fd326f7d112d0994cbaa9b860282d440ad2dd8e3629a466cb9dd0",
+        "references/other-tools.md": "2daf0c09ec6f77d90d9c0dcfec448b4133b05302dc3a574dafce0216bf4d6339",
+        "references/path-operations.md": "ed8d2a21123bcf63dd1e9aa61cc8e4e33a878cbbf1d09498a556a420302995ca",
+        "references/pydantic.md": "840ab962739861aed2ea77805dc46979c9a96abd8fc0043f197b3bd5d638e84b",
+        "references/responses.md": "7c921508bbd093697301ca9612038976cfb5b65bdc2dc42a0c02e2809d3652a7",
+        "references/streaming.md": "3ff148c6d153affa960f421d13d27eb8225b70e579ed833c61c6b1a9ff17fa87"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "3e92463e6bd522a2a21e5f0a80d8089d6c4be20d",
+        "SKILL.md": "cd15ec9b62547824da01fe8590a6407412bbe188",
+        "references/dependencies.md": "2458b39b3daf07cb1b1472df75019e7c7fcef29c",
+        "references/other-tools.md": "f8889a687e7e38af2862a63facc31001443a81d6",
+        "references/path-operations.md": "1292c17742536ea255813563d4757502bf209b2d",
+        "references/pydantic.md": "fadf99c1a9d52110d2039cc03b0ab80a95875e82",
+        "references/responses.md": "09081236a0ac06a15cc08d1eb25b01e00f69e564",
+        "references/streaming.md": "dc01ec9fbe9d3544bcd579e0f0f7f54e3cdade0b"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "references/dependencies.md": "100644",
+        "references/other-tools.md": "100644",
+        "references/path-operations.md": "100644",
+        "references/pydantic.md": "100644",
+        "references/responses.md": "100644",
+        "references/streaming.md": "100644"
+      },
+      "upstream_paths": {
+        "LICENSE.upstream": "LICENSE",
+        "SKILL.md": "fastapi/.agents/skills/fastapi/SKILL.md",
+        "references/dependencies.md": "fastapi/.agents/skills/fastapi/references/dependencies.md",
+        "references/other-tools.md": "fastapi/.agents/skills/fastapi/references/other-tools.md",
+        "references/path-operations.md": "fastapi/.agents/skills/fastapi/references/path-operations.md",
+        "references/pydantic.md": "fastapi/.agents/skills/fastapi/references/pydantic.md",
+        "references/responses.md": "fastapi/.agents/skills/fastapi/references/responses.md",
+        "references/streaming.md": "fastapi/.agents/skills/fastapi/references/streaming.md"
+      },
+      "files": {
+        "LICENSE.upstream": "4ec89ffc81485b97fec584b2d4a961032eeffe834453894fd9c1274906cc744e",
+        "SKILL.md": "80f26f4df63be1506c343545eaad7779eaaec0e0dce7d5d9c3e7126a71394f14",
+        "UPSTREAM.md": "4da75a80c23618633ec74841f9566a25dce984ac7e7cb9f385fa1df273f9ff7c",
+        "agents/openai.yaml": "ef38578ebcb1a5371a4f23ec8fd0a7ef15c856784817198c1b9069ee542c650a",
+        "references/dependencies.md": "0ae1709470d5ebe5ed27c0b2a0dcf2bbb452d6fd6741edb6419d83c5ab70729b",
+        "references/framework-patterns.md": "cd7c31a50870f394de2a4df6080f2127b4309b785b99e537059ac7e7ffda6fdb",
+        "references/lifecycle.md": "61c38253f3b8ef2c3181b00e92899bd9bc0b4ff00a05a94e661924753cf2533c",
+        "references/other-tools.md": "4762ff365da8179db53d2fd6f871cdeff0116722595e59d5dbc02d8425dfa704",
+        "references/path-operations.md": "6ab9a65feb704c64cdac6c31ecf8cd84ebe473cd215bde85aa16c058ee35b13b",
+        "references/pydantic.md": "c5c7e9653282ff37d40fe54e396afad54bbe19ec01dac0ee08809d298156804e",
+        "references/responses.md": "8327a56a288fe0c03332ed32a474902f464699e73c9b5cfe41fe8bdedce1700d",
+        "references/streaming.md": "ffa584e97a714287ebe8365e76221907419d4c76c4e9fb108026a543f3f8ba4d"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/dependencies.md": "100644",
+        "references/framework-patterns.md": "100644",
+        "references/lifecycle.md": "100644",
+        "references/other-tools.md": "100644",
+        "references/path-operations.md": "100644",
+        "references/pydantic.md": "100644",
+        "references/responses.md": "100644",
+        "references/streaming.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/dependencies.md": "100644",
+        "references/framework-patterns.md": "100644",
+        "references/lifecycle.md": "100644",
+        "references/other-tools.md": "100644",
+        "references/path-operations.md": "100644",
+        "references/pydantic.md": "100644",
+        "references/responses.md": "100644",
+        "references/streaming.md": "100644"
+      },
+      "patches": {
+        "patches/fastapi/SKILL.md.patch": "d953ebf56fd4f6e361b957a850622de0327f5a21de0717fbccfd6ab9155d8169",
+        "patches/fastapi/references__dependencies.md.patch": "9f818bfccf30ea6dfac99442d9ae2e64136d9764bb0d76a4d7d3f6bff43f6107",
+        "patches/fastapi/references__other-tools.md.patch": "d00ebbaf6c5bc6af0bb2e56ab7d689f40d057b4249d97918df7470f6d843d2d4",
+        "patches/fastapi/references__path-operations.md.patch": "ba2e21aa560e906ec35b5483d9504374e773908021f7b5713064e45913246aa6",
+        "patches/fastapi/references__pydantic.md.patch": "95a86eee14bdda649997216d2091d2d415cf70097bed40629f0be7ad19b79a73",
+        "patches/fastapi/references__responses.md.patch": "cfb83ca95f02775465639ecd5a648b18afb639d8ecec7de5804245418c932cc6",
+        "patches/fastapi/references__streaming.md.patch": "3c43dfafdba16fdf2ce8bbd527d4a1cbb993012632838e2b4e43fa99fbaad2dd"
+      },
+      "changes": "Retained every selected resource and exact MIT notice, moving adapted entrypoint examples on demand and adding focused lifecycle guidance. Corrected the synchronous database query shown inside an asynchronous handler, distinguished app/request/iterator resource ownership and actual response filtering, marked fake authentication and incomplete snippets as illustrative, and scoped new frontend/SSE/telemetry/serialization APIs to installed-version support. Preserved selected dependency owners, servers, checkers, ORM, HTTP and async tooling, valid class dependencies, router composition and RootModel contracts instead of requiring migrations. Added generated UI metadata and reversible immutable provenance. Converted the unrelated internal response model to an explicit mapping before public-model validation after a focused offline probe exposed a ResponseValidationError with the installed FastAPI/Pydantic versions."
+    },
+    {
+      "name": "typer",
+      "state": "vendored",
+      "upstream_url": "https://github.com/fastapi/typer",
+      "commit": "a5882dedf0bc7a46cd861fdfca020f88519e0f21",
+      "upstream_path": "typer/.agents/skills/typer",
+      "license": "MIT",
+      "upstream_files": {
+        "LICENSE.upstream": "58992cebcf8dfb6e40c4e2112ed12126c243666dca3912a3d78b7ecac4859d49",
+        "SKILL.md": "9009daf749d0830e86e61f3ec1b4671666835a77e59fb3d5973bbc5f3ccac146"
+      },
+      "git_blobs": {
+        "LICENSE.upstream": "a7694736cf37716aafec14b24aa8d6316ebe07a3",
+        "SKILL.md": "18f7660c167025371233e63e7642cf6f53b10470"
+      },
+      "upstream_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644"
+      },
+      "upstream_paths": {
+        "LICENSE.upstream": "LICENSE",
+        "SKILL.md": "typer/.agents/skills/typer/SKILL.md"
+      },
+      "files": {
+        "LICENSE.upstream": "58992cebcf8dfb6e40c4e2112ed12126c243666dca3912a3d78b7ecac4859d49",
+        "SKILL.md": "26788c3d3d7fa432f6ba5eabb7de32ec0908486b9eabeeb4166b9199bca97085",
+        "UPSTREAM.md": "27b63f0e945b567b3e29cc7147ceec300ef9e878b86b32f4e539f4e82bb8fa07",
+        "agents/openai.yaml": "57ca35b7a81ab4248d13d2fc152eacc961c5db31a7408731be52794597e79b59",
+        "references/commands.md": "c6a7792ea1297c2071910397e34a0e06caa4504d15e1840141328b11483c4944",
+        "references/contracts.md": "fe0a5db614346dd2a8cdce0ca336ee819f330cb4c7de6730746c347e458878c4"
+      },
+      "modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/commands.md": "100644",
+        "references/contracts.md": "100644"
+      },
+      "installed_modes": {
+        "LICENSE.upstream": "100644",
+        "SKILL.md": "100644",
+        "UPSTREAM.md": "100644",
+        "agents/openai.yaml": "100644",
+        "references/commands.md": "100644",
+        "references/contracts.md": "100644"
+      },
+      "patches": {
+        "patches/typer/SKILL.md.patch": "d4a0106814ddce05f825b4ab23415bee7e219534498caa2290a681272457e66e"
+      },
+      "changes": "Retained the complete selected skill and exact MIT notice, moving adapted command examples on demand behind a concise Typer-specific entrypoint. Preserved CLI commands, packaging, stdout/stderr, exit status, noninteractive behavior and existing tools; made explicit-app, Annotated, Rich and Click-extension changes conditional on selected versions and actual requirements. Corrected missing-user diagnostics to stderr with nonzero exit status, added a synthetic CLI contract example, and prohibited invented typer.ClickException. Added generated UI metadata and reversible immutable provenance."
+    }
+  ]
+}

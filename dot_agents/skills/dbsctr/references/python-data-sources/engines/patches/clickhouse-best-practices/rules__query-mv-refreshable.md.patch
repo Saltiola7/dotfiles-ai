@@ -1,0 +1,19 @@
+--- a/rules/query-mv-refreshable.md
++++ b/rules/query-mv-refreshable.md
+@@ -4,6 +4,8 @@
+ impactDescription: "Sub-millisecond queries with periodic refresh; ideal for complex joins"
+ tags: [query, materialized-view, refresh, batch]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Use Refreshable MVs for Complex Joins and Batch Workflows
+ 
+@@ -62,3 +64,7 @@
+ **Critical warning:** Query should run quickly compared to refresh interval. Don't schedule every 10 seconds if the query takes 10+ seconds.
+ 
+ Reference: [Use Materialized Views](https://clickhouse.com/docs/best-practices/use-materialized-views)
++
++## Workload and compatibility qualification
++
++Latency and freshness are workload outcomes, not guaranteed sub-millisecond behavior. Verify refresh support, scheduling/atomicity and source cost on the selected deployment; do not create or schedule a view during an audit.

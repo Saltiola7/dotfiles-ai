@@ -1,0 +1,50 @@
+--- a/rules/schema-pk-plan-before-creation.md
++++ b/rules/schema-pk-plan-before-creation.md
+@@ -1,15 +1,24 @@
+ ---
+ title: Plan PRIMARY KEY Before Table Creation
+ impact: CRITICAL
+-impactDescription: "ORDER BY is immutable; wrong choice requires full data migration"
++impactDescription: "Sort-key redesign can require table migration; plan from query evidence"
+ tags: [schema, primary-key, ORDER BY]
+ ---
+ 
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
++
+ ## Plan PRIMARY KEY Before Table Creation
+ 
+-**Impact: CRITICAL** (immutable after creation)
++**Impact: CRITICAL**
+ 
+-ClickHouse's ORDER BY clause defines physical data ordering and the sparse index. Unlike other databases, **ORDER BY cannot be modified after table creation**. A wrong choice requires creating a new table and migrating all data.
++ClickHouse's ORDER BY controls physical sorting; PRIMARY KEY controls its sparse
++index and can be a prefix. Plan both from dominant query predicates and workload
++semantics. Existing parts are not re-sorted by a metadata change. Restricted
++`ALTER TABLE ... MODIFY ORDER BY` is supported for MergeTree tables, but arbitrary
++reordering of existing data generally requires a migration. Verify the target
++version and exact operation, rather than claiming ORDER BY is immutable.
++
++Reference: [ALTER ORDER BY](https://clickhouse.com/docs/sql-reference/statements/alter/order-by).
+ 
+ **Incorrect (arbitrary ORDER BY without query analysis):**
+ 
+@@ -24,8 +33,8 @@
+ ORDER BY (event_id);  -- Chosen arbitrarily
+ 
+ -- Later: "Most queries filter by user_id!"
+--- Cannot fix with: ALTER TABLE events MODIFY ORDER BY (user_id, timestamp)
+--- ERROR: Cannot modify ORDER BY
++-- Reordering existing columns is not an unrestricted metadata change;
++-- assess a new table and verified migration for this redesign.
+ ```
+ 
+ **Correct (query-driven ORDER BY selection):**
+@@ -58,7 +67,7 @@
+ - [ ] Listed top 5-10 query patterns
+ - [ ] Identified columns in WHERE clauses with frequency
+ - [ ] Prioritized columns that exclude large numbers of rows
+-- [ ] Ordered columns by cardinality (low first, high last)
++- [ ] Balanced predicate frequency, selectivity, cardinality and compression
+ - [ ] Limited to 4-5 key columns (typically sufficient)
+ 
+ Reference: [Choosing a Primary Key](https://clickhouse.com/docs/best-practices/choosing-a-primary-key)

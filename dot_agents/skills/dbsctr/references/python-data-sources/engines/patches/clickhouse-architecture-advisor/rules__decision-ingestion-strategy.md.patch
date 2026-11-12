@@ -1,0 +1,22 @@
+--- a/rules/decision-ingestion-strategy.md
++++ b/rules/decision-ingestion-strategy.md
+@@ -7,6 +7,8 @@
+   - async_insert
+   - real-time
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ # Choose an ingestion strategy based on throughput, latency, and producer shape
+ 
+@@ -68,3 +70,10 @@
+ - Check average rows per insert
+ - Check part creation rate
+ - Check whether insert latency spikes correlate with small batch behavior
++
++## Compatibility and audit boundary
++
++Apply [task boundaries](../SKILL.md#task-boundaries). Validation items are
++proposed checks until actually executed. Verify deployment/version support and
++semantic tradeoffs; do not automatically provision queues, execute SQL or change
++retention, schema, ingestion or state during an audit.

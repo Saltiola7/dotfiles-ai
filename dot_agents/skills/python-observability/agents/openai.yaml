@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Observability"
+  short_description: "Review useful, bounded Python telemetry"
+  default_prompt: "Use $python-observability to review logs, metrics and traces for context lifetime, useful signals and sensitive-data handling."
