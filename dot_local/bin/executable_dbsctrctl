@@ -3187,6 +3187,8 @@ def read_cycle_record(root, path, label="Cycle Record", *, historical=False, max
                 fail("invalid lineage recovery custody")
     if "external_completion" in record:
         validate_external_completion(record)
+    if isinstance(record.get("delivery"), dict) and "follow_up" in record["delivery"]:
+        validate_follow_up(root, record)
     return record
 
 
@@ -4439,6 +4441,69 @@ def normalize_begin_delivery(root, args, delivery_branch):
         if supplied.lower() != expected.lower():
             fail("GitHub repository must match configured GitHub repository: " + repository)
     args.github_repository = repository
+
+
+def observe_follow_up(root, env, account, repository, number, feature, target, expected_head):
+    """Read one existing same-repository PR and its independently observed target."""
+    actor = external_github(root, env, "user")
+    pull = external_github(root, env, f"repos/{repository}/pulls/{number}")
+    if (not isinstance(actor, dict) or str(actor.get("login", "")).casefold() != account.casefold()
+            or not isinstance(pull, dict) or type(pull.get("number")) is not int
+            or pull["number"] != number or pull.get("state") != "open"
+            or type(pull.get("draft")) is not bool
+            or str(pull.get("html_url", "")).casefold() != f"https://github.com/{repository}/pull/{number}".casefold()):
+        fail("follow-up native PR or account identity mismatch")
+    for side, ref in (("head", feature), ("base", target)):
+        value = pull.get(side)
+        if (not isinstance(value, dict) or value.get("ref") != ref
+                or not isinstance(value.get("repo"), dict)
+                or str(value["repo"].get("full_name", "")).casefold() != repository.casefold()):
+            fail("follow-up native repository or branch mismatch")
+    if pull["head"].get("sha") != expected_head:
+        fail("follow-up published head changed")
+    current = external_github(root, env, f"repos/{repository}/git/ref/heads/" + quote(target, safe=""))
+    if (not isinstance(current, dict) or current.get("ref") != f"refs/heads/{target}"
+            or not isinstance(current.get("object"), dict) or current["object"].get("type") != "commit"
+            or not re.fullmatch(r"[0-9a-f]{40}", str(current["object"].get("sha", "")))):
+        fail("follow-up current default observation unavailable")
+    return {"schema_version": 1, "number": number, "published_head": expected_head,
+            "observed_base": current["object"]["sha"]}, pull
+
+
+def validate_follow_up(root, record):
+    """Validate optional follow-up custody locally, including historical reads."""
+    delivery = record.get("delivery", {})
+    binding = delivery.get("follow_up")
+    if "follow_up" not in delivery:
+        return None
+    if (record.get("schema_version") != 5 or record.get("delivery_intent") != "draft_pr"
+            or not native_workspace_execution(record) or not record.get("initiative")
+            or not record.get("initiative_approval") or not isinstance(binding, dict)
+            or set(binding) != {"schema_version", "number", "published_head", "observed_base"}
+            or type(binding.get("schema_version")) is not int or binding["schema_version"] != 1
+            or type(binding.get("number")) is not int or not 0 < binding["number"] <= 2**53 - 1
+            or any(not isinstance(binding.get(key), str) or not re.fullmatch(r"[0-9a-f]{40}", binding[key])
+                   for key in ("published_head", "observed_base"))
+            or delivery.get("published_feature_head") != binding["published_head"]
+            or delivery.get("base_head") != binding["observed_base"]
+            or not isinstance(delivery.get("github"), dict)
+            or delivery.get("branch") != record.get("git", {}).get("branch")
+            or delivery.get("branch") == delivery.get("base_branch")
+            or record.get("git", {}).get("pre_cycle_ahead_commits") != []):
+        fail("invalid follow-up binding")
+    imported = record.get("discovery_import")
+    if imported is not None:
+        if (not isinstance(imported, dict) or imported.get("base_head") != binding["published_head"]
+                or record["git"].get("head") != imported.get("commit")):
+            fail("follow-up import baseline changed")
+    elif record["git"].get("head") != binding["published_head"]:
+        fail("follow-up published baseline changed")
+    with local_completion_git_context():
+        verify_discovery_import(root, record)
+        for key in ("published_head", "observed_base"):
+            if git(root, "cat-file", "-e", binding[key] + "^{commit}", check=False).returncode:
+                fail("follow-up retained source unavailable")
+    return binding
 
 
 def initiative_acyclic(dependencies, label):
@@ -6214,7 +6279,8 @@ def registration_lock(root, args):
         yield
 
 
-def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiative=None, initiative_approval=None):
+def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiative=None, initiative_approval=None,
+                follow_up=None):
     require_native_checkout(root, args)
     forge = forgejo_selection(args)
     if forge is not None:
@@ -6279,7 +6345,7 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
             delivery_url = github_remote_url(root, delivery_remote, repository)
             fetch_github_branch(root, delivery_remote, delivery_url, protected_base_branch, git_env)
         base_head = git(root, "rev-parse", f"refs/remotes/{delivery_remote}/{protected_base_branch}").stdout.strip()
-        if discovery_import is not None and base_head != discovery_import["base_head"]:
+        if discovery_import is not None and follow_up is None and base_head != discovery_import["base_head"]:
             fail("protected base advanced during Discovery import; prepare a fresh launch")
         if git_env is None:
             published_head = git(
@@ -6289,12 +6355,24 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
             published_head = github_remote_head(
                 root, delivery_url, f"refs/heads/{current_branch}", git_env
             )
+        if follow_up is not None:
+            expected = discovery_import["commit"] if discovery_import else follow_up["published_head"]
+            if (not published_head or published_head[0] != follow_up["published_head"]
+                    or git(root, "rev-parse", "HEAD").stdout.strip() != expected
+                    or base_head != follow_up["observed_base"]):
+                fail("follow-up published source or default changed during registration")
+            current, _ = observe_follow_up(
+                root, git_env, account, repository, follow_up["number"], current_branch,
+                protected_base_branch, follow_up["published_head"])
+            if current != follow_up:
+                fail("follow-up native identity changed after import")
         if pre_cycle_ahead and (not published_head or published_head[0] != git(root, "rev-parse", "HEAD").stdout.strip()):
             fail("pre-cycle commits are not published on the feature branch")
         delivery = {
             "upstream": current_upstream, "remote": delivery_remote,
             "branch": current_branch, "base_branch": protected_base_branch, "base_head": base_head,
             **({"published_feature_head": published_head[0]} if published_head else {}),
+            **({"follow_up": follow_up} if follow_up is not None else {}),
             "github": {"host": "github.com", "account": account, "repository": repository},
             "lock_id": delivery_lock_id(
                 (remote_destination(root, current_upstream).get("push_url")
@@ -6347,9 +6425,12 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
     }
     if discovery_import is not None:
         record["discovery_import"] = discovery_import
-        record["git"]["head"] = discovery_import["base_head"]
-        record["worktree"]["base_commit"] = discovery_import["base_head"]
-        record["commits"] = [{"id": discovery_import["commit"], "gates": []}]
+        if follow_up is None:
+            record["git"]["head"] = discovery_import["base_head"]
+            record["worktree"]["base_commit"] = discovery_import["base_head"]
+            record["commits"] = [{"id": discovery_import["commit"], "gates": []}]
+    if follow_up is not None:
+        validate_follow_up(root, record)
     if forge is not None:
         record["git"]["remote"] = forgejo_remote_urls(root, delivery_remote, initiative["repository"])
         record["delivery"]["lock_id"] = local_delivery_lock_id(root, record)
@@ -6452,7 +6533,7 @@ def verify_discovery_import(root, record):
                 fail("Discovery import blob identity changed")
 
 
-def initiative_launch_plan(source, authority, receipt, plan, target, args):
+def initiative_launch_plan(source, authority, receipt, plan, target, args, follow_up=None):
     result = initiative_import_plan(source, authority, receipt, plan, target, args)
     result["checkout"] = {
         "identity_digest": continuation_digest([str(common_git_dir(source).resolve()),
@@ -6465,6 +6546,8 @@ def initiative_launch_plan(source, authority, receipt, plan, target, args):
         "fetch_url": git(source, "remote", "get-url", remote).stdout.strip(),
         "account": args.github_account, "repository": args.github_repository,
     })
+    if follow_up is not None:
+        result["follow_up"] = follow_up
     if receipt["schema_version"] == 2:
         forge = forgejo_selection(args)
         result["delivery_digest"] = continuation_digest({
@@ -6493,6 +6576,11 @@ def begin_registration(args):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
         fail("context must be a simple bounded-context name")
     initiative_values = (args.initiative_manifest, args.initiative_slice, args.initiative_digest)
+    follow_up_number = getattr(args, "follow_up_pr", None)
+    if follow_up_number is not None and (
+            type(follow_up_number) is not int or not 0 < follow_up_number <= 2**53 - 1
+            or not all(initiative_values) or forge is not None or args.delivery_intent != "draft_pr"):
+        fail("follow-up requires an explicit GitHub Initiative draft_pr launch")
     if getattr(args, "approval", "interactive") == "agent-confirmed" and not all(initiative_values):
         fail("agent-confirmed approval requires Initiative registration")
     if any(value is not None for value in initiative_values) and not all(
@@ -6545,7 +6633,7 @@ def begin_registration(args):
         validate_plan(profile_source, args.context, args.delivery_intent, plan)
     target = upstream(source)
     remote, remote_branch = configured_upstream(source)
-    if (initiative is not None and (args.delivery_intent == "draft_pr" or forge is not None)
+    if (follow_up_number is None and initiative is not None and (args.delivery_intent == "draft_pr" or forge is not None)
             and common_git_dir(source).resolve() == common_git_dir(initiative_source).resolve()):
         if git(source, "check-ref-format", "--branch", args.base_branch, check=False).returncode:
             fail("invalid protected base branch")
@@ -6567,9 +6655,19 @@ def begin_registration(args):
         fetch_github_branch(source, remote, remote_url, remote_branch, delivery_env)
     else:
         git(source, "fetch", remote, remote_branch)
+    follow_up = None
+    if follow_up_number is not None:
+        if remote_branch != branch(source) or remote_branch == args.base_branch:
+            fail("follow-up requires the configured published feature upstream")
+        published = git(source, "rev-parse", target).stdout.strip()
+        follow_up, _ = observe_follow_up(source, delivery_env, args.github_account, args.github_repository,
+                                         follow_up_number, remote_branch, args.base_branch, published)
+        fetch_github_branch(source, remote, remote_url, args.base_branch, delivery_env)
+        if git(source, "rev-parse", f"refs/remotes/{remote}/{args.base_branch}").stdout.strip() != follow_up["observed_base"]:
+            fail("follow-up default changed during observation")
     launch_plan = None
     if initiative is not None:
-        launch_plan = initiative_launch_plan(source, initiative_source, initiative, plan, target, args)
+        launch_plan = initiative_launch_plan(source, initiative_source, initiative, plan, target, args, follow_up)
         if not args.resume_existing and launch_plan["checkout"]["head"] != launch_plan["base_head"]:
             fail("registration requires a clean task checkout at the approved base")
         launch_digest = continuation_digest(launch_plan)
@@ -6622,6 +6720,8 @@ def begin_registration(args):
                 or record.get("engineering_profile") != {"path": profile_path, "blob": profile_blob}
                 or record.get("applicability_plan") != expected_plan):
             fail("existing Initiative cycle does not match the approved launch")
+        if record.get("delivery", {}).get("follow_up") != follow_up:
+            fail("existing follow-up does not match the approved launch")
         print(json.dumps({
             "cycle_id": record["cycle_id"], "branch": branch_name,
             "worktree": str(worktree), "upstream": target,
@@ -6676,7 +6776,15 @@ def begin_registration(args):
             fetch_github_branch(source, remote, current_url, remote_branch, delivery_env)
         else:
             git(source, "fetch", remote, remote_branch)
-        fresh_launch = initiative_launch_plan(source, initiative_source, current, fresh_plan, target, args)
+        fresh_follow_up = None
+        if follow_up is not None:
+            published = git(source, "rev-parse", target).stdout.strip()
+            fresh_follow_up, _ = observe_follow_up(source, delivery_env, args.github_account, args.github_repository,
+                                                  follow_up_number, remote_branch, args.base_branch, published)
+            fetch_github_branch(source, remote, current_url, args.base_branch, delivery_env)
+            if git(source, "rev-parse", f"refs/remotes/{remote}/{args.base_branch}").stdout.strip() != fresh_follow_up["observed_base"]:
+                fail("follow-up default changed during confirmation")
+        fresh_launch = initiative_launch_plan(source, initiative_source, current, fresh_plan, target, args, fresh_follow_up)
         if continuation_digest(fresh_launch) != launch_digest:
             fail("Initiative launch plan changed during confirmation; request fresh preflight")
         initiative_approval = {"schema_version": 1, "method": "agent_confirmed" if agent_confirmed else "interactive_cli",
@@ -6689,8 +6797,8 @@ def begin_registration(args):
         discovery_import = {key: launch_plan[key] for key in ("base_head", "source_commit", "artifacts")}
         discovery_import["commit"] = git(worktree, "rev-parse", "HEAD").stdout.strip()
     record = start_cycle(worktree, args, plan, git_env=delivery_env,
-                         discovery_import=discovery_import, initiative=initiative,
-                         initiative_approval=initiative_approval)
+                          discovery_import=discovery_import, initiative=initiative,
+                          initiative_approval=initiative_approval, follow_up=follow_up)
     print(json.dumps({
         "cycle_id": record["cycle_id"], "branch": branch_name,
         "worktree": str(worktree), "upstream": target,
@@ -19594,6 +19702,36 @@ def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commit
     return current_ahead
 
 
+def validate_follow_up_lineage(root, record, target_head):
+    binding = validate_follow_up(root, record)
+    base = record["git"]["head"]
+    recorded = [entry["id"] for entry in record["commits"]]
+    if git(root, "merge-base", "--is-ancestor", binding["observed_base"], target_head, check=False).returncode:
+        fail("follow-up accepted default no longer descends from its observation")
+    merges = git(root, "rev-list", "--first-parent", "--merges", f"{base}..HEAD").stdout.splitlines()
+    for merge in merges:
+        parents = git(root, "rev-list", "--parents", "-n", "1", merge).stdout.split()[1:]
+        if (len(parents) != 2
+                or git(root, "merge-base", "--is-ancestor", binding["observed_base"], parents[1], check=False).returncode
+                or git(root, "merge-base", "--is-ancestor", parents[1], target_head, check=False).returncode):
+            fail("follow-up merge imports unapproved ancestry")
+    if git(root, "merge-base", "--is-ancestor", target_head, base, check=False).returncode == 0:
+        actual = git(root, "rev-list", "--reverse", f"{base}..HEAD").stdout.splitlines()
+        first_parent = git(root, "rev-list", "--first-parent", "--reverse", f"{base}..HEAD").stdout.splitlines()
+        if merges or actual != recorded or first_parent != recorded:
+            fail("follow-up owned lineage differs from recorded Gate Commits")
+        return recorded
+    points, review = [], None
+    for name, gate in record["gates"].items():
+        if gate["applicability"] == "required":
+            item = record["evidence"]["items"][gate["evidence"]]
+            point = item.get("commit") or item["head"]
+            points.append(point)
+            if name == "review_integrate":
+                review = point
+    return validate_draft_reconciliation(root, base, target_head, recorded, points, review)
+
+
 def github_environment(account):
     lookup_env = {key: value for key, value in os.environ.items()
                   if key not in {"GH_TOKEN", "GITHUB_TOKEN"}}
@@ -19641,6 +19779,13 @@ def deliver_draft_pr(root, record, env=None):
     delivery = record["delivery"]
     github = delivery["github"]
     env = env or github_environment(github["account"])
+    follow_up = validate_follow_up(root, record)
+    if follow_up is not None:
+        _, pull = observe_follow_up(
+            root, env, github["account"], github["repository"], follow_up["number"],
+            delivery["branch"], delivery["base_branch"], git(root, "rev-parse", "HEAD").stdout.strip())
+        return {"number": pull["number"], "url": pull["html_url"], "draft": pull["draft"],
+                "state": "OPEN", "verified_at": now()}
     fields = "number,url,isDraft,state,baseRefName,headRefName,headRepositoryOwner"
     owner = github["repository"].partition("/")[0]
     head = f"{owner}:{delivery['branch']}"
@@ -20751,6 +20896,7 @@ def finish_push(root, path, record):
         return
     require_pushable(record)
     require_completion_source(root, record)
+    follow_up = validate_follow_up(root, record)
     baseline = record["git"]
     current_upstream = upstream(root)
     delivery = record.get("delivery", {})
@@ -20791,7 +20937,10 @@ def finish_push(root, path, record):
         git(root, "rev-parse", f"{commit}^2", check=False).stdout.strip() == target_head
         for commit in recorded_commits
     )
-    if (record["delivery_intent"] == "draft_pr"
+    if follow_up is not None:
+        current_ahead = validate_follow_up_lineage(root, record, target_head)
+        reconciled = target_head != base_head
+    elif (record["delivery_intent"] == "draft_pr"
             and (target_head != base_head or recorded_reconciliation)):
         evidence_points, review_point = [], None
         for name, gate in record["gates"].items():
@@ -20833,13 +20982,25 @@ def finish_push(root, path, record):
     if current_ahead:
         record["state"] = "finalizing"
         save(path, record)
+        already_pushed = False
         if record["delivery_intent"] == "draft_pr":
             remote_ref = f"refs/heads/{remote_branch}"
             existing = github_remote_head(root, remote_url, remote_ref, delivery_env)
+            if follow_up is not None:
+                head = git(root, "rev-parse", "HEAD").stdout.strip()
+                if not existing or existing[0] not in {follow_up["published_head"], head}:
+                    fail("follow-up feature head changed remotely")
+                observation, _ = observe_follow_up(
+                    root, delivery_env, delivery["github"]["account"], delivery["github"]["repository"],
+                    follow_up["number"], remote_branch, base_branch, existing[0])
+                if observation["observed_base"] != target_head:
+                    fail("follow-up default changed before push")
+                already_pushed = existing[0] == head
             if existing and git(root, "merge-base", "--is-ancestor", existing[0], "HEAD", check=False).returncode:
                 fail("feature branch changed remotely; normal push would not be safe")
         if record["delivery_intent"] == "draft_pr":
-            push_github_branch(root, remote_url, remote_branch, delivery_env)
+            if not already_pushed:
+                push_github_branch(root, remote_url, remote_branch, delivery_env)
         else:
             git(root, "push", remote_url, f"HEAD:{remote_branch}")
     if record["delivery_intent"] == "draft_pr":
@@ -20889,6 +21050,7 @@ def command_reconcile_target(args):
     refuse_local_delivery(record)
     require_active(record)
     require_current_profile(root, record)
+    follow_up = validate_follow_up(root, record)
     if status_paths(root):
         fail("target reconciliation requires a clean worktree")
     for operation in ("MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
@@ -20910,16 +21072,34 @@ def command_reconcile_target(args):
     first_parent = git(
         root, "rev-list", "--first-parent", "--reverse", f"{baseline['head']}..HEAD"
     ).stdout.splitlines()
-    if not recorded or first_parent != recorded:
+    if (follow_up is not None and not recorded
+            and git(root, "rev-parse", "HEAD").stdout.strip() != baseline["head"]):
+        fail("follow-up empty prefix requires its exact registration baseline")
+    if (not recorded and follow_up is None) or first_parent != recorded:
         fail("first-parent lineage is not exactly the recorded Gate Commits")
 
     remote, remote_branch = remote_for_upstream(root, current_upstream)
     if not remote or not remote_branch:
         fail("upstream is not a remote branch")
     with target_lock(root, record):
-        git(root, "fetch", remote, remote_branch)
-        target = git(root, "rev-parse", current_upstream).stdout.strip()
-        if git(root, "merge-base", "--is-ancestor", baseline["head"], target,
+        comparison = current_upstream
+        if follow_up is not None:
+            delivery = record["delivery"]
+            remote_branch = delivery["base_branch"]
+            env = github_environment(delivery["github"]["account"])
+            url = github_remote_url(root, remote, delivery["github"]["repository"])
+            fetch_github_branch(root, remote, url, remote_branch, env)
+            observation, _ = observe_follow_up(
+                root, env, delivery["github"]["account"], delivery["github"]["repository"],
+                follow_up["number"], delivery["branch"], remote_branch, follow_up["published_head"])
+            comparison = f"refs/remotes/{remote}/{remote_branch}"
+            if git(root, "rev-parse", comparison).stdout.strip() != observation["observed_base"]:
+                fail("follow-up default changed during reconciliation")
+        else:
+            git(root, "fetch", remote, remote_branch)
+        target = git(root, "rev-parse", comparison).stdout.strip()
+        anchor = follow_up["observed_base"] if follow_up is not None else baseline["head"]
+        if git(root, "merge-base", "--is-ancestor", anchor, target,
                check=False).returncode:
             fail("delivery target no longer descends from the cycle baseline")
         if target == baseline["head"]:
@@ -21484,6 +21664,8 @@ def parser():
     begin.add_argument("--validation-feedback-target", help="private qualified exact-session target JSON")
     begin.add_argument("--github-account")
     begin.add_argument("--github-repository")
+    begin.add_argument("--follow-up-pr", type=int,
+                       help="explicit existing same-repository GitHub Initiative PR follow-up")
     begin.add_argument("--forge-provider")
     begin.add_argument("--forge-origin")
     begin.add_argument("--forge-repository")
