@@ -2029,3 +2029,11 @@ shared lifecycle coordinator with repository/task policy, compatible installed
 generations and separately enrolled hosted authority. Shared defaults remain off.
 Source delivery, managed installation and live activation are distinct claims.
 Existing validation, platform and credential owners retain their boundaries.
+
+
+## Native CI summary portability
+
+[Linux CI summary verification](features/linux-ci-summary.md) separates artifact
+verification from native macOS test execution. The source slice qualifies the
+existing verifier on Linux while preserving worker platforms, matrix, evidence
+and required checks. Partition balance and repeated setup remain later slices.
