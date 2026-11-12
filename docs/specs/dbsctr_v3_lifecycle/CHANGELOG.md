@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-12 — Plan diagnostic expectation (COMPLETION-CI-PLAN-MESSAGE)
+
+- Align the unknown-plan-field regression's expected diagnostic with the approved
+  optional `evidence_policy` field. Preserve unknown-field rejection and all
+  validation checks; no runtime or workflow changes.
+- Source-only correction targets existing PR #309. Actual validation, retained
+  failures and push outcome remain in the Cycle Record; native CI is required.
+  No Gate Exception, installation, consumer mutation or checkout/data removal.
+
 ## 2026-11-12 — Final target-pin Git context (COMPLETION-CI-CONTEXT)
 
 - Keep the final native target observation inside the protected local Git context
