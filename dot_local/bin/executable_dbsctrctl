@@ -21946,8 +21946,11 @@ def reconciliation_target(root, record, env):
 
 def require_completion_target_pin(root, record, env, target):
     branch_name = record["delivery"]["base_branch"]
-    current = external_github(root, env, "repos/" + record["delivery"]["github"]["repository"]
-                              + "/git/ref/heads/" + quote(branch_name, safe=""))
+    # Final native observation retains the same protected local Git boundary as
+    # the earlier proof; credentials remain explicit to the native API call.
+    with local_completion_git_context():
+        current = external_github(root, env, "repos/" + record["delivery"]["github"]["repository"]
+                                  + "/git/ref/heads/" + quote(branch_name, safe=""))
     obj = current.get("object") if isinstance(current, dict) else None
     if (not isinstance(current, dict) or current.get("ref") != "refs/heads/" + branch_name
             or not isinstance(obj, dict) or obj.get("type") != "commit" or obj.get("sha") != target):

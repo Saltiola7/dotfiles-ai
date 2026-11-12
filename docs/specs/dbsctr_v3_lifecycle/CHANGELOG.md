@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-12 — Final target-pin Git context (COMPLETION-CI-CONTEXT)
+
+- Keep the final native target observation inside the protected local Git context
+  for both ordinary and reconciled completion. Restore caller context on success
+  or failure; preserve exact target-pin refusal and immutable receipt meanings.
+- Expand the existing environment-redirection security regression to both routes
+  and verify context restoration. Source-only repair updates PR #309; actual
+  qualification and CI results remain in the Cycle Record. No Gate Exception,
+  installation, consumer mutation, history rewrite or checkout/data removal.
+
 ## 2026-11-11 — Classified completion previews (COMPLETION-PREVIEW-REPORT)
 
 - Return independently versioned stage reports and original evidence reuse for
