@@ -1,0 +1,11 @@
+--- a/metadata.json
++++ b/metadata.json
+@@ -7,5 +7,7 @@
+   "references": [
+     "https://clickhouse.com/docs",
+     "https://github.com/ClickHouse/ClickHouse"
+-  ]
++  ],
++  "compatibility": "The original broad version label is historical scope, not support for every example. Verify each selected feature and setting on the actual target/version.",
++  "modificationNotice": "Modified by dotfiles-ai from the pinned upstream source. See UPSTREAM.md for attribution and adaptation details."
+ }

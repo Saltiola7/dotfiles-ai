@@ -1,0 +1,81 @@
+--- a/examples.md
++++ b/examples.md
+@@ -1,20 +1,27 @@
+ # Atheris Examples
+ 
+-Two complete harnesses, each runnable as written.
++Two harness examples for a compatible installed Atheris environment. They run
++only when executed as scripts. Import instrumentation cannot reach code loaded
++before its context; verify the actual target receives coverage. Use finite
++campaign budgets such as `-max_total_time=60 -max_len=4096 -rss_limit_mb=2048
++-timeout=5`, with selected corpus/artifact paths. No campaign was run to install
++this guidance.
+ 
+ ## Example: Pure Python Parser
+ 
+ ```python
+ import sys
+ import atheris
+-import json
++
++with atheris.instrument_imports():
++    import json
+ 
+ @atheris.instrument_func
+ def TestOneInput(data: bytes):
+     try:
+         # Fuzz Python's JSON parser
+-        json.loads(data.decode('utf-8', errors='ignore'))
+-    except (ValueError, UnicodeDecodeError):
++        json.loads(data.decode('utf-8'))
++    except (json.JSONDecodeError, UnicodeDecodeError):
+         pass
+ 
+ def main():
+@@ -25,26 +32,24 @@
+     main()
+ ```
+ 
+-## Example: HTTP Request Parsing
++## Example: HTTP Header Parsing
+ 
+ ```python
+ import sys
+ import atheris
+ 
+ with atheris.instrument_imports():
+-    from urllib3 import HTTPResponse
++    import http.client
+     from io import BytesIO
+ 
++@atheris.instrument_func
+ def TestOneInput(data: bytes):
+     try:
+-        # Fuzz HTTP response parsing
+-        fake_response = HTTPResponse(
+-            body=BytesIO(data),
+-            headers={},
+-            preload_content=False
+-        )
+-        fake_response.read()
+-    except Exception:
++        # Parse header lines from an in-memory byte stream; no network access.
++        with BytesIO(data) as source:
++            http.client.parse_headers(source)
++    except http.client.HTTPException:
++        # Documented rejection of too many or overlong header lines.
+         pass
+ 
+ def main():
+@@ -55,6 +60,8 @@
+     main()
+ ```
+ 
+-Both catch `Exception` broadly to get a campaign started. Narrow that to the exceptions the
+-target is documented to raise before you trust the results — a bare `except Exception` also
+-swallows the bugs you are fuzzing for.
++Both catch only documented malformed-input failures. Unexpected exceptions,
++assertions and native sanitizer reports remain observable. Confirm exception
++contracts against the project's selected Python version. A memory-only campaign
++that deliberately suppresses Python failures is a different, explicitly limited
++scope and cannot claim Python behavior coverage.

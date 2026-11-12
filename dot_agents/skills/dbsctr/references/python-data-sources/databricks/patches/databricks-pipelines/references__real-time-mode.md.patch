@@ -1,0 +1,17 @@
+--- a/references/real-time-mode.md
++++ b/references/real-time-mode.md
+@@ -1,3 +1,5 @@
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Real-Time Mode (RTM) on Lakeflow Declarative Pipelines
+ 
+ RTM runs an SDP flow on a continuous engine instead of micro-batches, targeting end-to-end latency "as low as five milliseconds" ([Use real-time mode in SDP](https://docs.databricks.com/aws/en/ldp/real-time)). You keep the declarative `sinks + flows` authoring surface — no `writeStream`, no `awaitTermination`, no checkpoint paths — and the framework runs it continuously. **Public Preview.**
+@@ -137,7 +139,7 @@
+ 
+ ## Lakebase as a serving layer
+ 
+-An RTM flow in SDP sinks to Kafka — there is no Lakebase sink in the SDP RTM path. To serve an app from Lakebase, wire it up outside the RTM flow; see the [databricks-lakebase](../../databricks-lakebase/SKILL.md) skill (e.g. synced tables).
++An RTM flow in SDP sinks to Kafka — there is no Lakebase sink in the SDP RTM path. To serve an app from Lakebase, wire it up outside the RTM flow; see the [databricks-lakebase](https://github.com/databricks/databricks-agent-skills/blob/9f105c9aa0b0f2f9f3aa914c9f341985f765394e/skills/databricks-lakebase/SKILL.md) skill (e.g. synced tables).
+ 
+ ## Observability and tuning
+ 

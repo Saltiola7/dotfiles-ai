@@ -1,0 +1,30 @@
+--- a/rules/schema-partition-lifecycle.md
++++ b/rules/schema-partition-lifecycle.md
+@@ -4,6 +4,8 @@
+ impactDescription: "DROP PARTITION is instant; DELETE is expensive row-by-row scan"
+ tags: [schema, partitioning, TTL, data-management]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Use Partitioning for Data Lifecycle Management
+ 
+@@ -36,14 +38,14 @@
+     event_type LowCardinality(String)
+ )
+ ENGINE = MergeTree()
+-PARTITION BY toStartOfMonth(timestamp)
++PARTITION BY toYYYYMM(timestamp)
+ ORDER BY (event_type, timestamp)
+-TTL timestamp + INTERVAL 1 YEAR DELETE;  -- Drops whole partitions
++TTL timestamp + INTERVAL 1 YEAR DELETE;  -- Expiration is applied by background TTL work
+ 
+--- Fast: metadata-only operation
++-- Proposed partition removal; verify actual partition identifier and authorization
+ ALTER TABLE events DROP PARTITION '202301';
+ 
+--- Archive to cold storage
++-- ATTACH FROM copies a compatible partition; it does not remove the source
+ ALTER TABLE events_archive ATTACH PARTITION '202301' FROM events;
+ ```
+ 

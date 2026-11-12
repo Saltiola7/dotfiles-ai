@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Project Structure"
+  short_description: "Review Python package and public import boundaries"
+  default_prompt: "Use $python-project-structure to review this package layout and public import surface while preserving compatibility."

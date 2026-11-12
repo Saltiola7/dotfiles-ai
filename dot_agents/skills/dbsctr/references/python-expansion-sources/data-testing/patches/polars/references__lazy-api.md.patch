@@ -1,0 +1,55 @@
+--- a/references/lazy-api.md
++++ b/references/lazy-api.md
+@@ -9,7 +9,7 @@
+ ## Contents
+ 
+ Starting a lazy query; starting from an in-memory DataFrame; scan options
+-that prevent downstream pain; schema discovery without reading data;
++that prevent downstream pain; schema discovery and I/O;
+ inspecting the plan; executing; larger-than-memory data and sinks; on Polars
+ 1.x.
+ 
+@@ -24,8 +24,8 @@
+ 
+ ## Starting from an in-memory DataFrame
+ 
+-Always call `.lazy()` on a `DataFrame` before building a query on it: eager
+-methods execute one at a time, with no plan to optimize. A function with a
++Prefer `.lazy()` when building a transformation pipeline on a `DataFrame`: eager
++methods execute one at a time, with no combined plan to optimize. A function with a
+ `DataFrame -> DataFrame` signature keeps that signature — go lazy on entry,
+ collect on the way out:
+ 
+@@ -64,17 +64,18 @@
+ inspect with `lf.head(20).collect()`, then extend `null_values` or use
+ `.cast(pl.Float64, strict=False)` deliberately.
+ 
+-## Schema discovery without reading data
++## Schema discovery and I/O
+ 
+ ```python
+-lf.collect_schema()          # {name: dtype}, resolves the plan, no data read
++lf.collect_schema()          # {name: dtype}; resolves metadata/inferred schema
+ lf.collect_schema().names()
+ lf.head(5).collect()         # tiny peek at actual values
+ ```
+ 
+-Always run `collect_schema()` before executing a query: it validates the plan
+-and gives the real column names and dtypes without reading data, which is the
+-difference between one-shot success and a loop of `ColumnNotFoundError`.
++Resolve the schema before relying on unknown column names or dtypes. This can
++read file metadata, CSV inference samples or remote objects; it is not an I/O-free
++operation. Bound the selected files and inference settings. A small `head()`
++limits returned rows, but does not guarantee a small source scan or cheap plan.
+ 
+ ## Inspecting the plan
+ 
+@@ -113,7 +114,7 @@
+ 
+ ## Larger-than-memory data and sinks
+ 
+-`collect()` runs on the streaming engine by default, which processes queries
++On Polars 2.0, `collect()` runs on the streaming engine by default, which processes queries
+ in batches to reduce memory pressure. When the result is too large to hold in
+ memory, write it to disk with a sink instead of collecting it:
+ 

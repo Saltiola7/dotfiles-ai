@@ -8,9 +8,10 @@ from urllib.parse import unquote, urlsplit
 
 from test_opencode_control_plane import DATA, ROOT
 from test_python_specialists import NAMES, inventory, markdown_destinations
+from test_python_data_specialists import PYTHON, ENGINES, DATABRICKS, AUTHORED
 
 SKILLS = ROOT / "dot_agents/skills"
-BUNDLES = {*NAMES, "async-python-patterns", "python-modernization-review", "python-audit", "qa"}
+BUNDLES = {"python-process-parallelism", "python-data-contracts", "python-arrow-interchange", "python-mutation-testing", "python-durable-jobs", "pydantic", "polars", "typer", "fastapi", "atheris", "secure-python-release-pipeline", "port-to-free-threaded-python", "architecture-patterns", "python-project-structure", "python-architecture-fitness", *PYTHON, *ENGINES, *DATABRICKS, *AUTHORED, *NAMES, "async-python-patterns", "python-modernization-review", "python-audit", "qa"}
 
 
 def test_audit_composition_installs_complete_dependencies_and_preserves_unrelated_state(tmp_path):

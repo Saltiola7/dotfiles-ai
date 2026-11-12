@@ -1,0 +1,45 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,9 +1,41 @@
+ ---
+ name: databricks-dabs
+-description: 'Create, configure, validate, deploy, run, and manage Declarative Automation Bundles (DABs, formerly Databricks Asset Bundles). Use when working with Databricks resources via DABs including dashboards, jobs, pipelines, alerts, volumes, and apps.'
++description: "Design and review Databricks Declarative Automation Bundle resources, targets, variables and permissions; validate or deploy only within the requested workspace task."
++license: LicenseRef-Databricks
+ ---
+ 
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Declarative Automation Bundles (DABs)
++
++## Scope and execution boundaries
++
++Use this bundle only within or connecting to Databricks Services, under the
++included `LICENSE.upstream` and `NOTICE.upstream`. It is not generic Spark guidance.
++
++For a repository audit, review source, SQL, bundle configuration and declared
++runtime/dependency evidence first. Do not install or upgrade tools, authenticate,
++select or change profiles, query a workspace, execute notebooks/examples, or
++deploy resources merely to complete a static review. Record unavailable runtime,
++workspace and performance evidence as coverage gaps. Examples below illustrate
++APIs; they do not authorize their side effects.
++
++For requested live work, retain the already selected workspace, profile,
++authentication provider, runtime and dependency constraints. Resolve a target only
++when missing or conflicting; do not repeatedly ask for an already selected
++profile. Check the selected tool's actual version/help and current official
++documentation for the specific operation. Propose a necessary migration or tool
++upgrade separately instead of requiring the newest CLI for every task.
++
++Read only relevant references. If a named sibling skill is unavailable, state the
++guidance gap and use current official documentation within scope; do not install
++an entire skill bundle. Treat design defaults as workload-dependent recommendations,
++not automatic defects. Keep review findings distinct from measured execution
++results. DBSCTR owns authorized remediation and delivery.
++
++For live CLI, authentication or workspace targeting, read
++[databricks-core](../databricks-core/SKILL.md) and reuse the selected context.
++
+ 
+ Use this skill for any bundle-related request including creating, configuring, validating, deploying, running, and managing Databricks resources through DABs.
+ 

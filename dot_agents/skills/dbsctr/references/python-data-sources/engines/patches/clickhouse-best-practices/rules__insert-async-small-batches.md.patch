@@ -1,0 +1,19 @@
+--- a/rules/insert-async-small-batches.md
++++ b/rules/insert-async-small-batches.md
+@@ -4,6 +4,8 @@
+ impactDescription: "Server-side buffering when client batching isn't practical"
+ tags: [insert, async, buffering, small-batches]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Use Async Inserts for High-Frequency Small Batches
+ 
+@@ -53,3 +55,7 @@
+ | `wait_for_async_insert=0` | Fire-and-forget, unaware of errors | **Risky** - only if you accept data loss |
+ 
+ Reference: [Selecting an Insert Strategy](https://clickhouse.com/docs/best-practices/selecting-an-insert-strategy)
++
++## Workload and compatibility qualification
++
++Keep existing durability/acknowledgement policy. Success with wait_for_async_insert=1 means the documented flush acknowledgement, not a universal replication guarantee. Unknown outcomes need deduplication/idempotency before retry; do not change a shared user setting as part of a code review.
