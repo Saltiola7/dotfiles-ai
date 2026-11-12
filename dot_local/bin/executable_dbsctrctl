@@ -20650,6 +20650,9 @@ def command_complete_external(args):
     else:
         path, record = load(root)
     identifier = record["cycle_id"]
+    if identifier != path.stem or explicit and identifier != args.cycle_id:
+        fail("external completion cycle identity changed")
+    before = record
     github = record.get("delivery", {}).get("github")
     if (record.get("schema_version") not in (3, 4, 5) or record.get("delivery_intent") != "draft_pr"
             or not isinstance(github, dict) or set(github) != {"host", "repository", "account"}
@@ -20663,6 +20666,11 @@ def command_complete_external(args):
         fail("invalid external completion PR number or merge pin")
     with evidence_lock(root, identifier, timeout=1), target_lock(root, record):
         record = read_cycle_record(root, path, historical=True)
+        if (record["cycle_id"] != identifier or record["delivery"] != before["delivery"]
+                or record["worktree"] != before["worktree"] or record.get("execution") != before.get("execution")):
+            fail("external completion binding changed during admission")
+        if explicit and (record.get("state") != "completed" or "external_completion" not in record):
+            fail("explicit cycle ID requires an already externally completed record")
         admitted = json.dumps(record, sort_keys=True)
         if not record_worktree_matches(root, record, root, bindings=False):
             fail("external completion requires its original checkout and task branch")

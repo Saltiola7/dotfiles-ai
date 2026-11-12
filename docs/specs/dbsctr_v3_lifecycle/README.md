@@ -196,7 +196,12 @@ It reconciles an already merged GitHub PR with the retained cycle source, includ
 an identical-tree squash, without pushing or creating another draft. Existing
 completion gates, evidence and source ownership remain required. `--preview`
 verifies without completing; `--cycle-id` verifies/retries an already externally
-completed record. This proof grants no merge, deployment or checkout-removal
+completed record, including a native Initiative whose active pointer was removed.
+Native Initiative completion reuses the existing generic shared mutation lease
+and continuation checks. The handler verifies the requested cycle and filename,
+then rereads delivery, worktree and execution bindings under evidence/target
+locks; completed retries retain the original receipt.
+This proof grants no merge, deployment or checkout-removal
 authority and does not change automatic delivery's merge-only execution contract.
 
 ## Forgejo local-only source interface
