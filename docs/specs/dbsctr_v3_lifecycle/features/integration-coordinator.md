@@ -293,3 +293,11 @@ uncertainty retains custody, and original tasks retain repairs and local receipt
 reconciliation. Owner: lifecycle maintainer with distribution/CI/control-plane
 owners at their existing boundaries. Update the tables and this text together
 when authority, persistence, state transitions, runtime or evidence changes.
+
+## Offline core source foundation
+
+The [source contract](integration-coordinator-core.md) owns the independent core's
+concrete records, pure transitions, complete append construction, offline command
+surface and outcome-capacity safeguards. This source foundation preserves every
+authority/activation boundary above. It is not a live integration coordinator or
+an installed lifecycle receipt consumer.
