@@ -1,0 +1,203 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,11 +1,40 @@
+ ---
+ name: python-resource-management
+-description: Python resource management with context managers, cleanup patterns, and streaming. Use when managing connections, file handles, implementing cleanup logic, or building streaming responses with accumulated state.
++license: MIT
++description: Design and review Python resource ownership, acquisition failure, deterministic cleanup and bounded streaming for files, connections and borrowed handles.
+ ---
+ 
+ # Python Resource Management
+ 
+-Manage resources deterministically using context managers. Resources like database connections, file handles, and network sockets should be released reliably, even when exceptions occur.
++## Project and workflow boundaries
++
++Apply this guidance within the current task and project Engineering Profile.
++Project-selected runtimes, dependencies, tools, error contracts and acceptance
++criteria control examples. Loading this skill does not install tools or authorize
++external operations. Existing authorization persists; ask only about unresolved
++material decisions. DBSCTR retains phase and gate ownership; QA retains configured
++validation and evidence ownership. Return scoped findings, affected artifacts,
++supporting evidence and limitations. See [UPSTREAM.md](UPSTREAM.md) for provenance.
++
++Make resource ownership explicit: who acquires, borrows, transfers and closes
++each handle, client, session, iterator or pool? Close owned resources; do not close
++borrowed or shared handles without their owner's contract. Use the selected
++driver's native connection/transaction contexts rather than assuming `with`
++commits, closes, rolls back or returns a connection identically across libraries.
++
++Review failure before entry completes, failure inside the body, commit/close
++failure, early stream termination and cancellation. Register cleanup immediately
++after each acquisition; an unsuccessful `__enter__` does not trigger that object's
++`__exit__`. Attempt remaining cleanup when one action fails, preserve the primary
++failure/secondary context, and report unknown transaction outcomes. Bounded async
++cleanup follows the project's cancellation semantics; do not create detached
++cleanup tasks or silently swallow cancellation.
++
++Separate incremental transport from retaining a full result. Bound buffers,
++open handles, outstanding work and shutdown time using project requirements.
++Compose `async-python-patterns` for task ownership and the selected database lens
++for driver/engine behavior. Test ownership and cleanup paths; an apparently clean
++source pattern alone does not establish successful resource release.
+ 
+ ## When to Use This Skill
+ 
+@@ -20,7 +49,7 @@
+ 
+ ### 1. Context Managers
+ 
+-The `with` statement ensures resources are released automatically, even on exceptions.
++After successful entry, `with` invokes the exit protocol for normal or exceptional body completion; actual release depends on that implementation.
+ 
+ ### 2. Protocol Methods
+ 
+@@ -28,7 +57,7 @@
+ 
+ ### 3. Unconditional Cleanup
+ 
+-`__exit__` always runs, regardless of whether an exception occurred.
++`__exit__` runs after successful `__enter__`; entry failure and abrupt process termination require separate handling and cannot promise cleanup.
+ 
+ ### 4. Exception Handling
+ 
+@@ -55,7 +84,10 @@
+ 
+ ### Pattern 1: Class-Based Context Manager
+ 
+-Implement the context manager protocol for complex resources.
++Prefer an existing resource's native context manager. This illustrative wrapper
++owns only the connection it creates; its close behavior is not a universal
++transaction contract. The query method is project-specific. Verify the selected
++driver's commit/rollback, pooling and close semantics before adapting it.
+ 
+ ```python
+ class DatabaseConnection:
+@@ -136,9 +168,12 @@
+             await self._pool.close()
+ 
+     async def execute(self, query: str, *args) -> list[dict]:
+-        """Execute query using pooled connection."""
++        """Execute query using this owned pool (illustrative driver shape)."""
++        if self._pool is None:
++            raise RuntimeError("Pool has not been entered")
+         async with self._pool.acquire() as conn:
+-            return await conn.fetch(query, *args)
++            rows = await conn.fetch(query, *args)
++            return [dict(row) for row in rows]
+ 
+ # Usage
+ async with AsyncDatabasePool(dsn) as pool:
+@@ -164,7 +199,7 @@
+         yield
+     finally:
+         elapsed = time.perf_counter() - start
+-        logger.info(f"{name} completed", duration_seconds=round(elapsed, 3))
++        logger.info("Timed block exited", operation=name, duration_seconds=round(elapsed, 3))
+ 
+ # Usage
+ with timed_block("data_processing"):
+@@ -172,14 +207,10 @@
+ 
+ @asynccontextmanager
+ async def database_transaction(conn: AsyncConnection):
+-    """Manage database transaction."""
+-    await conn.execute("BEGIN")
+-    try:
++    """Borrow a connection using its selected driver's native transaction API."""
++    # Illustrative asyncpg-style API; other drivers differ.
++    async with conn.transaction():
+         yield conn
+-        await conn.execute("COMMIT")
+-    except BaseException:  # also roll back on asyncio.CancelledError
+-        await conn.execute("ROLLBACK")
+-        raise
+ 
+ # Usage
+ async with database_transaction(conn) as tx:
+@@ -187,42 +218,42 @@
+     await tx.execute("INSERT INTO audit_log ...")
+ ```
+ 
+-### Pattern 4: Unconditional Resource Release
+-
+-Always clean up resources in `__exit__`, regardless of exceptions.
+-
+-```python
++### Pattern 4: Release on Every Managed Exit
++
++After successful entry, attempt owned cleanup for both success and failure.
++ExitStack supports partial acquisition and reverse-order unwinding. Cleanup
++exceptions can still affect the propagated exception; preserve their chain and
++apply the project's error policy rather than declaring cleanup successful.
++
++```python
++from contextlib import ExitStack
++from pathlib import Path
++from types import TracebackType
++from typing import IO
++
+ class FileProcessor:
+-    """Process file with guaranteed cleanup."""
++    """Illustrate ownership of a file acquired during entry."""
+ 
+     def __init__(self, path: str) -> None:
+         self._path = path
+-        self._file: IO | None = None
+-        self._temp_files: list[Path] = []
++        self._file: IO[str] | None = None
++        self._stack = ExitStack()
+ 
+     def __enter__(self) -> "FileProcessor":
+-        self._file = open(self._path, "r")
+-        return self
++        try:
++            self._file = self._stack.enter_context(open(self._path, "r"))
++            return self
++        except BaseException:
++            self._stack.close()
++            raise
+ 
+     def __exit__(
+         self,
+         exc_type: type[BaseException] | None,
+         exc_val: BaseException | None,
+         exc_tb: TracebackType | None,
+-    ) -> None:
+-        """Clean up all resources unconditionally."""
+-        # Close main file
+-        if self._file is not None:
+-            self._file.close()
+-
+-        # Clean up any temporary files
+-        for temp_file in self._temp_files:
+-            try:
+-                temp_file.unlink()
+-            except OSError:
+-                pass  # Best effort cleanup
+-
+-        # Return None/False to propagate any exception
++    ) -> bool | None:
++        return self._stack.__exit__(exc_type, exc_val, exc_tb)
+ ```
+ 
+ ## Detailed worked examples and patterns
+@@ -231,13 +262,13 @@
+ 
+ ## Best Practices Summary
+ 
+-1. **Always use context managers** - For any resource that needs cleanup
+-2. **Clean up unconditionally** - `__exit__` runs even on exception
++1. **Assign ownership** - Prefer native context managers for owned resources
++2. **Cover acquisition and exit** - Failed entry needs its own cleanup path
+ 3. **Don't suppress unexpectedly** - Return `False` unless suppression is intentional
+ 4. **Use @contextmanager** - For simple resource patterns
+-5. **Implement both protocols** - Support `with` and manual management
++5. **Expose only needed protocols** - Do not add manual lifecycle APIs without a use case
+ 6. **Use ExitStack** - For dynamic numbers of resources
+-7. **Accumulate efficiently** - List + join, not string concatenation
+-8. **Track metrics** - Time-to-first-byte matters for streaming
++7. **Bound accumulation** - Incremental transport need not retain a complete response
++8. **Describe completion** - Early termination, empty streams and cleanup failures remain distinct
+ 9. **Document behavior** - Especially exception suppression
+ 10. **Test cleanup paths** - Verify resources are released on errors

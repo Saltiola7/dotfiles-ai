@@ -1,0 +1,66 @@
+--- a/references/path-operations.md
++++ b/references/path-operations.md
+@@ -2,9 +2,12 @@
+ 
+ ## Including Routers
+ 
+-When declaring routers, prefer to add router-level parameters like prefix, tags, and shared dependencies to the router itself instead of in `include_router()`.
++When creating a router for one stable context, router-level prefix/tags/shared
++dependencies can keep its contract together. Existing include-time configuration
++is valid and useful when the same router is mounted in different contexts.
++Preserve paths, operation IDs, slash redirects and authorization composition.
+ 
+-Do this:
++Router-owned option:
+ 
+ ```python
+ from fastapi import APIRouter, FastAPI
+@@ -22,10 +25,10 @@
+ app.include_router(router)
+ ```
+ 
+-Instead of:
++Include-time option:
+ 
+ ```python
+-# DO NOT DO THIS
++# Valid alternative for reusable routers
+ from fastapi import APIRouter, FastAPI
+ 
+ app = FastAPI()
+@@ -41,15 +44,18 @@
+ app.include_router(router, prefix="/items", tags=["items"])
+ ```
+ 
+-There could be exceptions, but try to follow this convention.
++Choose from actual reuse and ownership; neither form is a standalone defect.
+ 
+-Apply shared dependencies at the router level via `dependencies=[Depends(...)]`.
++Use router-level `dependencies=[Depends(...)]` only for genuinely shared checks;
++keep endpoint-specific checks and dependency return values explicit.
+ 
+ ## Use one HTTP operation per function
+ 
+-Don't mix HTTP operations in a single function. Having one function per HTTP operation helps separate concerns and organize the code.
++Prefer separate handlers for operations with different validation, authorization
++or response behavior. Intentional multi-method handlers can also be valid; test
++every declared method and preserve an existing shared contract.
+ 
+-Do this:
++Router-owned option:
+ 
+ ```python
+ from fastapi import FastAPI
+@@ -72,10 +78,10 @@
+     return item
+ ```
+ 
+-Instead of:
++Include-time option:
+ 
+ ```python
+-# DO NOT DO THIS
++# Incomplete illustration: POST behavior would still need a defined contract
+ from fastapi import FastAPI, Request
+ from pydantic import BaseModel
+ 

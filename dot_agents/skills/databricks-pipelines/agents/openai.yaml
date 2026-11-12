@@ -1,0 +1,8 @@
+# Modified by dotfiles-ai: scoped UI metadata; see ../UPSTREAM.md.
+interface:
+  display_name: "Databricks Pipelines"
+  short_description: "Review Lakeflow Python and SQL pipelines"
+  icon_small: "./assets/databricks.svg"
+  icon_large: "./assets/databricks.png"
+  brand_color: "#FF3621"
+  default_prompt: "Use $databricks-pipelines to review the relevant Databricks repository code and propose evidence-backed changes."

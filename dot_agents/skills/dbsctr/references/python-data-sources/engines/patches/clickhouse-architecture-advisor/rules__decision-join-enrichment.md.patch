@@ -1,0 +1,22 @@
+--- a/rules/decision-join-enrichment.md
++++ b/rules/decision-join-enrichment.md
+@@ -7,6 +7,8 @@
+   - denormalization
+   - enrichment
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ # Choose the right enrichment path: JOIN, dictionary, denormalization, or precomputed enrichment
+ 
+@@ -56,3 +58,10 @@
+ - Identify top CPU-consuming JOIN patterns
+ - Compare runtime JOIN cost vs dictionary lookup or precomputed enrichment
+ - Check dimension update frequency before choosing dictionary lifetime
++
++## Compatibility and audit boundary
++
++Apply [task boundaries](../SKILL.md#task-boundaries). Validation items are
++proposed checks until actually executed. Verify deployment/version support and
++semantic tradeoffs; do not automatically provision queues, execute SQL or change
++retention, schema, ingestion or state during an audit.

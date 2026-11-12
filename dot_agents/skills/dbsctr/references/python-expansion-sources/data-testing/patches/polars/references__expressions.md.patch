@@ -1,0 +1,31 @@
+--- a/references/expressions.md
++++ b/references/expressions.md
+@@ -18,10 +18,11 @@
+ 
+ **Prefer `polars-mcp`** when it is installed in the project environment
+ (`polars_search_api("keyword")` / `polars_get_docstring("Expr.str.contains")`).
+-**Fall back to `WebFetch`** when it isn't: fetch
++**Otherwise use an available documentation reader**: fetch
+ `https://docs.pola.rs/api/python/stable/reference/expressions/<slug>.html`
+-(use `stable`) and ask for every method in the
+-namespace with its current signature and a one-line description.
++(use documentation matching the selected version) and inspect the required
++method's signature and semantics. The moving `stable` URL can describe a newer
++release; verify compatibility before adopting its API.
+ 
+ ### Category → URL map
+ 
+@@ -228,9 +229,10 @@
+ ## Expression expansion & selectors — `polars.selectors`
+ 
+ One expression can expand to many columns, resolved against the schema when
+-the query runs. Prefer this over building one expression per column in a
+-Python loop or comprehension: expanded expressions run in parallel in one
+-context, and the code does not need to know the column list up front.
++the query runs. This is often clearer than building one expression per column
++in a Python loop or comprehension, and the code need not know the column list
++up front. Either form can describe native parallel work; compare the optimized
++plan before attributing an execution difference to how expressions were built.
+ 
+ ```python
+ pl.col("height", "weight")      # explicit names

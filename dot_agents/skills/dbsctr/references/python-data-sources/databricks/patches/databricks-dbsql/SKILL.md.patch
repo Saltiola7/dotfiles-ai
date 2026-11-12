@@ -1,0 +1,77 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,24 +1,43 @@
+ ---
+ name: databricks-dbsql
+-description: >-
+-  Databricks SQL (DBSQL) advanced features and SQL warehouse capabilities.
+-  This skill MUST be invoked when the user mentions: "DBSQL", "Databricks SQL",
+-  "SQL warehouse", "SQL scripting", "stored procedure", "CALL procedure",
+-  "materialized view", "CREATE MATERIALIZED VIEW", "pipe syntax", "|>",
+-  "geospatial", "H3", "ST_", "spatial SQL", "collation", "COLLATE",
+-  "ai_query", "ai_classify", "ai_extract", "ai_gen", "AI function",
+-  "http_request", "remote_query", "read_files", "Lakehouse Federation",
+-  "recursive CTE", "WITH RECURSIVE", "multi-statement transaction",
+-  "temp table", "temporary view", "pipe operator".
+-  SHOULD also invoke when the user asks about SQL best practices, data modeling
+-  patterns, or advanced SQL features on Databricks.
+-compatibility: Requires databricks CLI (>= v1.0.0)
+ metadata:
+   version: "0.1.0"
+-parent: databricks-core
+----
++description: "Write and review SQL for Databricks SQL warehouses, including modeling, transactions, advanced SQL and runtime-specific features. Use for Databricks SQL work."
++license: LicenseRef-Databricks
++---
++
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
+ 
+ # Databricks SQL (DBSQL) - Advanced Features
++
++## Scope and execution boundaries
++
++Use this bundle only within or connecting to Databricks Services, under the
++included `LICENSE.upstream` and `NOTICE.upstream`. It is not generic Spark guidance.
++
++For a repository audit, review source, SQL, bundle configuration and declared
++runtime/dependency evidence first. Do not install or upgrade tools, authenticate,
++select or change profiles, query a workspace, execute notebooks/examples, or
++deploy resources merely to complete a static review. Record unavailable runtime,
++workspace and performance evidence as coverage gaps. Examples below illustrate
++APIs; they do not authorize their side effects.
++
++For requested live work, retain the already selected workspace, profile,
++authentication provider, runtime and dependency constraints. Resolve a target only
++when missing or conflicting; do not repeatedly ask for an already selected
++profile. Check the selected tool's actual version/help and current official
++documentation for the specific operation. Propose a necessary migration or tool
++upgrade separately instead of requiring the newest CLI for every task.
++
++Read only relevant references. If a named sibling skill is unavailable, state the
++guidance gap and use current official documentation within scope; do not install
++an entire skill bundle. Treat design defaults as workload-dependent recommendations,
++not automatic defects. Keep review findings distinct from measured execution
++results. DBSCTR owns authorized remediation and delivery.
++
++For live CLI, authentication or workspace targeting, read
++[databricks-core](../databricks-core/SKILL.md) and reuse the selected context.
++
+ 
+ ## Quick Reference
+ 
+@@ -294,11 +313,11 @@
+ 
+ ## Key Guidelines
+ 
+-- **Always use Serverless SQL warehouses** for AI functions, MVs, and http_request
++- **Check feature and warehouse support** against the selected runtime, workspace and current official docs before choosing compute for AI functions, MVs or http_request
+ - **Use `LIMIT` during development** with AI functions to control costs
+-- **Prefer Liquid Clustering over partitioning** for new tables (1-4 keys max)
+-- **Use `CLUSTER BY AUTO`** when unsure about clustering keys
++- **Consider Liquid Clustering for supported new tables** against workload, data size, existing layout and operational constraints; verify supported key limits for the selected runtime
++- **Consider `CLUSTER BY AUTO` where supported** when workload evidence supports automatic clustering; do not migrate an existing table solely for style
+ - **Star schema in Gold layer** for BI; OBT acceptable in Silver
+ - **Define PK/FK constraints** on dimensional models for query optimization
+ - **Use `COLLATE UTF8_LCASE`** for user-facing string columns that need case-insensitive search
+-- **Test SQL via CLI** (`databricks experimental aitools tools query`) or notebooks before deploying. If `--warehouse` is rejected on your CLI version, set `DATABRICKS_WAREHOUSE_ID` in the environment instead.
++- **For authorized deployment, validate SQL** using the project-selected CLI, SDK or notebook workflow and explicit target. In static review, record these checks as not run; do not change shared environment or execute notebooks to satisfy the audit.

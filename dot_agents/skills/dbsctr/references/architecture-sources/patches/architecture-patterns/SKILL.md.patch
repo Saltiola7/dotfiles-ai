@@ -1,0 +1,232 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,164 +1,88 @@
+ ---
+ name: architecture-patterns
+-description: Implement proven backend architecture patterns including Clean Architecture, Hexagonal Architecture, and Domain-Driven Design. Use this skill when designing clean architecture for a new microservice, when refactoring a monolith to use bounded contexts, when implementing hexagonal or onion architecture patterns, or when debugging dependency cycles between application layers.
++license: MIT
++description: Design and review backend boundaries, dependency direction and Clean, Hexagonal or DDD tradeoffs when system structure changes. Use for actual architectural decisions or explicitly scoped architecture assessments.
+ ---
+ 
+ # Architecture Patterns
+ 
+-Master proven backend architecture patterns including Clean Architecture, Hexagonal Architecture, and Domain-Driven Design to build maintainable, testable, and scalable systems.
++Choose the smallest structure that addresses demonstrated change cost, coupling,
++consistency or ownership concerns. Inspect the current design, callers, contracts
++and project decisions first. A modular monolith, direct function or existing
++framework model may remain the best design. A pattern name does not justify
++new layers, interfaces, services, repositories or duplicated models.
+ 
+-**Given:** a service boundary or module to architect.
+-**Produces:** layered structure with clear dependency rules, interface definitions, and test boundaries.
++Preserve project-selected runtimes, frameworks, storage, dependencies, validation
++and compatibility. Examples illustrate alternatives, not a mandatory layout or
++production recipe. Existing authorization persists; this guidance alone does not
++install tools, run services, migrate code or expand remediation scope. The current
++primary owns synthesis and DBSCTR/QA ownership remains unchanged. Attribution and
++reviewed adaptations are in [UPSTREAM.md](UPSTREAM.md).
+ 
+-## When to Use This Skill
++## Decisions this guidance supports
+ 
+-- Designing new backend services or microservices from scratch
+-- Refactoring monolithic applications where business logic is entangled with ORM models or HTTP concerns
+-- Establishing bounded contexts before splitting a system into services
+-- Debugging dependency cycles where infrastructure code bleeds into the domain layer
+-- Creating testable codebases where use-case tests do not require a running database
+-- Implementing domain-driven design tactical patterns (aggregates, value objects, domain events)
++- Untangle business policy from HTTP, persistence or external effects when the
++  coupling creates concrete change or testing costs.
++- Establish a coherent model and ownership boundary before considering service
++  extraction; a bounded context can remain a package in one process.
++- Review dependency cycles and public interfaces using actual import/call paths.
++- Choose consistency boundaries and domain vocabulary from real invariants and
++  consumers, rather than folder counts or class naming.
++- Compare an incremental refactor with retaining the existing design.
+ 
+-## Core Concepts
++## Pattern options and their costs
+ 
+-### 1. Clean Architecture (Uncle Bob)
++| Option | Useful when | Cost to justify |
++|---|---|---|
++| Clean/Onion architecture | Business rules need an explicit dependency boundary from delivery and infrastructure | Additional mapping, indirection and maintenance; framework-free models are a selected tradeoff |
++| Hexagonal ports/adapters | Actual variation or effect ownership benefits from a stable interface | A function, callable, Protocol or module API can suffice; an abstract base class at every boundary is unnecessary |
++| DDD bounded contexts/context mapping | Different business models, language or owners need explicit integration contracts | Translation and governance; separate deployment and an anti-corruption layer are not automatic consequences |
++| Entities/value objects/aggregates | Identity, value semantics or consistency invariants need an explicit model | Model complexity and persistence behavior; validate against actual business and storage contracts |
++| Domain events/outbox | A real cross-boundary effect or reliable publication requirement exists | Ordering, deduplication, recovery, schemas and operational ownership; events do not create reliability by themselves |
+ 
+-**Layers (dependency flows inward):**
++For selected inward-dependency designs, keep policy independent of concrete
++infrastructure and put wiring at the composition root. Define the actual allowed
++edges for this project; standard-library imports and suitable pure dependencies
++are not layering violations. Avoid introducing a shared miscellaneous module
++merely to hide cycles.
+ 
+-- **Entities**: Core business models, no framework imports
+-- **Use Cases**: Application business rules, orchestrate entities
+-- **Interface Adapters**: Controllers, presenters, gateways — translate between use cases and external formats
+-- **Frameworks & Drivers**: UI, database, external services — all at the outermost ring
++## Read examples progressively
+ 
+-**Key Principles:**
++Read [detailed patterns](references/details.md) for a selected Clean/Hexagonal
++boundary, port/adapter testing or value/aggregate example. Read
++[advanced patterns](references/advanced-patterns.md) for context maps, selected
++service extraction, Onion comparison, composition-root lifetimes, outbox or
++cycle analysis. Do not read or apply every example for an ordinary local edit.
+ 
+-- Dependencies point inward only; inner layers know nothing about outer layers
+-- Business logic is independent of frameworks, databases, and delivery mechanisms
+-- Every layer boundary is crossed via an abstract interface
+-- Testable without UI, database, or external services
++## Review and validation
+ 
+-### 2. Hexagonal Architecture (Ports and Adapters)
++Trace representative change paths, effects, invariants, imports and consumers.
++Explain the observed friction, proposed boundary and retained alternative, costs,
++compatibility and the evidence needed. A static import diagram, file-size rule or
++personal navigation preference alone is not a confirmed defect.
+ 
+-**Components:**
++Use pure-policy tests or in-memory adapters where they express the contract, and
++selected-engine/framework integration tests for semantics fakes cannot establish.
++A mocked repository does not prove isolation, SQL constraints, mapping or replay
++safety. Keep meaningful existing tests and project-selected runner/checker policy.
+ 
+-- **Domain Core**: Business logic lives here, framework-free
+-- **Ports**: Abstract interfaces that define how the core interacts with the outside world (driving and driven)
+-- **Adapters**: Concrete implementations of ports (PostgreSQL adapter, Stripe adapter, REST adapter)
++When adopted architectural rules need repeatable evidence, use the project's
++existing architecture checks or relevant `python-architecture-fitness` guidance
++if available. Do not install a linter or turn example dependencies into gates.
++A graph is an observation, not proof of every runtime dependency or good design.
+ 
+-**Benefits:**
++An explicitly requested audit is report-only by default. Return source-backed
++findings and bounded alternatives to its current primary; do not start a second
++audit, issue workflow or refactor. Loading this skill does not select DDD, a
++microservice migration, a framework rewrite or transactional guarantees.
+ 
+-- Swap implementations without touching the core (e.g., replace PostgreSQL with DynamoDB)
+-- Use in-memory adapters in tests — no Docker required
+-- Technology decisions deferred to the edges
++## Optional upstream reading
+ 
+-### 3. Domain-Driven Design (DDD)
++These are related sources, not required installed dependencies:
+ 
+-**Strategic Patterns:**
++- [Microservice patterns](https://github.com/wshobson/agents/tree/7e2fb559cf4b824b27f1fec49fe88f7511066d26/plugins/backend-development/skills/microservices-patterns)
++- [CQRS implementation](https://github.com/wshobson/agents/tree/7e2fb559cf4b824b27f1fec49fe88f7511066d26/plugins/backend-development/skills/cqrs-implementation)
++- [Saga orchestration](https://github.com/wshobson/agents/tree/7e2fb559cf4b824b27f1fec49fe88f7511066d26/plugins/backend-development/skills/saga-orchestration)
++- [Event-store design](https://github.com/wshobson/agents/tree/7e2fb559cf4b824b27f1fec49fe88f7511066d26/plugins/backend-development/skills/event-store-design)
+ 
+-- **Bounded Contexts**: Isolate a coherent model for one subdomain; avoid sharing a single model across the whole system
+-- **Context Mapping**: Define how contexts relate (Anti-Corruption Layer, Shared Kernel, Open Host Service)
+-- **Ubiquitous Language**: Every term in code matches the term used by domain experts
+-
+-**Tactical Patterns:**
+-
+-- **Entities**: Objects with stable identity that change over time
+-- **Value Objects**: Immutable objects identified by their attributes (Email, Money, Address)
+-- **Aggregates**: Consistency boundaries; only the root is accessible from outside
+-- **Repositories**: Persist and reconstitute aggregates; abstract over the storage mechanism
+-- **Domain Events**: Capture things that happened inside the domain; used for cross-aggregate coordination
+-
+-## Detailed patterns and worked examples
+-
+-Detailed pattern documentation lives in `references/details.md`. Read that file when the navigation tier above is insufficient.
+-
+-## Testing — In-Memory Adapters
+-
+-The hallmark of correctly applied Clean Architecture is that every use case can be exercised in a plain unit test with no real database, no Docker, and no network:
+-
+-```python
+-# tests/unit/test_create_user.py
+-import asyncio
+-from typing import Dict, Optional
+-from domain.entities.user import User
+-from domain.interfaces.user_repository import IUserRepository
+-from use_cases.create_user import CreateUserUseCase, CreateUserRequest
+-
+-
+-class InMemoryUserRepository(IUserRepository):
+-    def __init__(self):
+-        self._store: Dict[str, User] = {}
+-
+-    async def find_by_id(self, user_id: str) -> Optional[User]:
+-        return self._store.get(user_id)
+-
+-    async def find_by_email(self, email: str) -> Optional[User]:
+-        return next((u for u in self._store.values() if u.email == email), None)
+-
+-    async def save(self, user: User) -> User:
+-        self._store[user.id] = user
+-        return user
+-
+-    async def delete(self, user_id: str) -> bool:
+-        return self._store.pop(user_id, None) is not None
+-
+-
+-async def test_create_user_succeeds():
+-    repo = InMemoryUserRepository()
+-    use_case = CreateUserUseCase(user_repository=repo)
+-
+-    response = await use_case.execute(CreateUserRequest(email="alice@example.com", name="Alice"))
+-
+-    assert response.success
+-    assert response.user.email == "alice@example.com"
+-    assert response.user.id is not None
+-
+-
+-async def test_duplicate_email_rejected():
+-    repo = InMemoryUserRepository()
+-    use_case = CreateUserUseCase(user_repository=repo)
+-
+-    await use_case.execute(CreateUserRequest(email="alice@example.com", name="Alice"))
+-    response = await use_case.execute(CreateUserRequest(email="alice@example.com", name="Alice2"))
+-
+-    assert not response.success
+-    assert "already exists" in response.error
+-```
+-
+-## Troubleshooting
+-
+-### Use case tests require a running database
+-
+-Business logic has leaked into the infrastructure layer. Move all database calls behind an `IRepository` interface and inject an in-memory implementation in tests (see Testing section above). The use case constructor must accept the abstract port, not the concrete class.
+-
+-### Circular imports between layers
+-
+-A common symptom is `ImportError: cannot import name X` between `use_cases` and `adapters`. This happens when a use case imports a concrete adapter class instead of the abstract port. Enforce the rule: `use_cases/` imports only from `domain/` (entities and interfaces). It must never import from `adapters/` or `infrastructure/`.
+-
+-### Framework decorators appearing in domain entities
+-
+-If SQLAlchemy `Column()` or Pydantic `Field()` annotations appear on domain entities, the entity is no longer pure. Create a separate ORM model in `adapters/repositories/` and map to/from the domain entity in the repository's `_to_entity()` method.
+-
+-### All logic ending up in controllers
+-
+-When the controller grows beyond HTTP parsing and response formatting, extract the logic into a use case class. A controller method should do three things only: parse the request, call a use case, map the response.
+-
+-### Value objects raising errors too late
+-
+-Validate invariants in `__post_init__` (Python) or the constructor so an invalid `Email` or `Money` cannot be constructed at all. This surfaces bad data at the boundary, not deep inside business logic.
+-
+-### Context bleed across bounded contexts
+-
+-If the `Order` context is importing `User` entities from the `Identity` context, introduce an Anti-Corruption Layer. The `Order` context should hold its own lightweight `CustomerId` value object and only call the `Identity` context through an explicit interface.
+-
+-## Advanced Patterns
+-
+-For detailed DDD bounded context mapping, full multi-service project trees, Anti-Corruption Layer implementations, and Onion Architecture comparisons, see:
+-
+-- [`references/advanced-patterns.md`](references/advanced-patterns.md)
+-
+-## Related Skills
+-
+-- `microservices-patterns` — Apply these architecture patterns when decomposing a monolith into services
+-- `cqrs-implementation` — Use Clean Architecture as the structural foundation for CQRS command/query separation
+-- `saga-orchestration` — Sagas require well-defined aggregate boundaries, which DDD tactical patterns provide
+-- `event-store-design` — Domain events produced by aggregates feed directly into an event store
++Ordinary loading uses this reviewed bundle, not moving upstream instructions.

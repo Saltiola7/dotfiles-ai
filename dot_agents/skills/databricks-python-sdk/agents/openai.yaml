@@ -1,0 +1,8 @@
+# Modified by dotfiles-ai: scoped UI metadata; see ../UPSTREAM.md.
+interface:
+  display_name: "Databricks Python SDK"
+  short_description: "Review Databricks SDK and Connect boundaries"
+  icon_small: "./assets/databricks.svg"
+  icon_large: "./assets/databricks.png"
+  brand_color: "#FF3621"
+  default_prompt: "Use $databricks-python-sdk to review the relevant Databricks repository code and propose evidence-backed changes."

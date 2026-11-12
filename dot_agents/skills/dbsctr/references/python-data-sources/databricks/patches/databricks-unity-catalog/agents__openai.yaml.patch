@@ -1,0 +1,13 @@
+--- a/agents/openai.yaml
++++ b/agents/openai.yaml
+@@ -1,7 +1,8 @@
++# Modified by dotfiles-ai: scoped UI metadata; see ../UPSTREAM.md.
+ interface:
+   display_name: "Databricks Unity Catalog"
+-  short_description: "Unity Catalog governance, access control, and observability."
++  short_description: "Review Databricks governance and lineage"
+   icon_small: "./assets/databricks.svg"
+   icon_large: "./assets/databricks.png"
+   brand_color: "#FF3621"
+-  default_prompt: "Use $databricks-unity-catalog to grant or revoke access, manage the UC privilege model and ownership, set up row/column security, create external locations and storage credentials, and query system tables (audit, lineage, billing) and volume files."
++  default_prompt: "Use $databricks-unity-catalog to review the relevant Databricks repository code and propose evidence-backed changes."

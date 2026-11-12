@@ -1,0 +1,153 @@
+--- a/rules/agent-connect-mcp.md
++++ b/rules/agent-connect-mcp.md
+@@ -1,116 +1,47 @@
+ ---
+-title: Connect AI Agents to ClickHouse
++title: Select an Existing ClickHouse Connection
+ impact: HIGH
+-impactDescription: "Proper connection setup eliminates credential-prompting friction and enables structured access"
++impactDescription: Reuse approved identity and transport without implicit setup
+ tags: [agent, mcp, cli, connectivity, setup]
+ ---
+ 
+-## Connect AI Agents to ClickHouse
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+-**Impact: HIGH**
++## Select an Existing ClickHouse Connection
+ 
+-Two connection methods, each with a clear use case. Pick one based on your environment.
++Apply [task boundaries](../SKILL.md#task-boundaries). Static source/schema reviews
++need no connection, schema discovery queries or credentials.
+ 
+-**Incorrect (prompting for credentials every time):**
++For authorized live work, identify the exact service/database, read/write scope
++and resource budget. Prefer a sufficient configured connector/MCP. The managed
++skill remains portable with an already installed/configured `clickhouse-client`
++or project's existing client; check actual client/version options before use.
++Use a single selected transport and reviewed skill copy per task.
+ 
+-```python
+-# Agent asks the user for host, port, user, password on every session
+-# Credentials are hardcoded in the prompt or conversation
+-response = client.query("SELECT 1",
+-    host="???", user="???", password="???")  # fragile, unsecured
+-```
++An unavailable tool is a capability gap, not permission to install MCP/CLI,
++provision Cloud services, enable writes, alter profiles or reset credentials.
++Setup belongs to the existing installer/connection owner when explicitly chosen.
++Hosted MCP capabilities and authentication can change; verify the actual tool
++contract rather than assuming every Cloud endpoint is read-only or OAuth-enabled.
+ 
+-**Correct (MCP or CLI with pre-configured credentials):**
++Use existing credential resolution or a selected protected client configuration.
++Never put passwords/tokens in SQL, shell arguments, URLs, prompts or committed
++files. Don't dump environment variables, search unrelated configuration or scan
++credential providers. Preserve TLS verification and the approved identity.
++An HTTP fallback is suitable only when a configured authenticated client and
++policy already cover it; don't reconstruct authentication by exposing headers.
+ 
+-```bash
+-# MCP: credentials configured once via env vars or OAuth
+-claude mcp add --transport http clickhouse-cloud https://mcp.clickhouse.cloud/mcp
++Choose structured output supported by the client: JSON/JSONCompact for typed
++metadata, JSONEachRow for streams, or TSV with names for suitable bounded tables.
++Select only needed columns and bound result bytes/rows. Token counts and transport
++latency vary by payload/tool; no fixed ranking proves which path is faster.
+ 
+-# CLI: credentials in a named profile or env vars
+-clickhouse client --host abc123.clickhouse.cloud --port 9440 --secure \
+-  --user default --password "$CLICKHOUSE_PASSWORD" --format JSON \
+-  --query "SELECT 1"
+-```
++A sleeping service may need bounded recovery, but distinguish transient readiness
++from authentication/permission errors. Retry only safe reads within the same
++budget; never blindly retry uncertain writes. Continue with
++[schema discovery](agent-discovery-schema.md) and
++[query bounds](agent-query-safety.md) when execution is in scope.
+ 
+-### Option A: MCP Server (interactive agent workflows)
+-
+-Best for schema discovery, iterative analysis, and multi-step conversations.
+-
+-**ClickHouse Cloud — zero-install hosted MCP:**
+-
+-```bash
+-claude mcp add --transport http clickhouse-cloud https://mcp.clickhouse.cloud/mcp
+-```
+-
+-Uses OAuth. Read-only. No env vars needed.
+-
+-**Self-hosted MCP (any ClickHouse deployment):**
+-
+-```bash
+-pip install mcp-clickhouse
+-```
+-
+-| Variable | Example | Notes |
+-|----------|---------|-------|
+-| `CLICKHOUSE_HOST` | `abc123.clickhouse.cloud` | Hostname |
+-| `CLICKHOUSE_USER` | `default` | Database user |
+-| `CLICKHOUSE_PASSWORD` | `your-password` | Database password |
+-| `CLICKHOUSE_SECURE` | `true` | Always `true` for Cloud |
+-
+-Enable writes: `export CLICKHOUSE_ALLOW_WRITE_ACCESS=true`
+-
+-**Limitations:**
+-- MCP has ~200-500ms overhead per call. For large result sets or batch operations, use CLI.
+-- MCP's `list_tables` may not surface column `COMMENT` annotations — query `system.columns` directly for full schema context (see `agent-discovery-schema`).
+-
+-**ClickHouse Cloud note:** Services can be idle/sleeping. The first query after inactivity may take 10-20 seconds while the service wakes up. A timeout or `503` on first connection is expected — retry once before treating it as an error.
+-
+-### Option B: clickhouse-client (batch operations, large results)
+-
+-Best for scripting, automation, and queries returning >10K rows. Zero per-call overhead.
+-
+-```bash
+-clickhouse client \
+-  --host abc123.clickhouse.cloud --port 9440 --secure \
+-  --user default --password 'your-password' \
+-  --format JSON \
+-  --max_execution_time 30 \
+-  --query "SELECT * FROM events LIMIT 100" 2>&1
+-```
+-
+-### Option C: HTTP interface (fallback when CLI is unavailable)
+-
+-If you have credentials but can't install `clickhouse-client` (lambda, sandbox, web-based agent), use the HTTP interface directly:
+-
+-```bash
+-curl -s "https://abc123.clickhouse.cloud:8443/" \
+-  -H "X-ClickHouse-User: default" \
+-  -H "X-ClickHouse-Key: your-password" \
+-  --data-binary "SELECT name, engine FROM system.tables WHERE database = 'default' FORMAT JSON"
+-```
+-
+-Port `8443` is HTTPS. Pass query settings as URL params: `?max_execution_time=30&max_result_rows=10000`.
+-
+-### Where to find connection credentials (ClickHouse Cloud)
+-
+-1. Go to [console.clickhouse.cloud](https://console.clickhouse.cloud)
+-2. Click your service → **Connect** in the left sidebar
+-3. The dialog shows hostname, port, user, and a pre-built CLI command
+-4. **Reset password** if needed from the same dialog
+-
+-For self-managed: check `config.xml` or ask your administrator.
+-
+-### Output format selection
+-
+-Always specify a format. The default (TabSeparated without headers) is unparseable by agents.
+-
+-| Format | Tokens (1K rows) | Best For |
+-|--------|------------------|----------|
+-| `JSON` | ~20K | Single queries — includes column types, row count, statistics |
+-| `JSONCompact` | ~10K | Same metadata as JSON but rows as arrays — good for wide tables |
+-| `JSONEachRow` | ~15K | Streaming large results, piping through `jq` |
+-| `TabSeparatedWithNames` | ~4K | Minimal tokens, simple tabular data |
+-
+-Use `JSON` as the default for agent work. Switch to `TabSeparatedWithNames` when result sets are large and context window budget matters.
+-
+-Reference: [ClickHouse MCP Server](https://github.com/ClickHouse/mcp-clickhouse) · [clickhouse-client](https://clickhouse.com/docs/interfaces/cli) · [Output Formats](https://clickhouse.com/docs/interfaces/formats)
++References: [MCP](https://github.com/ClickHouse/mcp-clickhouse),
++[CLI](https://clickhouse.com/docs/interfaces/cli),
++[formats](https://clickhouse.com/docs/interfaces/formats).

@@ -1,0 +1,3 @@
+interface:
+  display_name: "FastAPI"
+  short_description: "Review API boundaries and resource lifetimes"

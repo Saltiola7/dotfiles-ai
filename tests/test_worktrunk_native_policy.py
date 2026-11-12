@@ -580,7 +580,8 @@ def test_native_user_hook_blocks_forced_dirty_removal_then_preserves_branch(fixt
     assert "dirty_worktree" in refused.stdout + refused.stderr
     assert (target / "tracked.txt").read_text() == "disposable dirty fixture\n"
     git(target, "restore", "tracked.txt")
-    outcome = subprocess.run([wt_binary, "remove", "task", "--yes"], cwd=fixture.repo,
+    # Wait for native removal/log writes before the fixture cleans its repository.
+    outcome = subprocess.run([wt_binary, "remove", "task", "--yes", "--foreground"], cwd=fixture.repo,
                              env=env, text=True, capture_output=True, timeout=90)
     if outcome.returncode:
         # Real process visibility may time out on a busy host: unknown must retain.

@@ -1,0 +1,215 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,11 +1,44 @@
+ ---
+ name: python-observability
+-description: Python observability patterns including structured logging, metrics, and distributed tracing. Use when adding logging, implementing metrics collection, setting up tracing, or debugging production systems.
++license: MIT
++description: Design and review Python logs, metrics and traces, including correlation context, bounded labels and sensitive-data handling when instrumentation changes.
+ ---
+ 
+ # Python Observability
+ 
+-Instrument Python applications with structured logs, metrics, and traces. When something breaks in production, you need to answer "what, where, and why" without deploying new code.
++## Project and workflow boundaries
++
++Apply this guidance within the current task and project Engineering Profile.
++Project-selected runtimes, dependencies, tools, error contracts and acceptance
++criteria control examples. Loading this skill does not install tools or authorize
++external operations. Existing authorization persists; ask only about unresolved
++material decisions. DBSCTR retains phase and gate ownership; QA retains configured
++validation and evidence ownership. Return scoped findings, affected artifacts,
++supporting evidence and limitations. See [UPSTREAM.md](UPSTREAM.md) for provenance.
++
++Design telemetry around the operational question and selected project stack.
++Keep an existing logging/tracing provider; adding structlog, Prometheus or an
++exporter is a project decision, not a prerequisite of loading this skill. Do not
++install dependencies, attach to production or send telemetry externally without
++the task's existing authority.
++
++Use allowlisted fields. Exception messages, repr/serialization, URLs, SQL and
++parameters, headers, tokens and user identifiers can contain sensitive data.
++Record safe classifications/counts; inspect sinks and apply project redaction and
++retention. Compose `secret-serialization` when credential holders or whole-object
++logging change. A redacted display does not prove other exporters are safe.
++
++Bound metric cardinality at every label: use registered route templates, normalized
++methods, finite error groups and approved buckets. Keep request IDs in permitted
++logs/traces rather than metric labels. Distinguish handler return, full stream
++completion, cancellation and errors. A source-level instrumentation pattern does
++not prove delivery, dashboard correctness or incident detection.
++
++Bind correlation context for its actual request/job lifetime and restore it in
++finally, including errors and cancellation. Validate incoming IDs according to
++trust policy; do not blindly echo arbitrary headers. Verify propagation across
++async/sync/thread and queued-job boundaries with the selected framework.
++Inspect the actual logs/spans/metrics using isolated tests before making claims.
+ 
+ ## When to Use This Skill
+ 
+@@ -24,7 +57,7 @@
+ 
+ ### 2. The Four Golden Signals
+ 
+-Track latency, traffic, errors, and saturation for every service boundary.
++Select latency, traffic, errors and saturation signals for the boundaries that matter under the project observability policy.
+ 
+ ### 3. Correlation IDs
+ 
+@@ -47,7 +80,7 @@
+ )
+ 
+ logger = structlog.get_logger()
+-logger.info("Request processed", user_id="123", duration_ms=45)
++logger.info("Request processed", operation="status_read", duration_ms=45)
+ ```
+ 
+ ## Fundamental Patterns
+@@ -89,6 +122,7 @@
+ Every log entry should include standard fields for filtering and correlation.
+ 
+ ```python
++import time
+ import structlog
+ from contextvars import ContextVar
+ 
+@@ -99,12 +133,12 @@
+ 
+ def process_request(request: Request) -> Response:
+     """Process request with structured logging."""
++    start = time.perf_counter()
+     logger.info(
+         "Request received",
+         correlation_id=correlation_id.get(),
+         method=request.method,
+         path=request.path,
+-        user_id=request.user_id,
+     )
+ 
+     try:
+@@ -112,8 +146,8 @@
+         logger.info(
+             "Request completed",
+             correlation_id=correlation_id.get(),
+-            status_code=200,
+-            duration_ms=elapsed,
++            status_code=result.status_code,
++            duration_ms=(time.perf_counter() - start) * 1000,
+         )
+         return result
+     except Exception as e:
+@@ -121,7 +155,6 @@
+             "Request failed",
+             correlation_id=correlation_id.get(),
+             error_type=type(e).__name__,
+-            error_message=str(e),
+         )
+         raise
+ ```
+@@ -139,10 +172,10 @@
+ 
+ ```python
+ # DEBUG: Detailed internal information
+-logger.debug("Cache lookup", key=cache_key, hit=cache_hit)
++logger.debug("Cache lookup", hit=cache_hit)
+ 
+ # INFO: Normal operational events
+-logger.info("Order created", order_id=order.id, total=order.total)
++logger.info("Order created", operation="create_order")
+ 
+ # WARNING: Abnormal but handled situations
+ logger.warning(
+@@ -155,44 +188,49 @@
+ # ERROR: Failures requiring investigation
+ logger.error(
+     "Payment processing failed",
+-    order_id=order.id,
+-    error=str(e),
++    error_type=type(e).__name__,
+     payment_provider="stripe",
+ )
+ ```
+ 
+-Never log expected behavior at `ERROR`. A user entering a wrong password is `INFO`, not `ERROR`.
++Choose levels through project operational/security policy. Expected user mistakes
++need not page an operator; security-relevant authentication failures may still
++require a dedicated event. Avoid claiming one universal severity for them.
+ 
+ ### Pattern 4: Correlation ID Propagation
+ 
+-Generate a unique ID at ingress and thread it through all operations.
+-
+-```python
++Generate or validate an ID at ingress and propagate it only across intended
++boundaries. This handler-scoped example restores both context stores on exit;
++stream/background work may outlive the handler and needs its own scope. See
++[structlog context variables](https://www.structlog.org/en/stable/contextvars.html)
++for token restoration and hybrid sync/async isolation limitations.
++
++```python
++from contextlib import contextmanager
+ from contextvars import ContextVar
+ import uuid
+ import structlog
++from fastapi import Request
+ 
+ correlation_id: ContextVar[str] = ContextVar("correlation_id", default="")
+ 
+-def set_correlation_id(cid: str | None = None) -> str:
+-    """Set correlation ID for current context."""
+-    cid = cid or str(uuid.uuid4())
+-    correlation_id.set(cid)
+-    structlog.contextvars.bind_contextvars(correlation_id=cid)
+-    return cid
+-
+-# FastAPI middleware example
+-from fastapi import Request
++@contextmanager
++def request_context(cid: str):
++    token = correlation_id.set(cid)
++    try:
++        with structlog.contextvars.bound_contextvars(correlation_id=cid):
++            yield
++    finally:
++        correlation_id.reset(token)
+ 
+ async def correlation_middleware(request: Request, call_next):
+-    """Middleware to set and propagate correlation ID."""
+-    # Use incoming header or generate new
+-    cid = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+-    set_correlation_id(cid)
+-
+-    response = await call_next(request)
+-    response.headers["X-Correlation-ID"] = cid
+-    return response
++    """Illustrate scoped handler context; verify framework/stream lifetimes."""
++    # Generate locally. Accept upstream IDs only under an explicit validation policy.
++    cid = uuid.uuid4().hex
++    with request_context(cid):
++        response = await call_next(request)
++        response.headers["X-Correlation-ID"] = cid
++        return response
+ ```
+ 
+ Propagate to outbound requests:
+@@ -207,7 +245,9 @@
+             endpoint,
+             json=data,
+             headers={"X-Correlation-ID": correlation_id.get()},
++            timeout=10,
+         )
++        response.raise_for_status()
+         return response.json()
+ ```
+ 
+@@ -222,8 +262,8 @@
+ 3. **Track the four golden signals** - Latency, traffic, errors, saturation
+ 4. **Bound label cardinality** - Never use unbounded values as metric labels
+ 5. **Log at appropriate levels** - Don't cry wolf with ERROR
+-6. **Include context** - User ID, request ID, operation name in logs
++6. **Allowlist context** - Include only safe operation fields permitted by sink policy
+ 7. **Use context managers** - Consistent timing and error handling
+ 8. **Separate concerns** - Observability code shouldn't pollute business logic
+ 9. **Test your observability** - Verify logs and metrics in integration tests
+-10. **Set up alerts** - Metrics are useless without alerting
++10. **Verify the intended use** - Confirm collection and configured alerts where required

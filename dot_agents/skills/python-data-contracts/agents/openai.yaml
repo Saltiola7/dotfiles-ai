@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Data Contracts"
+  short_description: "Review dataframe schemas and value invariants"
+  default_prompt: "Use $python-data-contracts to review dataframe boundary contracts in this repository."

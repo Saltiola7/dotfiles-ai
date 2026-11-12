@@ -1,0 +1,4 @@
+interface:
+  display_name: "Port to Free-Threaded Python"
+  short_description: "Review no-GIL compatibility and concurrency evidence"
+  default_prompt: "Use $port-to-free-threaded-python to assess support for this project’s selected free-threaded target."
