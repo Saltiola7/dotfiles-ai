@@ -3998,3 +3998,14 @@ The [audited lineage recovery feature](features/lineage-recovery.md) specifies a
 critical, digest-bound recovery transaction for omitted historical documentation
 commits and exact accepted-base merges in registered schema-5 Initiative cycles.
 It grants no gate credit and preserves normal delivery guards and private history.
+
+## Durable integration coordination Discovery
+
+The [integration coordinator](features/integration-coordinator.md) and
+[Initiative amendment](../../initiatives/dbsctr-delivery-lifecycle/INTEGRATION-COORDINATOR.md)
+define a proposed default-off durable per-target integration slot. The same
+portable core serves enrolled repositories; current native CI triggers remain
+authoritative and Dagger remains shadow-only. Existing recommendation schema 1,
+blocked runtime checks and narrow local completion APIs retain their semantics.
+New source, lifecycle hooks, distribution and live activation are separate slices;
+no installed capability or unattended merge is claimed by this Discovery.
