@@ -47,6 +47,14 @@ unconditional; unmapped producers also remain unconditional. Reject duplicates,
 unbound references, unknown fields, negated paths and arbitrary expressions.
 Native-required producers cannot have an exempting condition.
 
+Concrete wire shape: each mapping row has exactly `context`, `app_id`, and
+`all`. Each predicate has exactly `kind` and `value`. Kinds are `event`,
+`target_branch`, `paths`, and `actor_not`; values are an exact string except
+`paths`, whose value is a nonempty bounded array of positive segment patterns.
+The initial native pattern subset supports literal segments, `*` and `**` only;
+reject `?`, character classes, escaping and negative patterns rather than infer
+equivalence. Changed-path proof includes deleted paths and both names of a rename.
+
 Each row uses its producer's pinned workflow definition digest. Source
 qualification reviews the typed predicates against the actual workflow conditions.
 Runtime verifies the registered mapping digest and exact workflow bytes, then
