@@ -101,7 +101,7 @@ def check_identity(value: dict) -> None:
         "repository": r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+",
         "commit": r"[0-9a-f]{40}", "tree": r"[0-9a-f]{40}",
         "run_id": r"[1-9][0-9]{0,19}", "attempt": r"[1-9][0-9]{0,5}",
-        "python_version": r"3\.(12|13|14)", "worktrunk_version": r"0\.(80|81)\.0",
+        "python_version": r"3\.(12|13|14|15)", "worktrunk_version": r"0\.(80|81)\.0",
     }
     for name, pattern in patterns.items():
         if not isinstance(value[name], str) or not re.fullmatch(pattern, value[name]):

@@ -566,6 +566,16 @@ authorization. These pending tasks are not claimed as delivered by this host sli
 
 **Status:** DAI-021 continuous per-lens R&D delivered; DAI-004-F1 and DAI-012-F1 pending
 
+## Python runtime qualification
+
+The [PY-08 contract](features/python-runtime-qualification.md) defines monthly
+Python owner review, urgent security intake and root CPython 3.15 weekly/manual
+compatibility validation. `docs/UPDATES.md` retains the sole installer and
+procedure inventory. The root 3.12 floor, 3.14 PR/main authority and all isolated
+runtime pins remain unchanged. Qualification requires the exact-source hosted
+matrix and current PR checks recorded by the cycle; source documentation does
+not qualify an installed environment.
+
 ## Engineering Profile
 
 The [checkout-independent continuation correction](../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md)
@@ -2042,3 +2052,11 @@ shared lifecycle coordinator with repository/task policy, compatible installed
 generations and separately enrolled hosted authority. Shared defaults remain off.
 Source delivery, managed installation and live activation are distinct claims.
 Existing validation, platform and credential owners retain their boundaries.
+
+
+## Native CI summary portability
+
+[Linux CI summary verification](features/linux-ci-summary.md) separates artifact
+verification from native macOS test execution. The source slice qualifies the
+existing verifier on Linux while preserving worker platforms, matrix, evidence
+and required checks. Partition balance and repeated setup remain later slices.

@@ -3313,7 +3313,11 @@ class DbsctrctlTest(unittest.TestCase):
         outside = Path(self.temp.name) / "outside"
         outside.mkdir()
         (registry / "escape").symlink_to(outside, target_is_directory=True)
-        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry)}
+        # --all also discovers configured roots; keep this fixture's scope private.
+        config = Path(self.temp.name) / "config"
+        config.mkdir()
+        env = {**isolated_env(), "DBSCTR_WORKTREE_ROOT": str(registry),
+               "XDG_CONFIG_HOME": str(config)}
         inventory = json.loads(run(self.repo, "worktree-list", "--all", "--json", env=env).stdout)
         self.assertEqual(inventory["coverage"]["repositories_seen"], 2)
         self.assertTrue(all(item["disposition"].startswith("retained_") for item in inventory["items"]))
@@ -7632,7 +7636,8 @@ class DbsctrctlTest(unittest.TestCase):
             method_revision=None, cycle_id=None, state=None, context=None, project_digest=None,
             reviewed_status=None, excluded_session_id=None, excluded_message_id=None,
         )
-        with mock.patch.object(module, "review_lock", tracked_lock), \
+        with contextlib.chdir(self.repo), \
+                mock.patch.object(module, "review_lock", tracked_lock), \
                 mock.patch.object(module, "review_history_page", tracked_page), \
                 mock.patch("builtins.print"):
             module.command_history_capture_save(args)

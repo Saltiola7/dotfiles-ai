@@ -125,6 +125,32 @@ def test_complete_union_preserves_existing_setup_and_call_skips(core, receipts):
     assert result["skipped"] == 2
 
 
+@pytest.mark.parametrize("python_version", ["3.12", "3.13", "3.14", "3.15"])
+def test_complete_union_accepts_each_selected_python_runtime(core, receipts, python_version):
+    root, expected, manifests, nodes = receipts
+    expected["python_version"] = python_version
+    for manifest in manifests:
+        original = artifact(root, manifest["identity"], manifest["shard"])
+        manifest["identity"] = copy.deepcopy(expected)
+        manifest["python_full"] = python_version + ".1"
+        target = artifact(root, expected, manifest["shard"])
+        if original != target:
+            original.rename(target)
+        write_manifest(root, expected, manifest)
+    result = core.verify(root, expected, "success")
+    assert result["selected"] == len(nodes)
+    assert result["passed"] == len(nodes) - 2
+    assert result["skipped"] == 2
+
+
+@pytest.mark.parametrize("python_version", ["3.11", "3.16", "3.15t", "3.15.0"])
+def test_complete_union_rejects_unselected_python_runtime(core, receipts, python_version):
+    root, expected, _, _ = receipts
+    expected["python_version"] = python_version
+    with pytest.raises(ValueError, match="invalid execution identity"):
+        core.verify(root, expected, "success")
+
+
 @pytest.mark.parametrize("workers_result", ["failure", "cancelled", "skipped", "pending", ""])
 def test_native_worker_failure_blocks_even_complete_receipts(core, receipts, workers_result):
     root, expected, _, _ = receipts
@@ -744,3 +770,20 @@ def test_native_teardown_skips_preserve_event_counts_and_parent_totals(native_ch
         "selected": 13, "passed": 9, "skipped": 4, "collection_skipped": 1,
         "subtests_passed": 0, "subtests_skipped": 0,
     }
+
+
+def test_summary_qualifies_portable_verifier_without_moving_native_workers():
+    workflow = (ROOT / ".github/workflows/test.yml").read_text()
+    workers, summary = workflow.split("\n  test:\n", 1)
+    assert "    runs-on: macos-26\n" in workers
+    assert "    timeout-minutes: 90\n" in workers
+    assert "      - name: Check native Swift compilation\n" in workers
+    assert "    runs-on: ubuntu-24.04\n" in summary
+    assert "    needs: test-shard\n" in summary
+    assert "    if: ${{ always() }}\n" in summary
+    assert "      - name: Qualify portable artifact verifier\n" in summary
+    qualification, verification = summary.split("      - name: Verify complete lane coverage\n", 1)
+    assert "uv run --frozen --group test pytest tests/test_ci_shard.py -q" in qualification
+    assert "CI_WORKERS_RESULT: ${{ needs.test-shard.result }}" in verification
+    assert '--workers-result "$CI_WORKERS_RESULT"' in verification
+    assert "test (" in summary

@@ -7,7 +7,6 @@ import stat
 import subprocess
 import sys
 import time
-import threading
 import tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -383,24 +382,26 @@ def test_hook_lock_timeout_is_silent_and_preserves_valid_records(tmp_path: Path)
     existing.chmod(0o600)
     lock_path = directory / ".lock"
     lock = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    fcntl.flock(lock, fcntl.LOCK_EX)
-    release = threading.Timer(4.2, lambda: fcntl.flock(lock, fcntl.LOCK_UN))
-    release.start()
-    started = time.monotonic()
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        started = time.monotonic()
 
-    result = run_control(
-        "hook", "SessionStart", stdin=json.dumps(payload(repo)).encode(),
-        env={"DBSCTR_STATE_ROOT": str(state_root)},
-    )
-    elapsed = time.monotonic() - started
-    release.join()
-    os.close(lock)
+        result = run_control(
+            "hook", "SessionStart", stdin=json.dumps(payload(repo)).encode(),
+            env={"DBSCTR_STATE_ROOT": str(state_root)},
+        )
+        elapsed = time.monotonic() - started
 
-    assert elapsed < 4.5
-    assert result.returncode == 0
-    assert result.stdout == b""
-    assert result.stderr == b""
-    assert list(directory.glob("*.json")) == [existing]
+        assert elapsed < 4.5
+        assert result.returncode == 0
+        assert result.stdout == b""
+        assert result.stderr == b""
+        assert list(directory.glob("*.json")) == [existing]
+    finally:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        finally:
+            os.close(lock)
 
 
 def test_hook_refuses_private_state_inside_git_worktree(tmp_path: Path) -> None:
