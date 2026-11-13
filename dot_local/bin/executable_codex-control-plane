@@ -201,30 +201,65 @@ def write_hook_record(value: dict, deadline: float) -> None:
         os.close(lock)
 
 
-def terminate(process: subprocess.Popen) -> None:
+def terminate(process: subprocess.Popen, deadline: float) -> None:
+    cleanup_failed = False
     try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    if process.poll() is None:
-        process.kill()
-        process.wait()
+        for attempt in range(2):
+            try:
+                process.poll()
+            except OSError:
+                cleanup_failed = True
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+                break
+            except ProcessLookupError:
+                break
+            except PermissionError:
+                if attempt:
+                    cleanup_failed = True
+            except OSError:
+                cleanup_failed = True
+                break
+        if cleanup_failed and process.returncode is None:
+            try:
+                process.kill()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=min(1.0, max(0.0, deadline - time.monotonic())))
+        except (OSError, subprocess.TimeoutExpired):
+            cleanup_failed = True
+    finally:
+        for stream in (process.stdout, process.stderr):
+            try:
+                stream.close()
+            except OSError:
+                cleanup_failed = True
+    if cleanup_failed:
+        raise CommandFailure("cleanup_failed") from None
 
 
 def run_bounded(
     argv: list[str], timeout: float, maximum: int, check: bool = True, cwd: Path | None = None
 ):
-    process = subprocess.Popen(
-        argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True
-    )
-    selection = selectors.DefaultSelector()
-    output = {process.stdout: bytearray(), process.stderr: bytearray()}
-    selection.register(process.stdout, selectors.EVENT_READ)
-    selection.register(process.stderr, selectors.EVENT_READ)
+    if timeout <= 0:
+        raise CommandFailure("timeout")
     deadline = time.monotonic() + timeout
+    execution_deadline = deadline - min(1.0, timeout / 2)
     try:
+        process = subprocess.Popen(
+            argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True
+        )
+    except OSError:
+        raise CommandFailure("command_failed") from None
+    selection = None
+    output = {process.stdout: bytearray(), process.stderr: bytearray()}
+    try:
+        selection = selectors.DefaultSelector()
+        selection.register(process.stdout, selectors.EVENT_READ)
+        selection.register(process.stderr, selectors.EVENT_READ)
         while selection.get_map():
-            remaining = deadline - time.monotonic()
+            remaining = execution_deadline - time.monotonic()
             if remaining <= 0:
                 raise CommandFailure("timeout")
             for key, _ in selection.select(min(remaining, 0.1)):
@@ -235,12 +270,20 @@ def run_bounded(
                 output[key.fileobj].extend(chunk)
                 if sum(len(value) for value in output.values()) > maximum:
                     raise CommandFailure("output_too_large")
-        returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+        returncode = process.wait(timeout=max(0.0, execution_deadline - time.monotonic()))
     except subprocess.TimeoutExpired:
-        raise CommandFailure("timeout")
+        raise CommandFailure("timeout") from None
+    except OSError:
+        raise CommandFailure("command_failed") from None
     finally:
-        terminate(process)
-        selection.close()
+        try:
+            terminate(process, deadline)
+        finally:
+            if selection is not None:
+                try:
+                    selection.close()
+                except OSError:
+                    raise CommandFailure("cleanup_failed") from None
     stdout = bytes(output[process.stdout])
     stderr = bytes(output[process.stderr])
     if check and returncode:
