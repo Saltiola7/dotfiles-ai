@@ -1,0 +1,24 @@
+name: CI candidate identity receipt
+description: Record bounded PR identity metadata without credentials or gate authority.
+inputs:
+  concern:
+    description: Reviewed producer concern discriminator.
+    required: true
+  result:
+    description: Actual terminal concern step outcome; failure remains diagnostic.
+    required: true
+outputs:
+  receipt-path:
+    description: Owned temporary receipt.json for the caller's existing artifact upload.
+    value: ${{ steps.write.outputs.receipt-path }}
+runs:
+  using: composite
+  steps:
+    - id: write
+      shell: bash
+      env:
+        DBSCTR_RECEIPT_SOURCE_HEAD: ${{ github.event.pull_request.head.sha }}
+        DBSCTR_RECEIPT_PR_NUMBER: ${{ github.event.pull_request.number }}
+        DBSCTR_RECEIPT_CONCERN: ${{ inputs.concern }}
+        DBSCTR_RECEIPT_RESULT: ${{ inputs.result }}
+      run: python3 -I -B "$GITHUB_ACTION_PATH/write_receipt.py" >> "$GITHUB_OUTPUT"

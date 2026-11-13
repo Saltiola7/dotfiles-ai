@@ -43,6 +43,14 @@ helper activation or application of a consumer amendment.
 - Same-digest replay, stale approval, chain validation, private preimages/outcomes,
   bounded diagnostics, atomic replacement and lock behavior retain the existing
   amendment contract. External source paths stay in private evidence only.
+- Historical inventory from another linked checkout validates the local profile
+  at the immutable source commit captured in the approved amendment's
+  `checkout.head`, with its recorded blob/mode. The caller's current HEAD/profile
+  is not historical authority. Missing source objects, malformed or moving
+  revision selectors and a wrong recorded blob still refuse. Live amendment
+  selection continues to require its actual current clean profile. Retained
+  coordinator custody and every existing envelope/history check remain mandatory;
+  no Cycle Record is repaired or rewritten to accommodate an unrelated checkout.
 
 ## Versioned data and validation
 
@@ -88,11 +96,13 @@ managed activation and real consumer amendment remain separate approvals.
 | Exact approved plan | Revalidate; persist preimage/outcome; append amendment | Same cycle, required gates pending |
 | Amended cycle; ordinary gated progress | Verify retained authority and fresh evidence; record local checkpoint | Completion eligible only after all required gates pass |
 | Missing or changed retained authority | Refuse read/mutation/completion | Preserve state; operator recovery needed |
+| Historical inventory from another checkout | Verify local profile at approved immutable source commit; retain all other guards | Same record remains valid independently of caller's later profile |
 
 **Text Equivalent:** Coordinator owns and retains foreign normative documents;
 Build owns its profile, source and gates. Private evidence binds both without
 copying coordinator documents into public Build Git. Preflight changes no cycle.
 Exact approval permits only amendment and gate reopening. Every later operation
 requires the retained authority; loss blocks rather than selecting another source.
+Historical local profile proof uses the approved source commit, not caller HEAD.
 Canonical source: this feature. Owner: lifecycle maintainer. Update these tables
 when custody, versioning, approval or completion boundaries change.

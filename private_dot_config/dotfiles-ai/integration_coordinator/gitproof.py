@@ -18,6 +18,7 @@ import tempfile
 
 from . import core
 from . import runtime
+from . import ci_mapping
 
 MAX_OUTPUT = 32 * 1024 * 1024
 
@@ -191,6 +192,20 @@ class ProofPort:
     def excludes_root(self, root: str, heads: tuple[str, ...]) -> bool:
         ids = tuple(dict.fromkeys((root, *heads)))
         return self._supply(ids).excludes_root(root, heads)
+
+    def candidate_scope(self, base: str, head: str) -> ci_mapping.CandidateScope:
+        core._oid(base)
+        core._oid(head)
+        objects = self._supply(tuple(dict.fromkeys((base, head))))
+        objects.safety()
+        if not objects.ancestor(base, head) or objects.read("merge-base", "--all", base, head) != base:
+            raise core.Unavailable("native_scope_base_unproved")
+        paths = objects.read("diff", "--no-renames", "--no-ext-diff", "--no-textconv",
+                             "--name-only", "-z", base, head, "--").split("\0")
+        if paths[-1] != "": raise core.Invalid("native_scope_paths_incomplete")
+        count = objects.read("rev-list", "--count", base + ".." + head)
+        if not count.isascii() or not count.isdecimal(): raise core.Invalid("native_scope_count")
+        return ci_mapping.CandidateScope(base, head, tuple(sorted(paths[:-1])), int(count))
 
 
 class GitMirror:

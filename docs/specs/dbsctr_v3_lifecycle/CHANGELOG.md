@@ -1,5 +1,30 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-13 — Native applicability source
+
+- Add a closed CheckPlan v2 while preserving v1 serialization and policy identity.
+  Trusted mapping/workflow pins and complete native Git scope bind negative
+  applicability; native-required checks remain unconditional and unknown proof
+  blocks. Observed fallback runs require ordinary qualification.
+- Keep actor predicates, skipped-job proofs and final freshness fences bound to
+  the same run snapshot. Preserve the reproduced newer-run race and regression.
+- Add a credential-free shared candidate receipt action/writer with bounded,
+  private temporary output and raw-parent verification for shallow checkouts.
+  Metadata never substitutes for native job/workflow success.
+- Read historical amendment profiles from their approved immutable checkout
+  commit, accepting Git's 40- and 64-character IDs. Live profile selection and
+  record/authority custody checks remain intact; no Cycle Records are rewritten.
+- Source only: no managed installation, consumer workflow wiring, credentials,
+  control refs, protection changes, coordination activation or Dagger changes.
+
+## Discovery — native CI applicability prerequisite
+
+Captured the shared applicability/receipt source dependency before hosted opt-in.
+Native-required checks stay unconditional; negative proof and candidate receipts
+remain distinct from passing native CI. No implementation, installation, target
+wiring, credential delegation or activation is claimed by this Discovery entry.
+
+
 ## 2026-11-13 — Guarded integration runtime source
 
 - Add one default-off protocol-2 lifecycle and native Actions implementation:

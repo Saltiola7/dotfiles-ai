@@ -15,7 +15,7 @@ import io
 import json
 from pathlib import PurePosixPath
 import re
-from typing import Protocol
+from typing import Protocol, TypeAlias, runtime_checkable
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -23,6 +23,7 @@ import zipfile
 
 from . import core as c
 from . import runtime as r
+from . import ci_mapping as m
 
 MAX_JSON = 4 * 1024 * 1024
 MAX_ARCHIVE = 70 * 1024 * 1024
@@ -515,7 +516,7 @@ def parse_enrollment(value: object) -> Enrollment:
         None if data.get("native_guard_digest") is None else _digest(data["native_guard_digest"]))
 
 
-_FACTS = {"repository", "source_head", "tested_oid", "base", "tree", "run_id", "attempt", "run_id_text", "attempt_text", "event"}
+_FACTS = {"repository", "source_head", "tested_oid", "base", "tree", "run_id", "attempt", "run_id_text", "attempt_text", "event", "pr_number", "tested_parents"}
 
 
 def _json_path(value: tuple[str, ...]) -> None:
@@ -610,9 +611,35 @@ class CheckPlan:
         return _hash(asdict(self))
 
 
-def parse_check_plan(value: object) -> CheckPlan:
+@dataclass(frozen=True, slots=True)
+class CheckPlanV2:
+    producers: tuple[Producer, ...]
+    applicability: m.MappingBinding
+    codeql: CodeQLBinding | None = None
+
+    def __post_init__(self) -> None:
+        CheckPlan(self.producers, self.codeql)
+        if type(self.applicability) is not m.MappingBinding:
+            raise c.Invalid("check_plan_applicability")
+
+    @property
+    def digest(self) -> str:
+        return _hash({"schema_version": 2, **asdict(self)})
+
+
+NativeCheckPlan: TypeAlias = CheckPlan | CheckPlanV2
+
+
+def check_plan_data(plan: NativeCheckPlan) -> dict[str, object]:
+    if type(plan) not in {CheckPlan, CheckPlanV2}: raise c.Invalid("check_plan_type")
+    return {"schema_version": 2 if type(plan) is CheckPlanV2 else 1, **asdict(plan)}
+
+
+def parse_check_plan(value: object) -> NativeCheckPlan:
     data = _object(value)
-    if set(data) - {"codeql"} != {"schema_version", "producers"} or type(data.get("schema_version")) is not int or data["schema_version"] != 1:
+    version = data.get("schema_version")
+    expected = {"schema_version", "producers"} | ({"applicability"} if version == 2 else set())
+    if set(data) - {"codeql"} != expected or type(version) is not int or version not in {1, 2}:
         raise c.Invalid("check_plan_fields")
     producers: list[Producer] = []
     for raw in _array(data["producers"], 512):
@@ -644,7 +671,11 @@ def parse_check_plan(value: object) -> CheckPlan:
         if set(value) != {"workflow_id", "app_id", "workflow_path", "event", "ref_templates"}: raise c.Invalid("codeql_binding_fields")
         codeql = CodeQLBinding(_integer(value["workflow_id"]), _integer(value["app_id"]), _text(value["workflow_path"], 256),
             _text(value["event"], 64), tuple(_text(ref, 256) for ref in _array(value["ref_templates"], 2)))
-    return CheckPlan(tuple(producers), codeql)
+    if version == 1:
+        return CheckPlan(tuple(producers), codeql)
+    binding = c._object(data["applicability"], "mapping_path mapping_digest")
+    return CheckPlanV2(tuple(producers), m.MappingBinding(c._text(binding["mapping_path"]),
+        c._text(binding["mapping_digest"])), codeql)
 
 
 @dataclass(frozen=True, slots=True)
@@ -672,6 +703,11 @@ class ProofPort(Protocol):
     def prove_refresh(self, source: r.SourceSeries, head: str, base: str, /) -> r.Projection: ...
     def prove_delivery(self, source: r.SourceSeries, projection: r.Projection, merge_oid: str, /) -> tuple[c.CommitPair, ...]: ...
     def excludes_root(self, root: str, heads: tuple[str, ...], /) -> bool: ...
+
+
+@runtime_checkable
+class ScopeProofPort(Protocol):
+    def candidate_scope(self, base: str, head: str, /) -> m.CandidateScope: ...
 
 
 class FailedChecks(c.Unavailable):
@@ -711,7 +747,7 @@ class GitHub:
     """Actual authority adapter; disabled enrollment never grants mutations."""
 
     def __init__(self, transport: Transport, enrollment: Enrollment, proof: ProofPort | None = None,
-                 plan: CheckPlan | None = None, *, policy_path: str | None = None) -> None:
+                 plan: NativeCheckPlan | None = None, *, policy_path: str | None = None) -> None:
         if policy_path is not None:
             if (not isinstance(policy_path, str) or not policy_path.endswith(".json")
                     or any(part in {".git", ".dbsctr"} for part in PurePosixPath(policy_path).parts)):
@@ -1153,7 +1189,7 @@ class GitHub:
             raise c.Unavailable("native_candidate_changed")
         return native
 
-    def _run(self, workflow_id: int, event: str, head: str, pr_number: int) -> dict[str, object]:
+    def _run_candidates(self, workflow_id: int, event: str, head: str, pr_number: int) -> list[dict[str, object]]:
         values = self.pages(f"actions/workflows/{workflow_id}/runs?head_sha={head}&event={event}", "workflow_runs", limit=1024)
         matches: list[dict[str, object]] = []
         for raw in values:
@@ -1163,6 +1199,10 @@ class GitHub:
             if event == "pull_request" and not any(_object(pr).get("number") == pr_number for pr in _array(run.get("pull_requests"), 128)):
                 continue
             matches.append(run)
+        return matches
+
+    def _run(self, workflow_id: int, event: str, head: str, pr_number: int) -> dict[str, object]:
+        matches = self._run_candidates(workflow_id, event, head, pr_number)
         if not matches: raise c.Unavailable("native_run_missing")
         # Native run IDs increase on creation; a rerun retains its ID and is
         # subsequently read afresh to obtain its actual current attempt.
@@ -1176,6 +1216,129 @@ class GitHub:
             raise c.Unavailable("native_run_repository_unbound")
         _integer(run.get("run_attempt"))
         return run
+
+    def _skipped_producer(self, producer: Producer, run: dict[str, object], candidate: r.Candidate, number: int) -> str:
+        binding = producer.binding
+        run_id, attempt = _integer(run.get("id")), _integer(run.get("run_attempt"))
+        if run.get("path") != binding.workflow_path or run.get("status") != "completed":
+            raise c.Unavailable("native_skipped_producer_unbound")
+        jobs = self.pages(f"actions/runs/{run_id}/attempts/{attempt}/jobs", "jobs", limit=1024)
+        found = [_object(job) for job in jobs if _object(job).get("name") == binding.context]
+        if len(found) != 1: raise c.Unavailable("native_skipped_job_unbound")
+        job = found[0]
+        prefix = "https://api.github.com/" + self._path("check-runs/")
+        url = _text(job.get("check_run_url"), 2048)
+        if not url.startswith(prefix) or re.fullmatch(r"[1-9][0-9]*", url[len(prefix):]) is None:
+            raise c.Unavailable("native_skipped_check_unbound")
+        check = _object(self.get("check-runs/" + url[len(prefix):]))
+        # Reuse the native identity verifier without representing a skip as a
+        # passing Evidence. The false predicate and observed skip are both needed.
+        success = {"status": "completed", "conclusion": "success"}
+        verify_check({**check, **success}, {**job, **success}, {**run, **success}, binding,
+            head=candidate.head, tested_oid=candidate.tested_oid, pr_number=number,
+            producer_digest=_hash(asdict(producer)))
+        if any(item.get("status") != "completed" or item.get("conclusion") != "skipped" for item in (job, check)):
+            raise c.Unavailable("native_predicate_observation_conflict")
+        return _hash({"producer": asdict(producer), "run": run, "job": job, "check": check})
+
+    def _applicable_producers(self, candidate: r.Candidate, number: int, guards: TargetGuards
+            ) -> tuple[tuple[Producer, ...], str | None, tuple[tuple[Producer, dict[str, object] | None, str | None], ...]]:
+        if not isinstance(self.plan, CheckPlanV2):
+            assert self.plan is not None
+            return self.plan.producers, None, ()
+        binding = self.plan.applicability
+        raw = self.file_at(candidate.base, binding.mapping_path)
+        if (raw is None or hashlib.sha256(raw).hexdigest() != binding.mapping_digest
+                or self.file_at(candidate.tested_oid, binding.mapping_path) != raw):
+            raise c.Unavailable("native_applicability_authority_changed")
+        rules = m.parse_mapping(decode_json(raw))
+        by_context = {(rule.context, rule.app_id): rule for rule in rules}
+        registered = {(producer.binding.context, producer.binding.app_id) for producer in self.plan.producers}
+        if not set(by_context) <= registered: raise c.Unavailable("native_applicability_producer_unbound")
+        required = {(check.context, check.app_id) for check in guards.checks}
+        if any(key in required and rule.predicates for key, rule in by_context.items()):
+            raise c.Unavailable("native_required_check_conditional")
+        proof = self._proof()
+        if not isinstance(proof, ScopeProofPort): raise c.Unavailable("native_scope_proof_missing")
+        try:
+            scope = proof.candidate_scope(candidate.base, candidate.head)
+        except c.Invalid:
+            raise c.Unavailable("native_scope_unqualified") from None
+        if type(scope) is not m.CandidateScope or scope.base != candidate.base or scope.head != candidate.head:
+            raise c.Unavailable("native_scope_unbound")
+        selected: list[Producer] = []
+        decisions: list[object] = []
+        fences: list[tuple[Producer, dict[str, object] | None, str | None]] = []
+        for producer in self.plan.producers:
+            check = producer.binding
+            workflow = self.file_at(candidate.base, check.workflow_path)
+            if (workflow is None or hashlib.sha256(workflow).hexdigest() != producer.workflow_digest
+                    or self.file_at(candidate.tested_oid, check.workflow_path) != workflow):
+                raise c.Unavailable("native_applicability_workflow_changed")
+            rule = by_context.get((check.context, check.app_id))
+            if rule is None or not rule.predicates:
+                selected.append(producer)
+                continue
+            if check.event != "pull_request": raise c.Unavailable("native_applicability_event_unsupported")
+            results: list[tuple[str, bool]] = []
+            actor_run: dict[str, object] | None = None
+            for predicate in rule.predicates:
+                value = predicate.value
+                if predicate.kind == "paths":
+                    assert isinstance(value, tuple)
+                    result = any(m.path_matches(pattern, path) for pattern in value for path in scope.paths)
+                else:
+                    assert isinstance(value, str)
+                    if predicate.kind == "event":
+                        result = check.event == value
+                    elif predicate.kind == "target_branch":
+                        result = self.enrollment.default_branch == value
+                    else:
+                        if actor_run is None:
+                            actor_run = self._run(check.workflow_id, check.event, candidate.head, number)
+                            if actor_run.get("path") != check.workflow_path:
+                                raise c.Unavailable("native_actor_workflow_unbound")
+                        actor = _object(actor_run.get("actor"))
+                        _integer(actor.get("id"))
+                        result = _text(actor.get("login"), 128).casefold() != value.casefold()
+                results.append((predicate.kind, result))
+            applies = all(result for _, result in results)
+            skipped_digest: str | None = None
+            if not applies:
+                observed = self._run_candidates(check.workflow_id, check.event, candidate.head, number)
+                if not observed:
+                    fences.append((producer, None, None))
+                elif all(kind in {"paths", "target_branch"} for kind, result in results if not result):
+                    # Provider diff fallbacks may start a filtered workflow.
+                    # An observed run must then qualify normally, never disappear.
+                    applies = True
+                else:
+                    # The false actor decision and skip must use the same native
+                    # snapshot. The final fence rejects any newer run/attempt.
+                    if actor_run is None:
+                        actor_run = self._run(check.workflow_id, check.event, candidate.head, number)
+                    skipped_digest = self._skipped_producer(producer, actor_run, candidate, number)
+            if actor_run is not None: fences.append((producer, actor_run, skipped_digest))
+            if applies: selected.append(producer)
+            decisions.append({"producer": asdict(producer), "rule": asdict(rule), "results": results,
+                              "applicable": applies, "actor_run": actor_run, "skipped_proof": skipped_digest})
+        if not selected: raise c.Unavailable("native_positive_producer_missing")
+        digest = _hash({"kind": "native_applicability", "candidate": c.identity(candidate),
+            "binding": asdict(binding), "scope": asdict(scope), "decisions": decisions})
+        return tuple(selected), digest, tuple(fences)
+
+    def _applicability_fences(self, candidate: r.Candidate, number: int,
+            fences: tuple[tuple[Producer, dict[str, object] | None, str | None], ...]) -> None:
+        for producer, observed, skipped_digest in fences:
+            binding = producer.binding
+            if observed is None:
+                if self._run_candidates(binding.workflow_id, binding.event, candidate.head, number):
+                    raise c.Unavailable("native_applicability_run_appeared")
+            else:
+                current = self._run(binding.workflow_id, binding.event, candidate.head, number)
+                if _hash(current) != _hash(observed): raise c.Unavailable("native_applicability_attempt_changed")
+                if skipped_digest is not None and self._skipped_producer(producer, current, candidate, number) != skipped_digest:
+                    raise c.Unavailable("native_applicability_skip_changed")
 
     def _success(self, value: Mapping[str, object], *, kind: str) -> None:
         if value.get("status") != "completed": raise c.Unavailable("native_checks_pending")
@@ -1201,7 +1364,8 @@ class GitHub:
             source_head=candidate.head, member=binding.member)
         facts: dict[str, object] = {"repository": self.enrollment.repository, "source_head": candidate.head,
             "tested_oid": candidate.tested_oid, "base": candidate.base, "tree": candidate.tree,
-            "run_id": run_id, "attempt": attempt, "run_id_text": str(run_id), "attempt_text": str(attempt), "event": run.get("event")}
+            "run_id": run_id, "attempt": attempt, "run_id_text": str(run_id), "attempt_text": str(attempt), "event": run.get("event"),
+            "pr_number": number, "tested_parents": candidate.tested_parents}
         def field(path: tuple[str, ...]) -> object:
             cursor: object = receipt
             for key in path:
@@ -1264,6 +1428,7 @@ class GitHub:
         enrolled = {(producer.binding.context, producer.binding.app_id) for producer in self.plan.producers}
         if any((check.context, check.app_id) not in enrolled for check in guards.checks):
             raise c.Unavailable("native_required_producer_not_enrolled")
+        producers, applicability_digest, applicability_fences = self._applicable_producers(candidate, pr_number, guards)
         checks: dict[int, dict[str, object]] = {}
         for head in dict.fromkeys((candidate.head, candidate.tested_oid)):
             for raw in self.pages(f"commits/{head}/check-runs?filter=latest", "check_runs", limit=1024):
@@ -1274,7 +1439,7 @@ class GitHub:
         receipts: set[tuple[int, int]] = set()
         receiptless: list[tuple[int, int]] = []
         evidence: list[c.Evidence] = []
-        for producer in self.plan.producers:
+        for producer in producers:
             binding = producer.binding; key = (binding.workflow_id, binding.event)
             if key not in runs: runs[key] = self._run(*key, candidate.head, pr_number)
             run = runs[key]
@@ -1303,17 +1468,25 @@ class GitHub:
             receipt_digest = self._receipt(producer, run, candidate, pr_number)
             if receipt_digest is None: receiptless.append((run_id, attempt))
             else: receipts.add((run_id, attempt))
+            producer_facts: dict[str, object] = {"producer": asdict(producer), "receipt": receipt_digest}
+            if applicability_digest is not None: producer_facts["applicability"] = applicability_digest
             evidence.append(verify_check(check, job, run, binding, head=candidate.head, tested_oid=candidate.tested_oid,
-                pr_number=pr_number, producer_digest=_hash({"producer": asdict(producer), "receipt": receipt_digest})))
+                pr_number=pr_number, producer_digest=_hash(producer_facts)))
         if any(value not in receipts for value in receiptless): raise c.Unavailable("native_aggregate_candidate_unproven")
         setup = self.codeql_setup()
         if guards.code_scanning or setup is not None and _object(setup).get("state") == "configured":
-            evidence.extend(self._scan(candidate, pr_number, setup))
+            scans = self._scan(candidate, pr_number, setup)
+            if applicability_digest is None:
+                evidence.extend(scans)
+            else:
+                evidence.extend(c.Evidence(item.kind, item.app_id, item.native_id, item.attempt, item.subject_oid,
+                    _hash({"native_producer": item.producer_digest, "applicability": applicability_digest})) for item in scans)
         for run in runs.values():
             current = _object(self.get("actions/runs/" + str(_integer(run.get("id")))))
             if current.get("run_attempt") != run.get("run_attempt") or current.get("status") != "completed" or current.get("conclusion") != "success":
                 raise c.Unavailable("native_attempt_changed")
         self._candidate_facts(candidate, pr_number)
+        self._applicability_fences(candidate, pr_number, applicability_fences)
         if self.observe_policy().digest != guards.digest: raise c.Unavailable("native_guard_drift")
         return c.Qualification(c.identity(candidate), candidate.plan_digest, candidate.policy_digest, guards.digest, tuple(evidence))
 

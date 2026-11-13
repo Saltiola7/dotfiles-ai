@@ -5104,9 +5104,12 @@ def amendment_external_authority(directory, receipt):
             "commit": receipt["manifest_commit"], "closure": closure}
 
 
-def amendment_local_profile(root, profile, blob):
+def amendment_local_profile(root, profile, blob, revision=None):
+    if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", revision)):
+        fail("Initiative amendment source revision is invalid")
+    revision = "HEAD" if revision is None else revision
     closure = amendment_closure(root, {"artifacts": [], "manifest_path": profile,
-                                       "manifest_commit": "HEAD"}, {"profile": profile})
+                                       "manifest_commit": revision}, {"profile": profile})
     if len(closure) != 1 or closure[0]["blob"] != blob:
         fail("Initiative amendment source profile changed")
     return closure
@@ -5249,7 +5252,7 @@ def validate_initiative_amendments(root, record):
             if (amendment_external_authority(authority["directory"], receipt) != authority
                     or common_git_dir(Path(authority["directory"])).resolve() == common_git_dir(root).resolve()
                     or plan["closure"] != amendment_local_profile(root, before["engineering_profile"]["path"],
-                                                                 before["engineering_profile"]["blob"])):
+                                                                 before["engineering_profile"]["blob"], plan["checkout"]["head"])):
                 fail("Initiative amendment retained authority changed")
         else:
             if plan.get("schema_version") != 1 or "authority" in plan:
@@ -19131,15 +19134,7 @@ def validate_ci_mapping(value):
 
 
 def ci_path_matches(pattern, path):
-    # Segment DP avoids regex backtracking and permits zero-segment **.
-    pieces = path.split("/")
-    positions = {0}
-    for segment in pattern.split("/"):
-        if segment == "**":
-            positions = set(range(min(positions), len(pieces) + 1)) if positions else set()
-        else:
-            positions = {i + 1 for i in positions if i < len(pieces) and fnmatch.fnmatchcase(pieces[i], segment)}
-    return len(pieces) in positions
+    return integration_shared_owner("ci_mapping").path_matches(pattern, path)
 
 
 def ci_affected_checks(mapping, paths):
@@ -20411,8 +20406,10 @@ def link_improvement_pull_request(record, pull_request, worktree=None, compariso
     improvement_write(ledger_root, link)
 
 
-def integration_lifecycle_owner() -> ModuleType:
+def integration_shared_owner(selected_module: str) -> ModuleType:
     """Load only this helper generation's managed owner, never task source."""
+    if not isinstance(selected_module, str) or selected_module not in {"lifecycle", "ci_mapping"}:
+        raise RuntimeError("integration_owner_unavailable")
     location = Path(__file__).absolute()
     if (location.name == "executable_dbsctrctl" and location.parent.name == "bin"
             and location.parent.parent.name == "dot_local"):
@@ -20427,7 +20424,7 @@ def integration_lifecycle_owner() -> ModuleType:
         if (location.resolve(strict=True) != location or package.resolve(strict=True) != package
                 or not stat.S_ISREG(location.lstat().st_mode) or any(
                     not stat.S_ISREG((package / name).lstat().st_mode)
-                    for name in ("__init__.py", "core.py", "lifecycle.py"))):
+                    for name in ("__init__.py", "core.py", selected_module + ".py"))):
             raise RuntimeError("integration_owner_unavailable")
         for name, loaded in tuple(sys.modules.items()):
             if name == "integration_coordinator" or name.startswith("integration_coordinator."):
@@ -20435,16 +20432,20 @@ def integration_lifecycle_owner() -> ModuleType:
                 if not isinstance(existing, str) or not Path(existing).resolve(strict=True).is_relative_to(package):
                     raise RuntimeError("integration_owner_unavailable")
         sys.path.insert(0, str(selected))
-        owner = __import__("integration_coordinator.lifecycle", fromlist=["Custody"])
+        owner = __import__("integration_coordinator." + selected_module, fromlist=[selected_module])
         existing = getattr(owner, "__file__", None)
         if (not isinstance(owner, ModuleType) or not isinstance(existing, str)
-                or Path(existing).resolve(strict=True) != package / "lifecycle.py"):
+                or Path(existing).resolve(strict=True) != package / (selected_module + ".py")):
             raise RuntimeError("integration_owner_unavailable")
         return owner
     except (OSError, ImportError, ValueError):
         raise RuntimeError("integration_owner_unavailable") from None
     finally:
         sys.path[:] = previous
+
+
+def integration_lifecycle_owner() -> ModuleType:
+    return integration_shared_owner("lifecycle")
 
 
 def integration_policy_snapshot(root: Path) -> dict[str, object] | None:

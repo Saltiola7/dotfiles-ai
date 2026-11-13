@@ -38,7 +38,7 @@ def native_guard_digest(target_digest: str, control_digest: str) -> str:
 class HostedConfig:
     enabled: bool = False
     enrollment: g.Enrollment | None = None
-    check_plan: g.CheckPlan | None = None
+    check_plan: g.NativeCheckPlan | None = None
     workflow_id: int | None = None
     workflow_path: str | None = None
     workflow_blob_oid: str | None = None
@@ -59,7 +59,7 @@ class HostedConfig:
                        "disabled_hosted_fields")
             return
         c._require(type(self.enrollment) is g.Enrollment and self.enrollment.enabled, "hosted_enrollment")
-        c._require(type(self.check_plan) is g.CheckPlan, "hosted_check_plan")
+        c._require(type(self.check_plan) in {g.CheckPlan, g.CheckPlanV2}, "hosted_check_plan")
         c._integer(self.workflow_id)
         c._require(isinstance(self.workflow_path, str) and re.fullmatch(
             r"\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml", self.workflow_path) is not None, "hosted_workflow")
@@ -82,7 +82,7 @@ def _config_data(config: HostedConfig) -> dict[str, object]:
     assert config.enrollment is not None and config.check_plan is not None
     return {"schema_version": 2, "enabled": True,
             "enrollment": {"schema_version": 2, **asdict(config.enrollment)},
-            "check_plan": {"schema_version": 1, **asdict(config.check_plan)},
+            "check_plan": g.check_plan_data(config.check_plan),
             "workflow_id": config.workflow_id, "workflow_path": config.workflow_path,
             "workflow_blob_oid": config.workflow_blob_oid, "shared_source_pin": config.shared_source_pin,
             "shared_source_repository": config.shared_source_repository, "job_name": config.job_name,
@@ -293,7 +293,7 @@ class Adapter(Protocol):
     @property
     def enrollment(self) -> g.Enrollment: ...
     @property
-    def plan(self) -> g.CheckPlan | None: ...
+    def plan(self) -> g.NativeCheckPlan | None: ...
     def observe_policy(self) -> g.TargetGuards: ...
     def observe_control(self) -> str: ...
     def read_control(self, lookup_handles: tuple[str, ...] = ()) -> tuple[str, dict[str, bytes]]: ...
