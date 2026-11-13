@@ -28,6 +28,13 @@ import tempfile
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import ModuleType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from integration_coordinator import runtime as IntegrationRuntime
+    from integration_coordinator import client as IntegrationClient
+    from integration_coordinator import lifecycle as IntegrationLifecycle
 from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePosixPath
 from statistics import median, pstdev
@@ -43,7 +50,7 @@ SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "pas
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
 DELIVERY_INTENTS = ("local", "merge", "release", "deploy", "draft_pr")
-CURRENT_METHOD_REVISION = "3.29"
+CURRENT_METHOD_REVISION = "3.30"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
@@ -3121,7 +3128,31 @@ def native_workspace_execution(record):
     return True
 
 
-def validate_initiative_approval(value):
+def validate_initiative_approval(value, *, root: Path | None = None, cycle_id: str | None = None):
+    if isinstance(value, dict) and type(value.get("schema_version")) is int and value["schema_version"] == 2:
+        if root is None or cycle_id is None:
+            fail("integration approval requires controlled private custody")
+        owner = integration_lifecycle_owner()
+        try:
+            store = owner.Custody(common_git_dir(root).resolve())
+            auth = store.verify_approval(value, cycle_id)
+            grant = store.read("grant", auth["grant_digest"])
+            obligation = store.read("obligation", auth["obligation_digest"])
+            original_path = cycle_dir(root) / "cycles" / (obligation["cycle_id"] + ".json")
+            continuation_private(original_path)
+            raw = pr_review_private_bytes(original_path, 512 * 1024)
+            original = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+            if (hashlib.sha256(raw).hexdigest() != grant["record_digest"]
+                    or not isinstance(original, dict) or original.get("schema_version") != 5
+                    or original.get("cycle_id") != obligation["cycle_id"]
+                    or original.get("context") != grant["context"] or original.get("risk") != grant["risk"]
+                    or original.get("engineering_profile", {}).get("blob") != grant["profile_blob"]
+                    or continuation_digest(original.get("applicability_plan")) != grant["plan_digest"]
+                    or continuation_digest(original.get("initiative_approval")) != grant["approval_digest"]):
+                fail("integration approval original record changed")
+        except (OSError, ValueError, KeyError, TypeError):
+            fail("integration approval custody unavailable")
+        return
     if (not isinstance(value, dict)
             or set(value) != {"schema_version", "method", "launch_digest", "confirmed_at"}
             or type(value["schema_version"]) is not int or value["schema_version"] != 1
@@ -3163,7 +3194,10 @@ def read_cycle_record(root, path, label="Cycle Record", *, historical=False, max
             fail("unsupported Cycle Record schema")
     native = native_workspace_execution(record)
     if "initiative_approval" in record:
-        validate_initiative_approval(record["initiative_approval"])
+        if (isinstance(record["initiative_approval"], dict) and record["initiative_approval"].get("schema_version") == 2
+                and record.get("schema_version") != 5):
+            fail("integration approval requires Cycle Record schema 5")
+        validate_initiative_approval(record["initiative_approval"], root=root, cycle_id=record.get("cycle_id"))
     if record.get("schema_version") == 5:
         validate_schema5_runtime(root, record, historical=historical or native)
     if record.get("schema_version") == 6:
@@ -3273,7 +3307,7 @@ def validate_schema6_record(root, record):
             fail("invalid local-only Initiative provenance")
     if not isinstance(receipt.get("manifest_digest"), str) or not re.fullmatch(r"[0-9a-f]{64}", receipt["manifest_digest"]):
         fail("invalid local-only Initiative digest")
-    validate_initiative_approval(record["initiative_approval"])
+    validate_initiative_approval(record["initiative_approval"], root=root, cycle_id=record.get("cycle_id"))
     profile, plan = record["engineering_profile"], record["applicability_plan"]
     if (not isinstance(profile, dict) or set(profile) != {"path", "blob"} or not oid(profile["blob"])
             or not isinstance(profile["path"], str) or not profile["path"].startswith("docs/specs/")
@@ -4767,7 +4801,7 @@ def check_initiative_cycle_occupancy(root, cycle_id, receipt):
     if native:
         verify_native_workspace_backup(root, record)
         if "initiative_approval" in record:
-            validate_initiative_approval(record["initiative_approval"])
+            validate_initiative_approval(record["initiative_approval"], root=root, cycle_id=record.get("cycle_id"))
     worktree = record_worktree(root, record)
     if (not worktree.is_dir() or not record_worktree_matches(root, record, worktree)
             or branch(worktree) != record["worktree"].get("branch")):
@@ -6297,7 +6331,7 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
     if initiative is not None:
         if initiative_approval is None:
             fail("Initiative registration requires interactive confirmation")
-        validate_initiative_approval(initiative_approval)
+        validate_initiative_approval(initiative_approval, root=root, cycle_id=args.cycle_id)
     if not OPAQUE_ID.fullmatch(args.cycle_id):
         fail("cycle ID must be a bounded simple filename")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", args.context):
@@ -6447,6 +6481,7 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
     except Exception:
         record_path.unlink(missing_ok=True)
         raise
+    integration_birth_enrollment(root, record, mode=getattr(args, "integration_mode", "inherit"))
     return record
 
 
@@ -6540,6 +6575,8 @@ def verify_discovery_import(root, record):
 
 def initiative_launch_plan(source, authority, receipt, plan, target, args, follow_up=None):
     result = initiative_import_plan(source, authority, receipt, plan, target, args)
+    if getattr(args, "integration_mode", "inherit") != "inherit":
+        result["integration_mode"] = args.integration_mode
     result["checkout"] = {
         "identity_digest": continuation_digest([str(common_git_dir(source).resolve()),
                                                 str(git_dir(source).resolve()), str(source.resolve())]),
@@ -6582,6 +6619,10 @@ def begin_registration(args):
         fail("context must be a simple bounded-context name")
     initiative_values = (args.initiative_manifest, args.initiative_slice, args.initiative_digest)
     follow_up_number = getattr(args, "follow_up_pr", None)
+    if getattr(args, "integration_authorization", None) is not None and (
+            not all(initiative_values) or follow_up_number is None or forge is not None
+            or args.delivery_intent != "draft_pr"):
+        fail("integration authorization requires an Initiative GitHub follow-up")
     if follow_up_number is not None and (
             type(follow_up_number) is not int or not 0 < follow_up_number <= 2**53 - 1
             or not all(initiative_values) or forge is not None or args.delivery_intent != "draft_pr"):
@@ -6671,6 +6712,7 @@ def begin_registration(args):
         if git(source, "rev-parse", f"refs/remotes/{remote}/{args.base_branch}").stdout.strip() != follow_up["observed_base"]:
             fail("follow-up default changed during observation")
     launch_plan = None
+    inherited_approval = None
     if initiative is not None:
         launch_plan = initiative_launch_plan(source, initiative_source, initiative, plan, target, args, follow_up)
         if not args.resume_existing and launch_plan["checkout"]["head"] != launch_plan["base_head"]:
@@ -6681,6 +6723,8 @@ def begin_registration(args):
             return
         if getattr(args, "expected_launch_digest", None) != launch_digest:
             fail("Initiative launch plan changed or is missing; run preflight before approval")
+        if getattr(args, "integration_authorization", None) is not None:
+            inherited_approval = integration_authorized_begin(source, args, launch_plan, launch_digest)
     elif getattr(args, "preflight", False):
         fail("launch preflight requires an Initiative")
     elif ahead(source, target):
@@ -6743,7 +6787,7 @@ def begin_registration(args):
     initiative_approval = None
     if initiative is not None:
         agent_confirmed = getattr(args, "approval", "interactive") == "agent-confirmed"
-        if not agent_confirmed and not sys.stdin.isatty():
+        if inherited_approval is None and not agent_confirmed and not sys.stdin.isatty():
             fail("Initiative registration requires interactive operator confirmation")
         approval_view = {"initiative": initiative["initiative_id"], "slice": initiative["slice_id"],
             "cycle_id": args.cycle_id, "risk": args.risk, "delivery_intent": args.delivery_intent,
@@ -6753,7 +6797,10 @@ def begin_registration(args):
             **({"forge": forge} if forge is not None else {"github_account": args.github_account}),
             "import_paths": [entry["path"] for entry in launch_plan["artifacts"]]}
         confirmation = f"BEGIN {args.cycle_id} {launch_digest}"
-        if agent_confirmed:
+        if inherited_approval is not None:
+            print(json.dumps(approval_view, sort_keys=True)
+                  + "\nAuthorization: integration grant (derived; not fresh human confirmation)", file=sys.stderr)
+        elif agent_confirmed:
             # Caller reports explicit chat approval; this does not authenticate an actor.
             print(json.dumps(approval_view, sort_keys=True) + "\nApproval: agent-confirmed (caller assertion)",
                   file=sys.stderr, flush=True)
@@ -6792,8 +6839,12 @@ def begin_registration(args):
         fresh_launch = initiative_launch_plan(source, initiative_source, current, fresh_plan, target, args, fresh_follow_up)
         if continuation_digest(fresh_launch) != launch_digest:
             fail("Initiative launch plan changed during confirmation; request fresh preflight")
-        initiative_approval = {"schema_version": 1, "method": "agent_confirmed" if agent_confirmed else "interactive_cli",
-                               "launch_digest": launch_digest, "confirmed_at": confirmed_at}
+        if inherited_approval is not None:
+            if integration_authorized_begin(source, args, fresh_launch, launch_digest) != inherited_approval:
+                fail("integration authorization changed during fresh launch")
+        initiative_approval = inherited_approval if inherited_approval is not None else {
+            "schema_version": 1, "method": "agent_confirmed" if agent_confirmed else "interactive_cli",
+            "launch_digest": launch_digest, "confirmed_at": confirmed_at}
     discovery_import = None
     if launch_plan and launch_plan["artifacts"]:
         paths = [entry["path"] for entry in launch_plan["artifacts"]]
@@ -10347,6 +10398,27 @@ def removal_reservation(root):
     return body
 
 
+def integration_retirement_outcome(root: Path, record: dict) -> tuple[dict, dict[str, str]] | None:
+    directory = common_git_dir(root).resolve() / "dbsctr/integration"
+    if not directory.exists():
+        return None
+    owner = integration_lifecycle_owner()
+    from integration_coordinator.gitproof import GitObjects
+    store = owner.Custody(common_git_dir(root).resolve())
+    try:
+        value = store.linked("outcome", record["cycle_id"])
+    except FileNotFoundError:
+        return None
+    identity = hashlib.sha256(owner.canonical({"schema_version": 1, "kind": "outcome", "value": value})).hexdigest()
+    with local_completion_git_context():
+        outcome, pairs = owner.verify_outcome(store, identity, GitObjects(root),
+            lambda cycle, digest: integration_record_entries(root, cycle, digest))
+    if outcome["record_digests"].get(record["cycle_id"]) != hashlib.sha256(
+            (cycle_dir(root) / "cycles" / (record["cycle_id"] + ".json")).read_bytes()).hexdigest():
+        fail("integration_retirement_record_changed")
+    return outcome, {pair.original: pair.landed for pair in pairs}
+
+
 def removal_default_predicates(root, records, observation):
     """Source oracle only, NOT a runtime attestation or a public evidence input.
 
@@ -10374,7 +10446,9 @@ def removal_default_predicates(root, records, observation):
         for record in records:
             delivery = record["delivery"]
             pull = observation["pull_requests"][str(delivery["pull_request"]["number"])]
-            expected = record["commits"][-1]["id"]
+            integrated = integration_retirement_outcome(root, record)
+            outcome, correspondence = integrated if integrated is not None else (None, {})
+            expected = outcome["published_head"] if outcome is not None else record["commits"][-1]["id"]
             if (delivery["github"]["repository"] != repository or delivery["remote"] != remote
                     or record["git"]["remote"] != remote_destination(root, record["git"]["upstream"])
                     or pull["url"] != delivery["pull_request"]["url"]
@@ -10386,7 +10460,15 @@ def removal_default_predicates(root, records, observation):
             original_head = git(root, "--no-replace-objects", "rev-parse", "HEAD").stdout.strip()
             completion = record.get("external_completion", {})
             history = [original_head, *(entry["id"] for entry in record["commits"])]
-            if completion.get("proof") == "rebased_commits":
+            if outcome is not None:
+                if (completion or outcome["merge"] != pull["mergeCommit"]["oid"]
+                        or outcome["merged_at"] != pull["mergedAt"]):
+                    fail("integration_retirement_native_delivery_changed")
+                history = list(dict.fromkeys(correspondence.values()))
+                for landed in history:
+                    require_rebased_introduction(observation["commit_pull_requests"][landed], repository,
+                        {"number": pull["number"], "url": pull["url"]}, outcome["merged_at"])
+            elif completion.get("proof") == "rebased_commits":
                 validate_external_completion(record)
                 if (completion["head"] != original_head or completion["target_branch"] != default
                         or completion["merge"] != pull["mergeCommit"]["oid"]
@@ -10405,6 +10487,7 @@ def removal_default_predicates(root, records, observation):
             obligations = [record["git"]["head"], record["worktree"]["base_commit"],
                            *record["git"]["pre_cycle_ahead_commits"], *history, pull["mergeCommit"]["oid"]]
             for commit in obligations:
+                commit = correspondence.get(commit, commit)
                 if (not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", commit)
                         or git(root, "--no-replace-objects", "merge-base", "--is-ancestor", commit, head,
                                check=False).returncode):
@@ -10416,7 +10499,8 @@ def removal_default_predicates(root, records, observation):
 
 def workspace_remove_check(root):
     root = root.resolve()
-    selected = "DBSCTR_REMOVAL_FD" in os.environ
+    selected = ("DBSCTR_REMOVAL_FD" in os.environ
+                or (common_git_dir(root).resolve() / "dbsctr/integration").exists())
     records, repository, unavailable = [], None, False
     try:
         with inventory_budget(5):
@@ -19785,10 +19869,15 @@ def deliver_draft_pr(root, record, env=None):
     github = delivery["github"]
     env = env or github_environment(github["account"])
     follow_up = validate_follow_up(root, record)
+    mode = integration_publication_mode(root, record)
+    ready = mode in {"pr", "ordinary", "admin"}
     if follow_up is not None:
+        expected_head = git(root, "rev-parse", "HEAD").stdout.strip()
         _, pull = observe_follow_up(
             root, env, github["account"], github["repository"], follow_up["number"],
-            delivery["branch"], delivery["base_branch"], git(root, "rev-parse", "HEAD").stdout.strip())
+            delivery["branch"], delivery["base_branch"], expected_head)
+        if mode == "pr":
+            pull = integration_ready_pull(root, record, env, follow_up["number"], expected_head)
         return {"number": pull["number"], "url": pull["html_url"], "draft": pull["draft"],
                 "state": "OPEN", "verified_at": now()}
     fields = "number,url,isDraft,state,baseRefName,headRefName,headRepositoryOwner"
@@ -19810,18 +19899,23 @@ def deliver_draft_pr(root, record, env=None):
     else:
         title = f"{record['cycle_id']}: {record['context']} improvement"
         body = "Automated DBSCTR improvement. Human review and merge are required."
-        result = subprocess.run([
-            "gh", "pr", "create", "--repo", github["repository"],
-            "--base", delivery["base_branch"], "--head", head,
-            "--draft", "--title", title, "--body", body,
-        ], cwd=root, env=env, text=True, capture_output=True)
+        command = ["gh", "pr", "create", "--repo", github["repository"],
+            "--base", delivery["base_branch"], "--head", head, "--title", title, "--body", body]
+        if not ready:
+            command.append("--draft")
+        result = subprocess.run(command, cwd=root, env=env, text=True, capture_output=True, timeout=30)
         if result.returncode or not result.stdout.strip():
             fail(result.stderr.strip() or "GitHub draft pull request creation failed")
         pull_request = github_json(
             root, env, "pr", "view", result.stdout.strip(), "--repo", github["repository"],
             "--json", fields,
         )
-    if (not isinstance(pull_request, dict) or pull_request.get("isDraft") is not True
+    if (ready and isinstance(pull_request, dict) and pull_request.get("isDraft") is True
+            and type(pull_request.get("number")) is int):
+        final = integration_ready_pull(root, record, env, pull_request["number"],
+                                       git(root, "rev-parse", "HEAD").stdout.strip())
+        pull_request = {**pull_request, "isDraft": final["draft"]}
+    if (not isinstance(pull_request, dict) or pull_request.get("isDraft") is not (not ready)
             or pull_request.get("state") != "OPEN"
             or pull_request.get("baseRefName") != delivery["base_branch"]
             or pull_request.get("headRefName") != delivery["branch"]
@@ -19831,7 +19925,7 @@ def deliver_draft_pr(root, record, env=None):
             or not pull_request["url"].startswith("https://github.com/")):
         fail("GitHub pull request is not the expected open draft")
     return {
-        "number": pull_request["number"], "url": pull_request["url"], "draft": True,
+        "number": pull_request["number"], "url": pull_request["url"], "draft": not ready,
         "state": "OPEN", "verified_at": now(),
     }
 
@@ -20320,6 +20414,1203 @@ def link_improvement_pull_request(record, pull_request, worktree=None, compariso
               implementation_report, int(datetime.now(timezone.utc).timestamp() * 1000), worker_id))
 
     improvement_write(ledger_root, link)
+
+
+def integration_lifecycle_owner() -> ModuleType:
+    """Load only this helper generation's managed owner, never task source."""
+    location = Path(__file__).absolute()
+    if (location.name == "executable_dbsctrctl" and location.parent.name == "bin"
+            and location.parent.parent.name == "dot_local"):
+        selected = location.parents[2] / "private_dot_config/dotfiles-ai"
+    elif location == Path.home() / ".local/bin/dbsctrctl":
+        selected = Path.home() / ".config/dotfiles-ai"
+    else:
+        raise RuntimeError("integration_owner_unavailable")
+    package = selected / "integration_coordinator"
+    previous = sys.path[:]
+    try:
+        if (location.resolve(strict=True) != location or package.resolve(strict=True) != package
+                or not stat.S_ISREG(location.lstat().st_mode) or any(
+                    not stat.S_ISREG((package / name).lstat().st_mode)
+                    for name in ("__init__.py", "core.py", "lifecycle.py"))):
+            raise RuntimeError("integration_owner_unavailable")
+        for name, loaded in tuple(sys.modules.items()):
+            if name == "integration_coordinator" or name.startswith("integration_coordinator."):
+                existing = getattr(loaded, "__file__", None)
+                if not isinstance(existing, str) or not Path(existing).resolve(strict=True).is_relative_to(package):
+                    raise RuntimeError("integration_owner_unavailable")
+        sys.path.insert(0, str(selected))
+        owner = __import__("integration_coordinator.lifecycle", fromlist=["Custody"])
+        existing = getattr(owner, "__file__", None)
+        if (not isinstance(owner, ModuleType) or not isinstance(existing, str)
+                or Path(existing).resolve(strict=True) != package / "lifecycle.py"):
+            raise RuntimeError("integration_owner_unavailable")
+        return owner
+    except (OSError, ImportError, ValueError):
+        raise RuntimeError("integration_owner_unavailable") from None
+    finally:
+        sys.path[:] = previous
+
+
+def integration_policy_snapshot(root: Path) -> dict[str, object] | None:
+    """Disabled birth is a local read: no module, credential or native startup."""
+    config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    source = config / "dotfiles-ai/workflow-policy.json"
+    if not os.path.lexists(source):
+        return None
+    raw = pr_review_private_bytes(source, 256 * 1024)
+    policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+    common = common_git_dir(root).resolve()
+    if not isinstance(policy, dict) or not isinstance(policy.get("repositories"), list):
+        raise RuntimeError("integration_policy_invalid")
+    entries = [entry for entry in policy["repositories"] if isinstance(entry, dict)
+               and isinstance(entry.get("repository"), str)
+               and Path(entry["repository"]) / ".git" == common]
+    if len(entries) > 1:
+        raise RuntimeError("integration_policy_invalid")
+    selected = entries[0].get("delivery", {}) if entries else {}
+    nested = selected.get("coordinator", {}) if isinstance(selected, dict) else {}
+    if not isinstance(selected, dict) or selected.get("enabled") is not True:
+        return None
+    if not isinstance(nested, dict) or nested.get("enabled") is not True:
+        return None
+    # Reuse the installed generated owner and its activation binding. The early
+    # local switch check above is not validation and cannot confer authority.
+    checked = _preservation_policy_snapshot(root, section=None)
+    if checked is None or checked["policy_digest"] != policy.get("policy_digest"):
+        raise RuntimeError("integration_policy_changed")
+    if type(selected.get("schema_version")) is not int or selected["schema_version"] != 2:
+        raise RuntimeError("integration_policy_invalid")
+    pr_review_delivery({**{k: v for k, v in selected.items() if k != "coordinator"}, "schema_version": 1})
+    if (nested.get("schema_version") != 1 or type(nested.get("schema_version")) is not int
+            or nested.get("protocol_version") != 2 or type(nested.get("protocol_version")) is not int):
+        raise RuntimeError("integration_policy_invalid")
+    return {"policy_digest": checked["policy_digest"], "release_commit": checked["release_commit"],
+            "enrollment_digest": continuation_digest(selected), "delivery": selected,
+            "coordinator": nested}
+
+
+def integration_delivery_mode(selected: dict, requested: str = "inherit") -> str:
+    if requested not in {"inherit", "off", "draft_pr", "pr", "ordinary", "admin"}:
+        raise RuntimeError("integration delivery mode invalid")
+    delivery = selected.get("delivery", {})
+    mode = delivery.get("mode", "ordinary") if requested == "inherit" else requested
+    if mode == "admin" and delivery.get("role", "integrator") != "operator":
+        raise RuntimeError("integration admin mode requires enrolled operator role")
+    return mode
+
+
+def integration_birth_enrollment(root: Path, record: dict, mode: str = "inherit") -> str | None:
+    """Keep exact birth opt-in outside the immutable schema-5 Cycle Record."""
+    selected = integration_policy_snapshot(root)
+    if (selected is None or record.get("schema_version") != 5 or record.get("delivery_intent") != "draft_pr"
+            or not record.get("initiative_approval")):
+        return None
+    owner = integration_lifecycle_owner()
+    inherited = None
+    if record["initiative_approval"].get("schema_version") == 2:
+        inherited = owner.Custody(common_git_dir(root).resolve()).read("authorization",
+            record["initiative_approval"]["authorization_digest"])
+        if mode == "inherit":
+            mode = inherited["delivery_mode"]
+    path = cycle_dir(root) / "cycles" / (record["cycle_id"] + ".json")
+    continuation_private(path)
+    if read_cycle_record(root, path, historical=True) != record:
+        raise RuntimeError("integration_birth_record_changed")
+    nested = owner.object_value(selected["coordinator"])
+    value = {"cycle_id": record["cycle_id"], "launch_digest": record["initiative_approval"]["launch_digest"],
+             "record_digest": hashlib.sha256(path.read_bytes()).hexdigest(),
+             "policy_digest": selected["policy_digest"], "enrollment_digest": selected["enrollment_digest"],
+             "remote_repository": nested["remote_repository"], "target_ref": nested["target_ref"],
+             "control_ref": nested["control_ref"], "guarded_refresh": (inherited["guarded_refresh"] if inherited is not None
+                                                                               else nested.get("guarded_refresh", False)),
+             "delivery_mode": integration_delivery_mode(selected, mode)}
+    store = owner.Custody(common_git_dir(root).resolve())
+    identity = store.write("birth", value)
+    store.link("birth", record["cycle_id"], identity)
+    return identity
+
+
+def integration_publication_mode(root: Path, record: dict) -> str | None:
+    """Only an actual birth enrollment may change ordinary publication behavior."""
+    selected = integration_policy_snapshot(root)
+    if selected is None:
+        return None
+    owner = integration_lifecycle_owner()
+    try:
+        birth = owner.Custody(common_git_dir(root).resolve()).linked("birth", record["cycle_id"])
+    except FileNotFoundError:
+        return None
+    if (birth["cycle_id"] != record["cycle_id"]
+            or birth["launch_digest"] != record.get("initiative_approval", {}).get("launch_digest")
+            or birth["policy_digest"] != selected["policy_digest"]
+            or birth["enrollment_digest"] != selected["enrollment_digest"]
+            or birth["remote_repository"] != record["delivery"]["github"]["repository"]
+            or birth["target_ref"] != "refs/heads/" + record["delivery"]["base_branch"]):
+        raise RuntimeError("integration_publication_enrollment_changed")
+    return integration_delivery_mode(selected, birth["delivery_mode"])
+
+
+def integration_ready_pull(root: Path, record: dict, env: dict, number: int, expected_head: str) -> dict:
+    """Ready only the exact selected PR; the native API has no head-CAS input."""
+    delivery = record["delivery"]
+    account, repository = delivery["github"]["account"], delivery["github"]["repository"]
+    before, pull = observe_follow_up(root, env, account, repository, number, delivery["branch"],
+                                     delivery["base_branch"], expected_head)
+    if pull["draft"]:
+        node = pull.get("node_id")
+        if (not isinstance(node, str) or not 1 <= len(node) <= 256
+                or not re.fullmatch(r"[A-Za-z0-9_=-]+", node)):
+            raise RuntimeError("integration_native_pr_node_unavailable")
+        query = "mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id isDraft}}}"
+        github_json(root, env, "api", "--hostname", "github.com", "graphql", "--method", "POST",
+                    "-f", "query=" + query, "-f", "id=" + node)
+    after, final = observe_follow_up(root, env, account, repository, number, delivery["branch"],
+                                    delivery["base_branch"], expected_head)
+    if before != after or final["draft"]:
+        raise RuntimeError("integration_ready_source_or_default_changed")
+    return final
+
+
+def integration_owned_boundary(root: Path, record: dict) -> str:
+    """Include a verified follow-up import without changing its legacy record."""
+    follow_up = validate_follow_up(root, record)
+    if follow_up is not None and record.get("discovery_import") is not None:
+        # validate_follow_up binds D's parent to the published prefix P, the
+        # record baseline to D, and every imported blob to approved source.
+        return follow_up["published_head"]
+    return record["git"]["head"]
+
+
+def integration_owned_entries(root: Path, record: dict) -> "tuple[IntegrationRuntime.SourceEntry, ...]":
+    """Classify only source already accepted by existing kernel custody readers."""
+    integration_lifecycle_owner()
+    from integration_coordinator import runtime
+    verify_discovery_import(root, record)
+    imported = record.get("discovery_import", {}).get("commit")
+    proofs = {}
+    recovery = record.get("lineage_recovery")
+    if recovery is not None:
+        validate_lineage_recovery(root, record)
+        plan = amendment_json(root, lineage_location(root, record["cycle_id"], recovery["launch_digest"], "plan.json"))
+        proofs = {item["id"]: item for item in plan["proofs"]}
+    entries = []
+    for item in record["commits"]:
+        gates = tuple(item["gates"])
+        if gates:
+            kind = "phase"
+        elif item["id"] == imported or proofs.get(item["id"], {}).get("kind") == "documentation":
+            kind = "discovery_import"
+        elif proofs.get(item["id"], {}).get("kind") == "accepted_base_merge":
+            kind = "wrapper"
+        else:
+            # Existing controlled raise-risk/update-plan may adopt profile-only
+            # commits. Do not generalize this to arbitrary empty-gate changes.
+            changed = git(root, "diff-tree", "--no-commit-id", "--name-only", "-r", item["id"]).stdout.splitlines()
+            if changed != [record["applicability_plan"]["profile"]]:
+                raise RuntimeError("integration_source_unclassified_import_or_wrapper")
+            kind = "wrapper"
+        entries.append(runtime.SourceEntry(item["id"], kind, gates))
+    if imported is not None and imported not in {entry.oid for entry in entries}:
+        if integration_owned_boundary(root, record) == record["discovery_import"]["base_head"] and validate_follow_up(root, record) is not None:
+            entries.insert(0, runtime.SourceEntry(imported, "discovery_import"))
+        else:
+            raise RuntimeError("integration required Discovery import missing")
+    return tuple(entries)
+
+
+def integration_record_entries(root: Path, cycle_id: str, expected_digest: str) -> "tuple[IntegrationRuntime.SourceEntry, ...]":
+    path = cycle_dir(root) / "cycles" / (cycle_id + ".json")
+    continuation_private(path)
+    raw = pr_review_private_bytes(path, 512 * 1024)
+    record = read_cycle_record(root, path, historical=True, max_bytes=512 * 1024)
+    if (hashlib.sha256(raw).hexdigest() != expected_digest or record.get("cycle_id") != cycle_id
+            or record.get("schema_version") != 5 or record.get("state") != "completed"):
+        raise RuntimeError("integration retained source record changed")
+    rebased_source_retention(root, record, record["commits"][-1]["id"], required=True)
+    for name, gate in record["gates"].items():
+        if gate["applicability"] == "required":
+            if gate["result"] != "passed" and not valid_gate_exception(gate):
+                raise RuntimeError("integration retained required gate is not disposed")
+            verify_envelope(root, record, name, require_head=False)
+    entries = integration_owned_entries(root, record)
+    actual = git(root, "rev-list", "--reverse", "--first-parent", integration_owned_boundary(root, record) + ".." + entries[-1].oid).stdout.splitlines()
+    if actual != [entry.oid for entry in entries]:
+        raise RuntimeError("integration retained source interval changed")
+    if path.read_bytes() != raw:
+        raise RuntimeError("integration retained record changed during verification")
+    return entries
+
+
+def integration_retain_source(root: Path, obligation_handle: str, head: str) -> str:
+    owner = integration_lifecycle_owner()
+    owner.hex_value(obligation_handle, tuple(range(16, 65)))
+    if not external_oid(head) or git(root, "rev-parse", "--verify", head + "^{commit}").stdout.strip() != head:
+        raise RuntimeError("integration retained source object invalid")
+    ref = "refs/dbsctr/integration/" + obligation_handle + "/" + head
+    with local_completion_git_context():
+        existing = lineage_git(root, "for-each-ref", "--format=%(refname) %(objectname) %(symref)", ref).splitlines()
+        if existing:
+            if len(existing) != 1 or existing[0].split() != [ref, head]:
+                raise RuntimeError("integration retained source ref changed")
+        else:
+            lineage_git(root, "update-ref", "--no-deref", ref, head, "0" * len(head))
+    return ref
+
+
+class IntegrationAlignmentJournal:
+    def __init__(self, store: "IntegrationLifecycle.Custody") -> None:
+        self.store = store
+
+    def read(self, operation_digest: str, phase: str) -> bytes | None:
+        from integration_coordinator import alignment, lifecycle
+        lifecycle.hex_value(operation_digest)
+        if phase not in alignment.PHASES:
+            raise ValueError("integration alignment phase invalid")
+        path = self.store.directory / "alignment" / operation_digest / (phase + ".json")
+        try:
+            raw = self.store._read(path)
+        except FileNotFoundError:
+            return None
+        event = alignment.decode_event(raw)
+        if event.operation_digest != operation_digest or event.phase != phase:
+            raise ValueError("integration alignment journal changed")
+        return raw
+
+    def write(self, operation_digest: str, phase: str, payload: bytes) -> None:
+        from integration_coordinator import alignment, lifecycle
+        lifecycle.hex_value(operation_digest)
+        event = alignment.decode_event(payload)
+        if phase not in alignment.PHASES or event.operation_digest != operation_digest or event.phase != phase:
+            raise ValueError("integration alignment journal invalid")
+        path = self.store.directory / "alignment" / operation_digest / (phase + ".json")
+        self.store._write(path, payload)
+
+
+def integration_align_repair_checkout(root: Path, grant_digest: str, qualified_projection_digest: str) -> dict[str, object]:
+    """Align only the retained logical task, preserving ignored files and hooks."""
+    selected = integration_policy_snapshot(root)
+    if selected is None:
+        raise RuntimeError("integration_disabled")
+    owner = integration_lifecycle_owner()
+    from integration_coordinator import alignment, runtime
+    from integration_coordinator.gitproof import GitObjects
+    store = owner.Custody(common_git_dir(root).resolve())
+    grant = store.read("grant", grant_digest)
+    obligation = store.read("obligation", grant["obligation_digest"])
+    qualified = store.read("projection", qualified_projection_digest)
+    ticket = runtime.decode("ticket", owner.canonical(qualified["ticket"]))
+    if not isinstance(ticket, runtime.Ticket) or ticket.handle != qualified["ticket"]["handle"]:
+        raise RuntimeError("integration alignment predecessor invalid")
+    projection = owner.projection_record(qualified)
+    parent_path = cycle_dir(root) / "cycles" / (obligation["cycle_id"] + ".json")
+    parent = read_cycle_record(root, parent_path, historical=True, max_bytes=512 * 1024)
+    if (qualified["grant_digest"] != grant_digest or store.revoked(grant_digest)
+            or selected["policy_digest"] != grant["policy_digest"]
+            or selected["enrollment_digest"] != grant["enrollment_digest"]
+            or native_git_directory(root, parent) != git_dir(root).resolve()
+            or resolved_active_path(root, bindings=False).exists()):
+        raise RuntimeError("integration retained task unavailable for alignment")
+    chain = owner.revision_chain(store, ticket.handle, GitObjects(root),
+        lambda cycle, digest: integration_record_entries(root, cycle, digest))
+    owner.qualify_projection(GitObjects(root), chain.source, projection)
+    env = github_environment(parent["delivery"]["github"]["account"])
+    observe_follow_up(root, env, parent["delivery"]["github"]["account"], chain.source.repository,
+        chain.source.pr_number, parent["delivery"]["branch"], parent["delivery"]["base_branch"], projection.head)
+    retained = {}
+    allowed_heads = {chain.source.head, projection.head}
+    for cycle, _ in chain.records:
+        record = read_cycle_record(root, cycle_dir(root) / "cycles" / (cycle + ".json"), historical=True)
+        head = record["commits"][-1]["id"]
+        ref = rebased_source_retention(root, record, head, required=True)
+        retained[head] = ref; allowed_heads.add(head)
+    for head in (chain.source.head, projection.head):
+        retained[head] = integration_retain_source(root, obligation["handle"], head)
+    try:
+        selection = store.linked("alignment_selection", qualified_projection_digest)
+    except FileNotFoundError:
+        actual = git(root, "rev-parse", "HEAD").stdout.strip()
+        if actual not in allowed_heads:
+            raise RuntimeError("integration alignment local source changed")
+        scope = owner.digest({"grant_digest": grant_digest, "qualified_projection_digest": qualified_projection_digest,
+            "worktree": parent["worktree"]["id"], "git_dir": str(git_dir(root).resolve()),
+            "common": str(common_git_dir(root).resolve()), "checkout": str(root.resolve())})
+        selection = {"grant_digest": grant_digest, "qualified_projection_digest": qualified_projection_digest,
+                     "expected_head": actual, "scope_digest": scope}
+        identity = store.write("alignment_selection", selection)
+        store.link("alignment_selection", qualified_projection_digest, identity)
+    if selection["grant_digest"] != grant_digest:
+        raise RuntimeError("integration alignment selection changed")
+    refs = tuple(alignment.RetainedRef(ref, head) for head, ref in sorted(retained.items())
+                 if head in {selection["expected_head"], chain.source.head, projection.head})
+    nested = owner.object_value(selected["coordinator"])
+    context = alignment.AlignmentContext(root.resolve(), common_git_dir(root).resolve(), parent["delivery"]["branch"],
+        str(nested["target_ref"]).removeprefix("refs/heads/"), str(nested["control_ref"]).removeprefix("refs/heads/"),
+        selection["scope_digest"])
+    with evidence_lock(root, "integration-alignment-" + obligation["handle"], timeout=1):
+        receipt = alignment.align(context, selection["expected_head"], projection, refs, IntegrationAlignmentJournal(store))
+        expected_upstream = parent["delivery"]["remote"] + "/" + parent["delivery"]["branch"]
+        if upstream(root) not in {parent["git"]["upstream"], expected_upstream}:
+            raise RuntimeError("integration retained task upstream changed")
+        github_remote_url(root, parent["delivery"]["remote"], chain.source.repository)
+        remote_ref = "refs/remotes/" + expected_upstream
+        if git(root, "rev-parse", "--verify", remote_ref).stdout.strip() != projection.head:
+            raise RuntimeError("integration published feature tracking head changed")
+        if upstream(root) != expected_upstream:
+            git(root, "branch", "--set-upstream-to", expected_upstream, "--", parent["delivery"]["branch"])
+        if upstream(root) != expected_upstream:
+            raise RuntimeError("integration feature upstream reconciliation unavailable")
+    return {"status": receipt.status, "operation_digest": receipt.operation_digest,
+            "head": receipt.new_head, "projection_digest": receipt.projection_digest}
+
+
+def integration_capture_projection(root: Path, grant_digest: str, status: "IntegrationClient.Status",
+                                   *, allow_archive_metadata: bool = False) -> str:
+    """Capture a native client's pinned predecessor after independent Git/PR checks."""
+    selected = integration_policy_snapshot(root)
+    if selected is None:
+        raise RuntimeError("integration_disabled")
+    owner = integration_lifecycle_owner()
+    from integration_coordinator import runtime
+    from integration_coordinator.gitproof import GitObjects
+    ticket, obligation = getattr(status, "ticket", None), getattr(status, "obligation", None)
+    ledger_head = getattr(status, "ledger_head", None)
+    if (not isinstance(ticket, runtime.Ticket) or not isinstance(obligation, runtime.Obligation)
+            or ticket.state != runtime.State.REPAIR_PENDING or ticket.projection is None
+            or ticket.reservation is not None or ticket.handle != obligation.current_ticket
+            or obligation.grant_digest != grant_digest or not external_oid(ledger_head)):
+        raise RuntimeError("integration repair requires exact native predecessor")
+    store = owner.Custody(common_git_dir(root).resolve())
+    grant = store.read("grant", grant_digest)
+    private_obligation = store.read("obligation", grant["obligation_digest"])
+    if obligation.handle != private_obligation["handle"]:
+        raise RuntimeError("integration native obligation changed")
+    chain = owner.revision_chain(store, ticket.handle, GitObjects(root),
+        lambda cycle, digest: integration_record_entries(root, cycle, digest))
+    if chain.source != ticket.source or chain.grant_digest != grant_digest:
+        raise RuntimeError("integration predecessor source changed")
+    requested = runtime.decode("ticket", owner.canonical(store.linked("outbox", ticket.handle)["request"]["ticket"]))
+    if (not isinstance(requested, runtime.Ticket) or requested.source != ticket.source
+            or requested.requester_digest != ticket.requester_digest or requested.delivery_mode != ticket.delivery_mode
+            or requested.guarded_refresh != ticket.guarded_refresh):
+        raise RuntimeError("integration predecessor private task authority changed")
+    parent_path = cycle_dir(root) / "cycles" / (private_obligation["cycle_id"] + ".json")
+    parent = read_cycle_record(root, parent_path, historical=True, max_bytes=512 * 1024)
+    delivery = parent["delivery"]
+    env = github_environment(delivery["github"]["account"])
+    before, _ = observe_follow_up(root, env, delivery["github"]["account"], ticket.source.repository,
+        ticket.source.pr_number, delivery["branch"], delivery["base_branch"], ticket.projection.head)
+    url = github_remote_url(root, delivery["remote"], ticket.source.repository)
+    fetch_github_branch(root, delivery["remote"], url, delivery["base_branch"], env)
+    fetch_github_branch(root, delivery["remote"], url, delivery["branch"], env)
+    proof = owner.qualify_projection(GitObjects(root), ticket.source, ticket.projection)
+    after, _ = observe_follow_up(root, env, delivery["github"]["account"], ticket.source.repository,
+        ticket.source.pr_number, delivery["branch"], delivery["base_branch"], ticket.projection.head)
+    if before != after:
+        raise RuntimeError("integration native source changed during projection capture")
+    link = store.linked("revision_link", ticket.handle)
+    qualified = {"grant_digest": grant_digest, "obligation_digest": grant["obligation_digest"],
+        "prior_revision_digest": chain.revision_digest, "prior_source_custody_digest": link["source_custody_digest"],
+        "ticket": json.loads(runtime.encode(ticket)), "obligation": json.loads(runtime.encode(obligation)),
+        "projection": json.loads(runtime.encode(ticket.projection)),
+        "native_receipt_digest": owner.digest({"ledger_head": ledger_head, "observation": before,
+                                              "proof": runtime.identity(proof)}), "verified_at": now()}
+    try:
+        existing = store.linked("projection", ticket.handle)
+    except FileNotFoundError:
+        existing = None
+    if existing is not None:
+        stable = set(qualified) - {"native_receipt_digest", "verified_at"}
+        if allow_archive_metadata:
+            before = runtime.decode("obligation", owner.canonical(existing["obligation"]))
+            after = runtime.decode("obligation", owner.canonical(qualified["obligation"]))
+            fields = ("handle", "current_ticket", "grant_digest", "repair_count", "revision_count", "repair_owner")
+            if (not isinstance(before, runtime.Obligation) or not isinstance(after, runtime.Obligation)
+                    or any(getattr(before, name) != getattr(after, name) for name in fields)):
+                raise RuntimeError("integration predecessor obligation changed")
+            stable.remove("obligation")
+        if any(existing[key] != qualified[key] for key in stable):
+            raise RuntimeError("integration predecessor projection custody changed")
+        qualified = existing
+    identity = store.write("projection", qualified); store.link("projection", ticket.handle, identity)
+    return identity
+
+
+def integration_revision_source(root: Path, record: dict, path: Path, raw: bytes, expected_head: str,
+                                selected: dict, delivery_mode: str, guarded_refresh: bool) -> dict[str, object]:
+    """Publish a completed repair as a successor under the immutable root grant."""
+    owner = integration_lifecycle_owner()
+    from integration_coordinator import runtime
+    from integration_coordinator.gitproof import GitObjects
+    store = owner.Custody(common_git_dir(root).resolve())
+    auth_id = record["initiative_approval"]["authorization_digest"]
+    auth = store.read("authorization", auth_id)
+    grant = store.read("grant", auth["grant_digest"])
+    qualified = store.read("projection", auth["qualified_projection_digest"])
+    predecessor = runtime.decode("ticket", owner.canonical(qualified["ticket"]))
+    remote_obligation = runtime.decode("obligation", owner.canonical(qualified["obligation"]))
+    if not isinstance(predecessor, runtime.Ticket) or not isinstance(remote_obligation, runtime.Obligation):
+        raise RuntimeError("integration repair predecessor unavailable")
+    projection = owner.projection_record(qualified)
+    prior_source = owner.source_record(store, qualified["prior_source_custody_digest"])
+    if (store.revoked(auth["grant_digest"]) or selected["policy_digest"] != grant["policy_digest"]
+            or selected["enrollment_digest"] != grant["enrollment_digest"]
+            or remote_obligation.grant_digest != auth["grant_digest"]
+            or remote_obligation.current_ticket != predecessor.handle
+            or integration_owned_boundary(root, record) != projection.head
+            or delivery_mode != predecessor.delivery_mode or guarded_refresh != predecessor.guarded_refresh):
+        raise RuntimeError("integration repair grant, predecessor or task mode changed")
+    with evidence_lock(root, record["cycle_id"], timeout=1), local_completion_git_context():
+        head, _, _ = external_source(root, record, expected_head)
+        additions = integration_owned_entries(root, record)
+        record_digest = hashlib.sha256(raw).hexdigest()
+        revision = {"grant_digest": auth["grant_digest"], "obligation_digest": auth["obligation_digest"],
+            "prior_revision_digest": auth["prior_revision_digest"],
+            "prior_source_custody_digest": qualified["prior_source_custody_digest"],
+            "qualified_projection_digest": auth["qualified_projection_digest"],
+            "child_cycle_id": record["cycle_id"], "child_record_digest": record_digest,
+            "authorization_digest": auth_id, "adoption_digest": None}
+        revision_digest = store.write("revision", revision)
+        authority = owner.digest({"revision_digest": revision_digest, "authorization_digest": auth_id})
+        source = owner.compose_source(GitObjects(root), prior_source, projection, additions, authority)
+        if source.head != head or path.read_bytes() != raw:
+            raise RuntimeError("integration repaired source changed during composition")
+        rebased_source_retention(root, record, head, create=True)
+        source_object = store.write("source", {"record_digest": record_digest,
+                                                "descriptor": json.loads(runtime.encode(source))})
+        source_digest = runtime.identity(source)
+        ticket_handle = continuation_digest({"revision": revision_digest, "source": source_digest})[:32]
+        env = github_environment(record["delivery"]["github"]["account"])
+        actor = external_github(root, env, "user")
+        if (not isinstance(actor, dict) or type(actor.get("id")) is not int
+                or str(actor.get("login", "")).casefold() != record["delivery"]["github"]["account"].casefold()):
+            raise RuntimeError("integration repair native requester unavailable")
+        requester = runtime.requester_digest(source.repository, actor["id"])
+        if requester != predecessor.requester_digest:
+            raise RuntimeError("integration repair native requester changed")
+        ticket = runtime.Ticket(ticket_handle, predecessor.obligation_handle, source, requester,
+            predecessor=predecessor.handle, delivery_mode=predecessor.delivery_mode,
+            guarded_refresh=predecessor.guarded_refresh)
+        nested = owner.object_value(selected["coordinator"])
+        request = {"schema_version": 2, "policy_digest": nested["policy_digest"],
+                   "ticket": json.loads(runtime.encode(ticket)), "obligation": json.loads(runtime.encode(remote_obligation))}
+        if len(json.dumps(request, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()) > 48 * 1024:
+            raise RuntimeError("integration_dispatch_envelope_bound_exceeded")
+        outbox = {"cycle_id": record["cycle_id"], "record_digest": record_digest, "source_digest": source_digest,
+            "obligation_digest": auth["obligation_digest"], "ticket_handle": ticket_handle, "requester_digest": requester,
+            "request": request}
+        outbox_digest = store.write("outbox", outbox); store.link("outbox", ticket_handle, outbox_digest)
+        store.link("outbox", record["cycle_id"], outbox_digest)
+        link = store.write("revision_link", {"revision_digest": revision_digest,
+            "source_custody_digest": source_object, "ticket_handle": ticket_handle})
+        store.link("revision_link", ticket_handle, link)
+        owner.revision_chain(store, ticket_handle, GitObjects(root),
+            lambda cycle, digest: integration_record_entries(root, cycle, digest))
+    return {"status": "unadmitted", "request": request, "source": json.loads(runtime.encode(source)),
+            "source_digest": source_digest, "source_custody_digest": source_object,
+            "obligation_handle": predecessor.obligation_handle, "obligation_digest": auth["obligation_digest"],
+            "grant_digest": auth["grant_digest"], "ticket_handle": ticket_handle,
+            "requester_digest": requester, "outbox_digest": outbox_digest, "revision_digest": revision_digest}
+
+
+def integration_adopt_projection(root: Path, record: dict, source: "IntegrationRuntime.SourceSeries",
+                                 source_object: str, grant_digest: str, selected: dict,
+                                 mode: str, guarded_refresh: bool, explicit: bool, env: dict) -> tuple:
+    """Keep OriginalSource private; publish only actual native current-source OIDs."""
+    owner = integration_lifecycle_owner()
+    from integration_coordinator import runtime
+    from integration_coordinator.gitproof import GitObjects, ProofPort
+    delivery = record["delivery"]
+    pull = external_github(root, env, f"repos/{source.repository}/pulls/{source.pr_number}")
+    native_head = pull.get("head", {}).get("sha") if isinstance(pull, dict) else None
+    if not isinstance(native_head, str) or not external_oid(native_head):
+        raise RuntimeError("integration native published head unavailable")
+    before, _ = observe_follow_up(root, env, delivery["github"]["account"], source.repository, source.pr_number,
+        delivery["branch"], delivery["base_branch"], native_head)
+    if native_head == source.head:
+        return source, source_object, None
+    if not explicit:
+        raise RuntimeError("integration native source changed; explicit source-bound adoption required")
+    url = github_remote_url(root, delivery["remote"], source.repository)
+    fetch_github_branch(root, delivery["remote"], url, delivery["base_branch"], env)
+    fetch_github_branch(root, delivery["remote"], url, delivery["branch"], env)
+    objects = GitObjects(root)
+    destinations = objects.read("rev-list", "--first-parent", "--max-count=" + str(len(source.entries)), native_head).splitlines()[::-1]
+    if len(destinations) != len(source.entries):
+        raise RuntimeError("integration adopted interval does not preserve every source entry")
+    parents = objects.read("show", "-s", "--format=%P", destinations[0]).split()
+    if len(parents) != 1:
+        raise RuntimeError("integration adopted interval has unsupported parents")
+    projection = ProofPort(lambda _ids: objects).prove_refresh(source, native_head, parents[0])
+    native_target = git(root, "rev-parse", "refs/remotes/" + delivery["remote"] + "/" + delivery["base_branch"]).stdout.strip()
+    if not objects.ancestor(projection.base, native_target):
+        raise RuntimeError("integration adopted prefix contains work outside accepted default history")
+    after, _ = observe_follow_up(root, env, delivery["github"]["account"], source.repository, source.pr_number,
+        delivery["branch"], delivery["base_branch"], native_head)
+    if before != after:
+        raise RuntimeError("integration native adoption changed during proof")
+    store = owner.Custody(common_git_dir(root).resolve())
+    original = store.read("source", source_object)
+    value = {"grant_digest": grant_digest, "original_source_custody_digest": source_object,
+        "record_digest": original["record_digest"], "projection": json.loads(runtime.encode(projection)),
+        "native_receipt_digest": owner.digest({"before": before, "after": after, "projection": runtime.identity(projection)}),
+        "delivery_mode": mode, "guarded_refresh": guarded_refresh, "verified_at": now()}
+    try:
+        existing = store.linked("adoption", record["cycle_id"])
+    except FileNotFoundError:
+        existing = None
+    if existing is not None:
+        if any(existing[k] != value[k] for k in value if k not in {"verified_at", "native_receipt_digest"}):
+            raise RuntimeError("integration initial adoption changed; reconcile its existing immutable request")
+        value = existing
+    adoption_digest = store.write("adoption", value); store.link("adoption", record["cycle_id"], adoption_digest)
+    authority = owner.digest({"adoption_digest": adoption_digest, "grant_digest": grant_digest,
+                              "record_digest": original["record_digest"]})
+    current = runtime.SourceSeries(source.repository, source.pr_number, projection.base, projection.head,
+        tuple(runtime.SourceEntry(pair.landed, entry.kind, entry.gates)
+              for pair, entry in zip(projection.mapping, source.entries, strict=True)), authority)
+    current_object = store.write("source", {"record_digest": original["record_digest"],
+                                             "descriptor": json.loads(runtime.encode(current))})
+    return current, current_object, adoption_digest
+
+
+def integration_source_snapshot(root: Path, cycle_id: str, pr_number: int, expected_head: str,
+                                *, adopt: bool = False, mode: str = "inherit") -> dict[str, object]:
+    """Derive initial source and private pending outbox from the actual lifecycle.
+
+    Refreshed-parent repair needs the separately verified Projection chain; this
+    initial-source port deliberately refuses unexplained published-prefix work.
+    """
+    selected = integration_policy_snapshot(root)
+    if selected is None:
+        raise RuntimeError("integration_disabled")
+    if not OPAQUE_ID.fullmatch(cycle_id) or type(pr_number) is not int or not 0 < pr_number < 2**53:
+        raise RuntimeError("integration_source_identity_invalid")
+    owner = integration_lifecycle_owner()
+    from integration_coordinator import core as coordinator_core, runtime
+    store = owner.Custody(common_git_dir(root).resolve())
+    path = cycle_dir(root) / "cycles" / (cycle_id + ".json")
+    managed_directory(root, path.parent); continuation_private(path)
+    raw = path.read_bytes()
+    record = read_cycle_record(root, path, historical=True, max_bytes=512 * 1024)
+    if not isinstance(record, dict):
+        raise RuntimeError("integration_source_record_invalid")
+    delivery = record.get("delivery", {})
+    nested = owner.object_value(selected["coordinator"])
+    if (record.get("schema_version") != 5 or record.get("state") != "completed"
+            or record.get("delivery_intent") != "draft_pr" or not record.get("initiative_approval")
+            or delivery.get("pull_request", {}).get("number") != pr_number
+            or not record.get("commits") or record["commits"][-1].get("id") != expected_head
+            or delivery.get("github", {}).get("repository") != nested["remote_repository"]
+            or "refs/heads/" + delivery.get("base_branch", "") != nested["target_ref"]
+            or not record_worktree_matches(root, record, root, bindings=False)):
+        raise RuntimeError("integration_source_requires_exact_completed_publication")
+    repaired = record["initiative_approval"].get("schema_version") == 2
+    if not adopt:
+        birth = store.linked("birth", cycle_id)
+        if (birth["cycle_id"] != cycle_id or birth["launch_digest"] != record["initiative_approval"]["launch_digest"]
+                or birth["policy_digest"] != selected["policy_digest"]
+                or birth["enrollment_digest"] != selected["enrollment_digest"]):
+            raise RuntimeError("integration_birth_enrollment_changed")
+        effective_mode = birth["delivery_mode"]
+        if mode != "inherit" and mode != effective_mode:
+            raise RuntimeError("integration task mode changed; explicit source-bound adoption is required")
+        guarded_refresh = birth["guarded_refresh"]
+    else:
+        effective_mode = integration_delivery_mode(selected, mode)
+        guarded_refresh = nested.get("guarded_refresh", False)
+    if effective_mode in {"off", "draft_pr", "pr"}:
+        try:
+            prior_request = store.linked("outbox", cycle_id)
+        except FileNotFoundError:
+            prior_request = None
+        if prior_request is not None:
+            return {"status": "withdrawal_required", "delivery_mode": effective_mode,
+                    "ticket_handle": prior_request["ticket_handle"], "remote_state": "unobserved",
+                    "reason": "existing request authority is unchanged; no withdrawal was performed"}
+        return {"status": "source_only", "delivery_mode": effective_mode, "queued": False}
+    if repaired:
+        return integration_revision_source(root, record, path, raw, expected_head, selected,
+                                            effective_mode, guarded_refresh)
+    with evidence_lock(root, cycle_id, timeout=1), local_completion_git_context():
+        head, _, commits = external_source(root, record, expected_head)
+        entries = integration_owned_entries(root, record)
+        record_digest = hashlib.sha256(raw).hexdigest()
+        evidence = {name: verify_envelope(root, record, name, require_head=False)
+                    for name, gate in record["gates"].items() if gate["applicability"] == "required"}
+        authority = continuation_digest({"record_digest": record_digest, "evidence": evidence,
+            "policy_digest": selected["policy_digest"], "delivery_mode": effective_mode,
+            "guarded_refresh": guarded_refresh})
+        source = runtime.SourceSeries(delivery["github"]["repository"], pr_number, integration_owned_boundary(root, record),
+                                      head, tuple(entries), authority)
+        from integration_coordinator.gitproof import GitObjects, prove_series
+        prove_series(GitObjects(root), source.base, tuple(entry.oid for entry in source.entries), source.head, source.base)
+        descriptor = json.loads(runtime.encode(source))
+        source_digest = coordinator_core.identity(source)
+        if path.read_bytes() != raw or git(root, "rev-parse", "HEAD").stdout.strip() != head:
+            raise RuntimeError("integration_source_changed_during_validation")
+        # Source objects remain reachable independently of branch cleanup.
+        rebased_source_retention(root, record, head, create=True)
+        source_object = store.write("source", {"record_digest": record_digest, "descriptor": descriptor})
+        scope = continuation_digest({"initiative": effective_initiative(record), "context": record["context"],
+                                     "risk": record["risk"], "plan": record["applicability_plan"]})
+        handle = continuation_digest({"record": record_digest, "source": source_digest,
+                                       "policy": selected["policy_digest"]})[:32]
+        obligation = {"handle": handle, "cycle_id": cycle_id, "record_digest": record_digest,
+            "source_digest": source_digest, "source_custody_digest": source_object,
+            "original_task_digest": continuation_digest({"cycle_id": cycle_id,
+                "worktree_id": record["worktree"]["id"], "git_dir": str(native_git_directory(root, record)),
+                "launch_digest": record["initiative_approval"]["launch_digest"]}),
+            "scope_digest": scope, "context": record["context"], "risk": record["risk"],
+            "target_ref": nested["target_ref"], "policy_digest": selected["policy_digest"]}
+        obligation_digest = store.write("obligation", obligation)
+        grant = {"obligation_digest": obligation_digest, "record_digest": record_digest,
+            "context": record["context"], "risk": record["risk"], "scope_digest": scope,
+            "profile_blob": record["engineering_profile"]["blob"],
+            "plan_digest": continuation_digest(record["applicability_plan"]),
+            "policy_digest": selected["policy_digest"], "enrollment_digest": selected["enrollment_digest"],
+            "approval_digest": continuation_digest(record["initiative_approval"]),
+            "allowed_operations": ["submit", "repair", "accept_outcome"]
+                + (["operator_resume"] if owner.object_value(selected.get("delivery", {})).get("role") == "operator" else []),
+            "authorized_at": now()}
+        try:
+            prior_grant = store.linked("grant", cycle_id)
+        except FileNotFoundError:
+            prior_grant = None
+        if prior_grant is not None:
+            grant["authorized_at"] = prior_grant["authorized_at"]
+            if grant != prior_grant:
+                raise RuntimeError("integration_source_grant_changed")
+        grant_digest = store.write("grant", grant); store.link("grant", cycle_id, grant_digest)
+        if store.revoked(grant_digest):
+            raise RuntimeError("integration root grant revoked")
+        ticket = continuation_digest({"obligation": handle, "source": source_digest})[:32]
+        native_env = github_environment(delivery["github"]["account"])
+        native_actor = external_github(root, native_env, "user")
+        if (not isinstance(native_actor, dict) or type(native_actor.get("id")) is not int
+                or native_actor["id"] <= 0
+                or not isinstance(native_actor.get("login"), str)
+                or native_actor["login"].casefold() != delivery["github"]["account"].casefold()):
+            raise RuntimeError("integration_requester_native_identity_unavailable")
+        requester = runtime.requester_digest(delivery["github"]["repository"], native_actor["id"])
+        original_source_object = source_object
+        source, source_object, adoption_digest = integration_adopt_projection(root, record, source, source_object,
+            grant_digest, selected, effective_mode, guarded_refresh, adopt, native_env)
+        descriptor = json.loads(runtime.encode(source)); source_digest = runtime.identity(source)
+        integration_retain_source(root, handle, source.head)
+        ticket = continuation_digest({"obligation": handle, "source": source_digest})[:32]
+        public_ticket = runtime.Ticket(ticket, handle, source, requester,
+                                       delivery_mode=effective_mode, guarded_refresh=guarded_refresh)
+        public_obligation = runtime.Obligation(handle, ticket, grant_digest)
+        request = {"schema_version": 2, "policy_digest": nested["policy_digest"],
+                   "ticket": json.loads(runtime.encode(public_ticket)),
+                   "obligation": json.loads(runtime.encode(public_obligation))}
+        if len(json.dumps(request, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()) > 48 * 1024:
+            raise RuntimeError("integration_dispatch_envelope_bound_exceeded")
+        outbox = {"cycle_id": cycle_id, "record_digest": record_digest, "source_digest": source_digest,
+                  "obligation_digest": obligation_digest, "ticket_handle": ticket, "requester_digest": requester,
+                  "request": request}
+        outbox_digest = store.write("outbox", outbox); store.link("outbox", ticket, outbox_digest)
+        store.link("outbox", cycle_id, outbox_digest)
+        revision = {"grant_digest": grant_digest, "obligation_digest": obligation_digest,
+            "prior_revision_digest": None, "prior_source_custody_digest": original_source_object,
+            "qualified_projection_digest": None, "child_cycle_id": cycle_id,
+            "child_record_digest": record_digest, "authorization_digest": None, "adoption_digest": adoption_digest}
+        revision_digest = store.write("revision", revision)
+        revision_link = store.write("revision_link", {"revision_digest": revision_digest,
+            "source_custody_digest": source_object, "ticket_handle": ticket})
+        store.link("revision_link", ticket, revision_link)
+    return {"status": "unadmitted", "source": descriptor, "source_digest": source_digest,
+            "source_custody_digest": source_object, "obligation_handle": handle,
+            "obligation_digest": obligation_digest, "grant_digest": grant_digest,
+            "ticket_handle": ticket, "requester_digest": requester, "outbox_digest": outbox_digest,
+            "request": request, "revision_digest": revision_digest}
+
+
+def integration_plan_binding(root: Path, args: argparse.Namespace) -> tuple[str, str]:
+    plan = read_plan(args.plan, args.expected_plan_digest)
+    profile, blob, gates, graphify = validate_plan(root, args.context, args.delivery_intent, plan)
+    normalized = {"profile": profile, "gates": {
+        name: {key: item for key, item in gate.items() if key in ("applicability", "reason")}
+        for name, gate in gates.items()}, **({"graphify": graphify} if graphify else {})}
+    return blob, continuation_digest(normalized)
+
+
+def integration_require_root_scope(root: Path, grant: dict, obligation: dict, launch: dict) -> dict:
+    """Keep inherited approval under the retained root's structural authority."""
+    path = cycle_dir(root) / "cycles" / (obligation["cycle_id"] + ".json")
+    continuation_private(path)
+    raw = pr_review_private_bytes(path, 512 * 1024)
+    original = read_cycle_record(root, path, historical=True, max_bytes=512 * 1024)
+    scope = continuation_digest({"initiative": effective_initiative(original), "context": original["context"],
+                                 "risk": original["risk"], "plan": original["applicability_plan"]})
+    if (hashlib.sha256(raw).hexdigest() != grant["record_digest"]
+            or grant["record_digest"] != obligation["record_digest"]
+            or scope != grant["scope_digest"] or scope != obligation["scope_digest"]
+            or path.read_bytes() != raw):
+        raise RuntimeError("integration root scope custody changed")
+    before, current = effective_initiative(original), launch.get("receipt")
+    # Only committed revision identifiers may change automatically. Requirement
+    # and artifact identities, ownership and repository boundaries remain fixed;
+    # the trusted mechanical assessment covers the revised contents, not a new
+    # Initiative or slice hidden behind identical operational settings.
+    fields = {"schema_version", "initiative_id", "slice_id", "coordinator_repository", "context", "repository",
+              "requirements", "depends_on", "artifacts", "release_group", "execution_owner", "manifest_path"}
+    if (not isinstance(before, dict) or not isinstance(current, dict)
+            or not fields <= before.keys() or not fields <= current.keys()
+            or any(before[key] != current[key] for key in fields)):
+        raise RuntimeError("integration repair Initiative scope changed")
+    return original
+
+
+def integration_authorized_begin(root: Path, args: argparse.Namespace, launch: dict,
+                                 launch_digest: str) -> dict[str, object]:
+    owner = integration_lifecycle_owner()
+    store = owner.Custody(common_git_dir(root).resolve())
+    identity = owner.hex_value(args.integration_authorization)
+    auth = store.read("authorization", identity)
+    approval = {"schema_version": 2, "method": "integration_grant", "launch_digest": launch_digest,
+                "authorization_digest": identity, "authorized_at": auth["authorized_at"]}
+    validate_initiative_approval(approval, root=root, cycle_id=args.cycle_id)
+    grant = store.read("grant", auth["grant_digest"])
+    obligation = store.read("obligation", auth["obligation_digest"])
+    integration_require_root_scope(root, grant, obligation, launch)
+    selected = integration_policy_snapshot(root)
+    blob, plan_digest = integration_plan_binding(root, args)
+    if (selected is None or store.revoked(auth["grant_digest"])
+            or selected["policy_digest"] != grant["policy_digest"]
+            or selected["enrollment_digest"] != auth["enrollment_digest"]
+            or selected["enrollment_digest"] != grant["enrollment_digest"]
+            or auth["launch_digest"] != launch_digest or auth["source_head"] != launch["checkout"]["head"]
+            or auth["base_head"] != launch["base_head"] or blob != auth["profile_blob"]
+            or plan_digest != auth["plan_digest"] or args.context != grant["context"]
+            or args.risk != grant["risk"] or "refs/heads/" + args.base_branch != obligation["target_ref"]
+            or getattr(args, "integration_mode", "inherit") not in {"inherit", auth["delivery_mode"]}):
+        raise RuntimeError("integration grant changed, revoked or outside fresh launch scope")
+    return approval
+
+
+def integration_prepare_child(args: argparse.Namespace, grant_digest: str,
+                              mechanical_assessment: str, *, predecessor_ticket: str,
+                              qualified_projection_digest: str) -> dict[str, object]:
+    """Derive one child for the exact native predecessor, never fresh human consent."""
+    root = root_dir()
+    if (not args.preflight or getattr(args, "integration_authorization", None) is not None
+            or getattr(args, "follow_up_pr", None) is None or args.delivery_intent != "draft_pr"):
+        raise RuntimeError("integration repair requires native Initiative follow-up preflight")
+    selected = integration_policy_snapshot(root)
+    if selected is None:
+        raise RuntimeError("integration_disabled")
+    owner = integration_lifecycle_owner()
+    from integration_coordinator import runtime
+    store = owner.Custody(common_git_dir(root).resolve())
+    grant = store.read("grant", owner.hex_value(grant_digest))
+    obligation = store.read("obligation", grant["obligation_digest"])
+    qualified = store.read("projection", qualified_projection_digest)
+    ticket = runtime.decode("ticket", owner.canonical(qualified["ticket"]))
+    projection = owner.projection_record(qualified)
+    if (not isinstance(ticket, runtime.Ticket) or ticket.handle != predecessor_ticket
+            or ticket.state != runtime.State.REPAIR_PENDING or qualified["grant_digest"] != grant_digest
+            or qualified["obligation_digest"] != grant["obligation_digest"]):
+        raise RuntimeError("integration exact predecessor custody required")
+    source = owner.source_record(store, qualified["prior_source_custody_digest"])
+    if source != ticket.source:
+        raise RuntimeError("integration prior source changed")
+    statement = owner.text(mechanical_assessment, 4096)
+    integration_align_repair_checkout(root, grant_digest, qualified_projection_digest)
+    requested_mode = getattr(args, "integration_mode", "inherit")
+    delivery_mode = ticket.delivery_mode if requested_mode == "inherit" else requested_mode
+    if delivery_mode not in {ticket.delivery_mode, "off", "pr", "draft_pr"}:
+        raise RuntimeError("integration repair task mode exceeds predecessor authority")
+    guarded_refresh = ticket.guarded_refresh if delivery_mode in {"ordinary", "admin"} else False
+    key = owner.digest({"grant_digest": grant_digest, "predecessor_ticket": predecessor_ticket})
+    with registration_lock(root, args):
+        if store.optional_link("validation_correction", key) is not None:
+            raise RuntimeError("integration validation repair already owns predecessor")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            begin_registration(args)
+        prepared = json.loads(output.getvalue(), object_pairs_hook=no_duplicate_keys)
+        launch, launch_digest = prepared["plan"], prepared["launch_digest"]
+        blob, plan_digest = integration_plan_binding(root, args)
+        original = integration_require_root_scope(root, grant, obligation, launch)
+        if (store.revoked(grant_digest) or selected["policy_digest"] != grant["policy_digest"]
+                or selected["enrollment_digest"] != grant["enrollment_digest"]
+                or grant["context"] != args.context or grant["risk"] != args.risk
+                or blob != grant["profile_blob"] or plan_digest != grant["plan_digest"]
+                or "refs/heads/" + args.base_branch != obligation["target_ref"]
+                or args.follow_up_pr != source.pr_number
+                or args.github_account != original["delivery"]["github"]["account"]):
+            raise RuntimeError("integration repair is outside inherited grant scope")
+        if launch.get("follow_up", {}).get("published_head") != projection.head:
+            raise RuntimeError("integration refreshed source no longer matches qualified Projection")
+        try:
+            existing = store.linked("authorization", key)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            prior_assessment = store.read("assessment", existing["assessment_digest"])
+            if (existing["child_cycle_id"] != args.cycle_id or existing["launch_digest"] != launch_digest
+                    or prior_assessment["statement"] != statement
+                    or existing["qualified_projection_digest"] != qualified_projection_digest):
+                raise RuntimeError("integration predecessor already owns a different repair child")
+            authorization = existing
+        else:
+            derived_at = now()
+            assessment = {"grant_digest": grant_digest, "launch_digest": launch_digest,
+                          "predecessor_ticket": predecessor_ticket, "statement": statement, "assessed_at": derived_at}
+            assessment_digest = store.write("assessment", assessment)
+            authorization = {"grant_digest": grant_digest, "obligation_digest": grant["obligation_digest"],
+                "child_cycle_id": args.cycle_id, "launch_digest": launch_digest, "plan_digest": plan_digest,
+                "profile_blob": blob, "source_head": launch["checkout"]["head"], "base_head": launch["base_head"],
+                "enrollment_digest": selected["enrollment_digest"], "assessment_digest": assessment_digest,
+                "authorized_at": derived_at, "predecessor_ticket": predecessor_ticket,
+                "qualified_projection_digest": qualified_projection_digest,
+                "prior_revision_digest": qualified["prior_revision_digest"],
+                "delivery_mode": delivery_mode, "guarded_refresh": guarded_refresh}
+        identity = store.write("authorization", authorization)
+        store.link("authorization", key, identity)
+        approval = {"schema_version": 2, "method": "integration_grant", "launch_digest": launch_digest,
+                    "authorization_digest": identity, "authorized_at": authorization["authorized_at"]}
+        validate_initiative_approval(approval, root=root, cycle_id=args.cycle_id)
+    return {"authorization_digest": identity, "launch_digest": launch_digest,
+            "method": "integration_grant", "fresh_human_confirmation": False}
+
+
+def integration_cycle_custody(root: Path, cycle_id: str) -> "tuple[dict, bytes, IntegrationLifecycle.Custody]":
+    if not isinstance(cycle_id, str) or not OPAQUE_ID.fullmatch(cycle_id):
+        raise RuntimeError("integration_cycle_identity_invalid")
+    owner = integration_lifecycle_owner()
+    path = cycle_dir(root) / "cycles" / (cycle_id + ".json")
+    managed_directory(root, path.parent); continuation_private(path)
+    raw = path.read_bytes()
+    record = read_cycle_record(root, path, historical=True, max_bytes=512 * 1024)
+    if (record.get("schema_version") != 5 or not record_worktree_matches(root, record, root, bindings=False)
+            or native_git_directory(root, record) != git_dir(root).resolve()):
+        raise RuntimeError("integration_original_task_custody_unavailable")
+    continuation_registration(root, root)
+    return record, raw, owner.Custody(common_git_dir(root).resolve())
+
+
+@contextlib.contextmanager
+def integration_native_client(root: Path, selected: dict, record: dict):
+    """The existing lifecycle owner alone selects a credential, only in memory."""
+    integration_lifecycle_owner()
+    from integration_coordinator.client import LocalClient
+    from integration_coordinator.github import HttpTransport
+    from integration_coordinator.gitproof import GitMirror, ProofPort
+    github = record["delivery"]["github"]
+    if github["repository"] != selected["coordinator"]["remote_repository"]:
+        raise RuntimeError("integration_native_repository_changed")
+    env = github_environment(github["account"])
+    token = env.get("GH_TOKEN")
+    if not isinstance(token, str) or not token:
+        raise RuntimeError("integration_native_credential_unavailable")
+    with GitMirror(github["repository"], token) as mirror:
+        yield LocalClient(HttpTransport(token), selected["coordinator"], ProofPort(mirror.supply))
+
+
+def integration_outbox(root: Path, cycle_id: str, store: "IntegrationLifecycle.Custody", raw: bytes) -> dict:
+    owner = integration_lifecycle_owner()
+    packet = store.linked("outbox", cycle_id)
+    if packet["cycle_id"] != cycle_id or packet["record_digest"] != hashlib.sha256(raw).hexdigest():
+        raise RuntimeError("integration_private_publication_record_changed")
+    request = owner.object_value(packet["request"])
+    return {**packet, "request": request}
+
+
+def integration_validation_repair_snapshot(root: Path, status: "IntegrationClient.Status",
+                                           assessment: str) -> dict[str, object]:
+    """Preserve a no-code CI correction under the actual original task's grant."""
+    selected = integration_policy_snapshot(root)
+    if selected is None:
+        raise RuntimeError("integration_disabled")
+    owner = integration_lifecycle_owner()
+    from integration_coordinator import runtime
+    from integration_coordinator.client import Status, validation_repair_request
+    from integration_coordinator.gitproof import GitObjects
+    if (type(status) is not Status or status.ticket.state != runtime.State.REPAIR_PENDING
+            or status.ticket.candidate is None or status.ticket.projection is None
+            or status.ticket.reservation is not None or status.obligation.repair_owner is not None
+            or status.obligation.current_ticket != status.ticket.handle or status.ticket.failure_digest is None):
+        raise RuntimeError("integration validation repair requires an unreserved CI failure")
+    ticket, remote = status.ticket, status.obligation
+    candidate, projection = ticket.candidate, ticket.projection
+    if candidate is None or projection is None:
+        raise RuntimeError("integration validation repair requires CI evidence")
+    store = owner.Custody(common_git_dir(root).resolve())
+    grant = store.read("grant", remote.grant_digest)
+    obligation = store.read("obligation", owner.hex_value(grant["obligation_digest"]))
+    nested = owner.object_value(selected["coordinator"])
+    if (store.revoked(remote.grant_digest) or "repair" not in owner.string_list(grant["allowed_operations"])
+            or obligation["handle"] != remote.handle or grant["policy_digest"] != selected["policy_digest"]
+            or grant["enrollment_digest"] != selected["enrollment_digest"]
+            or ticket.source.repository != nested["remote_repository"]
+            or candidate.policy_digest != nested["policy_digest"]
+            or integration_delivery_mode(selected, ticket.delivery_mode) != ticket.delivery_mode):
+        raise RuntimeError("integration validation repair grant or enrollment changed")
+    original, _, _ = integration_cycle_custody(root, owner.text(obligation["cycle_id"], 128))
+    statement = owner.text(assessment, 4096)
+    key = owner.digest({"grant_digest": remote.grant_digest, "predecessor_ticket": ticket.handle})
+    arguments = argparse.Namespace(cycle_id=original["cycle_id"], base_branch=original["delivery"]["base_branch"])
+    with registration_lock(root, arguments):
+        # Existing kernel guards also detect an orphan active child whose pointer
+        # is absent. The hypothetical filename is never written or registered.
+        if any(os.path.lexists(path) for path in (active_path(root), legacy_active_path(root), legacy_cycle_dir(root) / "active")):
+            raise RuntimeError("integration validation repair has active or unresolved child custody")
+        require_registration_available(root, "validation-" + ticket.handle)
+        if status_paths(root):
+            raise RuntimeError("integration validation repair requires clean unchanged source")
+        if store.optional_link("authorization", key) is not None:
+            raise RuntimeError("integration code repair already owns predecessor")
+        chain = owner.revision_chain(store, ticket.handle, GitObjects(root),
+            lambda cycle, digest: integration_record_entries(root, cycle, digest))
+        link = store.linked("revision_link", ticket.handle)
+        if (chain.source != ticket.source or chain.grant_digest != remote.grant_digest
+                or chain.obligation_digest != grant["obligation_digest"]):
+            raise RuntimeError("integration validation repair private source changed")
+        latest_cycle, latest_digest = chain.records[-1]
+        latest, latest_raw, _ = integration_cycle_custody(root, latest_cycle)
+        if hashlib.sha256(latest_raw).hexdigest() != latest_digest:
+            raise RuntimeError("integration validation repair completed record changed")
+        integration_require_root_scope(root, grant, obligation, {"receipt": effective_initiative(latest)})
+        allowed_heads = {ticket.source.head, projection.head}
+        for cycle, digest in chain.records:
+            record, raw, _ = integration_cycle_custody(root, cycle)
+            if hashlib.sha256(raw).hexdigest() != digest:
+                raise RuntimeError("integration validation repair retained record changed")
+            allowed_heads.add(record["commits"][-1]["id"])
+        if git(root, "rev-parse", "HEAD").stdout.strip() not in allowed_heads:
+            raise RuntimeError("integration validation repair local source changed")
+        packet = store.linked("outbox", ticket.handle)
+        requested = runtime.decode("ticket", owner.canonical(packet["request"]["ticket"]))
+        if (not isinstance(requested, runtime.Ticket) or requested.source != ticket.source
+                or requested.obligation_handle != remote.handle or requested.requester_digest != ticket.requester_digest
+                or requested.delivery_mode != ticket.delivery_mode or requested.guarded_refresh != ticket.guarded_refresh
+                or packet["obligation_digest"] != grant["obligation_digest"]
+                or packet["source_digest"] != runtime.identity(ticket.source)
+                or packet["record_digest"] != latest_digest or packet["cycle_id"] != latest_cycle):
+            raise RuntimeError("integration validation repair source authority changed")
+        if requested.handle != ticket.handle:
+            prior = store.linked("validation_outbox", ticket.handle)
+            prior_request = runtime.decode("validation_repair", owner.canonical(prior["request"]["ticket"]))
+            correction = store.read("validation_correction", owner.hex_value(prior["correction_digest"]))
+            if (not isinstance(prior_request, runtime.ValidationRepair)
+                    or runtime.validation_repair_handle(prior_request) != ticket.handle
+                    or ticket.predecessor != prior_request.original_handle
+                    or ticket.repair_authorization_digest != runtime.identity(prior_request)
+                    or prior_request.correction_digest != prior["correction_digest"]
+                    or correction["grant_digest"] != remote.grant_digest
+                    or correction["source_digest"] != runtime.identity(ticket.source)
+                    or correction["revision_digest"] != chain.revision_digest):
+                raise RuntimeError("integration validation repair alias authority changed")
+        # Reuse the existing native PR/Git projection qualifier. It accepts no
+        # caller Projection and performs fresh source/base observations twice.
+        integration_capture_projection(root, remote.grant_digest, status, allow_archive_metadata=True)
+        value = {"grant_digest": remote.grant_digest, "obligation_digest": grant["obligation_digest"],
+            "predecessor_ticket": ticket.handle, "expected_generation": ticket.generation,
+            "failure_digest": ticket.failure_digest, "source_digest": runtime.identity(ticket.source),
+            "revision_digest": chain.revision_digest, "source_custody_digest": link["source_custody_digest"],
+            "scope_digest": grant["scope_digest"], "policy_digest": selected["policy_digest"],
+            "remote_policy_digest": nested["policy_digest"], "enrollment_digest": selected["enrollment_digest"],
+            "ledger_head": status.ledger_head, "statement": statement, "assessed_at": now()}
+        existing = store.optional_link("validation_correction", key)
+        if existing is not None:
+            if any(existing[name] != value[name] for name in value if name not in {"ledger_head", "assessed_at"}):
+                raise RuntimeError("integration validation repair predecessor choice changed")
+            value = existing
+        correction_digest = store.write("validation_correction", value)
+        store.link("validation_correction", key, correction_digest)
+        pending = store.optional_link("validation_outbox", correction_digest)
+        request = (owner.object_value(pending["request"]) if pending is not None
+                   else validation_repair_request(status, correction_digest))
+        described = runtime.decode("validation_repair", owner.canonical(request["ticket"]))
+        expected_obligation = runtime.decode("obligation", owner.canonical(request["obligation"]))
+        stable = ("handle", "current_ticket", "grant_digest", "repair_count", "revision_count", "repair_owner")
+        if (not isinstance(expected_obligation, runtime.Obligation)
+                or any(getattr(expected_obligation, name) != getattr(remote, name) for name in stable)):
+            raise RuntimeError("integration validation obligation changed")
+        if (not isinstance(described, runtime.ValidationRepair) or request["policy_digest"] != nested["policy_digest"]
+                or described.original_handle != ticket.handle or described.expected_generation != ticket.generation
+                or described.failure_digest != ticket.failure_digest or described.correction_digest != correction_digest):
+            raise RuntimeError("integration validation request changed")
+        new_handle = runtime.validation_repair_handle(described)
+        new_link = store.write("revision_link", {**link, "ticket_handle": new_handle})
+        store.link("revision_link", new_handle, new_link)
+        packet_digest = hashlib.sha256(owner.canonical({"schema_version": 1, "kind": "outbox", "value": packet})).hexdigest()
+        store.link("outbox", new_handle, packet_digest)
+        outbox = {"correction_digest": correction_digest, "obligation_digest": grant["obligation_digest"],
+            "predecessor_ticket": ticket.handle, "ticket_handle": new_handle, "request": request}
+        outbox_digest = store.write("validation_outbox", outbox)
+        store.link("validation_outbox", new_handle, outbox_digest)
+        store.link("validation_outbox", correction_digest, outbox_digest)
+    return {"status": "unadmitted", "ticket_handle": new_handle, "correction_digest": correction_digest,
+            "request": request, "validation_outbox_digest": outbox_digest}
+
+
+def integration_accept_delivery(root: Path, client: "IntegrationClient.LocalClient", packet: dict) -> str:
+    """Invoke the native verifier; never accept an externally supplied receipt."""
+    owner = integration_lifecycle_owner()
+    from integration_coordinator import runtime
+    from integration_coordinator.gitproof import GitObjects
+    request = packet["request"]
+    obligation = runtime.decode("obligation", owner.canonical(request["obligation"]))
+    if not isinstance(obligation, runtime.Obligation):
+        raise RuntimeError("integration_obligation_unavailable")
+    verified = client.verify_delivered(packet["ticket_handle"], obligation.handle)
+    store = owner.Custody(common_git_dir(root).resolve())
+    private = store.read("obligation", packet["obligation_digest"])
+    parent, _, _ = integration_cycle_custody(root, private["cycle_id"])
+    delivery = parent["delivery"]
+    env = github_environment(delivery["github"]["account"])
+    url = github_remote_url(root, delivery["remote"], delivery["github"]["repository"])
+    require_canonical_github_url(root, url, env)
+    # The native PR ref remains available after feature-branch deletion. Fetching
+    # it supplies the attested published projection, without moving the task ref.
+    git(root, "fetch", "--no-tags", url, f"refs/pull/{verified.ticket.source.pr_number}/head", env=env)
+    fetch_github_branch(root, delivery["remote"], url, delivery["base_branch"], env)
+    with evidence_lock(root, private["cycle_id"], timeout=1), local_completion_git_context():
+        identity = owner.accept_verified_outcome(store, verified, GitObjects(root),
+            lambda cycle, digest: integration_record_entries(root, cycle, digest), now())
+        for cycle, digest in owner.object_value(store.read("outcome", identity)["record_digests"]).items():
+            path = cycle_dir(root) / "cycles" / (cycle + ".json")
+            if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                raise RuntimeError("integration_delivered_record_changed")
+    return identity
+
+
+def integration_operator_binding(root: Path, selected: dict, record: dict, raw: bytes, store: "IntegrationLifecycle.Custody", packet: dict):
+    from integration_coordinator.operator import TaskBinding
+    owner = integration_lifecycle_owner()
+    if owner.object_value(selected.get("delivery", {})).get("role") != "operator":
+        raise RuntimeError("integration_operator_role_unavailable")
+    obligation = store.read("obligation", packet["obligation_digest"])
+    from integration_coordinator import runtime
+    public = runtime.decode("obligation", owner.canonical(packet["request"]["obligation"]))
+    if not isinstance(public, runtime.Obligation):
+        raise RuntimeError("integration_operator_obligation_unavailable")
+    grant = store.read("grant", public.grant_digest)
+    if (grant["obligation_digest"] != packet["obligation_digest"]
+            or "operator_resume" not in owner.string_list(grant["allowed_operations"]) or store.revoked(public.grant_digest)
+            or grant["policy_digest"] != selected["policy_digest"]
+            or grant["enrollment_digest"] != selected["enrollment_digest"]):
+        raise RuntimeError("integration_operator_grant_unavailable")
+    original, original_raw, _ = integration_cycle_custody(root, owner.text(obligation["cycle_id"], 128))
+    if hashlib.sha256(original_raw).hexdigest() != obligation["record_digest"]:
+        raise RuntimeError("integration_operator_original_record_changed")
+    expected_task = continuation_digest({"cycle_id": original["cycle_id"], "worktree_id": original["worktree"]["id"],
+        "git_dir": str(native_git_directory(root, original)), "launch_digest": original["initiative_approval"]["launch_digest"]})
+    if expected_task != obligation["original_task_digest"]:
+        raise RuntimeError("integration_operator_task_changed")
+    custody = continuation_digest({"record_digest": hashlib.sha256(original_raw).hexdigest(),
+                                  "registration": continuation_registration(root, root)})
+    return TaskBinding(owner.hex_value(obligation["handle"], tuple(range(16, 65))), expected_task, custody)
+
+
+def command_integration_gateway(args) -> None:
+    root = root_dir()
+    selected = integration_policy_snapshot(root)
+    if selected is None:
+        print(json.dumps({"status": "disabled_local", "remote_state": "unobserved", "queued": False}))
+        return
+    owner = integration_lifecycle_owner()
+    from integration_coordinator import runtime
+    record, raw, store = integration_cycle_custody(root, args.cycle_id)
+    action = args.command.removeprefix("integration-")
+    if action == "adopt":
+        if args.pr != record.get("delivery", {}).get("pull_request", {}).get("number"):
+            raise RuntimeError("integration_adoption_pr_changed")
+        produced = integration_source_snapshot(root, args.cycle_id, args.pr, record["commits"][-1]["id"],
+            adopt=True, mode=args.integration_mode)
+        if produced["status"] in {"source_only", "withdrawal_required"}:
+            print(json.dumps(produced, sort_keys=True)); return
+    try:
+        packet = integration_outbox(root, args.cycle_id, store, raw)
+    except FileNotFoundError:
+        if action != "submit":
+            print(json.dumps({"status": "not_submitted", "remote_state": "unobserved", "queued": False})); return
+        produced = integration_source_snapshot(root, args.cycle_id, record["delivery"]["pull_request"]["number"],
+            record["commits"][-1]["id"])
+        if produced["status"] == "source_only":
+            print(json.dumps(produced, sort_keys=True)); return
+        packet = integration_outbox(root, args.cycle_id, store, raw)
+    obligation = runtime.decode("obligation", owner.canonical(packet["request"]["obligation"]))
+    if not isinstance(obligation, runtime.Obligation):
+        raise RuntimeError("integration_obligation_unavailable")
+    with integration_native_client(root, selected, record) as client:
+        if action in {"submit", "adopt"}:
+            if store.revoked(obligation.grant_digest):
+                raise RuntimeError("integration root grant revoked")
+            grant = store.read("grant", obligation.grant_digest)
+            if (grant["obligation_digest"] != packet["obligation_digest"]
+                    or grant["policy_digest"] != selected["policy_digest"]
+                    or grant["enrollment_digest"] != selected["enrollment_digest"]):
+                raise RuntimeError("integration dispatch enrollment changed")
+            requested = runtime.decode("ticket", owner.canonical(packet["request"]["ticket"]))
+            if not isinstance(requested, runtime.Ticket):
+                raise RuntimeError("integration_request_unavailable")
+            admitted = client.status(packet["ticket_handle"], obligation.handle)
+            if admitted is not None:
+                result = admitted.report()
+            else:
+                integration_ready_pull(root, record, github_environment(record["delivery"]["github"]["account"]),
+                    requested.source.pr_number, requested.source.head)
+                result = client.submit(packet["request"])
+        elif action == "operator-resume":
+            from integration_coordinator.operator import resume
+            binding = integration_operator_binding(root, selected, record, raw, store, packet)
+            report = resume(client, store, binding, args.handle, args.expected_generation)
+            result = {"status": report.status, "detail": report.detail, "ticket_handle": report.handle}
+        else:
+            status = client.status(packet["ticket_handle"], obligation.handle)
+            result = {"status": "unadmitted", "queued": False} if status is None else status.report()
+            if action == "reconcile" and status is not None:
+                assessment = getattr(args, "validation_repair", None)
+                if assessment is not None and status.ticket.state == runtime.State.REPAIR_PENDING:
+                    prepared = integration_validation_repair_snapshot(root, status, assessment)
+                    result = {**client.submit(prepared["request"]), "validation_repair": True,
+                              "correction_digest": prepared["correction_digest"]}
+                elif status.ticket.state == runtime.State.DELIVERED:
+                    result["outcome_digest"] = integration_accept_delivery(root, client, packet)
+                    result["records_unchanged"] = True
+                elif status.ticket.state == runtime.State.REPAIR_PENDING:
+                    if status.ticket.candidate is None and not status.ticket.guarded_refresh:
+                        result["repair_action"] = "authority_decision"
+                    elif status.ticket.projection is None or status.ticket.current_head != status.ticket.projection.head:
+                        result["repair_action"] = "source_intent_decision"
+                    else:
+                        try:
+                            projection_id = integration_capture_projection(root, obligation.grant_digest, status)
+                        except RuntimeError:
+                            # A native head drift has no qualified Projection.
+                            # Keep the existing authority/evidence intact.
+                            result["repair_action"] = "reconciliation_needed"
+                        else:
+                            result.update(repair_action="original_task_repair", grant_digest=obligation.grant_digest,
+                                predecessor_ticket=status.ticket.handle, qualified_projection_digest=projection_id)
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
+def command_integration_prepare_child(args) -> None:
+    if integration_policy_snapshot(root_dir()) is None:
+        print(json.dumps({"status": "disabled_local", "remote_state": "unobserved", "queued": False}))
+        return
+    arguments = list(args.begin_arguments)
+    if arguments[:1] == ["--"]:
+        arguments = arguments[1:]
+    if (not arguments or len(arguments) > 256
+            or any(not isinstance(item, str) or len(item.encode()) > 4096 for item in arguments)):
+        raise RuntimeError("integration child begin arguments invalid")
+    preflight = parser().parse_args(["begin", *arguments])
+    result = integration_prepare_child(preflight, args.grant_digest, args.assessment,
+        predecessor_ticket=args.predecessor_ticket, qualified_projection_digest=args.qualified_projection_digest)
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
+def command_integration_source(args) -> None:
+    result = integration_source_snapshot(root_dir(), args.cycle_id, args.pr, args.expected_head,
+                                         adopt=args.adopt, mode=args.integration_mode)
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
 
 
 def require_completion_source(root, record):
@@ -20942,7 +22233,16 @@ def finish_push(root, path, record):
         git(root, "rev-parse", f"{commit}^2", check=False).stdout.strip() == target_head
         for commit in recorded_commits
     )
-    if follow_up is not None:
+    publication_mode = integration_publication_mode(root, record) if record["delivery_intent"] == "draft_pr" else None
+    if publication_mode in {"ordinary", "admin"}:
+        if git(root, "merge-base", "--is-ancestor", base_head, target_head, check=False).returncode:
+            fail("integration publication default is not a descendant of the recorded default")
+        current_ahead = git(root, "rev-list", "--reverse", f"{cycle_base}..HEAD").stdout.splitlines()
+        if (git(root, "rev-list", "--first-parent", "--reverse", f"{cycle_base}..HEAD").stdout.splitlines()
+                != current_ahead or any(len(git(root, "show", "-s", "--format=%P", oid).stdout.split()) != 1
+                                        for oid in current_ahead)):
+            fail("integration publication requires the exact owned linear interval")
+    elif follow_up is not None:
         current_ahead = validate_follow_up_lineage(root, record, target_head)
         reconciled = target_head != base_head
     elif (record["delivery_intent"] == "draft_pr"
@@ -21660,6 +22960,38 @@ def parser():
     start.add_argument("--github-repository")
     start.add_argument("--base-branch", default="main")
     start.set_defaults(func=command_start)
+    integration_source = commands.add_parser("integration-source")
+    integration_source.add_argument("--cycle-id", required=True)
+    integration_source.add_argument("--pr", required=True, type=int)
+    integration_source.add_argument("--expected-head", required=True)
+    integration_source.add_argument("--adopt", action="store_true")
+    integration_source.add_argument("--json", action="store_true")
+    integration_source.add_argument("--integration-mode", default="inherit",
+        choices=("inherit", "off", "draft_pr", "pr", "ordinary", "admin"))
+    integration_source.set_defaults(func=command_integration_source)
+    child = commands.add_parser("integration-prepare-child",
+        help="derive private repair authority using existing begin --preflight arguments after --")
+    child.add_argument("--grant-digest", required=True)
+    child.add_argument("--predecessor-ticket", required=True)
+    child.add_argument("--qualified-projection-digest", required=True)
+    child.add_argument("--assessment", required=True, help="original agent's bounded mechanical-scope assessment")
+    child.add_argument("begin_arguments", nargs=argparse.REMAINDER)
+    child.set_defaults(func=command_integration_prepare_child)
+    for action in ("submit", "adopt", "status", "reconcile", "operator-resume"):
+        gateway = commands.add_parser("integration-" + action)
+        gateway.add_argument("--cycle-id", required=True)
+        gateway.add_argument("--json", action="store_true")
+        if action == "adopt":
+            gateway.add_argument("--pr", type=int, required=True)
+            gateway.add_argument("--integration-mode", default="inherit",
+                choices=("inherit", "off", "draft_pr", "pr", "ordinary", "admin"))
+        if action == "reconcile":
+            gateway.add_argument("--validation-repair", metavar="ASSESSMENT",
+                help="explicit intent-preserving infrastructure correction; no code or CI rerun")
+        if action == "operator-resume":
+            gateway.add_argument("--handle", required=True)
+            gateway.add_argument("--expected-generation", type=int, required=True)
+        gateway.set_defaults(func=command_integration_gateway)
     begin = commands.add_parser("begin")
     begin.add_argument("--cycle-id", required=True)
     begin.add_argument("--context", required=True)
@@ -21692,8 +23024,14 @@ def parser():
     expected.add_argument("--expected-repository-json")
     begin.add_argument("--preflight", action="store_true")
     begin.add_argument("--expected-launch-digest")
-    begin.add_argument("--approval", choices=("interactive", "agent-confirmed"), default="interactive",
+    approval_mode = begin.add_mutually_exclusive_group()
+    approval_mode.add_argument("--approval", choices=("interactive", "agent-confirmed"), default="interactive",
                        help="Initiative confirmation mode; agent-confirmed reports explicit chat approval, not verified identity")
+    approval_mode.add_argument("--integration-authorization",
+                       help="private inherited authorization digest; requires fresh Initiative follow-up preflight")
+    begin.add_argument("--integration-mode", default="inherit",
+        choices=("inherit", "off", "draft_pr", "pr", "ordinary", "admin"),
+        help="exact task delivery override; inheritance never enables an unenrolled repository")
     begin.add_argument("--resume-existing", action="store_true")
     begin.set_defaults(func=command_begin)
     portabilize = commands.add_parser("cycle-portabilize")

@@ -14,6 +14,23 @@
   protections are required before merge; managed installation and recovery
   qualification remain with their existing owners.
 
+## 2026-11-13 — Compatible coordinator source generation
+
+- Extend only the existing delivery policy to schema 2 with a closed, default-off
+  coordinator table. Keep schema-1 delivery, workspace and activation contracts.
+- Deliver paired helper/package/entrypoint and managed lifecycle guidance in the
+  shared runtime source slice. Source fixtures and publication checks pass; exact
+  merged-generation installation and native enrollment remain separate rollout
+  obligations. Preserve unrelated local edits and existing Dagger guidance.
+
+## 2026-11-12 — Coordinator runtime and activation scope
+
+- Consolidate compatible policy/installation source with lifecycle/native adapters;
+  shared defaults remain off and existing schema-1 behavior remains unchanged.
+- Record authorized target rollout, explicit credential delegation, protected
+  default-branch workflow environment, native trigger qualification and reversible
+  disable/recovery. No apply, secret copy, settings change or activation performed.
+
 ## 2026-11-11 — Qualify Linux native-artifact summaries
 
 - Move only the `test` artifact-summary job to pinned `ubuntu-24.04`; keep native

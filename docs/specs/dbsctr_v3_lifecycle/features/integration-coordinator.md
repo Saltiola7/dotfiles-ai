@@ -8,6 +8,15 @@ critical risk override for delivery authority. Python, Security and Cloud apply.
 This document defines readiness for later Build slices, not installed capability,
 merge consent, credential enrollment, source implementation or live activation.
 
+The [runtime adapter amendment](integration-runtime-adapters.md) refines this
+contract for live adoption: ordered source and refresh projections, private
+delivery obligations, inherited repair authorization, terminal archival, native
+attested admission, protected source retention and guarded task-head refresh.
+Its explicit v2 runtime/compatibility rules supersede the narrower proposed v1
+source assumptions below. The delivered v1 offline core retains its own semantics.
+The operator has subsequently authorized rollout to selected targets; no text
+here establishes actual enrollment, secret delegation or passing live qualification.
+
 V1 coordinates integration while existing GitHub Actions remain authoritative.
 Independent agents keep separate PRs, phase commits and concurrent coding/checks.
 One final candidate per repository/default branch owns the integration slot from
