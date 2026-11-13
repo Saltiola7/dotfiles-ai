@@ -51,7 +51,8 @@ Concrete wire shape: each mapping row has exactly `context`, `app_id`, and
 `all`. Each predicate has exactly `kind` and `value`. Kinds are `event`,
 `target_branch`, `paths`, and `actor_not`; values are an exact string except
 `paths`, whose value is a nonempty bounded array of positive segment patterns.
-The initial native pattern subset supports literal segments, `*` and `**` only;
+The initial native pattern subset supports ASCII letters/digits, underscore,
+dot, slash, hyphen and space as literals, plus `*` and whole-segment `**` only;
 reject `?`, character classes, escaping and negative patterns rather than infer
 equivalence. Changed-path proof includes deleted paths and both names of a rename.
 
@@ -78,10 +79,23 @@ the refreshed head's merge base to equal the candidate base before interpreting
 that scope as the PR filter comparison. Missing objects, truncation, unsupported
 change kinds or unproved provider comparison/limits block negative applicability.
 
+The initial scope bound is at most 3,000 changed paths and fewer than 1,000
+commits, with complete local Git object ancestry. GitHub documents a 3,000-file
+path-filter limit and always-running fallback when diff generation times out.
+An observed native run is therefore qualified normally even when a path/branch
+predicate is false; it cannot be hidden by negative trigger proof. An absent run
+requires independent false-condition proof and a final absence fence. See
+[GitHub workflow trigger semantics](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+
 Native event proof binds repository, PR, event, source head, target branch and
 causal actor where required. PR author is not event actor, and a missing workflow
 supplies no causal actor proof. If native APIs cannot prove the causal event
 needed by a condition, retain unavailable rather than inventing an exemption.
+Actor inequality uses case-insensitive comparison, matching native expressions.
+An actor/event exemption with an observed run also requires an identity-bound,
+actually skipped producer job/check. Evaluate the actor predicate and verify that
+skip using the same native run snapshot; a newer run, changed actor or rerun
+invalidates the final fence. A skipped status alone never establishes an exemption.
 
 Return applicable, not applicable with proof, or unavailable with a bounded
 reason. Bind the complete applicability resolution digest, including negative

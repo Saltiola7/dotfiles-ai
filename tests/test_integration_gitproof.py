@@ -159,3 +159,23 @@ def test_mirror_credentials_stay_out_of_argv_and_inherited_git_tracing(monkeypat
     assert "GIT_TRACE_CURL" not in environments[0] and "GIT_CURL_VERBOSE" not in environments[0]
     assert environments[0]["GIT_CONFIG_COUNT"] == "1"
     assert environments[0]["GIT_CONFIG_VALUE_0"].startswith("AUTHORIZATION: basic ")
+
+
+def test_scope_proof_includes_every_changed_and_deleted_path(objects: Path) -> None:
+    _, _, _, base, _, head = series(objects)
+    port = ProofPort(lambda _ids: GitObjects(objects))
+    scope = port.candidate_scope(base, head)
+    assert scope.paths == ('a', 'b') and scope.commit_count == 2
+    deleted = commit(objects, {'c': 'other\n'}, head, 'remove source paths')
+    assert port.candidate_scope(head, deleted).paths == ('a', 'b')
+    renamed = commit(objects, {'renamed': 'other\n'}, deleted, 'rename source path')
+    assert port.candidate_scope(deleted, renamed).paths == ('c', 'renamed')
+
+
+def test_scope_refuses_unsynced_base_and_provider_comparison_overflow(objects: Path) -> None:
+    from integration_coordinator import ci_mapping
+    root, first, _, base, _, head = series(objects)
+    port = ProofPort(lambda _ids: GitObjects(objects))
+    with pytest.raises(core.Unavailable): port.candidate_scope(base, first)
+    with pytest.raises(core.Invalid): ci_mapping.CandidateScope(root, head, tuple(str(i) for i in range(3001)), 1)
+    with pytest.raises(core.Invalid): ci_mapping.CandidateScope(root, head, ('a',), 1000)
