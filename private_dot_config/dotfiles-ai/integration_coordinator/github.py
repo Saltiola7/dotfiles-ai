@@ -658,6 +658,7 @@ class PullFacts:
     merge_oid: str | None
     merged: bool
     merged_at: str | None
+    known_conflict: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1096,7 +1097,8 @@ class GitHub:
             raise c.Unavailable("native_pr_base_moved")
         merge_oid = value.get("merge_commit_sha")
         return PullFacts(number, node_id, head_oid, base_oid, head_ref, base_ref,
-                         None if merge_oid is None else _oid(merge_oid), merged, merged_at)
+                         None if merge_oid is None else _oid(merge_oid), merged, merged_at,
+                         value.get("mergeable") is False and value.get("mergeable_state") == "dirty")
 
     def _interval(self, head: str, base: str, count: int) -> tuple[str, ...]:
         if not 1 <= count <= 1024: raise c.Unavailable("native_interval_limit")
@@ -1418,6 +1420,11 @@ class GitHub:
             raise NativeRejection(_hash({"reservation": c.identity(reservation), "no_call": type(error).__name__})) from None
         if native.merged or native.head != reservation.expected_head or native.base != reservation.expected_base:
             raise NativeRejection(_hash({"reservation": c.identity(reservation), "reason": "native_refresh_guard_changed"}))
+        # A native conflict is only a conservative refusal before any request.
+        # It never resolves custody of an already-issued uncertain mutation.
+        if native.known_conflict:
+            raise NativeRejection(_hash({"reservation": c.identity(reservation),
+                "reason": "native_conflict_no_call", "native": asdict(native)}))
         # Establish supported original/current correspondence before rewriting,
         # including unsafe attributes, empty phases and unsupported wrappers.
         # This is read-only proof; a refusal here definitively issued no call.

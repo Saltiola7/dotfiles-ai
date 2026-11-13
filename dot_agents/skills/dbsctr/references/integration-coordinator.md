@@ -70,6 +70,13 @@ The original task picks up `repair_pending` when active; a closed or offline ses
 waits until it resumes. Do not create another chat, claim a native chat identity or
 silently transfer its obligation. Unrelated ready work can continue.
 
+A conservative native conflict report can return the task to `repair_pending`
+before any rebase request is issued, releasing the slot for unrelated work.
+Unknown mergeability is not proof of a conflict or a clean rebase. An already
+issued uncertain request retains custody. If an initial conflict has no qualified
+projection, the helper reports `source_intent_decision`; the original task must
+resolve that blocker with the operator. Never fabricate a projection or phase map.
+
 Before editing a coordinator-refreshed task, qualify its projection and align its
 clean local worktree through the helper's journaled owner. Dirty, ignored-path
 collision, ownership, hook or process blockers preserve files and report the actual

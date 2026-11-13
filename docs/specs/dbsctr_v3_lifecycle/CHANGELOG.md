@@ -13,8 +13,12 @@
 - Reconcile assessed infrastructure corrections without manufacturing source
   commits. Requeue the same retained source at the tail with fresh native checks;
   preserve exact request retries, cumulative counters and private repair custody.
-- Pass 425 affected integration/policy cases, then 186 targeted replacement cases
-  after review fixes, plus 60 publication/instruction and 62 benchmark checks.
+- Return a conservative native conflict to the original task before issuing a
+  rebase request, releasing the slot while retaining unknown mutation custody.
+  Missing initial correspondence remains an explicit intent/reconciliation blocker.
+- Pass 509 affected integration/policy, performance and instruction cases after
+  repair fixes. Earlier 425/186-case checkpoints, 60 publication/instruction and
+  62 benchmark checks remain retained in the Cycle Record.
   Twenty-four selected typing units pass for
   Python 3.12/3.14; the helper retains exactly 91 existing diagnostics, none added.
 - Bind inherited repair to the retained Initiative scope, retain approved
