@@ -34,7 +34,7 @@ substitute. Skill activation does not grant external-action authority.
    safety, delivery, or validation.
 4. Record current affected scope, risk, delivery intent, applicable modules, and
    required capabilities.
-5. Report Method Revision `3.29` (older V3 records remain readable). Use
+5. Report Method Revision `3.30` (older V3 records remain readable). Use
    `dbsctrctl status` in the explicit task checkout to resume its Cycle Record.
    Worktrunk owns task checkout creation and navigation. Codex CLI and Desktop
    may retain the current conversation while commands use the selected checkout's
@@ -301,7 +301,13 @@ provide source, local DVC configuration, and canonical graph artifacts, not adap
 Private lifecycle state retains the digest-selected central executable so active
 cycles and batches survive a later managed adapter upgrade.
 
-Before final artifact closure, use `dbsctrctl reconcile-target --mode preview --json`
+For explicitly enrolled `ordinary`/`admin` source publication, use the coordinator
+reference above: publish the qualified owned linear source and let its delivery
+owner refresh the final base. Do not manufacture a local default-merge wrapper.
+Source checks do not claim current-default validation; fresh native candidate CI
+remains required before merge. Other delivery routes retain reconciliation below.
+
+Before final artifact closure on those other routes, use `dbsctrctl reconcile-target --mode preview --json`
 when the recorded
 upstream may have advanced. If it reports `diverged`, prepare the no-commit merge,
 resolve only explicit conflict paths, rerun the union affected validation, and
@@ -336,6 +342,11 @@ product/domain truth merely to make documents agree.
 ## Completion Gates
 
 ### Review/Integrate
+
+For an explicitly enrolled task under the qualified coordinator protocol, load
+`references/integration-coordinator.md`. Its shared delivery owner governs admission,
+repair and verified rebase completion. Enrollment is default-off and does not adopt
+existing cycles. Ordinary review and source-only delivery remain available without it.
 
 For generic pull-request review, use `dbsctr-pr-review`: inspect settled intent,
 existing functionality/callers and shared ownership, then recommend the minimum
@@ -508,6 +519,9 @@ Stop before push when HEAD is detached, no upstream exists, the destination
 changed, pre-cycle ahead commits would be included, required evidence failed,
 force would be needed, or repository policy requires another approval.
 Never force-push automatically.
+The separately enrolled coordinator may refresh only a task branch whose immutable
+grant permits it, with retained source commits and an exact old-head lease. This
+does not authorize an agent to force-push or rewrite default/control refs.
 
 For a DVC-relevant cycle changing `*.dvc`, `dvc.yaml`, `dvc.lock`, `.dvc/config`,
 or `.dvcignore`, run `dvc status`, couple changed outputs with their metadata,

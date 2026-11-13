@@ -1,0 +1,25 @@
+name: DBSCTR integration coordinator
+description: Advance one enrolled durable target with the shared reviewed coordinator.
+inputs:
+  policy-path:
+    description: Repository-owned reviewed enrollment and native producer policy.
+    required: false
+    default: .github/dbsctr-integration.json
+  token:
+    description: Explicit enrolled merge identity; never inferred from local authentication.
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - name: Reconcile the enrolled candidate
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        DBSCTR_POLICY_PATH: ${{ inputs.policy-path }}
+        DBSCTR_COORDINATOR_TOKEN: ${{ inputs.token }}
+        DBSCTR_COORDINATOR_IMPLEMENTATION_REF: ${{ github.action_ref }}
+        DBSCTR_COORDINATOR_IMPLEMENTATION_REPOSITORY: ${{ github.action_repository }}
+      run: >-
+        python3 "$GITHUB_ACTION_PATH/../../../dot_local/bin/executable_dbsctr-integration"
+        advance --policy "$DBSCTR_POLICY_PATH"
