@@ -159,6 +159,43 @@ def relative(value):
         refuse()
 
 
+def coordinator_consent(value, targets):
+    """Validate opt-in bindings; native enrollment and authority stay separate."""
+    fields(value, {"schema_version", "enabled", "protocol_version", "strategy",
+                   "remote_repository", "target_ref", "control_ref", "policy_path",
+                   "policy_digest", "guarded_refresh"})
+    if (type(value.get("schema_version")) is not int or value["schema_version"] != 1
+            or type(value.get("protocol_version")) is not int or value["protocol_version"] != 2):
+        refuse()
+    for key in {"enabled", "guarded_refresh"} & value.keys():
+        if type(value[key]) is not bool:
+            refuse()
+    if value.get("strategy", "rebase") != "rebase":
+        refuse()
+    if "remote_repository" in value and (not isinstance(value["remote_repository"], str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}",
+                                value["remote_repository"])):
+        refuse()
+    for key in {"target_ref", "control_ref"} & value.keys():
+        ref = value[key]
+        if not isinstance(ref, str) or not ref.startswith("refs/heads/") or len(ref.encode()) > 255:
+            refuse()
+        run("git", "check-ref-format", ref)
+    if "target_ref" in value and value["target_ref"] not in targets:
+        refuse()
+    if "control_ref" in value and value["control_ref"] == value.get("target_ref"):
+        refuse()
+    if "policy_path" in value:
+        relative(value["policy_path"])
+        if not value["policy_path"].endswith(".json"):
+            refuse()
+    if "policy_digest" in value and not sha256(value["policy_digest"]):
+        refuse()
+    required = {"remote_repository", "target_ref", "control_ref", "policy_path", "policy_digest"}
+    if value.get("enabled", False) and not required <= value.keys():
+        refuse()
+
+
 def consent(kind, value):
     """Validate declarations, not grant lifecycle action authority."""
     allowed = {
@@ -167,8 +204,12 @@ def consent(kind, value):
                      "allow_unrelated_pending", "delete_remote_branch", "mapping_path"},
         "feedback": {"schema_version", "external_enabled", "destination", "consent_digest", "payload_scope"},
     }
+    version = value.get("schema_version") if isinstance(value, dict) else None
+    if kind == "delivery" and type(version) is int and version == 2:
+        allowed[kind] = allowed[kind] | {"coordinator"}
     fields(value, allowed[kind])
-    if type(value.get("schema_version")) is not int or value["schema_version"] != 1:
+    versions = {1, 2} if kind == "delivery" else {1}
+    if type(version) is not int or version not in versions:
         refuse()
     for key in {"automatic_remove", "delete_local_branch", "enabled", "allow_unrelated_pending",
                 "delete_remote_branch", "external_enabled"} & value.keys():
@@ -207,6 +248,8 @@ def consent(kind, value):
             relative(value["mapping_path"])
         if value.get("enabled") and not value.get("mapping_path"):
             refuse()
+        if "coordinator" in value:
+            coordinator_consent(value["coordinator"], targets)
     if kind == "feedback":
         if value.get("payload_scope", "sanitized-diagnostic-v1") != "sanitized-diagnostic-v1":
             refuse()
