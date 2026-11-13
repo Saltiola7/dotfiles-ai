@@ -4007,6 +4007,13 @@ It grants no gate credit and preserves normal delivery guards and private histor
 
 ## Durable integration coordination Discovery
 
+The [runtime amendment](features/integration-runtime-adapters.md) consolidates the
+remaining lifecycle/native/policy source and records authorized target rollout.
+It adds ordered source projections, private obligations/outcomes, honest inherited
+repair, guarded task refresh and terminal archival. Exact source Build approval,
+merged-generation installation, credential delegation and live qualification remain
+separate. No existing cycle is silently upgraded; Dagger retains its own owner.
+
 The [integration coordinator](features/integration-coordinator.md) and
 [Initiative amendment](../../initiatives/dbsctr-delivery-lifecycle/INTEGRATION-COORDINATOR.md)
 define a proposed default-off durable per-target integration slot. The same

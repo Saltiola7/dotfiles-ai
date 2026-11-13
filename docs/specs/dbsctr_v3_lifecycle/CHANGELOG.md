@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-12 — Runtime adapter Discovery
+
+- Consolidate remaining lifecycle, Actions and policy source behind the delivered
+  offline core. Specify ordered source/refresh attribution, immutable delivery
+  obligations, honest inherited repair grants, supersession and terminal archive.
+- Record guarded enrolled task-head refresh permission, protected source retention,
+  authenticated admission and exact native CI/security/base guards. Current CI
+  triggers, review-exception boundaries and separately owned Dagger work remain.
+- Prepare source-only critical Build authority and subsequent exact-target rollout.
+  No implementation, registration, credential delegation or activation is claimed.
+
 ## 2026-11-12 — Explicit published-feature Initiative follow-up
 
 - Add `begin --follow-up-pr NUMBER` for exact approved GitHub Initiative
