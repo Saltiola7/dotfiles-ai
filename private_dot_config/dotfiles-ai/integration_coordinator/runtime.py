@@ -275,6 +275,31 @@ ACTIVE = frozenset({State.PREPARING, State.QUALIFYING, State.AWAITING_OPERATOR, 
 
 
 @dataclass(frozen=True, slots=True)
+class ValidationRepair:
+    """Authenticated no-code correction; carries no source or projection authority."""
+    original_handle: str
+    expected_generation: int
+    failure_digest: str
+    correction_digest: str
+    kind: str = "validation_repair"
+    schema_version: int = 2
+
+    def __post_init__(self) -> None:
+        _version(self.schema_version)
+        c._require(self.kind == "validation_repair", "validation_repair_kind")
+        c._handle(self.original_handle)
+        c._integer(self.expected_generation)
+        c._digest(self.failure_digest)
+        c._digest(self.correction_digest)
+        c._size(self)
+
+
+def validation_repair_handle(request: ValidationRepair) -> str:
+    c._require(type(request) is ValidationRepair, "validation_repair_type")
+    return identity(request)[:32]
+
+
+@dataclass(frozen=True, slots=True)
 class Ticket:
     handle: str
     obligation_handle: str
@@ -906,6 +931,51 @@ def supersede(state: RuntimeSnapshot, obligation_handle: str, expected_current_t
         state.archives, _Action("supersede", (obligation_handle, expected_current_ticket, replacement, admission, authorization_digest)))
 
 
+def validation_repair(state: RuntimeSnapshot, request: ValidationRepair, expected: Obligation,
+                      admission: c.Admission) -> RuntimeSnapshot:
+    """Atomically supersede one failed validation, copying only ledger-held facts."""
+    c._require(type(request) is ValidationRepair and type(expected) is Obligation, "validation_repair_type")
+    old = state.lookup_ticket(request.original_handle)
+    actual = state.obligation(old.obligation_handle)
+    _admission(state, old, admission)
+    if (expected.handle != actual.handle or expected.grant_digest != actual.grant_digest
+            or old.generation != request.expected_generation or old.failure_digest != request.failure_digest):
+        raise Conflict("validation_repair_predecessor_changed")
+    handle = validation_repair_handle(request)
+    accepted = next((ticket for ticket in (*state.tickets, *(row.ticket for row in state.archives))
+                     if ticket.handle == handle), None)
+    if accepted is not None:
+        # Historical identity is immutable even when a later code repair owns the
+        # current index. A duplicate neither resurrects this ticket nor resets it.
+        if (old.state != State.SUPERSEDED or accepted.predecessor != old.handle
+                or accepted.obligation_handle != old.obligation_handle or accepted.source != old.source
+                or accepted.requester_digest != old.requester_digest
+                or accepted.repair_authorization_digest != identity(request)
+                or accepted.delivery_mode != old.delivery_mode or accepted.guarded_refresh != old.guarded_refresh):
+            raise Conflict("validation_repair_successor_changed")
+        return state
+    observed = lambda value: (value.handle, value.current_ticket, value.grant_digest,
+                              value.repair_count, value.revision_count, value.repair_owner)
+    if (actual.current_ticket != old.handle or old.state != State.REPAIR_PENDING or old.reservation is not None
+            or old.projection is None or old.candidate is None or actual.repair_owner is not None
+            or observed(expected) != observed(actual)):
+        raise Conflict("validation_repair_requires_current_failed_validation")
+    if len(state.tickets) >= MAX_TICKETS or len(state.target.queue) >= c.MAX_QUEUE:
+        raise Conflict("working_capacity")
+    successor = Ticket(handle, old.obligation_handle, old.source, old.requester_digest, predecessor=old.handle,
+        state=State.QUEUED, sequence=state.target.next_sequence, base=old.projection.base, projection=old.projection,
+        admission_digest=admission.receipt_digest, repair_authorization_digest=identity(request),
+        delivery_mode=old.delivery_mode, guarded_refresh=old.guarded_refresh)
+    retired = replace(old, state=State.SUPERSEDED)
+    obligation = replace(actual, current_ticket=handle, repair_count=actual.repair_count + 1,
+                         revision_count=actual.revision_count + 1)
+    return RuntimeSnapshot(replace(state.target, queue=(*state.target.queue, handle),
+        next_sequence=state.target.next_sequence + 1, retained_count=state.target.retained_count + 1),
+        (*(retired if ticket.handle == old.handle else ticket for ticket in state.tickets), successor),
+        tuple(obligation if row.handle == actual.handle else row for row in state.obligations), state.archives,
+        _Action("validation_repair", (request, expected, admission)))
+
+
 def archive(state: RuntimeSnapshot, handle: str) -> RuntimeSnapshot:
     try:
         ticket = state.ticket(handle)
@@ -1005,14 +1075,18 @@ def _replay(before: RuntimeSnapshot, action: _Action) -> RuntimeSnapshot:
         c._require(len(a) == 5, "transition_shape")
         return supersede(before, _argument(a, 0, str), _argument(a, 1, str), _argument(a, 2, Ticket),
                          _argument(a, 3, c.Admission), _argument(a, 4, str))
+    if kind == "validation_repair":
+        c._require(len(a) == 3, "transition_shape")
+        return validation_repair(before, _argument(a, 0, ValidationRepair), _argument(a, 1, Obligation),
+                                 _argument(a, 2, c.Admission))
     if kind == "archive":
         c._require(len(a) == 1, "transition_shape")
         return archive(before, _argument(a, 0, str))
     raise Conflict("transition_unsupported")
 
 
-Record: TypeAlias = SourceSeries | Projection | Candidate | Ticket | Target | Obligation | Archive
-RECORDS = (SourceSeries, Projection, Candidate, Ticket, Target, Obligation, Archive)
+Record: TypeAlias = SourceSeries | Projection | Candidate | Ticket | Target | Obligation | Archive | ValidationRepair
+RECORDS = (SourceSeries, Projection, Candidate, Ticket, Target, Obligation, Archive, ValidationRepair)
 
 
 def encode(value: Record) -> bytes:
@@ -1228,9 +1302,16 @@ def _archive(value: object) -> Archive:
                    None if v["previous_digest"] is None else c._text(v["previous_digest"]), c._int(v["schema_version"]))
 
 
+def _validation_repair(value: object) -> ValidationRepair:
+    v = _obj(value, ValidationRepair)
+    return ValidationRepair(c._text(v["original_handle"]), c._int(v["expected_generation"]),
+                            c._text(v["failure_digest"]), c._text(v["correction_digest"]),
+                            c._text(v["kind"]), c._int(v["schema_version"]))
+
+
 def decode(kind: str, raw: bytes) -> Record:
     decoders = {"source": _source, "projection": _projection_record, "candidate": _candidate, "ticket": _ticket,
-                "target": _target, "obligation": _obligation, "archive": _archive}
+                "target": _target, "obligation": _obligation, "archive": _archive, "validation_repair": _validation_repair}
     if kind not in decoders or type(raw) is not bytes or len(raw) > (c.TARGET_LIMIT if kind == "target" else c.RECORD_LIMIT):
         raise Invalid("record_boundary")
     def pairs(items: list[tuple[str, object]]) -> dict[str, object]:

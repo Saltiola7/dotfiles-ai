@@ -49,6 +49,23 @@ class VerifiedOutcome:
     verification_digest: str
 
 
+def validation_repair_request(status: Status, correction_digest: str) -> dict[str, object]:
+    """Bind a concrete infrastructure assessment to the observed failed attempt.
+
+    This constructs data only. The hosted owner rechecks native identity, the
+    pinned predecessor and the exact obligation before changing durable state.
+    """
+    ticket, obligation = status.ticket, status.obligation
+    if (ticket.state != r.State.REPAIR_PENDING or ticket.reservation is not None
+            or ticket.projection is None or ticket.candidate is None or ticket.failure_digest is None
+            or obligation.current_ticket != ticket.handle or obligation.handle != ticket.obligation_handle
+            or obligation.repair_owner is not None):
+        raise c.Conflict("validation_repair_not_current_failure")
+    repair = r.ValidationRepair(ticket.handle, ticket.generation, ticket.failure_digest, correction_digest)
+    return {"schema_version": 2, "policy_digest": ticket.candidate.policy_digest,
+            "ticket": c._data(repair), "obligation": c._data(obligation)}
+
+
 class LocalClient:
     """Consume the existing validated coordinator table and the shared wire policy."""
 
@@ -132,14 +149,44 @@ class LocalClient:
         raw = c._canonical(request)
         if len(raw) > h.DISPATCH_LIMIT or request.get("schema_version") != 2 or type(request.get("schema_version")) is not int:
             raise c.Invalid("source_request_limit")
-        ticket = r.decode("ticket", c._canonical(request["ticket"]))
+        wire = g._object(request["ticket"])
+        repair: r.ValidationRepair | None = None
+        if wire.get("kind") == "validation_repair":
+            parsed = r.decode("validation_repair", c._canonical(wire))
+            assert isinstance(parsed, r.ValidationRepair)
+            repair = parsed
+            ticket = None
+        else:
+            parsed = r.decode("ticket", c._canonical(wire))
+            assert isinstance(parsed, r.Ticket)
+            ticket = parsed
         obligation = r.decode("obligation", c._canonical(request["obligation"]))
-        if not isinstance(ticket, r.Ticket) or not isinstance(obligation, r.Obligation):
+        if not isinstance(obligation, r.Obligation):
             raise c.Invalid("source_request_types")
-        config, _native = self.configuration()
+        config, native = self.configuration()
         assert config.enrollment is not None and config.workflow_id is not None
+        if repair is not None:
+            native.observe_policy()
+            _head, records = native.read_control((repair.original_handle,))
+            view = r.load_snapshot(records)
+            if (view.target.repository != self.repository
+                    or view.target.default_branch != config.enrollment.default_branch
+                    or view.target.root_oid != config.enrollment.root_oid
+                    or view.target.policy_digest != self.policy_digest):
+                raise c.Unavailable("local_ledger_enrollment_changed")
+            ticket = view.lookup_ticket(repair.original_handle)
+            root = view.obligation(ticket.obligation_handle)
+            # A repeated wakeup may find this predecessor archived/superseded.
+            # Preserve the original request; only the remote atomic owner decides
+            # whether it is a duplicate or a conflicting new attempt.
+            if (ticket.obligation_handle != obligation.handle or root.grant_digest != obligation.grant_digest
+                    or obligation.current_ticket != ticket.handle or ticket.generation != repair.expected_generation
+                    or ticket.failure_digest != repair.failure_digest):
+                raise c.Conflict("validation_repair_predecessor_changed")
+        assert ticket is not None
         if (request["policy_digest"] != self.policy_digest or ticket.source.repository != self.repository
-                or ticket.obligation_handle != obligation.handle or ticket.state != r.State.REQUESTED
+                or ticket.obligation_handle != obligation.handle
+                or repair is None and ticket.state != r.State.REQUESTED
                 or ticket.guarded_refresh and not self.guarded_refresh
                 or ticket.delivery_mode == "admin" and not config.enrollment.review_exception):
             raise c.Conflict("source_request_binding")
@@ -154,8 +201,12 @@ class LocalClient:
                 {"ref": config.enrollment.default_branch, "inputs": {"request": raw.decode("utf-8")}})
         except g.ApiFailure:
             raise c.Unavailable("local_dispatch_rejected") from None
-        return {"status": "unadmitted", "dispatch": "accepted", "ticket_handle": ticket.handle,
+        handle = ticket.handle if repair is None else r.validation_repair_handle(repair)
+        return {"status": "unadmitted", "dispatch": "accepted", "ticket_handle": handle,
                 "obligation_handle": obligation.handle}
+
+    def validation_repair(self, status: Status, correction_digest: str) -> dict[str, object]:
+        return self.submit(validation_repair_request(status, correction_digest))
 
     def status(self, ticket_handle: str, obligation_handle: str) -> Status | None:
         c._handle(ticket_handle)

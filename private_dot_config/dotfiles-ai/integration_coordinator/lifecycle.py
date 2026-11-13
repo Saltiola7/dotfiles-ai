@@ -42,6 +42,8 @@ _FIELDS = {
     "assessment": "grant_digest launch_digest predecessor_ticket statement assessed_at",
     "revocation": "grant_digest reason_digest revoked_at",
     "outbox": "cycle_id record_digest source_digest obligation_digest ticket_handle requester_digest request",
+    "validation_correction": "grant_digest obligation_digest predecessor_ticket expected_generation failure_digest source_digest revision_digest source_custody_digest scope_digest policy_digest remote_policy_digest enrollment_digest ledger_head statement assessed_at",
+    "validation_outbox": "correction_digest obligation_digest predecessor_ticket ticket_handle request",
 }
 
 
@@ -113,7 +115,7 @@ def validate(kind: str, value: Mapping[str, object]) -> None:
                     or len(canonical(request)) > 48 * 1024):
                 raise ValueError("integration_private_outbox_request_invalid")
             hex_value(request["policy_digest"])
-            runtime.decode("ticket", canonical(request["ticket"]))
+            runtime.decode("validation_repair" if kind == "validation_outbox" else "ticket", canonical(request["ticket"]))
             runtime.decode("obligation", canonical(request["obligation"]))
         elif key in {"ticket", "obligation", "projection"}:
             runtime.decode(key, canonical(item))
@@ -127,6 +129,9 @@ def validate(kind: str, value: Mapping[str, object]) -> None:
             hex_value(item, tuple(range(16, 65)))
         elif key in {"authorized_at", "verified_at", "assessed_at", "revoked_at", "merged_at", "checked_at", "created_at"}:
             timestamp(item)
+        elif kind == "validation_correction" and key == "expected_generation":
+            if type(item) is not int or not 1 <= item <= 2**53 - 1:
+                raise ValueError("integration_private_integer_invalid")
         elif kind == "operator" and key in {"generation", "requester_id", "pid"}:
             if type(item) is not int or not 1 <= item <= (2147483647 if key == "pid" else 2**53 - 1):
                 raise ValueError("integration_private_integer_invalid")
@@ -301,14 +306,14 @@ class Custody:
         return value
 
     def link(self, kind: str, key: str, identity: str) -> None:
-        if kind not in {"birth", "grant", "outbox", "outcome", "authorization", "revocation", "projection", "revision_link", "outcome_check", "alignment_selection", "adoption"} or re.fullmatch(
+        if kind not in {"birth", "grant", "outbox", "outcome", "authorization", "revocation", "projection", "revision_link", "outcome_check", "alignment_selection", "adoption", "validation_correction", "validation_outbox"} or re.fullmatch(
                 r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", key) is None:
             raise ValueError("integration_private_link_invalid")
         self.read(kind, identity)
         self._write(self.directory / "links" / kind / (key + ".json"), canonical({"digest": identity}))
 
     def linked(self, kind: str, key: str) -> dict[str, object]:
-        if kind not in {"birth", "grant", "outbox", "outcome", "authorization", "revocation", "projection", "revision_link", "outcome_check", "alignment_selection", "adoption"} or re.fullmatch(
+        if kind not in {"birth", "grant", "outbox", "outcome", "authorization", "revocation", "projection", "revision_link", "outcome_check", "alignment_selection", "adoption", "validation_correction", "validation_outbox"} or re.fullmatch(
                 r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", key) is None:
             raise ValueError("integration_private_link_invalid")
         value = object_value(json.loads(self._read(self.directory / "links" / kind / (key + ".json")),
@@ -316,6 +321,20 @@ class Custody:
         if set(value) != {"digest"}:
             raise ValueError("integration_private_link_invalid")
         return self.read(kind, hex_value(value["digest"]))
+
+    def optional_link(self, kind: str, key: str) -> dict[str, object] | None:
+        """Only genuine link absence is optional; dangling custody is an error."""
+        if kind not in {"birth", "grant", "outbox", "outcome", "authorization", "revocation", "projection", "revision_link", "outcome_check", "alignment_selection", "adoption", "validation_correction", "validation_outbox"} or re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", key) is None:
+            raise ValueError("integration_private_link_invalid")
+        path = self.directory / "links" / kind / (key + ".json")
+        try:
+            self._directory(path.parent, False)
+        except FileNotFoundError:
+            return None
+        if not os.path.lexists(path):
+            return None
+        return self.linked(kind, key)
 
     def revoked(self, grant_digest: str) -> bool:
         grant_identity = hex_value(grant_digest)

@@ -51,3 +51,14 @@ def test_selected_adoption_forwards_the_explicit_mode_to_the_paired_owner(monkey
     monkeypatch.setattr(cli, "_local_action", local)
     assert cli.main(["adopt", "--cycle-id", "retained", "--pr", "12", "--integration-mode", "admin"]) == 0
     assert calls == [("adopt", ["--cycle-id", "retained", "--pr", "12", "--integration-mode", "admin"])]
+
+
+def test_unchanged_source_correction_keeps_assessment_data_with_paired_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, list[str]]] = []
+    def local(action: str, arguments: list[str]) -> int:
+        calls.append((action, arguments))
+        return 0
+    monkeypatch.setattr(cli, "_local_action", local)
+    assessment = "Artifact upload service recovered; the approved exact-input rerun passed."
+    assert cli.main(["reconcile", "--cycle-id", "retained", "--validation-repair", assessment]) == 0
+    assert calls == [("reconcile", ["--cycle-id", "retained", "--validation-repair", assessment])]

@@ -83,6 +83,17 @@ and source revisions remain append-only and attributable to the same obligation.
 
 Change code or diagnose and resolve a concrete infrastructure failure before
 retrying a failed unchanged input set. Waiting alone is not a repair attempt.
+For an unchanged source whose qualified candidate failed because of infrastructure,
+use `integration-reconcile --cycle-id CYCLE --validation-repair ASSESSMENT` only
+after assessing the concrete correction under the original task's repair grant.
+The helper retains the assessment privately, preserves the existing source and
+phase records, and requests a new attempt at the queue tail. Dispatch remains
+unadmitted until durable acknowledgment. Retry a lost dispatch with that same
+stored request; do not manufacture a source commit or reopen a completed cycle.
+The coordinator copies only its retained source projection, clears old check
+qualification and requires fresh candidate checks. This command does not rerun
+CI or treat the assessment as a pass. Unproved source, active effects, another
+repair owner or changed authority remain blockers.
 Material scope, behavior, risk or authority changes need the operator's decision;
 routine intent-preserving repairs and changed hashes use the existing grant.
 Unavailable evidence is not a pass.
