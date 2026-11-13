@@ -1,5 +1,28 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-11 — Qualify Linux native-artifact summaries
+
+- Move only the `test` artifact-summary job to pinned `ubuntu-24.04`; keep native
+  macOS workers, every runtime/Worktrunk lane, four partitions, action pins,
+  permissions, check names, timeouts and the fail-closed verifier unchanged.
+  Exercise the existing verifier suite on Linux before current native artifacts
+  are accepted. Native Worktrunk integration fixtures remain on the workers.
+- Local validation: an intended runner-policy regression fails before the fix;
+  104 affected/publication cases pass with no skips. The changed test file passes
+  configured ty and Python compilation. All eight retained PR #305 artifacts
+  match native digests/source authority; the unchanged verifier preserves each
+  lane's 7,049 tests, 41 skips and 232 passed subtests.
+- Native baseline run `43040118499`: summaries wait 22m05s and 41m01s after the
+  last worker, execute for 16/18 seconds and spend 3 seconds in verification.
+  The final tail is 41m19s. This single observation is not a measured saving,
+  configured account limit or comparable post-change result. Linux runtime
+  qualification and current-head full CI remain required before merge.
+- Cycle `CI-LINUX-SUMMARY-001` owns source-only draft delivery and actual native
+  evidence. Design `9905f8e7`, implementation `dde7a79e`; remaining Gate Commits
+  and Final Push are recorded privately. No gate exception, local deployment,
+  queue policy, Dagger authority, partition or shared-helper change. Revert this
+  bounded workflow/test slice to restore summary placement.
+
 ## 2026-11-11 — Coordinator rollout Discovery
 
 - Specify default-off compatible installation, one policy owner, separately qualified hosted credentials, disable/recovery and the personal coordinated-delivery journey. No managed installation, enrollment or runtime activation is performed.
