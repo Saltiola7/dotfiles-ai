@@ -125,6 +125,32 @@ def test_complete_union_preserves_existing_setup_and_call_skips(core, receipts):
     assert result["skipped"] == 2
 
 
+@pytest.mark.parametrize("python_version", ["3.12", "3.13", "3.14", "3.15"])
+def test_complete_union_accepts_each_selected_python_runtime(core, receipts, python_version):
+    root, expected, manifests, nodes = receipts
+    expected["python_version"] = python_version
+    for manifest in manifests:
+        original = artifact(root, manifest["identity"], manifest["shard"])
+        manifest["identity"] = copy.deepcopy(expected)
+        manifest["python_full"] = python_version + ".1"
+        target = artifact(root, expected, manifest["shard"])
+        if original != target:
+            original.rename(target)
+        write_manifest(root, expected, manifest)
+    result = core.verify(root, expected, "success")
+    assert result["selected"] == len(nodes)
+    assert result["passed"] == len(nodes) - 2
+    assert result["skipped"] == 2
+
+
+@pytest.mark.parametrize("python_version", ["3.11", "3.16", "3.15t", "3.15.0"])
+def test_complete_union_rejects_unselected_python_runtime(core, receipts, python_version):
+    root, expected, _, _ = receipts
+    expected["python_version"] = python_version
+    with pytest.raises(ValueError, match="invalid execution identity"):
+        core.verify(root, expected, "success")
+
+
 @pytest.mark.parametrize("workers_result", ["failure", "cancelled", "skipped", "pending", ""])
 def test_native_worker_failure_blocks_even_complete_receipts(core, receipts, workers_result):
     root, expected, _, _ = receipts

@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-13 — Retain accepted runtime qualification in completion PR
+
+- Import the accepted runtime/CI qualification history into existing PR #309.
+  Preserve the modern credential-fixture loader assertion and every incoming
+  security regression; leave completion and follow-up implementations unchanged.
+- Retain the combined helper pin and incoming Python 3.15 oracle. Actual affected
+  qualification, prior green CI, renewed Gate Commit and push outcomes remain in
+  the Cycle Record. Fresh current-base native CI and exact-head merge consent
+  remain required; no failed-check waiver or inherited new-cycle gate credit.
+- Source-only: no runtime upgrade, helper activation, consumer/cloud mutation,
+  replacement PR or branch/worktree/data cleanup.
+
 ## 2026-11-13 — Reconcile completion source with accepted follow-up
 
 - Preserve both completion and accepted-default source histories in PR #309,
