@@ -379,3 +379,12 @@ credential qualification and target activation. Canonical source: this amendment
 and linked lifecycle/distribution contracts. Owners: lifecycle, distribution and
 native CI maintainers. Update tables/text together when interfaces, authority,
 versions, custody, transitions or rollout dependencies change.
+
+## Target-inventory prerequisite
+
+Hosted opt-in additionally depends on [native CI applicability and candidate
+receipts](integration-ci-applicability.md). The fixed source CheckPlan is not
+activation-ready merely because classic required contexts are represented.
+Qualify conditional concerns and missing candidate receipts through that bounded
+shared extension before target wiring/activation. Preserve this source slice and
+its completion evidence; do not reopen its immutable Cycle Record.

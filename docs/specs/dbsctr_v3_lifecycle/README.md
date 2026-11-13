@@ -4038,3 +4038,12 @@ defines the first implemented foundation: immutable records, guarded transitions
 expected-head append input and bounded offline validation/status. Native adapters,
 lifecycle hooks and runtime enrollment remain separate. Source JSON and fixture
 receipts confer no native check, merge, completion or cleanup authority.
+
+## Native applicability before hosted activation
+
+[Native CI applicability and candidate receipts](features/integration-ci-applicability.md)
+extends the same native qualification owner before hosted opt-in. Conditional
+workflow absence requires a bound negative applicability proof; missing or skipped
+applicable checks remain blocked. Static v1 plans/identity and diagnostic mapping
+behavior remain compatible. Shared source, target wiring and live qualification
+are distinct delivery boundaries.

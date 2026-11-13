@@ -1,5 +1,13 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## Discovery — native CI applicability prerequisite
+
+Captured the shared applicability/receipt source dependency before hosted opt-in.
+Native-required checks stay unconditional; negative proof and candidate receipts
+remain distinct from passing native CI. No implementation, installation, target
+wiring, credential delegation or activation is claimed by this Discovery entry.
+
+
 ## 2026-11-13 — Guarded integration runtime source
 
 - Add one default-off protocol-2 lifecycle and native Actions implementation:

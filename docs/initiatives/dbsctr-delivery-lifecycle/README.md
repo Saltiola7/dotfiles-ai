@@ -132,3 +132,15 @@ shadow observer. The current delivery work owns coordinator/native adoption; the
 validation owner consumes the handoff. Source, personal installation and hosted
 activation remain distinct. Earlier merge-commit-only and cleanup assumptions
 remain historical contracts, not authority for the new rebase coordinator.
+
+## Native CI applicability prerequisite
+
+[Native applicability and candidate receipts](../../specs/dbsctr_v3_lifecycle/features/integration-ci-applicability.md)
+records an activation prerequisite found during target inventory: static required
+contexts alone do not qualify conditional or separately produced CI concerns.
+The specified `integration-ci-applicability` source slice retains the existing
+coordinator and v1 identity, adds explicit negative proof and a shared receipt
+writer, and leaves current CI/credentials/activation unchanged. Runtime source
+is verified merged; source feasibility and exact Build approval remain required.
+Target
+rollout depends on the reviewed merged extension; Dagger remains separate.

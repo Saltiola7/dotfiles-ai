@@ -82,3 +82,14 @@ not_applicable because this profile makes no measured comparison or threshold
 claim. Canonical source and owner: the linked feature and lifecycle maintainer.
 Update those tables with any represented contract change rather than duplicating
 them here.
+
+## Native CI applicability source extension
+
+The [applicability feature](features/integration-ci-applicability.md) is critical
+risk under Python, Security and Cloud because negative applicability can affect
+merge eligibility. Native-required checks stay unconditional, unknown scope or
+event causality blocks, and producer receipts cannot substitute native success.
+Retain v1 plan identity and the existing coordinator. Kernel, Review/Integrate and
+Maintain/Retire apply; Release, Deploy and Operate are not applicable to the
+source-only draft. No consumer workflow, credential, state ref, protection or
+installed generation changes in this source slice.
