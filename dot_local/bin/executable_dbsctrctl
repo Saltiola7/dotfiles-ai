@@ -5070,9 +5070,12 @@ def amendment_external_authority(directory, receipt):
             "commit": receipt["manifest_commit"], "closure": closure}
 
 
-def amendment_local_profile(root, profile, blob):
+def amendment_local_profile(root, profile, blob, *, commit=None):
+    if commit is not None and (not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit)):
+        fail("invalid Initiative amendment profile commit")
     closure = amendment_closure(root, {"artifacts": [], "manifest_path": profile,
-                                       "manifest_commit": "HEAD"}, {"profile": profile})
+                                       "manifest_commit": commit if commit is not None else "HEAD"},
+                                {"profile": profile})
     if len(closure) != 1 or closure[0]["blob"] != blob:
         fail("Initiative amendment source profile changed")
     return closure
@@ -5212,10 +5215,13 @@ def validate_initiative_amendments(root, record):
                     or not isinstance(plan.get("authority"), dict)):
                 fail("invalid cross-repository Initiative amendment")
             authority = plan["authority"]
+            # Validate approved local history at its digest-bound checkout commit,
+            # not whichever checkout HEAD happens to be reading the shared store.
             if (amendment_external_authority(authority["directory"], receipt) != authority
                     or common_git_dir(Path(authority["directory"])).resolve() == common_git_dir(root).resolve()
                     or plan["closure"] != amendment_local_profile(root, before["engineering_profile"]["path"],
-                                                                 before["engineering_profile"]["blob"])):
+                                                                 before["engineering_profile"]["blob"],
+                                                                 commit=plan["checkout"]["head"])):
                 fail("Initiative amendment retained authority changed")
         else:
             if plan.get("schema_version") != 1 or "authority" in plan:

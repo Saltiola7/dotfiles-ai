@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-13 — Historical cross-repository profile validation
+
+- Validate retained local profile closure at the immutable checkout commit in
+  the approved amendment envelope, rather than the unrelated reader's current
+  `HEAD`. Preserve exact path/blob/regular-file mode checks, retained coordinator
+  custody, consent digests and current-profile guards for active writes.
+- Add disposable registration/profile-drift and invalid historical-tree
+  regressions. No record migration, approval change, managed installation or
+  consumer activation is part of this source repair. An explicit operator
+  exception permits bootstrap commit/draft-PR publication despite failed cycle
+  registration. Formal gates remain pending; merge and installation are separate.
+
 ## 2026-11-12 — Explicit published-feature Initiative follow-up
 
 - Add `begin --follow-up-pr NUMBER` for exact approved GitHub Initiative

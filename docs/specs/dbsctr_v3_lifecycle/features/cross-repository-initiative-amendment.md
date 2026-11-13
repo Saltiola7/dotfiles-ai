@@ -40,6 +40,14 @@ helper activation or application of a consumer amendment.
   full foreign document closure is separately bound and revalidated by the
   immutable amendment envelope. A recorded nonempty-gate commit and fresh evidence
   are still required before completion.
+- Given a later profile revision in a reader checkout, historical local closure
+  validation uses the immutable checkout commit already bound by the approved
+  amendment plan, not the reader's current `HEAD`. Exact profile path/blob/mode
+  must match that retained tree. Missing commits, symbolic revisions, missing
+  paths, symlinks and mismatched blobs refuse. New amendment admission still
+  checks current `HEAD`; active Gate Commit and Final Push still require the
+  cycle's current Engineering Profile identity. Historical readability does not
+  approve a new profile or mutate a completed record.
 - Same-digest replay, stale approval, chain validation, private preimages/outcomes,
   bounded diagnostics, atomic replacement and lock behavior retain the existing
   amendment contract. External source paths stay in private evidence only.
@@ -62,6 +70,9 @@ dirty selected worktree/index, unavailable objects, forged custody, wrong
 coordinator/context/slice, and stale approval. Existing version-1 amendment and
 completion regressions remain required. Hosted CI is integration evidence;
 managed activation and real consumer amendment remain separate approvals.
+Also cover registration from an unrelated checkout with a later profile,
+byte-preservation of the prior cycle, historical blob/tree failures and rejection
+of active Gate Commit after unadopted profile changes.
 
 ## Visual Evidence
 
@@ -87,6 +98,7 @@ managed activation and real consumer amendment remain separate approvals.
 | Active cycle; new ready authority | Verify both native repositories and closures; preflight | Retained private plan, unchanged cycle |
 | Exact approved plan | Revalidate; persist preimage/outcome; append amendment | Same cycle, required gates pending |
 | Amended cycle; ordinary gated progress | Verify retained authority and fresh evidence; record local checkpoint | Completion eligible only after all required gates pass |
+| Historical amendment; reader profile advances | Validate local closure at approved checkout commit; preserve current-profile mutation guards | Readable history, no record rewrite or new profile approval |
 | Missing or changed retained authority | Refuse read/mutation/completion | Preserve state; operator recovery needed |
 
 **Text Equivalent:** Coordinator owns and retains foreign normative documents;
@@ -94,5 +106,8 @@ Build owns its profile, source and gates. Private evidence binds both without
 copying coordinator documents into public Build Git. Preflight changes no cycle.
 Exact approval permits only amendment and gate reopening. Every later operation
 requires the retained authority; loss blocks rather than selecting another source.
+An unrelated reader profile revision does not change approved local history:
+the envelope's checkout commit owns its closure. Active writes still require
+current profile adoption.
 Canonical source: this feature. Owner: lifecycle maintainer. Update these tables
 when custody, versioning, approval or completion boundaries change.

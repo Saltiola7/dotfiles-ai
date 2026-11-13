@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+import runpy
 import shutil
 from types import SimpleNamespace
 
@@ -129,6 +130,70 @@ def test_cross_repository_stale_preflight_preserves_canonical_state(cross):
                          "--approval", "agent-confirmed", ok=False)
     assert json.loads(result.stdout)["status"] == "blocked"
     assert path.read_bytes() == before and git_snapshot(target) == checkout
+
+
+def test_historical_cross_repository_profile_survives_reader_head_change(cross, fixture):
+    target, path, _ = cross.amendment
+    apply_amendment(cross.amendment)
+    record = json.loads(path.read_text())
+    profile = record["engineering_profile"]["path"]
+    reader = target.parent / "profile-reader"
+    git(target, "worktree", "add", "-b", "profile-reader", str(reader))
+    (reader / profile).write_text((reader / profile).read_text() + "\nLater profile revision.\n")
+    git(reader, "add", profile)
+    git(reader, "commit", "-m", "Advance unrelated reader profile")
+    git(reader, "push", "upstream", "HEAD:refs/heads/base")
+    git(reader, "branch", "--set-upstream-to", "upstream/base")
+    before, checkout = path.read_bytes(), git_snapshot(target)
+    # Real registration scans retained cycles from the new checkout. Historical
+    # authority must not depend on the reader's current profile blob.
+    result = harness.run(reader, "begin", "--cycle-id", "profile-reader", "--context", "test",
+        "--risk", "routine", "--delivery-intent", "local", "--base-branch", "protected",
+        "--plan", str(fixture.plan_path()))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert path.read_bytes() == before
+    assert git_snapshot(target) == checkout
+
+
+def test_current_profile_drift_still_blocks_amended_gate_commit(cross):
+    target, path, _ = cross.amendment
+    apply_amendment(cross.amendment)
+    profile = json.loads(path.read_text())["engineering_profile"]["path"]
+    (target / profile).write_text((target / profile).read_text() + "\nUnadopted profile.\n")
+    git(target, "add", profile)
+    git(target, "commit", "-m", "Unadopted profile revision")
+    before, checkout = path.read_bytes(), git_snapshot(target)
+    result = harness.run(target, "gate-commit", "--message", "Must refuse stale profile",
+        "--gates", "domain", "--paths", profile, ok=False)
+    assert result.returncode != 0
+    assert "Engineering Profile changed" in result.stderr
+    assert path.read_bytes() == before and git_snapshot(target) == checkout
+
+
+@pytest.mark.parametrize("change", ["blob", "missing_commit", "symbolic_commit", "missing_path", "symlink"])
+def test_historical_profile_requires_exact_regular_blob_at_immutable_commit(fixture, change):
+    core = runpy.run_path(str(harness.SCRIPT))
+    profile = json.loads(fixture.plan_path().read_text())["profile"]
+    commit = git(fixture.repo, "rev-parse", "HEAD").strip()
+    blob = git(fixture.repo, "rev-parse", f"HEAD:{profile}").strip()
+    if change == "blob":
+        blob = "0" * 40
+    elif change == "missing_commit":
+        commit = "0" * 40
+    elif change == "symbolic_commit":
+        commit = "HEAD"
+    elif change == "missing_path":
+        profile = "docs/specs/test/absent.md"
+    else:
+        path = fixture.repo / profile
+        path.unlink()
+        path.symlink_to("README.md")
+        git(fixture.repo, "add", profile)
+        git(fixture.repo, "commit", "-m", "Invalid symlink profile")
+        commit = git(fixture.repo, "rev-parse", "HEAD").strip()
+        blob = git(fixture.repo, "rev-parse", f"HEAD:{profile}").strip()
+    with pytest.raises(RuntimeError):
+        core["amendment_local_profile"](fixture.repo, profile, blob, commit=commit)
 
 
 def test_independent_same_repository_clone_cannot_select_external_route(amendment, fixture):
