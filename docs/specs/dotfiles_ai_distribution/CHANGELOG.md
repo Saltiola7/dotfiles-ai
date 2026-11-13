@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-13 — Compatible coordinator source generation
+
+- Extend only the existing delivery policy to schema 2 with a closed, default-off
+  coordinator table. Keep schema-1 delivery, workspace and activation contracts.
+- Deliver paired helper/package/entrypoint and managed lifecycle guidance in the
+  shared runtime source slice. Source fixtures and publication checks pass; exact
+  merged-generation installation and native enrollment remain separate rollout
+  obligations. Preserve unrelated local edits and existing Dagger guidance.
+
 ## 2026-11-12 — Coordinator runtime and activation scope
 
 - Consolidate compatible policy/installation source with lifecycle/native adapters;

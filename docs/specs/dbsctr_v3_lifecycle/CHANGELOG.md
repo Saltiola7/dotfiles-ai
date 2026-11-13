@@ -1,5 +1,27 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-13 — Guarded integration runtime source
+
+- Add one default-off protocol-2 lifecycle and native Actions implementation:
+  durable candidate custody, exact native CI qualification, guarded task rebase,
+  review-exception delivery and same-task operator recovery. Version-1 offline
+  records and unenrolled delivery retain their behavior.
+- Preserve original phase evidence through adoption, repair revisions and landed
+  IDs. Completed records stay immutable; qualified outcomes extend the existing
+  retirement history predicate without granting cleanup authority. Enrolled merge
+  modes publish linear ready source and defer final-base freshness to the worker.
+- Pass 425 affected integration/policy cases, then 186 targeted replacement cases
+  after review fixes, plus 60 publication/instruction and 62 benchmark checks.
+  Twenty-four selected typing units pass for
+  Python 3.12/3.14; the helper retains exactly 91 existing diagnostics, none added.
+- Bind inherited repair to the retained Initiative scope, retain approved
+  follow-up imports and refuse damaged revocation custody. Qualify Method 3.30
+  with profile checkpoint `29e6a725` and implementation/correction Gate Commits
+  `546f5589` and `69da5f27`. Final Push targets the source draft PR into `main`;
+  the Cycle Record retains final commits and actual publication. No Gate Exception,
+  installation, credential delegation or activation. Release, Deploy and Operate
+  remain not applicable to this source slice; native target rollout follows.
+
 ## 2026-11-12 — Runtime adapter Discovery
 
 - Consolidate remaining lifecycle, Actions and policy source behind the delivered
