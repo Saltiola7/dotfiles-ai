@@ -1615,7 +1615,7 @@
   `$HOME`.
 - Removed host-runtime fallback guidance from current configuration, operations,
   behavior, and maintenance contracts while preserving historical records.
-- Proved both guest Compose paths, zero active Camplan consumers, and healthy
+- Proved both guest Compose paths, zero active external workload consumers, and healthy
   Atuin before disabling stale startup and permanently deleting the approved
   no-backup host runtime state.
 - Removed the host Docker CLI, Compose, Buildx, and credential helper. Homebrew

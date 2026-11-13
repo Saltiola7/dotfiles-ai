@@ -3,18 +3,16 @@
 Home: dotfiles, host_tool_maintenance. Owner: dotfiles maintainer.
 Scope: every installed managed formula, cask, App Store app, declared Go/uv tool,
 mise runtime and integration; latest available stable within explicit existing
-constraints. Production consumers and enterprise-seo-tools remain excluded.
+constraints. Production consumers and designated private projects remain excluded.
 Risk: elevated for service/runtime changes, routine for isolated leaf tools.
 
 ## Sources and discovered conflicts
 
-Operator INT-027 confirms no additional host production consumers beyond the
-explicit enterprise-seo-tools and SDS exclusions. This resolves the unknown
-production-owner question, not dependency compatibility. Metadata-only interpreter
-checks show the excluded project's primary environment uses Framework Python;
-SDS root uses mise and its iac/ci/adb environments use uv or Framework Python.
-No inspected protected interpreter resolves through Homebrew. Keep those routes
-unchanged and retain old Homebrew kegs during same-minor patch maintenance.
+Operator INT-027 confirms the private inventory identifies all protected production
+consumers. This resolves the unknown-owner question, not dependency compatibility.
+Interpreter paths, environment-manager selections and private project structure
+remain in that inventory. Check their coupling before upgrading shared runtimes;
+retain existing interpreter routes and old Homebrew kegs until those checks pass.
 
 Current bounded inventory and completed CLI upgrades:
 [maintenance follow-up](findings/maintenance-follow-up.md).

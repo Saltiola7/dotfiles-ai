@@ -2,7 +2,7 @@
 
 Operator steering on 2026-10-07 pauses all further Python environment updates and
 live activation for a separate session. Completed deliveries remain preserved;
-SDS PR #197 merged, but live environment activation is deferred.
+A private project delivery merged, but live environment activation is deferred.
 
 The operator reported empty OpenCode screens in previously recovered Herdr panes.
 Investigation confirmed native Herdr identity can retain the last selected

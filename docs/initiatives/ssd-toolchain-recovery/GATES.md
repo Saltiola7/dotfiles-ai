@@ -40,9 +40,8 @@ Do not generate plans bound to nonexistent host/project profiles.
   rendering, shell syntax and native package/runtime/service checks.
 - dotfiles-ai: configured pytest, relevant Herdr/Lima/distribution/native workspace
   suites, template/plist validation, shell/Swift compilation and native tool probes.
-- SDS: project AGENTS.md selects pytest (no xdist), Ruff, mypy, coverage and other
-  declared tools; JFrog Xray is sole vulnerability authority when declared. Use
-  existing CI/manifest settings, not invented universal tooling.
+- Private projects: their own instructions, CI and manifests select testing, lint,
+  typing and vulnerability authorities. Keep exact selections in private inventory.
 - Other Python projects: read local instructions/CI/manifests before naming checks.
 - GUI, signing, desktop approval and exact-session recovery require live/native or
   operator evidence; substitute neither mocks nor CLI version output.
