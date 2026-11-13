@@ -711,6 +711,63 @@ def test_refresh_uses_exact_old_head_rebase_and_operator_identity_without_fake_j
     assert len(transport.calls) == 1
 
 
+def test_known_native_refresh_conflict_is_no_call_and_releases_initial_slot() -> None:
+    state = reserved_state("refresh")
+    ticket = state.ticket("1" * 32)
+    assert ticket.reservation is not None and ticket.projection is None
+    api = RefreshGitHub(state)
+    api.pull_value.update(mergeable=False, mergeable_state="dirty")
+    transport = RefreshTransport(api)
+    api.transport = transport
+    with pytest.raises(g.NativeRejection) as rejected:
+        api.refresh(ticket, ticket.reservation)
+    assert transport.calls == [] and api.writes == []
+    assert api.observe_pr(ticket.source.pr_number).head == ticket.current_head
+    no_effect = r.NoEffect(ticket.reservation.operation_id, ticket.reservation.invocation,
+        ticket.reservation.subject_digest, rejected.value.receipt_digest)
+    parked = r.record_rejection(state, ticket.handle, ticket.generation, no_effect)
+    blocked = parked.ticket(ticket.handle)
+    assert parked.target.active is None and blocked.state == r.State.REPAIR_PENDING
+    assert blocked.reservation is None and blocked.projection is None
+    assert blocked.source == ticket.source and blocked.reconciliations == (no_effect,)
+
+
+@pytest.mark.parametrize(("mergeable", "mergeable_state"), [
+    (None, "dirty"), (True, "dirty"), (0, "dirty"), (False, "unknown"),
+    (False, "blocked"), (False, "behind"), (False, None),
+])
+def test_unknown_native_conflict_facts_do_not_reject_refresh_as_known_conflict(
+        mergeable: object, mergeable_state: object) -> None:
+    state = reserved_state("refresh")
+    ticket = state.ticket("1" * 32)
+    assert ticket.reservation is not None
+    api = RefreshGitHub(state)
+    api.pull_value.update(mergeable=mergeable, mergeable_state=mergeable_state)
+    transport = RefreshTransport(api)
+    api.transport = transport
+    assert api.refresh(ticket, ticket.reservation).projection.head == oid(12)
+    assert len(transport.calls) == 1
+
+
+def test_known_conflict_never_resolves_an_already_uncertain_refresh_as_no_effect() -> None:
+    state = reserved_state("refresh")
+    ticket = state.ticket("1" * 32)
+    assert ticket.reservation is not None
+    state = r.mark_uncertain(state, ticket.handle, ticket.generation, ticket.reservation.operation_id)
+    ticket = state.ticket(ticket.handle)
+    assert ticket.reservation is not None
+    api = RefreshGitHub(state)
+    api.pull_value.update(mergeable=False, mergeable_state="dirty")
+    transport = RefreshTransport(api)
+    api.transport = transport
+    with pytest.raises(c.Ambiguous):
+        api.refresh(ticket, ticket.reservation)
+    with pytest.raises(c.Ambiguous):
+        api.reconcile(ticket, ticket.reservation)
+    assert transport.calls == [] and api.writes == []
+    assert state.ticket(ticket.handle).reservation == ticket.reservation
+
+
 def test_unsupported_source_is_proved_before_any_native_rewrite() -> None:
     class Unsupported(MemoryProof):
         def prove_refresh(self, source: r.SourceSeries, head: str, base: str) -> r.Projection:
