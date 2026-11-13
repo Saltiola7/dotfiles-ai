@@ -15,6 +15,14 @@ computer. Shared defaults stay disabled; personal and repository/task overrides
 preserve draft, ready, normal merge and exact-repository review-exception modes.
 The first rollout covers new cycles plus explicitly selected existing PRs.
 
+The operator now authorizes finishing and activating the two selected repository
+targets. The [runtime amendment](../../dbsctr_v3_lifecycle/features/integration-runtime-adapters.md)
+consolidates shared lifecycle/native/policy source. Its schema-2 delivery table
+extends the existing policy owner; no global enablement or silent migration is
+introduced. Installation and exact hosted qualification still follow merged source.
+Explicit credential delegation remains required; this authorization does not copy
+local credentials or confer a human review exception on another identity.
+
 ## One compatible owner
 
 Use the existing repository-policy and managed-generation owners, with an explicit
@@ -44,7 +52,7 @@ until their separately qualified hook/receipt amendment is delivered.
 | Hosted credential qualification | Independently enrolled least-privilege identity; prove source-refresh PR CI and post-merge triggers plus native review-exception/freshness semantics |
 | Operate | Durable admission, scheduled recovery, uncertain native mutation reconciliation, original-task feedback, disable and same-slot operator recovery |
 
-Activation is target-bound and separately approved. Source tests do not prove a
+Activation is target-bound and now in the operator-authorized scope. Source tests do not prove a
 hosted identity, repository exception or unattended delivery. An Actions token
 never inherits a person's review exception. Never copy a credential automatically
 from local configuration. Missing enrollment or state is unavailable/disabled,

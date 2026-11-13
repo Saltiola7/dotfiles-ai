@@ -1,0 +1,41 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {
+      "applicability": "required"
+    },
+    "behavior": {
+      "applicability": "required"
+    },
+    "spec": {
+      "applicability": "required"
+    },
+    "contract": {
+      "applicability": "required"
+    },
+    "test_driven_implementation": {
+      "applicability": "required"
+    },
+    "refactor": {
+      "applicability": "required"
+    },
+    "review_integrate": {
+      "applicability": "required"
+    },
+    "release": {
+      "applicability": "not_applicable",
+      "reason": "Shared reviewed source draft with no independent package, image or release publication."
+    },
+    "deploy": {
+      "applicability": "not_applicable",
+      "reason": "This source slice changes no installed generation, credential, native setting, control ref or enabled hosted enrollment; target rollout follows merged-source qualification."
+    },
+    "operate": {
+      "applicability": "not_applicable",
+      "reason": "Source and synthetic fixtures only; actual coordinator operation, native trigger and repair qualification remain required during target rollout."
+    },
+    "maintain_retire": {
+      "applicability": "required"
+    }
+  }
+}

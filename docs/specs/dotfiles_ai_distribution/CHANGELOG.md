@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-12 — Coordinator runtime and activation scope
+
+- Consolidate compatible policy/installation source with lifecycle/native adapters;
+  shared defaults remain off and existing schema-1 behavior remains unchanged.
+- Record authorized target rollout, explicit credential delegation, protected
+  default-branch workflow environment, native trigger qualification and reversible
+  disable/recovery. No apply, secret copy, settings change or activation performed.
+
 ## 2026-11-11 — Qualify Linux native-artifact summaries
 
 - Move only the `test` artifact-summary job to pinned `ubuntu-24.04`; keep native
