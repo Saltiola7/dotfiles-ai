@@ -350,7 +350,10 @@ def _persist(adapter: Adapter, config: HostedConfig, host: Authority, head: str,
                                          _operation(host, before, kind, handle)))
 
 
-def _dispatch(raw: bytes, config: HostedConfig, host: VerifiedHost) -> tuple[r.Ticket, r.Obligation, c.Admission]:
+Dispatch: TypeAlias = tuple[r.Ticket | r.ValidationRepair, r.Obligation, c.Admission | None]
+
+
+def _dispatch(raw: bytes, config: HostedConfig, host: VerifiedHost) -> Dispatch:
     if type(raw) is not bytes or len(raw) > DISPATCH_LIMIT:
         raise c.Invalid("dispatch_envelope_size")
     body = g._object(g.decode_json(raw, DISPATCH_LIMIT))
@@ -360,9 +363,16 @@ def _dispatch(raw: bytes, config: HostedConfig, host: VerifiedHost) -> tuple[r.T
     c._digest(body["policy_digest"])
     if body["policy_digest"] != config.enrollment.policy_digest:
         raise c.Unavailable("dispatch_policy_changed")
-    ticket = r.decode("ticket", c._canonical(body["ticket"]))
     obligation = r.decode("obligation", c._canonical(body["obligation"]))
-    assert isinstance(ticket, r.Ticket) and isinstance(obligation, r.Obligation)
+    assert isinstance(obligation, r.Obligation)
+    if g._object(body["ticket"]).get("kind") == "validation_repair":
+        request = r.decode("validation_repair", c._canonical(body["ticket"]))
+        assert isinstance(request, r.ValidationRepair)
+        # The old source/requester belongs to the pinned ledger, never this
+        # caller. Native host identity is checked before even an archive CAS.
+        return request, obligation, None
+    ticket = r.decode("ticket", c._canonical(body["ticket"]))
+    assert isinstance(ticket, r.Ticket)
     assert config.enrollment is not None
     if ticket.delivery_mode == "admin" and not config.enrollment.review_exception:
         raise c.Unavailable("task_admin_not_enrolled")
@@ -428,7 +438,7 @@ def run(config: HostedConfig, context_loader: Callable[[], HostContext], host_fa
     context = context_loader()
     host_port = host_factory()
     host = host_port.verify(config, context)
-    incoming: tuple[r.Ticket, r.Obligation, c.Admission] | None = None
+    incoming: Dispatch | None = None
     if host.event_name == "workflow_dispatch":
         if dispatch_loader is None:
             raise c.Unavailable("dispatch_input_unavailable")
@@ -436,10 +446,27 @@ def run(config: HostedConfig, context_loader: Callable[[], HostContext], host_fa
         if raw:
             incoming = _dispatch(raw, config, host)
     adapter = adapter_factory()  # Explicit delegated credential is accessed only after host/source preflight.
-    handles = () if incoming is None else tuple(dict.fromkeys((incoming[0].handle, incoming[1].handle,
-        *((incoming[0].predecessor,) if incoming[0].predecessor is not None else ()))))
+    handles: tuple[str, ...] = ()
+    if incoming is not None:
+        item, expected, _ = incoming
+        if isinstance(item, r.ValidationRepair):
+            handles = (item.original_handle, r.validation_repair_handle(item), expected.handle)
+        else:
+            handles = tuple(dict.fromkeys((item.handle, expected.handle,
+                *((item.predecessor,) if item.predecessor is not None else ()))))
     head, state = _read(adapter, config, handles)
     if incoming is not None:
+        item, expected, admission = incoming
+        if isinstance(item, r.ValidationRepair):
+            old = state.lookup_ticket(item.original_handle)
+            assert config.enrollment is not None
+            if (old.source.repository != config.enrollment.repository
+                    or old.requester_digest != r.requester_digest(config.enrollment.repository, host.actor_id)):
+                raise c.Unavailable("dispatch_requester_binding")
+            if old.delivery_mode == "admin" and not config.enrollment.review_exception:
+                raise c.Unavailable("task_admin_not_enrolled")
+            admission = c.Admission(c.identity(old.source), old.requester_digest, config.enrollment.policy_digest,
+                _hash({"host": host.receipt_digest, "validation_repair": c.identity(item)}))
         # Recover a crash after supersession before consuming the reserved repair
         # headroom. This moves only terminal metadata; source/outcomes stay intact.
         for _ in range(MAX_STEPS):
@@ -449,24 +476,32 @@ def run(config: HostedConfig, context_loader: Callable[[], HostContext], host_fa
             archived = r.archive(state, terminal.handle)
             _persist(adapter, config, host, head, state, archived, "admission_archive", terminal.handle)
             head, state = _read(adapter, config, handles)
-        ticket, obligation, admission = incoming
+        assert admission is not None
+        handle = r.validation_repair_handle(item) if isinstance(item, r.ValidationRepair) else item.handle
         # A verified archived duplicate remains idempotent even though its PR is closed.
         existing = next((value for value in (*state.tickets, *(entry.ticket for entry in state.archives))
-                         if value.handle == ticket.handle), None)
+                         if value.handle == handle), None)
+        subject = state.lookup_ticket(item.original_handle) if isinstance(item, r.ValidationRepair) else item
         if existing is None:
-            pr = adapter.observe_pr(ticket.source.pr_number)
+            pr = adapter.observe_pr(subject.source.pr_number)
             assert config.enrollment is not None
-            if (pr.merged or pr.head != ticket.current_head or pr.base_ref != config.enrollment.default_branch
+            if (pr.merged or pr.head != subject.current_head or pr.base_ref != config.enrollment.default_branch
                     or pr.head_ref in {config.enrollment.default_branch, "main", "master", config.enrollment.control_branch}):
                 raise c.Unavailable("dispatch_source_changed")
-        if ticket.predecessor is None:
-            admitted = r.admit_authenticated(state, ticket, obligation, admission)
+        if isinstance(item, r.ValidationRepair):
+            admitted = r.validation_repair(state, item, expected, admission)
             if admitted != state:
-                head = _persist(adapter, config, host, head, state, admitted, "admit", ticket.handle)
+                head = _persist(adapter, config, host, head, state, admitted, "validation_repair", handle)
+            elif admitted.obligation(expected.handle).current_ticket != handle:
+                return Report("accepted", handle, head, "historical_validation_repair")
+        elif item.predecessor is None:
+            admitted = r.admit_authenticated(state, item, expected, admission)
+            if admitted != state:
+                head = _persist(adapter, config, host, head, state, admitted, "admit", handle)
         else:
-            head, admitted = _repair_admission(adapter, config, host, head, state, ticket, obligation, admission)
+            head, admitted = _repair_admission(adapter, config, host, head, state, item, expected, admission)
         if existing is not None and existing.state == r.State.DELIVERED:
-            return Report("delivered", ticket.handle, head)
+            return Report("delivered", handle, head)
     return advance(config, host, host_port, adapter, handles)
 
 

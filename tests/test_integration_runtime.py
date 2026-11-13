@@ -494,3 +494,139 @@ def test_park_queued_keeps_another_tasks_unknown_mutation_and_original_obligatio
     assert parked.ticket(handle(2)).state == r.State.REPAIR_PENDING and parked.ticket(handle(2)).generation == 0
     assert parked.obligation(requested(2).obligation_handle) == state.obligation(requested(2).obligation_handle)
     assert r.build_append(state, parked, oid(1000), "control", handle(701)).deletions == ()
+
+
+def validation_request(state: r.RuntimeSnapshot, correction: int = 99) -> "r.ValidationRepair":
+    ticket = state.ticket(handle(1))
+    assert ticket.failure_digest is not None
+    return r.ValidationRepair(ticket.handle, ticket.generation, ticket.failure_digest, digest(correction))
+
+
+def test_validation_repair_copies_only_server_source_projection_and_queues_after_other_work() -> None:
+    before = r.record_failure(qualified(2), handle(1), 1, digest(90))
+    old = before.ticket(handle(1))
+    request = validation_request(before)
+    expected = before.obligation(old.obligation_handle)
+    after = r.validation_repair(before, request, expected, admission(old))
+    successor = after.ticket(r.validation_repair_handle(request))
+    assert successor.handle != old.handle and successor.predecessor == old.handle
+    assert successor.source == old.source and successor.projection == old.projection
+    assert successor.state == r.State.QUEUED and successor.generation == 0
+    assert successor.candidate is successor.qualification is successor.reservation is None
+    assert successor.failure_digest is None
+    assert (successor.delivery_mode, successor.guarded_refresh) == (old.delivery_mode, old.guarded_refresh)
+    assert after.target.queue == (handle(2), successor.handle)
+    assert after.ticket(old.handle).state == r.State.SUPERSEDED
+    assert after.obligation(old.obligation_handle).repair_count == 1
+    assert after.obligation(old.obligation_handle).revision_count == 2
+    append = r.build_append(before, after, oid(1000), "control", handle(700))
+    assert {path for path, _ in append.additions} == {
+        "integration/v2/target.json", "integration/v2/tickets/" + old.handle + ".json",
+        "integration/v2/tickets/" + successor.handle + ".json",
+        "integration/v2/obligations/" + old.obligation_handle + ".json"}
+    forged = replace(after, tickets=tuple(replace(ticket, projection=projection(old, 100))
+        if ticket.handle == successor.handle else ticket for ticket in after.tickets))
+    with pytest.raises(c.Conflict):
+        r.build_append(before, forged, oid(1000), "control", handle(700))
+
+
+def test_validation_repair_duplicate_survives_archives_and_newer_code_repair_without_reset() -> None:
+    before = r.record_failure(qualified(), handle(1), 1, digest(90))
+    request = validation_request(before)
+    old = before.ticket(handle(1))
+    expected = before.obligation(old.obligation_handle)
+    state = r.validation_repair(before, request, expected, admission(old))
+    successor_handle = r.validation_repair_handle(request)
+    state = r.archive(state, old.handle)
+    state = r.claim(state, successor_handle, oid(900), digest(7))
+    state = r.record_failure(state, successor_handle, state.target.generation, digest(91))
+    successor = state.ticket(successor_handle)
+    child_source = replace(old.source, entries=(*old.source.entries, r.SourceEntry(oid(15), "phase", ("refactor",))),
+                           head=oid(15), authority_digest=digest(71))
+    child = r.Ticket(handle(3), old.obligation_handle, child_source, old.requester_digest, successor.handle,
+                     delivery_mode=old.delivery_mode, guarded_refresh=old.guarded_refresh)
+    state = r.reserve_repair(state, old.obligation_handle, successor.handle, digest(71))
+    state = r.supersede(state, old.obligation_handle, successor.handle, child, admission(child), digest(71))
+    state = r.archive(state, successor.handle)
+    # Both predecessor revisions are cold: their immutable pinned-tip archives
+    # are lookup context, while the current working pointer belongs to the child.
+    cold = r.working_view(state)
+    observed = r.RuntimeSnapshot(cold.target, cold.tickets, cold.obligations, state.archives)
+    assert r.validation_repair(observed, request, expected, admission(old)) == observed
+    assert observed.obligation(old.obligation_handle).current_ticket == child.handle
+    assert (observed.obligation(old.obligation_handle).repair_count,
+            observed.obligation(old.obligation_handle).revision_count) == (2, 3)
+    with pytest.raises(c.Conflict):
+        r.validation_repair(observed, replace(request, correction_digest=digest(98)), expected, admission(old))
+
+
+@pytest.mark.parametrize("change", ["generation", "failure", "counter", "owner", "requester", "unproved"])
+def test_validation_repair_refuses_stale_or_competing_authority(change: str) -> None:
+    before = r.record_failure(qualified(), handle(1), 1, digest(90))
+    old = before.ticket(handle(1))
+    request = validation_request(before)
+    expected = before.obligation(old.obligation_handle)
+    attestation = admission(old)
+    if change == "generation":
+        request = replace(request, expected_generation=2)
+    elif change == "failure":
+        request = replace(request, failure_digest=digest(91))
+    elif change == "counter":
+        expected = replace(expected, repair_count=1)
+    elif change == "owner":
+        before = r.reserve_repair(before, old.obligation_handle, old.handle, digest(70))
+        expected = before.obligation(old.obligation_handle)
+    elif change == "requester":
+        attestation = replace(attestation, requester_digest=digest(99))
+    else:
+        before = r.record_failure(preparing(), handle(1), 1, digest(90))
+    with pytest.raises(c.Conflict):
+        r.validation_repair(before, request, expected, attestation)
+
+
+def test_validation_repair_request_has_closed_codec_and_cannot_smuggle_projection() -> None:
+    before = r.record_failure(qualified(), handle(1), 1, digest(90))
+    request = validation_request(before)
+    assert r.decode("validation_repair", r.encode(request)) == request
+    for extra in ({"projection": asdict(projection(before.ticket(handle(1))))},
+                  {"source": asdict(source())}, {"delivery_mode": "admin"}, {"kind": "ticket"},
+                  {"expected_generation": True}):
+        with pytest.raises(c.Invalid):
+            r.decode("validation_repair", json.dumps({**asdict(request), **extra}).encode())
+
+
+def test_validation_repair_uses_reserved_headroom_without_taking_other_native_custody(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(r, "MAX_TICKETS", 3)
+    state = r.record_failure(qualified(2), handle(1), 1, digest(90))
+    old = state.ticket(handle(1))
+    request = validation_request(state)
+    other = requested(3)
+    with pytest.raises(c.Conflict, match="working_capacity"):
+        r.admit_authenticated(state, other, r.Obligation(other.obligation_handle, other.handle, digest(6)), admission(other))
+    state = r.claim(state, handle(2), oid(900), digest(7))
+    reservation = r.reserve_native(state, handle(2), state.target.generation, "refresh", handle(501), invocation(),
+                                   retention_digest=digest(30))
+    uncertain = r.mark_uncertain(reservation, handle(2), reservation.target.generation, handle(501))
+    expected = uncertain.obligation(old.obligation_handle)
+    after = r.validation_repair(uncertain, request, expected, admission(old))
+    assert len(after.tickets) == 3 and after.target.active == handle(2)
+    assert after.ticket(handle(2)) == uncertain.ticket(handle(2))
+    assert after.target.queue == (r.validation_repair_handle(request),)
+    after = r.archive(after, old.handle)
+    assert len(after.tickets) == 2 and after.ticket(handle(2)).reservation is not None
+
+
+def test_validation_repair_never_clears_unknown_reservation_or_imposes_lifetime_count_cap() -> None:
+    state = qualified()
+    reserved = r.reserve_native(state, handle(1), 1, "merge", handle(501), invocation(), qualification=qualification(state))
+    unknown = r.mark_uncertain(reserved, handle(1), 1, handle(501))
+    old = unknown.ticket(handle(1))
+    request = r.ValidationRepair(old.handle, 1, digest(90), digest(99))
+    with pytest.raises(c.Conflict):
+        r.validation_repair(unknown, request, unknown.obligation(old.obligation_handle), admission(old))
+    assert unknown.target.active == old.handle and unknown.ticket(old.handle).reservation is not None
+    failed = r.record_failure(qualified(), handle(1), 1, digest(90))
+    index = replace(failed.obligation(old.obligation_handle), repair_count=10000, revision_count=10001)
+    failed = replace(failed, obligations=(index,))
+    after = r.validation_repair(failed, validation_request(failed), index, admission(failed.ticket(handle(1))))
+    assert (after.obligation(old.obligation_handle).repair_count, after.obligation(old.obligation_handle).revision_count) == (10001, 10002)

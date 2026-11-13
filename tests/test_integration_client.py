@@ -10,7 +10,8 @@ import pytest
 from test_integration_controller import config, envelope, oid
 from integration_coordinator import controller as h, core as c, runtime as r
 from integration_coordinator import github as g
-from integration_coordinator.client import LocalClient
+from integration_coordinator import client as local
+from integration_coordinator.client import LocalClient, Status
 from test_integration_runtime import queued
 
 
@@ -241,3 +242,51 @@ def test_delivered_outcome_requires_every_native_and_correspondence_link(defect:
         assert outcome.mapping == (c.CommitPair(oid(10), oid(30)),)
         assert outcome.landed_base == oid(1) and outcome.target_head == oid(31)
         assert len(outcome.verification_digest) == 64
+
+
+def validation_failure(remote: Remote) -> tuple[Status, StatusNative]:
+    state = delivered(remote)
+    failed = replace(state.tickets[0], state=r.State.REPAIR_PENDING, delivery=None,
+                     qualification=None, failure_digest="f" * 64)
+    native = StatusNative(remote)
+    native.state = replace(state, tickets=(failed,))
+    return Status(oid(1000), failed, native.state.obligations[0]), native
+
+
+def test_infrastructure_correction_reuses_source_without_claiming_admission() -> None:
+    remote = Remote()
+    status, native = validation_failure(remote)
+    client = LocalClient(remote, remote.local_policy())
+    client._loaded = remote.config, native
+    request = local.validation_repair_request(status, "e" * 64)
+    assert request == local.validation_repair_request(status, "e" * 64)
+    assert set(request) == {"schema_version", "policy_digest", "ticket", "obligation"}
+    wire = request["ticket"]
+    assert isinstance(wire, dict) and wire["kind"] == "validation_repair"
+    assert not {"source", "projection", "requester_digest"} & wire.keys()
+    result = client.validation_repair(status, "e" * 64)
+    assert result["status"] == "unadmitted" and result["dispatch"] == "accepted"
+    assert result["ticket_handle"] != status.ticket.handle
+    assert result["obligation_handle"] == status.obligation.handle
+    writes = [item for item in remote.calls if item[0] != "GET"]
+    assert len(writes) == 1
+    assert writes[0][2] == {"ref": "main", "inputs": {"request": c._canonical(request).decode()}}
+
+
+@pytest.mark.parametrize("defect", ["actor", "foreign_obligation", "borrowed_projection", "not_failed"])
+def test_validation_correction_cannot_borrow_source_or_requester_authority(defect: str) -> None:
+    remote = Remote()
+    status, native = validation_failure(remote)
+    client = LocalClient(remote, remote.local_policy())
+    client._loaded = remote.config, native
+    if defect == "actor": remote.actor = 99
+    if defect == "not_failed": status = replace(status, ticket=replace(status.ticket, state=r.State.QUALIFYING))
+    with pytest.raises((c.Invalid, c.Unavailable, c.Conflict)):
+        request = local.validation_repair_request(status, "e" * 64)
+        if defect == "foreign_obligation":
+            request["obligation"] = c._data(replace(status.obligation, handle="9" * 32))
+        if defect == "borrowed_projection":
+            assert isinstance(request["ticket"], dict)
+            request["ticket"]["projection"] = c._data(status.ticket.projection)
+        client.submit(request)
+    assert all(method == "GET" for method, _, _ in remote.calls)

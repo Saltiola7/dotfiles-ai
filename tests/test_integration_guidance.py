@@ -11,6 +11,7 @@ def test_lifecycle_routes_enrolled_delivery_and_retains_existing_shadow_guidance
     body = guide.read_text()
     for term in ("--integration-mode", "draft_pr", "ordinary", "admin", "unadmitted",
                  "integration-submit", "integration-status", "--integration-authorization",
+                 "--validation-repair", "does not rerun", "do not manufacture",
                  "--expected-generation", "original task", "Dagger", "shadow",
                  "material", "unchanged", "retention", "worktree"):
         assert term.lower() in body.lower()

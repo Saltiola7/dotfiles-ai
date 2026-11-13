@@ -717,3 +717,133 @@ def test_hosted_policy_binding_is_a_regular_workspace_relative_json_path(tmp_pat
     linked.symlink_to(policy)
     with pytest.raises(c.Invalid):
         h._workspace_policy_path(linked)
+
+
+def validation_envelope(adapter: FakeAdapter, correction: int = 75) -> bytes:
+    old = adapter.state.ticket(handle(1))
+    assert old.failure_digest is not None
+    request = r.ValidationRepair(old.handle, old.generation, old.failure_digest, digest(correction))
+    return json.dumps({"schema_version": 2, "policy_digest": policy_digest(), "ticket": asdict(request),
+        "obligation": asdict(adapter.state.obligation(old.obligation_handle))}).encode()
+
+
+def test_validation_repair_requires_fresh_checks_without_code_or_phase_changes() -> None:
+    adapter = FakeAdapter()
+    adapter.fail = True
+    assert run(adapter).status == "repair_pending"
+    old = adapter.state.ticket(handle(1))
+    raw = validation_envelope(adapter)
+    request = r.decode("validation_repair", c._canonical(json.loads(raw)["ticket"]))
+    assert isinstance(request, r.ValidationRepair)
+    adapter.fail = False
+    assert run(adapter, raw=raw).status == "delivered"
+    current = adapter.state.lookup_ticket(r.validation_repair_handle(request))
+    assert current.source == old.source and current.projection == old.projection
+    assert current.predecessor == old.handle and current.state == r.State.DELIVERED
+    assert adapter.state.lookup_ticket(old.handle).state == r.State.SUPERSEDED
+    assert adapter.refreshes == 0 and adapter.merges == 1
+    assert adapter.qualified_oids == [oid(901), oid(901)]
+    obligation = adapter.state.obligation(old.obligation_handle)
+    assert obligation.grant_digest == digest(6)
+    assert (obligation.repair_count, obligation.revision_count) == (1, 2)
+    # Lost dispatcher acknowledgement is an immutable archived lookup, even
+    # though the source PR is now closed; it cannot produce another merge.
+    assert run(adapter, raw=raw).status == "delivered"
+    assert adapter.merges == 1
+    assert adapter.state.obligation(old.obligation_handle) == obligation
+
+
+def test_validation_repair_native_sender_binding_precedes_any_archive_cas() -> None:
+    adapter = FakeAdapter()
+    adapter.fail = True
+    assert run(adapter).status == "repair_pending"
+    raw = validation_envelope(adapter)
+    other = replace(requested(), handle=handle(2), obligation_handle=handle(102),
+                    source=replace(requested().source, pr_number=2))
+    receipt = c.Admission(c.identity(other.source), other.requester_digest, policy_digest(), digest(80))
+    adapter.state = r.admit_authenticated(adapter.state, other, r.Obligation(handle(102), handle(2), digest(6)), receipt)
+    adapter.state = r.reject_queued(adapter.state, other.handle, digest(81))
+    class AnotherNativeSender(FakeHost):
+        def verify(self, config: h.HostedConfig, context: h.HostContext) -> h.VerifiedHost:
+            return replace(super().verify(config, context), actor_id=6)
+    before = len(adapter.writes)
+    with pytest.raises(c.Unavailable, match="requester"):
+        run(adapter, AnotherNativeSender(), raw)
+    assert len(adapter.writes) == before and adapter.merges == adapter.refreshes == 0
+    assert adapter.state.ticket(other.handle).state == r.State.REJECTED
+
+
+def test_validation_repair_lost_atomic_cas_response_does_not_duplicate_or_reset_counters() -> None:
+    class LostResponse(FakeAdapter):
+        stop = True
+        def append(self, request: r.AppendRequest) -> str:
+            result = super().append(request)
+            if request.state.action is not None and request.state.action.kind == "validation_repair" and self.stop:
+                self.stop = False
+                raise c.Ambiguous("lost_validation_repair_response")
+            return result
+    adapter = LostResponse()
+    adapter.fail = True
+    assert run(adapter).status == "repair_pending"
+    raw = validation_envelope(adapter)
+    adapter.fail = False
+    with pytest.raises(c.Ambiguous):
+        run(adapter, raw=raw)
+    assert adapter.state.obligation(handle(101)).repair_count == 1
+    assert run(adapter, raw=raw).status == "delivered"
+    assert adapter.state.obligation(handle(101)).repair_count == 1
+    assert adapter.merges == 1
+
+
+def test_validation_repair_archived_duplicate_does_not_resurrect_after_newer_child() -> None:
+    class PinnedLookups(FakeAdapter):
+        def __init__(self) -> None:
+            super().__init__()
+            self.cold: dict[str, r.Archive] = {}
+        def append(self, request: r.AppendRequest) -> str:
+            # Native additive Git writes retain unloaded lifetime archives.
+            for row in (*self.state.archives, *request.state.archives):
+                self.cold[row.ticket.handle] = row
+            return super().append(request)
+        def read_control(self, lookup_handles: tuple[str, ...] = ()) -> tuple[str, dict[str, bytes]]:
+            head, files = super().read_control(lookup_handles)
+            required = {ticket.obligation_handle for ticket in self.state.tickets}
+            required.update(self.cold[handle].ticket.obligation_handle for handle in lookup_handles if handle in self.cold)
+            current = {row.current_ticket for row in self.state.obligations if row.handle in required}
+            requested = set(lookup_handles) | current
+            files.update({"integration/v2/archive/tickets/" + handle + ".json": r.encode(self.cold[handle])
+                          for handle in requested if handle in self.cold})
+            selected = {"integration/v2/archive/tickets/" + handle + ".json" for handle in requested}
+            return head, {path: raw for path, raw in files.items()
+                          if not path.startswith("integration/v2/archive/") or path in selected}
+    adapter = PinnedLookups()
+    adapter.fail = True
+    assert run(adapter).status == "repair_pending"
+    raw = validation_envelope(adapter)
+    request = r.decode("validation_repair", c._canonical(json.loads(raw)["ticket"]))
+    assert isinstance(request, r.ValidationRepair)
+    successor_handle = r.validation_repair_handle(request)
+    adapter.fail = False
+    adapter.pending = True
+    assert run(adapter, raw=raw).status == "waiting"
+    adapter.pending = False
+    adapter.fail = True
+    assert run(adapter, raw=raw).status == "repair_pending"
+    successor = adapter.state.ticket(successor_handle)
+    changed_source = replace(successor.source, entries=(*successor.source.entries,
+        r.SourceEntry(oid(15), "phase", ("refactor",))), head=oid(15), authority_digest=digest(70))
+    child = r.Ticket(handle(3), successor.obligation_handle, changed_source, successor.requester_digest,
+        predecessor=successor.handle, delivery_mode=successor.delivery_mode, guarded_refresh=successor.guarded_refresh)
+    child_raw = json.dumps({"schema_version": 2, "policy_digest": policy_digest(), "ticket": asdict(child),
+        "obligation": asdict(adapter.state.obligation(child.obligation_handle))}).encode()
+    adapter.fail = False
+    adapter.head = oid(15)
+    assert run(adapter, raw=child_raw).status == "delivered"
+    index = adapter.state.obligation(child.obligation_handle)
+    assert (index.current_ticket, index.repair_count, index.revision_count) == (child.handle, 2, 3)
+    assert adapter.state.tickets == ()
+    before = len(adapter.writes)
+    report = run(adapter, raw=raw)
+    assert report.status == "accepted" and report.handle == successor.handle
+    assert len(adapter.writes) == before and adapter.merges == 1
+    assert adapter.state.obligation(child.obligation_handle) == index

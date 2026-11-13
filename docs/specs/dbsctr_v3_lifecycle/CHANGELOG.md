@@ -10,6 +10,9 @@
   IDs. Completed records stay immutable; qualified outcomes extend the existing
   retirement history predicate without granting cleanup authority. Enrolled merge
   modes publish linear ready source and defer final-base freshness to the worker.
+- Reconcile assessed infrastructure corrections without manufacturing source
+  commits. Requeue the same retained source at the tail with fresh native checks;
+  preserve exact request retries, cumulative counters and private repair custody.
 - Pass 425 affected integration/policy cases, then 186 targeted replacement cases
   after review fixes, plus 60 publication/instruction and 62 benchmark checks.
   Twenty-four selected typing units pass for

@@ -49,6 +49,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if name == "operator-resume":
             command.add_argument("--handle")
             command.add_argument("--expected-generation", type=int)
+        if name == "reconcile":
+            command.add_argument("--validation-repair", metavar="ASSESSMENT")
     advance = commands.add_parser("advance", help="trusted hosted wakeup; unavailable without explicit policy")
     advance.add_argument("--policy", type=Path)
     args = parser.parse_args(argv)
@@ -74,6 +76,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if not args.handle or type(args.expected_generation) is not int or args.expected_generation <= 0:
                     raise core.Invalid("operator_candidate_required")
                 arguments.extend(("--handle", args.handle, "--expected-generation", str(args.expected_generation)))
+            if args.command == "reconcile" and args.validation_repair is not None:
+                arguments.extend(("--validation-repair", args.validation_repair))
             return _local_action(args.command, arguments)
         kind = "target" if args.command == "status" else args.kind
         limit = core.TARGET_LIMIT if kind == "target" else core.RECORD_LIMIT

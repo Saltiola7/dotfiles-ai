@@ -20759,7 +20759,8 @@ def integration_align_repair_checkout(root: Path, grant_digest: str, qualified_p
             "head": receipt.new_head, "projection_digest": receipt.projection_digest}
 
 
-def integration_capture_projection(root: Path, grant_digest: str, status: "IntegrationClient.Status") -> str:
+def integration_capture_projection(root: Path, grant_digest: str, status: "IntegrationClient.Status",
+                                   *, allow_archive_metadata: bool = False) -> str:
     """Capture a native client's pinned predecessor after independent Git/PR checks."""
     selected = integration_policy_snapshot(root)
     if selected is None:
@@ -20815,6 +20816,14 @@ def integration_capture_projection(root: Path, grant_digest: str, status: "Integ
         existing = None
     if existing is not None:
         stable = set(qualified) - {"native_receipt_digest", "verified_at"}
+        if allow_archive_metadata:
+            before = runtime.decode("obligation", owner.canonical(existing["obligation"]))
+            after = runtime.decode("obligation", owner.canonical(qualified["obligation"]))
+            fields = ("handle", "current_ticket", "grant_digest", "repair_count", "revision_count", "repair_owner")
+            if (not isinstance(before, runtime.Obligation) or not isinstance(after, runtime.Obligation)
+                    or any(getattr(before, name) != getattr(after, name) for name in fields)):
+                raise RuntimeError("integration predecessor obligation changed")
+            stable.remove("obligation")
         if any(existing[key] != qualified[key] for key in stable):
             raise RuntimeError("integration predecessor projection custody changed")
         qualified = existing
@@ -21211,6 +21220,8 @@ def integration_prepare_child(args: argparse.Namespace, grant_digest: str,
     guarded_refresh = ticket.guarded_refresh if delivery_mode in {"ordinary", "admin"} else False
     key = owner.digest({"grant_digest": grant_digest, "predecessor_ticket": predecessor_ticket})
     with registration_lock(root, args):
+        if store.optional_link("validation_correction", key) is not None:
+            raise RuntimeError("integration validation repair already owns predecessor")
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             begin_registration(args)
@@ -21301,6 +21312,135 @@ def integration_outbox(root: Path, cycle_id: str, store: "IntegrationLifecycle.C
         raise RuntimeError("integration_private_publication_record_changed")
     request = owner.object_value(packet["request"])
     return {**packet, "request": request}
+
+
+def integration_validation_repair_snapshot(root: Path, status: "IntegrationClient.Status",
+                                           assessment: str) -> dict[str, object]:
+    """Preserve a no-code CI correction under the actual original task's grant."""
+    selected = integration_policy_snapshot(root)
+    if selected is None:
+        raise RuntimeError("integration_disabled")
+    owner = integration_lifecycle_owner()
+    from integration_coordinator import runtime
+    from integration_coordinator.client import Status, validation_repair_request
+    from integration_coordinator.gitproof import GitObjects
+    if (type(status) is not Status or status.ticket.state != runtime.State.REPAIR_PENDING
+            or status.ticket.candidate is None or status.ticket.projection is None
+            or status.ticket.reservation is not None or status.obligation.repair_owner is not None
+            or status.obligation.current_ticket != status.ticket.handle or status.ticket.failure_digest is None):
+        raise RuntimeError("integration validation repair requires an unreserved CI failure")
+    ticket, remote = status.ticket, status.obligation
+    candidate, projection = ticket.candidate, ticket.projection
+    if candidate is None or projection is None:
+        raise RuntimeError("integration validation repair requires CI evidence")
+    store = owner.Custody(common_git_dir(root).resolve())
+    grant = store.read("grant", remote.grant_digest)
+    obligation = store.read("obligation", owner.hex_value(grant["obligation_digest"]))
+    nested = owner.object_value(selected["coordinator"])
+    if (store.revoked(remote.grant_digest) or "repair" not in owner.string_list(grant["allowed_operations"])
+            or obligation["handle"] != remote.handle or grant["policy_digest"] != selected["policy_digest"]
+            or grant["enrollment_digest"] != selected["enrollment_digest"]
+            or ticket.source.repository != nested["remote_repository"]
+            or candidate.policy_digest != nested["policy_digest"]
+            or integration_delivery_mode(selected, ticket.delivery_mode) != ticket.delivery_mode):
+        raise RuntimeError("integration validation repair grant or enrollment changed")
+    original, _, _ = integration_cycle_custody(root, owner.text(obligation["cycle_id"], 128))
+    statement = owner.text(assessment, 4096)
+    key = owner.digest({"grant_digest": remote.grant_digest, "predecessor_ticket": ticket.handle})
+    arguments = argparse.Namespace(cycle_id=original["cycle_id"], base_branch=original["delivery"]["base_branch"])
+    with registration_lock(root, arguments):
+        # Existing kernel guards also detect an orphan active child whose pointer
+        # is absent. The hypothetical filename is never written or registered.
+        if any(os.path.lexists(path) for path in (active_path(root), legacy_active_path(root), legacy_cycle_dir(root) / "active")):
+            raise RuntimeError("integration validation repair has active or unresolved child custody")
+        require_registration_available(root, "validation-" + ticket.handle)
+        if status_paths(root):
+            raise RuntimeError("integration validation repair requires clean unchanged source")
+        if store.optional_link("authorization", key) is not None:
+            raise RuntimeError("integration code repair already owns predecessor")
+        chain = owner.revision_chain(store, ticket.handle, GitObjects(root),
+            lambda cycle, digest: integration_record_entries(root, cycle, digest))
+        link = store.linked("revision_link", ticket.handle)
+        if (chain.source != ticket.source or chain.grant_digest != remote.grant_digest
+                or chain.obligation_digest != grant["obligation_digest"]):
+            raise RuntimeError("integration validation repair private source changed")
+        latest_cycle, latest_digest = chain.records[-1]
+        latest, latest_raw, _ = integration_cycle_custody(root, latest_cycle)
+        if hashlib.sha256(latest_raw).hexdigest() != latest_digest:
+            raise RuntimeError("integration validation repair completed record changed")
+        integration_require_root_scope(root, grant, obligation, {"receipt": effective_initiative(latest)})
+        allowed_heads = {ticket.source.head, projection.head}
+        for cycle, digest in chain.records:
+            record, raw, _ = integration_cycle_custody(root, cycle)
+            if hashlib.sha256(raw).hexdigest() != digest:
+                raise RuntimeError("integration validation repair retained record changed")
+            allowed_heads.add(record["commits"][-1]["id"])
+        if git(root, "rev-parse", "HEAD").stdout.strip() not in allowed_heads:
+            raise RuntimeError("integration validation repair local source changed")
+        packet = store.linked("outbox", ticket.handle)
+        requested = runtime.decode("ticket", owner.canonical(packet["request"]["ticket"]))
+        if (not isinstance(requested, runtime.Ticket) or requested.source != ticket.source
+                or requested.obligation_handle != remote.handle or requested.requester_digest != ticket.requester_digest
+                or requested.delivery_mode != ticket.delivery_mode or requested.guarded_refresh != ticket.guarded_refresh
+                or packet["obligation_digest"] != grant["obligation_digest"]
+                or packet["source_digest"] != runtime.identity(ticket.source)
+                or packet["record_digest"] != latest_digest or packet["cycle_id"] != latest_cycle):
+            raise RuntimeError("integration validation repair source authority changed")
+        if requested.handle != ticket.handle:
+            prior = store.linked("validation_outbox", ticket.handle)
+            prior_request = runtime.decode("validation_repair", owner.canonical(prior["request"]["ticket"]))
+            correction = store.read("validation_correction", owner.hex_value(prior["correction_digest"]))
+            if (not isinstance(prior_request, runtime.ValidationRepair)
+                    or runtime.validation_repair_handle(prior_request) != ticket.handle
+                    or ticket.predecessor != prior_request.original_handle
+                    or ticket.repair_authorization_digest != runtime.identity(prior_request)
+                    or prior_request.correction_digest != prior["correction_digest"]
+                    or correction["grant_digest"] != remote.grant_digest
+                    or correction["source_digest"] != runtime.identity(ticket.source)
+                    or correction["revision_digest"] != chain.revision_digest):
+                raise RuntimeError("integration validation repair alias authority changed")
+        # Reuse the existing native PR/Git projection qualifier. It accepts no
+        # caller Projection and performs fresh source/base observations twice.
+        integration_capture_projection(root, remote.grant_digest, status, allow_archive_metadata=True)
+        value = {"grant_digest": remote.grant_digest, "obligation_digest": grant["obligation_digest"],
+            "predecessor_ticket": ticket.handle, "expected_generation": ticket.generation,
+            "failure_digest": ticket.failure_digest, "source_digest": runtime.identity(ticket.source),
+            "revision_digest": chain.revision_digest, "source_custody_digest": link["source_custody_digest"],
+            "scope_digest": grant["scope_digest"], "policy_digest": selected["policy_digest"],
+            "remote_policy_digest": nested["policy_digest"], "enrollment_digest": selected["enrollment_digest"],
+            "ledger_head": status.ledger_head, "statement": statement, "assessed_at": now()}
+        existing = store.optional_link("validation_correction", key)
+        if existing is not None:
+            if any(existing[name] != value[name] for name in value if name not in {"ledger_head", "assessed_at"}):
+                raise RuntimeError("integration validation repair predecessor choice changed")
+            value = existing
+        correction_digest = store.write("validation_correction", value)
+        store.link("validation_correction", key, correction_digest)
+        pending = store.optional_link("validation_outbox", correction_digest)
+        request = (owner.object_value(pending["request"]) if pending is not None
+                   else validation_repair_request(status, correction_digest))
+        described = runtime.decode("validation_repair", owner.canonical(request["ticket"]))
+        expected_obligation = runtime.decode("obligation", owner.canonical(request["obligation"]))
+        stable = ("handle", "current_ticket", "grant_digest", "repair_count", "revision_count", "repair_owner")
+        if (not isinstance(expected_obligation, runtime.Obligation)
+                or any(getattr(expected_obligation, name) != getattr(remote, name) for name in stable)):
+            raise RuntimeError("integration validation obligation changed")
+        if (not isinstance(described, runtime.ValidationRepair) or request["policy_digest"] != nested["policy_digest"]
+                or described.original_handle != ticket.handle or described.expected_generation != ticket.generation
+                or described.failure_digest != ticket.failure_digest or described.correction_digest != correction_digest):
+            raise RuntimeError("integration validation request changed")
+        new_handle = runtime.validation_repair_handle(described)
+        new_link = store.write("revision_link", {**link, "ticket_handle": new_handle})
+        store.link("revision_link", new_handle, new_link)
+        packet_digest = hashlib.sha256(owner.canonical({"schema_version": 1, "kind": "outbox", "value": packet})).hexdigest()
+        store.link("outbox", new_handle, packet_digest)
+        outbox = {"correction_digest": correction_digest, "obligation_digest": grant["obligation_digest"],
+            "predecessor_ticket": ticket.handle, "ticket_handle": new_handle, "request": request}
+        outbox_digest = store.write("validation_outbox", outbox)
+        store.link("validation_outbox", new_handle, outbox_digest)
+        store.link("validation_outbox", correction_digest, outbox_digest)
+    return {"status": "unadmitted", "ticket_handle": new_handle, "correction_digest": correction_digest,
+            "request": request, "validation_outbox_digest": outbox_digest}
 
 
 def integration_accept_delivery(root: Path, client: "IntegrationClient.LocalClient", packet: dict) -> str:
@@ -21420,7 +21560,12 @@ def command_integration_gateway(args) -> None:
             status = client.status(packet["ticket_handle"], obligation.handle)
             result = {"status": "unadmitted", "queued": False} if status is None else status.report()
             if action == "reconcile" and status is not None:
-                if status.ticket.state == runtime.State.DELIVERED:
+                assessment = getattr(args, "validation_repair", None)
+                if assessment is not None and status.ticket.state == runtime.State.REPAIR_PENDING:
+                    prepared = integration_validation_repair_snapshot(root, status, assessment)
+                    result = {**client.submit(prepared["request"]), "validation_repair": True,
+                              "correction_digest": prepared["correction_digest"]}
+                elif status.ticket.state == runtime.State.DELIVERED:
                     result["outcome_digest"] = integration_accept_delivery(root, client, packet)
                     result["records_unchanged"] = True
                 elif status.ticket.state == runtime.State.REPAIR_PENDING:
@@ -22835,6 +22980,9 @@ def parser():
             gateway.add_argument("--pr", type=int, required=True)
             gateway.add_argument("--integration-mode", default="inherit",
                 choices=("inherit", "off", "draft_pr", "pr", "ordinary", "admin"))
+        if action == "reconcile":
+            gateway.add_argument("--validation-repair", metavar="ASSESSMENT",
+                help="explicit intent-preserving infrastructure correction; no code or CI rerun")
         if action == "operator-resume":
             gateway.add_argument("--handle", required=True)
             gateway.add_argument("--expected-generation", type=int, required=True)

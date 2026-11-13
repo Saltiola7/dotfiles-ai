@@ -666,3 +666,153 @@ def test_source_generation_never_falls_back_to_installed_decoy(
     with pytest.raises(RuntimeError, match="integration_owner_unavailable"):
         core.integration_lifecycle_owner()
     assert not marker.exists()
+
+
+def validation_correction() -> dict[str, object]:
+    return {"grant_digest": "a" * 64, "obligation_digest": "b" * 64, "predecessor_ticket": "c" * 32,
+        "expected_generation": 1, "failure_digest": "d" * 64, "source_digest": "e" * 64,
+        "revision_digest": "f" * 64, "source_custody_digest": "1" * 64, "scope_digest": "2" * 64,
+        "policy_digest": "3" * 64, "remote_policy_digest": "4" * 64, "enrollment_digest": "5" * 64,
+        "ledger_head": "6" * 40, "statement": "Infrastructure correction only; code and intent are unchanged.",
+        "assessed_at": "2026-11-13T00:00:00Z"}
+
+
+def test_validation_correction_is_private_closed_and_preserves_integer_identity(tmp_path: Path) -> None:
+    common = tmp_path / "common"; common.mkdir(); store = l.Custody(common)
+    value = validation_correction()
+    digest = store.write("validation_correction", value)
+    assert store.read("validation_correction", digest) == value
+    store.link("validation_correction", "a" * 64, digest)
+    assert store.linked("validation_correction", "a" * 64) == value
+    for invalid in ({"expected_generation": True}, {"expected_generation": 0}, {"extra": False}):
+        with pytest.raises(ValueError):
+            store.write("validation_correction", value | invalid)
+
+
+def test_validation_repair_cli_default_off_starts_no_native_owner(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    core = helper()
+    monkeypatch.setattr(core, "root_dir", lambda: tmp_path)
+    monkeypatch.setattr(core, "integration_policy_snapshot", lambda _root: None)
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("disabled validation repair started native authority")
+    monkeypatch.setattr(core, "integration_lifecycle_owner", forbidden)
+    monkeypatch.setattr(core, "github_environment", forbidden)
+    args = core.parser().parse_args(["integration-reconcile", "--cycle-id", "cycle-1",
+        "--validation-repair", "Infrastructure correction; source and intent unchanged"])
+    args.func(args)
+    assert json.loads(capsys.readouterr().out)["status"] == "disabled_local"
+
+
+def test_optional_private_link_never_treats_dangling_authority_as_absent(tmp_path: Path) -> None:
+    common = tmp_path / "common"; common.mkdir(); store = l.Custody(common)
+    assert store.optional_link("authorization", "a" * 64) is None
+    path = store.directory / "links/authorization" / ("a" * 64 + ".json")
+    store._write(path, l.canonical({"digest": "0" * 64}))
+    with pytest.raises(FileNotFoundError):
+        store.optional_link("authorization", "a" * 64)
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True)
+def test_validation_only_correction_preserves_source_records_and_exact_dispatch(
+        ready: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    core, root = ready.core, ready.root
+    core.git(root, "update-ref", "refs/remotes/origin/main", ready.base)
+    monkeypatch.setattr(core, "push_github_branch", lambda *_args: None)
+    monkeypatch.setattr(core, "github_remote_head", lambda *_args: (ready.head, "unused"))
+    monkeypatch.setattr(core, "deliver_draft_pr", lambda *_args: {
+        "number": NUMBER, "url": f"https://github.com/{REPOSITORY}/pull/{NUMBER}", "draft": False})
+    core.command_final_push(core.parser().parse_args(["final-push"]))
+    capsys.readouterr()
+    original = ready.path.read_bytes()
+    ready.native.pull.update(state="open", merged=False, draft=False)
+    original_native = ready.native.json
+    def actor(*args: object) -> object:
+        arguments = list(args)
+        if isinstance(arguments[0], Path): arguments[0] = ready.native.root
+        value = original_native(*arguments)
+        return {**value, "id": 123} if isinstance(value, dict) and value.get("login") else value
+    monkeypatch.setattr(core, "github_json", actor)
+    selected = {"policy_digest": "b" * 64, "enrollment_digest": "c" * 64,
+        "delivery": {"mode": "ordinary", "role": "operator"}, "coordinator": {
+            "remote_repository": REPOSITORY, "target_ref": "refs/heads/main", "control_ref": "refs/heads/control",
+            "guarded_refresh": False, "policy_digest": "f" * 64}}
+    monkeypatch.setattr(core, "integration_policy_snapshot", lambda _root: selected)
+    produced = core.integration_source_snapshot(root, "cycle-1", NUMBER, ready.head, adopt=True, mode="admin")
+    ticket = r.decode("ticket", l.canonical(produced["request"]["ticket"]))
+    obligation = r.decode("obligation", l.canonical(produced["request"]["obligation"]))
+    assert isinstance(ticket, r.Ticket) and isinstance(obligation, r.Obligation)
+    projection = ProofPort(lambda _ids: GitObjects(root)).prove_refresh(ticket.source, ready.head, ready.base)
+    tested = core.git(root, "commit-tree", ready.tree, "-p", ready.base, "-p", ready.head,
+                      "-m", "Synthetic native CI candidate").stdout.strip()
+    candidate = r.Candidate(1, c.identity(ticket.source), c.identity(projection), ready.head, ready.base,
+        tested, (ready.base, ready.head), ready.tree, "b" * 64, "f" * 64)
+    failed = replace(ticket, state=r.State.REPAIR_PENDING, sequence=1, generation=1, base=ready.base,
+        plan_digest="b" * 64, projection=projection, candidate=candidate,
+        failure_digest="d" * 64, admission_digest="e" * 64)
+    status = Status(ready.base, failed, obligation)
+    statement = "Artifact infrastructure correction only; source code and approved intent remain unchanged."
+    with pytest.raises(RuntimeError, match="unreserved CI failure"):
+        core.integration_validation_repair_snapshot(root, Status(ready.base, replace(failed, candidate=None), obligation), statement)
+    with pytest.raises(RuntimeError, match="unreserved CI failure"):
+        core.integration_validation_repair_snapshot(root, Status(ready.base, failed,
+            replace(obligation, repair_owner="a" * 64, repair_count=1)), statement)
+    store = l.Custody(core.common_git_dir(root).resolve())
+    choice_key = l.digest({"grant_digest": obligation.grant_digest, "predecessor_ticket": ticket.handle})
+    dangling = store.directory / "links/authorization" / (choice_key + ".json")
+    store._write(dangling, l.canonical({"digest": "0" * 64}))
+    with pytest.raises(FileNotFoundError):
+        core.integration_validation_repair_snapshot(root, status, statement)
+    dangling.unlink()
+    with pytest.raises(RuntimeError, match="grant or enrollment"):
+        with monkeypatch.context() as changed:
+            changed.setattr(core, "integration_policy_snapshot", lambda _root: {**selected, "policy_digest": "0" * 64})
+            core.integration_validation_repair_snapshot(root, status, statement)
+    prepared = core.integration_validation_repair_snapshot(root, status, statement)
+    described = r.decode("validation_repair", l.canonical(prepared["request"]["ticket"]))
+    assert isinstance(described, r.ValidationRepair)
+    assert r.validation_repair_handle(described) == prepared["ticket_handle"]
+    assert described.original_handle == ticket.handle and described.expected_generation == 1
+    assert prepared["request"]["obligation"] == produced["request"]["obligation"]
+    assert store.linked("revision_link", prepared["ticket_handle"]) == {
+        **store.linked("revision_link", ticket.handle), "ticket_handle": prepared["ticket_handle"]}
+    assert store.linked("outbox", prepared["ticket_handle"]) == store.linked("outbox", ticket.handle)
+    assert store.linked("outbox", "cycle-1")["ticket_handle"] == ticket.handle
+    # Compaction can advance just the archive index before a lost dispatch is
+    # admitted. Retries must still send the exact original four-key envelope.
+    archived = replace(obligation, archive_ticket="7" * 32, archive_tip="8" * 64)
+    moved = Status(tested, failed, archived)
+    assert core.integration_validation_repair_snapshot(root, moved, statement) == prepared
+    with pytest.raises(RuntimeError, match="choice changed"):
+        core.integration_validation_repair_snapshot(root, moved, statement + " Different assessment")
+    state = r.RuntimeSnapshot(r.Target(REPOSITORY, "main", "9" * 40, "f" * 64,
+        next_sequence=2, generation=1, retained_count=1), (failed,), (obligation,))
+    admitted = r.validation_repair(state, described, obligation,
+        c.Admission(c.identity(ticket.source), ticket.requester_digest, "f" * 64, "a" * 64))
+    new_ticket = admitted.ticket(prepared["ticket_handle"])
+    new_obligation = admitted.obligation(obligation.handle)
+    assert new_ticket.source == failed.source and new_ticket.projection == failed.projection
+    assert new_obligation.repair_count == 1 and new_obligation.revision_count == 2
+    assert l.revision_chain(store, new_ticket.handle, GitObjects(root),
+        lambda cycle_id, digest: core.integration_record_entries(root, cycle_id, digest)).source == ticket.source
+    submitted: list[dict[str, object]] = []
+    current = moved
+    class Client:
+        def status(self, *_args: object) -> Status:
+            return current
+        def submit(self, request: dict[str, object]) -> dict[str, object]:
+            submitted.append(request)
+            return {"status": "unadmitted", "dispatch": "accepted", "ticket_handle": prepared["ticket_handle"]}
+    @contextmanager
+    def selected_client(*_args: object):
+        yield Client()
+    monkeypatch.setattr(core, "integration_native_client", selected_client)
+    args = core.parser().parse_args(["integration-reconcile", "--cycle-id", "cycle-1", "--validation-repair", statement])
+    core.command_integration_gateway(args)
+    assert json.loads(capsys.readouterr().out)["validation_repair"] is True
+    assert submitted == [prepared["request"]]
+    current = Status(tested, new_ticket, new_obligation)
+    core.command_integration_gateway(args)
+    assert json.loads(capsys.readouterr().out)["status"] == "queued"
+    assert len(submitted) == 1
+    assert ready.path.read_bytes() == original and core.git(root, "rev-parse", "HEAD").stdout.strip() == ready.head
