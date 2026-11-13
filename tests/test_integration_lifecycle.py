@@ -190,8 +190,55 @@ def test_completed_source_uses_actual_recorded_final_head_without_rewriting_reco
         "--initiative-manifest", "docs/initiatives/test/MANIFEST.json", "--initiative-slice", "slice-a",
         "--initiative-digest", receipt["manifest_digest"], "--expected-repository", REPOSITORY,
         "--expected-plan-digest", hashlib.sha256(plan.read_bytes()).hexdigest()]
-    preflight = core.parser().parse_args([*argv, "--preflight"])
     statement = "Trusted agent scope assessment: routine correction within the original approved behavior, risk and authority."
+    # A valid Discovery revision must not silently confer another Initiative's
+    # authority, even when every existing operational boundary is identical.
+    authority = root.parent / "repair-authority"
+    core.git(root, "worktree", "add", "--detach", str(authority), "HEAD")
+    authority_manifest = authority / "docs/initiatives/test/MANIFEST.json"
+    original_manifest = json.loads(authority_manifest.read_text())
+    alternate_receipts = []
+    for scope_change in ("initiative", "slice"):
+        changed_manifest = json.loads(json.dumps(original_manifest))
+        selected_slice = "slice-a"
+        if scope_change == "initiative":
+            changed_manifest["id"] = "another-valid-initiative"
+        else:
+            selected_slice = "another-valid-slice"
+            changed_manifest["slices"][0]["id"] = selected_slice
+            changed_manifest["release_groups"][0]["members"] = [selected_slice]
+        authority_manifest.write_text(json.dumps(changed_manifest) + "\n")
+        core.git(authority, "add", "docs/initiatives/test/MANIFEST.json")
+        core.git(authority, "commit", "-m", "Different valid repair authority")
+        alternate_receipt = core.initiative_receipt(authority_manifest, selected_slice, authority)
+        alternate_argv = [*argv, "--initiative-source", str(authority)]
+        alternate_argv[alternate_argv.index("--initiative-slice") + 1] = selected_slice
+        alternate_argv[alternate_argv.index("--initiative-digest") + 1] = alternate_receipt["manifest_digest"]
+        alternate = core.parser().parse_args([*alternate_argv, "--preflight"])
+        core.command_begin(alternate)
+        qualified_launch = json.loads(capsys.readouterr().out)
+        assert qualified_launch["plan"]["receipt"]["slice_id"] == selected_slice
+        assert qualified_launch["plan"]["context"] == "test"
+        alternate_receipts.append(qualified_launch["plan"]["receipt"])
+        with pytest.raises(RuntimeError, match="integration.*scope"):
+            core.integration_prepare_child(alternate, produced["grant_digest"], statement,
+                predecessor_ticket=failed.handle, qualified_projection_digest=qualified)
+        with pytest.raises(FileNotFoundError):
+            l.Custody(core.common_git_dir(root).resolve()).linked("authorization",
+                l.digest({"grant_digest": produced["grant_digest"], "predecessor_ticket": failed.handle}))
+        assert ready.path.read_bytes() == original
+    # Changes to manifest revision metadata under the same structural scope
+    # remain eligible for a fresh launch and inherited child approval.
+    revised_manifest = json.loads(json.dumps(original_manifest))
+    revised_manifest["title"] = "Refreshed title under the original authority"
+    authority_manifest.write_text(json.dumps(revised_manifest) + "\n")
+    core.git(authority, "add", "docs/initiatives/test/MANIFEST.json")
+    core.git(authority, "commit", "-m", "Refresh same-scope Discovery authority")
+    revised_receipt = core.initiative_receipt(authority_manifest, "slice-a", authority)
+    assert revised_receipt["manifest_digest"] != receipt["manifest_digest"]
+    argv += ["--initiative-source", str(authority)]
+    argv[argv.index("--initiative-digest") + 1] = revised_receipt["manifest_digest"]
+    preflight = core.parser().parse_args([*argv, "--preflight"])
     inherited = core.integration_prepare_child(preflight, produced["grant_digest"], statement,
         predecessor_ticket=failed.handle, qualified_projection_digest=qualified)
     assert inherited["fresh_human_confirmation"] is False
@@ -203,6 +250,24 @@ def test_completed_source_uses_actual_recorded_final_head_without_rewriting_reco
         predecessor_ticket=failed.handle, qualified_projection_digest=qualified) == inherited
     live = [*argv, "--expected-launch-digest", inherited["launch_digest"],
             "--integration-authorization", inherited["authorization_digest"]]
+    core.command_begin(preflight)
+    approved_launch = json.loads(capsys.readouterr().out)["plan"]
+    root_store = l.Custody(core.common_git_dir(root).resolve())
+    retained_grant = root_store.read("grant", produced["grant_digest"])
+    retained_obligation = root_store.read("obligation", produced["obligation_digest"])
+    # Matching sidecar claims do not establish the root scope; recompute it from
+    # the retained immutable Cycle Record rather than trusting both claims.
+    with pytest.raises(RuntimeError, match="integration root scope"):
+        core.integration_require_root_scope(root, {**retained_grant, "scope_digest": "0" * 64},
+            {**retained_obligation, "scope_digest": "0" * 64}, approved_launch)
+    # The live approval validator independently rechecks structural authority;
+    # a matching supplied launch digest alone must not replace that check.
+    for alternate_receipt in alternate_receipts:
+        altered_launch = json.loads(json.dumps(approved_launch))
+        altered_launch["receipt"] = alternate_receipt
+        with pytest.raises(RuntimeError, match="integration.*scope"):
+            core.integration_authorized_begin(root, core.parser().parse_args(live), altered_launch,
+                                              inherited["launch_digest"])
     class NoInput(io.StringIO):
         def readline(self, size: int = -1) -> str:
             raise AssertionError("inherited authority must not synthesize human confirmation")
@@ -217,6 +282,10 @@ def test_completed_source_uses_actual_recorded_final_head_without_rewriting_reco
     assert "confirmed_at" not in child["initiative_approval"]
     assert all(g["result"] == "pending" for g in child["gates"].values() if g["applicability"] == "required")
     assert child["execution"]["attribution"]["status"] == "unavailable"
+    approved_import = child["discovery_import"]["commit"]
+    assert child["git"]["head"] == approved_import
+    assert child["discovery_import"]["base_head"] == refreshed
+    assert child["commits"] == []
     assert ready.path.read_bytes() == original
     assert l.Custody(core.common_git_dir(root).resolve()).linked("birth", "child-1")["delivery_mode"] == "admin"
     (root / "tracked.txt").write_text("Routine repair\n")
@@ -245,7 +314,11 @@ def test_completed_source_uses_actual_recorded_final_head_without_rewriting_reco
     assert replacement["ticket_handle"] != produced["ticket_handle"]
     assert replacement["request"]["ticket"]["predecessor"] == produced["ticket_handle"]
     assert replacement["request"]["obligation"] == produced["request"]["obligation"]
-    assert [entry["oid"] for entry in replacement["source"]["entries"]] == [refreshed, child_head]
+    assert [entry["oid"] for entry in replacement["source"]["entries"]] == [
+        refreshed, approved_import, *(entry["id"] for entry in core.read_cycle_record(root, child_path)["commits"])]
+    assert replacement["source"]["entries"][1] == {
+        "oid": approved_import, "kind": "discovery_import", "gates": []}
+    assert approved_import not in [entry["id"] for entry in core.read_cycle_record(root, child_path)["commits"]]
     chain = l.revision_chain(l.Custody(core.common_git_dir(root).resolve()), replacement["ticket_handle"], GitObjects(root),
         lambda cycle_id, record_digest: core.integration_record_entries(root, cycle_id, record_digest))
     assert c.CommitPair(ready.head, refreshed) in chain.aliases
@@ -260,6 +333,10 @@ def test_completed_source_uses_actual_recorded_final_head_without_rewriting_reco
     next_obligation = replace(remote_obligation, current_ticket=failed_again.handle, repair_count=1, revision_count=2)
     next_projection = core.integration_capture_projection(root, produced["grant_digest"], Status(new_base, failed_again, next_obligation))
     next_argv = list(argv); next_argv[next_argv.index("--cycle-id") + 1] = "child-2"
+    # The approved revision now lives on the published task branch. Its current
+    # changelog is authoritative; the earlier Discovery checkout is stale.
+    authority_index = next_argv.index("--initiative-source")
+    del next_argv[authority_index:authority_index + 2]
     next_authorization = core.integration_prepare_child(core.parser().parse_args([*next_argv, "--preflight"]),
         produced["grant_digest"], statement, predecessor_ticket=failed_again.handle, qualified_projection_digest=next_projection)
     assert next_authorization["authorization_digest"] != inherited["authorization_digest"]

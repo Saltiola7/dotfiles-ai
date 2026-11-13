@@ -20567,6 +20567,16 @@ def integration_ready_pull(root: Path, record: dict, env: dict, number: int, exp
     return final
 
 
+def integration_owned_boundary(root: Path, record: dict) -> str:
+    """Include a verified follow-up import without changing its legacy record."""
+    follow_up = validate_follow_up(root, record)
+    if follow_up is not None and record.get("discovery_import") is not None:
+        # validate_follow_up binds D's parent to the published prefix P, the
+        # record baseline to D, and every imported blob to approved source.
+        return follow_up["published_head"]
+    return record["git"]["head"]
+
+
 def integration_owned_entries(root: Path, record: dict) -> "tuple[IntegrationRuntime.SourceEntry, ...]":
     """Classify only source already accepted by existing kernel custody readers."""
     integration_lifecycle_owner()
@@ -20597,7 +20607,10 @@ def integration_owned_entries(root: Path, record: dict) -> "tuple[IntegrationRun
             kind = "wrapper"
         entries.append(runtime.SourceEntry(item["id"], kind, gates))
     if imported is not None and imported not in {entry.oid for entry in entries}:
-        raise RuntimeError("integration required Discovery import missing")
+        if integration_owned_boundary(root, record) == record["discovery_import"]["base_head"] and validate_follow_up(root, record) is not None:
+            entries.insert(0, runtime.SourceEntry(imported, "discovery_import"))
+        else:
+            raise RuntimeError("integration required Discovery import missing")
     return tuple(entries)
 
 
@@ -20616,7 +20629,7 @@ def integration_record_entries(root: Path, cycle_id: str, expected_digest: str) 
                 raise RuntimeError("integration retained required gate is not disposed")
             verify_envelope(root, record, name, require_head=False)
     entries = integration_owned_entries(root, record)
-    actual = git(root, "rev-list", "--reverse", "--first-parent", record["git"]["head"] + ".." + entries[-1].oid).stdout.splitlines()
+    actual = git(root, "rev-list", "--reverse", "--first-parent", integration_owned_boundary(root, record) + ".." + entries[-1].oid).stdout.splitlines()
     if actual != [entry.oid for entry in entries]:
         raise RuntimeError("integration retained source interval changed")
     if path.read_bytes() != raw:
@@ -20830,7 +20843,7 @@ def integration_revision_source(root: Path, record: dict, path: Path, raw: bytes
             or selected["enrollment_digest"] != grant["enrollment_digest"]
             or remote_obligation.grant_digest != auth["grant_digest"]
             or remote_obligation.current_ticket != predecessor.handle
-            or record["git"]["head"] != projection.head
+            or integration_owned_boundary(root, record) != projection.head
             or delivery_mode != predecessor.delivery_mode or guarded_refresh != predecessor.guarded_refresh):
         raise RuntimeError("integration repair grant, predecessor or task mode changed")
     with evidence_lock(root, record["cycle_id"], timeout=1), local_completion_git_context():
@@ -21014,7 +21027,7 @@ def integration_source_snapshot(root: Path, cycle_id: str, pr_number: int, expec
         authority = continuation_digest({"record_digest": record_digest, "evidence": evidence,
             "policy_digest": selected["policy_digest"], "delivery_mode": effective_mode,
             "guarded_refresh": guarded_refresh})
-        source = runtime.SourceSeries(delivery["github"]["repository"], pr_number, record["git"]["head"],
+        source = runtime.SourceSeries(delivery["github"]["repository"], pr_number, integration_owned_boundary(root, record),
                                       head, tuple(entries), authority)
         from integration_coordinator.gitproof import GitObjects, prove_series
         prove_series(GitObjects(root), source.base, tuple(entry.oid for entry in source.entries), source.head, source.base)
@@ -21109,6 +21122,33 @@ def integration_plan_binding(root: Path, args: argparse.Namespace) -> tuple[str,
     return blob, continuation_digest(normalized)
 
 
+def integration_require_root_scope(root: Path, grant: dict, obligation: dict, launch: dict) -> dict:
+    """Keep inherited approval under the retained root's structural authority."""
+    path = cycle_dir(root) / "cycles" / (obligation["cycle_id"] + ".json")
+    continuation_private(path)
+    raw = pr_review_private_bytes(path, 512 * 1024)
+    original = read_cycle_record(root, path, historical=True, max_bytes=512 * 1024)
+    scope = continuation_digest({"initiative": effective_initiative(original), "context": original["context"],
+                                 "risk": original["risk"], "plan": original["applicability_plan"]})
+    if (hashlib.sha256(raw).hexdigest() != grant["record_digest"]
+            or grant["record_digest"] != obligation["record_digest"]
+            or scope != grant["scope_digest"] or scope != obligation["scope_digest"]
+            or path.read_bytes() != raw):
+        raise RuntimeError("integration root scope custody changed")
+    before, current = effective_initiative(original), launch.get("receipt")
+    # Only committed revision identifiers may change automatically. Requirement
+    # and artifact identities, ownership and repository boundaries remain fixed;
+    # the trusted mechanical assessment covers the revised contents, not a new
+    # Initiative or slice hidden behind identical operational settings.
+    fields = {"schema_version", "initiative_id", "slice_id", "coordinator_repository", "context", "repository",
+              "requirements", "depends_on", "artifacts", "release_group", "execution_owner", "manifest_path"}
+    if (not isinstance(before, dict) or not isinstance(current, dict)
+            or not fields <= before.keys() or not fields <= current.keys()
+            or any(before[key] != current[key] for key in fields)):
+        raise RuntimeError("integration repair Initiative scope changed")
+    return original
+
+
 def integration_authorized_begin(root: Path, args: argparse.Namespace, launch: dict,
                                  launch_digest: str) -> dict[str, object]:
     owner = integration_lifecycle_owner()
@@ -21120,6 +21160,7 @@ def integration_authorized_begin(root: Path, args: argparse.Namespace, launch: d
     validate_initiative_approval(approval, root=root, cycle_id=args.cycle_id)
     grant = store.read("grant", auth["grant_digest"])
     obligation = store.read("obligation", auth["obligation_digest"])
+    integration_require_root_scope(root, grant, obligation, launch)
     selected = integration_policy_snapshot(root)
     blob, plan_digest = integration_plan_binding(root, args)
     if (selected is None or store.revoked(auth["grant_digest"])
@@ -21176,8 +21217,7 @@ def integration_prepare_child(args: argparse.Namespace, grant_digest: str,
         prepared = json.loads(output.getvalue(), object_pairs_hook=no_duplicate_keys)
         launch, launch_digest = prepared["plan"], prepared["launch_digest"]
         blob, plan_digest = integration_plan_binding(root, args)
-        original_path = cycle_dir(root) / "cycles" / (obligation["cycle_id"] + ".json")
-        original = read_cycle_record(root, original_path, historical=True, max_bytes=512 * 1024)
+        original = integration_require_root_scope(root, grant, obligation, launch)
         if (store.revoked(grant_digest) or selected["policy_digest"] != grant["policy_digest"]
                 or selected["enrollment_digest"] != grant["enrollment_digest"]
                 or grant["context"] != args.context or grant["risk"] != args.risk

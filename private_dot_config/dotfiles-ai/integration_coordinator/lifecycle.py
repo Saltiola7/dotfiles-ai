@@ -318,10 +318,15 @@ class Custody:
         return self.read(kind, hex_value(value["digest"]))
 
     def revoked(self, grant_digest: str) -> bool:
+        grant_identity = hex_value(grant_digest)
         try:
-            self.linked("revocation", hex_value(grant_digest))
+            self._read(self.directory / "links" / "revocation" / (grant_identity + ".json"))
         except FileNotFoundError:
             return False
+        # Only absence of the link means unrevoked. Once it exists, missing or
+        # corrupt referenced custody must remain an error rather than revive a
+        # grant. A second guarded read also refuses a link removed after probing.
+        self.linked("revocation", grant_identity)
         return True
 
     def revoke(self, grant_digest: str, reason_digest: str, revoked_at: str) -> None:
