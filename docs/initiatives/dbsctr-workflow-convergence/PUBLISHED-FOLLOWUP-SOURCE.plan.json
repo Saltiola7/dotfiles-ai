@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Source-only prerequisite PR; no independent package publication."},
+    "deploy": {"applicability": "not_applicable", "reason": "No installed helper or guidance activation. Merged activation needs a separate exact managed-owner approval and qualification."},
+    "operate": {"applicability": "not_applicable", "reason": "Disposable synthetic registration and delivery fixtures only; no live feature follow-up, consumer recovery or service mutation."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

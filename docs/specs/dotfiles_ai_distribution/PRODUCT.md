@@ -236,3 +236,14 @@ approval outcome changes.
   secret-free rendering, local-only history and rollback must pass before the
   RHEL successor rollout. UBI userland proof does not replace live RHEL, OS Login,
   SELinux, rootless Podman, IAP or independently owned authentication evidence.
+
+## Optional coordinated delivery journey
+
+An opted-in developer keeps concurrent coding sessions and separate PRs, while a
+[shared integration coordinator](features/integration-coordinator-rollout.md)
+qualifies one final candidate per repository and preserves individual phase
+commits through rebase delivery. New cycles inherit exact repository/task policy;
+existing PRs require explicit adoption. Qualified hosted delivery remains available
+when the computer is asleep; repairs and local evidence reconciliation wait for
+the original task. Shared users retain disabled defaults and their selected
+delivery modes. Current CI triggers remain unchanged in the first release.

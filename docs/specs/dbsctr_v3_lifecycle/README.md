@@ -148,6 +148,12 @@ intact; no checker runtime, skill, module or shared wrapper was added.
 
 ## Effective Initiative authority source interface
 
+The [published-feature follow-up prerequisite](features/published-feature-followup.md)
+specifies explicit new-cycle admission on one existing published GitHub PR head,
+with digest-bound Initiative approval and accepted-default reconciliation. It
+preserves prior completed cycles and does not claim installed qualification or
+waive native CI, exact-head merge approval, managed activation or data safeguards.
+
 [Digest-bound authority amendment](features/initiative-authority-amendment.md)
 defines the narrow source interface for explicitly updating effective
 Initiative authority on an existing ACTIVE native-owned schema 3/4/5/6 cycle.
@@ -196,7 +202,12 @@ It reconciles an already merged GitHub PR with the retained cycle source, includ
 an identical-tree squash, without pushing or creating another draft. Existing
 completion gates, evidence and source ownership remain required. `--preview`
 verifies without completing; `--cycle-id` verifies/retries an already externally
-completed record. This proof grants no merge, deployment or checkout-removal
+completed record, including a native Initiative whose active pointer was removed.
+Native Initiative completion reuses the existing generic shared mutation lease
+and continuation checks. The handler verifies the requested cycle and filename,
+then rereads delivery, worktree and execution bindings under evidence/target
+locks; completed retries retain the original receipt.
+This proof grants no merge, deployment or checkout-removal
 authority and does not change automatic delivery's merge-only execution contract.
 
 ## Forgejo local-only source interface
@@ -3993,3 +4004,20 @@ The [audited lineage recovery feature](features/lineage-recovery.md) specifies a
 critical, digest-bound recovery transaction for omitted historical documentation
 commits and exact accepted-base merges in registered schema-5 Initiative cycles.
 It grants no gate credit and preserves normal delivery guards and private history.
+
+## Durable integration coordination Discovery
+
+The [integration coordinator](features/integration-coordinator.md) and
+[Initiative amendment](../../initiatives/dbsctr-delivery-lifecycle/INTEGRATION-COORDINATOR.md)
+define a proposed default-off durable per-target integration slot. The same
+portable core serves enrolled repositories; current native CI triggers remain
+authoritative and Dagger remains shadow-only. Existing recommendation schema 1,
+blocked runtime checks and narrow local completion APIs retain their semantics.
+New source, lifecycle hooks, distribution and live activation are separate slices;
+no installed capability or unattended merge is claimed by this Discovery.
+
+The [offline core source contract](features/integration-coordinator-core.md)
+defines the first implemented foundation: immutable records, guarded transitions,
+expected-head append input and bounded offline validation/status. Native adapters,
+lifecycle hooks and runtime enrollment remain separate. Source JSON and fixture
+receipts confer no native check, merge, completion or cleanup authority.

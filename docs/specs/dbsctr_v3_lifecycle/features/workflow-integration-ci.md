@@ -283,3 +283,14 @@ head/base and authority identities. Existing delivery/CI consumers must reconcil
 before activation. Sources: this contract and Initiative INT-022–INT-039; owner:
 lifecycle Discovery primary; update tables/equivalents together when authority,
 schema, ordering, dependency or guard changes. No rendering-dependent diagram.
+
+## Subsequent optional coordinator capability
+
+The [durable integration coordinator](integration-coordinator.md) and its
+[Initiative amendment](../../../initiatives/dbsctr-delivery-lifecycle/INTEGRATION-COORDINATOR.md)
+define a separately versioned, opt-in successor for coordinated rebase delivery.
+They do not reinterpret this version-1 merge recommendation, activate the blocked
+`check pr-review` path or infer trusted CI evidence from local JSON. Original gate
+authority and native safeguards remain intact. Existing helper and policy hooks
+change only in their qualified later slices; the initial standalone core draft
+changes neither this runtime nor current CI triggers.
