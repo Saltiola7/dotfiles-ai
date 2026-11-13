@@ -39,6 +39,11 @@
   Retire only that exact creation-proven seed after backup/document/process checks;
   account for every remaining live terminal against durable receipt/repair facts.
   Unknown live terminals still block fixture-wide stop; production rules unchanged.
+- Operator-approved test-only CI correction: malformed activation reads may advance
+  filesystem access time. Compare exact bytes/link target and all identity/write
+  metadata, including nanosecond mtime/ctime, without treating atime as a write.
+  Runtime activation/refusal behavior is unchanged; retained hosted failure remains
+  evidence and fresh full CI is required. No validation bypass or waiver.
 
 ## 2026-11-11 — Coordinator rollout Discovery
 
