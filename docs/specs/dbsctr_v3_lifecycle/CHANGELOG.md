@@ -1,5 +1,20 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-12 — Explicit published-feature Initiative follow-up
+
+- Add `begin --follow-up-pr NUMBER` for exact approved GitHub Initiative
+  follow-ups on existing published feature heads. Keep published history,
+  approved documentation imports and observed default ancestry distinct.
+- Reuse accepted-default reconciliation and existing-PR delivery, including
+  already-contained defaults and interrupted-push retries. Preserve prior
+  records, failures, native guards and the selected PR's draft/ready state.
+- Thirty-six focused cases pass; supported help oracles are unchanged and the
+  benchmark fixture binds the new helper bytes. The Cycle Record retains broader
+  source qualification, exact Gate Commits and actual draft-PR delivery outcome.
+- No Gate Exception, host activation or consumer recovery. Delivery targets a
+  separate prerequisite draft PR into `main`; native CI, exact-head merge approval
+  and separately qualified managed activation remain required before live use.
+
 ## 2026-11-12 — Preserve retry qualification across accepted skills
 
 - Import the accepted Python/data specialist history into the existing retry
