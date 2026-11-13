@@ -161,7 +161,8 @@ jobs:
     name: ${{ matrix.worktrunk-version == '0.81.0' && format('test ({0})', matrix.python-version) || format('test ({0}, {1})', matrix.python-version, matrix.worktrunk-version) }}
     needs: test-shard
     if: ${{ always() }}
-    runs-on: macos-26
+    # Verification consumes macOS evidence; workers retain native execution.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -176,6 +177,8 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Qualify portable artifact verifier
+        run: uv run --frozen --group test pytest tests/test_ci_shard.py -q
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: pytest-${{ matrix.python-version }}-${{ matrix.worktrunk-version }}-*
