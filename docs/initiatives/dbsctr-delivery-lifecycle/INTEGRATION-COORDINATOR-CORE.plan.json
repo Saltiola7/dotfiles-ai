@@ -1,0 +1,41 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {
+      "applicability": "required"
+    },
+    "behavior": {
+      "applicability": "required"
+    },
+    "spec": {
+      "applicability": "required"
+    },
+    "contract": {
+      "applicability": "required"
+    },
+    "test_driven_implementation": {
+      "applicability": "required"
+    },
+    "refactor": {
+      "applicability": "required"
+    },
+    "review_integrate": {
+      "applicability": "required"
+    },
+    "release": {
+      "applicability": "not_applicable",
+      "reason": "Source-only shared coordinator draft; no independent package, image or release publication."
+    },
+    "deploy": {
+      "applicability": "not_applicable",
+      "reason": "No installed modules, credentials, control branch, repository settings or enabled hosted workflow are changed by the core source slice."
+    },
+    "operate": {
+      "applicability": "not_applicable",
+      "reason": "Deterministic fixtures qualify source only; actual hosted coordination and live merge authority require the later rollout."
+    },
+    "maintain_retire": {
+      "applicability": "required"
+    }
+  }
+}
