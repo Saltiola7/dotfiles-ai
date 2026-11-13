@@ -11,6 +11,10 @@
   consumer activation is part of this source repair. An explicit operator
   exception permits bootstrap commit/draft-PR publication despite failed cycle
   registration. Formal gates remain pending; merge and installation are separate.
+- Consolidate the reader repair and regressions from #316 at `c3f1a6de`,
+  preserving native SHA-1 and SHA-256 revision support. Import no conditional-CI
+  code. The same prerequisite PR also carries the approved distribution runner
+  policy; each work item retains its source/validation boundary.
 
 ## 2026-11-12 — Explicit published-feature Initiative follow-up
 

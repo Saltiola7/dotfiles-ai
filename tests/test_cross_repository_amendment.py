@@ -1,8 +1,9 @@
 """Retained coordinator custody never imports foreign documents into Build Git."""
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 from pathlib import Path
-import runpy
 import shutil
 from types import SimpleNamespace
 
@@ -13,6 +14,15 @@ from test_initiative_authority_amendment import (
 )
 from test_initiative_cli_approval import initiative
 from test_worktrunk_registration import fixture, git, task
+
+
+def reader():
+    loader = importlib.machinery.SourceFileLoader("historical_profile_reader", str(harness.SCRIPT))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    core = importlib.util.module_from_spec(spec)
+    loader.exec_module(core)
+    return core
 
 
 @pytest.fixture
@@ -172,7 +182,7 @@ def test_current_profile_drift_still_blocks_amended_gate_commit(cross):
 
 @pytest.mark.parametrize("change", ["blob", "missing_commit", "symbolic_commit", "missing_path", "symlink"])
 def test_historical_profile_requires_exact_regular_blob_at_immutable_commit(fixture, change):
-    core = runpy.run_path(str(harness.SCRIPT))
+    core = reader()
     profile = json.loads(fixture.plan_path().read_text())["profile"]
     commit = git(fixture.repo, "rev-parse", "HEAD").strip()
     blob = git(fixture.repo, "rev-parse", f"HEAD:{profile}").strip()
@@ -193,7 +203,53 @@ def test_historical_profile_requires_exact_regular_blob_at_immutable_commit(fixt
         commit = git(fixture.repo, "rev-parse", "HEAD").strip()
         blob = git(fixture.repo, "rev-parse", f"HEAD:{profile}").strip()
     with pytest.raises(RuntimeError):
-        core["amendment_local_profile"](fixture.repo, profile, blob, commit=commit)
+        core.amendment_local_profile(fixture.repo, profile, blob, revision=commit)
+
+
+def test_historical_profile_uses_approved_source_not_inventory_checkout(cross):
+    target, path, _ = cross.amendment
+    apply_amendment(cross.amendment)
+    original = path.read_bytes()
+    observer = target.parent / "profile-observer"
+    git(target, "worktree", "add", "-b", "profile-observer", str(observer), "HEAD")
+    relative = json.loads(path.read_text())["engineering_profile"]["path"]
+    profile = observer / relative
+    profile.write_text(profile.read_text() + "\nIndependent later profile revision.\n")
+    git(observer, "add", relative)
+    git(observer, "commit", "-m", "Later profile revision")
+    assert reader().read_cycle_record(observer, path, historical=True)["cycle_id"] == "cycle-1"
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize("object_format", ["sha1", "sha256"])
+def test_historical_profile_rejects_moving_missing_or_wrong_source(tmp_path, object_format):
+    git(tmp_path, "init", "--object-format=" + object_format)
+    git(tmp_path, "config", "user.name", "Fixture")
+    git(tmp_path, "config", "user.email", "fixture@example.invalid")
+    relative = "docs/specs/test/PROFILE.md"
+    profile = tmp_path / relative
+    profile.parent.mkdir(parents=True)
+    profile.write_text("Original profile\n")
+    git(tmp_path, "add", relative)
+    git(tmp_path, "commit", "-m", "Original profile")
+    revision = git(tmp_path, "rev-parse", "HEAD").strip()
+    blob = git(tmp_path, "rev-parse", "HEAD:" + relative).strip()
+    assert len(revision) == (40 if object_format == "sha1" else 64)
+    profile.write_text("Later profile\n")
+    git(tmp_path, "add", relative)
+    git(tmp_path, "commit", "-m", "Later profile")
+    core = reader()
+    assert core.amendment_local_profile(tmp_path, relative, blob, revision) == [
+        {"path": relative, "mode": "100644", "blob": blob}]
+    with pytest.raises(RuntimeError, match="profile changed"):
+        core.amendment_local_profile(tmp_path, relative, blob)
+    for invalid in ("HEAD", "main", "--all", "", False, "a" * 41, "a" * 63):
+        with pytest.raises(RuntimeError, match="revision is invalid"):
+            core.amendment_local_profile(tmp_path, relative, blob, invalid)
+    with pytest.raises(RuntimeError):
+        core.amendment_local_profile(tmp_path, relative, blob, "f" * len(revision))
+    with pytest.raises(RuntimeError, match="profile changed"):
+        core.amendment_local_profile(tmp_path, relative, "e" * len(blob), revision)
 
 
 def test_independent_same_repository_clone_cannot_select_external_route(amendment, fixture):

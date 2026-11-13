@@ -9,11 +9,36 @@ Profile: [../PROFILE.md](../PROFILE.md). Product Intent:
 `tests/ci_shard.py` verifier. Risk is elevated; Python, Security and Cloud apply.
 Delivery is a source-only draft PR, with hosted qualification before merge.
 
-The full-suite workers retain `macos-26`, every supported Python/Worktrunk lane,
+The full-suite workers retain native macOS, every supported Python/Worktrunk lane,
 four partitions, native Swift validation, existing checks and worker deadlines.
-Only the artifact-summary job moves to `ubuntu-24.04`. Its job/check names,
+PR/main uses standard Intel `macos-26-intel`; weekly/manual uses ARM64 `macos-26`.
+The artifact-summary job uses `ubuntu-24.04`. Its job/check names,
 matrix, always-run behavior, worker dependency and native success requirement
 stay intact. Security and RHEL workflows and branch protections are unchanged.
+
+## Native runner architecture policy
+
+| Event | Worker label | Asserted native architecture | Complete test population |
+|---|---|---|---|
+| Pull request or push to main | `macos-26-intel` | Darwin / `x86_64` | Python 3.14, Worktrunk 0.81.0 and 0.80.0, four partitions per lane |
+| Weekly schedule or manual dispatch | `macos-26` | Darwin / `arm64` | Python 3.12–3.15 with Worktrunk 0.81.0, plus Python 3.14 / Worktrunk 0.80.0, four partitions per lane |
+
+An architecture assertion runs before checkout/setup/native tests. A wrong OS
+or CPU fails the job; no emulation, architecture fallback, conditional test
+selection or check reduction is introduced. Both checksummed Worktrunk binary
+families remain. All action pins, permissions, timeouts, fail-fast settings,
+native Swift/publication checks, partition commands, artifact retention and Linux
+summary qualification/verification remain unchanged.
+
+Intel success is Intel macOS evidence, **not Apple Silicon qualification**.
+Weekly/manual ARM64 coverage remains mandatory under its existing cadence;
+unavailable ARM64 capacity is not accepted as passing and does not switch to
+Intel silently. This policy adds no larger/paid runner or hosted-capacity guarantee.
+Local event/configuration and fake-uname tests prove selection/failure behavior,
+not hosted native execution. Merge qualification requires the complete Intel
+suite on the published candidate, authenticated current-base results and intact
+native required checks/protections. Manual workflow dispatch remains separately
+operator selected; no other PR's run is cancelled to obtain capacity.
 
 ## Behavior and contract
 
@@ -47,7 +72,7 @@ is introduced. Artifact data is parsed, never executed.
 
 First replay the retained successful worker artifacts and existing rejection
 cases locally. Linux qualification then uses both the same rejection suite and
-fresh artifacts from the unchanged native workers in this PR. Default-branch
+fresh artifacts from the selected native workers in this PR. Default-branch
 activation requires those hosted results; local macOS success alone proves no
 Linux portability. No new VM or developer-runtime installation is required.
 
@@ -79,7 +104,7 @@ managed local files and publishes no independent package or production service.
 
 | Producer / consumer | Platform and authority | Required relation |
 |---|---|---|
-| Full-suite workers | Native macOS; unchanged runtime/Worktrunk matrix | Execute every partition and retain current source/run/attempt evidence |
+| Full-suite workers | Intel PR/main; ARM64 weekly/manual; unchanged runtime/Worktrunk matrix | Assert selected native architecture, execute every partition and retain current source/run/attempt evidence |
 | Summary qualification | Linux; frozen test group and existing rejection tests | Qualify parsing, completeness and negative cases; no native coverage claim |
 | Summary verification | Linux; unchanged complete-lane verifier | Accept only complete matching artifacts from successful native workers |
 | Required check | Existing GitHub Actions producer and name | Pass only after qualification and verification both succeed |
@@ -87,6 +112,9 @@ managed local files and publishes no independent package or production service.
 **Text Equivalent:** Native macOS workers produce the existing evidence. Linux
 first exercises the verifier's rejection behavior, then verifies only the current
 workers' matching evidence. The existing required check preserves every failure.
+PR/main workers run Intel; scheduled/manual workers run ARM64. Each worker first
+asserts Darwin and its selected CPU; an architecture mismatch fails. Intel proof
+does not stand in for Apple Silicon proof.
 Source: `.github/workflows/test.yml` and `tests/ci_shard.py`; owner: distribution
 maintainer; update on runner, identity, dependency or receipt changes.
 

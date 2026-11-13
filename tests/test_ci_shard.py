@@ -775,7 +775,10 @@ def test_native_teardown_skips_preserve_event_counts_and_parent_totals(native_ch
 def test_summary_qualifies_portable_verifier_without_moving_native_workers():
     workflow = (ROOT / ".github/workflows/test.yml").read_text()
     workers, summary = workflow.split("\n  test:\n", 1)
-    assert "    runs-on: macos-26\n" in workers
+    assert (
+        "    runs-on: ${{ (github.event_name == 'schedule' || "
+        "github.event_name == 'workflow_dispatch') && 'macos-26' || 'macos-26-intel' }}\n"
+    ) in workers
     assert "    timeout-minutes: 90\n" in workers
     assert "      - name: Check native Swift compilation\n" in workers
     assert "    runs-on: ubuntu-24.04\n" in summary
@@ -787,3 +790,63 @@ def test_summary_qualifies_portable_verifier_without_moving_native_workers():
     assert "CI_WORKERS_RESULT: ${{ needs.test-shard.result }}" in verification
     assert '--workers-result "$CI_WORKERS_RESULT"' in verification
     assert "test (" in summary
+
+
+def test_runner_policy_keeps_all_full_suite_lanes_and_native_steps():
+    workflow = (ROOT / ".github/workflows/test.yml").read_text()
+    workers, summary = workflow.split("\n  test:\n", 1)
+    assert (
+        "          EXPECTED_RUNNER_ARCH: ${{ (github.event_name == 'schedule' || "
+        "github.event_name == 'workflow_dispatch') && 'arm64' || 'x86_64' }}\n"
+    ) in workers
+    assert workers.index("      - name: Verify selected runner architecture\n") < workers.index(
+        "      - uses: actions/checkout@")
+    for section in (workers, summary):
+        assert (
+            """python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14", "3.15"]' || '["3.14"]') }}"""
+        ) in section
+        assert 'worktrunk-version: ["0.81.0"]' in section
+        assert 'worktrunk-version: "0.80.0"' in section
+        assert "      fail-fast: false\n" in section
+    assert "        shard: [0, 1, 2, 3]\n" in workers
+    assert workers.count('worktrunk-version: "0.80.0"') == 4
+    for name in (
+        "Verify selected Python runtime", "Install qualified Worktrunk",
+        "Check publication and instruction contracts", "Check native Swift compilation",
+        "Check full-suite partition", "Retain partition evidence",
+    ):
+        assert f"      - name: {name}\n" in workers
+    assert "    needs: test-shard\n" in summary
+    assert "    runs-on: ubuntu-24.04\n" in summary
+    assert "    if: ${{ always() }}\n" in summary
+    assert "      - name: Verify complete lane coverage\n" in summary
+    for version in ("0.80.0", "0.81.0"):
+        for arch in ("arm64", "x86_64"):
+            assert f"            {version}:{arch})\n" in workers
+
+
+@pytest.mark.parametrize(("expected", "observed", "system", "success"), [
+    ("x86_64", "x86_64", "Darwin", True),
+    ("arm64", "arm64", "Darwin", True),
+    ("x86_64", "arm64", "Darwin", False),
+    ("arm64", "x86_64", "Darwin", False),
+    ("x86_64", "x86_64", "Linux", False),
+    ("arm64", "sparc", "Darwin", False),
+])
+def test_runner_architecture_assertion_fails_before_test_execution(
+    tmp_path, expected, observed, system, success,
+):
+    workflow = (ROOT / ".github/workflows/test.yml").read_text()
+    step = workflow.split("      - name: Verify selected runner architecture\n", 1)[1].split(
+        "      - uses: actions/checkout@", 1)[0]
+    script = "\n".join(line.removeprefix("          ") for line in step.split("        run: |\n", 1)[1].splitlines())
+    uname = tmp_path / "uname"
+    uname.write_text('#!/bin/sh\ncase "$1" in -m) echo "$FIXTURE_ARCH";; -s) echo "$FIXTURE_OS";; *) exit 1;; esac\n')
+    uname.chmod(0o755)
+    result = subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, timeout=5,
+        env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+             "EXPECTED_RUNNER_ARCH": expected, "FIXTURE_ARCH": observed, "FIXTURE_OS": system},
+    )
+    assert (result.returncode == 0) is success, result.stdout + result.stderr
+    assert ("Selected runner architecture:" in result.stdout) is success

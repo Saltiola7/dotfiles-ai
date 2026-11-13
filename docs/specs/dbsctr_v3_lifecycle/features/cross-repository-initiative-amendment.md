@@ -43,7 +43,9 @@ helper activation or application of a consumer amendment.
 - Given a later profile revision in a reader checkout, historical local closure
   validation uses the immutable checkout commit already bound by the approved
   amendment plan, not the reader's current `HEAD`. Exact profile path/blob/mode
-  must match that retained tree. Missing commits, symbolic revisions, missing
+  must match that retained tree. Native SHA-1 (40 hexadecimal characters) and
+  SHA-256 (64 hexadecimal characters) Git revisions are both supported; other
+  widths are rejected. Missing commits, symbolic revisions, missing
   paths, symlinks and mismatched blobs refuse. New amendment admission still
   checks current `HEAD`; active Gate Commit and Final Push still require the
   cycle's current Engineering Profile identity. Historical readability does not

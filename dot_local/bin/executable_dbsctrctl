@@ -5070,12 +5070,12 @@ def amendment_external_authority(directory, receipt):
             "commit": receipt["manifest_commit"], "closure": closure}
 
 
-def amendment_local_profile(root, profile, blob, *, commit=None):
-    if commit is not None and (not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit)):
-        fail("invalid Initiative amendment profile commit")
+def amendment_local_profile(root, profile, blob, revision=None):
+    if revision is not None and (not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", revision)):
+        fail("Initiative amendment source revision is invalid")
+    revision = "HEAD" if revision is None else revision
     closure = amendment_closure(root, {"artifacts": [], "manifest_path": profile,
-                                       "manifest_commit": commit if commit is not None else "HEAD"},
-                                {"profile": profile})
+                                       "manifest_commit": revision}, {"profile": profile})
     if len(closure) != 1 or closure[0]["blob"] != blob:
         fail("Initiative amendment source profile changed")
     return closure
@@ -5220,8 +5220,7 @@ def validate_initiative_amendments(root, record):
             if (amendment_external_authority(authority["directory"], receipt) != authority
                     or common_git_dir(Path(authority["directory"])).resolve() == common_git_dir(root).resolve()
                     or plan["closure"] != amendment_local_profile(root, before["engineering_profile"]["path"],
-                                                                 before["engineering_profile"]["blob"],
-                                                                 commit=plan["checkout"]["head"])):
+                                                                 before["engineering_profile"]["blob"], plan["checkout"]["head"])):
                 fail("Initiative amendment retained authority changed")
         else:
             if plan.get("schema_version") != 1 or "authority" in plan:
