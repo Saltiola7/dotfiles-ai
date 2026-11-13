@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Architecture Fitness"
+  short_description: "Review Python dependency boundary contracts"
+  default_prompt: "Use $python-architecture-fitness to review accepted Python dependency boundaries and propose focused architectural checks."

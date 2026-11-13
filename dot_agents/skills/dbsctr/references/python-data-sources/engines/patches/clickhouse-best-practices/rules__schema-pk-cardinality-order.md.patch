@@ -1,0 +1,37 @@
+--- a/rules/schema-pk-cardinality-order.md
++++ b/rules/schema-pk-cardinality-order.md
+@@ -1,24 +1,30 @@
+ ---
+ title: Order Columns by Cardinality (Low to High)
+ impact: CRITICAL
+-impactDescription: "Enables granule skipping; high-cardinality first prevents index pruning"
++impactDescription: "Balance predicate selectivity, cardinality and locality for the workload"
+ tags: [schema, primary-key, cardinality, ORDER BY]
+ ---
++
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
+ 
+ ## Order Columns by Cardinality (Low to High)
+ 
+ **Impact: CRITICAL**
+ 
+-Since the sparse primary index operates on data blocks (granules) rather than individual rows, low-cardinality leading columns create more useful index entries that can skip entire blocks. Place lower-cardinality columns before higher-cardinality ones in the ordering key.
++Sparse-index pruning depends on the workload, key order, data distribution and
++predicates. Low-to-high cardinality can improve locality/compression for a chosen
++set of filtering columns, but is not a universal ordering rule. A frequently
++filtered high-cardinality identifier can be a useful leading key. Evaluate plans
++for representative queries and preserve replacement/deduplication key semantics.
+ 
+ **Incorrect (high cardinality first):**
+ 
+ ```sql
+--- UUID first means no pruning benefit
++-- UUID first may be unsuitable when queries never filter by UUID
+ CREATE TABLE events (...)
+ ENGINE = MergeTree()
+ ORDER BY (event_id, event_type, timestamp);
+--- Every granule has different event_id values, index can't skip anything
++-- Other event-type/time predicates may prune poorly; verify the plan
+ ```
+ 
+ **Correct (low cardinality first):**

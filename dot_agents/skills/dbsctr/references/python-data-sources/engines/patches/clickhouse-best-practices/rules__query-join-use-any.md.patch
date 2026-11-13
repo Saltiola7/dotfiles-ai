@@ -1,0 +1,17 @@
+--- a/rules/query-join-use-any.md
++++ b/rules/query-join-use-any.md
+@@ -5,11 +5,13 @@
+ tags: [query, JOIN, ANY, performance]
+ ---
+ 
++> **Modified by dotfiles-ai.** This file differs from the pinned upstream source. See [UPSTREAM.md](../UPSTREAM.md) for attribution and adaptation details.
++
+ ## Use ANY JOIN When Only One Match Needed
+ 
+ **Impact: HIGH**
+ 
+-Use `ANY` JOINs when you only need a single match rather than all matches. They consume less memory and execute faster.
++Consider `ANY` only when result multiplicity and match choice permit a single match. It changes semantics when duplicate right-side keys exist; which match is retained may not be deterministic. Establish uniqueness or explicit acceptable selection before replacing a normal JOIN. Measure resource effects on the chosen version/workload.
+ 
+ **Incorrect (returns all matches):**
+ 

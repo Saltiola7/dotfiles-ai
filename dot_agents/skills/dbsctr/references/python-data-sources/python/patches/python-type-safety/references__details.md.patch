@@ -1,0 +1,148 @@
+--- a/references/details.md
++++ b/references/details.md
+@@ -1,4 +1,9 @@
+ # python-type-safety — detailed worked examples
++
++These are type-design examples, not a mandate to select a checker or introduce
++an ORM, repository hierarchy or validation library. Follow the entrypoint's project
++policy. Syntax and library APIs must work across the approved Python targets;
++select relevant examples and verify them with the existing authority.
+ 
+ ## Advanced Patterns
+ 
+@@ -49,7 +54,9 @@
+ 
+ ### Pattern 6: TypeVar with Bounds
+ 
+-Restrict generic parameters to specific types.
++Restrict generic parameters to meaningful types. The Pydantic v2 example applies
++only when that dependency/version is already selected; another project may use a
++standard-library parser or its existing validation layer.
+ 
+ ```python
+ from typing import TypeVar
+@@ -57,7 +64,7 @@
+ 
+ ModelT = TypeVar("ModelT", bound=BaseModel)
+ 
+-def validate_and_create(model_cls: type[ModelT], data: dict) -> ModelT:
++def validate_and_create(model_cls: type[ModelT], data: dict[str, object]) -> ModelT:
+     """Create a validated Pydantic model from dict."""
+     return model_cls.model_validate(data)
+ 
+@@ -75,20 +82,23 @@
+ 
+ ### Pattern 7: Protocols for Structural Typing
+ 
+-Define interfaces without requiring inheritance.
+-
+-```python
++Define interfaces without requiring inheritance. `runtime_checkable` checks
++attribute presence, not type signatures, payload contents or semantic behavior.
++It cannot replace boundary validation; use it only when runtime probing is needed.
++
++```python
++import json
+ from typing import Protocol, runtime_checkable
+ 
+ @runtime_checkable
+ class Serializable(Protocol):
+     """Any class that can be serialized to/from dict."""
+ 
+-    def to_dict(self) -> dict:
++    def to_dict(self) -> dict[str, str]:
+         ...
+ 
+     @classmethod
+-    def from_dict(cls, data: dict) -> "Serializable":
++    def from_dict(cls, data: dict[str, str]) -> "Serializable":
+         ...
+ 
+ # User satisfies Serializable without inheriting from it
+@@ -97,11 +107,11 @@
+         self.id = id
+         self.name = name
+ 
+-    def to_dict(self) -> dict:
++    def to_dict(self) -> dict[str, str]:
+         return {"id": self.id, "name": self.name}
+ 
+     @classmethod
+-    def from_dict(cls, data: dict) -> "User":
++    def from_dict(cls, data: dict[str, str]) -> "User":
+         return cls(id=data["id"], name=data["name"])
+ 
+ def serialize(obj: Serializable) -> str:
+@@ -111,7 +121,7 @@
+ # Works - User matches the protocol
+ serialize(User("1", "Alice"))
+ 
+-# Runtime checking with @runtime_checkable
++# Presence check only; method signatures and values are not checked
+ isinstance(User("1", "Alice"), Serializable)  # True
+ ```
+ 
+@@ -153,6 +163,9 @@
+ 
+ ```python
+ # Python 3.12+ type statement (PEP 695)
++from typing import Any
++from collections.abc import Callable, Awaitable
++
+ type UserId = str
+ type UserDict = dict[str, Any]
+ 
+@@ -163,11 +176,12 @@
+ 
+ ```python
+ # Python 3.10-3.11 style (needed for broader compatibility)
+-from typing import TypeAlias
++from typing import TypeAlias, TypeVar
+ from collections.abc import Callable, Awaitable
+ 
++R = TypeVar("R")
+ UserId: TypeAlias = str
+-Handler: TypeAlias = Callable[[Request], Response]
++Handler: TypeAlias = Callable[[Request], R]
+ ```
+ 
+ ```python
+@@ -204,16 +218,22 @@
+     on_progress: ProgressCallback | None = None,
+ ) -> list[Result]:
+     for i, item in enumerate(items):
+-        if on_progress:
++        if on_progress is not None:
+             on_progress(i, len(items))
+         ...
+ ```
+ 
+ ## Configuration
+ 
+-### Strict Mode Checklist
+-
+-For `mypy --strict` compliance:
++### Selected Checker Configuration
++
++The following is an optional mypy-specific example for a project that already
++selects mypy. It is not a fallback or competing authority when ty, pyright or
++another checker is selected. Keep target versions, command/configuration and
++scope in the project profile. Never copy this block over existing settings merely
++because the skill was loaded.
++
++For an explicitly selected mypy strict configuration:
+ 
+ ```toml
+ # pyproject.toml
+@@ -234,4 +254,10 @@
+ - Minimize `Any` usage (acceptable for truly dynamic data)
+ - Generic collections use type parameters (`list[str]` not `list`)
+ 
+-For existing codebases, enable strict mode per-module using `# mypy: strict` or configure per-module overrides in `pyproject.toml`.
++For an explicitly approved incremental migration, use the selected checker's
++supported configuration. Track actual findings, dependencies and limitations;
++annotated signatures alone do not prove precise types or complete analysis.
++Resolve unknown row/JSON values with checked conversions, not unchecked casts.
++See the [Python typing specification](https://typing.python.org/en/latest/spec/index.html)
++for language-level semantics and the selected checker's versioned documentation
++for its supported implementation.

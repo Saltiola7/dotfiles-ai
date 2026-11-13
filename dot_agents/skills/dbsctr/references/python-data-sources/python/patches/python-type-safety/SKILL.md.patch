@@ -1,0 +1,163 @@
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -1,18 +1,39 @@
+ ---
+ name: python-type-safety
+-description: Python type safety with type hints, generics, protocols, and strict type checking. Use when adding type annotations, implementing generic classes, defining structural interfaces, or configuring mypy/pyright.
++license: MIT
++description: Design Python typed interfaces, generics, protocols and narrowing when type-bearing code changes. Preserve the project-selected checker and existing lifecycle coverage policy.
+ ---
+ 
+ # Python Type Safety
+ 
+-Leverage Python's type system to catch errors at static analysis time. Type annotations serve as enforced documentation that tooling validates automatically.
++## Project and workflow boundaries
++
++Apply this guidance within the current task and project Engineering Profile.
++Project-selected runtimes, dependencies, tools, error contracts and acceptance
++criteria control examples. Loading this skill does not install tools or authorize
++external operations. Existing authorization persists; ask only about unresolved
++material decisions. DBSCTR retains phase and gate ownership; QA retains configured
++validation and evidence ownership. Return scoped findings, affected artifacts,
++supporting evidence and limitations. See [UPSTREAM.md](UPSTREAM.md) for provenance.
++
++Use types to describe contracts at component and data boundaries. Keep type
++precision separate from runtime validation: annotations do not validate untrusted
++JSON, rows or API responses. Parse external objects into checked domain values
++before relying on their types.
++
++This lens owns type-design technique, not checker selection or lifecycle coverage.
++Use the project's selected checker (including ty where selected), target runtimes,
++configuration, environments and existing migration policy. DBSCTR and QA retain
++inventory, completed-analysis and diagnostic reporting. Do not create a parallel
++checker policy, force mypy/pyright, add blanket ignores, or use casts/Any to hide
++unresolved contracts. Use `python-modernization-review` for support-floor changes.
+ 
+ ## When to Use This Skill
+ 
+ - Adding type hints to existing code
+ - Creating generic, reusable classes
+ - Defining structural interfaces with protocols
+-- Configuring mypy or pyright for strict checking
++- Refining interfaces under the project-selected checker and typing policy
+ - Understanding type narrowing and guards
+ - Building type-safe APIs and libraries
+ 
+@@ -52,7 +73,9 @@
+ 
+ ### Pattern 1: Annotate All Public Signatures
+ 
+-Every public function, method, and class should have type annotations.
++Prioritize public signatures and consequential boundaries within the agreed
++scope. Preserve existing annotation conventions and compatibility; do not expand
++an implementation task into whole-repository typing remediation.
+ 
+ ```python
+ def get_user(user_id: str) -> User:
+@@ -82,7 +105,9 @@
+         ...
+ ```
+ 
+-Use `mypy --strict` or `pyright` in CI to catch type errors early. For existing projects, enable strict mode incrementally using per-module overrides.
++Run the project's configured checker for changed types and affected consumers.
++A stricter mode or checker migration is a separate project decision; preserve
++findings and known limitations rather than changing authority to obtain green.
+ 
+ ### Pattern 2: Use Modern Union Syntax
+ 
+@@ -129,57 +154,33 @@
+ 
+ ### Pattern 4: Generic Classes
+ 
+-Create type-safe reusable containers.
+-
+-```python
+-from typing import TypeVar, Generic
++Preserve payload types without conflating a valid `None` with a missing value.
++This optional tagged-outcome example permits successful `None`, and narrowing
++selects the correct branch without ignored returns or unchecked casts. Prefer the
++project's existing exception/result convention rather than introducing a new one.
++
++```python
++from dataclasses import dataclass
++from typing import Generic, TypeVar
+ 
+ T = TypeVar("T")
+ E = TypeVar("E", bound=Exception)
+ 
+-class Result(Generic[T, E]):
+-    """Represents either a success value or an error."""
+-
+-    def __init__(
+-        self,
+-        value: T | None = None,
+-        error: E | None = None,
+-    ) -> None:
+-        if (value is None) == (error is None):
+-            raise ValueError("Exactly one of value or error must be set")
+-        self._value = value
+-        self._error = error
+-
+-    @property
+-    def is_success(self) -> bool:
+-        return self._error is None
+-
+-    @property
+-    def is_failure(self) -> bool:
+-        return self._error is not None
+-
+-    def unwrap(self) -> T:
+-        """Get value or raise the error."""
+-        if self._error is not None:
+-            raise self._error
+-        return self._value  # type: ignore[return-value]
+-
+-    def unwrap_or(self, default: T) -> T:
+-        """Get value or return default."""
+-        if self._error is not None:
+-            return default
+-        return self._value  # type: ignore[return-value]
+-
+-# Usage preserves types
+-def parse_config(path: str) -> Result[Config, ConfigError]:
+-    try:
+-        return Result(value=Config.from_file(path))
+-    except ConfigError as e:
+-        return Result(error=e)
+-
+-result = parse_config("config.yaml")
+-if result.is_success:
+-    config = result.unwrap()  # Type: Config
++@dataclass(frozen=True)
++class Success(Generic[T]):
++    value: T
++
++@dataclass(frozen=True)
++class Failure(Generic[E]):
++    error: E
++
++def unwrap(result: Success[T] | Failure[E]) -> T:
++    if isinstance(result, Failure):
++        raise result.error
++    return result.value
++
++successful_none: Success[None] = Success(None)
++assert unwrap(successful_none) is None
+ ```
+ 
+ ## Detailed worked examples and patterns
+@@ -190,11 +191,11 @@
+ 
+ 1. **Annotate all public APIs** - Functions, methods, class attributes
+ 2. **Use `T | None`** - Modern union syntax over `Optional[T]`
+-3. **Run strict type checking** - `mypy --strict` in CI
++3. **Honor the selected checker** - Use the project configuration and acceptance criteria
+ 4. **Use generics** - Preserve type info in reusable code
+ 5. **Define protocols** - Structural typing for interfaces
+ 6. **Narrow types** - Use guards to help the type checker
+ 7. **Bound type vars** - Restrict generics to meaningful types
+ 8. **Create type aliases** - Meaningful names for complex types
+-9. **Minimize `Any`** - Use specific types or generics. `Any` is acceptable for truly dynamic data or when interfacing with untyped third-party code
+-10. **Document with types** - Types are enforceable documentation
++9. **Expose dynamic boundaries** - Narrow unknown inputs through runtime checks; document justified dynamic types and limitations
++10. **Separate static and runtime contracts** - Neither annotations nor clean diagnostics prove input validation

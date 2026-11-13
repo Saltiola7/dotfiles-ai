@@ -1,0 +1,61 @@
+--- a/references/streaming-best-practices.md
++++ b/references/streaming-best-practices.md
+@@ -4,8 +4,12 @@
+ tags: ["spark-streaming", "best-practices", "production", "performance", "expert"]
+ ---
+ 
++> Modified by dotfiles-ai: scoped for project policy, static review and authorized Databricks Services work. See `UPSTREAM.md` for provenance and changes.
++
+ # Streaming Best Practices Expert Pack
+ 
++Interpret defaults below against the selected Databricks runtime, trigger mode and workload. Fixed-size compute can help predictable latency and may be required by Real-Time Mode; it is not a universal streaming constraint. Join type and watermarks follow correctness requirements. A repository review does not establish measured cost, throughput or end-to-end exactly-once delivery.
++
+ ## Overview
+ 
+ A comprehensive checklist distilled from production experience. These practices should hold true in almost all scenarios.
+@@ -14,7 +18,7 @@
+ 
+ ## Beginner Checklist
+ 
+-### 1. Always Set a Trigger Interval
++### 1. Choose an Explicit Trigger Policy
+ 
+ ```python
+ # ✅ Good: Controls API costs and listing operations
+@@ -224,7 +228,7 @@
+ ### 16. Watermark for State Cleanup
+ 
+ ```python
+-# ✅ Always use watermark with stateful ops
++# Apply a supported watermark when its late-data/state-retention semantics match the requirement
+ # Prevents infinite state growth
+ 
+ stream.withWatermark("timestamp", "10 minutes") \
+@@ -266,9 +270,15 @@
+ # Set equal to total worker cores
+ spark.conf.set("spark.sql.shuffle.partitions", "200")
+ 
+-# ❌ Don't set too high
+-# If changing: Clear checkpoint (stores the old value)
+-```
++# Choose partitions against workload and supported state-store behavior.
++# For an existing stateful query, check checkpoint compatibility before changing
++# this value. Preserve the checkpoint; use a selected migration/recovery plan
++# with state reconstruction and target replay/reconciliation if a new one is needed.
++```
++
++Changing a stateful query is not permission to clear its checkpoint. See
++[checkpoint recovery](checkpoint-best-practices.md#recovery-scenarios) and the
++[documented restart constraints](https://docs.databricks.com/aws/en/structured-streaming/checkpoints).
+ 
+ ## Quick Reference
+ 
+@@ -306,7 +316,7 @@
+ | Shared checkpoint | Data loss/corruption | Separate checkpoints |
+ | No watermark | State explosion | Add watermark |
+ | S3 versioning | Latency | Disable versioning |
+-| Autoscaling clusters | Unpredictable latency | Fixed-size clusters |
++| Autoscaling clusters | Scaling can affect latency; support depends on trigger/runtime | Evaluate supported scaling against latency and cost; RTM may require fixed-size compute |
+ | High-cardinality partitions | Small files | Partition by date |
+ 
+ ## Related Skills

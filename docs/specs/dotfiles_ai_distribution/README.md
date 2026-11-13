@@ -2027,3 +2027,10 @@ not execute examples, install target tools or grant operational authority.
 specialists and QA into a report-only assessment with explicit coverage, evidence
 and ordered refactor batches. Distribution installs its complete wrapper/resources
 through exact targets; installing the entrypoint does not start a target audit.
+
+**Optional integration coordination:** the
+[rollout contract](features/integration-coordinator-rollout.md) distributes one
+shared lifecycle coordinator with repository/task policy, compatible installed
+generations and separately enrolled hosted authority. Shared defaults remain off.
+Source delivery, managed installation and live activation are distinct claims.
+Existing validation, platform and credential owners retain their boundaries.

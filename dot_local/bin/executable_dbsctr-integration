@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Resolve one complete managed owner; never fall back after source selection."""
+from pathlib import Path
+import os
+import stat
+import sys
+
+
+def run() -> int:
+    source = Path(__file__).resolve().parents[2] / "private_dot_config/dotfiles-ai"
+    installed = Path.home() / ".config/dotfiles-ai"
+    selected = source if os.path.lexists(source / "integration_coordinator") else installed
+    package = selected / "integration_coordinator"
+    try:
+        if package.is_symlink() or not package.is_dir():
+            raise OSError
+        for name in ("__init__.py", "core.py", "cli.py"):
+            if not stat.S_ISREG((package / name).lstat().st_mode):
+                raise OSError
+        sys.path.insert(0, str(selected))
+        from integration_coordinator.cli import main
+        return main()
+    except (OSError, ImportError, SyntaxError):
+        print("dbsctr-integration: module_unavailable", file=sys.stderr)
+        return 78
+
+
+if __name__ == "__main__":
+    raise SystemExit(run())

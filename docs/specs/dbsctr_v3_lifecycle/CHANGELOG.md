@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-13 — Reconcile completion source with accepted follow-up
+
+- Preserve both completion and accepted-default source histories in PR #309,
+  including all Initiative requirements and both lifecycle reader validations.
+  Compose source-only and Initiative external-completion fixture coverage.
+- Bind benchmark qualification to the resulting combined helper, without changing
+  workloads, assertions, timeouts or native CI/protections. Actual union validation,
+  retained failures and Gate Commit/delivery outcomes belong to the Cycle Record.
+- Source-only follow-up updates the same ready PR. No Gate Exception, replacement
+  PR, host activation, consumer recovery or branch/worktree/data removal.
+
 ## 2026-11-12 — Plan diagnostic expectation (COMPLETION-CI-PLAN-MESSAGE)
 
 - Align the unknown-plan-field regression's expected diagnostic with the approved
@@ -56,6 +67,105 @@
   original approvals and failed executions remain retained. Updated the isolated
   credential fixture loader for Python 3.15 without dropping its assertions.
 
+## 2026-11-12 — Explicit published-feature Initiative follow-up
+
+- Add `begin --follow-up-pr NUMBER` for exact approved GitHub Initiative
+  follow-ups on existing published feature heads. Keep published history,
+  approved documentation imports and observed default ancestry distinct.
+- Reuse accepted-default reconciliation and existing-PR delivery, including
+  already-contained defaults and interrupted-push retries. Preserve prior
+  records, failures, native guards and the selected PR's draft/ready state.
+- Thirty-six focused cases pass; supported help oracles are unchanged and the
+  benchmark fixture binds the new helper bytes. The Cycle Record retains broader
+  source qualification, exact Gate Commits and actual draft-PR delivery outcome.
+- No Gate Exception, host activation or consumer recovery. Delivery targets a
+  separate prerequisite draft PR into `main`; native CI, exact-head merge approval
+  and separately qualified managed activation remain required before live use.
+
+## 2026-11-12 — Preserve retry qualification across accepted skills
+
+- Import the accepted Python/data specialist history into the existing retry
+  draft. Preserve the complete retry handler, twelve regression functions,
+  external-completion contract, profile, workflows and native protections.
+- Eighty-seven combined instruction/publication checks pass. Reuse exact helper,
+  oracle and runtime inputs for the qualified 70 CI/performance cases with 11
+  subtests, 72 smoke records, 48 profiles and isolated apply/repeat/rollback.
+  Compatibility retains its reviewed dependency closure and mixed-runtime
+  evidence; no fresh 81/201, whole-repository QA or host-removal claim.
+- Preserve every prior cycle, Gate Commit and failed/unavailable observation.
+  No Gate Exception. Source delivery targets the same draft PR into `main`;
+  actual commits and delivery results remain in the Cycle Record. Fresh exact
+  head/current-base CI and verified merged-helper installation remain required.
+  Both completed business cycles and other sessions' CI remain untouched.
+
+## 2026-11-11 — Preserve retry guards across accepted transport cleanup
+
+- Mechanically integrate accepted Forgejo cleanup and ASVS source into the
+  existing retry draft. Preserve the full reviewed completion handler and exact
+  accepted transport cleanup; introduce no new retry behavior.
+- Qualify 81 selected source cases through 79 native Python 3.14.10 passes and
+  two exact positive replacements on trusted native Python 3.14.9. Preserve the
+  original failed run and executable-alias metadata correction. Retain the
+  qualified historical 201-case semantic closure; do not claim fresh 201 or
+  203 green. Native host-inventory limitations and failed evidence remain visible.
+- Seventy CI/performance tests with 11 subtests pass; fresh smoke qualification
+  yields 72 records and 48 profiles, with isolated helper apply/repeat/rollback.
+  Current affected Python compiles on 3.12, 3.13 and 3.14. No Gate Exception.
+- Source-only delivery targets the existing draft PR into `main`; the Cycle
+  Record retains exact commits and actual validation. Fresh current-base CI,
+  resulting-head approval, ordinary merge and helper activation remain separate.
+  No business cycle, runtime, credential, branch or checkout is retired here.
+
+## 2026-11-11 — Reconcile Initiative retry guards with accepted rebased delivery
+
+- Preserve accepted rebased correspondence, receipt validation, original-source
+  retention and retirement checks while reconciling the retained retry draft.
+  Keep all prior source cycles, Gate Commits and failed/passed evidence.
+- Reuse existing native Initiative dispatch, its shared writer lease, lineage
+  protection and continuation privacy/adoption-backup checks. Specify only the
+  remaining filename/ID, locked binding and explicit completed-retry guards;
+  ordinary mutation admission and both external proof routes retain their owners.
+- Add eight handler lines for exact cycle identity and locked binding admission.
+  Source qualification covers 201 completion/retirement cases (197 unchanged
+  passing cases and four passing observer corrections), nine adjacent safety
+  cases, and 70 CI/performance tests with 11 subtests. Preserve the original
+  203-case run: 197 passed, five failed and one skipped. Two unchanged host
+  process-visibility checks reproduce on accepted main and remain unavailable
+  outside this source slice; removal remains refused. No Gate Exception.
+- Fresh Python 3.12/3.13/3.14 smokes produce 72 records and 48 profiles; isolated
+  helper apply, repeat and rollback pass. Delivery targets the existing draft
+  PR into `main`; exact commits and actual results remain in the Cycle Record.
+  Fresh current-base CI, revised-head approval and verified managed installation
+  remain separate. No consumer closure or runtime deployment is performed.
+
+## 2026-11-11 — Offline integration coordinator core
+
+- Add immutable closed records, FIFO admission and a single fenced candidate,
+  retained native-operation identities, original phase correspondence and guarded
+  expected-head append construction. The offline CLI validates structure/status;
+  live operations return unavailable before input or credentials are read.
+- Replay one legal transition and derive its complete write set; reject default
+  branch aliases, arbitrary paths, stale callbacks and reused operation IDs.
+  Qualify byte/count headroom for every native outcome before reservation without
+  truncating mapping or reconciliation history. Independent review findings have
+  focused red regressions and passing replacements; no blocker remains in scope.
+- Validation: 38 focused cases including generated serialization and outcome
+  headroom properties; 130 scoped/publication cases pass with one existing skip.
+  All five new Python artifacts are checked by the selected ty in both 3.12 and
+  3.14 target environments, with no suppressions or diagnostics. Actual Python
+  3.12/3.14 compilation and offline CLI smokes pass. No dependency or CI change.
+- Source gates: contracts `572ed544`, implementation `b55dcf03`, documentation
+  Refactor `2d92bd7d`; final review/maintenance identity and actual Final Push are
+  retained in the private Cycle Record. No Gate Exception. Release, Deploy and
+  Operate are not applicable to this draft source slice; installation, hosted
+  adapters, lifecycle hooks, credentials and activation remain separate.
+- README and existing follow-up ownership are reviewed. Preserve records/source
+  custody and existing Dagger guidance; no cleanup or schema migration is granted.
+  Intended delivery is the recorded feature branch and draft PR into `main`.
+
+## 2026-11-11 — Durable coordinator Discovery
+
+- Specify one portable per-target coordinator, durable admission, native guards, rebase attribution and same-slot operator fallback. Keep source-only core, later hooks and live enrollment distinct; existing CI triggers and Dagger shadow authority are preserved.
 ## 2026-11-11 — Forgejo transport cleanup race
 
 - Reap an exited child before group signaling and retry the exit race once;
@@ -95,6 +205,29 @@
   as adoption work for the existing validation owner.
 - Implementation, managed activation and launch feasibility remain unverified.
   This is a documentation checkpoint, not a completed DBSCTR cycle or gate pass.
+
+## 2026-11-10 — Requalify external completion on current main
+
+- Import the separately accepted Herdr changes into the existing external-retry
+  draft after its protected base advanced. Preserve the exact helper correction,
+  tests, contracts, benchmark oracle and published history; no completion behavior
+  or runtime deployment changes.
+- Retain source-bound local qualification for unchanged inputs. Check this
+  editorial update with current publication contracts and require fresh complete
+  native CI on the reconciled head and current base before ordinary merge and
+  guarded helper activation. Actual results remain in the private Cycle Record.
+
+## 2026-11-10 — Refresh external-completion recovery integration
+
+- Reconcile the retained retry correction with accepted current lifecycle source,
+  including exact-tree two-parent delivery, retained coordinator amendments,
+  managed-account CI repair and source-only workflow activation. Preserve their
+  implementations and all published source history; update the existing draft.
+- Completion retains dedicated admission, its shared writer lease, exact record
+  binding and pending-lineage custody checks before native verification. No new
+  command, schema, gate exception or consumer runtime operation is introduced.
+- Qualification and actual delivery identities remain in the private Cycle Record.
+  Managed activation follows verified merged source and exact-head approval.
 
 ## 2026-11-05 — Retained coordinator amendments (CROSS-REPO-AMEND-001)
 
@@ -197,6 +330,47 @@
   No Gate Exception or managed activation; exact-head merge approval and reviewed
   post-merge installation/consumer qualification remain separate. Actual Gate
   Commit and Final Push outcomes belong to the private Cycle Record.
+
+## 2026-11-03 — Preserve recovery custody during external completion
+
+- Reconcile the external-completion correction with accepted Lineage Recovery,
+  validation compatibility and CI partitioning. Preserve accepted helper code
+  outside the two completion admission functions; retain both source histories.
+- Check pending recovery custody under the completion handler's shared writer
+  lease before credentials or native GitHub reads. Approved but unapplied and
+  unknown custody block completion and preview; plan-only preflights remain
+  nonblocking. Rejection preserves the record, pointer and custody and releases
+  owned locks. No new command, schema or recovery authority is introduced.
+- Authentic interrupted-recovery fixtures reproduced four failures while two
+  plan-only controls passed. All six cases pass after repair; the full completion
+  suite passes 83 tests. Local compatibility passes 30 cases; publication, CI and
+  measurement contracts pass 303 with one existing optional skip. Fresh Python
+  3.12.15, 3.13.1 and 3.14.10 correctness cohorts retain 72 complete records and
+  48 profiles without a performance comparison. Isolated exact-helper apply,
+  repeat and scoped preimage rollback pass. Full recovery and independent review
+  evidence remain separately owned by the private Cycle Record.
+- Source delivery updates the existing draft PR. Fresh native CI and exact-head
+  approval remain required before ordinary merge and guarded helper installation.
+  Preserve original Gate Commits, failed evidence and accepted runtime history;
+  source integration does not repeat deployment or change consumer gate results.
+
+## 2026-11-03 — Native Initiative external-completion recovery
+
+- Route initial completion and explicit completed retries through the dedicated
+  `complete-external` admission path. Hold the shared local-mutation lease, cycle
+  evidence lock and delivery-target lock, in that order. Revalidate the cycle,
+  delivery, checkout and execution identity under the owned locks before native
+  account selection. Keep generic completed-cycle writers blocked.
+- Bind an explicit retry to its canonical filename and recorded cycle ID.
+  Preserve immutable completion receipts and completion time, reject foreign
+  pointers and competing writers, and recover interrupted removal of the cycle's
+  own pointer. Preview and failures preserve canonical state; acquired locks are
+  released when verification or later lock acquisition fails.
+- Reproduce the previously missed top-level path using real schema-5 native
+  Initiative registration. Validation results and exact source identities remain
+  in the private Cycle Record. Source delivery is a draft PR; installation and
+  consumer retry require separately approved, verified merged source. No runtime
+  redeployment, gate exception or canonical-record repair is introduced.
 
 ## 2026-11-03 — Preserve native subtest reporting
 
@@ -453,6 +627,119 @@ Release, Deploy and Operate are not applicable to this source-only change.
 Final Push targets the feature branch and draft PR into protected main; actual
 publication and CI outcomes belong to the Cycle Record. Retain private evidence,
 branch and worktree; rollback requires no installed-state or evidence migration.
+## 2026-10-31 — Advanced Python boundary methods
+
+- Added five locally authored discoverable methods: `python-process-parallelism`,
+  `python-data-contracts`, `python-arrow-interchange`, `python-mutation-testing`
+  and `python-durable-jobs`. Python owns conditional selection; Data shares actual
+  dataframe/Arrow boundaries. Audit navigation includes these methods while full
+  audit retains fourteen core lenses and architecture focus remains structural.
+- Guidance distinguishes cancellation from termination, schema from value checks,
+  Arrow representation/lifetime from zero-copy claims, raw mutant outcomes from
+  assertion evidence, and durable handoff from replay-safe effects. Existing
+  runtimes, libraries, queues, gates and Databricks platform ownership remain.
+- Affected QA: 211 passed, one optional smoke skipped; five creator validators
+  passed. Complete isolated projection verifies bytes/modes/resource closure,
+  unrelated-state preservation and repeat diff. Three independent static cases
+  cover workers, columnar/mutation boundaries and a plain library; they establish
+  useful bounded advice, not native selection or engine/runtime qualification.
+- Deployment uses ten exact targets, retained prior-live preimages/drift guards,
+  twelve unrelated guards and repeat verification. No package installation,
+  worker/database operation, mutation campaign or package publication is included.
+- Implementation Gate Commit: `f6d3bdd`. Failed early/intentional checks and final
+  deployment/delivery receipts remain in the private Cycle Record. No Gate
+  Exception. Intended Final Push: feature branch and draft PR into `main`, retaining
+  pending predecessor PRs/branches/worktrees until verified final delivery.
+
+## 2026-10-31 — Conditional Python stack and runtime methods
+
+- Added seven discoverable skills through existing conditional Python routing:
+  Pydantic, Polars, Typer, FastAPI, Atheris, secure package-release pipelines and
+  free-threaded Python assessment. Data delegates actual Polars work to the same
+  method. Full Python audit keeps fourteen generic lenses; architecture focus
+  adds only relevant structural methods. Known live notebook/Rust selectors and
+  separately deployed guidance remain preserved; their source batch stays separate.
+- Preserved complete pinned roots and required shared resources, exact licenses,
+  original paths/hashes/Git blobs/modes and reversible adaptations. Corrected
+  concrete framework/CLI/dataframe/fuzz/artifact/GIL examples and kept runtime,
+  dependency, QA and external-action authority project-owned. The two
+  release/free-threading bundles retain Experimental maturity.
+- Affected implementation QA passed: 208 tests, one optional smoke skipped; eight
+  original creator validations passed. Isolated projection checks complete bytes,
+  modes, resource closure, unrelated state and repeat apply. Failed missing-source,
+  navigation, fixture-closure and reference-registry evidence remains retained.
+- Four independent static assessments cover API/CLI, data/fuzzing, release/runtime
+  and a plain library. Actual methods were selected, source/contracts were traced,
+  versions/tools retained and simple design preserved. These bounded synthetic
+  cases and offline example probes establish no universal native selection,
+  engine equivalence, fuzz effectiveness or free-threaded/runtime qualification.
+- Managed deployment selects thirteen exact targets, retains prior-live preimages,
+  checks drift and complete file sets/bytes/modes, and verifies repeat application.
+  Nine unrelated targets remain guarded. Native client selector refresh is
+  unverified; no framework/compiler installation, service/data operation, fuzz
+  campaign, package build or publication is part of skill deployment.
+- Implementation Gate Commit: `230b1f9`. Remaining final qualification, recovery
+  and actual delivery results stay in the private Cycle Record. Intended Final
+  Push: combined feature branch and draft PR into `main`, carrying pending
+  Python/data and architecture mapping. Prior source PRs/branches/worktrees remain
+  retained; no Gate Exception or consumer-repository remediation.
+
+## 2026-10-31 — Python architecture assessment
+
+- Added `architecture-patterns`, `python-project-structure` and local
+  `python-architecture-fitness` through existing conditional Python routing.
+  The same `python-audit` offers architecture focus, starting with those three
+  lenses and component design. Full assessment now considers fourteen lenses;
+  database delegation preserves the requested structural scope. Project rules,
+  supported imports, simple designs and selected tools retain authority.
+- Preserved two complete MIT bundles with immutable source identities, notices,
+  file modes and reversible adaptations. Corrected quantity/rounding and event
+  payload examples. Four creator validations, four offline example regressions
+  and affected QA passed: 205 tests, one optional smoke skipped. Complete isolated
+  projection verifies file sets, bytes, modes, resource closure and repeat apply.
+- Independent static audits identified a declared boundary violation in a modular
+  monolith and retained a small flat library. Dirty/untracked consumer evidence,
+  missing guidance and unrun checks remained explicit. These bounded samples do
+  not prove comparative gains, universal routing or live application behavior.
+- Managed deployment uses ten exact targets with prior-live snapshots, drift
+  guards, complete verification and a repeated empty diff. Existing routing is
+  reconciled with the reviewed current-base source; unrelated live skills remain
+  preserved. Native client selector refresh remains unverified. Recovery uses
+  retained preimages and matching reviewed source through the existing owner.
+- Implementation Gate Commit: `6f198da`. Remaining closure and actual deployment
+  evidence stay in the private Cycle Record. Intended Final Push: combined feature
+  branch and draft PR into `main`, including the pending Python/data mapping.
+  No Gate Exception, consumer remediation or new checker installation.
+
+## 2026-10-31 — Python and database specialist mapping
+
+- Added 21 discoverable skills: five Python techniques, six DuckDB/ClickHouse
+  bundles, eight stable Databricks bundles, Python database boundaries and
+  `database-audit`. Extended existing Python/Data routing; `python-audit` now
+  considers eleven language lenses plus applicable database concerns. No new
+  PostgreSQL or dbt skills. Ordinary work selects the smallest relevant set;
+  explicit audits produce findings and ordered refactor batches by default.
+- Retained 19 complete pinned upstream bundles, licenses/notices, original
+  hashes/blobs/modes and reversible adaptations. Databricks material remains
+  service-scoped. Corrected concrete example issues in retry/ownership/typing,
+  aggregate windows, checkpoint recovery, lineage and asynchronous results.
+  Per-file modification notices and existing exact-upstream whitespace policy
+  preserve redistribution and reconstruction requirements.
+- Affected QA passed: 165 tests, one optional skip; all 22 selected creator
+  validators passed. Complete isolated projection verified bytes, modes, local
+  resource closure, unrelated-state preservation and repeat-apply idempotency.
+  Two independent synthetic audits and six routing scenarios preserved target
+  source and selected tools; 16 offline snippet cases checked statement states.
+  These are bounded samples, not live engine qualification or effectiveness gains.
+- Managed installation uses 29 exact targets with a prior-live drift guard and
+  complete verification. Existing local Django routing and independent skill edits
+  are preserved. Native client catalog refresh remains unverified; no database,
+  warehouse, notebook, credential or remote job operation is part of deployment.
+  Prior-live snapshots and reviewed source support recovery through the same owner.
+- Implementation Gate Commit: `132a435`. Other Gate Commits and actual deployment
+  results remain in the private Cycle Record. Intended Final Push: feature branch
+  and draft PR into `main`; actual push/PR identity is recorded there. No Gate
+  Exception or consumer-repository remediation.
 
 ## 2026-10-31 — Notebook, host configuration and Rust/Python guidance
 

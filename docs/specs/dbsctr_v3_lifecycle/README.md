@@ -88,7 +88,7 @@ modernization review and Mojo while preserving existing lifecycle and QA ownersh
 The [infrastructure/framework follow-up](features/platform-specialists.md#follow-up-infrastructure-and-framework-specialists)
 adds three Pulumi methods, Django/DRF, Hetzner Cloud and Dagger through the existing
 conditional Python/Cloud routes. Framework and provider detail is selected for
-actual task evidence; the existing Python audit keeps its six general lenses.
+actual task evidence; the existing Python audit retains its generic assessment scope.
 Installation supplies guidance, with target execution validated by its project.
 
 The [notebook/host/interop expansion](features/platform-specialists.md#notebook-host-configuration-and-rustpython-expansion)
@@ -109,10 +109,41 @@ comparison demonstrated no end-to-end token saving.
 [Conditional Python specialists](features/python-specialists.md) defines bounded
 selection of design, property-testing, profiling and tooling guidance. The Python
 module routes; project policy and existing lifecycle/QA authorities retain control.
-The standalone `python-audit` entrypoint composes all six current Python lenses
-for explicitly requested repository assessments and ordered refactor roadmaps.
+The standalone `python-audit` entrypoint considers fourteen assessment lenses and
+applicable database boundaries for explicit repository assessments and refactor roadmaps.
+For architecture-only requests, the same coordinator starts with system/context
+boundaries, package/public-import structure, component design and accepted
+dependency contracts; other lenses follow relevant evidence. Ask: `Use
+$python-audit to audit architecture only and prioritize bounded refactors.`
+The [architecture extension](features/python-specialists.md#architecture-assessment-extension)
+keeps project policy authoritative and architecture checkers optional unless the
+project selects them. It does not claim full cross-language audit coverage.
 Its [audit contract](features/python-specialists.md#audit-interfaces) separates
 review coverage, validation results and later implementation.
+
+[Python and database composition](features/python-data-specialists.md) adds
+conditional test/type/retry/resource/telemetry techniques and Python database
+boundaries. The existing Data module routes selected DuckDB, ClickHouse and
+Databricks guidance. `database-audit` assesses detected stacks and returns a
+source-backed roadmap; both audits separate static review, live/check evidence
+and later remediation. Existing targets, tools and installer owners retain authority.
+
+[Conditional Python stack and runtime methods](features/python-specialists.md#conditional-python-stack-and-runtime-expansion)
+add Pydantic, FastAPI, Typer, Polars, Atheris, package-release and free-threading
+techniques. Python owns the canonical selectors; Data delegates actual Polars
+work to the same method. The Python audit retains fourteen generic lenses and
+adds relevant methods within its chosen scope. Existing QA, publication authority
+and project-selected tools remain unchanged; installing guidance does not run
+its framework, fuzzing, build, runtime migration or publication recipes.
+
+[Advanced Python methods](features/python-specialists.md#conditional-advanced-python-methods)
+add process/subinterpreter boundaries, dataframe contracts, Arrow interchange,
+selected mutation testing and durable jobs. Python owns conditional selection;
+Data shares the dataframe and Arrow methods. Both audit scopes assess relevant
+boundaries without starting campaigns or workers. These five bundles are locally
+authored from primary documentation; the existing vendored inventories remain
+unchanged. Project runtimes, backends, queues, QA and delivery authority remain
+project-owned.
 
 Codex CLI and Desktop can use the shared lifecycle from the current conversation
 by targeting a validated Worktrunk task checkout explicitly. Repository commands
@@ -136,6 +167,12 @@ source tests do not prove activation. Existing Python specialist routing remains
 intact; no checker runtime, skill, module or shared wrapper was added.
 
 ## Effective Initiative authority source interface
+
+The [published-feature follow-up prerequisite](features/published-feature-followup.md)
+specifies explicit new-cycle admission on one existing published GitHub PR head,
+with digest-bound Initiative approval and accepted-default reconciliation. It
+preserves prior completed cycles and does not claim installed qualification or
+waive native CI, exact-head merge approval, managed activation or data safeguards.
 
 [Digest-bound authority amendment](features/initiative-authority-amendment.md)
 defines the narrow source interface for explicitly updating effective
@@ -185,7 +222,12 @@ It reconciles an already merged GitHub PR with the retained cycle source, includ
 an identical-tree squash, without pushing or creating another draft. Existing
 completion gates, evidence and source ownership remain required. `--preview`
 verifies without completing; `--cycle-id` verifies/retries an already externally
-completed record. This proof grants no merge, deployment or checkout-removal
+completed record, including a native Initiative whose active pointer was removed.
+Native Initiative completion reuses the existing generic shared mutation lease
+and continuation checks. The handler verifies the requested cycle and filename,
+then rereads delivery, worktree and execution bindings under evidence/target
+locks; completed retries retain the original receipt.
+This proof grants no merge, deployment or checkout-removal
 authority and does not change automatic delivery's merge-only execution contract.
 
 ## Forgejo local-only source interface
@@ -3982,3 +4024,20 @@ The [audited lineage recovery feature](features/lineage-recovery.md) specifies a
 critical, digest-bound recovery transaction for omitted historical documentation
 commits and exact accepted-base merges in registered schema-5 Initiative cycles.
 It grants no gate credit and preserves normal delivery guards and private history.
+
+## Durable integration coordination Discovery
+
+The [integration coordinator](features/integration-coordinator.md) and
+[Initiative amendment](../../initiatives/dbsctr-delivery-lifecycle/INTEGRATION-COORDINATOR.md)
+define a proposed default-off durable per-target integration slot. The same
+portable core serves enrolled repositories; current native CI triggers remain
+authoritative and Dagger remains shadow-only. Existing recommendation schema 1,
+blocked runtime checks and narrow local completion APIs retain their semantics.
+New source, lifecycle hooks, distribution and live activation are separate slices;
+no installed capability or unattended merge is claimed by this Discovery.
+
+The [offline core source contract](features/integration-coordinator-core.md)
+defines the first implemented foundation: immutable records, guarded transitions,
+expected-head append input and bounded offline validation/status. Native adapters,
+lifecycle hooks and runtime enrollment remain separate. Source JSON and fixture
+receipts confer no native check, merge, completion or cleanup authority.

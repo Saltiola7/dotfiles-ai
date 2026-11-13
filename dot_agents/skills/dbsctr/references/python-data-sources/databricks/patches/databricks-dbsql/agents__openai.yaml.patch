@@ -1,0 +1,14 @@
+--- a/agents/openai.yaml
++++ b/agents/openai.yaml
+@@ -1,7 +1,8 @@
++# Modified by dotfiles-ai: scoped UI metadata; see ../UPSTREAM.md.
+ interface:
+-  display_name: "Databricks Dbsql"
+-  short_description: "Databricks SQL (DBSQL) advanced features and SQL warehouse capabilities. This skill MUST be invoked when the user mentions: \"DBSQL\", \"Databricks SQL\", \"SQL warehouse\", \"SQL scripting\", \"stored proc..."
++  display_name: "Databricks SQL"
++  short_description: "Review Databricks SQL and warehouse patterns"
+   icon_small: "./assets/databricks.svg"
+   icon_large: "./assets/databricks.png"
+   brand_color: "#FF3621"
+-  default_prompt: "Use $databricks-dbsql for databricks sql (dbsql) advanced features and sql warehouse capabilities. this skill must be invoked when the user mentions: \"dbsql\", \"databricks sql\", \"sql warehouse\", \"sql scripting\", \"stored proc."
++  default_prompt: "Use $databricks-dbsql to review the relevant Databricks repository code and propose evidence-backed changes."

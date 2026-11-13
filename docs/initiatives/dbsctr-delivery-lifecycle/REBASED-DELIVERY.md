@@ -151,3 +151,11 @@ activation. Failed CI returns to coding; material ambiguity returns to the
 operator; unrelated work may continue. Source: INT-055 through INT-079 and the
 linked contracts. Owner: delivery Discovery primary. Update these tables and
 this equivalent whenever scope, ownership, failure handling or dependencies change.
+
+## Subsequent coordination amendment
+
+[INTEGRATION-COORDINATOR.md](INTEGRATION-COORDINATOR.md) assigns durable
+coordination and current native-CI adoption to the delivery owner before Dagger
+cutover. It supersedes this document's deferred queue-hosting ownership only.
+The Dagger owner receives the shared candidate contract for default-off shadow
+adoption. All original phase-preservation and private-consumer boundaries remain.

@@ -1,5 +1,9 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-11 — Coordinator rollout Discovery
+
+- Specify default-off compatible installation, one policy owner, separately qualified hosted credentials, disable/recovery and the personal coordinated-delivery journey. No managed installation, enrollment or runtime activation is performed.
+
 ## 2026-11-11 — ASVS current-main refresh
 
 - Reconcile accepted rebased-completion bookkeeping from main while preserving

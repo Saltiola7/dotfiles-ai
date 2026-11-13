@@ -1,0 +1,45 @@
+--- a/references/streaming.md
++++ b/references/streaming.md
+@@ -1,4 +1,9 @@
+ # Streaming
++
++Check installed FastAPI/Starlette support before using these APIs. JSON Lines
++iterator inference and native `fastapi.sse` are version-dependent; preserve an
++existing compatible explicit `StreamingResponse` or selected SSE library. These
++fragments depend on application imports/values and are not a running service.
+ 
+ ## Stream JSON Lines
+ 
+@@ -83,10 +88,11 @@
+         yield from image_file
+ ```
+ 
+-prefer this over returning a `StreamingResponse` directly:
++An explicit response can also be appropriate. This incomplete counterexample
++leaves `read_image()` ownership ambiguous; it is not a ban on explicit responses:
+ 
+ ```python
+-# DO NOT DO THIS
++# Incomplete lifetime example; define ownership before copying
+ 
+ import anyio
+ from fastapi import FastAPI
+@@ -104,3 +110,18 @@
+ async def main():
+     return PNGStreamingResponse(read_image())
+ ```
++
++## Producer lifetime and failures
++
++Close resources inside the iterator's lifetime or an appropriate request/lifespan
++owner; do not return an iterator over a resource already closed by a handler or
++function-scoped dependency. Propagate cancellation/disconnect and perform cleanup
++in `finally`/context managers. Bound buffers, producer concurrency and slow-client
++work according to the application's requirements. Define event framing, heartbeat
++and replay/last-event behavior explicitly if clients rely on them.
++
++Headers/status normally commit before iteration finishes: late producer errors
++cannot reliably turn into a new JSON error/status. Test cancellation, early error,
++normal completion and relevant cleanup. In-process clients can buffer responses;
++they do not prove proxy buffering, disconnect timing, network backpressure or SSE
++reconnection behavior. Report the actual execution environment and those limits.

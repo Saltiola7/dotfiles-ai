@@ -1,0 +1,4 @@
+interface:
+  display_name: "DuckDB Attach Database"
+  short_description: "Plan scoped read-only DuckDB attachments"
+  default_prompt: "Use $duckdb-attach-db to plan the selected DuckDB attachment while preserving connection ownership and state."

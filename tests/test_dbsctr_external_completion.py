@@ -100,6 +100,14 @@ def cycle(monkeypatch, request, capsys):
     core = importlib.util.module_from_spec(spec)
     loader.exec_module(core)
     core.git(fixture.repo, "branch", "-m", "main")
+    initiative = getattr(request, "param", None) == "initiative"
+    if initiative:
+        manifest = harness.initiative_manifest()
+        manifest["coordinator_repository"] = REPOSITORY
+        manifest["contexts"][0]["repository"] = REPOSITORY
+        authority = fixture.write_initiative(manifest)
+        core.git(fixture.repo, "add", str(authority.relative_to(fixture.repo)))
+        core.git(fixture.repo, "commit", "-m", "Synthetic Initiative authority")
     base = core.git(fixture.repo, "rev-parse", "HEAD").stdout.strip()
     core.git(fixture.repo, "remote", "add", "origin", ORIGIN)
     core.git(fixture.repo, "update-ref", "refs/remotes/origin/main", base)
@@ -129,13 +137,38 @@ def cycle(monkeypatch, request, capsys):
         for gate in ("deploy", "operate"):
             plan["gates"][gate] = {"applicability": "not_applicable", "reason": "Source-only synthetic delivery."}
         plan_path.write_text(json.dumps(plan))
-    args = core.parser().parse_args([
-        "start", "--cycle-id", "cycle-1", "--context", "test", "--risk", "routine",
+    argv = [
+        "begin" if initiative else "start", "--cycle-id", "cycle-1", "--context", "test", "--risk", "routine",
         "--delivery-intent", "draft_pr", "--plan", str(plan_path),
         "--base-branch", "main", "--github-account", ACCOUNT,
         "--github-repository", REPOSITORY,
-    ])
-    core.command_start(args)
+    ]
+    if initiative:
+        # Real registration and digests; transport and consent are fixture-only.
+        # This cannot establish production authorization or native actor identity.
+        monkeypatch.setattr(core, "github_environment", lambda _account: {
+            **os.environ, "GH_TOKEN": "synthetic-token-never-print",
+        })
+        receipt = core.initiative_receipt(root / "docs/initiatives/test/MANIFEST.json", "slice-a", root)
+        argv.extend([
+            "--initiative-manifest", "docs/initiatives/test/MANIFEST.json",
+            "--initiative-slice", "slice-a", "--initiative-digest", receipt["manifest_digest"],
+            "--expected-repository", REPOSITORY,
+            "--expected-plan-digest", core.hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+            "--approval", "agent-confirmed",
+        ])
+        core.command_begin(core.parser().parse_args([*argv, "--preflight"]))
+        preview = json.loads(capsys.readouterr().out)
+        core.command_begin(core.parser().parse_args([
+            *argv, "--expected-launch-digest", preview["launch_digest"],
+        ]))
+        record = json.loads(fixture.record_path().read_text())
+        assert record["schema_version"] == 5
+        assert record["execution"]["mode"] == "native_workspace"
+        assert record["initiative"]["manifest_digest"] == receipt["manifest_digest"]
+        assert record["initiative_approval"]["method"] == "agent_confirmed"
+    else:
+        core.command_start(core.parser().parse_args(argv))
 
     def forbidden(*_args, **_kwargs):
         raise AssertionError("External completion invoked a delivery or cleanup operation")
@@ -1487,3 +1520,391 @@ def test_rebased_retention_changed_during_final_source_check_blocks_completion(r
     assert calls == 2
     assert rebased.path.read_bytes() == before_record
     assert pointer.read_bytes() == before_pointer
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("preview", [False, True], ids=["retry", "preview"])
+def test_native_initiative_external_completion_and_completed_retry(ready, capsys, preview):
+    assert ready.invoke(*arguments(ready)) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    pointer = ready.core.resolved_active_path(ready.root, bindings=False)
+    assert not pointer.exists()
+    before = snapshot(ready)
+    native_reads = len(ready.native.calls)
+    extra = ["--cycle-id", "cycle-1", *(["--preview"] if preview else [])]
+    assert ready.invoke(*arguments(ready, *extra)) == 0
+    output = capsys.readouterr()
+    assert json.loads(output.out) == receipt
+    assert snapshot(ready) == before
+    assert len(ready.native.calls) > native_reads
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+def test_native_initiative_recovers_interrupted_pointer_cleanup(ready, monkeypatch, capsys):
+    pointer = ready.core.resolved_active_path(ready.root, bindings=False)
+    original = Path.unlink
+
+    def interrupted(path, *args, **kwargs):
+        if path == pointer:
+            raise OSError("Synthetic Initiative pointer interruption")
+        return original(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", interrupted)
+        assert ready.invoke(*arguments(ready)) == 1
+    assert "Synthetic Initiative pointer interruption" in capsys.readouterr().err
+    before = ready.path.read_bytes()
+    receipt = json.loads(before)["external_completion"]
+    assert pointer.read_text() == "cycle-1\n"
+    assert ready.invoke(*arguments(ready, "--cycle-id", "cycle-1")) == 0
+    assert json.loads(capsys.readouterr().out) == receipt
+    assert ready.path.read_bytes() == before
+    assert not pointer.exists()
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+def test_native_initiative_retry_preserves_foreign_pointer(ready, capsys):
+    assert ready.invoke(*arguments(ready)) == 0
+    capsys.readouterr()
+    pointer = ready.core.resolved_active_path(ready.root, bindings=False)
+    pointer.write_text("foreign-cycle\n")
+    native_reads = len(ready.native.calls)
+    assert_rejected(ready, capsys, "--cycle-id", "cycle-1")
+    assert pointer.read_text() == "foreign-cycle\n"
+    assert len(ready.native.calls) == native_reads
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+def test_native_initiative_retry_rejects_misnamed_completed_record(ready, capsys):
+    assert ready.invoke(*arguments(ready)) == 0
+    capsys.readouterr()
+    completed = ready.path.read_bytes()
+    copied = ready.path.with_name("other-completed-cycle.json")
+    copied.write_bytes(completed)
+    copied.chmod(0o600)
+    pointer = ready.core.resolved_active_path(ready.root, bindings=False)
+    assert not pointer.exists()
+    native_reads = len(ready.native.calls)
+
+    assert_rejected(ready, capsys, "--cycle-id", copied.stem)
+
+    assert ready.path.read_bytes() == completed
+    assert copied.read_bytes() == completed
+    assert not pointer.exists()
+    assert len(ready.native.calls) == native_reads
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("completed", [False, True], ids=["initial", "completed-retry"])
+def test_native_initiative_completion_respects_shared_mutation_lease(ready, capsys, completed):
+    import fcntl
+
+    if completed:
+        assert ready.invoke(*arguments(ready)) == 0
+        capsys.readouterr()
+    lock = ready.core.cycle_dir(ready.root) / "locks/evidence-local-mutation-cycle-1.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    before = snapshot(ready)
+    native_reads = len(ready.native.calls)
+    with lock.open("a+") as stream:
+        lock.chmod(0o600)
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        extra = ["--cycle-id", "cycle-1"] if completed else []
+        assert ready.invoke(*arguments(ready, *extra)) == 1
+        assert "busy" in capsys.readouterr().err
+    assert snapshot(ready) == before
+    assert len(ready.native.calls) == native_reads
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+def test_native_initiative_holds_mutation_lease_during_native_verification(ready, monkeypatch, capsys):
+    core = ready.core
+    original = ready.native.json
+    attempted = False
+    inner_status = None
+    before = json.loads(ready.path.read_text())["artifact_reviews"]
+
+    def native_read(target, env, *args):
+        nonlocal attempted, inner_status
+        if "user" in args and not attempted:
+            attempted = True
+            with monkeypatch.context() as patch:
+                patch.setattr(core.sys, "argv", [
+                    "dbsctrctl", "review-artifact", "README", "--result", "unchanged",
+                    "--reason", "Concurrent synthetic writer",
+                ])
+                inner_status = core.main()
+        return original(target, env, *args)
+
+    monkeypatch.setattr(core, "github_json", native_read)
+    assert ready.invoke(*arguments(ready)) == 0
+    output = capsys.readouterr()
+    assert attempted and inner_status == 1
+    assert "busy" in output.err
+    assert json.loads(output.out)["status"] == "delivered_external"
+    assert json.loads(ready.path.read_text())["artifact_reviews"] == before
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("command", ["review-artifact", "record-evidence"])
+def test_native_initiative_completed_generic_mutators_remain_blocked(ready, monkeypatch, capsys, command):
+    assert ready.invoke(*arguments(ready)) == 0
+    capsys.readouterr()
+    pointer = ready.core.resolved_active_path(ready.root, bindings=False)
+    pointer.write_text("cycle-1\n")
+    before = snapshot(ready)
+
+    original_popen = ready.core.subprocess.Popen
+
+    def no_evidence_process(program, *args, **kwargs):
+        if program == [sys.executable, "-c", "print('passed')"]:
+            raise AssertionError("Completed generic mutator launched an evidence process")
+        return original_popen(program, *args, **kwargs)
+
+    monkeypatch.setattr(ready.core.subprocess, "Popen", no_evidence_process)
+    argv = ([command, "README", "--result", "unchanged", "--reason", "Synthetic rewrite"]
+            if command == "review-artifact" else
+            [command, "domain", "--authority", "fixture", "--", sys.executable, "-c", "print('passed')"])
+    assert ready.invoke(*argv) == 1
+    assert "completed" in capsys.readouterr().err
+    assert snapshot(ready) == before
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("failure", ["native", "evidence-lock", "target-lock"])
+def test_native_initiative_failure_releases_owned_mutation_lease(ready, capsys, failure):
+    import contextlib
+    import fcntl
+
+    locks = ready.core.cycle_dir(ready.root) / "locks"
+    locks.mkdir(parents=True, exist_ok=True)
+    record = json.loads(ready.path.read_text())
+    name = ("evidence-cycle-1.lock" if failure == "evidence-lock"
+            else f"{record['delivery']['lock_id']}.lock")
+    with contextlib.ExitStack() as stack:
+        if failure == "native":
+            ready.native.actor = "wrong-synthetic-account"
+        else:
+            stream = stack.enter_context((locks / name).open("a+"))
+            (locks / name).chmod(0o600)
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert_rejected(ready, capsys)
+    lease = locks / "evidence-local-mutation-cycle-1.lock"
+    with lease.open("a+") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    ready.native.actor = ACCOUNT
+    assert ready.invoke(*arguments(ready)) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "delivered_external"
+
+
+@pytest.fixture
+def retained_lineage_plan(ready, capsys):
+    """Create actual recovery custody, then restore an otherwise eligible source.
+
+    The retained plan becomes stale after restoration, but an approved transaction
+    still requires reconciliation. Restoring this disposable checkout prevents an
+    unrelated unrecorded-commit error from hiding a missing custody admission check.
+    """
+    core, root = ready.core, ready.root
+    original = snapshot(ready)
+    relative = "docs/specs/test/CHANGELOG.md"
+    core.git(root, "update-ref", "refs/remotes/origin/main", ready.base, ready.merge)
+    with (root / relative).open("a") as stream:
+        stream.write("Synthetic omitted documentation for recovery custody.\n")
+    core.git(root, "add", relative)
+    core.git(root, "commit", "-m", "Synthetic omitted documentation")
+    omitted = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    argv = ["lineage-recover", "--cycle-id", "cycle-1", "--accepted-base", ready.base,
+            "--reason", "PRIVATE_RECOVERY_REASON_SENTINEL", "--json"]
+    assert ready.invoke(*argv, "--preflight") == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "preflight"
+    digest = result["state_digest"]
+    directory = core.lineage_location(root, "cycle-1", digest, "plan.json").parent
+    assert {path.name for path in directory.iterdir()} == {"plan.json"}
+
+    def restore_source():
+        core.git(root, "restore", "--source", ready.head, "--staged", "--worktree", "--", relative)
+        core.git(root, "update-ref", "HEAD", ready.head, omitted)
+        core.git(root, "update-ref", "refs/remotes/origin/main", ready.merge, ready.base)
+        assert snapshot(ready) == original
+
+    ready.lineage = SimpleNamespace(argv=argv, digest=digest, directory=directory,
+                                    restore_source=restore_source)
+    return ready
+
+
+def lineage_custody_snapshot(cycle):
+    directory = cycle.lineage.directory
+    return {str(path.relative_to(directory)): (path.stat().st_mode, path.read_bytes())
+            for path in directory.iterdir()}
+
+
+def assert_lineage_blocks_external(cycle, monkeypatch, capsys, preview, message):
+    """Check actual custody admission under the shared lease, not a mocked guard."""
+    import fcntl
+
+    core, root = cycle.core, cycle.root
+    before = snapshot(cycle)
+    custody = lineage_custody_snapshot(cycle)
+    native_reads = len(cycle.native.calls)
+    lease = core.cycle_dir(root) / "locks/evidence-local-mutation-cycle-1.lock"
+    original_custody = core.lineage_custody
+    original_environment = core.github_environment
+    custody_reads, credential_reads = [], []
+
+    def observe_custody(target, identifier):
+        assert target.resolve() == root.resolve() and identifier == "cycle-1"
+        with lease.open("r+") as stream:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        custody_reads.append(identifier)
+        return original_custody(target, identifier)
+
+    def observe_credentials(account):
+        credential_reads.append(account)
+        return original_environment(account)
+
+    monkeypatch.setattr(core, "lineage_custody", observe_custody)
+    monkeypatch.setattr(core, "github_environment", observe_credentials)
+    assert cycle.invoke(*arguments(cycle, *(["--preview"] if preview else []))) == 1
+    output = capsys.readouterr()
+    assert message in output.err
+    assert "PRIVATE_RECOVERY_REASON_SENTINEL" not in output.out + output.err
+    assert "PRIVATE_RECOVERY_INTERRUPTION_SENTINEL" not in output.out + output.err
+    assert "synthetic-token-never-print" not in output.out + output.err
+    assert custody_reads and not credential_reads
+    assert len(cycle.native.calls) == native_reads
+    assert snapshot(cycle) == before
+    assert lineage_custody_snapshot(cycle) == custody
+    with lease.open("r+") as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("preview", [False, True], ids=["initial", "preview"])
+def test_native_initiative_pending_lineage_blocks_external_before_native_reads(
+        retained_lineage_plan, monkeypatch, capsys, preview):
+    ready = retained_lineage_plan
+    core = ready.core
+    original = ready.path.read_bytes()
+    replace = core.private_json
+    interrupted = False
+
+    def interrupt_replacement(destination, value, **kwargs):
+        nonlocal interrupted
+        if Path(destination) == ready.path:
+            interrupted = True
+            raise OSError("PRIVATE_RECOVERY_INTERRUPTION_SENTINEL")
+        return replace(destination, value, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(core, "private_json", interrupt_replacement)
+        with pytest.raises(SystemExit) as error:
+            ready.invoke(*ready.lineage.argv, "--expected-launch-digest", ready.lineage.digest,
+                         "--approval", "agent-confirmed")
+        assert error.value.code == 75
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "recovery_required" and interrupted
+    assert ready.path.read_bytes() == original
+    assert {path.name for path in ready.lineage.directory.iterdir()} == {
+        "plan.json", "envelope.json", "before.json", "outcome.json",
+    }
+    assert (ready.lineage.directory / "before.json").read_bytes() == original
+    envelope = json.loads((ready.lineage.directory / "envelope.json").read_text())
+    assert envelope["approval_method"] == "agent_confirmed"
+    assert envelope["plan"]["head"] != ready.head
+    ready.lineage.restore_source()
+
+    assert_lineage_blocks_external(ready, monkeypatch, capsys, preview,
+                                  "prepared lineage recovery requires reconciliation")
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("preview", [False, True], ids=["initial", "preview"])
+def test_native_initiative_unknown_lineage_custody_blocks_external_before_native_reads(
+        retained_lineage_plan, monkeypatch, capsys, preview):
+    ready = retained_lineage_plan
+    unknown = ready.lineage.directory / "unrecognized-retained-evidence"
+    unknown.write_bytes(b"Preserve this unexplained private artifact.\n")
+    unknown.chmod(0o600)
+    ready.lineage.restore_source()
+
+    assert_lineage_blocks_external(ready, monkeypatch, capsys, preview,
+                                  "lineage recovery custody requires reconciliation")
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("preview", [False, True], ids=["initial", "preview"])
+def test_native_initiative_plan_only_lineage_custody_allows_external_completion(
+        retained_lineage_plan, capsys, preview):
+    ready = retained_lineage_plan
+    ready.lineage.restore_source()
+    custody = lineage_custody_snapshot(ready)
+    before = snapshot(ready)
+
+    assert ready.invoke(*arguments(ready, *(["--preview"] if preview else []))) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "delivered_external"
+    assert ready.native.calls
+    assert lineage_custody_snapshot(ready) == custody
+    if preview:
+        assert snapshot(ready) == before
+    else:
+        assert json.loads(ready.path.read_text())["state"] == "completed"
+
+
+@pytest.mark.parametrize("cycle", ["initiative"], indirect=True, ids=["native-initiative"])
+@pytest.mark.parametrize("drift", ["delivery", "worktree", "execution", "completed-predicate"])
+def test_native_initiative_revalidates_admission_after_evidence_lock(
+        ready, monkeypatch, capsys, drift):
+    """A valid record drift before the locked reread must precede credentials."""
+    import contextlib
+
+    core = ready.core
+    if drift == "completed-predicate":
+        assert ready.invoke(*arguments(ready)) == 0
+        capsys.readouterr()
+    original_lock = core.evidence_lock
+    observed = {"injected": False, "credentials": [], "snapshot": None}
+    native_reads = len(ready.native.calls)
+
+    @contextlib.contextmanager
+    def changed_after_lock(target, identifier, *args, **kwargs):
+        with original_lock(target, identifier, *args, **kwargs):
+            if identifier == "cycle-1" and not observed["injected"]:
+                changed = json.loads(ready.path.read_text())
+                if drift == "delivery":
+                    changed["delivery"]["github"]["account"] = "other-synthetic-user"
+                elif drift == "worktree":
+                    changed["worktree"]["created_by_dbsctr"] = not changed["worktree"]["created_by_dbsctr"]
+                elif drift == "execution":
+                    changed.pop("execution")
+                else:
+                    changed["state"] = "finalizing"
+                    for name in ("external_completion", "completed_at", "source_sync"):
+                        changed.pop(name, None)
+                ready.path.write_text(json.dumps(changed))
+                # Real validation admits this historical record; schema failure
+                # must not masquerade as the handler's binding revalidation.
+                assert core.read_cycle_record(ready.root, ready.path, historical=True) == changed
+                observed["injected"] = True
+                observed["snapshot"] = snapshot(ready)
+            yield
+
+    def observed_environment(account):
+        observed["credentials"].append(account)
+        raise AssertionError("Credential read preceded locked admission revalidation")
+
+    monkeypatch.setattr(core, "evidence_lock", changed_after_lock)
+    monkeypatch.setattr(core, "github_environment", observed_environment)
+    extra = ["--cycle-id", "cycle-1"] if drift == "completed-predicate" else []
+    assert ready.invoke(*arguments(ready, *extra)) == 1
+    output = capsys.readouterr()
+    assert observed["injected"]
+    expected = ("explicit cycle ID requires an already externally completed record"
+                if drift == "completed-predicate" else "binding changed")
+    assert expected in output.err
+    assert not observed["credentials"]
+    assert len(ready.native.calls) == native_reads
+    assert snapshot(ready) == observed["snapshot"]
+    assert "synthetic-token-never-print" not in output.out + output.err

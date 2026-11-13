@@ -103,7 +103,11 @@
     {"id":"INT-096","kind":"requirement","text":"Capture immutable helper-owned bindings through existing record-evidence execution with before/after normalized input checks, exact command/executable identity, private keyed environment comparisons and additive evidence.bindings references; preserve old envelopes, failures and historical reading, and never accept caller-authored proof JSON.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/workflow-evidence-bindings.md"]},
     {"id":"INT-097","kind":"requirement","text":"Runtime validation captures actual deployed artifact/configuration/target/environment identities through fresh helper-owned child output; retain evidence only with declared freshness and matching bounded read-only probe after structural success. Deduplicate observations, respect native permissions and offline local-only behavior, and grant no new deployment, credential or provider-expenditure authority.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/workflow-evidence-bindings.md"]},
     {"id":"INT-098","kind":"requirement","text":"Provide supported digest-bound active-cycle evidence-policy enrollment/revision through initiative-amend while retaining original plan/approvals and unchanged required gate applicability/risk/delivery. Enrollment grants no evidence credit; ordinary record-evidence establishes missing legacy bindings, with conservative affected revalidation rather than metadata inference or permanent refusal without a writer.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/workflow-evidence-bindings.md"]},
-    {"id":"INT-099","kind":"requirement","text":"Qualify public-CLI evidence-policy approval/enrollment/capture/reuse/runtime-probe/completion journeys and adversarial dependency, command, environment, output-custody, freshness, identity, offline and interruption cases. Source fixtures use no live provider and do not claim installed or consumer qualification.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/workflow-evidence-bindings.md"]}
+    {"id":"INT-099","kind":"requirement","text":"Qualify public-CLI evidence-policy approval/enrollment/capture/reuse/runtime-probe/completion journeys and adversarial dependency, command, environment, output-custody, freshness, identity, offline and interruption cases. Source fixtures use no live provider and do not claim installed or consumer qualification.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/workflow-evidence-bindings.md"]},
+    {"id":"INT-100","kind":"requirement","text":"Add explicit digest-bound GitHub Initiative follow-up registration at one native open same-repository published feature head, preserving ordinary base equality, native identities, unknown-ahead refusal and original completed-cycle custody.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/published-feature-followup.md"]},
+    {"id":"INT-101","kind":"requirement","text":"Reuse accepted-default reconciliation and draft-delivery lineage validation for the qualified follow-up; distinguish published prefix and accepted-default imports from new cycle-owned commits, require union validation and preserve the selected existing PR draft/ready state without creating a replacement.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/published-feature-followup.md"]},
+    {"id":"INT-102","kind":"constraint","text":"Preserve original approvals, failures, records, source and data; no reopening completed cycles, implicit amendment/evidence credit, arbitrary ancestry, failed-CI waiver, credential bypass, force push or cleanup. Fresh native head/base protections and exact merge approval remain independent.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/published-feature-followup.md"]},
+    {"id":"INT-103","kind":"decision","text":"Deliver the narrow prerequisite from fresh accepted main through the existing installed writer and a separate source PR; qualify separately approved merged managed activation before any live published-feature follow-up. Do not self-install unmerged capability or replace the blocked feature PR.","disposition":"ready","artifacts":["docs/specs/dbsctr_v3_lifecycle/features/published-feature-followup.md","docs/initiatives/dbsctr-workflow-convergence/PUBLISHED-FOLLOWUP-SOURCE.plan.json"]}
   ],
   "contexts": [
     {"id":"dbsctr_v3_lifecycle","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":[]},
@@ -131,6 +135,13 @@
       "depends_on":["completion-reconciliation-core","completion-reconciliation-journey"],
       "artifacts":["docs/initiatives/dbsctr-workflow-convergence/COMPLETION-RECONCILIATION.md","docs/initiatives/dbsctr-workflow-convergence/COMPLETION-ROLLOUT.plan.json","docs/specs/dotfiles_ai_distribution/PRODUCT.md","docs/specs/dotfiles_ai_distribution/features/workflow-completion-rollout.md"],
       "release_group":"completion-reconciliation"
+    },
+    {
+      "id":"published-feature-followup","context":"dbsctr_v3_lifecycle","state":"ready","execution_owner":"build",
+      "requirements":["INT-100","INT-101","INT-102","INT-103"],
+      "depends_on":["safety-inventory"],
+      "artifacts":["docs/initiatives/dbsctr-workflow-convergence/MANIFEST.json","docs/initiatives/dbsctr-workflow-convergence/PUBLISHED-FOLLOWUP-SOURCE.plan.json","docs/specs/dbsctr_v3_lifecycle/PROFILE.md","docs/specs/dbsctr_v3_lifecycle/README.md","docs/specs/dbsctr_v3_lifecycle/features/published-feature-followup.md"],
+      "release_group":"published-feature-followup"
     },
     {
       "id":"safety-inventory","context":"dbsctr_v3_lifecycle","state":"delivered","execution_owner":"build",
@@ -243,6 +254,7 @@
   ],
   "release_groups": [
     {"id":"completion-reconciliation","members":["completion-reconciliation-core","completion-reconciliation-journey","completion-reconciliation-rollout"],"state":"planning"},
+    {"id":"published-feature-followup","members":["published-feature-followup"],"state":"planning"},
     {"id":"safety-contracts","members":["safety-inventory","storage-config","dvc-preservation","native-handoff","merge-cleanup"],"state":"delivered"},
     {"id":"integration-contracts","members":["integration-review","ci-contracts","operator-approved-merge-policy"],"state":"delivered"},
     {"id":"evidence-and-guidance","members":["regression-telemetry","prompt-authority","compression-evaluation"],"state":"delivered"},

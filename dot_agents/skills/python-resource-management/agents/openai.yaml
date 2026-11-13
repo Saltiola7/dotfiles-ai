@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Resource Management"
+  short_description: "Review ownership, cleanup and bounded streams"
+  default_prompt: "Use $python-resource-management to review resource ownership, failed acquisition, cleanup and stream lifetime for this change."

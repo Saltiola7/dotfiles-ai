@@ -1,0 +1,108 @@
+--- a/references/details.md
++++ b/references/details.md
+@@ -1,4 +1,10 @@
+ # python-testing-patterns — detailed patterns and worked examples
++
++These illustrative snippets assume the project's selected runner and dependencies.
++Follow the entrypoint's ownership and evidence boundaries. Patch where the code
++under test looks up a symbol; prefer a spec/autospec when the real interface is
++available. Assertions should distinguish incorrect behavior from a setup/import
++failure. Preserve first failures and expose fixture or environment limitations.
+ 
+ ## Fundamental Patterns
+ 
+@@ -63,6 +69,12 @@
+ ```
+ 
+ ### Pattern 2: Fixtures for Setup and Teardown
++
++A yield fixture's post-yield teardown is not reached if its setup fails before
++yield. Register cleanup immediately after each acquisition or use a context
++manager/ExitStack for partial acquisition. Test failed setup as well as failed
++bodies; use narrow scopes unless shared state has a demonstrated contract.
++See [pytest fixture teardown](https://docs.pytest.org/en/stable/how-to/fixtures.html#teardown-cleanup-aka-fixture-finalization).
+ 
+ ```python
+ # test_database.py
+@@ -98,11 +110,10 @@
+     database = Database("sqlite:///:memory:")
+     database.connect()
+ 
+-    # Provide to test
+-    yield database
+-
+-    # Teardown
+-    database.disconnect()
++    try:
++        yield database
++    finally:
++        database.disconnect()
+ 
+ 
+ def test_database_query(db):
+@@ -127,9 +138,10 @@
+     """Module-scoped fixture - created once per test module."""
+     # Setup expensive resource
+     client = {"config": app_config, "session": "active"}
+-    yield client
+-    # Cleanup
+-    client["session"] = "closed"
++    try:
++        yield client
++    finally:
++        client["session"] = "closed"
+ 
+ 
+ def test_api_client(api_client):
+@@ -204,13 +216,13 @@
+ 
+     def get_user(self, user_id: int) -> dict:
+         """Fetch user from API."""
+-        response = requests.get(f"{self.base_url}/users/{user_id}")
++        response = requests.get(f"{self.base_url}/users/{user_id}", timeout=10)
+         response.raise_for_status()
+         return response.json()
+ 
+     def create_user(self, data: dict) -> dict:
+         """Create new user."""
+-        response = requests.post(f"{self.base_url}/users", json=data)
++        response = requests.post(f"{self.base_url}/users", json=data, timeout=10)
+         response.raise_for_status()
+         return response.json()
+ 
+@@ -228,7 +240,7 @@
+ 
+         assert user["id"] == 1
+         assert user["name"] == "John Doe"
+-        mock_get.assert_called_once_with("https://api.example.com/users/1")
++        mock_get.assert_called_once_with("https://api.example.com/users/1", timeout=10)
+ 
+ 
+ def test_get_user_not_found():
+@@ -301,13 +313,15 @@
+     assert "invalid literal" in str(exc_info.value)
+ ```
+ 
+-For advanced patterns including async testing, monkeypatching, temporary files, conftest setup, property-based testing, database testing, CI/CD integration, and configuration files, see [references/advanced-patterns.md](./advanced-patterns.md)
++For advanced patterns including async testing, monkeypatching, temporary files, conftest setup, property-based testing, database testing, CI/CD integration, and configuration files, see [advanced-patterns.md](advanced-patterns.md)
+ 
+ ## Test Design Principles
+ 
+ ### One Behavior Per Test
+ 
+-Each test should verify exactly one behavior. This makes failures easy to diagnose and tests easy to maintain.
++Keep each test focused on a coherent behavior. Multiple assertions may establish
++one outcome or state transition; assertion count is not a quality gate. Avoid
++splitting an interaction so far that its important contract disappears.
+ 
+ ```python
+ # BAD - testing multiple behaviors
+@@ -335,7 +349,7 @@
+ 
+ ### Test Error Paths
+ 
+-Always test failure cases, not just happy paths.
++Test material failure paths as well as success, especially cleanup and boundary behavior.
+ 
+ ```python
+ def test_get_user_raises_not_found():

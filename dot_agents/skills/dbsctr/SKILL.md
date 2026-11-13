@@ -67,6 +67,17 @@ authority before mutation; changed state requires fresh preflight and approval.
 Resume an already registered matching cycle without renewed registration consent.
 Local same-repository Discovery does not need its own published upstream or
 separate documentation PR for draft delivery.
+For a corrective cycle on an existing published GitHub feature PR, use the
+qualified `begin --follow-up-pr NUMBER` route with `--delivery-intent draft_pr`
+and fresh exact Initiative preflight/approval. Before any approved document import,
+the clean linked checkout must match that PR's native head and feature upstream.
+Keep published prefix, approved import baseline and observed default separate.
+Reconcile the accepted default through the helper; already-contained defaults need
+no manufactured merge. Preserve the selected PR's draft/ready state and all prior
+cycles, failures and evidence. Unqualified installed writers report a capability
+gap; never substitute low-level `start`, reopen completed records or self-install
+unmerged source. Feature push grants no native CI, merge, activation or cleanup
+approval, and later normative changes still require supported exact amendment.
 Within an Initiative, preserve Discovery's approved contracts, acceptance criteria
 and scope. Material implementation findings reopen Discovery readiness before
 those normative artifacts change.
