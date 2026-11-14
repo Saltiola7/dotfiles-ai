@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-13 — Explicit Codex fixture architecture
+
+- Render the retained native ARM64 wrapper/bootstrap fixture with an explicit
+  Darwin/ARM64 target rather than the CI host's architecture. Keep forwarding,
+  installed-release retention, no-download and invalid-state assertions intact.
+- Verify Darwin/Intel routing separately alongside existing platform cases.
+  Runtime templates and pins are unchanged; local ARM64 execution and explicit
+  Intel template routing do not claim native Intel execution or deployment.
+
 ## 2026-11-13 — Full Intel PR/main and retained ARM64 qualification
 
 - Select standard `macos-26-intel` workers for the complete PR/main suite; keep
