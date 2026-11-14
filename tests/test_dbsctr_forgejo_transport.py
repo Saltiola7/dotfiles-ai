@@ -912,6 +912,7 @@ raise SystemExit(module.main())
 import importlib.machinery, importlib.util, io, json, os, pwd, sys
 loader = importlib.machinery.SourceFileLoader('isolated_credential', sys.argv[1])
 spec = importlib.util.spec_from_loader(loader.name, loader)
+assert spec is not None
 m = importlib.util.module_from_spec(spec)
 loader.exec_module(m)
 def lookup(query):

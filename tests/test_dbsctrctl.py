@@ -1892,7 +1892,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--risk", "routine", "--delivery-intent", "local", "--plan", "-", ok=False,
             input_text=json.dumps(plan),
         )
-        self.assertIn("only profile, gates, and optional graphify", result.stderr)
+        self.assertIn("only profile, gates, optional graphify and evidence_policy", result.stderr)
 
     def test_graphify_selection_binds_managed_adapter_and_only_tightens(self):
         self.prepare_native_checkout()

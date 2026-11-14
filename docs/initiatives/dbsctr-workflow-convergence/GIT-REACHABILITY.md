@@ -1,5 +1,16 @@
 # Ordinary Git reachability — captured Discovery
 
+## Completion-reconciliation scope resolution
+
+The approved [completion extension](COMPLETION-RECONCILIATION.md) resolves INT-081
+tracking/absence semantics and the approved-target/multi-PR subset of INT-082 in
+the lifecycle reconciliation contract. Core owns staged deletion, verified target
+integration and automatic recovery of already-approved provenance. Arbitrary
+unapproved side-branch import selection remains captured here: it is not inferred
+from ancestry and is not a prerequisite to the bounded repair. Historical open
+questions below retain their original scope; do not implement a second integration
+route or count unrelated import authority as granted by this extension.
+
 ## Intent and readiness boundary
 
 Tracked deletions and ordinary same-repository branch integration are normal Git

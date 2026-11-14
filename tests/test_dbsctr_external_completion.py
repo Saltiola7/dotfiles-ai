@@ -131,10 +131,15 @@ def cycle(monkeypatch, request, capsys):
         return original_git(target, *arguments, **kwargs)
 
     monkeypatch.setattr(core, "git", git_at_transport)
-    plan = fixture.plan_path("draft_pr")
+    plan_path = fixture.plan_path("draft_pr")
+    if getattr(request, "param", None) == "source-only":
+        plan = json.loads(plan_path.read_text())
+        for gate in ("deploy", "operate"):
+            plan["gates"][gate] = {"applicability": "not_applicable", "reason": "Source-only synthetic delivery."}
+        plan_path.write_text(json.dumps(plan))
     argv = [
         "begin" if initiative else "start", "--cycle-id", "cycle-1", "--context", "test", "--risk", "routine",
-        "--delivery-intent", "draft_pr", "--plan", str(plan),
+        "--delivery-intent", "draft_pr", "--plan", str(plan_path),
         "--base-branch", "main", "--github-account", ACCOUNT,
         "--github-repository", REPOSITORY,
     ]
@@ -149,7 +154,7 @@ def cycle(monkeypatch, request, capsys):
             "--initiative-manifest", "docs/initiatives/test/MANIFEST.json",
             "--initiative-slice", "slice-a", "--initiative-digest", receipt["manifest_digest"],
             "--expected-repository", REPOSITORY,
-            "--expected-plan-digest", core.hashlib.sha256(plan.read_bytes()).hexdigest(),
+            "--expected-plan-digest", core.hashlib.sha256(plan_path.read_bytes()).hexdigest(),
             "--approval", "agent-confirmed",
         ])
         core.command_begin(core.parser().parse_args([*argv, "--preflight"]))
@@ -207,7 +212,7 @@ def ready(cycle, monkeypatch, capsys):
             arguments.extend(["--path", "docs/specs/test/CHANGELOG.md"])
         core.command_review(core.parser().parse_args(arguments))
     for gate in core.GATES:
-        if gate not in {"domain", "release"}:
+        if gate != "domain" and core.load(root)[1]["gates"][gate]["applicability"] == "required":
             record_evidence(cycle, gate)
     cycle.head = core.git(root, "rev-parse", "HEAD").stdout.strip()
     cycle.tree = core.git(root, "rev-parse", "HEAD^{tree}").stdout.strip()
@@ -774,7 +779,8 @@ def test_existing_draft_delivery_receipt_is_preserved_or_conflict_rejected(ready
     }
 
 
-def test_interrupted_pointer_removal_retries_durable_completion_without_rewriting(ready, monkeypatch, capsys):
+@pytest.mark.parametrize("advance_target", [False, True])
+def test_interrupted_pointer_removal_retries_durable_completion_without_rewriting(ready, monkeypatch, capsys, advance_target):
     pointer = ready.core.resolved_active_path(ready.root, bindings=False)
     original = Path.unlink
 
@@ -792,6 +798,11 @@ def test_interrupted_pointer_removal_retries_durable_completion_without_rewritin
     assert record["state"] == "completed"
     assert record["external_completion"]["merge"] == ready.merge
     assert pointer.read_text() == "cycle-1\n"
+    if advance_target:
+        later_tree = rebased_tree(ready, ready.head, extra="Unrelated later target work\n")
+        later = ready.core.git(ready.root, "commit-tree", later_tree, "-p", ready.merge,
+                               "-m", "Later unrelated target change").stdout.strip()
+        ready.core.git(ready.root, "update-ref", "refs/remotes/origin/main", later)
     assert ready.invoke(*arguments(ready, "--cycle-id", "cycle-1")) == 0
     assert json.loads(capsys.readouterr().out) == record["external_completion"]
     assert ready.path.read_bytes() == durable
@@ -839,7 +850,8 @@ def test_native_canonical_repository_casing_preserves_recorded_identity(ready, c
     assert completed["delivery"]["pull_request"] == draft
 
 
-def test_authenticated_environment_cannot_redirect_git_repository(ready, monkeypatch, capsys):
+@pytest.mark.parametrize("cycle", [None, "source-only"], indirect=True)
+def test_authenticated_environment_cannot_redirect_git_repository(ready, monkeypatch, capsys, request):
     core, root = ready.core, ready.root
     other = Path(ready.fixture.temp.name) / "repo"
     redirects = {
@@ -853,6 +865,11 @@ def test_authenticated_environment_cannot_redirect_git_repository(ready, monkeyp
     original_environment = ready.native.environment
     original_fetch = core.fetch_github_branch
     original_read = ready.native.json
+    extra = []
+    if request.node.callspec.params["cycle"] == "source-only":
+        from test_completion_segments import segments
+        selector, original_read = segments(ready)
+        extra = ["--delivery-segment", selector]
     observed = set()
 
     def environment(account):
@@ -878,11 +895,46 @@ def test_authenticated_environment_cannot_redirect_git_repository(ready, monkeyp
     monkeypatch.setattr(core, "github_environment", environment)
     monkeypatch.setattr(core, "fetch_github_branch", fetch)
     monkeypatch.setattr(core, "github_json", native_read)
-    assert ready.invoke(*arguments(ready)) == 0
+    capsys.readouterr()
+    assert ready.invoke(*arguments(ready, *extra)) == 0
     receipt = json.loads(capsys.readouterr().out)
     assert receipt["head"] == ready.head
-    assert observed == {"fetch", "native-proof"}
+    # Reconciliation consumes retained local objects without fetching; the
+    # original standalone route must still qualify its authenticated fetch.
+    assert observed == ({"native-proof"} if extra else {"fetch", "native-proof"})
     assert core.git(other, "rev-parse", "HEAD").stdout.strip() == ready.base
+    assert core.LOCAL_COMPLETION_GIT.get() is None
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_final_target_pin_restores_caller_context(cycle, monkeypatch, failure):
+    core, root = cycle.core, cycle.root
+    record = core.load(root)[1]
+    target = "a" * 40
+    calls = []
+
+    def native_read(_root, _env, _endpoint):
+        selected = core.LOCAL_COMPLETION_GIT.get()
+        assert selected is not None
+        assert set(core.GIT_REPOSITORY_REDIRECTS).isdisjoint(selected)
+        calls.append("read")
+        if failure:
+            raise RuntimeError("synthetic native read unavailable")
+        return {"ref": "refs/heads/main", "object": {"type": "commit", "sha": target}}
+
+    monkeypatch.setattr(core, "external_github", native_read)
+    outer = {"GIT_DIR": "synthetic-caller-must-not-redirect"}
+    token = core.LOCAL_COMPLETION_GIT.set(outer)
+    try:
+        if failure:
+            with pytest.raises(RuntimeError, match="synthetic native read unavailable"):
+                core.require_completion_target_pin(root, record, {}, target)
+        else:
+            core.require_completion_target_pin(root, record, {}, target)
+        assert core.LOCAL_COMPLETION_GIT.get() is outer
+        assert calls == ["read"]
+    finally:
+        core.LOCAL_COMPLETION_GIT.reset(token)
 
 
 @pytest.mark.parametrize("outcome", ["missing-push", "dirty-data"])

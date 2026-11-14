@@ -17,6 +17,14 @@ Record. New cycles use this file.
 
 ## Rebased delivery source slice
 
+The [completion reconciliation extension](features/workflow-completion-reconciliation.md)
+is also critical-risk Python/Security work. It adds a versioned private proof
+reference without rewriting original registration, commits or failed evidence.
+Existing historical schemas and delivery proofs retain their meanings; unsupported
+writers must refuse new custody. Kernel, Review/Integrate and Maintain/Retire are
+required for source; Release/Deploy/Operate remain source-only N/A. Installed
+compatibility and first-consumer recovery belong to the separate rollout plan.
+
 [Verified rebased delivery](features/rebased-delivery.md) is a critical-risk
 Python/Security extension because its receipt participates in retirement
 eligibility. The source slice preserves the six-phase workflow, historical
