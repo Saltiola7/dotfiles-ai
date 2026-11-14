@@ -94,6 +94,27 @@ target files.
 
 ## Visual Evidence
 
+### Successful-completion extension
+
+A developer completes Discovery-defined work across multiple PRs and approved
+amendments through automatic evidence-backed reconciliation. Successful completion
+is independent of optional checkout cleanup; administrative retirement cannot
+substitute for success. Source, installed capability and the nominated recovery
+are qualified separately by the
+[completion rollout](features/workflow-completion-rollout.md).
+
+| Boundary | Outcome |
+|---|---|
+| Discovery → lifecycle | Effective ready/done requirements and acceptance authority |
+| Verified PRs and evidence → lifecycle | Automatic consistency recovery without new external-action consent |
+| Completed cycle → cleanup owner | Checkout retained until independent preservation/removal authority permits cleanup |
+
+**Text Equivalent:** The developer's approved requirements determine completion.
+Verified evidence reconciles routine bookkeeping; independent cleanup authority
+controls deletion. Owner: product maintainer; update this extension when successful
+completion or cleanup boundaries change. This table supplements the existing
+journey diagram without introducing another state machine.
+
 | Concern | Decision | Review question | Canonical source | Owner/change trigger |
 |---|---|---|---|---|
 | Boundary | required: product journey boundary flowchart | Where does the operator cross from portable setup into isolated automation and governed delivery? | Core Journeys and context README architecture | Product owner; journey or trust-boundary changes |

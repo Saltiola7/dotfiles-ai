@@ -1892,7 +1892,7 @@ class DbsctrctlTest(unittest.TestCase):
             "--risk", "routine", "--delivery-intent", "local", "--plan", "-", ok=False,
             input_text=json.dumps(plan),
         )
-        self.assertIn("only profile, gates, and optional graphify", result.stderr)
+        self.assertIn("only profile, gates, optional graphify and evidence_policy", result.stderr)
 
     def test_graphify_selection_binds_managed_adapter_and_only_tightens(self):
         self.prepare_native_checkout()
@@ -4637,9 +4637,20 @@ class DbsctrctlTest(unittest.TestCase):
              "state": "OPEN", "baseRefName": "main", "headRefName": "dbsctr/test/cycle-1",
              "headRepositoryOwner": {"login": "example-org"}},
         ]
+        real_run = module.subprocess.run
+        create = mock.Mock(return_value=subprocess.CompletedProcess(
+            [], 0, stdout=pull_requests[-1]["url"], stderr=""))
+
+        def run_pr_or_git(command, *args, **kwargs):
+            if command[:3] == ["gh", "pr", "create"]:
+                return create(command, *args, **kwargs)
+            # Metadata reads remain real; no other GitHub/network command may run.
+            self.assertEqual(command[:2], ["git", "rev-parse"])
+            return real_run(command, *args, **kwargs)
+
         with mock.patch.object(module, "github_environment", return_value={}), \
                 mock.patch.object(module, "github_json", return_value=pull_requests), \
-                mock.patch.object(module.subprocess, "run") as create:
+                mock.patch.object(module.subprocess, "run", side_effect=run_pr_or_git):
             result = module.deliver_draft_pr(self.repo, record)
         self.assertEqual(result["number"], 2)
         create.assert_not_called()
@@ -4648,14 +4659,13 @@ class DbsctrctlTest(unittest.TestCase):
                         [dict(pull_requests[-1], isDraft=False)]):
             with self.subTest(invalid=invalid), \
                     mock.patch.object(module, "github_json", return_value=invalid), \
-                    mock.patch.object(module.subprocess, "run") as create:
+                    mock.patch.object(module.subprocess, "run", side_effect=run_pr_or_git):
                 with self.assertRaises(RuntimeError):
                     module.deliver_draft_pr(self.repo, record, env={"PATH": "/usr/bin"})
                 create.assert_not_called()
 
         with mock.patch.object(module, "github_json", side_effect=[pull_requests[:2], pull_requests[-1]]), \
-                mock.patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess(
-                    [], 0, stdout=pull_requests[-1]["url"], stderr="")) as create:
+                mock.patch.object(module.subprocess, "run", side_effect=run_pr_or_git):
             result = module.deliver_draft_pr(self.repo, record, env={"PATH": "/usr/bin"})
         self.assertEqual(result["number"], 2)
         self.assertIn("--draft", create.call_args.args[0])

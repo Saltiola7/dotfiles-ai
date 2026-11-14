@@ -1,5 +1,14 @@
 # DBSCTR Workflow Convergence
 
+## Successful completion reconciliation
+
+[Completion reconciliation](COMPLETION-RECONCILIATION.md) extends the approved
+three-context map with Discovery-defined ready/done, automatic multi-PR/amendment
+reconciliation, affected evidence, truthful native guidance and qualified consumer
+recovery. [RCA](COMPLETION-RCA.md) distinguishes fixed-source findings from measured
+characterization and unavailable session evidence. MANIFEST.json owns slice
+promotion; this Discovery does not claim implementation or installed recovery.
+
 ## Retirement recovery amendment
 
 [Retirement recovery](RETIREMENT-RECOVERY.md) extends this existing Initiative

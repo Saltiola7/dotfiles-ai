@@ -1,5 +1,25 @@
 # DBSCTR V3 Lifecycle
 
+[Completion reconciliation](features/workflow-completion-reconciliation.md)
+specifies the new Discovery-defined successful-completion route: multi-PR and
+amendment provenance, affected evidence reuse, early structural preflight and
+cleanup-independent completion. It is normative Discovery, not installed behavior;
+historical receipt meanings remain unchanged.
+
+[Evidence bindings](features/workflow-evidence-bindings.md) specifies its trusted
+input/requirement declarations, helper-owned capture, runtime freshness probes and
+supported legacy enrollment. Neither changed paths nor old status bits substitute
+for these identities; this is a source contract, not installed qualification.
+
+The source implementation extends the existing completion and amendment owners:
+reconciliation receipts use version 3, with exact-tree segment proofs and separate
+version-4 rebased segment payloads. Those segment payloads use reconciliation refs,
+not standalone version-2 retention claims. Evidence-policy revisions append
+amendment version 3 without replacing the original applicability plan. Historical
+reading stays offline; runtime observations occur only on the explicit completion
+path after structural checks. Source delivery does not activate managed tooling
+or recover a consumer; the distribution slice owns that separate qualification.
+
 [Coordinated delivery](features/integration-runtime-adapters.md) connects explicitly
 enrolled tasks to one durable final-candidate slot, rebase qualification and the
 original task's repair obligation. Protocol 2 retains version-1 offline records;
