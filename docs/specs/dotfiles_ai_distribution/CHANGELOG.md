@@ -1,5 +1,28 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-13 — Explicit Codex fixture architecture
+
+- Render the retained native ARM64 wrapper/bootstrap fixture with an explicit
+  Darwin/ARM64 target rather than the CI host's architecture. Keep forwarding,
+  installed-release retention, no-download and invalid-state assertions intact.
+- Verify Darwin/Intel routing separately alongside existing platform cases.
+  Runtime templates and pins are unchanged; local ARM64 execution and explicit
+  Intel template routing do not claim native Intel execution or deployment.
+
+## 2026-11-13 — Full Intel PR/main and retained ARM64 qualification
+
+- Select standard `macos-26-intel` workers for the complete PR/main suite; keep
+  ARM64 `macos-26` for weekly/manual runs. Assert Darwin and the selected CPU
+  before checkout and setup. No automatic fallback or Apple Silicon claim from
+  Intel evidence; no larger/paid runner selected.
+- Preserve every Python/Worktrunk lane, four partitions, native Swift and
+  publication checks, action pin, timeout, permission, retained artifact, Linux
+  summary and native required-check contract. No conditional-CI reduction.
+- Carry this bounded runner policy with the historical reader repair in #315
+  as the single prerequisite. Hosted Intel qualification and intact native
+  protections are required before merge; managed installation and recovery
+  qualification remain with their existing owners.
+
 ## 2026-11-13 — Compatible coordinator source generation
 
 - Extend only the existing delivery policy to schema 2 with a closed, default-off

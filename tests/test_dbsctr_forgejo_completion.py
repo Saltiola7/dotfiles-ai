@@ -9,6 +9,7 @@ import importlib.machinery
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import sys
 from types import SimpleNamespace
 
@@ -26,6 +27,28 @@ def cycle(monkeypatch, request, capsys):
     spec = importlib.util.spec_from_loader(loader.name, loader)
     core = importlib.util.module_from_spec(spec)
     loader.exec_module(core)
+    # Completion proves local lifecycle/identity semantics, not native transport.
+    # Use ordinary real Git for local metadata even when the host's transport
+    # version/capability is unqualified. Production qualification is not changed.
+    git = shutil.which("git")
+    assert git is not None
+    executable = str(Path(git).resolve())
+    exec_path = core.git(fixture.repo, "--exec-path").stdout.strip()
+    monkeypatch.setattr(core, "_forgejo_tools", lambda: (executable, exec_path))
+    metadata_commands = []
+    original_run = core._forgejo_run
+
+    def offline_metadata(command, **kwargs):
+        assert command[1:2] in (["config"], ["remote"]), (
+            "Offline completion must not qualify or authenticate native Git", command)
+        metadata_commands.append(command)
+        return original_run(command, **kwargs)
+
+    def no_credential_lookup(*_args, **_kwargs):
+        raise AssertionError("Offline completion must not access native credentials")
+
+    monkeypatch.setattr(core, "_forgejo_run", offline_metadata)
+    monkeypatch.setattr(core, "_forgejo_security_lookup", no_credential_lookup)
     authority = write_manifest(fixture.repo, manifest())
     authority_relative = authority.relative_to(fixture.repo)
     core.git(fixture.repo, "add", str(authority))
@@ -82,7 +105,14 @@ def cycle(monkeypatch, request, capsys):
         return core.main()
 
     return SimpleNamespace(core=core, fixture=fixture, root=root, path=path,
-                           base=base, invoke=invoke, forbidden=forbidden, begin_argv=argv)
+                           base=base, invoke=invoke, forbidden=forbidden, begin_argv=argv,
+                           metadata_commands=metadata_commands)
+
+
+def test_offline_completion_uses_only_local_git_metadata(cycle):
+    assert cycle.metadata_commands
+    assert all(command[1] in {"config", "remote"} for command in cycle.metadata_commands)
+    assert json.loads(cycle.path.read_text())["state"] == "active"
 
 
 def test_resume_refuses_new_comparison_base_even_with_fresh_preflight(cycle, monkeypatch, capsys):

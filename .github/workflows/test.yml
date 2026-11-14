@@ -19,7 +19,8 @@ concurrency:
 jobs:
   test-shard:
     name: Full suite (${{ matrix.python-version }}, ${{ matrix.worktrunk-version }}, partition ${{ matrix.shard }})
-    runs-on: macos-26
+    # Intel PR/main authority; ARM64 compatibility remains weekly/manual.
+    runs-on: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'macos-26' || 'macos-26-intel' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -42,6 +43,20 @@ jobs:
             worktrunk-version: "0.80.0"
             shard: 3
     steps:
+      - name: Verify selected runner architecture
+        shell: bash
+        env:
+          EXPECTED_RUNNER_ARCH: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'arm64' || 'x86_64' }}
+        run: |
+          set -euo pipefail
+          observed_os="$(uname -s)"
+          observed_arch="$(uname -m)"
+          if [[ "$observed_os" != Darwin || "$observed_arch" != "$EXPECTED_RUNNER_ARCH" ]]; then
+            printf 'Runner architecture mismatch: expected=Darwin/%s observed=%s/%s\n' \
+              "$EXPECTED_RUNNER_ARCH" "$observed_os" "$observed_arch" >&2
+            exit 1
+          fi
+          printf 'Selected runner architecture: %s/%s\n' "$observed_os" "$observed_arch"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0

@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import selectors
 import shutil
 import signal
@@ -28,13 +29,67 @@ IDENTITY = {"provider": "forgejo", "origin": "https://forge.example.invalid:8443
 URL = IDENTITY["origin"] + "/" + IDENTITY["repository"] + ".git"
 
 
+def load_core():
+    loader = importlib.machinery.SourceFileLoader("forgejo_transport", str(SCRIPT))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    core = importlib.util.module_from_spec(spec)
+    loader.exec_module(core)
+    return core
+
+
+def native_git_metadata(core):
+    """Observe real selection/qualification; never invoke credentials or fetch."""
+    commands = []
+    original = core._forgejo_run
+
+    def metadata(command, **kwargs):
+        assert command[1:] in (["--version"], ["credential", "capability"], ["--exec-path"])
+        result = original(command, **kwargs)
+        commands.append({"command": command, "returncode": result.returncode,
+                         "stdout": result.stdout.strip()})
+        return result
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Metadata qualification must not access credentials")
+
+    report = {"commands": commands, "tools": None, "error": None}
+    with mock.patch.object(core, "_forgejo_run", side_effect=metadata), \
+            mock.patch.object(core, "_forgejo_security_lookup", side_effect=forbidden):
+        try:
+            report["tools"] = core._forgejo_tools()
+        except RuntimeError as error:
+            report["error"] = str(error)
+    return report
+
+
+def test_native_git_selection_is_observed_without_credentials(request):
+    report = native_git_metadata(load_core())
+    for index, entry in enumerate(report["commands"]):
+        request.node.user_properties.append(
+            (f"forgejo_git_metadata_{index}", json.dumps(entry, sort_keys=True)))
+    request.node.user_properties.append(
+        ("forgejo_git_qualified", str(report["tools"] is not None).lower()))
+    if report["tools"] is None:
+        # This is a rejection/selection observation, not a successful transport
+        # qualification. The separate native test requires qualified real Git.
+        assert report["error"] in {
+            "Forgejo Basic authentication capability unavailable",
+            "Forgejo trusted executable unavailable",
+        }
+        if report["commands"]:
+            version = re.fullmatch(r"git version (\d+)\.(\d+)\.(\d+).*",
+                                   report["commands"][0]["stdout"])
+            if version and tuple(map(int, version.groups())) < (2, 56, 0):
+                assert report["error"] == "Forgejo Basic authentication capability unavailable"
+    else:
+        assert report["error"] is None
+        assert report["tools"][0] == report["commands"][0]["command"][0]
+
+
 class ForgejoTransportTest(unittest.TestCase):
     def setUp(self):
-        loader = importlib.machinery.SourceFileLoader("forgejo_transport", str(SCRIPT))
-        spec = importlib.util.spec_from_loader(loader.name, loader)
-        assert spec is not None
-        self.core = importlib.util.module_from_spec(spec)
-        loader.exec_module(self.core)
+        self.core = load_core()
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name) / "source"
@@ -151,6 +206,18 @@ class ForgejoTransportTest(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(RuntimeError, "Forgejo"):
                         self.original_tools()
+
+    def test_intel_selection_rejects_old_homebrew_git_without_system_fallback(self):
+        present = {"/usr/local/bin/git", "/usr/bin/git"}
+        with mock.patch.object(self.core.Path, "is_file", lambda path: str(path) in present), \
+                mock.patch.object(self.core, "_forgejo_trusted_file", side_effect=str), \
+                mock.patch.object(self.core, "_forgejo_run", return_value=subprocess.CompletedProcess(
+                    [], 0, "git version 2.55.0\n", "")) as metadata:
+            with self.assertRaisesRegex(RuntimeError, "Basic authentication capability unavailable"):
+                self.original_tools()
+        metadata.assert_called_once()
+        self.assertEqual(metadata.call_args.args[0], ["/usr/local/bin/git", "--version"])
+        self.assertEqual(metadata.call_args.kwargs["env"]["PATH"], "/usr/bin:/bin:/usr/sbin:/sbin")
 
     def test_all_fetch_and_push_urls_bind_exact_identity(self):
         self.local_git("config", "--add", "remote.origin.url", URL)

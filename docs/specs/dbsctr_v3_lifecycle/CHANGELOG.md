@@ -1,5 +1,27 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-13 — Historical cross-repository profile validation
+
+- Validate retained local profile closure at the immutable checkout commit in
+  the approved amendment envelope, rather than the unrelated reader's current
+  `HEAD`. Preserve exact path/blob/regular-file mode checks, retained coordinator
+  custody, consent digests and current-profile guards for active writes.
+- Add disposable registration/profile-drift and invalid historical-tree
+  regressions. No record migration, approval change, managed installation or
+  consumer activation is part of this source repair. An explicit operator
+  exception permits bootstrap commit/draft-PR publication despite failed cycle
+  registration. Formal gates remain pending; merge and installation are separate.
+- Consolidate the reader repair and regressions from #316 at `c3f1a6de`,
+  preserving native SHA-1 and SHA-256 revision support. Import no conditional-CI
+  code. The same prerequisite PR also carries the approved distribution runner
+  policy; each work item retains its source/validation boundary.
+- Separate offline Forgejo completion/amendment fixtures from native Git
+  transport qualification. Keep real local metadata and refuse unexpected
+  credential/transport probes. Preserve the production Git 2.56/authtype guard;
+  record native selection metadata and retain an explicitly invoked qualified-Git
+  protocol test with synthetic credentials only. No personal credentials, Git
+  provisioning, wrapper/checkpoint repair or new publication is authorized here.
+
 ## 2026-11-13 — Guarded integration runtime source
 
 - Add one default-off protocol-2 lifecycle and native Actions implementation:

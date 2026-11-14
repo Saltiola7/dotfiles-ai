@@ -104,7 +104,7 @@ def test_native_host_default_updater_refuses_fleet_mutation(monkeypatch):
 
 
 def test_native_host_wrapper_and_bootstrap_keep_installed_release(tmp_path, monkeypatch):
-    from test_portable_distribution import chezmoi
+    from test_portable_distribution import data
     helper = load_projector()
     codex_home, _, binary = native_installation(tmp_path)
     user = tmp_path / 'user'
@@ -136,10 +136,16 @@ else:
     projector.write_bytes(PROJECTOR.read_bytes())
     projector.chmod(0o700)
     scripts = {}
+    values = data(state_root=str(state))
+    # This fixture owns an ARM64 native release regardless of the test host.
+    values['chezmoi'] = {'os': 'darwin', 'arch': 'arm64'}
     for name in ('codex', 'codex-install'):
         script = managed / name
-        script.write_text(chezmoi('execute-template', state_root=str(state),
-                                  template=(ROOT / f'dot_local/bin/executable_{name}.tmpl').read_text()).stdout)
+        script.write_text(subprocess.check_output([
+            'chezmoi', '-S', str(ROOT), '--config', '/dev/null',
+            '--config-format', 'toml', '--override-data', json.dumps(values),
+            'execute-template',
+        ], input=(ROOT / f'dot_local/bin/executable_{name}.tmpl').read_text(), text=True))
         script.chmod(0o700)
         scripts[name] = script
     curl = managed / 'curl'
@@ -166,6 +172,7 @@ else:
 
 
 @pytest.mark.parametrize('system,architecture,native', [('darwin', 'arm64', True),
+                                                      ('darwin', 'amd64', False),
                                                       ('linux', 'arm64', False),
                                                       ('linux', 'amd64', False)])
 def test_native_codex_platform_routing(system, architecture, native):

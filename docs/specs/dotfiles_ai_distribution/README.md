@@ -2049,5 +2049,8 @@ Existing validation, platform and credential owners retain their boundaries.
 
 [Linux CI summary verification](features/linux-ci-summary.md) separates artifact
 verification from native macOS test execution. The source slice qualifies the
-existing verifier on Linux while preserving worker platforms, matrix, evidence
-and required checks. Partition balance and repeated setup remain later slices.
+existing verifier on Linux while preserving native workers, matrix, evidence
+and required checks. Full PR/main execution uses Intel macOS; weekly/manual
+retains ARM64. Workers assert their selected architecture before execution;
+Intel success does not qualify Apple Silicon. Partition balance and repeated
+setup remain later slices.
