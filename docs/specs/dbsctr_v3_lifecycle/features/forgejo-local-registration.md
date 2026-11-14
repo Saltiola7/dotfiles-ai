@@ -383,6 +383,26 @@ identity, deployment or first-consumer qualification. The primary calculates
 the affected closure before Build. Preserve passing replacement evidence and
 earlier failures in the registered cycle.
 
+Offline completion/amendment fixtures use ordinary real Git only for local
+metadata and explicitly stub the native transport-tool qualification seam.
+They reject version/capability probes, fetch/push, and native credential lookup;
+thus runner Git 2.54/2.55 does not prevent testing local lifecycle semantics.
+This is not evidence that an unqualified Git can perform production transport.
+The production minimum-version/capability guard and fixed native selection order
+remain unchanged. A metadata-only test records the actual selected executable,
+version and qualification result as JUnit properties without fetching or
+accessing credentials; an observed rejection is not successful qualification.
+
+Separate native Git/Basic-protocol qualification is explicitly invoked with
+`uv run --frozen --group test pytest tests/forgejo_native_transport.py -q -s`.
+It requires a real Git accepted by the unchanged production selector; it fails,
+without a skip or fallback, if that Git is unavailable or unqualified. Its
+credential-protocol round trip uses only a generated synthetic credential helper
+and isolated configuration: no network, personal credential or native
+Keychain access. It does not qualify a live Forgejo connection. CI execution of
+this separate command requires provisioning a qualified binary through the CI
+owner; ordinary offline-suite success does not establish that native evidence.
+
 ## Visual Evidence
 
 Canonical tables below answer the bounded local-only review questions without

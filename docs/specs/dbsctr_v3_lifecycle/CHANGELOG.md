@@ -15,6 +15,12 @@
   preserving native SHA-1 and SHA-256 revision support. Import no conditional-CI
   code. The same prerequisite PR also carries the approved distribution runner
   policy; each work item retains its source/validation boundary.
+- Separate offline Forgejo completion/amendment fixtures from native Git
+  transport qualification. Keep real local metadata and refuse unexpected
+  credential/transport probes. Preserve the production Git 2.56/authtype guard;
+  record native selection metadata and retain an explicitly invoked qualified-Git
+  protocol test with synthetic credentials only. No personal credentials, Git
+  provisioning, wrapper/checkpoint repair or new publication is authorized here.
 
 ## 2026-11-13 — Guarded integration runtime source
 
