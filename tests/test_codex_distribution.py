@@ -450,8 +450,8 @@ def test_projector_rejects_unsafe_metadata_and_home_modes(tmp_path: Path) -> Non
         helper.validate_home(target)
 
 
-def test_projector_validates_private_release_lock(tmp_path: Path) -> None:
-    helper = load_projector()
+@pytest.fixture
+def arm64_release_lock(tmp_path: Path):
     executable = tmp_path / "libexec/codex"
     executable.parent.mkdir(parents=True)
     executable.write_text("#!/bin/sh\nprintf 'codex-cli 0.153.3\\n'\n")
@@ -466,12 +466,30 @@ def test_projector_validates_private_release_lock(tmp_path: Path) -> None:
         "validator_revision": "codex-release-validator-1", "previous": None,
     }))
     lock.chmod(0o600)
+    return lock, executable
 
+
+def test_projector_validates_private_release_lock(arm64_release_lock, monkeypatch) -> None:
+    helper = load_projector()
+    monkeypatch.setattr(helper.sys, "platform", "darwin")
+    monkeypatch.setattr(helper.platform, "machine", lambda: "arm64")
+    lock, executable = arm64_release_lock
     assert helper.resolve_managed(lock, executable) == executable
 
     executable.write_text("changed")
     with pytest.raises(ValueError, match="executable"):
         helper.resolve_managed(lock, executable)
+
+
+def test_projector_rejects_arm64_release_lock_on_intel(arm64_release_lock, monkeypatch) -> None:
+    helper = load_projector()
+    monkeypatch.setattr(helper.sys, "platform", "darwin")
+    monkeypatch.setattr(helper.platform, "machine", lambda: "x86_64")
+    lock, executable = arm64_release_lock
+    before = lock.read_bytes(), executable.read_bytes()
+    with pytest.raises(ValueError, match="invalid Codex release lock"):
+        helper.resolve_managed(lock, executable)
+    assert (lock.read_bytes(), executable.read_bytes()) == before
 
 
 def release_payload(version="0.153.3"):
@@ -565,6 +583,7 @@ def test_same_release_restages_when_fleet_attestation_changes(
 def test_rolling_update_soft_fails_only_with_healthy_active_release(
         tmp_path: Path, monkeypatch, capsys) -> None:
     helper = load_updater()
+    monkeypatch.setattr(helper, "platform_id", lambda: "darwin-aarch64")
     root = tmp_path / "state/codex-package"
     binary = tmp_path / "libexec/codex"
     root.mkdir(parents=True, mode=0o700)

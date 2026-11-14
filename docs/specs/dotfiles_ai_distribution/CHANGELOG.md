@@ -2,6 +2,9 @@
 
 ## 2026-11-13 — Explicit Codex fixture architecture
 
+- Bind positive release-lock and healthy-release retention fixtures to their
+  intended Darwin/ARM64 context. Separately reject an ARM64 lock on Intel,
+  preserving lock and executable bytes. Production platform guards are unchanged.
 - Render the retained native ARM64 wrapper/bootstrap fixture with an explicit
   Darwin/ARM64 target rather than the CI host's architecture. Keep forwarding,
   installed-release retention, no-download and invalid-state assertions intact.
