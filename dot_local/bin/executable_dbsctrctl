@@ -5112,9 +5112,14 @@ def amendment_external_authority(directory, receipt):
             "commit": receipt["manifest_commit"], "closure": closure}
 
 
-def amendment_local_profile(root, profile, blob):
+def amendment_local_profile(root, profile, blob, *, revision=None):
+    # Admission uses today's profile; historical custody uses its immutable
+    # checkout snapshot, never an unrelated inspecting worktree's HEAD.
+    if revision is not None and (not external_oid(revision)
+            or git(root, "cat-file", "-t", revision, check=False).stdout.strip() != "commit"):
+        fail("Initiative amendment snapshot commit unavailable")
     closure = amendment_closure(root, {"artifacts": [], "manifest_path": profile,
-                                       "manifest_commit": "HEAD"}, {"profile": profile})
+                                       "manifest_commit": revision or "HEAD"}, {"profile": profile})
     if len(closure) != 1 or closure[0]["blob"] != blob:
         fail("Initiative amendment source profile changed")
     return closure
@@ -5317,7 +5322,8 @@ def validate_initiative_amendments(root, record):
             if (amendment_external_authority(authority["directory"], receipt) != authority
                     or common_git_dir(Path(authority["directory"])).resolve() == common_git_dir(root).resolve()
                     or plan["closure"] != amendment_local_profile(root, before["engineering_profile"]["path"],
-                                                                 before["engineering_profile"]["blob"])):
+                                                                 before["engineering_profile"]["blob"],
+                                                                 revision=plan["checkout"]["head"])):
                 fail("Initiative amendment retained authority changed")
         else:
             if plan.get("schema_version") != 1 or "authority" in plan:

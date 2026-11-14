@@ -601,6 +601,47 @@ def test_safety_source_profile_blob_change_refused(amendment, fixture):
     assert git_snapshot(target) == checkout
 
 
+def test_historical_profile_snapshot_does_not_relax_admission(initiative):
+    core, target, path, _, _, plan = initiative
+    profile = json.loads(plan.read_text())["profile"]
+    revision = git(target, "rev-parse", "HEAD").strip()
+    blob = git(target, "rev-parse", f"HEAD:{profile}").strip()
+    closure = core.amendment_local_profile(target, profile, blob, revision=revision)
+    document = target / profile
+    document.write_text(document.read_text() + "\nLater profile revision.\n")
+    git(target, "add", profile)
+    git(target, "commit", "-m", "Revise current profile")
+    before = git_snapshot(target)
+    assert core.amendment_local_profile(target, profile, blob, revision=revision) == closure
+    with pytest.raises(RuntimeError, match="source profile changed"):
+        core.amendment_local_profile(target, profile, blob)
+    with pytest.raises(RuntimeError, match="source profile changed"):
+        core.amendment_local_profile(target, profile, "0" * len(blob), revision=revision)
+    assert git_snapshot(target) == before
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("kind", ["named_ref", "option", "missing", "tree", "blob", "tag"])
+def test_historical_profile_requires_an_exact_available_commit(initiative, kind):
+    core, target, path, _, _, plan = initiative
+    profile = json.loads(plan.read_text())["profile"]
+    blob = git(target, "rev-parse", f"HEAD:{profile}").strip()
+    revisions = {"named_ref": "HEAD", "option": "--help", "missing": "0" * len(blob)}
+    if kind in {"tree", "blob"}:
+        revision = git(target, "rev-parse", "HEAD^{tree}" if kind == "tree"
+                       else f"HEAD:{profile}").strip()
+    elif kind == "tag":
+        git(target, "tag", "-a", "snapshot", "-m", "Not a commit identity")
+        revision = git(target, "rev-parse", "snapshot").strip()
+    else:
+        revision = revisions[kind]
+    before = git_snapshot(target)
+    with pytest.raises(RuntimeError, match="snapshot commit unavailable"):
+        core.amendment_local_profile(target, profile, blob, revision=revision)
+    assert git_snapshot(target) == before
+    assert not path.exists()
+
+
 @pytest.mark.parametrize("interruption", ["envelope", "before_replace", "after_replace"])
 def test_safety_interrupted_custody_exact_retry_retains_consent_time(
         amendment, initiative, monkeypatch, capsys, interruption):
