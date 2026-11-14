@@ -13,6 +13,15 @@ exact runtime evidence remains private. Qualification does not cover closed
 noninteractive sessions, arbitrary versions, production tasks, native amd64,
 GCP or measured performance improvements.
 
+The [native remote-engine Discovery contract](features/remote-ci-bridge.md)
+selects a default-off extension for trusted jobs on an existing consumer-owned
+VM. Local Python/SDK orchestration uses native Dagger synchronization and RPC
+through IAP SSH Unix forwarding and a temporary CI-user relay. It reuses current
+runner/checkpoint/results rather than a new job wire or worker framework.
+Temporary full engine API capability is explicit, with consumer-enforced quota,
+original deadlines and cleanup. Source delivery and separately approved actual
+activation remain distinct; no remote qualification is established by this link.
+
 ## Overview
 
 `continuous_validation` owns a portable Python runner that evaluates immutable

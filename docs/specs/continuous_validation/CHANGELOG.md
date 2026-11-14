@@ -1,5 +1,36 @@
 # Continuous Validation Changelog
 
+## 2026-11-11 — CVS-REMOTE-006: native remote engine guard
+
+Add the optional parent-owned permission and lifetime guard around the existing
+local adapter and native Dagger RPC. Closed private receipts and a pinned installed
+consumer helper bind the selected repository, engine URI, runtime and original
+budget. Keep control metadata out of repository adapter input. Reject forged
+parent runtime evidence, changed helper/socket identity and incompatible limits.
+Ordinary checks retain their one-hour limit; qualified remote checks can reserve
+bounded work and cleanup within a maximum 7,500-second execution window.
+
+Partial opening, cancellation and lost forwarding still request exact cleanup.
+Confirm native terminal proof and close every owned local helper before releasing
+admission; preserve private evidence and retain unknown admission otherwise.
+Never re-signal retired helper processes or remove another owner's endpoint.
+Only per-execution remote measurements leave comparison identity; stable engine
+pins remain inputs. Shadow stays default-off, with no automatic installation,
+VM startup, provider call or gate authority.
+
+Validation: 641 affected tests pass with one optional native-client skip on each
+of Python 3.12 and 3.14, including 53 new guard/integration regressions. New module
+and test typing passes without suppressions; the runner retains the same eleven
+pre-existing diagnostics as the protected base. Publication, compilation, diff
+and changed-file secret checks pass. Python, Security and Cloud/platform apply;
+no Gate Exception is selected. Source delivery targets draft branch
+`dbsctr/continuous_validation/CVS-REMOTE-006` into `main`; actual commit/push
+identities remain in the Cycle Record. Consumer installation, live IAP/relay,
+hard quotas/resources, host expiry/idle-stop, full graph and exact-session feedback
+qualification remain separate activation obligations. Preserve the original
+budget and retained cleanup identity when disabling; revoke installed access only
+after owned work is terminal, under the consumer's maintenance/retirement policy.
+
 ## 2026-11-10 — Deterministic capacity-admission regression
 
 Repair the capacity test's shared 100 ms deadline: a delayed preparation-journal
