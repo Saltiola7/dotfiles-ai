@@ -20,6 +20,14 @@ reading stays offline; runtime observations occur only on the explicit completio
 path after structural checks. Source delivery does not activate managed tooling
 or recover a consumer; the distribution slice owns that separate qualification.
 
+[Coordinated delivery](features/integration-runtime-adapters.md) connects explicitly
+enrolled tasks to one durable final-candidate slot, rebase qualification and the
+original task's repair obligation. Protocol 2 retains version-1 offline records;
+source-only delivery and old cycles remain off unless explicitly enrolled. The
+shared Actions worker and native producer bindings require separate target
+qualification and enrollment after source delivery. Dagger and CI selection keep
+their existing owners and activation state.
+
 [Verified rebased delivery](features/rebased-delivery.md) adds explicit
 `complete-external --proof rebased_commits` source support. It retains original
 phase IDs/evidence, verifies each landed change and native introducing PR, and
@@ -1682,7 +1690,7 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 | Languages/frameworks | Language-neutral Markdown prompts; Python contract tests |
 | Modules | Python, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
 | Runtime/platform support | OpenCode on the managed dotfiles environment; Python `>=3.12` test harness |
-| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.29`; V1 removed; V2 source archived |
+| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.30`; V1 removed; V2 source archived |
 | Trust/data classification | Local configuration and public methodology; no sensitive application data |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
@@ -3209,8 +3217,10 @@ schema-less/schema-1/schema-2 records remain readable without implicit rewriting
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
 Method Revisions through `3.28` retain their recorded schema-3 or schema-4
-semantics. Method Revision `3.29` creates schema-version `5` records and the
-helper uses one `CURRENT_METHOD_REVISION = "3.29"` constant.
+semantics. Method Revision `3.30` continues to create schema-version `5` records
+and the helper uses one `CURRENT_METHOD_REVISION = "3.30"` constant. Older method
+revisions remain readable; coordinator authority is separate private custody and
+does not silently enroll historical records.
 
 Schema version `4` removes persisted machine paths from new portable records.
 DBSCTR-created worktrees store a traversal-safe path relative to
@@ -4026,6 +4036,13 @@ commits and exact accepted-base merges in registered schema-5 Initiative cycles.
 It grants no gate credit and preserves normal delivery guards and private history.
 
 ## Durable integration coordination Discovery
+
+The [runtime amendment](features/integration-runtime-adapters.md) consolidates the
+remaining lifecycle/native/policy source and records authorized target rollout.
+It adds ordered source projections, private obligations/outcomes, honest inherited
+repair, guarded task refresh and terminal archival. Exact source Build approval,
+merged-generation installation, credential delegation and live qualification remain
+separate. No existing cycle is silently upgraded; Dagger retains its own owner.
 
 The [integration coordinator](features/integration-coordinator.md) and
 [Initiative amendment](../../initiatives/dbsctr-delivery-lifecycle/INTEGRATION-COORDINATOR.md)

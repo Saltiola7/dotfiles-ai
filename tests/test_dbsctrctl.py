@@ -1526,7 +1526,7 @@ class DbsctrctlTest(unittest.TestCase):
     def test_start_records_current_method_revision_and_release_default(self):
         self.start()
         record = json.loads(self.record_path().read_text())
-        self.assertEqual(record["method_revision"], "3.29")
+        self.assertEqual(record["method_revision"], "3.30")
         self.assertEqual(record["schema_version"], 5)
         self.assertEqual(record["runtime"], {"adapters": {}})
         self.assertEqual(record["worktree"]["locator"], {
@@ -7728,7 +7728,7 @@ class DbsctrctlTest(unittest.TestCase):
         state = Path(self.temp.name) / "history-cycle-state"
         first = json.loads(run(self.repo, "review-history", "--database", str(database),
                                "--state-root", str(state)).stdout)
-        self.assertEqual(first["candidates"][0]["method_revision"], "3.29")
+        self.assertEqual(first["candidates"][0]["method_revision"], "3.30")
         record = json.loads(self.record_path().read_text())
         record["method_revision"] = "3.15"
         self.record_path().write_text(json.dumps(record))
