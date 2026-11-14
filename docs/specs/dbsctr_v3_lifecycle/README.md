@@ -40,6 +40,9 @@ with the existing owners through the delivery Initiative handoff.
 extends the amendment route for a separate coordinator checkout without importing
 its documents into the Build repository. Exact approval, retained native custody,
 fresh gates and a local Engineering Profile checkpoint remain required.
+Historical profile closure uses the immutable amendment's recorded checkout
+commit, not the inspecting task's current profile; current-state admission
+continues to require its authorized committed profile.
 
 Supervised mechanical CI repair accounting is specified in
 [`features/supervised-ci-repairs.md`](features/supervised-ci-repairs.md).

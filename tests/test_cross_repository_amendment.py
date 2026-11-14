@@ -3,6 +3,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -97,6 +98,100 @@ def test_cross_repository_preflight_apply_replay_and_local_checkpoint(cross):
     record = json.loads(path.read_text())
     assert record["initiative_authority_checkpoints"][-1]["launch_digest"] == digest
     assert not (target / cross.foreign.relative_to(cross.source)).exists()
+
+
+def test_completed_cross_repository_history_survives_another_checkout_profile(
+        cross, fixture):
+    target, path, _ = cross.amendment
+    apply_amendment(cross.amendment)
+    changed = ["tracked.txt", "docs/specs/test/CHANGELOG.md"]
+    (target / changed[0]).write_text("Qualified synthetic implementation.\n")
+    (target / changed[1]).write_text("# Synthetic qualified completion\n")
+    record = json.loads(path.read_text())
+    gates = [name for name in harness.GATES
+             if record["gates"][name]["applicability"] == "required"]
+    for gate in gates:
+        evidence(target, gate, changed)
+    harness.run(target, "gate-commit", "--message", "Qualified synthetic source",
+                "--gates", *gates, "--paths", *changed)
+    for name in ("README", "BACKLOG"):
+        harness.run(target, "review-artifact", name, "--result", "unchanged",
+                    "--reason", "Synthetic contract retained.")
+    harness.run(target, "review-artifact", "CHANGELOG", "--result", "changed",
+                "--path", changed[1], "--reason", "Qualified synthetic completion.")
+    harness.run(target, "final-push")
+    completed = path.read_bytes()
+    assert json.loads(completed)["state"] == "completed"
+    entry = json.loads(completed)["initiative_amendments"][-1]
+    envelope_path = private_file(target, entry["envelope_locator"])
+    envelope = envelope_path.read_bytes()
+
+    other = fixture.repo.parent / "later-task"
+    git(fixture.repo, "worktree", "add", "-b", "later-task", str(other), "upstream/base")
+    git(other, "branch", "--set-upstream-to", "upstream/base")
+    profile = json.loads(completed)["engineering_profile"]["path"]
+    document = other / profile
+    document.write_text(document.read_text() + "\nLater legitimate profile revision.\n")
+    git(other, "add", profile)
+    git(other, "commit", "-m", "Advance unrelated task profile")
+    git(other, "push", "upstream", "HEAD:base")
+    manifest = cross.manifest.relative_to(cross.source).as_posix()
+    receipt = json.loads(harness.run(cross.source, "initiative-receipt",
+        "--manifest", manifest, "--slice", "slice-a", "--json").stdout)
+    before = git_snapshot(other)
+    launch = harness.run(other, "begin", "--cycle-id", "cycle-2", "--context", "test",
+        "--risk", "routine", "--delivery-intent", "local", "--base-branch", "protected",
+        "--plan", str(fixture.plan_path()), "--initiative-manifest", manifest,
+        "--initiative-slice", "slice-a", "--initiative-source", str(cross.source),
+        "--initiative-digest", receipt["manifest_digest"],
+        "--expected-repository", "example/test",
+        "--expected-plan-digest", hashlib.sha256(fixture.plan_path().read_bytes()).hexdigest(),
+        "--preflight")
+    assert len(json.loads(launch.stdout)["launch_digest"]) == 64
+    assert not path.with_name("cycle-2.json").exists()
+    assert path.read_bytes() == completed
+    assert envelope_path.read_bytes() == envelope
+    assert git_snapshot(other) == before
+
+
+def test_cross_repository_policy_revision_keeps_its_profile_snapshot(cross, fixture):
+    target, path, argv = cross.amendment
+    plan_path = fixture.plan_path()
+    plan = json.loads(plan_path.read_text())
+    requirements = json.loads(path.read_text())["initiative"]["requirements"]
+    plan["evidence_policy"] = {
+        "schema_version": 1,
+        "requirements": {name: {"revision": "1", "depends_on": [], "gates": ["contract"]}
+                         for name in requirements},
+        "gates": {"contract": {
+            "authority": "fixture", "argv": [sys.executable, "-c", "raise SystemExit(0)"],
+            "inputs": ["tracked.txt"], "environment": [], "toolchain_paths": [],
+            "scope_complete": True,
+        }},
+    }
+    plan_path.write_text(json.dumps(plan))
+    argv[argv.index("--expected-plan-digest") + 1] = hashlib.sha256(plan_path.read_bytes()).hexdigest()
+    apply_amendment(cross.amendment)
+    original = path.read_bytes()
+    record = json.loads(original)
+    entry = record["initiative_amendments"][-1]
+    assert entry["schema_version"] == 3
+    envelope_path = private_file(target, entry["envelope_locator"])
+    envelope = envelope_path.read_bytes()
+    assert json.loads(envelope)["plan"]["schema_version"] == 2
+    profile = record["engineering_profile"]["path"]
+    document = target / profile
+    document.write_text(document.read_text() + "\nLater current profile.\n")
+    git(target, "add", profile)
+    git(target, "commit", "-m", "Advance current profile after policy enrollment")
+    before = git_snapshot(target)
+    status = json.loads(harness.run(target, "status", "--json").stdout)
+    assert status["initiative_amendments"]["count"] == 1
+    assert status["initiative_amendments"]["latest_launch_digest"] == entry["launch_digest"]
+    assert "PRIVATE_REASON_SENTINEL" not in json.dumps(status)
+    assert path.read_bytes() == original
+    assert envelope_path.read_bytes() == envelope
+    assert git_snapshot(target) == before
 
 
 @pytest.mark.parametrize("change", ["head", "origin", "document", "index", "missing"])

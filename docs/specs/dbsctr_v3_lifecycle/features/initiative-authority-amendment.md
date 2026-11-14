@@ -213,6 +213,24 @@ and commit invariants and checkpoint retention; raw mutable JSON is not proof of
 authenticated writer identity or complete event history. No new event engine is
 introduced to make that unsupported claim.
 
+For retained cross-repository amendments, the local profile closure is read at
+the exact commit already bound by the immutable amendment plan's `checkout.head`.
+An unrelated caller's newer profile must not invalidate that history. Require an
+available commit object and exact retained path, mode and blob; missing or
+inconsistent custody still blocks. New amendment admission continues to check
+the current committed profile against its currently authorized plan.
+
+The historical-profile reader correction has an operator-approved, one-repair
+source-maintenance exception because the existing registration inventory itself
+rejects this valid history. Qualify only that source repair outside registration;
+do not fabricate a Cycle Record, native gate envelope or Gate Commit. Required
+source validation, independent review, native CI, exact-head ordinary merge
+approval and separately approved merged installation remain mandatory.
+The exception expires when merged, installed normal preflight is qualified, or
+immediately on scope drift. Normal Initiative registration resumes afterward.
+This grants no record mutation, retirement, alternate-ledger route or standing
+exception for later work.
+
 Under existing deterministic cycle/checkout locks: freshly revalidate all bound
 state and terminal guards, exclusively persist and fsync an original-byte preimage,
 then durably atomically replace the record with the appended entry and gate
@@ -240,6 +258,8 @@ from durable evidence before any different effect is attempted.
 | Registered native cycle with failed evidence and changed committed authority | Fresh receipt, preflight and exact consent are applied | Append one amendment; preserve registration/import/failures; required gates pending; status/resume use validated effective authority. |
 | Same receipt/digest and exact verified postimage after lost reply | Retry | `already_applied`; no duplicate or repeated gate invalidation. |
 | Valid evidence/commit bindings, gate/artifact/metrics or authorized plan/terminal progress after apply | Ordinary read/status/resume | Validate historical outcomes and preserved prefixes/intrinsic invariants, not current-postimage equality; valid progress remains readable. |
+| Retained cross-repository amendment and a later legitimate profile revision in another checkout | Historical inventory/read or unrelated registration preflight | Verify the original profile snapshot; retain history unchanged and keep current-state admission checks separate. |
+| Missing/non-commit snapshot, inconsistent profile closure or tampered custody | Historical read | Fail closed without rewriting or hiding the record. |
 | Legitimate record progress after apply | Retry old approved amendment | `blocked`; do not reopen gates or reject valid progress as a corrupt historical outcome. |
 | ACTIVE progressed record | Second fresh amendment with fresh exact approval | Bind immediate current bytes; preserve historical chain/checkpoints/commits/ledger, require new evidence and its own checkpoint. |
 | No checkpoint, duplicate/out-of-order/foreign checkpoint or mismatched recorded commit/tree | Read/complete as applicable | Invalid projection blocks reading; missing latest qualifying checkpoint blocks completion even if HEAD docs match. |
