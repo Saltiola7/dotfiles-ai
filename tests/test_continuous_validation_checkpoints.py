@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import shlex
 import subprocess
 import sys
@@ -34,13 +35,60 @@ def git(root, *args):
                           capture_output=True, text=True).stdout.strip()
 
 
+def _status_probe(call, record, cycle, observations, node, wrapper):
+    """Fixture diagnostics only: preserve status results, failures and deadlines."""
+    def state():
+        try:
+            value = json.loads(record.read_text())
+            return value["state"] if value.get("state") in {
+                "active", "finalizing", "completed", "failed",
+            } else "unrecognized"
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return "unavailable"
+
+    def observed(command, *args, **kwargs):
+        if command != ["dbsctrctl", "status"]:
+            return call(command, *args, **kwargs)
+        row = {
+            "architecture": os.uname().machine, "python": list(sys.version_info[:3]),
+            "timeout_seconds": kwargs.get("timeout"), "record_state_before": state(),
+            "exception": None, "returncode": None, "status": None,
+            "selected_command_is_fixture": shutil.which("dbsctrctl") == str(wrapper),
+        }
+        started = time.perf_counter()
+        try:
+            result = call(command, *args, **kwargs)
+            words = result.stdout.split()
+            row.update(
+                returncode=result.returncode, stderr_present=bool(result.stderr),
+                status_id_matches=bool(words and words[0] == cycle),
+                status=words[:2] if len(words) >= 2 and words[0] == cycle
+                and words[1] in {"active", "finalizing", "completed", "failed"} else "unrecognized",
+            )
+            return result
+        except (OSError, subprocess.SubprocessError) as error:
+            row["exception"] = type(error).__name__
+            raise
+        finally:
+            row["elapsed_seconds"] = time.perf_counter() - started
+            row["record_state_after"] = state()
+            observations.append(row)
+            node.user_properties.append(
+                (f"checkpoint_status_{len(observations)}", json.dumps(row, sort_keys=True)))
+            if row["exception"] or row["returncode"] != 0 or row["status"] not in (
+                [cycle, "active"], [cycle, "finalizing"],
+            ):
+                print("checkpoint_status_probe " + json.dumps(row, sort_keys=True), file=sys.stderr)
+    return observed
+
+
 @pytest.fixture
 def checkpoints():
     return importlib.import_module("continuous_validation.checkpoints")
 
 
 @pytest.fixture
-def enrolled(tmp_path, monkeypatch):
+def enrolled(tmp_path, monkeypatch, request):
     """Real linked Git checkout with the existing native DBSCTR fixture owner."""
     native = importlib.import_module("test_dbsctrctl")
     fixture = native.DbsctrctlTest("run")
@@ -78,9 +126,12 @@ def enrolled(tmp_path, monkeypatch):
             "feedback_enabled": False,
         }
         path = private_json(home / "enrollment.json", value)
+        status_calls = []
+        monkeypatch.setattr(runner.subprocess, "run", _status_probe(
+            runner.subprocess.run, fixture.record_path(), "cycle-1", status_calls, request.node, wrapper))
         yield {"fixture": fixture, "native": native, "env": environment,
-               "worktree": worktree, "state": state, "home": home,
-               "path": path, "value": value}
+                "worktree": worktree, "state": state, "home": home,
+                "path": path, "value": value, "status_calls": status_calls}
     finally:
         fixture.tearDown()
 
@@ -283,6 +334,43 @@ def test_duplicate_multi_gate_checkpoint_has_one_private_event(checkpoints, enro
     assert first["event_id"] == repeated["event_id"]
     assert len(events(enrolled)) == 1
     assert events(enrolled)[0]["gates"] == ["behavior", "domain"]
+
+
+@pytest.mark.parametrize("outcome", [
+    "active", "finalizing", "completed", "wrong_cycle", "nonzero", "timeout", "oserror",
+])
+def test_status_probe_preserves_return_failure_and_timeout(tmp_path, request, outcome):
+    record = private_json(tmp_path / "cycle.json", {"state": "active"})
+    observations = []
+    calls = []
+    result = subprocess.CompletedProcess(
+        ["dbsctrctl", "status"], 7 if outcome == "nonzero" else 0,
+        "other active\n" if outcome == "wrong_cycle" else f"cycle-1 {outcome}\n",
+        "PRIVATE_STATUS_ERROR" if outcome == "nonzero" else "")
+
+    def original(command, **kwargs):
+        calls.append((command, kwargs))
+        if outcome == "timeout":
+            raise subprocess.TimeoutExpired(command, 5)
+        if outcome == "oserror":
+            raise OSError("PRIVATE_STATUS_ERROR")
+        return result
+
+    observed = _status_probe(original, record, "cycle-1", observations, request.node, tmp_path / "dbsctrctl")
+    if outcome in {"timeout", "oserror"}:
+        expected = subprocess.TimeoutExpired if outcome == "timeout" else OSError
+        with pytest.raises(expected):
+            observed(["dbsctrctl", "status"], timeout=5, capture_output=True, text=True)
+    else:
+        assert observed(["dbsctrctl", "status"], timeout=5, capture_output=True, text=True) is result
+    assert calls == [(["dbsctrctl", "status"], {
+        "timeout": 5, "capture_output": True, "text": True,
+    })]
+    assert len(observations) == 1
+    assert observations[0]["timeout_seconds"] == 5
+    assert observations[0]["record_state_before"] == observations[0]["record_state_after"] == "active"
+    assert "PRIVATE_STATUS_ERROR" not in json.dumps(observations)
+    assert runner.read_private(record) == {"state": "active"}
 
 
 @pytest.mark.parametrize("change", ["disabled", "changed_enrollment", "head", "closed_cycle", "binding"])
