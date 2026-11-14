@@ -2,6 +2,8 @@
 
 ## 2026-11-13 — Explicit Codex fixture architecture
 
+- Render Herdr/OpenCode native runtime fixtures explicitly as Darwin/ARM64 and
+  test Darwin/Intel fallback routing separately. Runtime templates are unchanged.
 - Bind positive release-lock and healthy-release retention fixtures to their
   intended Darwin/ARM64 context. Separately reject an ARM64 lock on Intel,
   preserving lock and executable bytes. Production platform guards are unchanged.

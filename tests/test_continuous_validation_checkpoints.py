@@ -87,6 +87,30 @@ def checkpoints():
     return importlib.import_module("continuous_validation.checkpoints")
 
 
+def _fixture_status_command(wrapper, source, record):
+    """Own the status subprocess seam; never replace cycle_open or its deadline.
+
+    Native registration/gate commands still execute the real CLI. Checkpoint
+    queue tests need a record-backed status producer, not repeated full CLI
+    dispatch (50 metadata subprocesses per status in the profiled fixture).
+    """
+    wrapper.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, pathlib, sys\n"
+        "if sys.argv[1:] != ['status']:\n"
+        f"    os.execv(sys.executable, [sys.executable, {str(source)!r}, *sys.argv[1:]])\n"
+        "try:\n"
+        f"    record = json.loads(pathlib.Path({str(record)!r}).read_text())\n"
+        "    cycle, state = record['cycle_id'], record['state']\n"
+        "    if not isinstance(cycle, str) or not isinstance(state, str):\n"
+        "        raise ValueError('invalid fixture record')\n"
+        "except (OSError, ValueError, KeyError, TypeError):\n"
+        "    sys.exit(1)\n"
+        "print(cycle, state)\n"
+    )
+    wrapper.chmod(0o700)
+
+
 @pytest.fixture
 def enrolled(tmp_path, monkeypatch, request):
     """Real linked Git checkout with the existing native DBSCTR fixture owner."""
@@ -126,12 +150,16 @@ def enrolled(tmp_path, monkeypatch, request):
             "feedback_enabled": False,
         }
         path = private_json(home / "enrollment.json", value)
+        # Native integration cases retain the original full CLI subprocess.
+        # Only checkpoint protocol/queue tests use the lightweight status seam.
+        if getattr(request, "param", None) != "native":
+            _fixture_status_command(wrapper, native.SCRIPT, fixture.record_path())
         status_calls = []
         monkeypatch.setattr(runner.subprocess, "run", _status_probe(
             runner.subprocess.run, fixture.record_path(), "cycle-1", status_calls, request.node, wrapper))
         yield {"fixture": fixture, "native": native, "env": environment,
                 "worktree": worktree, "state": state, "home": home,
-                "path": path, "value": value, "status_calls": status_calls}
+                "path": path, "value": value, "status_calls": status_calls, "status_command": wrapper}
     finally:
         fixture.tearDown()
 
@@ -173,6 +201,7 @@ def native_gate_commit(enrolled, *, ok=True):
                       "--paths", "tracked.txt", env=environment, ok=ok)
 
 
+@pytest.mark.parametrize("enrolled", ["native"], indirect=True)
 def test_native_successful_gate_commit_enqueues_after_durable_record(enrolled):
     manual_binding(enrolled)
     result = native_gate_commit(enrolled)
@@ -187,6 +216,7 @@ def test_native_successful_gate_commit_enqueues_after_durable_record(enrolled):
     assert retained[0]["state"] == "queued"
 
 
+@pytest.mark.parametrize("enrolled", ["native"], indirect=True)
 def test_native_gate_commit_without_binding_preserves_no_optional_state(enrolled):
     result = native_gate_commit(enrolled)
     assert result.stdout.strip() == git(enrolled["worktree"], "rev-parse", "HEAD")
@@ -194,6 +224,7 @@ def test_native_gate_commit_without_binding_preserves_no_optional_state(enrolled
     assert not enrolled["state"].exists()
 
 
+@pytest.mark.parametrize("enrolled", ["native"], indirect=True)
 def test_unsuccessful_native_gate_commit_does_not_enqueue(enrolled):
     manual_binding(enrolled)
     before = git(enrolled["worktree"], "rev-parse", "HEAD")
@@ -204,6 +235,7 @@ def test_unsuccessful_native_gate_commit_does_not_enqueue(enrolled):
     assert events(enrolled) == []
 
 
+@pytest.mark.parametrize("enrolled", ["native"], indirect=True)
 def test_native_enqueue_failure_does_not_change_commit_exit_or_stdout(enrolled):
     path = manual_binding(enrolled)
     path.write_text("not JSON")
@@ -214,6 +246,7 @@ def test_native_enqueue_failure_does_not_change_commit_exit_or_stdout(enrolled):
 
 
 @pytest.mark.parametrize("record_kind", ["binding", "enrollment"])
+@pytest.mark.parametrize("enrolled", ["native"], indirect=True)
 def test_native_optional_checkpoint_fifo_cannot_block_outcome(enrolled, record_kind):
     binding = manual_binding(enrolled)
     path = binding if record_kind == "binding" else enrolled["path"]
@@ -334,6 +367,54 @@ def test_duplicate_multi_gate_checkpoint_has_one_private_event(checkpoints, enro
     assert first["event_id"] == repeated["event_id"]
     assert len(events(enrolled)) == 1
     assert events(enrolled)[0]["gates"] == ["behavior", "domain"]
+
+
+@pytest.mark.parametrize("state", ["active", "finalizing", "completed"])
+def test_checkpoint_status_fixture_matches_native_state(enrolled, state):
+    record = enrolled["fixture"].record_path()
+    value = json.loads(record.read_text())
+    record.write_text(json.dumps({**value, "state": state}))
+    before = record.read_bytes()
+    native = enrolled["native"].run(enrolled["worktree"], "status", env=enrolled["env"])
+    fixture = subprocess.run(
+        ["dbsctrctl", "status"], cwd=enrolled["worktree"], env=enrolled["env"],
+        text=True, capture_output=True, timeout=5)
+    assert fixture.returncode == native.returncode == 0
+    assert fixture.stdout.split() == native.stdout.split()[:2] == ["cycle-1", state]
+    assert record.read_bytes() == before
+    assert runner.cycle_open(enrolled["value"]) is (state in {"active", "finalizing"})
+
+
+@pytest.mark.parametrize("change", ["completed", "wrong_cycle", "malformed", "missing"])
+def test_checkpoint_registration_fails_closed_on_fixture_status(checkpoints, enrolled, change):
+    record = enrolled["fixture"].record_path()
+    value = json.loads(record.read_text())
+    if change == "missing":
+        record.unlink()
+    elif change == "malformed":
+        record.write_text("{")
+    else:
+        value["state" if change == "completed" else "cycle_id"] = (
+            "completed" if change == "completed" else "another-cycle")
+        record.write_text(json.dumps(value))
+    with pytest.raises(runner.ValidationError, match="enrolled_task_closed"):
+        checkpoints.register(enrolled["path"], enrolled["value"])
+    assert not registry_path(enrolled).exists()
+
+
+def test_checkpoint_registration_keeps_real_five_second_timeout(checkpoints, enrolled):
+    wrapper = enrolled["status_command"]
+    wrapper.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(5.25)\n")
+    before = enrolled["fixture"].record_path().read_bytes()
+    with pytest.raises(runner.ValidationError, match="enrolled_task_closed"):
+        checkpoints.register(enrolled["path"], enrolled["value"])
+    observation = enrolled["status_calls"][-1]
+    assert observation["exception"] == "TimeoutExpired"
+    assert observation["timeout_seconds"] == 5
+    assert observation["returncode"] is None
+    assert observation["record_state_before"] == observation["record_state_after"] == "active"
+    assert enrolled["fixture"].record_path().read_bytes() == before
+    assert not registry_path(enrolled).exists()
 
 
 @pytest.mark.parametrize("outcome", [
@@ -473,6 +554,7 @@ def helper_module():
     return module
 
 
+@pytest.mark.parametrize("enrolled", ["native"], indirect=True)
 def test_revoked_native_binding_does_not_import_optional_package(enrolled, monkeypatch, capsys):
     import builtins
     manual_binding(enrolled)
@@ -490,6 +572,7 @@ def test_revoked_native_binding_does_not_import_optional_package(enrolled, monke
     assert not enrolled["state"].exists()
 
 
+@pytest.mark.parametrize("enrolled", ["native"], indirect=True)
 def test_real_native_hook_runs_only_after_mutation_guard_exit(enrolled, monkeypatch, capsys):
     manual_binding(enrolled)
     native, root = enrolled["native"], enrolled["worktree"]

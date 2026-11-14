@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-14 — Bounded checkpoint fixture status
+
+- Separate checkpoint protocol/queue fixtures from repeated full lifecycle CLI
+  startup. Their subprocess status producer reads the actual fixture record;
+  native integration cases retain the full CLI. Add real-CLI state parity,
+  malformed/missing/closed/wrong-cycle rejection and actual five-second timeout
+  regressions. Keep production timeout, fail-closed behavior and original queue
+  assertions unchanged. Intel evidence confirmed a timeout with an active record,
+  not actual task closure; this source change does not optimize production status.
+
 ## 2026-11-13 — Historical cross-repository profile validation
 
 - Validate retained local profile closure at the immutable checkout commit in

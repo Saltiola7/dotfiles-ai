@@ -15,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _render_herdr_script(name: str, values: dict) -> str:
+    # Runtime fixtures below own native ARM64 binaries, not the host renderer.
+    values = {"chezmoi": {"os": "darwin", "arch": "arm64"}, **values}
     return subprocess.run(
         [
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
@@ -1235,17 +1237,26 @@ def test_native_state_does_not_render_centralized_environment() -> None:
 
 def test_centralized_state_scopes_opencode_runtime_environment() -> None:
     values = {"dotfiles_ai": {"state": {"root": "/Volumes/ext/state"}}}
-    rendered = subprocess.run(
-        ["chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
-         "--override-data", json.dumps(values), "cat", str(Path.home() / ".local/bin/opencode")],
-        text=True, capture_output=True, check=True,
-    ).stdout
+    rendered = _render_herdr_script(".local/bin/opencode", values)
     assert 'export HERMES_HOME="/Volumes/ext/state/hermes"' in rendered
     assert 'export XDG_DATA_HOME="/Volumes/ext/state/xdg/data"' in rendered
     assert 'target="$HOME/.opencode/bin/opencode"' in rendered
     assert 'exec "$target" "$@"' in rendered
     assert 'herdr-opencode-restore' not in rendered
     assert ".dotfiles-ai-state" in rendered
+
+
+def test_centralized_opencode_intel_routing_is_not_native_arm64() -> None:
+    rendered = _render_herdr_script(".local/bin/opencode", {
+        "chezmoi": {"os": "darwin", "arch": "amd64"},
+        "dotfiles_ai": {"state": {"root": "/Volumes/ext/state"}},
+    })
+    assert 'export HERMES_HOME="/Volumes/ext/state/hermes"' in rendered
+    assert 'export XDG_DATA_HOME="/Volumes/ext/state/xdg/data"' in rendered
+    assert ".dotfiles-ai-state" in rendered
+    assert 'target="$HOME/.opencode/bin/opencode"' not in rendered
+    assert 'exec "$HOME/.local/bin/opencode-update-all" exec-managed "$@"' in rendered
+    assert 'exec /opt/homebrew/bin/opencode "$@"' in rendered
 
 
 def test_opencode_wrapper_preserves_explicit_worktree_root(tmp_path) -> None:
