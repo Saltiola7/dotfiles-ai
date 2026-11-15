@@ -842,7 +842,7 @@ def test_qa_accepts_v3_capabilities_without_breaking_scoped_mode():
 
 def test_ci_and_specs_cover_lifecycle_sources():
     workflow = text(".github/workflows/test.yml")
-    ordinary_lanes = {("3.14", "0.81.0"), ("3.14", "0.80.0")}
+    ordinary_lanes = {("3.14", "0.81.0")}
     compatibility_lanes = ordinary_lanes | {(version, "0.81.0") for version in ("3.12", "3.13", "3.15")}
     for name in ("test-shard", "test"):
         job = workflow_job(workflow, name)
@@ -869,12 +869,13 @@ def test_ci_and_specs_cover_lifecycle_sources():
             assert shard is None, "aggregate jobs must represent whole lanes"
             partitions = [""]
         included = re.search(r"(?m)^        include:\n((?: {10,}[^\n]*\n)+)", job)
-        assert included
-        included_jobs = re.findall(
+        # The duplicate 0.80.0 macOS lane is retired; an include block may not
+        # reintroduce any extra lane into either matrix.
+        included_jobs = (re.findall(
             r'(?m)^          - python-version:[ \t]*"([^"]+)"\n'
             r'            worktrunk-version:[ \t]*"([^"]+)"'
-            r'(?:\n            shard: ([0-3]))?', included.group(1))
-        assert included_jobs == [("3.14", "0.80.0", partition) for partition in partitions]
+            r'(?:\n            shard: ([0-3]))?', included.group(1)) if included else [])
+        assert included_jobs == []
         for event in ("push", "pull_request", "schedule", "workflow_dispatch"):
             versions = compatibility if event in compatibility_events else ordinary
             actual_jobs = [(version, tool, partition) for version in versions
