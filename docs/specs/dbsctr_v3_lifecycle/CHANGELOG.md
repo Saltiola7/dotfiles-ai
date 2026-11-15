@@ -32,6 +32,19 @@
   protocol test with synthetic credentials only. No personal credentials, Git
   provisioning, wrapper/checkpoint repair or new publication is authorized here.
 
+## 2026-11-14 — Retain historical amendment profile identity
+
+- Read cross-repository amendment profiles at their immutable checkout snapshot,
+  preserving valid completed history across later profile changes. Keep new
+  amendment admission current-profile checks and fail-closed custody validation.
+- Add public-CLI completed-history/registration and policy-revision regressions,
+  plus exact-commit and admission-boundary checks. Qualification and publication
+  outcomes remain private evidence; no historical record or receipt is migrated.
+- One explicitly approved source-maintenance exception addresses blocked
+  registration, without fabricated native cycle/gate credit. Native CI, ordinary
+  merge consent and merged installed-route qualification remain separate. No
+  activation, consumer operation, retirement or cleanup.
+
 ## 2026-11-13 — Compose completion with default-off integration adapters
 
 - Retain both completion and accepted integration contracts and histories in
