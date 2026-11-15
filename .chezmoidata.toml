@@ -109,6 +109,11 @@ account = ""
 [dotfiles_ai.linux_workstation]
 enabled = false
 
+# Optional Arch (Omarchy) attack-surface toolchain; strap pin and curated set
+# live in run_onchange_after_install-blackarch-toolchain.sh.tmpl.
+[dotfiles_ai.blackarch]
+enabled = false
+
 [dotfiles_ai.remote_user_environment]
 enabled = false
 mise_version = "2026.11.2"
