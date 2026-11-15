@@ -20,7 +20,10 @@ jobs:
   test-shard:
     name: Full suite (${{ matrix.python-version }}, ${{ matrix.worktrunk-version }}, partition ${{ matrix.shard }})
     runs-on: macos-26
-    timeout-minutes: 90
+    # ponytail: partition 2 measured at 85-87 min on 2026-11-15 (PR #321) and
+    # crossed 90 min with PR #320's added tests; 150 leaves growth headroom
+    # without hiding a hung run.
+    timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
