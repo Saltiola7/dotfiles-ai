@@ -1,5 +1,18 @@
 # OpenCode Control Plane Changelog
 
+## 2026-11-14 — Truthful completion journey source
+
+- Add supported completion-capability/report guidance to both existing Build
+  primaries without changing frontmatter, providers, models or permissions.
+- Separate source delivery, deployment, acceptance, logical completion and cleanup;
+  preserve original evidence identity, classified blockers and denied-operation
+  boundaries. Preview success never substitutes for completed state.
+- Add instruction contracts and synthetic public-CLI multi-PR/idempotent/historical
+  journey coverage. Actual qualification, retained red evidence, Gate Commits
+  and feature delivery remain in the Cycle Record; native CI is still required.
+- Source-only: no paid model benchmark, new adapter/parser, managed installation,
+  consumer recovery, automation activation or cleanup.
+
 ## 2026-11-04 — Shared global activation policy
 
 - Global instructions now render from the shared distribution template. Explicit
