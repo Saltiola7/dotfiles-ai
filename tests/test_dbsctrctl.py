@@ -29,13 +29,17 @@ class WorkflowFeedbackTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         self.core = importlib.util.module_from_spec(spec)
         loader.exec_module(self.core)
+        self.feedback_timestamp = "2026-10-16T00:00:00Z"
+
+    def feedback_clock(self):
+        return self.core.workflow_time(self.feedback_timestamp)
 
     def snapshot(self):
         return self.core.workflow_feature_snapshot("a" * 40, {
             "schema_version": 1, "features": [{"feature_id": "automatic-delivery", "enabled": False}]})
 
     def observation(self, category="validation-failed"):
-        return self.core.workflow_observation(category, self.snapshot(), "2026-10-16T00:00:00Z")
+        return self.core.workflow_observation(category, self.snapshot(), self.feedback_timestamp)
 
     def test_safe_snapshots_cannot_disable_safety_or_downgrade_data(self):
         snapshot = self.snapshot()
@@ -126,7 +130,7 @@ class WorkflowFeedbackTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
-            self.core.workflow_queue_append(root, self.observation(), "2026-10-16T00:00:00Z")
+            self.core.workflow_queue_append(root, self.observation(), self.feedback_timestamp)
             policy = {"feedback": {"schema_version": 1, "external_enabled": True,
                 "destination": "example/feedback", "consent_digest": "b" * 64,
                 "payload_scope": "sanitized-diagnostic-v1"}}
@@ -137,12 +141,15 @@ class WorkflowFeedbackTest(unittest.TestCase):
                 if method == "GET":
                     return {"status": "success", "value": {"incomplete_results": False, "total_count": 0, "items": []}}
                 return {"status": "ambiguous"}
-            off = self.core.workflow_flush(root, lambda _: None, "fixture", request=request)
+            off = self.core.workflow_flush(root, lambda _: None, "fixture", request=request,
+                                           wall_clock=self.feedback_clock)
             self.assertEqual(off["status"], "local"); self.assertEqual(calls, [])
-            result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None)
+            result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None,
+                                              wall_clock=self.feedback_clock)
             self.assertEqual(result["status"], "pending")
             self.assertEqual([c[0] for c in calls], ["GET", "POST"])
-            result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None)
+            result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None,
+                                              wall_clock=self.feedback_clock)
             self.assertEqual(result["status"], "pending")
             self.assertEqual([c[0] for c in calls], ["GET", "POST", "GET"])
 
@@ -150,7 +157,7 @@ class WorkflowFeedbackTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
-            self.core.workflow_queue_append(root, self.observation(), "2026-10-16T00:00:00Z")
+            self.core.workflow_queue_append(root, self.observation(), self.feedback_timestamp)
             policy = {"feedback": {"schema_version": 1, "external_enabled": True,
                 "destination": "example/feedback", "consent_digest": "b" * 64,
                 "payload_scope": "sanitized-diagnostic-v1"}}
@@ -158,20 +165,21 @@ class WorkflowFeedbackTest(unittest.TestCase):
             def sleep(seconds): ticks[0] += seconds; delays.append(seconds)
             def request(*args): calls.append(args); return {"status": "transient"}
             result = self.core.workflow_flush(root, lambda _: policy, "fixture", request=request,
-                                             clock=lambda: ticks[0], sleep=sleep)
+                                             clock=lambda: ticks[0], sleep=sleep, wall_clock=self.feedback_clock)
             self.assertEqual(result["attempts"], 3); self.assertEqual(delays, [1, 2])
             self.assertEqual(result["status"], "pending")
             changed = json.loads(json.dumps(policy)); changed["feedback"]["destination"] = "other/destination"
             calls.clear()
             reader = mock.Mock(side_effect=[policy, changed])
-            result = self.core.workflow_flush(root, reader, "fixture", request=request, sleep=sleep)
+            result = self.core.workflow_flush(root, reader, "fixture", request=request, sleep=sleep,
+                                              wall_clock=self.feedback_clock)
             self.assertEqual(result["status"], "blocked"); self.assertEqual(calls, [])
 
     def test_flush_rediscovery_updates_same_issue_and_never_exports_input_prose(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
-            stamp = "2026-10-16T00:00:00Z"
+            stamp = self.feedback_timestamp
             observation = self.observation()
             self.core.workflow_queue_append(root, observation, stamp)
             policy = {"feedback": {"schema_version": 1, "external_enabled": True,
@@ -189,9 +197,11 @@ class WorkflowFeedbackTest(unittest.TestCase):
                 else:
                     self.assertTrue(endpoint.endswith("/7")); issues[0]["body"] = fields["body"]
                 return {"status": "success", "value": {"number": 7}}
-            self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None)
+            self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None,
+                                     wall_clock=self.feedback_clock)
             self.core.workflow_queue_append(root, observation, stamp)
-            self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None)
+            self.core.workflow_flush(root, lambda _: policy, "fixture", request=request, sleep=lambda _: None,
+                                     wall_clock=self.feedback_clock)
             self.assertEqual(methods, ["GET", "POST", "GET", "PATCH"])
             self.assertEqual(len(issues), 1); self.assertIn("Occurrences: 2", issues[0]["body"])
             self.assertEqual(self.core.workflow_queue_read(self.core.workflow_queue_path(root))["observations"][0]["issue_number"], 7)

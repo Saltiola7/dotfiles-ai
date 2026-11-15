@@ -755,6 +755,7 @@ def test_host_update_stages_every_guest_before_activation(tmp_path: Path, monkey
 
 def test_exec_managed_recovers_and_execs_verified_path(tmp_path: Path, monkeypatch) -> None:
     helper = load_updater()
+    monkeypatch.setattr(helper, "platform_id", lambda: "darwin-aarch64")
     root = tmp_path / "state/opencode-package"
     binary = tmp_path / "libexec/opencode"
     root.mkdir(parents=True, mode=0o700)
