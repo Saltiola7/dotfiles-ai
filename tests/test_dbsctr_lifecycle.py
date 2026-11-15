@@ -255,7 +255,7 @@ def test_full_suite_partitions_keep_native_required_checks_fail_closed():
     assert "--commit" in workflow and "--repository" in workflow
     assert "retention-days: 7" in workflow
     assert "if-no-files-found: error" in workflow
-    assert "timeout-minutes: 90" in workflow
+    assert "timeout-minutes: 150" in workflow
     assert "pull_request_target" not in workflow
     assert "continue-on-error" not in workflow
 
@@ -887,7 +887,7 @@ def test_ci_and_specs_cover_lifecycle_sources():
     assert "push:\n    branches: [main]" in workflow
     assert "pull_request:\n\n" in workflow
     assert "fail-fast: false" in workflow
-    assert "timeout-minutes: 90" in workflow
+    assert "timeout-minutes: 150" in workflow
     assert "contents: read" in workflow
     assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
     assert "format('test ({0})', matrix.python-version)" in workflow

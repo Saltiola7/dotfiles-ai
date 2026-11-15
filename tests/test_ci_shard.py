@@ -784,7 +784,7 @@ def test_summary_qualifies_portable_verifier_without_moving_native_workers():
         "    runs-on: ${{ (github.event_name == 'schedule' || "
         "github.event_name == 'workflow_dispatch') && 'macos-26' || 'macos-26-intel' }}\n"
     ) in workers
-    assert "    timeout-minutes: 90\n" in workers
+    assert "    timeout-minutes: 150\n" in workers
     assert "      - name: Check native Swift compilation\n" in workers
     assert "    runs-on: ubuntu-24.04\n" in summary
     assert "    needs: test-shard\n" in summary
