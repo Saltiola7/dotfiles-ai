@@ -102,6 +102,8 @@ def test_module_assignment_preserves_affinity_and_reserved_heavy_modules(core):
     for suffix in ("test_one", "TestCase::test_two[one::two]", "test_unicode[雪]"):
         assert core.partition(f"tests/test_initiative_authority_amendment.py::{suffix}") == 0
         assert core.partition(f"tests/test_lineage_recovery.py::{suffix}") == 1
+        assert core.partition(f"tests/test_dbsctr_external_completion.py::{suffix}") == 0
+        assert core.partition(f"tests/test_dbsctrctl.py::{suffix}") == 1
     allocations = {
         core.partition(f"tests/test_sample_{index}.py::test_one") for index in range(30)
     }

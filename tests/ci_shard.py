@@ -43,12 +43,15 @@ class ExecutionCounts(NamedTuple):
 
 
 def partition(nodeid: str) -> int:
-    """Keep module fixtures together and isolate the two measured heavy modules."""
+    """Keep fixtures together; distribute measured completion cost across lanes."""
     identifiers([nodeid])
     module = nodeid.split("::", 1)[0]
-    if module == "tests/test_initiative_authority_amendment.py":
+    if module in {
+        "tests/test_initiative_authority_amendment.py",
+        "tests/test_dbsctr_external_completion.py",
+    }:
         return 0
-    if module == "tests/test_lineage_recovery.py":
+    if module in {"tests/test_lineage_recovery.py", "tests/test_dbsctrctl.py"}:
         return 1
     return 2 + int.from_bytes(hashlib.sha256(module.encode()).digest(), "big") % 2
 
