@@ -521,3 +521,12 @@ at `/var/lib/dotfiles-ai/<username>` and applies the profile. This avoids placin
 provider credentials under a home directory that may itself be a Git worktree.
 Set the matching `state.root` in the local configuration. Existing user files
 should be backed up before the first apply; authentication remains interactive.
+
+An optional default-off `blackarch.enabled` gate adds the Omarchy attack-surface
+toolchain: a checksum-pinned BlackArch repository bootstrap plus a curated pacman
+package set (nmap, nuclei, sqlmap, ZAP, trivy, hashcat and peers), version-probed
+after install and never scanning by itself. The pinned security-toolkit runtime
+keeps exclusive ownership of Semgrep CE, Gitleaks and OSV-Scanner. The
+[contract](docs/specs/dotfiles_ai_distribution/features/omarchy-security-toolchain.md)
+owns sourcing, refresh and evidence boundaries; probing authorization defaults
+to deny.
