@@ -2,6 +2,9 @@
 
 ## 2026-11-14 — Truthful completion journey source
 
+- Pin feedback-test wall clocks to their synthetic observations so the 30-day
+  retention boundary cannot disable retry/consent/publication assertions as the
+  calendar advances. Production retention and explicit expiry tests are unchanged.
 - Add supported completion-capability/report guidance to both existing Build
   primaries without changing frontmatter, providers, models or permissions.
 - Separate source delivery, deployment, acceptance, logical completion and cleanup;
