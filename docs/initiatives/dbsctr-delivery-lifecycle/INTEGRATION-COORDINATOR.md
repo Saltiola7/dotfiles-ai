@@ -135,6 +135,44 @@ this amendment adds no failure waiver or new global production policy.
 
 ## Delivery slices and dependencies
 
+### Runtime-adapter consolidation, 2026-11-12
+
+The operator now authorizes completing lifecycle/current-Actions adoption and
+activating both selected targets. The
+[runtime adapter amendment](../../specs/dbsctr_v3_lifecycle/features/integration-runtime-adapters.md)
+owns the qualified source delta and target rollout requirements. One cohesive
+`integration-runtime-adapters` Build slice replaces the three unstarted
+lifecycle/actions/distribution placeholders below; their manifests are deferred
+as duplicate scopes, not three additional implementations. The delivered offline
+core remains the prerequisite. A private consumer follows its own adapter plan
+against the resulting merged source pin, then exact-target installation/hosted
+qualification follows. Dagger remains with its separate owner.
+
+The offline foundation delivered in PR #311 at
+`6ec4d3f68a9014fdae52dab4cd63f006864c2847`, with native post-merge validation
+successful. That evidence supports marking only its source slice delivered;
+installation of an unavailable-by-default CLI does not establish live adapters.
+Fresh staged publication/instruction qualification for this amendment passes 57
+cases. Independent lifecycle and native-authority reviews found no remaining
+source-readiness blocker after revision-identity and writer-restriction corrections.
+These are Discovery results, not runtime or activation qualification.
+
+The source slice includes ordered source/refresh records, repair/supersession and
+bounded working-state archival, private obligation/outcome custody, honest inherited
+repair authorization, the thin native worker and schema-2 existing delivery policy.
+Guarded task-head refresh is expressly allowed after original-object retention
+with an exact old-head guard. The actual default, literal main/master and control
+refs are excluded. This narrows the historical never-force rule only for that
+enrolled task operation; it grants no default/control rewrite, cleanup or automatic
+conflict resolution.
+
+New-source preflight/approval, credential delegation and actual activation evidence
+remain distinct. General target activation is authorized; no credential is copied
+or enrolled by inference. The source PR stays default-off until merged, installed
+and qualified. The runtime amendment supersedes earlier assumptions that a flat
+phase/wrapper list, original-head-only candidate or lifetime retained-ticket bound
+would be sufficient for live adoption.
+
 | Slice | Scope | Boundary |
 |---|---|---|
 | integration-coordinator-core | New shared core, thin standalone entrypoint and deterministic fixtures; no existing lifecycle/helper rewrites | Source-only critical draft; production activation off |
@@ -142,6 +180,7 @@ this amendment adds no failure waiver or new global production policy.
 | integration-actions-adapters | Default-off reusable controller workflow and current repository adapter; native producer/security/trigger qualification fixtures | After core and lifecycle contract |
 | integration-distribution-policy | Versioned existing repository policy and targeted compatible module installation | After source interfaces; no competing policy or credential owner |
 | integration-hosted-rollout | Enrollment, control-state initialization, exact hosted identity and both native-route qualification | Separate target-bound deployment approval |
+| integration-runtime-adapters | Consolidated lifecycle, native worker, compatible policy and durable-v2 source after delivered offline core | Critical shared source draft; target activation follows actual qualification |
 | dagger-delivery-adoption | Shared candidate references and explicit shadow observations only in the first adoption stage | Existing validation owner; no queue fork or cutover |
 
 The adjacent consumer persists its own adapter feature and launch plan against the
@@ -180,7 +219,9 @@ unavailable. No forecast is presented as a measured speedup.
 ## Readiness and launch
 
 Intent and ownership are settled for coordination-first. Source readiness follows
-publication and contract review. Live enrollment is not approved by this document.
+publication and contract review. The operator's subsequent instruction authorizes
+the two-target rollout; exact credential delegation and native qualification remain
+required and are not established by this document.
 Only a Build-owned ready slice may issue a fresh Initiative receipt. Build must
 perform the actual import-aware preflight and obtain its exact launch approval.
 No separate Discovery publication is a prerequisite; the normal implementation

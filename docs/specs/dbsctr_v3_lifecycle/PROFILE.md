@@ -7,7 +7,7 @@
 | Languages/frameworks | Language-neutral Markdown prompts; Python helpers and contract tests; TypeScript OpenCode adapters |
 | Modules | Python, Shell, Mojo, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
 | Runtime/platform support | Delivered OpenCode harness and planned Codex peer on the managed dotfiles environment; Python `>=3.12`; Bun for OpenCode adapters |
-| Compatibility | Unversioned lifecycle skills; current Method Revision `3.29` and record schema 5; schemas 3/4 remain readable without implicit migration; V1 removed; V2 source archived |
+| Compatibility | Unversioned lifecycle skills; current Method Revision `3.30` and record schema 5; schemas 3/4 remain readable without implicit migration; V1 removed; V2 source archived |
 | Trust/data | Git specifications contain sanitized durable authority; transcripts, credentials, machine paths, and private runtime identity stay outside Git |
 | Delivery | Feature branch and draft pull request; managed local deployment only after affected gates pass |
 | Authorities | Affected `pytest`, Python compilation, Bun execution, rendered chezmoi configuration, Git fixed-commit inspection, and configured runtime smokes |
@@ -16,6 +16,14 @@ Existing active cycles remain bound to the profile path recorded in their Cycle
 Record. New cycles use this file.
 
 ## Rebased delivery source slice
+
+The [completion reconciliation extension](features/workflow-completion-reconciliation.md)
+is also critical-risk Python/Security work. It adds a versioned private proof
+reference without rewriting original registration, commits or failed evidence.
+Existing historical schemas and delivery proofs retain their meanings; unsupported
+writers must refuse new custody. Kernel, Review/Integrate and Maintain/Retire are
+required for source; Release/Deploy/Operate remain source-only N/A. Installed
+compatibility and first-consumer recovery belong to the separate rollout plan.
 
 [Verified rebased delivery](features/rebased-delivery.md) is a critical-risk
 Python/Security extension because its receipt participates in retirement

@@ -48,6 +48,12 @@ records must not enter public Git.
 
 ### One local delivery authority
 
+Schema 1 below keeps its existing semantics. The explicit schema-2 extension in
+[runtime adapters](integration-runtime-adapters.md) adds one default-off coordinator
+table to this same owner. It is not a second policy file or implicit migration.
+Its personal route preserves native CI/security/current-base enforcement and
+qualified inherited repair; Dagger and legacy supervised repair remain separate.
+
 Use the resolved `.dotfiles_ai.workspaces.repositories[]` TOML authority from
 [storage policy](../../dotfiles_ai_distribution/features/workflow-storage-policy.md):
 select exact canonical primary checkout, resolve its Git common directory, reject

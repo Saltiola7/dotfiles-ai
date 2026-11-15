@@ -790,6 +790,7 @@ def test_v3_module_registry_is_extensible_and_normalized():
         "platform-specialists.md",
         "specialist-selection.md",
             "semantic-audit.md",
+            "integration-coordinator.md",
             "spec-visuals.md",
             "web.md",
             "openai.md",
@@ -1021,7 +1022,7 @@ def test_v32_requires_planned_ordered_monotonic_cycles():
     helper = text("dot_local/bin/executable_dbsctrctl")
     roadmap = text("docs/specs/dbsctr_v3_lifecycle/ROADMAP.md")
 
-    for term in ("Method Revision `3.29`", "applicability plan", "predecessor", "V3.1"):
+    for term in ("Method Revision `3.30`", "applicability plan", "predecessor", "V3.1"):
         assert term in dbsctr
     assert "schema version `1`" in spec
     assert "dbsctrctl start --plan PATH" in discovery
@@ -1072,7 +1073,7 @@ def test_v362_uses_validated_build_begin_authorization_and_method_revision_compa
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     dbsctr = text(SKILLS / "dbsctr/SKILL.md")
     helper = text("dot_local/bin/executable_dbsctrctl")
-    assert "CURRENT_METHOD_REVISION = \"3.29\"" in helper
+    assert "CURRENT_METHOD_REVISION = \"3.30\"" in helper
     assert '"method_revision": CURRENT_METHOD_REVISION' in helper
     assert not (ROOT / "private_dot_config/opencode/tools/dbsctr.ts").exists()
     assert "before any `beginCycle`" in spec

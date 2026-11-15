@@ -1,5 +1,10 @@
 # OpenCode Control Plane
 
+[Completion journey](features/workflow-completion-journey.md) specifies structural
+preflight before progress claims, classified recovery and independent delivery,
+completion and cleanup reporting. This Discovery depends on lifecycle proof;
+source and installed native capability remain separate qualification boundaries.
+
 **RRW-002 successor Discovery:** Initiative `rhel-remote-workspace`, slice
 `rrw-002-rhel-user-runtime`, approves RHEL 10 x86_64 as the standalone remote
 successor. Implementation, deployment, release qualification, and readiness are

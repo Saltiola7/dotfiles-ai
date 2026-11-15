@@ -77,6 +77,13 @@ Incident mutation or create/read PM Kernel tickets to supply missing evidence.
 
 ## Operator-approved single PR
 
+For a task already bound to the enrolled coordinator, use
+`../dbsctr/references/integration-coordinator.md` and its same-handle fallback.
+This single-PR route does not silently bypass coordination or adopt legacy work.
+An explicit outside override requires the operator's authority and invalidates the
+active candidate; it carries no old check evidence to the newly observed base.
+The route below continues to govern unenrolled work.
+
 The primary may execute an ordinary native GitHub merge; a human GUI action is not required.
 This route takes precedence over broader automation, immutable-base checkpoint and
 waiver restrictions below. It does not enable unattended merges or turn the

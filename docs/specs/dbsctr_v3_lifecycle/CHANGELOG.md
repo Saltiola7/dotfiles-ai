@@ -1,5 +1,147 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-14 — Retain historical amendment profile identity
+
+- Read cross-repository amendment profiles at their immutable checkout snapshot,
+  preserving valid completed history across later profile changes. Keep new
+  amendment admission current-profile checks and fail-closed custody validation.
+- Add public-CLI completed-history/registration and policy-revision regressions,
+  plus exact-commit and admission-boundary checks. Qualification and publication
+  outcomes remain private evidence; no historical record or receipt is migrated.
+- One explicitly approved source-maintenance exception addresses blocked
+  registration, without fabricated native cycle/gate credit. Native CI, ordinary
+  merge consent and merged installed-route qualification remain separate. No
+  activation, consumer operation, retirement or cleanup.
+
+## 2026-11-13 — Compose completion with default-off integration adapters
+
+- Retain both completion and accepted integration contracts and histories in
+  PR #309. Preserve legacy unenrolled delivery and disabled repository enrollment;
+  source reconciliation does not activate managed tooling or automation.
+- Bind qualification to the exact combined helper and four runtime help oracles.
+  Actual affected tests, typing comparisons, profile-history transition, Gate
+  Commits and push outcomes remain in the Cycle Record. Fresh current-base CI
+  and resulting-head consent remain required for ordinary merge.
+
+## 2026-11-13 — Retain accepted runtime qualification in completion PR
+
+- Import the accepted runtime/CI qualification history into existing PR #309.
+  Preserve the modern credential-fixture loader assertion and every incoming
+  security regression; leave completion and follow-up implementations unchanged.
+- Retain the combined helper pin and incoming Python 3.15 oracle. Actual affected
+  qualification, prior green CI, renewed Gate Commit and push outcomes remain in
+  the Cycle Record. Fresh current-base native CI and exact-head merge consent
+  remain required; no failed-check waiver or inherited new-cycle gate credit.
+- Source-only: no runtime upgrade, helper activation, consumer/cloud mutation,
+  replacement PR or branch/worktree/data cleanup.
+
+## 2026-11-13 — Reconcile completion source with accepted follow-up
+
+- Preserve both completion and accepted-default source histories in PR #309,
+  including all Initiative requirements and both lifecycle reader validations.
+  Compose source-only and Initiative external-completion fixture coverage.
+- Bind benchmark qualification to the resulting combined helper, without changing
+  workloads, assertions, timeouts or native CI/protections. Actual union validation,
+  retained failures and Gate Commit/delivery outcomes belong to the Cycle Record.
+- Source-only follow-up updates the same ready PR. No Gate Exception, replacement
+  PR, host activation, consumer recovery or branch/worktree/data removal.
+
+## 2026-11-12 — Plan diagnostic expectation (COMPLETION-CI-PLAN-MESSAGE)
+
+- Align the unknown-plan-field regression's expected diagnostic with the approved
+  optional `evidence_policy` field. Preserve unknown-field rejection and all
+  validation checks; no runtime or workflow changes.
+- Source-only correction targets existing PR #309. Actual validation, retained
+  failures and push outcome remain in the Cycle Record; native CI is required.
+  No Gate Exception, installation, consumer mutation or checkout/data removal.
+
+## 2026-11-12 — Final target-pin Git context (COMPLETION-CI-CONTEXT)
+
+- Keep the final native target observation inside the protected local Git context
+  for both ordinary and reconciled completion. Restore caller context on success
+  or failure; preserve exact target-pin refusal and immutable receipt meanings.
+- Expand the existing environment-redirection security regression to both routes
+  and verify context restoration. Source-only repair updates PR #309; actual
+  qualification and CI results remain in the Cycle Record. No Gate Exception,
+  installation, consumer mutation, history rewrite or checkout/data removal.
+
+## 2026-11-11 — Classified completion previews (COMPLETION-PREVIEW-REPORT)
+
+- Return independently versioned stage reports and original evidence reuse for
+  successful, blocked and unavailable reconciliation previews. Nest delivery
+  receipts without changing their immutable schemas or normal completion output.
+- Label completed-preview verification as historical; do not repeat credentials,
+  native delivery observations or runtime probes. Keep later failure messages
+  bounded and exclude raw credential/provider errors from reports.
+- Qualify public CLI preview, retained retry, privacy and compatibility through
+  disposable fixtures. Actual results and review remain in the Cycle Record.
+  Source-only correction targets existing PR #309; no installation, consumer
+  mutation, Gate Exception, history rewrite or checkout/data removal.
+
+## 2026-11-11 — Completion reconciliation source (COMPLETION-RECONCILIATION-CORE)
+
+- Added approved-plan evidence bindings, semantic requirement/dependency coverage,
+  private environment comparisons and helper-owned runtime identity capture with
+  bounded read-only completion probes. Policy enrollment/revision preserves the
+  original plan, approvals, executions and failures; unknown scope needs supported
+  revalidation rather than inferred success.
+- Added one/multiple-PR reconciliation, exact-tree and independently retained
+  rebased segments, accepted-checkout context, delivered-target equivalence,
+  structural refusal reports and immutable interruption/retry custody. Standalone
+  exact-tree/rebased receipts retain their original meanings. Tracked deletions
+  bind stable predecessor identity across validation and commit.
+- Source qualification covers synthetic native transport with real Git/files,
+  selective reuse/reopening, runtime-output custody, denied probes, target drift,
+  retention and historical offline reading. Actual results, review dispositions,
+  Gate Commits and draft-push outcome remain in the Cycle Record. No Gate Exception
+  is granted by this entry; intended Final Push is the feature draft PR into `main`.
+- Source-only: no managed installation, consumer recovery, external merge, cloud
+  apply or checkout removal. Journey and distribution slices retain those owners;
+  successful completion never grants cleanup authority.
+- Reconciled accepted upstream source and renewed its exact documentary authority;
+  original approvals and failed executions remain retained. Updated the isolated
+  credential fixture loader for Python 3.15 without dropping its assertions.
+
+## 2026-11-13 — Guarded integration runtime source
+
+- Add one default-off protocol-2 lifecycle and native Actions implementation:
+  durable candidate custody, exact native CI qualification, guarded task rebase,
+  review-exception delivery and same-task operator recovery. Version-1 offline
+  records and unenrolled delivery retain their behavior.
+- Preserve original phase evidence through adoption, repair revisions and landed
+  IDs. Completed records stay immutable; qualified outcomes extend the existing
+  retirement history predicate without granting cleanup authority. Enrolled merge
+  modes publish linear ready source and defer final-base freshness to the worker.
+- Reconcile assessed infrastructure corrections without manufacturing source
+  commits. Requeue the same retained source at the tail with fresh native checks;
+  preserve exact request retries, cumulative counters and private repair custody.
+- Return a conservative native conflict to the original task before issuing a
+  rebase request, releasing the slot while retaining unknown mutation custody.
+  Missing initial correspondence remains an explicit intent/reconciliation blocker.
+- Pass 509 affected integration/policy, performance and instruction cases after
+  repair fixes. Earlier 425/186-case checkpoints, 60 publication/instruction and
+  62 benchmark checks remain retained in the Cycle Record.
+  Twenty-four selected typing units pass for
+  Python 3.12/3.14; the helper retains exactly 91 existing diagnostics, none added.
+- Bind inherited repair to the retained Initiative scope, retain approved
+  follow-up imports and refuse damaged revocation custody. Qualify Method 3.30
+  with profile checkpoint `29e6a725` and implementation/correction Gate Commits
+  `546f5589` and `69da5f27`. Final Push targets the source draft PR into `main`;
+  the Cycle Record retains final commits and actual publication. No Gate Exception,
+  installation, credential delegation or activation. Release, Deploy and Operate
+  remain not applicable to this source slice; native target rollout follows.
+
+## 2026-11-12 — Runtime adapter Discovery
+
+- Consolidate remaining lifecycle, Actions and policy source behind the delivered
+  offline core. Specify ordered source/refresh attribution, immutable delivery
+  obligations, honest inherited repair grants, supersession and terminal archive.
+- Record guarded enrolled task-head refresh permission, protected source retention,
+  authenticated admission and exact native CI/security/base guards. Current CI
+  triggers, review-exception boundaries and separately owned Dagger work remain.
+- Prepare source-only critical Build authority and subsequent exact-target rollout.
+  No implementation, registration, credential delegation or activation is claimed.
+
 ## 2026-11-12 — Explicit published-feature Initiative follow-up
 
 - Add `begin --follow-up-pr NUMBER` for exact approved GitHub Initiative

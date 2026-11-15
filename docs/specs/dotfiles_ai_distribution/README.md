@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution
 
+[Completion reconciliation rollout](features/workflow-completion-rollout.md)
+specifies compatible managed activation and one privately nominated successful
+cycle recovery after merged source. It preserves evidence and separates logical
+completion from physical cleanup; Discovery is not a live activation claim.
+
 The [remote Herdr runtime contract](features/remote-herdr-runtime.md) owns explicit
 per-user `[data.dotfiles_ai.herdr] runtime = "herdr-core" | "tui"` selection
 (`tui` by default). The foundation installs checksum-pinned core 0.1.18; native
@@ -2051,6 +2056,10 @@ through exact targets; installing the entrypoint does not start a target audit.
 shared lifecycle coordinator with repository/task policy, compatible installed
 generations and separately enrolled hosted authority. Shared defaults remain off.
 Source delivery, managed installation and live activation are distinct claims.
+The [runtime amendment](../dbsctr_v3_lifecycle/features/integration-runtime-adapters.md)
+now consolidates compatible schema-2 policy source with lifecycle/native adapters.
+The operator authorizes target rollout; a clean reviewed generation, explicit
+credential delegation and actual native qualification still precede enablement.
 Existing validation, platform and credential owners retain their boundaries.
 
 

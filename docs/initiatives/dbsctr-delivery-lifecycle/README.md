@@ -116,6 +116,15 @@ checkout, removes dirty work, or bypasses failed or pending checks.
 
 ## Durable coordination amendment
 
+The [runtime adapter amendment](../../specs/dbsctr_v3_lifecycle/features/integration-runtime-adapters.md)
+now consolidates the unstarted lifecycle, Actions and distribution source into one
+`integration-runtime-adapters` slice after the delivered offline core. The operator
+authorizes subsequent two-target activation and guarded enrolled task-head refresh;
+native qualification and explicit credential delegation still precede enablement.
+The historical no-force restriction remains for default/control refs and unrelated
+work. Dagger stays a separate shadow workstream. Source-cycle completion, remote
+delivery, post-merge validation and local outcome acceptance remain distinct.
+
 [INTEGRATION-COORDINATOR.md](INTEGRATION-COORDINATOR.md) extends the approved
 context map with one shared GitHub-hosted coordinator and per-repository adapters.
 Its first release preserves current CI triggers; Dagger stays a separately opted-in
