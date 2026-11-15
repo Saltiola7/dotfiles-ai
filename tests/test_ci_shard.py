@@ -811,10 +811,12 @@ def test_runner_policy_keeps_all_full_suite_lanes_and_native_steps():
             """python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14", "3.15"]' || '["3.14"]') }}"""
         ) in section
         assert 'worktrunk-version: ["0.81.0"]' in section
-        assert 'worktrunk-version: "0.80.0"' in section
         assert "      fail-fast: false\n" in section
     assert "        shard: [0, 1, 2, 3]\n" in workers
-    assert workers.count('worktrunk-version: "0.80.0"') == 4
+    # The retired 0.80.0 lane must stay retired: no matrix include and no
+    # release-asset mapping may reintroduce it.
+    assert 'worktrunk-version: "0.80.0"' not in workflow
+    assert "0.80.0:" not in workers
     for name in (
         "Verify selected Python runtime", "Install qualified Worktrunk",
         "Check publication and instruction contracts", "Check native Swift compilation",
@@ -825,9 +827,8 @@ def test_runner_policy_keeps_all_full_suite_lanes_and_native_steps():
     assert "    runs-on: ubuntu-24.04\n" in summary
     assert "    if: ${{ always() }}\n" in summary
     assert "      - name: Verify complete lane coverage\n" in summary
-    for version in ("0.80.0", "0.81.0"):
-        for arch in ("arm64", "x86_64"):
-            assert f"            {version}:{arch})\n" in workers
+    for arch in ("arm64", "x86_64"):
+        assert f"            0.81.0:{arch})\n" in workers
 
 
 @pytest.mark.parametrize(("expected", "observed", "system", "success"), [
