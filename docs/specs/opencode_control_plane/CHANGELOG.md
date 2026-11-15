@@ -1,5 +1,16 @@
 # OpenCode Control Plane Changelog
 
+## 2026-11-15 — Reconciliation and CI budget headroom
+
+- Reconciled the completion-journey PR with #321's equivalent fixture-clock
+  pinning (test-only, landed bytes adopted) and carried #322's shard timeout
+  raise to 150 minutes with all three workflow contract pins updated; partition 2
+  measured 85-87 minutes and crossed 90 with #320's added tests.
+- Validation: 116 contract tests plus both edited files clean under selected
+  typing environments; production helper, agents and providers unchanged. Fresh
+  native CI at the new head gates the ordinary merge; managed installation of the
+  two primary guides follows the verified merged commit under separate approval.
+
 ## 2026-11-14 — Truthful completion journey source
 
 - Pin feedback-test wall clocks to their synthetic observations so the 30-day
