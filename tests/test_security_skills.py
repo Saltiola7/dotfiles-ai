@@ -41,6 +41,20 @@ def test_source_inventory_is_pinned_and_matches_complete_bundles():
         assert pending["state"] != "vendored"
 
 
+def test_attack_surface_probe_is_registered_and_stays_outside_vendored_lock():
+    routing = (TOOLKIT / "references/routing.md").read_text()
+    assert "attack-surface-probe" in routing
+    review = (TOOLKIT / "references/review.md").read_text()
+    assert "attack-surface-probe" in review
+    skill = SKILLS / "attack-surface-probe"
+    assert (skill / "SKILL.md").is_file()
+    assert (skill / "references/toolchain.md").is_file()
+    assert not list(skill.rglob("LICENSE.upstream"))
+    lock = json.loads(LOCK.read_text())
+    assert "attack-surface-probe" not in {p["name"] for p in lock["packages"]}
+    assert "attack-surface-probe" not in {p["name"] for p in lock["not_vendored"]}
+
+
 def test_integrity_check_refuses_changed_extra_and_symlinked_files(tmp_path):
     import shutil
     lock = json.loads(LOCK.read_text())
@@ -63,7 +77,7 @@ def test_integrity_check_refuses_changed_extra_and_symlinked_files(tmp_path):
 
 def test_isolated_delivery_is_complete_and_idempotent(tmp_path):
     lock = json.loads(LOCK.read_text())
-    names = [p["name"] for p in lock["packages"]] + ["security-toolkit"]
+    names = [p["name"] for p in lock["packages"]] + ["security-toolkit", "attack-surface-probe"]
     targets = [str(tmp_path / ".agents/skills" / name) for name in names]
     base = ["chezmoi", "-S", str(ROOT), "-D", str(tmp_path), "--config", "/dev/null",
             "--config-format", "toml", "--override-data", json.dumps(DATA),
