@@ -57,24 +57,50 @@ drill reports live in operator sessions, never in this repository).
   reachability, or the target repository for lab stacks — reported as a gap,
   never auto-repaired.
 - Given the curated-list change, installable membership is verified on both
-  architectures before landing; tools absent from repositories move to the
-  pinned runtime instead of the pacman list.
+  architectures before landing; absent tools follow their class — Python
+  reachability tooling moves to the pinned runtime, AUR-only system tools
+  (apktool, kube-bench) stay outside the managed set under the documented
+  operator-addition precedent.
 - Given any pipeline activity, findings and raw output flow to private
   evidence; nothing in this source names targets, employers, or registers.
 
 ## Interfaces and Contracts
 
-Curated pacman list extension (all dual-arch verified at build; absent
-members move to the reachability runtime):
+Curated pacman list extension (dual-arch verified 2026-11-15 against
+archlinux.org, archlinuxarm.org, the BlackArch x86_64 and aarch64 mirror
+listings, and the AUR; placement follows the sources, not preference):
 
-| Class | Packages |
-|---|---|
-| Personal — WiFi/LAN | aircrack-ng, bettercap |
-| Personal — firmware/IoT | binwalk, mitmproxy |
-| Personal — Android | android-tools, apktool |
-| Work — k8s audit | kube-bench, kube-hunter |
-| Work — supply chain | cosign, checkov |
-| Lab lane | podman, podman-compose |
+| Class | Package | x86_64 source | aarch64 source | Owner |
+|---|---|---|---|---|
+| Personal — WiFi/LAN | aircrack-ng | extra | Arch Linux ARM | pacman official |
+| Personal — WiFi/LAN | bettercap | extra | Arch Linux ARM | pacman official |
+| Personal — firmware/IoT | binwalk | extra | Arch Linux ARM | pacman official |
+| Personal — firmware/IoT | mitmproxy | extra (any) | Arch Linux ARM | pacman official |
+| Personal — Android | android-tools | extra | Arch Linux ARM | pacman official |
+| Work — k8s audit | kube-hunter | BlackArch (any) | BlackArch aarch64 (any) | pacman BlackArch |
+| Work — supply chain | cosign | extra | Arch Linux ARM | pacman official |
+| Work — supply chain | checkov | BlackArch (any) | BlackArch aarch64 (any) | pacman BlackArch |
+| Lab lane | podman | extra | Arch Linux ARM | pacman official |
+| Lab lane | podman-compose | extra (any) | Arch Linux ARM | pacman official |
+
+Verification findings that shape implementation:
+
+- Official Arch repositories are x86_64-only; aarch64 hosts draw the
+  official-class packages from Arch Linux ARM. All eight official-class
+  candidates exist there by exact name.
+- BlackArch serves x86_64 and aarch64 mirrors and carries only its own
+  catalog (it does not duplicate official-repo packages). The strap
+  pin remains justified: kube-hunter and checkov come from BlackArch and
+  are architecture-independent (`any`), present on both mirrors.
+- apktool and kube-bench are absent from official repositories and the
+  BlackArch package tree (AUR-only). They stay outside the managed set
+  under the OST-001 AUR precedent: documented operator additions with
+  their own helper, never silently installed by the gate.
+
+Build-time risk carried forward: OST-001's Arch guard matches
+`/etc/os-release` `ID`/`ID_LIKE`; verify the guard against Arch Linux ARM's
+os-release on the first aarch64 (MBP) enablement before relying on the gate
+there.
 
 Pipeline module: `attack-surface-probe/references/pipeline.md` — stage model,
 capability matrix, lab patterns (`podman compose`, `podman run ubi9`), Lima
