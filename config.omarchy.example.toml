@@ -8,6 +8,11 @@ root = "/var/lib/dotfiles-ai/you"
 [data.dotfiles_ai.linux_workstation]
 enabled = true
 
+# Optional security toolchain: pinned BlackArch strap + curated packages.
+# Keep disabled until you want pacman to own the attack-surface toolchain.
+[data.dotfiles_ai.blackarch]
+enabled = false
+
 [data.dotfiles_ai.herdr]
 launchagent = false
 host_enabled = false
