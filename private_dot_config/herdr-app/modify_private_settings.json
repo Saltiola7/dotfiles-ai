@@ -1,0 +1,12 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- $config := dict -}}
+{{- if ne (trim .chezmoi.stdin) "" -}}
+{{- $local := mustFromJson .chezmoi.stdin -}}
+{{- if not (kindIs "map" $local) -}}
+{{- fail "Herdr Desktop settings must be a JSON object; original left unchanged" -}}
+{{- end -}}
+{{- $config = $local -}}
+{{- end -}}
+{{- $_ := set $config "theme" "catppuccin-mocha" -}}
+{{- $_ := set $config "appearance" "dark" -}}
+{{ $config | toPrettyJson }}
