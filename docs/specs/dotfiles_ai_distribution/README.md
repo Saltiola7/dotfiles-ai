@@ -681,6 +681,15 @@ Delivery is a feature branch and draft pull request; live rollout is separate.
 Profile/Product Intent remain unchanged. A known adjacent cross-revision retry-pin
 gap is explicitly deferred; this correction does not claim broader rollout readiness.
 
+### OST-001 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: hash-pinned remote strap script and BlackArch repository gain system package ownership on opting-in Arch hosts; new persistent instruction-supply-chain skill |
+| Delivery intent | Draft pull request only; no host enablement, installation, scan or deployment inside the cycle |
+| Scope | Default-off `blackarch.enabled` gate, pinned-strap `run_onchange` installer with curated 19-package set, `attack-surface-probe` skill, security-toolkit routing/review registration, spec and tests |
+| Overrides | Pinned security-toolkit runtime keeps exclusive Semgrep CE/Gitleaks/OSV-Scanner ownership; AUR-only tools and the validation drill stay operator actions outside this source |
+
 ### DAI-005 Cycle Overrides
 
 | Field | Value |

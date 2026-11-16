@@ -41,6 +41,12 @@ This review is evidence for these pins, not a guarantee about future versions.
   corrected logger/toJSON and non-enumerable-property assumptions, and separated
   intended credential transport from unauthorized disclosure. Upstream evaluation
   is limited and is not evidence of this toolkit's detection effectiveness.
+- **attack-surface-probe:** dotfiles-ai original (OST-001); no upstream copy.
+  Self-authored under the same criteria: no executable helpers, network actions,
+  credentials, hooks or installers; default-deny authorization and
+  private-evidence rules are load-bearing. Provenance is this repository's own
+  review, so `sources.lock.json` (vendored upstream pins) intentionally does not
+  list it.
 
 ## ASVS interactive specialist (reviewed 2026-11-10)
 
