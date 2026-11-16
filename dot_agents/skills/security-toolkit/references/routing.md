@@ -8,6 +8,7 @@
 | Look for variants of a known bug | `variant-analysis` | Start from established root cause; stay in approved scope; new candidates need their own trace. |
 | Credential object leakage | `secret-serialization` | Actual unauthorized holder-to-sink exposure; dummy evidence only. |
 | GitHub Actions exploitation review | `gha-security-review` | External-contributor technique, effective permissions and downstream sinks; not complete CI assurance. |
+| Authorized probing of owned attack surface | `attack-surface-probe` | Explicit per-target operator authorization, capability-probed, findings private; toolchain presence proves no scan readiness. |
 | Requested ASVS assessment or an ASVS lens selected by active DBSCTR | `asvs-review` | Selected level, paths and chapters; requirement coverage and evidence, under the existing coordinator. Full assessments require explicit scope; no new CI gate. |
 | Review a new skill/source before adoption | This toolkit's review criteria | Read the complete proposed bundle and executable dependencies; no automatic installer or scanner. |
 

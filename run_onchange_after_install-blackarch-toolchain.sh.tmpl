@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# OST-001 optional Omarchy attack-surface toolchain: pinned BlackArch strap + curated set.
+set -euo pipefail
+{{ if .dotfiles_ai.blackarch.enabled -}}
+[[ -t 0 ]] || { echo "Run in a terminal for sudo prompts." >&2; exit 1; }
+grep -qiE '^(ID|ID_LIKE)=.*(arch)' /etc/os-release 2>/dev/null || {
+  echo "blackarch toolchain requires an Arch-based OS." >&2
+  exit 1
+}
+command -v pacman >/dev/null || { echo "pacman not found." >&2; exit 1; }
+
+strap_url=https://blackarch.org/strap.sh
+strap_sha256=dc0737cc75d64d03e9ec2212f989f17cdcf0162c2db5980e256093e293abfb8b
+packages=(nmap masscan wireshark-qt testssl.sh ssh-audit sqlmap nikto zaproxy
+          nuclei ffuf dirsearch metasploit exploitdb hashcat john seclists
+          trivy syft grype)
+
+if ! grep -q '^\[blackarch\]' /etc/pacman.conf; then
+  stage=$(mktemp -d)
+  trap 'rm -rf "$stage"' EXIT
+  curl -fsSL --retry 3 --connect-timeout 10 --max-time 180 "$strap_url" -o "$stage/strap.sh"
+  printf '%s  %s\n' "$strap_sha256" "$stage/strap.sh" | sha256sum -c -
+  sudo sh "$stage/strap.sh"
+fi
+
+sudo pacman -Syu --needed "${packages[@]}"
+
+printf '\nVersion probes (installation evidence only; no scan performed):\n'
+nmap --version | head -1
+nuclei -version 2>/dev/null | head -1 || true
+hashcat --version | head -1 || true
+trivy --version | head -1 || true
+searchsploit --version 2>/dev/null | head -1 || true
+printf 'attack-surface toolchain installed; probing authorization defaults to deny\n'
+{{- end }}
+exit 0

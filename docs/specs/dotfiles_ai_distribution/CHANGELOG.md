@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-15 — OST-001 Omarchy security toolchain
+
+- Add a default-off `blackarch.enabled` gate, a checksum-pinned BlackArch strap
+  plus curated 19-package `run_onchange` installer (Arch-guarded, interactive
+  sudo, version probes only), and the self-authored `attack-surface-probe` skill
+  registered in security-toolkit routing/review outside the vendored lock.
+- Validation: affected pytest suites and ty pass; skill validated by the original
+  skill-creator validator; bash syntax checked on both render variants. No host
+  enablement, installation, scan or deployment ran in-cycle; the pinned runtime
+  keeps exclusive Semgrep CE/Gitleaks/OSV-Scanner ownership. Draft PR delivery;
+  AUR additions and the validation drill remain operator actions.
+
 ## 2026-11-13 — Compatible coordinator source generation
 
 - Extend only the existing delivery policy to schema 2 with a closed, default-off
