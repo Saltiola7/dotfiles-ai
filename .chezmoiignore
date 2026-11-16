@@ -13,6 +13,7 @@ README.md
 LICENSE
 config.example.toml
 config.omarchy.example.toml
+config.omarchy-try.example.toml
 config.remote-user.example.toml
 config.headless-server.example.toml
 .github/
@@ -293,4 +294,9 @@ install-guest-development-tools.sh
 !.local/bin/codex-install
 !.local/bin/codex-project
 !install-codex.sh
+{{ end }}
+
+{{ if not (and .dotfiles_ai.linux_workstation.enabled .dotfiles_ai.herdr_linux_desktop.enabled (eq .chezmoi.os "linux") (or (eq .chezmoi.arch "arm64") (eq .chezmoi.arch "amd64"))) }}
+install-linux-herdr-desktop.sh
+.config/herdr-app/
 {{ end }}
