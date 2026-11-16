@@ -11,8 +11,10 @@ import re
 import runpy
 import shlex
 import subprocess
+import sys
 import tomllib
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -195,15 +197,18 @@ def test_r1_fault_fixture_uses_native_keep_and_installed_restore_only():
                     'signal.pidfd_send_signal(fd, signal.SIGKILL)',
                     "backend._actual_core_program(current) != (None, pane['cwd'])",
                     'backend._pids_absent(client_proof)', 'backend._shell_proof(current)',
-                    "pending.pop('identity')", 'original_receipt(receipt)',
+                    "pending.pop('identity')", 'original_receipt(legacy_pid_fields(receipt))',
                     'backend._terminal(address) != snapshot', 'result = copy.deepcopy(result)',
                     "Controller(store, backend).restore()", "cli('restore')",
                     'original_core(method, params)', 'kills == 0',
-                    "pending['pids'] == shell_pids", "('identity' in pending) == lost_reply",
+                    "legacy_pid_fields({'pending': {'pids': shell_pids}})", "('identity' in pending) == lost_reply",
                     "backend._terminal(address)['state'] == 'live'",
                     "backend._pid_proofs([p['pid'] for p in shell_pids]) == shell_pids",
                     "backend._terminal(address)['state'] == 'finished'",
-                    'backend._pids_absent(shell_pids)', "before['clients']", "before['pids']",
+                    'backend._pids_absent(shell_pids)', 'fixture_captured_client_proofs(backend, before)',
+                    'backend._pids_absent(captured_client)', "before['pids']",
+                    'fixture_before_legacy_repair_kill(backend, baseline, leaf, source, pane,',
+                    'shell_pids, txid, key, legacy)', 'forwarded == 1', 'backend.core = original_core',
                     "manifest['txid'] == txid and manifest['plan'] == plan",
                     "receipt['pending'] is None and receipt['repairs'] == {}",
                     "- addresses == {replacement}", '== other_clients',
@@ -218,8 +223,11 @@ def test_r1_fault_fixture_uses_native_keep_and_installed_restore_only():
     assert "cli('recover')" not in body
     helper = ast.get_source_segment(source, functions['expected_leaf_rebind'])
     assert helper is not None and 'rebind_app_document' not in helper
-    assert body.index("pending.pop('identity')") < body.index('original_receipt(receipt)')
-    assert body.index('original_receipt(receipt)') < body.index('churned = True')
+    assert body.index("pending.pop('identity')") < body.index('original_receipt(legacy_pid_fields(receipt))')
+    assert body.index('original_receipt(legacy_pid_fields(receipt))') < body.index('churned = True')
+    assert body.index('fixture_before_legacy_repair_kill(') < body.index('forwarded += 1')
+    assert body.index('forwarded += 1') < body.index('return original_core(method, params)')
+    assert body.index('require(forwarded == 1)') < body.index("cli('restore')")
     prepare = ast.get_source_segment(source, functions['prepare_fixture'])
     assert prepare is not None
     assert (prepare.index('restart_and_recover(plan, pid)') <
@@ -655,7 +663,8 @@ class AppClientSourceTests(unittest.TestCase):
                    argv=['/fixture/opencode', '--session', 'ses_synthetic'])
         document = copy.deepcopy(baseline)
         document['spaces'][0]['tabs'][0]['root']['content']['terminal'] = 'tb'
-        def proof(pid): return [{'pid': pid, 'start_ticks': 17}]
+        boot_id = '11111111-2222-4333-8444-555555555555'
+        def proof(pid): return [{'pid': pid, 'start_ticks': 17, 'boot_id': boot_id}]
         def identity(t):
             return {'pid': t['pid'], 'foreground_pid': t['pid'], 'argv': t['argv'], 'cwd': t['cwd'],
                     'launch': {k: t[k] for k in ('argv', 'cwd', 'keep')}}
@@ -680,7 +689,9 @@ class AppClientSourceTests(unittest.TestCase):
             store=SimpleNamespace(read=read, write=mutation), core=mutation,
             _document=lambda: (copy.deepcopy(state['document']), state['version']),
             _terminal=lambda address: copy.deepcopy(state['terminals'][address]),
-            _pid_proofs=lambda pids: [{'pid': p, 'start_ticks': state['ticks'][p]} for p in sorted(set(pids))],
+            _pid_proofs=lambda pids: [{'pid': p, 'start_ticks': state['ticks'][p], 'boot_id': boot_id}
+                                     for p in sorted(set(pids))],
+            process_boot_id=lambda: boot_id,
             process_argv=lambda pid: copy.deepcopy(next(t['argv'] for t in state['terminals'].values()
                                                        if t['pid'] == pid)),
             process_cwd=lambda pid: state['cwd'][pid],
@@ -720,7 +731,8 @@ class AppClientSourceTests(unittest.TestCase):
     def test_before_kill_oracle_refuses_changed_process_or_binding_facts(self):
         for case in ('stale-old-pid', 'old-cwd', 'new-cwd', 'duplicate-session', 'ref-old',
                      'finished-new', 'generation-label', 'replacement-proof', 'opaque-change',
-                     'intent-version', 'old-label'):
+                      'intent-version', 'old-label', 'old-boot', 'new-boot', 'invalid-boot', 'legacy-boot',
+                      'nil-boot', 'uppercase-boot'):
             with self.subTest(case=case):
                 args, state = self.ordering_backend()
                 if case == 'stale-old-pid': state['ticks'][101] += 1
@@ -734,8 +746,69 @@ class AppClientSourceTests(unittest.TestCase):
                 elif case == 'opaque-change': state['document']['metadata']['opaque'].append('changed')
                 elif case == 'intent-version': state['receipt']['pending']['rebound']['version'] += 1
                 elif case == 'old-label': state['terminals']['ta']['labels']['remote-herdr-owner'] = 'foreign'
+                elif case == 'old-boot': args[5][0]['boot_id'] = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+                elif case == 'new-boot': state['receipt']['pending']['rebound']['replacement']['pids'][0]['boot_id'] = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+                elif case == 'invalid-boot': args[0].process_boot_id = lambda: 'PRIVATE-invalid'
+                elif case == 'legacy-boot': args[5][0].pop('boot_id')
+                elif case == 'nil-boot': args[0].process_boot_id = lambda: '00000000-0000-0000-0000-000000000000'
+                elif case == 'uppercase-boot': args[0].process_boot_id = lambda: 'AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE'
                 with self.assertRaises((RuntimeError, self.fixture['CommandFailure'])):
                     self.fixture['fixture_before_repair_kill'](*args)
+
+    def legacy_ordering_backend(self):
+        args, state = self.ordering_backend()
+        backend, baseline, leaf, source, pane, pids, txid, key = args
+        old_pids = [{k: p[k] for k in ('pid', 'start_ticks')} for p in pids]
+        legacy = {'txid': txid, 'document': copy.deepcopy(baseline), 'doc_version': 1,
+            'pending': {'operation': 'terminal.kill', 'terminal': source['address'],
+                        'pane': key, 'leaf': leaf, 'pids': copy.deepcopy(old_pids)},
+            'repairs': {leaf: {'terminal': source['address'], 'pane': pane,
+                'created': None, 'stopped': False, 'pids': copy.deepcopy(old_pids)}}}
+        state['receipt']['adoption_backup'] = 'backup-synthetic.json'
+        state['backup'] = {'receipt': copy.deepcopy(legacy)}
+        read = backend.store.read
+        backend.store.read = lambda name: (copy.deepcopy(state['backup'])
+            if name == 'backup-synthetic.json' else read(name))
+        return (*args, legacy), state
+
+    def test_legacy_pre_kill_oracle_requires_fresh_ready_bound_replacement_and_whole_backup(self):
+        args, state = self.legacy_ordering_backend()
+        before = copy.deepcopy(state)
+        self.assertEqual(self.fixture['fixture_before_legacy_repair_kill'](*args), 'tb')
+        state['reads'] = []
+        self.assertEqual(state, before)  # Read-only oracle; no old kill guard or effect.
+        self.assertEqual(args[0].process_boot_id(), args[5][0]['boot_id'])
+        self.assertNotIn('boot_id', args[-1]['pending']['pids'][0])
+
+    def test_legacy_readmission_bad_facts_refuse_before_any_forwarded_effect(self):
+        for case in ('owner', 'process', 'cwd', 'version', 'not-bound', 'not-ready',
+                     'duplicate', 'wrong-backup', 'old-boot-authority', 'old-created',
+                     'old-stopped', 'old-pid', 'old-rebound', 'old-version'):
+            with self.subTest(case=case):
+                args, state = self.legacy_ordering_backend()
+                legacy = args[-1]
+                if case == 'owner': state['terminals']['ta']['labels']['remote-herdr-owner'] = 'foreign'
+                elif case == 'process': state['ticks'][101] += 1
+                elif case == 'cwd': state['cwd'][101] = '/foreign'
+                elif case == 'version': state['version'] += 1
+                elif case == 'not-bound': state['document'] = copy.deepcopy(args[1])
+                elif case == 'not-ready': state['terminals']['tb']['state'] = 'finished'
+                elif case == 'duplicate': state['clients'].append({'pid': 303, 'session_id': 'ses_synthetic'})
+                elif case == 'wrong-backup': state['backup']['receipt']['doc_version'] += 1
+                elif case == 'old-boot-authority': legacy['pending']['pids'][0]['boot_id'] = args[5][0]['boot_id']
+                elif case == 'old-created': legacy['repairs']['leaf']['created'] = 'tb'
+                elif case == 'old-stopped': legacy['repairs']['leaf']['stopped'] = True
+                elif case == 'old-pid': legacy['pending']['pids'][0]['start_ticks'] += 1
+                elif case == 'old-rebound': legacy['pending']['rebound'] = {}
+                elif case == 'old-version': legacy['doc_version'] += 1
+                # Keep the original backup exact in every case except the explicit
+                # corruption test, so semantic negatives test more than equality.
+                if case != 'wrong-backup': state['backup'] = {'receipt': copy.deepcopy(legacy)}
+                effects = []
+                with self.assertRaises((RuntimeError, self.fixture['CommandFailure'])):
+                    self.fixture['fixture_before_legacy_repair_kill'](*args)
+                    effects.append('terminal.kill')
+                self.assertEqual(effects, [])
 
     def test_native_case_boundaries_original_writers_and_both_new_markers(self):
         source = (FIXTURE / 'verify-user.py').read_text()
@@ -760,7 +833,14 @@ class AppClientSourceTests(unittest.TestCase):
             self.assertIn(witness, legacy)
         r1 = bodies['kept_shell_kill_recovery']
         self.assertIn('backend._current_projection = legacy_repair_projection(', r1)
-        self.assertLess(r1.index("identity = repair.pop('source')"), r1.index('original_receipt(receipt)'))
+        self.assertLess(r1.index("identity = repair.pop('source')"), r1.index('original_receipt(legacy_pid_fields(receipt))'))
+        legacy_oracle = bodies['fixture_before_legacy_repair_kill']
+        self.assertNotRegex(legacy_oracle,
+            r'\b(?:core|write|_old_shell_guard|_current_kill_guard|_readmit_legacy_kill_source)\(')
+        for witness in ('fixture_before_repair_kill(', "receipt['adoption_backup']", "{'receipt': legacy}",
+                        "{'pid', 'start_ticks'}", "'create_id' not in repair",
+                        "legacy['doc_version'] == receipt['doc_version']"):
+            self.assertIn(witness, legacy_oracle)
         kept = bodies['fixture_idle_agents']
         for witness in ('os.pidfd_open(', 'signal.pidfd_send_signal(fd, signal.SIGKILL)',
                         'backend._client_argv(', 'backend.process_cwd(', '== NATIVE',
@@ -824,6 +904,498 @@ def test_observation_diagnostics_separate_coverage_and_native_ownership():
                    'client-cgroup', 'no-persistent-units', 'exclusive-endpoint'):
         assert "STEP = 'observe-herdr-core-" + suffix + "'" in owners
     assert "wait(lambda: f01.connected(client['pid'], port), seconds=30)" in observe
+
+
+class CapturedClientProofTests(unittest.TestCase):
+    """Execute the REAL strict validator against synthetic captured facts only."""
+
+    def setUp(self):
+        self.fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        module_path = str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr')
+        sys.path.insert(0, module_path)
+        try:
+            from native import Native, NativeError
+        finally:
+            sys.path.remove(module_path)
+        self.Native = Native
+        self.NativeError = NativeError
+        self.backend = object.__new__(Native)  # No constructor, env, home or proc reads.
+        def forbidden(*args):
+            raise AssertionError('must use captured facts, never collect after effects')
+        self.enterContext(patch.object(self.backend, '_pid_proofs', forbidden))
+        self.enterContext(patch.object(self.backend, 'process_boot_id', forbidden))
+        self.boot = '11111111-2222-4333-8444-555555555555'
+        self.capture: dict = {'clients': [
+            {'pid': 101, 'start_ticks': 7, 'session_id': 'ses_synthetic0'},
+            {'pid': 202, 'start_ticks': 9, 'session_id': 'ses_synthetic1'}],
+            'pids': [{'pid': 303, 'start_ticks': 3, 'boot_id': self.boot},
+                     {'pid': 202, 'start_ticks': 9, 'boot_id': self.boot},
+                     {'pid': 101, 'start_ticks': 7, 'boot_id': self.boot}]}
+
+    def test_red_regression_rich_client_rows_fail_real_absence_validator_before_proc(self):
+        # The exact failed native call, not a permissive fake _pids_absent. It
+        # must reject before process_boot_id (which is deliberately forbidden).
+        with self.assertRaises(self.NativeError) as caught:
+            self.backend._pids_absent(self.capture['clients'])
+        self.assertEqual(str(caught.exception), 'native client PID proof invalid')
+
+    def test_selected_original_proofs_pass_strict_absence_and_preserve_boot_and_input(self):
+        before = copy.deepcopy(self.capture)
+        selected = self.fixture['fixture_captured_client_proofs'](self.backend, self.capture)
+        self.assertEqual(selected, self.capture['pids'][1:])
+        self.assertEqual({p['pid'] for p in selected}, {101, 202})
+        self.Native._validate_pid_proofs(selected)
+        observed = []
+        class AbsentProc:
+            def __truediv__(self, pid):
+                observed.append(int(pid))
+                return self
+            def lstat(self): raise FileNotFoundError()
+        with patch.object(self.backend, 'proc_root', AbsentProc(), create=True):
+            with patch.object(self.backend, 'process_boot_id', lambda: self.boot):
+                self.assertTrue(self.backend._pids_absent(selected))
+            self.assertEqual(observed, [202, 101])  # Shell 303 is not a session client.
+            self.assertEqual(self.capture, before)
+            # A different boot is evaluated by the actual native oracle, without
+            # losing the original boot ID or consulting synthetic current PID paths.
+            observed.clear()
+            with patch.object(self.backend, 'process_boot_id', lambda: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'):
+                self.assertTrue(self.backend._pids_absent(selected))
+            self.assertFalse(observed)
+        self.assertTrue(all(p['boot_id'] == self.boot for p in selected))
+        selected[0]['start_ticks'] += 1
+        self.assertEqual(self.capture, before)  # Selection does not alias receipt rows.
+
+    def test_bad_capture_refuses_before_effects_without_filtering_unsafe_proofs(self):
+        for case in ('missing-client-proof', 'duplicate-client', 'duplicate-proof',
+                     'rich-proof', 'unsafe-proof-field', 'unsafe-client-field',
+                     'missing-boot', 'invalid-boot', 'mixed-boots', 'changed-start',
+                     'boolean-pid', 'invalid-client-shape'):
+            with self.subTest(case=case):
+                capture = copy.deepcopy(self.capture)
+                if case == 'missing-client-proof': capture['pids'].pop()
+                elif case == 'duplicate-client': capture['clients'].append(copy.deepcopy(capture['clients'][0]))
+                elif case == 'duplicate-proof': capture['pids'].append(copy.deepcopy(capture['pids'][0]))
+                elif case == 'rich-proof': capture['pids'][1] = copy.deepcopy(capture['clients'][1])
+                elif case == 'unsafe-proof-field': capture['pids'][0]['unsafe'] = 'must-not-be-filtered'
+                elif case == 'unsafe-client-field': capture['clients'][0]['unsafe'] = 'must-not-be-filtered'
+                elif case == 'missing-boot':
+                    for proof in capture['pids']: proof.pop('boot_id')
+                elif case == 'invalid-boot': capture['pids'][0]['boot_id'] = 'invalid'
+                elif case == 'mixed-boots': capture['pids'][0]['boot_id'] = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+                elif case == 'changed-start': capture['clients'][0]['start_ticks'] += 1
+                elif case == 'boolean-pid': capture['clients'][0]['pid'] = True
+                elif case == 'invalid-client-shape': capture['clients'][0] = 101
+                effects = []
+                with self.assertRaises((RuntimeError, self.NativeError)):
+                    self.fixture['fixture_captured_client_proofs'](self.backend, capture)
+                    effects.append('switch-or-kill')
+                self.assertEqual(effects, [])
+
+    def test_idle_shell_capture_has_empty_client_subset_but_keeps_valid_full_inventory(self):
+        capture = copy.deepcopy(self.capture)
+        capture['clients'] = []
+        self.assertEqual(self.fixture['fixture_captured_client_proofs'](self.backend, capture), [])
+        self.Native._validate_pid_proofs(capture['pids'])
+
+    def test_all_three_native_call_sites_select_before_effects_and_keep_exit_assertions(self):
+        source = (FIXTURE / 'verify-user.py').read_text()
+        nodes = {n.name: n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
+        bodies = {k: ast.get_source_segment(source, v) or '' for k, v in nodes.items()}
+        switch = bodies['switch']
+        self.assertLess(switch.index('fixture_captured_client_proofs(backend, before)'),
+                        switch.index("cli('switch', target)"))
+        self.assertIn('backend._pids_absent(client_proofs)', switch)
+        kept = bodies['kept_shell_kill_recovery']
+        self.assertLess(kept.index('fixture_captured_client_proofs(backend, before)'),
+                        kept.index('signal.pidfd_send_signal(fd, signal.SIGKILL)'))
+        self.assertLess(kept.index('require(len(captured_client) == 1)'),
+                        kept.index('signal.pidfd_send_signal(fd, signal.SIGKILL)'))
+        self.assertIn('backend._pids_absent(captured_client)', kept)
+        edited = bodies['edited_document_recovery']
+        self.assertLess(edited.index('fixture_captured_client_proofs(backend, source)'),
+                        edited.index("Controller(store, backend).switch('herdr-core')"))
+        self.assertIn('backend._pids_absent(source_client_proofs)', edited)
+        # Bounded AST audit of every strict absence call: no rich clients or a
+        # comprehension derived from rich clients may cross that boundary.
+        for call in ast.walk(ast.parse(source)):
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == '_pids_absent':
+                for argument in call.args:
+                    self.assertFalse(any(isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Constant)
+                                         and n.slice.value == 'clients' for n in ast.walk(argument)))
+
+
+class RestartQualificationSourceTests(unittest.TestCase):
+    """Scripted/source evidence only; none of these are native restart proofs."""
+
+    def setUp(self):
+        self.fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+
+    def test_legacy_pid_serializer_strips_boot_before_writer_without_mutating_input(self):
+        receipt = {'pending': {'operation': 'terminal.kill', 'pids': [
+            {'pid': 101, 'start_ticks': 7, 'boot_id': '11111111-2222-4333-8444-555555555555'}]},
+            'repairs': {'leaf': {'pids': [{'pid': 101, 'start_ticks': 7,
+                                         'boot_id': '11111111-2222-4333-8444-555555555555'}]},
+                        'later': {'pids': None}}, 'opaque': {'keep': True}}
+        before = copy.deepcopy(receipt)
+        old = self.fixture['legacy_pid_fields'](receipt)
+        self.assertEqual(receipt, before)
+        self.assertEqual(old['pending']['pids'], [{'pid': 101, 'start_ticks': 7}])
+        self.assertEqual(old['repairs']['leaf']['pids'], old['pending']['pids'])
+        self.assertIsNone(old['repairs']['later']['pids'])
+        self.assertEqual(old['opaque'], receipt['opaque'])
+
+    def test_restart_barrier_retains_logical_client_and_errors_are_not_suppressed(self):
+        from types import SimpleNamespace
+        client = self.fixture['FixtureAppClient'](lambda *args: {}, {'leaf'})
+        client.events['old'] = ({'leaf': 'new'}, {'new'})
+        client.live_seen.add('new')
+        before = copy.deepcopy(client.events)
+        joined = []
+        client.thread = SimpleNamespace(join=lambda seconds: joined.append(seconds), is_alive=lambda: False)
+        # Script only the acknowledged worker boundary: no thread or real RPC.
+        def acknowledge(seconds):
+            self.assertEqual(seconds, 30)
+            self.assertTrue(client.restart_requested.is_set())
+            self.assertFalse(client.restart_resume.is_set())
+            client.restart_paused.set()
+            return True
+        client.restart_paused.wait = acknowledge
+        client.pause_restart()
+        core = lambda *args: {'synthetic': True}
+        namespace = client.reconnect.__globals__
+        old_wait = namespace['wait']
+        def resume(check, seconds):
+            self.assertEqual(seconds, 30)
+            self.assertIs(client.core, core)
+            self.assertFalse(client.restart_requested.is_set())
+            self.assertTrue(client.restart_resume.is_set())
+            client.restart_paused.clear()
+            self.assertTrue(check())
+        namespace['wait'] = resume
+        try:
+            client.reconnect(core)
+        finally:
+            namespace['wait'] = old_wait
+        self.assertEqual(client.events, before)
+        self.assertTrue(client.observed_live('new'))
+        client.failure = True
+        with self.assertRaises(self.fixture['CommandFailure']):
+            client.pause_restart()
+        client.failure = False
+        client.restart_resume.clear()
+        client.__exit__()
+        self.assertEqual(joined, [35])
+        self.assertTrue(client.restart_resume.is_set())
+
+    def test_r4_restart_uses_existing_native_lifecycle_and_proves_exit_and_retention(self):
+        source = (FIXTURE / 'verify-user.py').read_text()
+        nodes = {n.name: n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
+        bodies = {k: ast.get_source_segment(source, v) or '' for k, v in nodes.items()}
+        identity = bodies['fixture_core_identity']
+        for witness in ('socket.SO_PEERCRED', "(proc / 'exe').resolve() == BIN / 'herdr-core'",
+                        "'hc-serve-'", 'backend._pid_proofs([core_pid])', 'core_pid != backend_pid()',
+                        'os.getuid() == 1000 and Path.home() == HOME'):
+            self.assertIn(witness, identity)
+        restart = bodies['fixture_bootlike_core_restart']
+        self.assertNotRegex(restart, r'store\.write\(|\.write_(?:text|bytes)\(|terminal\.(?:run|kill)|doc\.set')
+        for witness in ("3965a46c", 'app.pause_restart()', 'current_owner == owner',
+                        "backend.command(['herdr-core', 'server', 'stop', '--json'])",
+                        "backend.command(['herdr-core', 'server', 'start', '--json'])",
+                        'backend._pids_absent(owner)', 'backend._pids_absent(programs)',
+                        'backend._pids_absent(stale)', "(None, previous['cwd'])", 'backend._shell_proof(current)',
+                        "current['labels'] == previous['labels']", 'backend._document()[0] == document',
+                        'app.reconnect(Native(HOME, backend.store).core)', 'backend_pid() == pid'):
+            self.assertIn(witness, restart)
+        self.assertLess(restart.index('app.pause_restart()'), restart.index("'server', 'stop'"))
+        self.assertLess(restart.index('wait(retained'), restart.index('app.reconnect('))
+        case = bodies['interrupted_restore_restart_recovery']
+        self.assertNotRegex(case, r'store\.write\(|\.write_(?:text|bytes)\(')
+        self.assertLess(case.index('original_receipt(receipt)'), case.index("raise NativeError('fixture partial"))
+        for witness in ("receipt['pending'] is None", 'completed and created',
+                        'backend._replacement_proof(repair)', 'Controller(store, backend).restore()',
+                        "store.read('receipt-' + txid + '.json') == admitted", 'fixture_bootlike_core_restart(',
+                        'for completed_restore in (False, True)', "cli('recover')", "cli('restore')",
+                        "receipt['repairs'] == {}", 'expected_leaf_rebind(',
+                        'set(fixture_references(expected)) == set(references)', '== set(receipt[\'terminals\'].values())',
+                        'backend._pids_absent(stale)', 'backend._coverage(plan) == coverage',
+                        "observe('herdr-core', plan)", 'app.__exit__()'):
+            self.assertIn(witness, case)
+        for marker in ('F07: interrupted-restore-restart-recovery-complete',
+                       'F07: completed-restore-restart-recovery-complete'):
+            self.assertEqual(source.count(marker), 1)
+            self.assertLess(case.index('backend._coverage(plan) == coverage'), case.index(marker))
+        prepare = bodies['prepare_fixture']
+        self.assertLess(prepare.index('plan = app_closed_pending_run_recovery(plan, pid)'),
+                        prepare.index('interrupted_restore_restart_recovery(plan, pid)'))
+        self.assertLess(prepare.index('interrupted_restore_restart_recovery(plan, pid)'),
+                        prepare.index("STEP = 'arm-core-boot'"))
+        self.assertIn("wait(lambda: observe(target, plan), seconds=150)", bodies['boot'])
+
+    def test_supervisor_identity_boundaries_have_distinct_value_free_diagnostics(self):
+        from types import SimpleNamespace
+        import struct
+        identity = self.fixture['fixture_core_identity']
+        namespace = identity.__globals__
+        cases = {
+            'fixture-owner': 'core-restart-identity-fixture-owner',
+            'endpoints': 'core-restart-identity-endpoints',
+            'connect': 'core-restart-identity-peer-connect',
+            'credentials': 'core-restart-identity-peer-credentials',
+            'uid': 'core-restart-identity-peer-uid',
+            'backend-pid': 'core-restart-identity-peer-uid',
+            'executable': 'core-restart-identity-peer-executable',
+            'cgroup': 'core-restart-identity-peer-cgroup',
+            'proof': 'core-restart-identity-peer-process-proof',
+        }
+        proof = [{'pid': 701, 'start_ticks': 7, 'boot_id': '11111111-2222-4333-8444-555555555555'}]
+        for case, label in [*cases.items(), ('valid', 'core-restart-identity-peer-process-proof')]:
+            with self.subTest(case=case):
+                class Peer:
+                    def __enter__(self): return self
+                    def __exit__(self, *args): pass
+                    def connect(self, endpoint):
+                        if case == 'connect': raise OSError('PRIVATE-ENDPOINT')
+                    def getsockopt(self, *args):
+                        if case == 'credentials': raise ValueError('PRIVATE-PEER')
+                        return struct.pack('3i', 999 if case == 'backend-pid' else 701,
+                                           1001 if case == 'uid' else 1000, 1000)
+                class SyntheticPath:
+                    def __init__(self, path): self.path = path
+                    @staticmethod
+                    def home(): return namespace['HOME']
+                    def __truediv__(self, name): return SyntheticPath(self.path + '/' + name)
+                    def resolve(self):
+                        self_outer.assertTrue(self.path.endswith('/701/exe'))
+                        return Path('/PRIVATE/foreign') if case == 'executable' else namespace['BIN'] / 'herdr-core'
+                    def read_text(self):
+                        self_outer.assertTrue(self.path.endswith('/701/cgroup'))
+                        return '0::/PRIVATE/foreign.service' if case == 'cgroup' else '0::/user.slice/hc-serve-12345678.service'
+                self_outer = self
+                def proofs(pids):
+                    self.assertEqual(pids, [701])
+                    if case == 'proof': raise ValueError('PRIVATE-PROCESS')
+                    return copy.deepcopy(proof)
+                backend = SimpleNamespace(
+                    endpoint_present=lambda target: target == 'herdr-core' or case == 'endpoints',
+                    _core_endpoint=lambda: '/PRIVATE/socket', _pid_proofs=proofs)
+                with patch.dict(namespace, {'Path': SyntheticPath, 'backend_pid': lambda: 999}), \
+                     patch.object(namespace['os'], 'getuid', lambda: 1001 if case == 'fixture-owner' else 1000), \
+                     patch.object(namespace['socket'], 'socket', lambda *args: Peer()), \
+                     patch.object(namespace['socket'], 'SO_PEERCRED', 17, create=True):
+                    if case == 'valid':
+                        self.assertEqual(identity(backend), proof)
+                    else:
+                        with self.assertRaises((RuntimeError, OSError, ValueError)):
+                            identity(backend)
+                    self.assertEqual(namespace['STEP'], label)
+                    self.assertNotIn('PRIVATE', namespace['STEP'])
+
+    def test_restart_step_labels_are_literal_and_cover_each_native_boundary(self):
+        source = (FIXTURE / 'verify-user.py').read_text()
+        tree = ast.parse(source)
+        function = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                        and n.name == 'fixture_bootlike_core_restart')
+        assignments = [n for n in ast.walk(function) if isinstance(n, ast.Assign)
+                       and any(isinstance(t, ast.Name) and t.id == 'STEP' for t in n.targets)]
+        self.assertTrue(all(isinstance(n.value, ast.Constant) and type(n.value.value) is str for n in assignments))
+        labels = {n.value.value for n in assignments
+                  if isinstance(n.value, ast.Constant) and isinstance(n.value.value, str)}
+        self.assertEqual(len(labels), len(assignments))
+        for suffix in ('before-backend', 'before-document', 'before-manifest',
+                       'before-history', 'before-client-proofs', 'before-program-proofs',
+                       'observer-pause', 'before-stop-identity', 'before-stop-program-proofs', 'native-stop',
+                       'stop-endpoint-exit', 'stop-supervisor-exit', 'stop-program-exit', 'stop-client-exit',
+                       'stopped-backend', 'native-start', 'start-endpoint', 'start-new-identity',
+                       'retained-terminal', 'retained-program-directory', 'retained-shell-proof', 'retained-labels',
+                       'desired-session-absence', 'raw-document-preservation', 'finished-history-preservation',
+                       'recovered-backend', 'observer-reconnect'):
+            self.assertIn('core-restart-' + suffix, labels)
+        self.assertTrue(all(re.fullmatch(r'core-restart-[a-z-]+', label) for label in labels))
+
+
+class RestartInventorySourceTests(unittest.TestCase):
+    """Real Native terminal-list decoding; scripted RPC/proc seams, no host reads."""
+
+    def setUp(self):
+        from types import SimpleNamespace
+        self.fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        module_path = str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr')
+        sys.path.insert(0, module_path)
+        try:
+            from native import Native
+        finally:
+            sys.path.remove(module_path)
+        self.Native = Native
+        self.backend = object.__new__(Native)
+        self.boot = '11111111-2222-4333-8444-555555555555'
+        self.owner = 'synthetic-owner'
+        first = {'remote-herdr-owner': self.owner, 'remote-herdr-pane': 'p0',
+                 'remote-herdr-session': 'ses_synthetic0'}
+        second = dict(first, **{'remote-herdr-pane': 'p1', 'remote-herdr-session': 'ses_synthetic1'})
+        created = dict(first, **{'remote-herdr-pane': 'leaf0', 'remote-herdr-repair': 'a' * 32})
+        self.receipt: dict = {'txid': self.owner, 'terminals': {'p0': 't1', 'p1': 't2'},
+            'labels': {'p0': first, 'p1': second}, 'repairs': {'leaf0': {
+                'terminal': 't1', 'created': 't3', 'pane': {'key': 'p0'}, 'labels': created}}}
+        self.manifest: dict = {'txid': self.owner, 'receipt': copy.deepcopy(self.receipt)}
+        self.document: dict = {'spaces': [{'tabs': [{'root': {'id': 'row', 'type': 'row', 'children': [
+            {'id': 'leaf0', 'type': 'block', 'content': {'terminal': 't1'}},
+            {'id': 'leaf1', 'type': 'block', 'content': {'terminal': 't2'}}]}}]}]}
+        self.seed: dict = {'address': 't9', 'created_ms': 10, 'keep': True, 'labels': {},
+                           'argv': ['/bin/bash', '-l'], 'cwd': '/fixture', 'pid': 909, 'state': 'live'}
+        self.inventory: list[dict] = [dict(self.seed, address=a, pid=p, labels=copy.deepcopy(labels))
+            for a, p, labels in [('t1', 101, first), ('t2', 202, second), ('t3', 303, created)]]
+        self.calls = []
+        self.effects = []
+        self.version = 17
+        def rpc(method, params):
+            self.calls.append(method)
+            if method == 'terminal.list':
+                self.assertEqual(params, {'all': True})
+                return {'terminals': copy.deepcopy(self.inventory)}
+            if method == 'terminal.get':
+                result = copy.deepcopy(next(t for t in self.inventory if t['address'] == params['terminal']))
+                result['title'] = 'synthetic display churn ' + str(len(self.calls))
+                return result
+            if method == 'doc.get':
+                self.assertEqual(params, {'name': 'herdr-app'})
+                return {'version': self.version, 'value': copy.deepcopy(self.document)}
+            if method == 'terminal.kill':
+                self.effects.append(copy.deepcopy(params))
+                next(t for t in self.inventory if t['address'] == params['terminal'])['state'] = 'finished'
+                return {}
+            raise AssertionError('unexpected RPC')
+        def read(name):
+            self.assertEqual(name, 'receipt-' + self.owner + '.json')
+            return copy.deepcopy(self.receipt)
+        def forbidden(*args): raise AssertionError('unexpected host/process read')
+        self.enterContext(patch.object(self.backend, 'core', rpc))
+        self.enterContext(patch.object(self.backend, 'store', SimpleNamespace(read=read), create=True))
+        self.enterContext(patch.object(self.backend, 'process_boot_id', forbidden))
+        self.enterContext(patch.object(self.backend, '_pid_proofs', forbidden))
+
+    def test_partial_receipt_sources_and_unbound_created_are_accounted_exactly(self):
+        before = copy.deepcopy(self.inventory)
+        live = self.fixture['fixture_restart_live_inventory'](self.backend, self.document, self.manifest)
+        self.assertEqual(live, before)
+        self.assertEqual(self.inventory, before)
+        self.assertEqual(self.calls, ['terminal.list'])
+        self.assertFalse(self.effects)
+
+    def test_unknown_original_import_seed_is_not_authority_for_core_wide_stop(self):
+        self.inventory.append(copy.deepcopy(self.seed))
+        with self.assertRaises(self.fixture['CommandFailure']) as caught:
+            self.fixture['fixture_restart_live_inventory'](self.backend, self.document, self.manifest)
+        self.assertEqual(caught.exception.reason,
+            'inventory-owner-missing-unknown-and-unaccounted-live-unknown')
+        self.assertEqual(self.fixture['fixture_restart_live_inventory'].__globals__['STEP'],
+                         'core-restart-before-live-owner-missing')
+        self.assertFalse(self.effects)
+
+    def test_inventory_reports_all_fixed_memberships_and_refuses_before_any_effect(self):
+        baseline = copy.deepcopy(self.inventory)
+        cases = ('empty', 'keep-missing', 'keep-false', 'owner-missing', 'owner-mismatch',
+                 'unaccounted-live', 'labels-mismatch')
+        for case in cases:
+            with self.subTest(case=case):
+                self.inventory[:] = copy.deepcopy(baseline)
+                if case == 'empty': self.inventory.clear()
+                elif case == 'keep-missing': self.inventory[0].pop('keep')
+                elif case == 'keep-false': self.inventory[0]['keep'] = False
+                elif case == 'owner-missing': self.inventory[0]['labels'].pop('remote-herdr-owner')
+                elif case == 'owner-mismatch': self.inventory[2]['labels']['remote-herdr-owner'] = 'PRIVATE-FOREIGN'
+                elif case == 'unaccounted-live': self.inventory.append(dict(self.inventory[0], address='t8'))
+                elif case == 'labels-mismatch': self.inventory[0]['labels']['remote-herdr-pane'] = 'PRIVATE-CHANGED'
+                with self.assertRaises(self.fixture['CommandFailure']) as caught:
+                    self.fixture['fixture_restart_live_inventory'](self.backend, self.document, self.manifest)
+                expected_step = 'core-restart-before-live-' + case
+                self.assertEqual(self.fixture['fixture_restart_live_inventory'].__globals__['STEP'], expected_step)
+                self.assertNotIn('PRIVATE', caught.exception.reason)
+                self.assertNotIn(self.owner, caught.exception.reason)
+                if case in ('keep-missing', 'keep-false', 'owner-missing', 'labels-mismatch'):
+                    self.assertIn(case + '-referenced', caught.exception.reason)
+                    self.assertIn(case + '-repair-source', caught.exception.reason)
+                    self.assertIn(case + '-saved-binding', caught.exception.reason)
+                if case == 'owner-mismatch': self.assertIn('owner-mismatch-repair-created', caught.exception.reason)
+                if case == 'unaccounted-live': self.assertIn('unaccounted-live-unknown', caught.exception.reason)
+                self.assertFalse(self.effects)
+
+    def test_only_exact_locally_created_seed_is_retired_with_current_proofs(self):
+        self.inventory.append(copy.deepcopy(self.seed))
+        def proofs(pids):
+            proof = [{'pid': p, 'start_ticks': 11, 'boot_id': self.boot} for p in sorted(set(pids))]
+            self.Native._validate_pid_proofs(proof)
+            self.assertEqual({p['pid'] for p in proof}, {909})
+            return proof
+        def shell(terminal): self.assertEqual(terminal['argv'], ['/bin/bash', '-l'])
+        with patch.object(self.backend, '_pid_proofs', proofs), \
+             patch.object(self.backend, '_actual_core_program', lambda t: (None, t['cwd'])), \
+             patch.object(self.backend, '_shell_proof', shell), \
+             patch.object(self.backend, '_pids_absent', lambda p: p == proofs([909])):
+            self.fixture['fixture_retire_import_seed'](self.backend, self.seed)
+        self.assertEqual(self.effects, [{'terminal': 't9'}])
+        self.assertEqual([t['state'] for t in self.inventory], ['live', 'live', 'live', 'finished'])
+        self.assertEqual(len(self.fixture['fixture_restart_live_inventory'](
+            self.backend, self.document, self.manifest)), 3)
+
+    def test_one_failure_reports_all_relevant_fixed_facts_without_runtime_values(self):
+        unknown = copy.deepcopy(self.seed)
+        unknown.pop('keep')
+        unknown['labels'] = {'remote-herdr-owner': 'PRIVATE-FOREIGN'}
+        self.inventory.append(unknown)
+        self.inventory[0]['keep'] = False
+        self.inventory[2]['labels'].pop('remote-herdr-owner')
+        with self.assertRaises(self.fixture['CommandFailure']) as caught:
+            self.fixture['fixture_restart_live_inventory'](self.backend, self.document, self.manifest)
+        reason = caught.exception.reason
+        for fact in ('keep-missing-unknown', 'keep-false-referenced', 'keep-false-repair-source',
+                     'owner-missing-repair-created', 'owner-mismatch-unknown', 'unaccounted-live-unknown',
+                     'labels-mismatch-repair-created'):
+            self.assertIn(fact, reason)
+        self.assertNotIn('PRIVATE', reason)
+        self.assertNotIn(self.owner, reason)
+        self.assertNotIn('/fixture', reason)
+        self.assertFalse(self.effects)
+        self.assertEqual(self.calls, ['terminal.list'])
+
+    def test_seed_mismatch_or_current_proof_change_never_forwards_kill(self):
+        self.inventory.append(copy.deepcopy(self.seed))
+        baseline = copy.deepcopy(self.inventory)
+        for case in ('owner', 'creation', 'referenced', 'process', 'version', 'not-bash'):
+            with self.subTest(case=case):
+                self.inventory[:] = copy.deepcopy(baseline)
+                self.version = 17
+                if case == 'owner': self.inventory[-1]['labels']['remote-herdr-owner'] = 'PRIVATE-FOREIGN'
+                elif case == 'creation': self.inventory[-1]['created_ms'] += 1
+                document = copy.deepcopy(self.document)
+                if case == 'referenced': self.document['spaces'][0]['tabs'][0]['root']['children'][0]['content']['terminal'] = 't9'
+                reads = 0
+                def proofs(pids):
+                    nonlocal reads
+                    reads += 1
+                    if case == 'version': self.version = 18
+                    return [{'pid': 909, 'start_ticks': reads if case == 'process' else 11, 'boot_id': self.boot}]
+                with patch.object(self.backend, '_pid_proofs', proofs), \
+                     patch.object(self.backend, '_actual_core_program', lambda t: ('ses_wrong' if case == 'not-bash' else None, t['cwd'])), \
+                     patch.object(self.backend, '_shell_proof', lambda t: None):
+                    with self.assertRaises(RuntimeError):
+                        self.fixture['fixture_retire_import_seed'](self.backend, self.seed)
+                self.document = document
+                self.assertFalse(self.effects)
+
+    def test_seed_retirement_is_after_backup_and_before_further_cases(self):
+        source = (FIXTURE / 'verify-user.py').read_text()
+        prepare = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name == 'prepare_fixture')
+        body = ast.get_source_segment(source, prepare) or ''
+        self.assertLess(body.index("backups = [store.read(path.name)"), body.index('fixture_retire_import_seed(backend, shell)'))
+        self.assertLess(body.index('fixture_retire_import_seed(backend, shell)'), body.index('inflight_switch(provider, plan, pid)'))
+        restart = next(n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)
+                       and n.name == 'fixture_bootlike_core_restart')
+        restart_body = ast.get_source_segment(source, restart) or ''
+        self.assertLess(restart_body.index('fixture_restart_live_inventory(backend, document, manifest)'),
+                        restart_body.index('app.pause_restart()'))
+        self.assertLess(restart_body.index('fixture_restart_live_inventory(backend, document, manifest)'),
+                        restart_body.index("backend.command(['herdr-core', 'server', 'stop', '--json'])"))
 
 
 class QualificationSourceTests(unittest.TestCase):
@@ -1057,7 +1629,8 @@ class QualificationSourceTests(unittest.TestCase):
                         "'hc-serve-'", "'hc-hold-'", "'hc-shutdown-'", "'Transient'",
                         'signal.pidfd_send_signal(fd, signal.SIGTERM)',
                         "backend._coverage(plan) == before", "backend.stop('herdr-core', capture)",
-                        "cli('restore')", "cli('recover')", "backend._pids_absent(before['clients'])",
+                        "cli('restore')", "cli('recover')", 'backend._pids_absent(client_proofs)',
+                        'fixture_captured_client_proofs(backend, before)',
                          "backend._client_argv(client['pid'], client['session_id'])",
                          "f01.connected(client['pid'], port)",
                         'backend._semantic', 'backend_pid() == pid', "'--version'",

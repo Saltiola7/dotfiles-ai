@@ -57,9 +57,17 @@ def test_existing_activation_is_never_repaired_or_overwritten(policy, activation
         if kind == 'hardlink':
             os.link(target, home / 'retained-hardlink')
     before = target.lstat()
+    content = os.readlink(target) if stat.S_ISLNK(before.st_mode) else target.read_bytes()
     with pytest.raises((ValueError, OSError)):
         policy.initialize_default_home(value, home, config)
-    assert target.lstat() == before
+    after = target.lstat()
+    # A read may update atime. Preserve every identity/write-related field,
+    # including nanosecond timestamps, without treating access as a repair.
+    fields = ('st_dev', 'st_ino', 'st_mode', 'st_nlink', 'st_uid', 'st_gid',
+              'st_size', 'st_mtime_ns', 'st_ctime_ns')
+    assert {name: getattr(after, name) for name in fields} == {
+        name: getattr(before, name) for name in fields}
+    assert (os.readlink(target) if stat.S_ISLNK(after.st_mode) else target.read_bytes()) == content
     assert other.read_text() == 'retained'
 
 
