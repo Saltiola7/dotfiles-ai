@@ -46,6 +46,8 @@ hub_port = 25464
 version = "1.18.25"
 linux_amd64_asset_url = "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-x64.tar.gz"
 linux_amd64_asset_sha256 = "58a3729a6f3432dd6d2917fcc4a949788891a035818646ad480e12c947f56e78"
+linux_aarch64_asset_url = "https://github.com/anomalyco/opencode/releases/download/v1.18.25/opencode-linux-arm64.tar.gz"
+linux_aarch64_asset_sha256 = "35ef77897425e41b5183a2c21ac4fb1d4d944d82a94e3c920f57b5490af11ac5"
 vertex_project = ""
 vertex_location = "global"
 vertex_credentials = ""
@@ -71,6 +73,8 @@ asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-ma
 asset_sha256 = "fb77c2232a05a8035421382c894392f4174e4e38a18e48af3dd0290157c3a7e2"
 linux_amd64_asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-linux-x86_64"
 linux_amd64_asset_sha256 = "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d"
+linux_aarch64_asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-linux-aarch64"
+linux_aarch64_asset_sha256 = "17d7536f2da50859523680ef279dffcac8e4a235f4e46fe8da6c2ec44141897c"
 
 [dotfiles_ai.hermes]
 enabled = false
