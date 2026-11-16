@@ -5,6 +5,17 @@ preflight before progress claims, classified recovery and independent delivery,
 completion and cleanup reporting. This Discovery depends on lifecycle proof;
 source and installed native capability remain separate qualification boundaries.
 
+The existing `build-gpt` and `build-claude` source prompts consume the lifecycle's
+`completion_preview` schema 1 with verified pins, classified stage results and
+original evidence identities. Unknown versions or denied capabilities do not
+become successful completion; a passing preview is not persisted completion.
+`tests/test_completion_journey.py` checks both instruction bodies and exercises
+the existing public CLI with synthetic native transport, including multi-PR
+preview, completion, idempotent retry and offline historical proof. These checks
+do not measure model quality or qualify installed primary behavior. No new parser,
+adapter, service, provider or permission rule is added; managed deployment follows
+verified merged source under separate approval.
+
 **RRW-002 successor Discovery:** Initiative `rhel-remote-workspace`, slice
 `rrw-002-rhel-user-runtime`, approves RHEL 10 x86_64 as the standalone remote
 successor. Implementation, deployment, release qualification, and readiness are
