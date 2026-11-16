@@ -74,6 +74,8 @@ asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-ma
 asset_sha256 = "fb77c2232a05a8035421382c894392f4174e4e38a18e48af3dd0290157c3a7e2"
 linux_amd64_asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-linux-x86_64"
 linux_amd64_asset_sha256 = "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d"
+linux_arm64_asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-linux-aarch64"
+linux_arm64_asset_sha256 = "17d7536f2da50859523680ef279dffcac8e4a235f4e46fe8da6c2ec44141897c"
 
 [dotfiles_ai.hermes]
 enabled = false
@@ -187,3 +189,13 @@ workspaces = []
 cpus = 4
 memory_gib = 8
 disk_gib = 60
+
+# Linux desktop is independent of the legacy Herdr TUI/server.
+[dotfiles_ai.herdr_linux_desktop]
+enabled = false
+app_version = "0.1.15"
+core_version = "0.1.21"
+app_arm64_sha256 = "0e5fd95a056452ec31e32fe6aa5a47a8b1d42020ae8f3a10cda2e0a1001d4124"
+app_amd64_sha256 = "f99e1e04be82c0e10b2f69ee7403ca34386f480d92511df5865af4703e7655dd"
+core_arm64_sha256 = "e844a2bfab48a226097679d076bc83042fe57fccef5387ef802e5b24e78b529a"
+core_amd64_sha256 = "78424755c10a40dde38a0bdb55c20ac19706e9ae05ed68fc2acf1fcff0d941c1"

@@ -1,0 +1,81 @@
+#!/bin/bash
+set -euo pipefail
+{{ if not (and .dotfiles_ai.linux_workstation.enabled .dotfiles_ai.herdr_linux_desktop.enabled (eq .chezmoi.os "linux") (or (eq .chezmoi.arch "arm64") (eq .chezmoi.arch "amd64"))) -}}
+exit 0
+{{ end -}}
+app_version={{ .dotfiles_ai.herdr_linux_desktop.app_version | quote }}
+core_version={{ .dotfiles_ai.herdr_linux_desktop.core_version | quote }}
+{{ if eq .chezmoi.arch "arm64" -}}
+architecture=aarch64
+app_sha256={{ .dotfiles_ai.herdr_linux_desktop.app_arm64_sha256 | quote }}
+core_sha256={{ .dotfiles_ai.herdr_linux_desktop.core_arm64_sha256 | quote }}
+{{ else -}}
+architecture=x86_64
+app_sha256={{ .dotfiles_ai.herdr_linux_desktop.app_amd64_sha256 | quote }}
+core_sha256={{ .dotfiles_ai.herdr_linux_desktop.core_amd64_sha256 | quote }}
+{{ end -}}
+[[ $(uname -s) == Linux && $(uname -m) == "$architecture" ]] || {
+    echo 'Herdr Desktop: guest architecture does not match the rendered profile.' >&2
+    exit 1
+}
+for version in "$app_version" "$core_version"; do
+    [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Herdr: invalid release pin.' >&2; exit 1; }
+done
+bin="$HOME/.local/bin"
+data="$HOME/.local/share"
+app="$data/herdr-app"
+need_app=true
+need_core=true
+if command -v herdr-app >/dev/null 2>&1 || [[ -x "$bin/herdr-app" ]]; then need_app=false; fi
+if command -v herdr-core >/dev/null 2>&1 || [[ -x "$bin/herdr-core" ]]; then need_core=false; fi
+if [[ $need_app == false && $need_core == false ]]; then exit 0; fi
+if [[ $need_app == true && ( -e $app || -L $app || -e $bin/herdr-app || -L $bin/herdr-app ) ]]; then
+    echo 'Herdr Desktop: existing destination is not a working app; preserve it and resolve manually.' >&2
+    exit 1
+fi
+if [[ $need_core == true && ( -e $bin/herdr-core || -L $bin/herdr-core ) ]]; then
+    echo 'Herdr Core: existing destination is not executable; preserve it and resolve manually.' >&2
+    exit 1
+fi
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+fetch() {
+    local component=$1 version=$2 checksum=$3 archive=$4
+    [[ $checksum =~ ^[0-9a-f]{64}$ ]] || { echo 'Herdr: invalid checksum pin.' >&2; exit 1; }
+    curl -q -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 180 \
+        "https://releases.herdr.dev/$component/$version/$archive" -o "$stage/$component.tar.gz"
+    printf '%s  %s\n' "$checksum" "$stage/$component.tar.gz" | sha256sum -c -
+    mkdir "$stage/$component"
+    tar -xzf "$stage/$component.tar.gz" -C "$stage/$component"
+}
+if [[ $need_core == true ]]; then
+    fetch core "$core_version" "$core_sha256" "herdr-core-linux-$architecture.tar.gz"
+    [[ $("$stage/core/herdr-core" --version) == "hc $core_version" ]] || { echo 'Herdr Core: version mismatch.' >&2; exit 1; }
+fi
+if [[ $need_app == true ]]; then
+    fetch app "$app_version" "$app_sha256" "herdr-app-linux-$architecture.tar.gz"
+    [[ -x $stage/app/herdr-app/herdr-app && -f $stage/app/herdr-app/herdr-app.svg ]]
+fi
+install -d -m 0755 "$bin" "$data"
+if [[ $need_core == true ]]; then
+    install -m 0755 "$stage/core/herdr-core" "$bin/herdr-core"
+    if ! command -v hc >/dev/null 2>&1 && [[ ! -e $bin/hc && ! -L $bin/hc ]]; then ln -s herdr-core "$bin/hc"; fi
+fi
+if [[ $need_app == true ]]; then
+    mv "$stage/app/herdr-app" "$app"
+    ln -s "$app/herdr-app" "$bin/herdr-app"
+    install -d -m 0755 "$data/applications" "$data/icons/hicolor/scalable/apps"
+    install -m 0644 "$app/herdr-app.svg" "$data/icons/hicolor/scalable/apps/herdr-app.svg"
+    cat > "$data/applications/herdr-app.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=Herdr
+Comment=Terminals and coding agents that keep running
+Exec=$bin/herdr-app
+Icon=herdr-app
+Terminal=false
+Categories=Development;
+StartupWMClass=herdr-app
+DESKTOP
+    if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database "$data/applications"; fi
+fi
