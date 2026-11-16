@@ -3211,7 +3211,7 @@ def read_cycle_record(root, path, label="Cycle Record", *, historical=False, max
     if "initiative_amendments" in record or "initiative_authority_checkpoints" in record:
         with local_completion_git_context():
             try:
-                validate_initiative_amendments(root, record)
+                validate_initiative_amendments(root, record, historical=historical)
             except (KeyError, TypeError, ValueError, AttributeError, OSError):
                 fail("invalid Initiative amendment history")
     if "lineage_recovery" in record:
@@ -5081,8 +5081,13 @@ def amendment_receipt(root, receipt):
         fail("Initiative amendment receipt disagrees with committed manifest")
 
 
-def amendment_external_authority(directory, receipt):
-    """Retain native coordinator custody; never fetch or import foreign documents."""
+def amendment_external_authority(directory, receipt, historical=False):
+    """Retain native coordinator custody; never fetch or import foreign documents.
+
+    Historical reads tolerate custody replacement at the same path: a completed
+    record must not block unrelated registration scans after a worktree is
+    legitimately recreated. Active use keeps the full inode-bound identity.
+    """
     if repository_equal(receipt["coordinator_repository"], receipt["repository"]):
         fail("same-repository clones cannot select cross-repository amendments")
     path = Path(directory)
@@ -5107,9 +5112,12 @@ def amendment_external_authority(directory, receipt):
             fail("unsafe Initiative amendment native authority custody")
         custody.append([str(directory), info.st_dev, info.st_ino, info.st_uid])
     identity = continuation_digest(custody)
-    return {"directory": str(authority), "identity_digest": identity,
-            "repository": receipt["coordinator_repository"],
-            "commit": receipt["manifest_commit"], "closure": closure}
+    result = {"directory": str(authority), "identity_digest": identity,
+              "repository": receipt["coordinator_repository"],
+              "commit": receipt["manifest_commit"], "closure": closure}
+    if historical:
+        result.pop("identity_digest")
+    return result
 
 
 def amendment_local_profile(root, profile, blob, *, revision=None):
@@ -5242,7 +5250,7 @@ def amendment_checkpoint_evidence(root, record, entry, commit):
 
 
 @offline_amendment_read
-def validate_initiative_amendments(root, record):
+def validate_initiative_amendments(root, record, historical=False):
     entries = record.get("initiative_amendments", [])
     checkpoints = record.get("initiative_authority_checkpoints", [])
     if not isinstance(entries, list) or not isinstance(checkpoints, list):
@@ -5319,7 +5327,10 @@ def validate_initiative_amendments(root, record):
                     or not isinstance(plan.get("authority"), dict)):
                 fail("invalid cross-repository Initiative amendment")
             authority = plan["authority"]
-            if (amendment_external_authority(authority["directory"], receipt) != authority
+            retained = (authority if not historical
+                        else {key: value for key, value in authority.items()
+                              if key != "identity_digest"})
+            if (amendment_external_authority(authority["directory"], receipt, historical=historical) != retained
                     or common_git_dir(Path(authority["directory"])).resolve() == common_git_dir(root).resolve()
                     or plan["closure"] != amendment_local_profile(root, before["engineering_profile"]["path"],
                                                                  before["engineering_profile"]["blob"],
