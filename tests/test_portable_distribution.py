@@ -519,12 +519,19 @@ def test_codex_distribution_uses_rolling_stable_direct_binary() -> None:
     assert 'include "dot_local/bin/executable_codex-project"' in project_script
     assert "Brewfile" not in project_script
     managed = set(chezmoi("managed").stdout.splitlines())
-    assert {
+    managed_codex = {
         ".config/dotfiles-ai/codex-managed/config.toml",
         ".config/dotfiles-ai/codex-managed/AGENTS.md",
         ".local/bin/codex", ".local/bin/codex-project", ".local/bin/codex-update-all",
-        ".local/bin/codex-install",
-    } <= managed
+    }
+    # .chezmoiignore deliberately excludes the headless Linux-ARM64 installer
+    # from every other architecture (its "ne .chezmoi.arch \"arm64\"" block),
+    # so Intel runners must expect it unmanaged rather than managed.
+    if os.uname().machine == "arm64":
+        assert managed_codex | {".local/bin/codex-install"} <= managed
+    else:
+        assert managed_codex <= managed
+        assert ".local/bin/codex-install" not in managed
     ignore = (ROOT / ".chezmoiignore").read_text()
     assert "!.config/dotfiles-ai/codex-managed/**" in ignore
     for template in (installer, linux_installer, wrapper, project_script, run_after):
