@@ -3194,7 +3194,15 @@ user-confirmed `approve-exception`, `record-dvc-push`, `record-evidence`, `raise
 `update-plan` rebinds a committed profile using an equal or stricter plan. It
 may recover unrecorded first-parent commits only when each changes exactly that
 Engineering Profile; every other unrecorded commit fails closed.
-`gate-commit --gates ...` binds each commit to completed gates.
+`gate-commit --gates ...` binds each commit to completed gates. Evidence paths
+admitted by `record-evidence --path` and `gate-commit --paths` must exist on
+disk, in the index, or at HEAD, except that while a reconcile merge is in
+progress a deletion absent from all three is admitted when the merge side
+(MERGE_HEAD or the merge base) still pins its blob; the resulting absence is
+recorded with that merge revision as its source. The repository-root
+`.dbsctr/` prefix is the helper's own evidence artifact area and is admissible
+for existing regular non-symlink files; every other ignored location is
+refused, and commits stay bound to exactly the staged paths.
 
 New cycles require `start --plan PATH`, where `-` reads JSON from stdin. The plan
 names `docs/specs/<context>/README.md` and defines every gate as `required` or

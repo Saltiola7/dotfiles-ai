@@ -1,0 +1,19 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {
+      "applicability": "not_applicable",
+      "reason": "No standalone release artifact. Two evidence-admission defects in executable_dbsctrctl block active cycles from committing reconcile merges. (a) safe_paths requires every evidence path to exist on disk, in the index, or at HEAD: during a reconcile-target merge (MERGE_HEAD present) a path deleted by the merge resolution and already absent from HEAD is refused with 'path does not exist' even though the deletion is exactly what the merge commits; deleted paths must instead be evidenced from the index or the merge (MERGE_HEAD or merge-base trees pin the deleted blob), with the absence pin recorded from that merge revision so post-commit verification stays deterministic (additive absence source binding; historical envelopes without it keep their meaning). Paths absent from disk, index, HEAD and every merge tree stay refused (unpinnable absence), and rebinding to an unknown terminal-equivalent path is still refused. Secret-name refusal, the ignored-path refusal for ordinary files, and the staged-paths-equal-evidence rule are unchanged. (b) record-evidence --path refuses the tool's own artifact area with 'path is ignored': the repo-root .dbsctr/ prefix is admitted as the dbsctrctl-owned evidence artifact location (existing regular non-symlink files only; secret-name refusal still applies first), while every other ignored location stays refused; gate-commit keeps refusing .dbsctr/ paths through the staged-paths-equality rule so committed evidence remains staged-only. Reproducing tests for both defects plus preserved refusals (unknown merge-absent path; ordinary ignored path; gate-commit of .dbsctr/ paths). Any executable_dbsctrctl change bumps the pinned helper digest in tests/benchmarks/fixtures/cli_workloads.json in the same push. Exclusions: custody identity redesign stays queued (separate follow-up); no Initiative binding (kernel defect, no slice); no CI lane, partition or timeout changes; no changes to evidence execution, timeouts or envelope cryptography. Owner priority 2026-11-17: this fix precedes RRW-007G-R5 and #315 because Fork A's RRW-015 cannot commit its master merge or INT-087 changes until it lands. Draft-PR delivery; exact-head merge requires the owner's separate approval."
+    },
+    "deploy": {"applicability": "required"},
+    "operate": {"applicability": "required"},
+    "maintain_retire": {"applicability": "required"}
+  }
+}
