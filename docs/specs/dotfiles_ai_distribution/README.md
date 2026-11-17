@@ -54,6 +54,19 @@ edits; already-live clients, raw document and original exit/version checks remai
 Native qualification distinguishes fixture-authored app-shaped documents from
 actual Desktop UI producer evidence. Fork A owns live recovery and pinning.
 
+RRW-007G-R4 extends retained-state recovery across interrupted and completed core
+restarts. A created replacement returned as an owned plain Bash is re-admitted
+with fresh proofs, not accepted as an active desired client. Journal a live-shell
+leaf hop and separately proven source cleanup before the next R3 repair generation.
+New private PID proofs include Linux boot UUIDs to distinguish cross-boot
+PID/start-tick aliases. Legacy proofs stay readable; ambiguous facts refuse.
+Matching boot-less live kill intents may admit a fresh replacement-first repair,
+never historical kill authority. Preserve stopped closed leaves, complete switch
+history and idle-stop checkpoints; never hand-edit published receipts. Native
+qualification adds actual core stop/start around interrupted and completed restore,
+not a full VM/Desktop GUI claim. No new inputs, binary pins or bootstrap changes.
+Fork A owns live recovery and timers; 007I stays paused until urgent delivery.
+
 RRW-007G-R3 makes new kept-shell repair safe with a connected desktop: create and
 verify a replacement, CAS-rebind its proven leaf, then stop only the captured old
 shell and prove exit. Per-leaf publication prevents later failures from stranding
@@ -667,6 +680,15 @@ DBSCTR applicability plan are captured in the existing
 Delivery is a feature branch and draft pull request; live rollout is separate.
 Profile/Product Intent remain unchanged. A known adjacent cross-revision retry-pin
 gap is explicitly deferred; this correction does not claim broader rollout readiness.
+
+### OST-001 Cycle Overrides
+
+| Field | Value |
+|---|---|
+| Risk | Elevated: hash-pinned remote strap script and BlackArch repository gain system package ownership on opting-in Arch hosts; new persistent instruction-supply-chain skill |
+| Delivery intent | Draft pull request only; no host enablement, installation, scan or deployment inside the cycle |
+| Scope | Default-off `blackarch.enabled` gate, pinned-strap `run_onchange` installer with curated 19-package set, `attack-surface-probe` skill, security-toolkit routing/review registration, spec and tests |
+| Overrides | Pinned security-toolkit runtime keeps exclusive Semgrep CE/Gitleaks/OSV-Scanner ownership; AUR-only tools and the validation drill stay operator actions outside this source |
 
 ### DAI-005 Cycle Overrides
 

@@ -116,17 +116,17 @@
   ],
   "slices": [
     {
-      "id":"completion-reconciliation-core","context":"dbsctr_v3_lifecycle","state":"ready","execution_owner":"build",
+      "id":"completion-reconciliation-core","context":"dbsctr_v3_lifecycle","state":"delivered","execution_owner":"build",
       "requirements":["INT-081","INT-083","INT-084","INT-085","INT-086","INT-087","INT-088","INT-089","INT-092","INT-093","INT-094","INT-095","INT-096","INT-097","INT-098","INT-099"],
       "depends_on":["safety-inventory"],
       "artifacts":["docs/initiatives/dbsctr-workflow-convergence/MANIFEST.json","docs/initiatives/dbsctr-workflow-convergence/README.md","docs/initiatives/dbsctr-workflow-convergence/GIT-REACHABILITY.md","docs/initiatives/dbsctr-workflow-convergence/COMPLETION-RECONCILIATION.md","docs/initiatives/dbsctr-workflow-convergence/COMPLETION-RCA.md","docs/initiatives/dbsctr-workflow-convergence/CORE-SOURCE.plan.json","docs/initiatives/dbsctr-workflow-convergence/CONTROL-PLANE-SOURCE.plan.json","docs/initiatives/dbsctr-workflow-convergence/COMPLETION-ROLLOUT.plan.json","docs/specs/dbsctr_v3_lifecycle/PROFILE.md","docs/specs/dbsctr_v3_lifecycle/README.md","docs/specs/dbsctr_v3_lifecycle/features/workflow-completion-reconciliation.md","docs/specs/dbsctr_v3_lifecycle/features/workflow-evidence-bindings.md","docs/specs/opencode_control_plane/README.md","docs/specs/opencode_control_plane/features/workflow-completion-journey.md","docs/specs/dotfiles_ai_distribution/README.md","docs/specs/dotfiles_ai_distribution/PRODUCT.md","docs/specs/dotfiles_ai_distribution/features/workflow-completion-rollout.md"],
       "release_group":"completion-reconciliation"
     },
     {
-      "id":"completion-reconciliation-journey","context":"opencode_control_plane","state":"captured","execution_owner":"build",
+      "id":"completion-reconciliation-journey","context":"opencode_control_plane","state":"ready","execution_owner":"build",
       "requirements":["INT-083","INT-087","INT-088","INT-089","INT-090"],
       "depends_on":["completion-reconciliation-core"],
-      "artifacts":["docs/initiatives/dbsctr-workflow-convergence/COMPLETION-RECONCILIATION.md","docs/initiatives/dbsctr-workflow-convergence/CONTROL-PLANE-SOURCE.plan.json","docs/specs/opencode_control_plane/features/workflow-completion-journey.md"],
+      "artifacts":["docs/initiatives/dbsctr-workflow-convergence/MANIFEST.json","docs/initiatives/dbsctr-workflow-convergence/COMPLETION-RECONCILIATION.md","docs/initiatives/dbsctr-workflow-convergence/CONTROL-PLANE-SOURCE.plan.json","docs/specs/opencode_control_plane/features/workflow-completion-journey.md"],
       "release_group":"completion-reconciliation"
     },
     {

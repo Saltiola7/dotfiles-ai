@@ -6,7 +6,7 @@
 | Owner | Project maintainers |
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, and launchd plist |
 | Modules | Python, Security, Cloud |
-| Runtime/platform support | Apple Silicon macOS; Fedora 44 aarch64 Lima guests on VZ; intended RHEL 10 x86_64 remote-workspace successor (release qualification pending); chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
+| Runtime/platform support | Apple Silicon macOS; Fedora 44 aarch64 Lima guests on VZ; intended RHEL 10 x86_64 remote-workspace successor (release qualification pending); optional default-off Omarchy (Arch Linux) security-toolchain profile; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
 | Compatibility | Stable local TOML keys and managed state boundaries; OpenCode-default automation; sanitized defaults; qualified native platform-local installer ownership with compatibility and recovery checks |
 | Trust/data | Public configuration; credentials and machine identifiers remain local |
 | Delivery | Feature branch and draft pull request; managed local deployment only after affected gates pass |
@@ -66,3 +66,15 @@ supply the full public merged runtime SHA for downstream handoff.
   unverified cause. Staging, OpenShell, MarimoHub, and infrastructure stay out of
   scope. Delivery uses normal PR approval without admin bypass; private rollout
   remains separate from local disposable proof.
+
+## OST-001 Omarchy Security Toolchain
+
+OST-001 adds a default-off Arch (Omarchy) capability gate, a hash-pinned
+BlackArch bootstrap plus curated package installer, and the self-authored
+`attack-surface-probe` skill. Risk stays elevated: the pinned strap script and
+BlackArch repository gain system package ownership on the opting-in host, and a
+new persistent instruction-supply-chain skill enters the shared catalog.
+`features/omarchy-security-toolchain.md` owns the normative contract, sourcing
+evidence and exclusion boundaries (pinned runtime scanners are never shadowed).
+No environment changes inside the cycle; host enablement and the validation
+drill are separate operator actions.

@@ -379,3 +379,32 @@ def test_retained_native_custody_replacement_at_same_path_is_rejected(cross, rep
     result = harness.run(target, "status", "--json", ok=False)
     assert result.returncode != 0
     assert path.read_bytes() == before and git_snapshot(target) == checkout
+
+
+@pytest.mark.parametrize("replacement", ["checkout", "git_directory"])
+def test_historical_scan_tolerates_custody_replacement_at_same_path(cross, replacement):
+    """A legitimately recreated authority worktree must not block unrelated scans.
+
+    Registration availability reads every stored record historically; a
+    completed cycle whose authority checkout was recreated at the same path
+    (fresh inodes, same pinned HEAD) still loads, while active use keeps
+    refusing the replaced custody.
+    """
+    target, path, _ = cross.amendment
+    apply_amendment(cross.amendment)
+    before, checkout = path.read_bytes(), git_snapshot(target)
+    if replacement == "checkout":
+        retained = cross.source.with_name("original-native-checkout")
+        cross.source.rename(retained)
+        git(retained, "clone", "--no-hardlinks", str(retained), str(cross.source))
+        git(cross.source, "remote", "set-url", "origin", "https://github.com/example/coordinator.git")
+    else:
+        original = cross.source / ".git"
+        retained = cross.source.with_name("original-git-directory")
+        original.rename(retained)
+        shutil.copytree(retained, original)
+    refused = harness.run(target, "status", "--json", ok=False)
+    assert refused.returncode != 0
+    record = reader().read_cycle_record(target, path, historical=True)
+    assert record["cycle_id"] == "cycle-1"
+    assert path.read_bytes() == before and git_snapshot(target) == checkout

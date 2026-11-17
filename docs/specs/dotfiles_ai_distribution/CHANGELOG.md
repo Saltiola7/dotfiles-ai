@@ -1,5 +1,32 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-16 — Remote Vertex credential isolation (RRW-007J)
+
+- On the remote workspace, `vertex-reauth` no longer touches the default ADC:
+  the Vertex user credential lives in its own gcloud configuration directory
+  (resolved from `opencode.vertex_credentials`, defaulting to
+  `$HOME/.config/gcloud-vertex/application_default_credentials.json` on
+  remote), 0700/0600-private, with the quota project pinned to
+  `vertex_project` only on that credential. The rendered script refuses the
+  default ADC path.
+- OpenCode's Vertex provider reads the isolated credential via `keyFilename`
+  whenever `vertex_project` is set (including `remote_user_environment` and
+  the user's `opencode-shared.service`); `remote-agent-readiness` probes the
+  same resolved path. A foundation apply never rewrites an existing default
+  ADC. Render tests pin the isolated path in both renders, their agreement,
+  and the absence of any default-ADC usage in the remote render.
+
+## 2026-11-15 — OST-001 Omarchy security toolchain
+
+- Add a default-off `blackarch.enabled` gate, a checksum-pinned BlackArch strap
+  plus curated 19-package `run_onchange` installer (Arch-guarded, interactive
+  sudo, version probes only), and the self-authored `attack-surface-probe` skill
+  registered in security-toolkit routing/review outside the vendored lock.
+- Validation: affected pytest suites and ty pass; skill validated by the original
+  skill-creator validator; bash syntax checked on both render variants. No host
+  enablement, installation, scan or deployment ran in-cycle; the pinned runtime
+  keeps exclusive Semgrep CE/Gitleaks/OSV-Scanner ownership. Draft PR delivery;
+  AUR additions and the validation drill remain operator actions.
 ## 2026-11-13 — Explicit Codex fixture architecture
 
 - Render Herdr/OpenCode native runtime fixtures explicitly as Darwin/ARM64 and
@@ -44,6 +71,51 @@
 - Record authorized target rollout, explicit credential delegation, protected
   default-branch workflow environment, native trigger qualification and reversible
   disable/recovery. No apply, secret copy, settings change or activation performed.
+
+## 2026-11-11 — Reboot-interrupted repair (RRW-007G-R4)
+
+- Correct INT-082 recovery when previously created replacements return as labelled
+  plain shells. Journal a proven live-shell leaf hop, capture current source facts,
+  reconcile cleanup and admit a fresh replacement-first generation. Preserve closed
+  stopped leaves and interrupted idle/controller-stop checkpoints without replaying
+  uncertain creation or editing published state. Retained large legacy state and
+  completed-journal recovery remain covered.
+- Private `retained_shell: true` intents distinguish shell-hop CAS/cleanup from
+  active-client readiness. New PID proofs include validated Linux `boot_id` so
+  PID/start-tick aliases across boots never confer old-process kill authority.
+  Legacy forms remain readable; a matching boot-less live kill can independently
+  admit a fresh R3 repair after whole-receipt backup, never a historical kill.
+  Unsupported/ambiguous facts still refuse; older strict readers reject extended
+  active forms. No new public inputs, bootstrap or binary pin changes.
+- Initial Herdr source validation: 887 tests and 88 subtests; 38 stdlib qualification tests;
+  affected Linux/Python 3.12 typing clean. Independent source/fixture reviews found
+  no blocker. Native fixture adds app-observed core stop/start after interrupted
+  and completed restore; source tests are not native execution, full VM reboot or
+  Desktop GUI evidence. Existing actual fixture boot phases remain separate.
+- Contract `d8f0709d`, initial runtime `0fd8bb8f`, legacy admission/native fixture
+  `55761659`. Intended Final Push is draft branch
+  `dbsctr/dotfiles_ai_distribution/RRW-007G-R4`, never main. Exact-head hosted
+  native/full CI and completion results belong to the Cycle Record; final merge
+  approval is separate. No live operations, timer changes, cleanup or waivers.
+  Fork A owns pinning/live rollout. 007I remains preserved and paused. The separate
+  lifecycle staged-deletion defect is not bundled into R4.
+- Retain the first hosted native failure at the switch-to-TUI exit check, before
+  new restart cases: fixture callers supplied rich session records to the strict
+  PID-proof validator. Select complete original boot-bound client proofs before
+  effects instead; do not relax production validation or omit client-exit checks.
+  Fixture regressions cover missing/duplicate/malformed proof coverage. Fresh
+  exact-head native/full CI remains required after this correction.
+- The next native run passes retained R1/R2/R3 cases but stops before restart on
+  live-inventory ownership. Source tracing identifies the fixture's original
+  unlabelled import seed, which remained kept after its reference was replaced.
+  Retire only that exact creation-proven seed after backup/document/process checks;
+  account for every remaining live terminal against durable receipt/repair facts.
+  Unknown live terminals still block fixture-wide stop; production rules unchanged.
+- Operator-approved test-only CI correction: malformed activation reads may advance
+  filesystem access time. Compare exact bytes/link target and all identity/write
+  metadata, including nanosecond mtime/ctime, without treating atime as a write.
+  Runtime activation/refusal behavior is unchanged; retained hosted failure remains
+  evidence and fresh full CI is required. No validation bypass or waiver.
 
 ## 2026-11-11 — Qualify Linux native-artifact summaries
 

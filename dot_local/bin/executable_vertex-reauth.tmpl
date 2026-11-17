@@ -23,8 +23,8 @@
 
 set -euo pipefail
 
-{{ if .dotfiles_ai.remote_user_environment.enabled -}}
-ADC="$HOME/.config/gcloud/application_default_credentials.json"
+{{ if and .dotfiles_ai.remote_user_environment.enabled (eq .dotfiles_ai.opencode.vertex_credentials "") -}}
+ADC="$HOME/.config/gcloud-vertex/application_default_credentials.json"
 {{ else -}}
 ADC={{ .dotfiles_ai.opencode.vertex_credentials | quote }}
 {{ end -}}
@@ -37,6 +37,11 @@ SCOPES=openid,https://www.googleapis.com/auth/userinfo.email,https://www.googlea
   echo "vertex-reauth: vertex_credentials must end with application_default_credentials.json" >&2
   exit 2
 }
+case "$ADC" in
+  "$HOME"/.config/gcloud/application_default_credentials.json)
+    echo "vertex-reauth: refusing the default ADC; set opencode.vertex_credentials to an isolated path" >&2
+    exit 2 ;;
+esac
 case "$ACCOUNT" in
   -*) echo "vertex-reauth: invalid vertex_account" >&2; exit 2 ;;
 esac
@@ -81,4 +86,7 @@ gc auth application-default set-quota-project "$PROJECT" ||
 
 # A login that cannot mint a token is not a successful login.
 gc auth application-default print-access-token >/dev/null
+# The isolated credential stays private to this user.
+chmod 700 "$CONFIG_DIR" 2>/dev/null || true
+chmod 600 "$ADC" 2>/dev/null || true
 echo "vertex-reauth: ok"

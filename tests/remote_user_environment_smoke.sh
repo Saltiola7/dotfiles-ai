@@ -163,12 +163,12 @@ for command in vertex-reauth op; do
   printf '#!/bin/sh\nexit 0\n' >"$ready_bin/$command"
 done
 chmod 0755 "$ready_bin"/*
-install -d -m 0700 "$HOME/.local/state/opencode" "$HOME/.config/gcloud" "$HOME/.config/op"
+install -d -m 0700 "$HOME/.local/state/opencode" "$HOME/.config/gcloud-vertex" "$HOME/.config/op"
 printf '{}\n' >"$HOME/.local/state/dotfiles-ai/codex/auth.json"
-printf '{}\n' >"$HOME/.config/gcloud/application_default_credentials.json"
+printf '{}\n' >"$HOME/.config/gcloud-vertex/application_default_credentials.json"
 printf '{}\n' >"$HOME/.config/op/config"
 chmod 0600 "$HOME/.local/state/dotfiles-ai/codex/auth.json" \
-  "$HOME/.config/gcloud/application_default_credentials.json" "$HOME/.config/op/config"
+  "$HOME/.config/gcloud-vertex/application_default_credentials.json" "$HOME/.config/op/config"
 # Synthetic metadata only: never log in or send a provider/model request.
 # Stop only the disposable native process started by the fixture above before
 # replacing its registration with this existing synthetic auth-readiness server.
