@@ -1,5 +1,7 @@
 """Retained coordinator custody never imports foreign documents into Build Git."""
 import hashlib
+import importlib.machinery
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -13,6 +15,15 @@ from test_initiative_authority_amendment import (
 )
 from test_initiative_cli_approval import initiative
 from test_worktrunk_registration import fixture, git, task
+
+
+def reader():
+    loader = importlib.machinery.SourceFileLoader("historical_profile_reader", str(harness.SCRIPT))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None
+    core = importlib.util.module_from_spec(spec)
+    loader.exec_module(core)
+    return core
 
 
 @pytest.fixture
@@ -257,4 +268,33 @@ def test_retained_native_custody_replacement_at_same_path_is_rejected(cross, rep
         shutil.copytree(retained, original)
     result = harness.run(target, "status", "--json", ok=False)
     assert result.returncode != 0
+    assert path.read_bytes() == before and git_snapshot(target) == checkout
+
+
+@pytest.mark.parametrize("replacement", ["checkout", "git_directory"])
+def test_historical_scan_tolerates_custody_replacement_at_same_path(cross, replacement):
+    """A legitimately recreated authority worktree must not block unrelated scans.
+
+    Registration availability reads every stored record historically; a
+    completed cycle whose authority checkout was recreated at the same path
+    (fresh inodes, same pinned HEAD) still loads, while active use keeps
+    refusing the replaced custody.
+    """
+    target, path, _ = cross.amendment
+    apply_amendment(cross.amendment)
+    before, checkout = path.read_bytes(), git_snapshot(target)
+    if replacement == "checkout":
+        retained = cross.source.with_name("original-native-checkout")
+        cross.source.rename(retained)
+        git(retained, "clone", "--no-hardlinks", str(retained), str(cross.source))
+        git(cross.source, "remote", "set-url", "origin", "https://github.com/example/coordinator.git")
+    else:
+        original = cross.source / ".git"
+        retained = cross.source.with_name("original-git-directory")
+        original.rename(retained)
+        shutil.copytree(retained, original)
+    refused = harness.run(target, "status", "--json", ok=False)
+    assert refused.returncode != 0
+    record = reader().read_cycle_record(target, path, historical=True)
+    assert record["cycle_id"] == "cycle-1"
     assert path.read_bytes() == before and git_snapshot(target) == checkout
