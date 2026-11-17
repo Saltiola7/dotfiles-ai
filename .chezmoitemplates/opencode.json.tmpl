@@ -54,13 +54,15 @@
         }
       }
     },
+{{- $vertex_adc := .dotfiles_ai.opencode.vertex_credentials }}
+{{- if and .dotfiles_ai.remote_user_environment.enabled (eq $vertex_adc "") }}{{ $vertex_adc = printf "%s/.config/gcloud-vertex/application_default_credentials.json" .chezmoi.homeDir }}{{ end }}
 {{ if .dotfiles_ai.opencode.vertex_project -}}
     "google-vertex-anthropic": {
       "options": {
         "project": {{ .dotfiles_ai.opencode.vertex_project | toJson }},
-        "location": {{ .dotfiles_ai.opencode.vertex_location | toJson }}{{ if and .dotfiles_ai.opencode.vertex_credentials (not .dotfiles_ai.remote_user_environment.enabled) }},
+        "location": {{ .dotfiles_ai.opencode.vertex_location | toJson }}{{ if $vertex_adc }},
         "googleAuthOptions": {
-          "keyFilename": {{ .dotfiles_ai.opencode.vertex_credentials | toJson }}
+          "keyFilename": {{ $vertex_adc | toJson }}
         }{{ end }}
       }
     },

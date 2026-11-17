@@ -520,6 +520,24 @@ Validation must include:
 
 ## Readiness
 
+### RRW-007J Remote Vertex Credential Isolation
+
+On the remote workspace the Vertex user credential is isolated exactly as on
+the Mac: `vertex-reauth` resolves the credential from
+`opencode.vertex_credentials`, defaulting on remote to
+`$HOME/.config/gcloud-vertex/application_default_credentials.json`, and
+refuses the default ADC path outright. The quota project is pinned to
+`vertex_project` only on that isolated credential (0700 directory, 0600 file
+after login); the default ADC, its quota project and the gcloud core project
+are never changed by Vertex sign-in. OpenCode's Vertex provider — including
+the user's `opencode-shared.service` through the rendered config — reads the
+isolated credential via `keyFilename` whenever `vertex_project` is set, and
+`remote-agent-readiness` probes the same resolved path. Sign-in keeps the
+no-launch-browser default for the browserless VM; `--check` is unchanged. A
+foundation apply never deletes or rewrites an existing default ADC, and a user
+without an isolated credential gets a clear `vertex-reauth` prompt rather than
+any silent fallback.
+
 ### Historical RWUE-005A
 
 The scope, repository ownership, interfaces, state transitions, safety boundary,

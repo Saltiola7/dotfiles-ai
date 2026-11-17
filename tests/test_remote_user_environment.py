@@ -13,6 +13,8 @@ import sys
 import subprocess
 import threading
 
+from typing import Any
+
 import pytest
 
 
@@ -30,8 +32,8 @@ def test_remote_user_ci_uses_ubi10_and_tracks_its_runtime_inputs() -> None:
     assert not (ROOT / ".github/workflows/centos-remote-user.yml").exists()
 
 
-def _render(path: str) -> str:
-    data = {
+def _render(path: str, **overrides: object) -> str:
+    data: dict[str, Any] = {
         "chezmoi": {"os": "linux", "arch": "amd64"},
         "dotfiles_ai": {
             "remote_user_environment": {"enabled": True},
@@ -47,6 +49,12 @@ def _render(path: str) -> str:
             "herdr": {"host_enabled": False},
         }
     }
+    for dotted, value in overrides.items():
+        node = data
+        parts = dotted.split(".")
+        for part in parts[:-1]:
+            node = node[part]
+        node[parts[-1]] = value
     return subprocess.run(
         [
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
@@ -207,20 +215,49 @@ def test_remote_agent_wrappers_force_per_user_state_and_adc() -> None:
     assert 'exec-managed' not in opencode
     assert "/shared/state" not in opencode + codex
     assert 'export CODEX_HOME="$HOME/.local/state/dotfiles-ai/codex"' in codex
-    assert 'ADC="$HOME/.config/gcloud/application_default_credentials.json"' in vertex
-    assert "/shared/credentials.json" not in vertex
+    # An explicitly configured credential is honoured on remote exactly as on
+    # the Mac; the provider reads it via keyFilename instead of the default ADC.
+    assert 'ADC="/shared/credentials.json"' in vertex
+    assert '$HOME/.config/gcloud/application_default_credentials.json' not in vertex
+    assert 'refusing the default ADC' in vertex
     assert config["provider"]["google-vertex-anthropic"]["options"] == {
         "project": "local-project", "location": "global",
+        "googleAuthOptions": {"keyFilename": "/shared/credentials.json"},
     }
+
+
+def test_remote_vertex_credential_defaults_to_an_isolated_path() -> None:
+    unconfigured = {"dotfiles_ai.opencode.vertex_credentials": ""}
+    vertex = _render("dot_local/bin/executable_vertex-reauth.tmpl", **unconfigured)
+    config = json.loads(_render(".chezmoitemplates/opencode.json.tmpl", **unconfigured))
+    readiness = _render("dot_local/bin/executable_remote-agent-readiness.tmpl", **unconfigured)
+    foundation = (ROOT / "dot_local/bin/executable_remote-user-foundation").read_text()
+
+    isolated = ".config/gcloud-vertex/application_default_credentials.json"
+    # Both renders resolve the same isolated credential on remote.
+    assert f'ADC="$HOME/{isolated}"' in vertex
+    key = config["provider"]["google-vertex-anthropic"]["options"]["googleAuthOptions"]["keyFilename"]
+    assert key.endswith("/" + isolated)
+    assert readiness.count('"$XDG_CONFIG_HOME/gcloud-vertex/application_default_credentials.json"') == 1
+    # Nothing in the remote render touches the default ADC: the only permitted
+    # reference is vertex-reauth's own refusal of it, and a foundation apply
+    # never deletes or rewrites an existing default credential.
+    default_adc = "gcloud/application_default_credentials.json"
+    assert vertex.count(default_adc) == 1 and "refusing the default ADC" in vertex
+    for rendered in (json.dumps(config), readiness, foundation):
+        assert default_adc not in rendered
+    assert "application_default_credentials" not in foundation
 
 
 @pytest.fixture
 def local_readiness(tmp_path):
     script = tmp_path / "remote-agent-readiness"
-    script.write_text(_render("dot_local/bin/executable_remote-agent-readiness.tmpl"))
+    script.write_text(_render("dot_local/bin/executable_remote-agent-readiness.tmpl",
+                              **{"dotfiles_ai.opencode.vertex_credentials": ""}))
     script.chmod(0o755)
     paths = [".config/opencode/opencode.json", ".local/state/dotfiles-ai/codex/config.toml",
-             ".local/state/dotfiles-ai/codex/auth.json", ".config/gcloud/application_default_credentials.json",
+             ".local/state/dotfiles-ai/codex/auth.json",
+             ".config/gcloud-vertex/application_default_credentials.json",
              ".config/op/config"]
     for name in paths:
         path = tmp_path / name
@@ -286,7 +323,7 @@ def test_remote_agent_readiness_is_content_free(local_readiness, failed):
         state["connections"] = []
     elif failed:
         path = {"codex": ".local/state/dotfiles-ai/codex/auth.json",
-                "vertex-reauth": ".config/gcloud/application_default_credentials.json",
+                "vertex-reauth": ".config/gcloud-vertex/application_default_credentials.json",
                 "op": ".config/op/config"}[failed]
         (tmp_path / path).unlink()
 

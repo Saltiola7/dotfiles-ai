@@ -84,8 +84,9 @@ codex_ready() {
     [[ -n ${OPENAI_API_KEY:-} ]] || local_file "$CODEX_HOME/auth.json"
 }
 
+{{- $vertex_adc := .dotfiles_ai.opencode.vertex_credentials }}
 vertex_ready() {
-    local_file "$XDG_CONFIG_HOME/gcloud/application_default_credentials.json"
+    local_file "{{ if eq $vertex_adc "" }}$XDG_CONFIG_HOME/gcloud-vertex/application_default_credentials.json{{ else }}{{ $vertex_adc }}{{ end }}"
 }
 
 onepassword_ready() {
