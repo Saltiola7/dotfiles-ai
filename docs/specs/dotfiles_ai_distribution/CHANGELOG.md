@@ -1,5 +1,21 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-16 — Remote Vertex credential isolation (RRW-007J)
+
+- On the remote workspace, `vertex-reauth` no longer touches the default ADC:
+  the Vertex user credential lives in its own gcloud configuration directory
+  (resolved from `opencode.vertex_credentials`, defaulting to
+  `$HOME/.config/gcloud-vertex/application_default_credentials.json` on
+  remote), 0700/0600-private, with the quota project pinned to
+  `vertex_project` only on that credential. The rendered script refuses the
+  default ADC path.
+- OpenCode's Vertex provider reads the isolated credential via `keyFilename`
+  whenever `vertex_project` is set (including `remote_user_environment` and
+  the user's `opencode-shared.service`); `remote-agent-readiness` probes the
+  same resolved path. A foundation apply never rewrites an existing default
+  ADC. Render tests pin the isolated path in both renders, their agreement,
+  and the absence of any default-ADC usage in the remote render.
+
 ## 2026-11-15 — OST-001 Omarchy security toolchain
 
 - Add a default-off `blackarch.enabled` gate, a checksum-pinned BlackArch strap
