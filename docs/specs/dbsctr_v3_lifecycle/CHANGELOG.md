@@ -1,5 +1,24 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-17 — Evidence admission for merge deletions and own artifacts
+
+- `safe_paths` no longer requires a reconcile-merge deletion to exist on disk,
+  in the index, or at HEAD: while a merge is in progress (MERGE_HEAD present),
+  a path absent from all three is admitted when the merge side still carries
+  its blob (MERGE_HEAD or merge-base tree), and the absence pin is recorded
+  from that merge revision through an additive `absence_sources` envelope
+  binding (historical envelopes without it keep their meaning). Paths absent
+  from every merge tree stay refused as unpinnable, and secret-name,
+  ignored-path, and staged-paths-equal-evidence refusals are unchanged.
+- `record-evidence --path` admits the repository-root `.dbsctr/` prefix as the
+  helper's own evidence artifact area (existing regular non-symlink files
+  only; the secret-name refusal still applies first). Every other ignored
+  location keeps its refusal, and `gate-commit` still admits only staged
+  paths, so committed evidence remains staged-only.
+- Regression coverage: merge-deletion admission and its stable verification,
+  merge-staged deletions committing as merge commits, refusals for
+  merge-unknown and ordinary ignored paths, and the own-artifact boundary.
+
 ## 2026-11-14 — Retain historical amendment profile identity
 
 - Read cross-repository amendment profiles at their immutable checkout snapshot,

@@ -3355,7 +3355,7 @@ def validate_schema6_record(root, record):
     for identifier, item in record["evidence"]["items"].items():
         fields = {"id", "gate", "authority", "argv", "paths", "head", "started_at", "finished_at",
                   "result", "raw", "summary", "urls", "content"}
-        if (not isinstance(item, dict) or not fields <= set(item) or not set(item) <= fields | {"commit", "absences"}
+        if (not isinstance(item, dict) or not fields <= set(item) or not set(item) <= fields | {"commit", "absences", "absence_sources"}
                 or not isinstance(identifier, str) or not re.fullmatch(r"ev-[0-9a-f]{32}", identifier)
                 or item["id"] != identifier or item["gate"] not in GATES
                 or item["result"] not in {"passed", "failed", "unavailable"}
@@ -18851,22 +18851,61 @@ def tracked_predecessor(root, name, revision="HEAD"):
     return {"mode": mode, "blob": blob}
 
 
-def evidence_absences(root, paths, revision="HEAD"):
-    absent = {}
+def merge_deletion_revision(root, name):
+    """Pin a reconcile-merge deletion from the merge's own trees, never from disk.
+
+    A merge in progress (MERGE_HEAD present) may delete a path that the branch
+    already dropped from HEAD; the deleted blob is evidenced by the merge side
+    that still carries it, so the path stays admissible without existing.
+    """
+    pending = git(root, "rev-parse", "--verify", "-q", "MERGE_HEAD", check=False)
+    if pending.returncode:
+        return None
+    merge_head = pending.stdout.strip()
+    revisions = [merge_head]
+    base = git(root, "merge-base", "HEAD", merge_head, check=False)
+    if base.returncode == 0 and base.stdout.strip() and base.stdout.strip() != merge_head:
+        revisions.append(base.stdout.strip())
+    for revision in dict.fromkeys(revisions):
+        if tracked_predecessor(root, name, revision) is not None:
+            return revision
+    return None
+
+
+def record_evidence_absences(root, paths):
+    """Absence pins for recording: HEAD first, then the merge side if one is in progress."""
+    absent, sources = {}, {}
     for name, blob in paths.items():
-        if blob is None:
-            predecessor = tracked_predecessor(root, name, revision)
-            if predecessor is None:
-                fail("absent evidence path has no tracked predecessor")
+        if blob is not None:
+            continue
+        predecessor = tracked_predecessor(root, name)
+        if predecessor is not None:
             absent[name] = predecessor
-    return absent
+            continue
+        revision = merge_deletion_revision(root, name)
+        if revision is None:
+            fail("absent evidence path has no tracked predecessor")
+        absent[name] = tracked_predecessor(root, name, revision)
+        sources[name] = revision
+    return absent, sources
 
 
 def verify_evidence_absences(root, item):
     # Historical envelopes without this additive binding retain their meaning.
     if "absences" not in item:
         return
-    if item["absences"] != evidence_absences(root, item["paths"], item["head"]):
+    sources = item.get("absence_sources") or {}
+    if (not isinstance(sources, dict) or set(sources) - set(item["paths"])
+            or any(not isinstance(value, str) or not external_oid(value) for value in sources.values())):
+        fail("invalid evidence absence source")
+    expected = {}
+    for name, blob in item["paths"].items():
+        if blob is None:
+            predecessor = tracked_predecessor(root, name, sources.get(name, item["head"]))
+            if predecessor is None:
+                fail("absent evidence path has no tracked predecessor")
+            expected[name] = predecessor
+    if item["absences"] != expected:
         fail("evidence tracked predecessor changed")
 
 
@@ -18896,7 +18935,7 @@ def command_record_evidence(args):
         require_active(record)
         admitted_bytes = amendment_read(root, path)
         path_blobs = evidence_path_blobs(root, args.path or [])
-        absence_proof = evidence_absences(root, path_blobs)
+        absence_proof, absence_sources = record_evidence_absences(root, path_blobs)
         if record.get("schema_version") not in (3, 4, 5, 6):
             fail("record-evidence requires a schema 3 or 4 Cycle Record")
         gate = record["gates"][args.gate]
@@ -18999,6 +19038,8 @@ def command_record_evidence(args):
                     "summary": "passed" if result == "passed" else "failed" if result == "failed" else "unavailable", "urls": []}
         if absence_proof:
             envelope["absences"] = absence_proof
+        if absence_sources:
+            envelope["absence_sources"] = absence_sources
         if retained is not None:
             retained, truncated = retained[:EVIDENCE_SIDECAR_CAP], len(retained) > EVIDENCE_SIDECAR_CAP
             digest = write_sidecar(root, record["cycle_id"], retained)
@@ -19752,8 +19793,12 @@ def safe_paths(root, paths):
                 fail(f"refusing possible secret path: {name}")
         tracked = git(root, "ls-files", "--error-unmatch", "--", name, check=False).returncode == 0
         if not (root / pure).is_file() and not tracked and tracked_predecessor(root, name) is None:
-            fail(f"path does not exist: {name}")
-        if git(root, "check-ignore", "--quiet", "--", name, check=False).returncode == 0:
+            # A reconcile merge in progress may commit a deletion of a path the
+            # branch already dropped from HEAD; the merge side evidences it.
+            if merge_deletion_revision(root, name) is None:
+                fail(f"path does not exist: {name}")
+        own_artifact = name.startswith(".dbsctr/") and (root / pure).is_file() and not (root / pure).is_symlink()
+        if not own_artifact and git(root, "check-ignore", "--quiet", "--", name, check=False).returncode == 0:
             fail(f"path is ignored: {name}")
         cleaned.append(name)
     return cleaned
