@@ -7315,7 +7315,10 @@ class DbsctrctlTest(unittest.TestCase):
             self.repo, "history-capture-latest", "--database", str(database),
             "--state-root", str(state), "--page-size", "25",
         ).stdout)
-        self.assertLess(time.monotonic() - started, 1)
+        # Reuse must beat a full re-capture, but the helper spawn alone can
+        # exceed a second on contended Intel runners (observed 1.23s); the
+        # page-size assertions below pin the no-recapture semantics exactly.
+        self.assertLess(time.monotonic() - started, 3)
         self.assertEqual(latest["capture_id"], transient["capture_id"])
         self.assertEqual((latest["page_size"], latest["member_count"]), (25, 201))
         reused = json.loads(run(
