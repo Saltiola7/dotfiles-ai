@@ -662,6 +662,14 @@ printf '%s\n' "$CODEX_HOME" "$@" >"$HOME/codex-call"
     launched = subprocess.run(
         [str(wrapper), "argument with spaces"], env=environment, capture_output=True,
     )
+    if os.uname().machine != "arm64":
+        # codex-project supports no Intel-darwin release platform, so this
+        # fixture's darwin-aarch64 lock must be refused on the Intel PR/main
+        # lane; the managed-launch and symlink-rejection paths below are the
+        # ARM64 contract (same per-architecture pin as codex-install above).
+        assert launched.returncode != 0
+        assert "invalid Codex release lock" in launched.stderr.decode()
+        return
     assert launched.returncode == 0, launched.stderr.decode()
 
     assert (home / "codex-call").read_text().splitlines() == [
