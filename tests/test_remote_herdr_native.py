@@ -422,6 +422,9 @@ class FakeCore:
         if method == 'terminal.list':
             return {'terminals': copy.deepcopy(list(self.terminals.values())), 'machines': [], 'hidden_finished': 0}
         if method == 'terminal.get':
+            if params['terminal'] not in self.terminals:
+                # A real core errors on an address its inventory dropped.
+                raise native.NativeError('core terminal unavailable')
             return copy.deepcopy(self.terminals[params['terminal']])
         if method == 'terminal.run':
             number = len(self.terminals) + 1
@@ -768,6 +771,83 @@ def test_current_repair_waits_for_observed_created_client_readiness(backend):
     assert observations >= 2
     assert backend.store.read('manifest.json')['receipt']['terminals'] == {'s0-t0-p0': 't2'}
     assert sum(method == 'terminal.run' for method, _ in core.calls) == 2
+
+
+@pytest.mark.parametrize('old_terminal', ['finished', 'vanished'])
+def test_completed_unrecorded_swap_survives_core_restart(backend, old_terminal):
+    """R5: the swap reached the document but never the receipt; core restarted.
+
+    A durable create whose doc.set landed between a crash and the receipt
+    write leaves the leaf standing on the created terminal while the repair
+    still names the old one. After a core restart the old terminal may be
+    finished or gone from inventory entirely; recovery must complete the
+    repair from that exact retained state without replaying any intent.
+    """
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    backend.restore_current()
+    manifest = backend.store.read('manifest.json')
+    receipt = backend.store.read('receipt-testtx.json')
+    key = leaf = 's0-t0-p0'
+    pane = manifest['plan']['spaces'][0]['tabs'][0]['panes'][0]
+    old = receipt['terminals'][key]
+    old_pids = [core.terminals[old]['pid'], (core.terminals[old].get('foreground') or core.terminals[old])['pid']]
+    repair = backend._new_repair(receipt['txid'], leaf, old, pane, stopped=True,
+                                 pids=backend._pid_proofs(old_pids))
+    created = core.rpc('terminal.run', {'argv': [str(backend.home / '.local/bin/opencode'),
+                                                 '--session', pane['session_id']],
+                                        'cwd': pane['cwd'], 'labels': repair['labels'],
+                                        'keep': True, 'no_parent': True, 'no_notify': True, 'wait': False})
+    repair['created'] = created['address']
+    receipt['repairs'] = {leaf: repair}
+    # The swap completes in core; the crash keeps the receipt at its preimage.
+    core.rpc('terminal.kill', {'terminal': old})
+    core.document = native.layout.rebind_app_document(receipt['document'], {leaf: (old, repair['created'])})
+    core.version += 1
+    manifest['receipt'] = receipt
+    backend.store.write('manifest.json', manifest)
+    backend.store.write('receipt-testtx.json', receipt)
+    core.restart(keep_addresses=(repair['created'],))
+    if old_terminal == 'vanished':
+        core.terminals.pop(old)
+    before = len(core.calls)
+    backend.restore_current()
+    saved = backend.store.read('manifest.json')
+    assert saved['receipt']['terminals'][key] == repair['created']
+    assert not saved['receipt']['repairs']
+    assert native.sessions(saved['plan']) == {pane['session_id']}
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
+def test_unrecorded_swap_to_unknown_terminal_still_refuses(backend):
+    """Only the old and created terminals are admissible leaf bindings."""
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    backend.restore_current()
+    manifest = backend.store.read('manifest.json')
+    receipt = backend.store.read('receipt-testtx.json')
+    key = leaf = 's0-t0-p0'
+    pane = manifest['plan']['spaces'][0]['tabs'][0]['panes'][0]
+    old = receipt['terminals'][key]
+    old_pids = [core.terminals[old]['pid'], (core.terminals[old].get('foreground') or core.terminals[old])['pid']]
+    repair = backend._new_repair(receipt['txid'], leaf, old, pane, stopped=True,
+                                 pids=backend._pid_proofs(old_pids))
+    created = core.rpc('terminal.run', {'argv': [str(backend.home / '.local/bin/opencode'),
+                                                 '--session', pane['session_id']],
+                                        'cwd': pane['cwd'], 'labels': repair['labels'],
+                                        'keep': True, 'no_parent': True, 'no_notify': True, 'wait': False})
+    unknown = core.rpc('terminal.run', {'argv': ['/bin/bash', '-l'], 'cwd': pane['cwd'], 'labels': {}})
+    repair['created'] = created['address']
+    receipt['repairs'] = {leaf: repair}
+    core.rpc('terminal.kill', {'terminal': old})
+    core.terminals.pop(old)
+    core.document = native.layout.rebind_app_document(receipt['document'], {leaf: (old, unknown['address'])})
+    core.version += 1
+    manifest['receipt'] = receipt
+    backend.store.write('manifest.json', manifest)
+    backend.store.write('receipt-testtx.json', receipt)
+    with pytest.raises(native.NativeError, match='core repair binding changed'):
+        backend.restore_current()
 
 
 def test_current_uncertain_cas_accepts_later_unrelated_desktop_serialization(backend):

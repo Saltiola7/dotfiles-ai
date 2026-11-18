@@ -336,6 +336,24 @@ Use synthetic IDs, not live session prefixes or operator paths. Pins, live recov
 rollout, VM/Mac changes, 007H wrapper/config/activation work and 007I editor recovery
 remain outside this slice. Fork A owns the subsequent reviewed live operation.
 
+### Completed unrecorded swap (RRW-007G-R5 / INT-082)
+
+A durable create can reach the document while its receipt write never lands: a
+crash or core restart between the core mutation and the durable update leaves
+the leaf standing on the created terminal while the repair still names the old
+one. Classify must treat a leaf bound to `repair['created']` — with exact owned
+labels and the desired program (or an R4 retained shell) — as a completed
+repair, whether the old repair terminal is finished or gone from inventory
+entirely. Absence of a finished record is not weaker stop evidence once the
+recorded pids are proven absent; a retained-source observation, a stop guard or
+an apply-boundary rebind that indexes the old terminal must tolerate its
+absence the same way. Every ownership, process, version and CAS check is kept:
+a leaf bound to any terminal other than the old one or the created one still
+refuses, and the replacement is re-proven (labels, program, process identity,
+session coverage) before the bookkeeping completes. Recovery proceeds from the
+exact retained state without hand edits, replays no run/kill intent, and then
+adopts later panes as designed.
+
 ### Reboot-interrupted repair (RRW-007G-R4 / INT-082)
 
 Core can return an already-created replacement as a live labelled plain shell

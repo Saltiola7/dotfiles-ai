@@ -1,5 +1,22 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-18 — Completed unrecorded swap recovery (RRW-007G-R5)
+
+- Classify admits a leaf standing on `repair['created']` (exact owned labels,
+  desired program or an R4 retained shell) as a completed repair when the old
+  repair terminal is finished or absent from inventory after a core restart;
+  rebinding to any other terminal still refuses. The stopped-branch check, the
+  retained-source observation, the apply-loop source fetch and the pre-rebind
+  stop guard all tolerate a vanished old terminal while still requiring the
+  recorded pids to be absent.
+- The repair apply loop completes an already-published swap observationally:
+  it re-proves the replacement (labels, program, process identity, session
+  coverage) and finishes the leaf rebind bookkeeping without replaying any
+  terminal.run, terminal.kill or doc.set intent.
+- Regression coverage: the swap-completes-without-receipt → core-restart →
+  vanished/finished old terminal → app-like client connected scenario, and
+  the unknown-terminal refusal.
+
 ## 2026-11-16 — Remote Vertex credential isolation (RRW-007J)
 
 - On the remote workspace, `vertex-reauth` no longer touches the default ADC:

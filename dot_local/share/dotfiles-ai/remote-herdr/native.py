@@ -524,6 +524,17 @@ class Native:
             raise NativeError('core terminal identity mismatch')
         return result
 
+    def _terminal_or_none(self, address):
+        """A finished terminal can vanish from inventory after a core restart.
+
+        Absence is not an error for stop proofs: it is weaker evidence than a
+        finished record only in form, never in outcome, once the pids are gone.
+        """
+        try:
+            return self._terminal(address)
+        except (NativeError, KeyError):
+            return None
+
     def _wait_core_spawns(self):
         """A listening core can still be spawning its kept replacement shells."""
         def ready():
@@ -1760,12 +1771,20 @@ class Native:
                     raise NativeError('core repair binding unavailable')
                 # A rebound address requires the durable CAS intent to be
                 # reconciled first; never save old repair metadata over it.
-                if address != repair['terminal']:
+                # A leaf already standing on the created terminal is that
+                # reconciliation observed late: the swap completed without a
+                # recorded receipt (crash or restart between core mutation
+                # and receipt write), so the created binding is admissible.
+                if address != repair['terminal'] and address != repair.get('created'):
                     raise NativeError('core repair binding changed')
                 desired = repair['pane']
                 if repair.get('stopped'):
                     self._pids_absent_or_fail(repair['pids'])
-                    if lookup[repair['terminal']].get('state') != 'finished':
+                    old = lookup.get(repair['terminal'])
+                    # A core restart can drop a finished terminal from
+                    # inventory entirely; absence proves the stop as surely
+                    # as a finished record when the pids are gone.
+                    if old is not None and old.get('state') != 'finished':
                         raise NativeError('core repair stop outcome inconsistent')
                 if (not repair.get('stopped') and not repair.get('created')
                         and lookup[address].get('state') == 'finished'):
@@ -2185,6 +2204,16 @@ class Native:
         self._finish_leaf_rebind(receipt, pending['leaf'], pending['rebound']['document'],
                                  pending['rebound']['version'])
 
+    @staticmethod
+    def _leaf_terminal(document, leaf):
+        found = []
+        def collect(name, address):
+            if name == leaf:
+                found.append(address)
+            return None
+        layout.project_app_document(document, collect)
+        return found[0] if len(found) == 1 else None
+
     def _finish_leaf_rebind(self, receipt, leaf, document, version):
         repair = receipt['repairs'][leaf]
         key = next(k for k, value in receipt['bindings'].items() if value == leaf)
@@ -2244,11 +2273,18 @@ class Native:
         together with the shell-hop effect intent before any native mutation.
         """
         repair = layout._json_copy(receipt['repairs'][leaf])
-        original = self._terminal(repair['terminal'])
+        original = self._terminal_or_none(repair['terminal'])
         key = next(k for k, value in receipt['bindings'].items() if value == leaf)
-        if repair['pids'] is None or not self._same_labels(original.get('labels'), receipt['labels'][key]):
+        if repair['pids'] is None or (original is not None
+                and not self._same_labels(original.get('labels'), receipt['labels'][key])):
             raise NativeError('core retained source exit unproven')
-        if original.get('state') == 'finished':
+        if original is None:
+            # The inventory dropped the old terminal entirely (core restart);
+            # only pid absence can still prove the stop, source identity or not.
+            self._pids_absent_or_fail(repair['pids'])
+            repair['stopped'] = True
+            repair.pop('source', None)
+        elif original.get('state') == 'finished':
             if 'source' in repair:
                 pending = {'pane': key, 'terminal': repair['terminal'], 'pids': repair['pids'],
                            'identity': repair['source']}
@@ -2791,8 +2827,10 @@ class Native:
                 continue
             repair_sessions = ({repair['pane']['session_id']}
                                if repair['pane']['session_id'] is not None else set())
-            terminal = self._terminal(repair['terminal'])
+            terminal = self._terminal_or_none(repair['terminal'])
             if not repair.get('stopped') and 'source' not in repair:
+                if terminal is None:
+                    raise NativeError('core repair source unavailable')
                 if (not self._same_labels(terminal.get('labels'), receipt['labels'][key])
                         or self._actual_core_program(terminal) != (None, repair['pane']['cwd'])):
                     raise NativeError('core repair source ownership or program changed')
@@ -2830,6 +2868,17 @@ class Native:
                 self._wait_created_core(repair['created'], pane, repair['labels'])
                 receipt['pending'] = None
                 self._receipt(receipt)
+            if repair.get('created') and self._leaf_terminal(receipt['document'], leaf) == repair['created']:
+                # The durable create already reached the document (crash or
+                # restart between the core mutation and the receipt write).
+                # The observed binding is the completed swap: prove the
+                # replacement afresh and finish the bookkeeping without any
+                # new core mutation or replayed intent.
+                self._replacement_proof(repair)
+                self._source_before_rebind(receipt, key, leaf, repair)
+                self._current_effect_boundary(receipt)
+                self._finish_leaf_rebind(receipt, leaf, *self._document())
+                continue
             replacement = self._replacement_proof(repair)
             self._source_before_rebind(receipt, key, leaf, repair)
             updated = layout.rebind_app_document(receipt['document'], {leaf: (repair['terminal'], repair['created'])})
@@ -2851,7 +2900,8 @@ class Native:
         self._current_effect_boundary(receipt)
         if repair['stopped']:
             self._pids_absent_or_fail(repair['pids'])
-            if self._terminal(repair['terminal']).get('state') != 'finished':
+            original = self._terminal_or_none(repair['terminal'])
+            if original is not None and original.get('state') != 'finished':
                 raise NativeError('core repair guard exit unproven')
             return
         pending = {'pane': key, 'leaf': leaf, 'terminal': repair['terminal'],
