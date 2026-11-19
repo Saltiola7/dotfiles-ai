@@ -20,6 +20,12 @@
   starvation in evidence capture, not reproducible unloaded; the class retires
   with the macOS fleet. Branch-protection contexts are replaced by the owner
   once at cutover.
+- Two Linux product repairs surfaced by the first hosted flight: paced OpenCode
+  starts now claim their startup lock with native flock (live-foreign-pid
+  aware, shlock-compatible pid file) instead of the macOS-only /usr/bin/shlock;
+  and the worktree-removal process inventory runs lsof from the filesystem
+  root because Linux lsof lists itself and its helper with the inherited
+  working directory (helper pin bumped same-push).
 
 ## 2026-11-14 — Retain historical amendment profile identity
 
