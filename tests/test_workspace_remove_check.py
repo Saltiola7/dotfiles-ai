@@ -29,6 +29,16 @@ def removal(fixture, monkeypatch):
     return core, fixture.repo, target
 
 
+def test_process_scan_ignores_the_checkers_own_descendants(removal):
+    core, _, target = removal
+    child = subprocess.Popen(["sleep", "30"], cwd=target)
+    try:
+        assert core.workspace_processes(target) == []
+    finally:
+        child.terminate()
+        child.wait()
+
+
 def test_clean_code_only_checkout_can_be_removed_without_a_cycle(removal):
     core, primary, target = removal
     before = git(primary, "worktree", "list", "--porcelain")
@@ -478,6 +488,20 @@ def test_unrelated_preservation_policy_retains_legacy_inspection(removal, monkey
     assert core.workspace_remove_check(target) == expected
     assert expected["schema_version"] == 1
     assert "retained_24_hours" in expected["reasons"]
+
+
+def test_merged_delivery_waives_young_retention(removal, monkeypatch):
+    core, primary, target = removal
+    path, record, policy = strict_cycle(core, target)
+    monkeypatch.delenv("DBSCTR_REMOVAL_FD", raising=False)
+    head = record["commits"][-1]["id"]
+    # Unmerged: the young completed cycle is retained.
+    assert "retained_24_hours" in core.legacy_workspace_remove_check(target)["reasons"]
+    # Merged into the default branch (remote-tracking ref): retention waived.
+    git(primary, "update-ref", "refs/remotes/origin/main", head)
+    result = core.legacy_workspace_remove_check(target)
+    assert "retained_24_hours" not in result["reasons"]
+    assert core.cycle_merged_into_default(primary, record) is True
 
 
 def test_satisfied_synthetic_oracle_cannot_remove_permanent_runtime_blockers(removal, monkeypatch):

@@ -1,5 +1,20 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-19 — WKR-001: worktree retention ends at default-branch merge (3.31)
+
+- Operator policy: a completed cycle becomes removable as soon as its
+  recorded commits are contained in the protected default branch; the
+  24-hour clock now applies only to unmerged completions. All three
+  retention sites gain the waiver; the remove path fetches the delivery
+  base first for a fresh observation.
+- Fix two live removal false positives on automounted checkouts: the
+  user session manager's transient automount descriptors and processes
+  that vanish mid-scan no longer block removal.
+- Method Revision 3.30 → 3.31 across helper constant, skill text,
+  lifecycle spec and revision-pin tests. Live-verified: merged MKL-001
+  worktree removed immediately under the new rule; active cycles keep
+  their worktrees.
+
 ## 2026-11-14 — Retain historical amendment profile identity
 
 - Read cross-repository amendment profiles at their immutable checkout snapshot,

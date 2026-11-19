@@ -1693,7 +1693,7 @@ evaluation reports, active backlog work, and bounded operational follow-ups.
 | Languages/frameworks | Language-neutral Markdown prompts; Python contract tests |
 | Modules | Python, Security, Data, Cloud, ML/AI, Analytics, Web/UI |
 | Runtime/platform support | OpenCode on the managed dotfiles environment; Python `>=3.12` test harness |
-| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.30`; V1 removed; V2 source archived |
+| Public compatibility | Unversioned `/discovery`, `/dbsctr`, and `/qa`; Method Revision `3.31`; V1 removed; V2 source archived |
 | Trust/data classification | Local configuration and public methodology; no sensitive application data |
 | Operational owner | Dotfiles owner maintains deployment and OpenCode compatibility |
 
@@ -3220,8 +3220,10 @@ schema-less/schema-1/schema-2 records remain readable without implicit rewriting
 Method Revision `3.8` creates schema version `3` records with an Evidence Envelope
 collection; old records retain their original transition and evidence semantics.
 Method Revisions through `3.28` retain their recorded schema-3 or schema-4
-semantics. Method Revision `3.30` continues to create schema-version `5` records
-and the helper uses one `CURRENT_METHOD_REVISION = "3.30"` constant. Older method
+semantics. Method Revision `3.31` continues to create schema-version `5` records
+and the helper uses one `CURRENT_METHOD_REVISION = "3.31"` constant. `3.31` changes
+worktree retention to end at delivery merge into the protected default branch
+(or 24 hours when no merge applies); `3.30` and older method
 revisions remain readable; coordinator authority is separate private custody and
 does not silently enroll historical records.
 
@@ -3285,8 +3287,10 @@ sets the delivery upstream, starts the cycle, and returns a JSON OpenCode handof
 Dirty source-worktree files are neither copied nor changed. `start` remains the
 low-level command for an already prepared clean worktree.
 
-`dbsctrctl cleanup --cycle-id ID` retains successful worktrees for 24 hours by
-default. Cleanup must run from another worktree and requires a completed record,
+`dbsctrctl cleanup --cycle-id ID` retains successful worktrees until their
+delivery merges into the protected default branch (observed through the
+remote-tracking ref), or for 24 hours when no merge applies. Cleanup must run
+from another worktree and requires a completed record,
 a clean cycle worktree, and proof that every cycle commit is contained in the
 delivery target. `--now` waives only the retention delay. Failed, active, dirty,
 missing-target, or current worktrees are never removed.
