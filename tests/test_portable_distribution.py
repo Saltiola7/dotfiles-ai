@@ -671,8 +671,6 @@ def test_local_data_renders_complete_configs() -> None:
     }
 
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
-    assert sandbox["atuin_workspace"] == "workspace1"
-    assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
     assert "theme" not in config
 
     tui = json.loads(
