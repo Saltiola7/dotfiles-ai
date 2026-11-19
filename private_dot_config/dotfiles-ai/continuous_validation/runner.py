@@ -318,6 +318,9 @@ def validate_enrollment(value):
     config = value.setdefault("adapter_config", {})
     if not isinstance(config, dict) or len(canonical(config)) > 64 * 1024:
         raise ValidationError("invalid_adapter_config")
+    if "remote_engine" in config:
+        from . import remote_engine
+        remote_engine.validate_config(config, repository_id=value["repository_id"], worktree=root)
     for name, default, maximum in (("max_running", 2, 8), ("max_expensive", 1, 4)):
         value.setdefault(name, default)
         if type(value[name]) is not int or not 1 <= value[name] <= maximum:
@@ -962,13 +965,18 @@ def process(argv, payload, cwd, log_path, timeout, cancel=lambda: False):
                 raise UncertainTermination("termination_unconfirmed")
 
 
-def validate_manifest(value):
+def validate_manifest(value, *, enrollment=None):
     closed(value, {"schema_version", "adapter_id", "input_patterns", "checks"}, {"schema_version", "adapter_id", "input_patterns", "checks"})
     identifier(value["adapter_id"])
     validate_input_patterns(value["input_patterns"])
     if not isinstance(value["checks"], list) or not 1 <= len(value["checks"]) <= 256:
         raise ValidationError("invalid_checks")
     seen = set()
+    remote = None
+    if enrollment is not None and "remote_engine" in enrollment.get("adapter_config", {}):
+        from . import remote_engine
+        remote = remote_engine.validate_config(enrollment["adapter_config"],
+            repository_id=enrollment["repository_id"], worktree=enrollment["worktree"])
     for check in value["checks"]:
         closed(check, CHECK_FIELDS, CHECK_FIELDS)
         identifier(check["id"])
@@ -978,7 +986,12 @@ def validate_manifest(value):
             raise ValidationError("invalid_check")
         seen.add(check["id"])
         closed(check["lane"], LANE_FIELDS, LANE_FIELDS)
-        if type(check["timeout_seconds"]) is not int or not 1 <= check["timeout_seconds"] <= 3600 or type(check["cacheable"]) is not bool or not isinstance(check["configuration"], dict):
+        if not isinstance(check["configuration"], dict):
+            raise ValidationError("invalid_check")
+        limit = 3600
+        if remote is not None:
+            limit = remote_engine.timeout_limit(remote, check)
+        if type(check["timeout_seconds"]) is not int or not 1 <= check["timeout_seconds"] <= limit or type(check["cacheable"]) is not bool:
             raise ValidationError("invalid_check")
         declaration = check["configuration"].get("test_identity")
         if declaration is not None and (not isinstance(declaration, str)
@@ -988,9 +1001,53 @@ def validate_manifest(value):
 
 
 def adapter_call(enrollment, action, payload, root, state, cancel=lambda: False, timeout=60):
-    payload = {**payload, "config": enrollment["adapter_config"]}
+    # Control permission belongs to the parent. Repository processes receive only
+    # the ordinary execution settings, including the preselected engine URI.
+    config = {key: value for key, value in enrollment["adapter_config"].items() if key != "remote_engine"}
+    payload = {**payload, "config": config}
     return process([enrollment["adapter_python"], str(root / enrollment["adapter"]), action],
                    payload, root, state / "logs" / (uuid.uuid4().hex + ".log"), timeout, cancel)
+
+
+def validate_adapter_result(result, check_id):
+    fields = {"schema_version", "check_id", "status", "exit_code", "runtime", "test_ids", "diagnostic_codes"}
+    closed(result, fields, fields)
+    if (result["check_id"] != check_id or not isinstance(result["status"], str)
+            or result["status"] not in {"passed", "failed", "unavailable", "interrupted"}
+            or not isinstance(result["runtime"], dict)):
+        raise ValidationError("invalid_check_result")
+    if {"remote_engine", "remote_execution"} & result["runtime"].keys():
+        raise ValidationError("reserved_remote_runtime")
+    if result["exit_code"] is not None and (type(result["exit_code"]) is not int or not 0 <= result["exit_code"] <= 255):
+        raise ValidationError("invalid_exit_code")
+    if result["status"] == "passed" and result["exit_code"] != 0:
+        raise ValidationError("invalid_pass")
+    for field in ("test_ids", "diagnostic_codes"):
+        if not isinstance(result[field], list) or len(result[field]) > 10000:
+            raise ValidationError("invalid_diagnostics")
+        for item in result[field]:
+            text(item, 1024)
+    if any(not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", item) for item in result["diagnostic_codes"]):
+        raise ValidationError("invalid_diagnostic_code")
+    return result
+
+
+def execute_adapter(enrollment, check, payload, root, state, cancel, execution):
+    """Own the one remote guard around the ordinary local adapter process tree."""
+    config = None
+    if check["backend"] == "dagger" and "remote_engine" in enrollment["adapter_config"]:
+        from . import remote_engine
+        config = remote_engine.validate_config(enrollment["adapter_config"],
+            repository_id=enrollment["repository_id"], worktree=enrollment["worktree"])
+    if config is None:
+        return validate_adapter_result(adapter_call(enrollment, "execute", payload, root, state,
+            cancel, check["timeout_seconds"]), check["id"])
+    owner = remote_engine.OwnerControl(config, state / "remote-engine")
+    with remote_engine.remote_engine_session(config, check, execution=execution, owner=owner,
+            cancel=cancel, remaining_seconds=check["timeout_seconds"]) as session:
+        result = validate_adapter_result(adapter_call(enrollment, "execute", payload, root, state,
+            session.cancel, session.work_timeout), check["id"])
+    return {**result, "runtime": {**result["runtime"], **session.runtime}}
 
 
 def event(state, value):
@@ -1226,7 +1283,7 @@ def _run_request(request):
                 or generation_token(current) != expected_generation)
     with budget.slot("cheap", preparation_canceled, enrollment["admission_timeout_seconds"]) as preparation_queue_seconds:
         preparation_started = time.monotonic()
-        manifest = validate_manifest(adapter_call(enrollment, "describe", {"schema_version": 1}, root, state))
+        manifest = validate_manifest(adapter_call(enrollment, "describe", {"schema_version": 1}, root, state), enrollment=enrollment)
         patterns = list(dict.fromkeys([*manifest["input_patterns"], enrollment["adapter"]]))
         snapshot = capture_snapshot(root, patterns, state, enrollment["base"])
         _require_checkpoint_head(request, root, snapshot["head"])
@@ -1346,24 +1403,18 @@ def _run_request(request):
                                 code = str(error)
                                 raise ValidationError(code if re.fullmatch(r"pr_agent_[a-z0-9_]{1,96}", code)
                                                       else "pr_agent_execution_unavailable") from None
+                            validate_adapter_result(result, check_id)
                         else:
-                            result = adapter_call(enrollment, "execute", {"schema_version": 1, "snapshot": snapshot["path"], "base": snapshot["base"], "trigger": request["trigger"], "check": check, "log_path": str(log_path)}, Path(snapshot["path"]), state, cancel, check["timeout_seconds"])
+                            execution = {"execution_id": observation_id, "repository_id": enrollment["repository_id"],
+                                         "request_id": request_id, "snapshot_id": snapshot["id"],
+                                         "manifest_digest": digest(manifest), "selection_digest": digest(selection),
+                                         "check_digest": digest(check), "check_id": check_id}
+                            result = execute_adapter(enrollment, check,
+                                {"schema_version": 1, "snapshot": snapshot["path"], "base": snapshot["base"],
+                                 "trigger": request["trigger"], "check": check, "log_path": str(log_path)},
+                                Path(snapshot["path"]), state, cancel, execution)
                     finally:
                         execution_seconds = time.monotonic() - execution_started
-                closed(result, {"schema_version", "check_id", "status", "exit_code", "runtime", "test_ids", "diagnostic_codes"}, {"schema_version", "check_id", "status", "exit_code", "runtime", "test_ids", "diagnostic_codes"})
-                if result["check_id"] != check_id or result["status"] not in {"passed", "failed", "unavailable", "interrupted"} or not isinstance(result["runtime"], dict):
-                    raise ValidationError("invalid_check_result")
-                if result["exit_code"] is not None and (type(result["exit_code"]) is not int or not 0 <= result["exit_code"] <= 255):
-                    raise ValidationError("invalid_exit_code")
-                if result["status"] == "passed" and result["exit_code"] != 0:
-                    raise ValidationError("invalid_pass")
-                for field in ("test_ids", "diagnostic_codes"):
-                    if not isinstance(result[field], list) or len(result[field]) > 10000:
-                        raise ValidationError("invalid_diagnostics")
-                    for item in result[field]:
-                        text(item, 1024)
-                if any(not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", item) for item in result["diagnostic_codes"]):
-                    raise ValidationError("invalid_diagnostic_code")
             declaration = check["configuration"].get("test_identity")
             receipt = result["runtime"].get("test_identity")
             if receipt is not None or declaration is not None and result["status"] in {"passed", "failed"}:
@@ -1579,7 +1630,7 @@ def watch(enrollment_path, once=False):
     if not enrollment["enabled"]:
         return {"schema_version": 1, "status": "disabled"}
     state = private_dir(Path(enrollment["state_dir"]))
-    manifest = validate_manifest(adapter_call(enrollment, "describe", {"schema_version": 1}, Path(enrollment["worktree"]), state))
+    manifest = validate_manifest(adapter_call(enrollment, "describe", {"schema_version": 1}, Path(enrollment["worktree"]), state), enrollment=enrollment)
     patterns = [*manifest["input_patterns"], enrollment["adapter"]]
     previous = None
     first_change = last_change = None
@@ -1700,7 +1751,7 @@ def validate_observation(value, *, legacy=False):
 
 
 RUNTIME_MEASUREMENTS = {"cache", "cache_metrics", "cache_counters", "metrics", "resource_metrics",
-                        "dagger_cache_metrics", "artifacts", "termination_signal", "test_identity", "advisory_review"}
+                        "dagger_cache_metrics", "artifacts", "termination_signal", "test_identity", "advisory_review", "remote_execution"}
 
 
 def comparison_runtime(observation):
