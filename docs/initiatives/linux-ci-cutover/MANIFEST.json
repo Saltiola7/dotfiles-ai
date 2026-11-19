@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "id": "linux-ci-cutover",
+  "title": "Move validation to Linux runners: matrix cutover, qualification fixes, and a RHEL-family surface lane",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "contexts": [
+    {
+      "id": "dbsctr_v3_lifecycle",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "dotfiles_ai_distribution",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    }
+  ],
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "The full-suite workflow runs on GitHub-hosted Linux runners (ubuntu-24.04, x86_64). Partitions retain the complete collection across the shard map; the retired second worktrunk axis is not reintroduced.",
+      "disposition": "ready",
+      "artifacts": [".github/workflows/test.yml"]
+    },
+    {
+      "id": "INT-002",
+      "kind": "constraint",
+      "text": "The same-attempt receipt verifier and aggregate lane-coverage checks are preserved unchanged; only full-run reruns can satisfy them.",
+      "disposition": "ready",
+      "artifacts": ["tests/ci_shard.py"]
+    },
+    {
+      "id": "INT-003",
+      "kind": "requirement",
+      "text": "The uv setup step uses caching and a retry so a tool fetch cannot fail a partition before any test runs.",
+      "disposition": "ready",
+      "artifacts": [".github/workflows/test.yml"]
+    },
+    {
+      "id": "INT-004",
+      "kind": "decision",
+      "text": "Branch-protection required contexts are replaced exactly once at cutover by the owner; strict require-up-to-date and enforce_admins are preserved. The cutover merge, the context replacement and the default-branch Linux-only verification are ordered together.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    },
+    {
+      "id": "INT-005",
+      "kind": "requirement",
+      "text": "The durable qualification fixes land with the cutover so the new matrix starts green: the per-architecture codex wrapper fixture pin, the load-tolerant capture-latest timing bound, the widened smoke-benchmark runaway guard, and the completion-binding input_capture_unavailable triage with a defect fix or reasoned load tolerance.",
+      "disposition": "ready",
+      "artifacts": [
+        "tests/test_portable_distribution.py",
+        "tests/test_dbsctrctl.py",
+        "tests/test_python_performance.py",
+        "tests/test_completion_binding_cli.py"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "kind": "decision",
+      "text": "PR #315 closes as superseded once its durable fixes are folded; its macOS-lane qualification is not completed.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    },
+    {
+      "id": "INT-007",
+      "kind": "requirement",
+      "text": "A RHEL-family surface lane runs the RHEL-critical checks in redhat/ubi9 container jobs on hosted Linux runners: quadlet generation, systemd user-unit rendering and install-script behavior on affected changes.",
+      "disposition": "ready",
+      "artifacts": [".github/workflows/test.yml"]
+    },
+    {
+      "id": "INT-008",
+      "kind": "requirement",
+      "text": "An aarch64 parity lane covers ARM64 Linux hosts; the replacement workstation is aarch64 and the codex wrapper already ships linux-aarch64 assets.",
+      "disposition": "ready",
+      "artifacts": [".github/workflows/test.yml"]
+    },
+    {
+      "id": "INT-009",
+      "kind": "decision",
+      "text": "Substrate policy is RHEL-grade primitives first: rootless podman, quadlet, systemd user units and SELinux where native. Distro deltas stay isolated; nothing core depends on rolling-release-only behavior; floating tooling is pinned.",
+      "disposition": "ready",
+      "artifacts": ["docs/specs/dotfiles_ai_distribution/PROFILE.md"]
+    },
+    {
+      "id": "INT-010",
+      "kind": "decision",
+      "text": "The portable isolation baseline is rootless podman with user namespaces and seccomp; SELinux volume labeling and custom types are the RHEL enhancement layer; custom policy generation stays deferred.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    },
+    {
+      "id": "INT-011",
+      "kind": "constraint",
+      "text": "The operational RHEL remote workspace (shared with a colleague) is a read-only-first validation reference coordinated through the rhel-remote-workspace authority in the coordinator repository; this initiative changes nothing on it.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    },
+    {
+      "id": "INT-012",
+      "kind": "constraint",
+      "text": "OpenShell agent-session work continues in the openshell-pilot initiative, amended for the Linux-native substrate with a pinned current release; its acceptance feeds RRW-H03. Deferred here, not duplicated.",
+      "disposition": "deferred",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    },
+    {
+      "id": "INT-013",
+      "kind": "constraint",
+      "text": "Non-goals: paid or larger runners; weakening the receipt verifier; re-introducing a lima path on macOS (superseded by macos-workstation-retirement); pm-kernel internals; any mutation of the RHEL remote workspace.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    },
+    {
+      "id": "INT-014",
+      "kind": "risk",
+      "text": "Protection-window mismatch during required-context replacement can block merges; mitigated by the owner-performed single edit ordered with the cutover merge.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    },
+    {
+      "id": "INT-015",
+      "kind": "risk",
+      "text": "Shared Linux runners contend under load; the folded timing bounds and runaway guards carry over and partitions are sized with headroom.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    }
+  ],
+  "slices": [
+    {
+      "id": "linux-matrix-rewrite",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-013", "INT-014"],
+      "depends_on": [],
+      "release_group": "cutover",
+      "artifacts": [
+        ".github/workflows/test.yml",
+        "tests/ci_shard.py",
+        "tests/test_ci_shard.py",
+        "docs/initiatives/linux-ci-cutover/README.md",
+        "docs/initiatives/linux-ci-cutover/MANIFEST.json"
+      ]
+    },
+    {
+      "id": "qualification-fixes-fold",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "captured",
+      "execution_owner": "build",
+      "requirements": ["INT-005", "INT-006", "INT-015"],
+      "depends_on": ["linux-matrix-rewrite"],
+      "release_group": "cutover",
+      "artifacts": [
+        "tests/test_portable_distribution.py",
+        "tests/test_dbsctrctl.py",
+        "tests/test_python_performance.py",
+        "tests/test_completion_binding_cli.py"
+      ]
+    },
+    {
+      "id": "rhel-surface-lanes",
+      "context": "dotfiles_ai_distribution",
+      "state": "captured",
+      "execution_owner": "build",
+      "requirements": ["INT-007", "INT-008", "INT-009", "INT-010", "INT-011"],
+      "depends_on": ["linux-matrix-rewrite"],
+      "release_group": "cutover",
+      "artifacts": [
+        ".github/workflows/test.yml",
+        "docs/specs/dotfiles_ai_distribution/PROFILE.md"
+      ]
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "cutover",
+      "members": ["linux-matrix-rewrite", "qualification-fixes-fold", "rhel-surface-lanes"],
+      "state": "ready"
+    }
+  ]
+}
