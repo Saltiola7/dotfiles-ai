@@ -772,12 +772,12 @@ def test_native_teardown_skips_preserve_event_counts_and_parent_totals(native_ch
     }
 
 
-def test_summary_qualifies_portable_verifier_without_moving_native_workers():
+def test_summary_qualifies_portable_verifier_with_linux_native_workers():
     workflow = (ROOT / ".github/workflows/test.yml").read_text()
     workers, summary = workflow.split("\n  test:\n", 1)
-    assert "    runs-on: macos-26\n" in workers
+    assert "    runs-on: ubuntu-24.04\n" in workers
     assert "    timeout-minutes: 150\n" in workers
-    assert "      - name: Check native Swift compilation\n" in workers
+    assert "macos-" not in workflow
     assert "    runs-on: ubuntu-24.04\n" in summary
     assert "    needs: test-shard\n" in summary
     assert "    if: ${{ always() }}\n" in summary

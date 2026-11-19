@@ -47,6 +47,9 @@ def setup(tmp_path, monkeypatch):
         return ""
 
     monkeypatch.setattr(module, "run", run)
+    # Filesystem reflink capability is qualified live by the real helper; these
+    # unit tests exercise configuration sequencing on any development host.
+    monkeypatch.setattr(module, "qualify_reflink", lambda root, cache: None)
     return module, root, primary, cache, calls, effective
 
 

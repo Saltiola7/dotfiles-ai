@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tomllib
 
@@ -119,7 +120,9 @@ def test_verified_native_archives_install_once_without_starting_a_core(tmp_path)
     config = configured()
     config["dotfiles_ai"]["herdr_linux_desktop"].update(app_arm64_sha256=app_sha, core_arm64_sha256=core_sha)
     executable(bin_dir / "uname", '#!/bin/sh\n[ "$1" = -s ] && echo Linux || echo aarch64\n')
-    executable(bin_dir / "sha256sum", '#!/bin/sh\nexec shasum -a 256 "$@"\n')
+    if sys.platform == "darwin":
+        # macOS hosts lack GNU sha256sum; Linux runs the real one unshimmed.
+        executable(bin_dir / "sha256sum", '#!/bin/sh\nexec shasum -a 256 "$@"\n')
     executable(bin_dir / "curl", '''#!/bin/sh
 case "$*" in *'/core/'*) source="$CORE_ARCHIVE" ;; *) source="$APP_ARCHIVE" ;; esac
 while [ "$1" != -o ]; do shift; done

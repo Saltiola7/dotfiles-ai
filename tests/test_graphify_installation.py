@@ -123,6 +123,7 @@ def bundle(path):
             for file in path.rglob("*") if file.is_file()}
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Graphify installer requires the native macOS sandbox")
 def test_missing_bootstrap_preserves_recipe_and_reapplies(installation):
     home, tools, caller, runtime, seed, env = installation
     result = install(installation)
@@ -144,6 +145,7 @@ def test_missing_bootstrap_preserves_recipe_and_reapplies(installation):
 
 
 @pytest.mark.parametrize("version", ["0.9.50", "0.10.0"])
+@pytest.mark.skipif(sys.platform != "darwin", reason="Graphify installer requires the native macOS sandbox")
 def test_healthy_existing_runtime_and_dependencies_are_not_replaced(installation, version):
     home, tools, caller, runtime, seed, env = installation
     retain(installation, version)
@@ -176,6 +178,7 @@ def test_failed_admission_keeps_existing_skill_and_does_not_install(installation
     assert not (caller / ".opencode").exists()
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Graphify installer requires the native macOS sandbox")
 def test_refresh_preserves_complete_prior_skill_outside_discovery(installation):
     home, tools, caller, runtime, seed, env = installation
     retain(installation)
@@ -226,6 +229,7 @@ def test_native_skill_installer_cannot_write_outside_private_scratch(installatio
     assert not (home / ".config/opencode/skills/graphify").exists()
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Graphify installer requires the native macOS sandbox")
 def test_installer_driver_does_not_import_caller_modules(installation):
     home, tools, caller, runtime, seed, env = installation
     retain(installation)

@@ -1,5 +1,26 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-19 — Move the full-suite matrix to Linux runners
+
+- Rewrite the hosted validation plane to ubuntu-24.04: workers and the
+  aggregate verifier both run on Linux, four partitions keep the complete
+  collection, and the retired second Worktrunk axis stays retired with one
+  qualified tool lane (0.81.0). The same-attempt receipt verifier, lane
+  coverage reconciliation and fail-closed aggregate contract are unchanged.
+- The uv setup gains explicit caching plus a retrying Python tool install so a
+  fetch cannot fail a partition before tests run; chezmoi and Worktrunk install
+  from sha256-pinned Linux release archives. The native Swift compilation step
+  retires with the macOS runners; its test is now darwin-gated alongside the
+  Herdr Host app and Graphify macOS-sandbox installer qualifications.
+- Fold the durable qualification fixes from superseded PR #315 (codex wrapper
+  fixture pin, capture-latest timing bound, smoke-benchmark runaway guard) and
+  the Linux platform truths for workflow-contract, distribution-inventory,
+  worktrunk-policy, DVC-setup and codex-projector tests. The completion-binding
+  input_capture_unavailable macOS failure is dispositioned as bounded-read
+  starvation in evidence capture, not reproducible unloaded; the class retires
+  with the macOS fleet. Branch-protection contexts are replaced by the owner
+  once at cutover.
+
 ## 2026-11-14 — Retain historical amendment profile identity
 
 - Read cross-repository amendment profiles at their immutable checkout snapshot,

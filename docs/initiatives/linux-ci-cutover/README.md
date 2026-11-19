@@ -33,7 +33,7 @@ Related initiatives, deliberately not duplicated here:
   lima machinery and made the VM the verified workstation.
 - `openshell-pilot` — agent sandboxing on rootless podman; resumes from
   its recovered authority on the Linux substrate (see INT-012).
-- `rhel-remote-workspace` (coordinator repository, mgm scope) — the
+- `rhel-remote-workspace` (coordinator repository, company scope) — the
   cross-repo RHEL remote-workspace authority; this initiative only reads
   its target as a validation reference (INT-011).
 
