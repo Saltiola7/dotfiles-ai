@@ -5,6 +5,13 @@ opt-in synthetic capture measurements and qualified per-controller memory eviden
 Its source-only tooling does not modify the runner, enroll worktrees or activate
 workers. Discovery readiness does not establish collected resource measurements.
 
+**Retired execution path (2026-11-18):** the lima-backed local execution
+environment (`local_engine.py`, `engine/lima.yaml`) retired with the macOS
+workstation ([macos-workstation-retirement](../../initiatives/macos-workstation-retirement/README.md)).
+Continuous validation is a new experimental feature; its VM-native development
+(dagger backend against the local podman socket on the Try Omarchy VM)
+proceeds as a separate effort and is not gated by this retirement.
+
 **Status:** implemented default-off local advisory shadow with explicit checkpoint
 hooks, complete test-identity receipts, typed Codex/OpenCode CLI feedback and
 independently opted-in PR-Agent review.

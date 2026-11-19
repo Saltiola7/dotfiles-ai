@@ -1,5 +1,18 @@
 # dotfiles-ai Distribution
 
+## macOS workstation retirement (2026-11-18)
+
+The mac-mini workstation stack retired
+([macos-workstation-retirement](../../initiatives/macos-workstation-retirement/README.md)):
+the lima sandbox subsystem (sandbox-vm, instance templates, sandbox.json,
+atuin-workspace agent) and every darwin LaunchAgent were deleted from source,
+and the machine now applies only the personal dotfiles. The Try Omarchy VM is
+the sole workstation target: atuin (self-hosted fleet server) and PM/DBSCTR
+PostgreSQL run as podman quadlets, verified live at cutover. The
+`remote_user_environment` fleet paths and linux workstation installers are
+unaffected. Herdr Desktop's installed binary on the mini remains until the
+operator gates its removal.
+
 [Completion reconciliation rollout](features/workflow-completion-rollout.md)
 specifies compatible managed activation and one privately nominated successful
 cycle recovery after merged source. It preserves evidence and separates logical

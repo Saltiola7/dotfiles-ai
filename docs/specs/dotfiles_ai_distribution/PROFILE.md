@@ -6,7 +6,7 @@
 | Owner | Project maintainers |
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, and launchd plist |
 | Modules | Python, Security, Cloud |
-| Runtime/platform support | Apple Silicon macOS; Fedora 44 aarch64 Lima guests on VZ; intended RHEL 10 x86_64 remote-workspace successor (release qualification pending); optional default-off Omarchy (Arch Linux) security-toolchain profile; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
+| Runtime/platform support | Try Omarchy VM (Arch Linux aarch64 workstation, the sole workstation target since the 2026-11-18 retirement); remote user environments (RHEL 10 x86_64 qualification pending); optional default-off Omarchy security-toolchain profile. Apple Silicon macOS workstation and Fedora Lima guests retired 2026-11-18; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
 | Compatibility | Stable local TOML keys and managed state boundaries; OpenCode-default automation; sanitized defaults; qualified native platform-local installer ownership with compatibility and recovery checks |
 | Trust/data | Public configuration; credentials and machine identifiers remain local |
 | Delivery | Feature branch and draft pull request; managed local deployment only after affected gates pass |

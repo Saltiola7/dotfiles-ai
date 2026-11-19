@@ -2494,3 +2494,21 @@ delivery requires a feature branch and verified draft pull request into protecte
   required a visible server restart.
 - Gate Exceptions: none.
 - Intended Final Push: `origin/main`.
+
+## 2026-11-18 — macOS workstation retirement
+
+- Initiative: macos-workstation-retirement; 7 slices, one release group.
+- lima subsystem (sandbox-vm, lima/ templates, sandbox.json, atuin-workspace
+  agent + loader, sandbox data keys, aliases, LIMA_SANDBOX.md) deleted.
+- All darwin LaunchAgents and loaders deleted; configure-pm-postgres darwin
+  path removed (linux quadlet path retained); CV lima execution environment
+  removed; test_lima_sandbox.py removed.
+- Verified survivors with live VM consumers: state-root-exec,
+  install-dbsctr-embedding, enable-pm-postgres, enable-atuin-server,
+  remote-* install scripts, herdr-host build path, dagger _local_engine.
+- Deployment: mini teardown (agents booted out, drift obsidian agents
+  removed, dotfiles-ai config retired) + VM convergence on main.
+- Validation: suite green; VM apply clean; both quadlets healthy.
+- Gate Exceptions: pm-postgres backup gap accepted (INT-005; pm-kernel
+  refactor session owns the follow-up).
+- Intended Final Push: `origin/main`.

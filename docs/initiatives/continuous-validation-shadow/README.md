@@ -1,7 +1,10 @@
 # Opt-in continuous validation shadow
 
 Status: source implementation and bounded local qualification; activation and
-performance results remain separately evidenced. This document does not publish
+performance results remain separately evidenced. The lima-backed local
+execution environment retired on 2026-11-18 with the macOS workstation
+([macos-workstation-retirement](../macos-workstation-retirement/README.md));
+the feature's VM-native chapter on the Try Omarchy VM is the follow-on. This document does not publish
 live lifecycle gate state.
 
 ## Purpose
