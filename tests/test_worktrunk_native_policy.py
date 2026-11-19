@@ -244,7 +244,7 @@ def test_mount_replacement_and_partial_generation_refuse(policy, storage_home, m
 
 @pytest.mark.parametrize("system,version,accepted", [
     ("Darwin", "wt v0.80.0", True), ("Darwin", "wt v0.81.0", True),
-    ("Linux", "wt v0.80.0", True), ("Linux", "wt v0.81.0", False),
+    ("Linux", "wt v0.80.0", True), ("Linux", "wt v0.81.0", True),
     ("Darwin", "wt v0.82.0", False), ("Darwin", "private-output\nsecret", False),
 ])
 def test_qualified_snapshot_binds_actual_platform_version(policy, storage_home, monkeypatch,

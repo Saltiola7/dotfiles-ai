@@ -36,7 +36,7 @@ class UnsupportedWorktrunk(ValueError):
 
 
 def worktrunk_version():
-    supported = ("wt v0.80.0", "wt v0.81.0") if platform.system() == "Darwin" else ("wt v0.80.0",)
+    supported = ("wt v0.80.0", "wt v0.81.0")
     observed = run("wt", "--version").decode(errors="replace").strip()
     if observed not in supported:
         safe = observed if re.fullmatch(r"wt v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}", observed) else "unrecognized"
