@@ -12,16 +12,6 @@
 {{- if hasKey .dotfiles_ai "workspaces" -}}
 {{- $_ := set $references "workflow-worktrees" (dict "path" $newRoot "description" "Configured parent for new native worktrees; reference only, not activation or allocation authority. Exact repository overrides are resolved by workflow-policy.") -}}
 {{- end -}}
-{{- range .dotfiles_ai.sandbox.workspaces -}}
-  {{- range .mounts -}}
-    {{- if ne .reference_name "" -}}
-      {{- $path := .host -}}
-      {{- if eq $.chezmoi.os "linux" }}{{ $path = .guest }}{{ end -}}
-      {{- if ne .reference_subpath "" }}{{ $path = joinPath $path .reference_subpath }}{{ end -}}
-      {{- $_ := set $references .reference_name (dict "path" $path "description" .reference_description) -}}
-    {{- end -}}
-  {{- end -}}
-{{- end -}}
 {
   "$schema": "https://opencode.ai/config.json",
   "compaction": {
@@ -401,14 +391,6 @@
       "herdr tab close*": "ask",
       "herdr session stop*": "ask",
       "herdr session delete*": "ask",
-      "sandbox-vm create*": "ask",
-      "sandbox-vm update*": "ask",
-      "sandbox-vm install-make*": "ask",
-      "*/sandbox-vm install-make*": "ask",
-      "*sandbox-vm install-make*": "ask",
-      "sandbox-vm configure-pm-postgres*": "ask",
-      "sandbox-vm provision-pm-postgres*": "ask",
-      "*limactl *": "ask",
       "git reset --hard*": "ask",
       "git clean *": "ask",
       "gh *": "ask",

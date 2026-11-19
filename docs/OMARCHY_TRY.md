@@ -30,3 +30,15 @@ Sources: [Herdr installation and Vulkan requirement](https://github.com/herdrdev
 Check native tool versions, run a real Herdr TUI session and a Desktop/Core session separately, launch Neovim and PyCharm, run the project's notebook/data workload, and exercise an ARM Podman container. CLI version checks alone are not workflow qualification. Check that AI and personal chezmoi managed-target inventories are disjoint.
 
 Back up private guest state and take a stopped-VM backup before changing installer ownership or upgrading the guest. Rollback of source does not uninstall apps or restore credentials. Guest snapshots do not roll back files in host shared folders. Preserve the Parallels VM and HP settings while evaluating this guest.
+
+## Migration completed (2026-11-18)
+
+The cutover finished: the Try Omarchy VM owns the full workstation stack
+(herdr layout and sessions, opencode state, the self-hosted atuin fleet
+server, PM/DBSCTR PostgreSQL quadlets) and the mac-mini retired to a thin
+host applying only the personal dotfiles. The darwin workstation stack and
+lima sandbox were removed from source in the
+[macos-workstation-retirement](initiatives/macos-workstation-retirement/README.md)
+initiative. Herdr Desktop's installed binary remains on the mini pending
+operator-gated removal. This document is the migration record; the VM is the
+current truth for daily operation.

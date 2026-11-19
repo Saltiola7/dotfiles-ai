@@ -1,12 +1,25 @@
 ---
 title: DBSCTR Knowledge Store
-status: active
+status: dormant (experimental; dial-down 2026-11-18)
 owner: dotfiles-ai maintainer
 created: 2026-08-19
-last_updated: 2026-08-25
+last_updated: 2026-11-18
 ---
 
 # DBSCTR Knowledge Store
+
+## Current state (2026-11-18): dial-down
+
+DKS was an experimental feature and has not been developed further. It is
+documented dormant: no resident services are deployed or supervised, and the
+darwin LaunchAgent delivery (dbsctr-embedding, dbsctr-code-embedding,
+dbsctr-knowledge-reconcile, dbsctr-reranker, dbsctr-spawner, dbsctr-watchdog)
+retired with the macOS workstation
+([macos-workstation-retirement](../../initiatives/macos-workstation-retirement/README.md)).
+On the Try Omarchy VM, knowledge services run on demand inside DBSCTR cycles
+against the pm-postgres quadlet. The DKS-001..007 plan artifacts below remain
+as the historical record of the experiment; resuming the capability means
+refactoring, not restoring the darwin design.
 
 ## Engineering Profile
 
@@ -15,7 +28,7 @@ last_updated: 2026-08-25
 | Deliverable | Private local knowledge projection, retrieval services, vector index, and property graph for DBSCTR evidence |
 | Owner | dotfiles-ai maintainer |
 | Runtime | macOS host, Python 3.12+, Git, SQLite, llama.cpp, PostgreSQL 19, and pgvector |
-| Platforms | Apple Silicon macOS host and configured Fedora Lima workspace |
+| Platforms | Linux workstation (Try Omarchy VM); macOS darwin delivery retired 2026-11-18 |
 | Compatibility | Git and existing SQLite stores remain authoritative until a separately approved canonical migration |
 | Trust/data | Private source, transcript, tool, credential, and derived embedding data; loopback-only service boundaries |
 | Delivery | Feature branch and draft pull request; local deployment only after affected gates pass |

@@ -2494,3 +2494,31 @@ delivery requires a feature branch and verified draft pull request into protecte
   required a visible server restart.
 - Gate Exceptions: none.
 - Intended Final Push: `origin/main`.
+
+## 2026-11-18 — macOS workstation retirement
+
+- Initiative: macos-workstation-retirement; 4 slices, one release group;
+  DAI-035 delivers `retire-workstation-source`.
+- lima subsystem (sandbox-vm, lima/ templates, sandbox.json, atuin-workspace
+  agent + loader, sandbox data keys, aliases, LIMA_SANDBOX.md + README/UPDATES
+  sections) deleted.
+- All darwin LaunchAgents and loaders deleted, including the herdr-server
+  LaunchAgent chain (plist, loader, responsibility supervisor builder and C
+  source); configure-pm-postgres darwin path removed (linux quadlet path
+  retained); pm-postgres-backup/baseline host scripts removed with it (backup
+  gap accepted under INT-005); CV lima execution environment removed (engine
+  subcommand dispatch, local_engine.py, engine/lima.yaml).
+- Tests reconciled: test_lima_sandbox.py, test_continuous_validation_engine.py
+  removed; retired-subject cases dropped and surviving contracts trimmed across
+  herdr_launchagent, portable_distribution, dbsctr_knowledge_store, dbsctr_rnd,
+  opencode_control_plane, history_projection_refresh, dbsctr_lifecycle.
+- Verified survivors with live VM consumers: state-root-exec,
+  install-dbsctr-embedding, enable-pm-postgres, enable-atuin-server,
+  remote-* install scripts, herdr-server-owner + herdr-host build path
+  (sealed-config owner_executable consumer), dagger _local_engine.
+- Deployment: mini teardown (agents booted out, drift obsidian agents
+  removed, dotfiles-ai config retired) + VM convergence on main.
+- Validation: suite green; VM apply clean; both quadlets healthy.
+- Gate Exceptions: pm-postgres backup gap accepted (INT-005; pm-kernel
+  refactor session owns the follow-up).
+- Intended Final Push: `origin/main`.

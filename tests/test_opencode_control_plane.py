@@ -469,19 +469,6 @@ def test_optional_local_repository_reference():
     centralized["dotfiles_ai"]["state"]["root"] = "/Volumes/ext/state"
     assert rendered_config(data=centralized)["permission"]["external_directory"] == "allow"
     assert rendered_config(data=centralized)["references"]["legacy-worktrees"]["path"] == "/Volumes/ext/state/dbsctr/worktrees"
-    configured = json.loads(json.dumps(DATA))
-    configured["dotfiles_ai"]["sandbox"]["workspaces"] = [{
-        "name": "workspace1", "instance": "workspace1-sandbox", "federate": True,
-        "mounts": [{"host": "/workspace/reference", "guest": "/guest/reference", "writable": False,
-                    "protect_git_submodules": False, "reference_name": "project-reference",
-                    "reference_description": "Project reference.", "reference_subpath": "docs"}],
-    }]
-    rendered = rendered_config(data=configured)
-    assert rendered["references"] == {"legacy-worktrees": registry,
-        "project-reference": {"path": "/workspace/reference/docs", "description": "Project reference."}}
-    assert rendered["permission"]["external_directory"] == "allow"
-
-
 def test_provider_and_primary_contracts():
     config = rendered_config()
     assert config["$schema"] == "https://opencode.ai/config.json"
@@ -664,9 +651,8 @@ def test_dbsctr_safe_git_permissions_and_reviewer():
     for operation in ("incident-scan", "review-history"):
         for form in ("dbsctrctl {}*", "*/dbsctrctl {}*", "env *dbsctrctl {}*", "command *dbsctrctl {}*"):
             assert bash[form.format(operation)] == "allow"
-    assert bash["*dbsctrctl improvement-forget*"] == "ask" and bash["*limactl *"] == "ask"
-    for command in ("sandbox-vm install-make*", "*/sandbox-vm install-make*", "*sandbox-vm install-make*",
-                    "herdr server stop*", "herdr config reset-keys*", "herdr worktree remove*", "herdr workspace close*",
+    assert bash["*dbsctrctl improvement-forget*"] == "ask"
+    for command in ("herdr server stop*", "herdr config reset-keys*", "herdr worktree remove*", "herdr workspace close*",
                     "herdr pane close*", "herdr tab close*", "herdr session stop*", "herdr session delete*"):
         assert bash[command] == "ask"
     assert bash["gh *"] == "ask" and bash["gh issue list *"] == bash["gh pr list *"] == "allow"
