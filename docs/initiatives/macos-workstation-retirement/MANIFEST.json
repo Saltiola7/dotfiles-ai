@@ -128,7 +128,7 @@
     {
       "id": "INT-014",
       "kind": "non-goal",
-      "text": "No scope over MGM/company-VM work, colima on pi400, blackarch bundles, or any new feature work; this initiative only deletes and documents.",
+      "text": "No scope over company-VM work, colima on pi400, blackarch bundles, or any new feature work; this initiative only deletes and documents.",
       "disposition": "ready",
       "artifacts": [
         "docs/initiatives/macos-workstation-retirement/README.md"

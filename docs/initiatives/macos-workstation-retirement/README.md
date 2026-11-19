@@ -7,11 +7,11 @@ dotfiles only, the Try Omarchy app, deskflow, and backups.
 
 ## Why now
 
-The lima `personal-sandbox` VM was found still running on the mini at boot
+The lima sandbox VM was found still running on the mini at boot
 (load-bearing pid 1115), kept alive by a declarative chain: the mini's
 dotfiles-ai config still named `sandbox.atuin_workspace = "personal"`, which
 rendered the `dev.dotfiles-ai.atuin-workspace` LaunchAgent, which ran
-`limactl start personal-sandbox --foreground` under RunAtLoad + KeepAlive.
+a foreground `limactl start` of the sandbox VM under RunAtLoad + KeepAlive.
 Machine-side state (instance, LIMA_HOME root, agent, plist) was torn down
 during discovery; this initiative removes the source machinery so it cannot
 be re-created at the next apply.
@@ -70,7 +70,7 @@ auto-start retire here. The obsidian LaunchAgents on the mini are drift
 
 ## Non-goals
 
-MGM/company-VM scope, colima on pi400, blackarch bundles, any new feature
+Company-VM scope, colima on pi400, blackarch bundles, any new feature
 work, pm-kernel/postgres schema changes, and herdr desktop binary removal
 (operator-gated).
 
