@@ -11,6 +11,7 @@ import fnmatch
 import os
 import re
 import shutil
+import sys
 import subprocess
 import pytest
 from pathlib import Path
@@ -537,7 +538,10 @@ def test_context7_is_remote_optional_key_and_scout_only():
 
 def test_official_1password_mcp_is_host_only_and_path_pinned():
     config = rendered_config()
-    assert config["mcp"]["servers"]["1password"] == {"type": "local", "command": ["/usr/local/bin/1password-mcp"], "disabled": False}
+    if sys.platform == "darwin":
+        assert config["mcp"]["servers"]["1password"] == {"type": "local", "command": ["/usr/local/bin/1password-mcp"], "disabled": False}
+    else:
+        assert "1password" not in config["mcp"]["servers"]
     template = text(".chezmoitemplates/opencode.json.tmpl")
     assert '{{ if eq .chezmoi.os "darwin" }}' in template and "@rui.branco/1password-mcp" not in template
     guest = re.sub(r'\{\{ if eq \.chezmoi\.os "darwin" \}\}.*?\{\{ end \}\}', "", template, flags=re.DOTALL)

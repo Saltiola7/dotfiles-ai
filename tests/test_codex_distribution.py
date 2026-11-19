@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import subprocess
 import stat
@@ -103,6 +104,9 @@ def test_native_host_default_updater_refuses_fleet_mutation(monkeypatch):
     assert helper.main([]) == 75
 
 
+@pytest.mark.skipif(sys.platform != "darwin",
+                    reason="native host wrapper integration pins the darwin release layout; "
+                           "Linux wrapper qualification belongs to the rhel-surface-lanes slice")
 def test_native_host_wrapper_and_bootstrap_keep_installed_release(tmp_path, monkeypatch):
     from test_portable_distribution import chezmoi
     helper = load_projector()
@@ -452,7 +456,7 @@ def test_projector_validates_private_release_lock(tmp_path: Path) -> None:
     lock = tmp_path / "release-lock.json"
     lock.write_text(json.dumps({
         "schema_version": 1, "channel": "stable", "release": "0.153.3",
-        "tag": "rust-v0.153.3", "platform": "darwin-aarch64",
+        "tag": "rust-v0.153.3", "platform": current_platform(),
         "binary_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
         "target_count": 1, "targets_digest": hashlib.sha256(b"targets").hexdigest(),
         "assets": load_updater().validate_release(release_payload())["assets"],
@@ -465,6 +469,17 @@ def test_projector_validates_private_release_lock(tmp_path: Path) -> None:
     executable.write_text("changed")
     with pytest.raises(ValueError, match="executable"):
         helper.resolve_managed(lock, executable)
+
+
+def current_platform() -> str:
+    machine = platform.machine().lower()
+    if sys.platform == "darwin" and machine in {"arm64", "aarch64"}:
+        return "darwin-aarch64"
+    if sys.platform.startswith("linux") and machine in {"arm64", "aarch64"}:
+        return "linux-aarch64"
+    if sys.platform.startswith("linux") and machine == "x86_64":
+        return "linux-x86_64"
+    raise SystemExit(f"unsupported codex distribution test platform: {sys.platform}/{machine}")
 
 
 def release_payload(version="0.153.3"):
@@ -558,6 +573,7 @@ def test_same_release_restages_when_fleet_attestation_changes(
 def test_rolling_update_soft_fails_only_with_healthy_active_release(
         tmp_path: Path, monkeypatch, capsys) -> None:
     helper = load_updater()
+    monkeypatch.setattr(helper, "platform_id", lambda: "darwin-aarch64")
     root = tmp_path / "state/codex-package"
     binary = tmp_path / "libexec/codex"
     root.mkdir(parents=True, mode=0o700)

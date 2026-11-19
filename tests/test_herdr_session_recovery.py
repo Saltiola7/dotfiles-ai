@@ -278,6 +278,13 @@ def test_progress_does_not_remove_total_admission_deadline(monkeypatch, tmp_path
         pthread_sigmask=lambda *_: set(),
     ))
     monkeypatch.setattr(subprocess, "run", lambda *_, **__: SimpleNamespace(returncode=1))
+    if sys.platform != "darwin":
+        # The flock path never consults subprocess.run; model the same
+        # never-acquirable lock at its native seam.
+        import fcntl as fcntl_module
+        def refused(*_args, **_kwargs):
+            raise BlockingIOError()
+        monkeypatch.setattr(fcntl_module, "flock", refused)
     assert script["pace_start"](["never-launch"]) == 75
     assert clock[0] == 600
     assert "ten minutes" in capsys.readouterr().err
@@ -535,6 +542,8 @@ def test_cancelled_pacing_releases_its_lock(tmp_path):
             process.wait()
 
 
+@pytest.mark.skipif(sys.platform != "darwin",
+                    reason="acquisition race is the darwin shlock child boundary; flock acquisition is atomic")
 @pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
 @pytest.mark.parametrize("acquired", [True, False])
 def test_pacing_cancellation_during_lock_acquisition(tmp_path, monkeypatch, signum, acquired):

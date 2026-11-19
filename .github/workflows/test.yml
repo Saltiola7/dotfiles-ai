@@ -13,15 +13,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test-shard:
-    name: Full suite (${{ matrix.python-version }}, ${{ matrix.worktrunk-version }}, partition ${{ matrix.shard }})
-    runs-on: macos-26
-    # ponytail: partition 2 measured at 85-87 min on 2026-11-15 (PR #321) and
-    # crossed 90 min with PR #320's added tests; 150 leaves growth headroom
+    name: Full suite (${{ matrix.python-version }}, partition ${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    # ponytail: partitions measured 85-87 min on the retired macOS runners
+    # (PR #321); Linux hosted runners complete the same collection
+    # materially faster, and the generous bound keeps growth headroom
     # without hiding a hung run.
     timeout-minutes: 150
     strategy:
@@ -31,19 +32,6 @@ jobs:
         python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14", "3.15"]' || '["3.14"]') }}
         worktrunk-version: ["0.81.0"]
         shard: [0, 1, 2, 3]
-        include:
-          - python-version: "3.14"
-            worktrunk-version: "0.80.0"
-            shard: 0
-          - python-version: "3.14"
-            worktrunk-version: "0.80.0"
-            shard: 1
-          - python-version: "3.14"
-            worktrunk-version: "0.80.0"
-            shard: 2
-          - python-version: "3.14"
-            worktrunk-version: "0.80.0"
-            shard: 3
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -54,7 +42,23 @@ jobs:
           package-manager-cache: false
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         with:
-          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-python: true
+      - name: Install selected Python with retry
+        env:
+          EXPECTED_PYTHON: ${{ matrix.python-version }}
+        run: |
+          set -euo pipefail
+          attempt=1
+          while ! uv python install "$EXPECTED_PYTHON"; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "Python tool fetch failed after $attempt attempts" >&2
+              exit 1
+            fi
+            echo "Python tool fetch attempt $attempt failed; retrying after backoff" >&2
+            attempt=$((attempt + 1))
+            sleep $((attempt * 10))
+          done
       - name: Verify selected Python runtime
         env:
           EXPECTED_PYTHON: ${{ matrix.python-version }}
@@ -90,7 +94,20 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
         with:
           bun-version: 1.4.4
-      - run: brew install chezmoi
+      - name: Install pinned chezmoi
+        run: |
+          set -euo pipefail
+          version=2.74.1
+          sha256=ae01c66b1a6dbf563667c63fbbd9986b3cfa3c98dd266ddee732f63e8af2e9d1
+          install_dir="$RUNNER_TEMP/chezmoi-$version"
+          mkdir -p "$install_dir"
+          curl --fail --location --silent --show-error --retry 3 --proto '=https' --tlsv1.2 \
+            "https://github.com/twpayne/chezmoi/releases/download/v$version/chezmoi_${version}_linux_amd64.tar.gz" \
+            --output "$RUNNER_TEMP/chezmoi.tar.gz"
+          echo "$sha256  $RUNNER_TEMP/chezmoi.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/chezmoi.tar.gz" -C "$install_dir"
+          "$install_dir/chezmoi" --version | grep -q "chezmoi version v$version"
+          echo "$install_dir" >> "$GITHUB_PATH"
       - name: Install qualified Worktrunk
         shell: bash
         env:
@@ -98,31 +115,23 @@ jobs:
         run: |
           set -euo pipefail
           case "$WORKTRUNK_VERSION:$(uname -m)" in
-            0.80.0:arm64)
-              target=aarch64-apple-darwin
-              sha256=8a2bb053c4bc80dea7d9ce6c221ff038d10a3d2dca2dc8f60d1b1a094fa783a9
-              ;;
-            0.80.0:x86_64)
-              target=x86_64-apple-darwin
-              sha256=aa898aa301617abaf91cb3078de4c8c11444a061016dc8f6dd80aa17cc1c46be
-              ;;
-            0.81.0:arm64)
-              target=aarch64-apple-darwin
-              sha256=b9c3f2f8071554cf88500466d65d35e18ad5edad5762479a1f14bcddd5ab7882
-              ;;
             0.81.0:x86_64)
-              target=x86_64-apple-darwin
-              sha256=211fa3585afa0ce243de0f007fbe2d8b86c5c88c85eda17d09311b32e8533714
+              target=x86_64-unknown-linux-musl
+              sha256=0c253f216985ce9cd7b202a11606b5ce6aa934b1019fd1fbb9b7ce2b47b1c74a
+              ;;
+            0.81.0:aarch64)
+              target=aarch64-unknown-linux-musl
+              sha256=7a334d2e64c577afd0247e2411eff673360ab1f18897564f2d2e5d5374fbd74b
               ;;
             *) echo "Unsupported Worktrunk CI architecture" >&2; exit 1 ;;
           esac
           install_dir="$RUNNER_TEMP/worktrunk-$WORKTRUNK_VERSION"
           mkdir -p "$install_dir"
           archive="$install_dir/worktrunk.tar.xz"
-          curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+          curl --fail --location --silent --show-error --retry 3 --proto '=https' --tlsv1.2 \
             "https://github.com/max-sixty/worktrunk/releases/download/v$WORKTRUNK_VERSION/worktrunk-$target.tar.xz" \
             --output "$archive"
-          echo "$sha256  $archive" | shasum -a 256 --check
+          echo "$sha256  $archive" | sha256sum --check
           tar -xJf "$archive" -C "$install_dir" --strip-components=1
           test "$("$install_dir/wt" --version)" = "wt v$WORKTRUNK_VERSION"
           echo "$install_dir" >> "$GITHUB_PATH"
@@ -133,10 +142,6 @@ jobs:
           tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers
           tests/test_opencode_control_plane.py
           tests/test_dbsctr_lifecycle.py -q
-      - name: Check native Swift compilation
-        run: >-
-          uv run --frozen --python "${{ matrix.python-version }}" --group test pytest
-          tests/test_herdr_launchagent.py::test_herdr_host_swift_source_compiles_with_warnings_as_errors -q
       - name: Check full-suite partition
         env:
           CI_PYTHON_VERSION: ${{ matrix.python-version }}
@@ -161,10 +166,10 @@ jobs:
           retention-days: 7
 
   test:
-    name: ${{ matrix.worktrunk-version == '0.81.0' && format('test ({0})', matrix.python-version) || format('test ({0}, {1})', matrix.python-version, matrix.worktrunk-version) }}
+    name: test (${{ matrix.python-version }})
     needs: test-shard
     if: ${{ always() }}
-    # Verification consumes macOS evidence; workers retain native execution.
+    # Verification reconciles partition evidence; workers execute natively on Linux.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     strategy:
@@ -172,14 +177,27 @@ jobs:
       matrix:
         python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14", "3.15"]' || '["3.14"]') }}
         worktrunk-version: ["0.81.0"]
-        include:
-          - python-version: "3.14"
-            worktrunk-version: "0.80.0"
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
         with:
-          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-python: true
+      - name: Install selected Python with retry
+        env:
+          EXPECTED_PYTHON: ${{ matrix.python-version }}
+        run: |
+          set -euo pipefail
+          attempt=1
+          while ! uv python install "$EXPECTED_PYTHON"; do
+            if [ "$attempt" -ge 3 ]; then
+              echo "Python tool fetch failed after $attempt attempts" >&2
+              exit 1
+            fi
+            echo "Python tool fetch attempt $attempt failed; retrying after backoff" >&2
+            attempt=$((attempt + 1))
+            sleep $((attempt * 10))
+          done
       - name: Qualify portable artifact verifier
         run: uv run --frozen --group test pytest tests/test_ci_shard.py -q
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4

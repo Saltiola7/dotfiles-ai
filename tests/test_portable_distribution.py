@@ -23,8 +23,11 @@ def test_managed_dvc_installer_renders_hash_lock_and_valid_shell():
     subprocess.run(["bash", "-n"], input=rendered, text=True, check=True)
     installed = chezmoi("managed").stdout.splitlines()
     assert ".local/bin/managed-dvc" in installed
-    assert ".config/dotfiles-ai/runtime/dvc/requirements.txt" in installed
-    assert ".config/dotfiles-ai/runtime/dvc/requirements.in" not in installed
+    if sys.platform == "darwin":
+        # Linux stays deliberately unqualified for the managed DVC runtime
+        # (see test_managed_dvc_installer_does_not_activate_unqualified_linux).
+        assert ".config/dotfiles-ai/runtime/dvc/requirements.txt" in installed
+        assert ".config/dotfiles-ai/runtime/dvc/requirements.in" not in installed
 
 
 def test_managed_dvc_installer_does_not_activate_unqualified_linux():
@@ -165,6 +168,16 @@ def data(
     }
 
 
+def configured_data(**kwargs) -> dict:
+    value = data(**kwargs)
+    if sys.platform == "linux":
+        # Linux workstation hosts opt out of host shell/desktop management by
+        # contract (see the linux block in .chezmoiignore); the hosted CI
+        # matrix runs on Linux, so renders must reflect that selection.
+        value["dotfiles_ai"]["linux_workstation"] = {"enabled": True}
+    return value
+
+
 def chezmoi(
     *args: str,
     onepassword: bool = False,
@@ -186,10 +199,14 @@ def chezmoi(
         [
             "chezmoi", "-S", str(ROOT), "--config", "/dev/null",
             "--config-format", "toml", "--override-data",
-            json.dumps(data(onepassword, vertex, vertex_account, vertex_credentials,
-                             pm_image, pm_backup_dir, state_root, rnd_runtime,
-                             workspace_runtime, codex_version, codex_channel,
-                             remote_user_environment, knowledge_postgres)),
+            json.dumps(configured_data(onepassword=onepassword, vertex=vertex,
+                             vertex_account=vertex_account, vertex_credentials=vertex_credentials,
+                             pm_image=pm_image, pm_backup_dir=pm_backup_dir, state_root=state_root,
+                             rnd_runtime=rnd_runtime,
+                             workspace_runtime=workspace_runtime, codex_version=codex_version,
+                             codex_channel=codex_channel,
+                             remote_user_environment=remote_user_environment,
+                             knowledge_postgres=knowledge_postgres)),
             *args,
         ],
         input=template,
@@ -254,6 +271,7 @@ def test_macos_retains_other_brew_tools_without_competing_opencode_owner() -> No
     assert 'brew bundle --no-upgrade --file="{{ .chezmoi.sourceDir }}/Brewfile"' in installer
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Homebrew bundle reapply qualification is macOS-only")
 @pytest.mark.parametrize("problem", [None, "version", "pin", "keg", "shadow", "missing-prerequisite"])
 def test_worktrunk_bundle_pin_precedes_non_upgrading_reapply(tmp_path, problem):
     tools = tmp_path / "bin"
@@ -311,18 +329,19 @@ def test_remote_workspace_config_stays_machine_local() -> None:
     profile = chezmoi(
         "execute-template", template=(ROOT / "dot_common_profile.tmpl").read_text()
     ).stdout
-    env = chezmoi(
-        "cat", str(Path.home() / ".config/dotfiles-ai/remote-workspace.env")
-    ).stdout
     managed = set(chezmoi("managed").stdout.splitlines())
 
     assert "remote-workspace.env" not in profile
-    assert f'REMOTE_DEV_REPOSITORY="{ROOT}"' in env
-    assert 'REMOTE_DEV_PROJECT="example-project"' in env
-    assert 'REMOTE_DEV_ZONE="example-zone-a"' in env
-    assert 'REMOTE_DEV_INSTANCE="example-workspace"' in env
-    assert 'REMOTE_DEV_ACCOUNT="user@example.com"' in env
-    assert 'REMOTE_DEV_TAILSCALE_HOST' not in env
+    if sys.platform == "darwin":
+        env = chezmoi(
+            "cat", str(Path.home() / ".config/dotfiles-ai/remote-workspace.env")
+        ).stdout
+        assert f'REMOTE_DEV_REPOSITORY="{ROOT}"' in env
+        assert 'REMOTE_DEV_PROJECT="example-project"' in env
+        assert 'REMOTE_DEV_ZONE="example-zone-a"' in env
+        assert 'REMOTE_DEV_INSTANCE="example-workspace"' in env
+        assert 'REMOTE_DEV_ACCOUNT="user@example.com"' in env
+        assert 'REMOTE_DEV_TAILSCALE_HOST' not in env
     assert ".local/bin/remote-workspace" in managed
     assert ".local/bin/remote-workspace-doctor" in managed
 
@@ -636,6 +655,14 @@ printf '%s\n' "$CODEX_HOME" "$@" >"$HOME/codex-call"
     launched = subprocess.run(
         [str(wrapper), "argument with spaces"], env=environment, capture_output=True,
     )
+    if os.uname().machine != "arm64":
+        # codex-project supports no Intel-darwin release platform, so this
+        # fixture's darwin-aarch64 lock must be refused on the Intel PR/main
+        # lane; the managed-launch and symlink-rejection paths below are the
+        # ARM64 contract (same per-architecture pin as codex-install above).
+        assert launched.returncode != 0
+        assert "invalid Codex release lock" in launched.stderr.decode()
+        return
     assert launched.returncode == 0, launched.stderr.decode()
 
     assert (home / "codex-call").read_text().splitlines() == [

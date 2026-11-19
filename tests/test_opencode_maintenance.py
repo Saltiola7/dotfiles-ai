@@ -229,7 +229,8 @@ def backend(module, state):
     import threading
     # macOS limits UNIX paths to 104 bytes; pytest's nested fixture root is longer.
     import tempfile
-    with tempfile.TemporaryDirectory(prefix='maintenance-', dir='/private/tmp') as short:
+    short_root = '/private/tmp' if sys.platform == 'darwin' else '/tmp'
+    with tempfile.TemporaryDirectory(prefix='maintenance-', dir=short_root) as short:
         path = Path(short) / 'backend.sock'
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         listener.bind(str(path))

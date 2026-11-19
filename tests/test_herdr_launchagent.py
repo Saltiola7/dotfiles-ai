@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import plistlib
+import pytest
 import runpy
 import shlex
 import sqlite3
@@ -196,6 +197,7 @@ def _run_native_installer(
     return result, asset.read_bytes(), previous_bytes
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_release_matched_herdr_skill_is_deployed_atomically(tmp_path) -> None:
     home = tmp_path / "home"
     target = home / ".local/bin/herdr"
@@ -235,6 +237,7 @@ def test_herdr_host_defaults_are_opt_in_and_machine_bound() -> None:
     assert ".local/bin/herdr-host" in ignore
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_managed_set_tracks_opt_in() -> None:
     values = {"dotfiles_ai": {"herdr": {
         "host_enabled": True,
@@ -319,6 +322,7 @@ def test_herdr_host_versioned_update_keeps_identity_and_health_schema() -> None:
     assert 'include ".chezmoitemplates/herdr-host-Info.plist"' in builder
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_agent_binds_only_canonical_absolute_program(tmp_path: Path) -> None:
     template = ROOT / ".chezmoitemplates/dev.dotfiles-ai.herdr-host-agent.plist"
     agent = plistlib.loads(template.read_bytes())
@@ -334,6 +338,7 @@ def test_herdr_host_agent_binds_only_canonical_absolute_program(tmp_path: Path) 
     assert inject < builder.index('/usr/bin/codesign --force --sign')
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_update_staging_is_private_and_fail_closed(tmp_path: Path) -> None:
     builder = (ROOT / "run_onchange_before_build-herdr-host.sh.tmpl").read_text()
     assert 'STAGING_ROOT="$HOME/Applications/.herdr-host-staging.noindex"' in builder
@@ -385,6 +390,7 @@ def test_herdr_host_readiness_rejects_btm_display_path_as_authority() -> None:
         assert "the parent app URL must match" not in text
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_swift_source_compiles_with_warnings_as_errors(tmp_path) -> None:
     output = tmp_path / "herdr-host"
     compilation = subprocess.run(
@@ -406,6 +412,7 @@ def test_herdr_host_swift_source_compiles_with_warnings_as_errors(tmp_path) -> N
     assert "HERDR_HOST_TEST_VOLUME_FAULT" not in production_strings
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_builder_config_pipeline_emits_json(tmp_path) -> None:
     builder = (ROOT / "run_onchange_before_build-herdr-host.sh.tmpl").read_text()
     start = builder.index('CONFIG="$CONTENTS/Resources/herdr-host-config.json"')
@@ -454,6 +461,7 @@ def test_herdr_host_builder_config_pipeline_emits_json(tmp_path) -> None:
     assert config.stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_rejects_tampered_sealed_config(tmp_path) -> None:
     executable, _, _ = _build_herdr_host_fixture(tmp_path)
     config = executable.parents[1] / "Resources/herdr-host-config.json"
@@ -469,6 +477,7 @@ def test_herdr_host_rejects_tampered_sealed_config(tmp_path) -> None:
     assert "signature or sealed resources are invalid" in result.stderr
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_rejects_double_forked_agent_origin_spoof(tmp_path) -> None:
     executable, _, health_root = _build_herdr_host_fixture(
         tmp_path,
@@ -536,6 +545,7 @@ os.execve(executable, [executable, "agent"], environment)
     assert not (health_root / "health.json").exists()
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_builder_fails_closed_without_signing_identity(tmp_path) -> None:
     state = tmp_path / "state"
     state.mkdir()
@@ -561,6 +571,7 @@ def test_herdr_host_builder_fails_closed_without_signing_identity(tmp_path) -> N
     assert not (tmp_path / "home/Applications/Herdr Host.app").exists()
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_probe_classifies_permission_wrong_volume_and_recovery(tmp_path) -> None:
     executable, state, health_root = _build_herdr_host_fixture(tmp_path)
     base_env = {**os.environ, "HERDR_HOST_TEST_MODE": "1"}
@@ -598,6 +609,7 @@ def test_herdr_host_probe_classifies_permission_wrong_volume_and_recovery(tmp_pa
     assert ((health_root / "health.json").stat().st_mode & 0o777) == 0o600
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_volume_failure_diagnostics_are_bounded_and_private(tmp_path) -> None:
     executable, state, health_root = _build_herdr_host_fixture(tmp_path)
     before = sorted(p.relative_to(state).as_posix() for p in state.rglob("*"))
@@ -654,6 +666,7 @@ def test_herdr_host_volume_failure_diagnostics_are_bounded_and_private(tmp_path)
     assert "probe_diagnostic" not in json.loads(recovered.stdout)
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_real_uuid_mismatch_performs_zero_state_root_writes(tmp_path) -> None:
     executable, state, _ = _build_herdr_host_fixture(
         tmp_path,
@@ -679,6 +692,7 @@ def test_herdr_host_real_uuid_mismatch_performs_zero_state_root_writes(tmp_path)
     assert not (state / ".herdr-host-health").exists()
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_ownership_marker_is_atomic_private_and_fail_closed(tmp_path) -> None:
     executable, _, health_root = _build_herdr_host_fixture(tmp_path)
     ownership = health_root / "ownership.json"
@@ -709,6 +723,7 @@ def test_herdr_host_ownership_marker_is_atomic_private_and_fail_closed(tmp_path)
     assert outside.read_text() == "do not read\n"
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_probe_only_build_rejects_unapproved_active_marker(tmp_path) -> None:
     executable, _, health_root = _build_herdr_host_fixture(tmp_path)
     ownership = health_root / "ownership.json"
@@ -733,6 +748,7 @@ def test_herdr_host_probe_only_build_rejects_unapproved_active_marker(tmp_path) 
     assert "unsupported by this probe-only build" in agent.stderr
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_agent_stays_probe_only_and_stops_cleanly(tmp_path) -> None:
     executable, _, health_root = _build_herdr_host_fixture(tmp_path)
     health = health_root / "health.json"
@@ -755,6 +771,7 @@ def test_herdr_host_agent_stays_probe_only_and_stops_cleanly(tmp_path) -> None:
         assert process.wait(timeout=3) == 0
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_agent_deduplicates_incident_notification(tmp_path) -> None:
     executable, _, health_root = _build_herdr_host_fixture(
         tmp_path,
@@ -788,6 +805,7 @@ def test_herdr_host_agent_deduplicates_incident_notification(tmp_path) -> None:
         assert process.wait(timeout=3) == 0
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_direct_symlink_resolves_bundle_without_cwd_dependency(tmp_path) -> None:
     executable, _, _ = _build_herdr_host_fixture(tmp_path)
     link = tmp_path / "bin/herdr-host"
@@ -801,6 +819,7 @@ def test_herdr_host_direct_symlink_resolves_bundle_without_cwd_dependency(tmp_pa
     assert json.loads(result.stdout)["activation"] == "probe_only"
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_herdr_host_rejects_symlinked_or_public_health_record(tmp_path) -> None:
     executable, _, health_root = _build_herdr_host_fixture(tmp_path)
     subprocess.run(
@@ -856,6 +875,7 @@ def test_opencode_restore_and_owner_preflight_active_herdr_host() -> None:
     assert "launchctl" not in wrapper + restore + owner + guard
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_native_herdr_release_is_pinned_and_handed_off(tmp_path) -> None:
     defaults = (ROOT / ".chezmoidata.toml").read_text()
     installer = (ROOT / "run_onchange_before_install-herdr.sh.tmpl").read_text()
@@ -878,6 +898,7 @@ def test_native_herdr_release_is_pinned_and_handed_off(tmp_path) -> None:
     )
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_failed_native_handoff_restores_previous_path_and_keeps_processes(tmp_path) -> None:
     server = subprocess.Popen([
         "bash", "-c", 'sleep 30 & pane=$!; trap \'kill "$pane" 2>/dev/null || true\' EXIT; printf "%s\\n" "$pane"; wait'
@@ -911,6 +932,7 @@ def test_interrupted_native_handoff_restores_previous_path(tmp_path) -> None:
     assert (tmp_path / "home/.local/bin/herdr").read_bytes() == previous
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_same_version_with_wrong_digest_is_replaced(tmp_path) -> None:
     result, asset, previous = _run_native_installer(
         tmp_path, seed_previous=True, old_version="0.8.2", old_protocol=20
@@ -921,6 +943,7 @@ def test_same_version_with_wrong_digest_is_replaced(tmp_path) -> None:
     assert (tmp_path / "home/.local/bin/herdr").read_bytes() == asset
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_installed_native_client_skips_incompatible_old_server(tmp_path) -> None:
     result, _, _ = _run_native_installer(tmp_path, seed_native=True)
 
@@ -937,6 +960,7 @@ def test_installer_fails_when_no_compatible_live_server_client_exists(tmp_path) 
     assert "no compatible client for safe handoff" in result.stderr
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_protocol_match_is_exact_and_handoff_refuses_more_than_64_panes(tmp_path) -> None:
     result, _, _ = _run_native_installer(
         tmp_path / "protocol", old_version="0.8.2", old_protocol=200
@@ -950,6 +974,7 @@ def test_protocol_match_is_exact_and_handoff_refuses_more_than_64_panes(tmp_path
     assert not (tmp_path / "limit/home/.local/bin/herdr").exists()
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="Herdr Host macOS app qualification")
 def test_failed_pane_recheck_restores_previous_native_path(tmp_path) -> None:
     result, _, previous = _run_native_installer(
         tmp_path, seed_previous=True, recheck_fails=True

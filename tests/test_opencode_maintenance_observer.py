@@ -1,5 +1,6 @@
 """Observer is evaluated with a fake V2 context, never loaded into a running CLI."""
 import subprocess
+import sys
 from pathlib import Path
 
 from test_opencode_v2_control_plane import project
@@ -49,7 +50,7 @@ def test_observer_atomic_private_storage_cleanup_and_incarnations(tmp_path):
     import json
     import socket
     import tempfile
-    with tempfile.TemporaryDirectory(prefix='observer-', dir='/private/tmp') as directory:
+    with tempfile.TemporaryDirectory(prefix='observer-', dir='/private/tmp' if sys.platform == 'darwin' else '/tmp') as directory:
         root = Path(directory)
         (root / '.dotfiles-ai-state').write_text('fixture')
         (root / 'herdr').mkdir(mode=0o700)

@@ -369,6 +369,9 @@ def isolated_environment(directory: Path, git: Path) -> dict[str, str]:
         "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_REPLACE_OBJECTS": "1",
         "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0",
         "GIT_ALLOW_PROTOCOL": "file", "GCM_INTERACTIVE": "Never",
+        # Host images differ in /etc/gitconfig (ubuntu runners ship system
+        # entries); an explicit empty system file keeps qualification portable.
+        "GIT_CONFIG_SYSTEM": "/dev/null",
     }
 
 

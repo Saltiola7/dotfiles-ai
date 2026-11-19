@@ -199,16 +199,15 @@ def test_early_publication_and_editorial_remediation_contract():
     worker = workflow_job(workflow, "test-shard")
     aggregate = workflow_job(workflow, "test")
     early = worker.index("- name: Check publication and instruction contracts")
-    swift = worker.index("- name: Check native Swift compilation")
     full = worker.index("- name: Check full-suite partition\n")
-    assert early < swift < full
+    assert early < full
     command = worker[early:full]
     for authority in ("tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers",
                       "tests/test_opencode_control_plane.py", "tests/test_dbsctr_lifecycle.py"):
         assert authority in command
     pytest_steps = [step for step in workflow_steps(worker)
                     if re.search(r"\buv run\s+[^\n]*\bpytest\b", " ".join(step.split()))]
-    assert len(pytest_steps) == 2
+    assert len(pytest_steps) == 1
     partition_step = next(step for step in workflow_steps(worker)
                           if step.startswith("name: Check full-suite partition\n"))
     aggregate_step = next(step for step in workflow_steps(aggregate)
@@ -223,8 +222,6 @@ def test_early_publication_and_editorial_remediation_contract():
         assert re.search(r"(?:^|\s)--frozen(?:\s|$)", options)
         assert re.search(r'--python\s+[\"\']?\$\{\{\s*matrix\.python-version\s*\}\}[\"\']?', options)
         assert re.search(r"--group\s+test(?:\s|$)", options)
-    assert any("tests/test_herdr_launchagent.py::test_herdr_host_swift_source_compiles_with_warnings_as_errors"
-               in step for step in pytest_steps)
     assert worker.index("- name: Verify selected Python runtime") < early
     assert '"--maxfail=1"' in text("tests/ci_shard.py")
     discovery = text(SKILLS / "discovery/SKILL.md")
@@ -248,7 +245,7 @@ def test_full_suite_partitions_keep_native_required_checks_fail_closed():
     assert "if: ${{ always() }}" in aggregate
     assert "needs.test-shard.result" in aggregate
     assert "tests/ci_shard.py verify" in aggregate
-    assert "test ({0})" in aggregate and "test ({0}, {1})" in aggregate
+    assert "name: test (${{ matrix.python-version }})" in aggregate
     assert "tests/ci_shard.py run" in workflow
     assert "PYTEST_ADDOPTS:" in workflow and "PYTEST_PLUGINS:" in workflow
     assert "--run-id" in workflow and "--attempt" in workflow
@@ -842,7 +839,7 @@ def test_qa_accepts_v3_capabilities_without_breaking_scoped_mode():
 
 def test_ci_and_specs_cover_lifecycle_sources():
     workflow = text(".github/workflows/test.yml")
-    ordinary_lanes = {("3.14", "0.81.0"), ("3.14", "0.80.0")}
+    ordinary_lanes = {("3.14", "0.81.0")}
     compatibility_lanes = ordinary_lanes | {(version, "0.81.0") for version in ("3.12", "3.13", "3.15")}
     for name in ("test-shard", "test"):
         job = workflow_job(workflow, name)
@@ -869,12 +866,11 @@ def test_ci_and_specs_cover_lifecycle_sources():
             assert shard is None, "aggregate jobs must represent whole lanes"
             partitions = [""]
         included = re.search(r"(?m)^        include:\n((?: {10,}[^\n]*\n)+)", job)
-        assert included
         included_jobs = re.findall(
             r'(?m)^          - python-version:[ \t]*"([^"]+)"\n'
             r'            worktrunk-version:[ \t]*"([^"]+)"'
-            r'(?:\n            shard: ([0-3]))?', included.group(1))
-        assert included_jobs == [("3.14", "0.80.0", partition) for partition in partitions]
+            r'(?:\n            shard: ([0-3]))?', included.group(1)) if included else []
+        assert included_jobs == []
         for event in ("push", "pull_request", "schedule", "workflow_dispatch"):
             versions = compatibility if event in compatibility_events else ordinary
             actual_jobs = [(version, tool, partition) for version in versions
@@ -889,8 +885,7 @@ def test_ci_and_specs_cover_lifecycle_sources():
     assert "timeout-minutes: 150" in workflow
     assert "contents: read" in workflow
     assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow
-    assert "format('test ({0})', matrix.python-version)" in workflow
-    assert "format('test ({0}, {1})', matrix.python-version, matrix.worktrunk-version)" in workflow
+    assert "name: test (${{ matrix.python-version }})" in workflow
 
     spec = text("docs/specs/dbsctr_v3_lifecycle/README.md")
     for term in ("Engineering Profile", "Gate Ledger", "MethodWeave", "RigorWeave"):

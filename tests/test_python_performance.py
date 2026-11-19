@@ -469,7 +469,11 @@ class TestRunner:
              "--source-tree", str(selected), "--output", str(output),
              "--smoke", "--profile"],
             env={**env, "GH_TOKEN": "private_sentinel", "GIT_DIR": "/unavailable"},
-            capture_output=True, text=True, timeout=90,
+            capture_output=True, text=True,
+            # Runaway guard only: the benchmark self-bounds via its internal
+            # TOTAL_SECONDS deadline, but its git fixture creation plus the
+            # smoke cohort exceeded 90s on contended Intel runners.
+            timeout=240,
         )
         assert executed.returncode == 0, executed.stdout + executed.stderr
         assert call("rev-parse", "HEAD").stdout == before

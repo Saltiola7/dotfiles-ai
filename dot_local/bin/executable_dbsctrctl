@@ -11114,8 +11114,11 @@ def workspace_processes(root):
     program = shutil.which("lsof")
     if program is None:
         fail("process inventory unavailable")
+    # Linux lsof lists itself and its device-cache helper with the inherited
+    # working directory; scanning from the filesystem root keeps those
+    # self-entries outside every inspected checkout. macOS lsof omits itself.
     child = subprocess.Popen([program, "-a", "-u", str(os.getuid()), "-F0pn"], stdin=subprocess.DEVNULL,
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=INSPECT_ENV, start_new_session=True)
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=INSPECT_ENV, start_new_session=True, cwd="/")
     output, errors = preservation_output(child, limit=8 * 1024 * 1024, timeout=30)
     if child.returncode not in (0, 1) or errors or not output:
         fail("process inventory unavailable")

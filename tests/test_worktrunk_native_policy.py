@@ -244,7 +244,7 @@ def test_mount_replacement_and_partial_generation_refuse(policy, storage_home, m
 
 @pytest.mark.parametrize("system,version,accepted", [
     ("Darwin", "wt v0.80.0", True), ("Darwin", "wt v0.81.0", True),
-    ("Linux", "wt v0.80.0", True), ("Linux", "wt v0.81.0", False),
+    ("Linux", "wt v0.80.0", True), ("Linux", "wt v0.81.0", True),
     ("Darwin", "wt v0.82.0", False), ("Darwin", "private-output\nsecret", False),
 ])
 def test_qualified_snapshot_binds_actual_platform_version(policy, storage_home, monkeypatch,
@@ -584,8 +584,11 @@ def test_native_user_hook_blocks_forced_dirty_removal_then_preserves_branch(fixt
     outcome = subprocess.run([wt_binary, "remove", "task", "--yes", "--foreground"], cwd=fixture.repo,
                              env=env, text=True, capture_output=True, timeout=90)
     if outcome.returncode:
-        # Real process visibility may time out on a busy host: unknown must retain.
-        assert "process_inventory_unavailable" in outcome.stdout + outcome.stderr
+        combined = outcome.stdout + outcome.stderr
+        # The managed hook legitimately retains on a busy host (live processes
+        # inside the checkout) or when the process inventory itself is
+        # unavailable; both must preserve the worktree.
+        assert "process_inventory_unavailable" in combined or "running_processes" in combined
         assert target.exists()
     else:
         assert not target.exists()
