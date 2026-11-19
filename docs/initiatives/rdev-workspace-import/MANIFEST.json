@@ -1,0 +1,208 @@
+{
+  "schema_version": 1,
+  "id": "rdev-workspace-import",
+  "title": "Import the company remote-development workspace into the Try Omarchy VM",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "The confirmed rdev session cluster imports from the macOS host opencode store into the Try Omarchy VM live store via row-scoped export (session rows plus messages and parts), re-homed to the migrated project directories; no whole-store copy.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-002",
+      "kind": "requirement",
+      "text": "The triaged rdev worktree set migrates as full self-contained copies under the VM project root: a full clone per unit checked out on its source branch, with uncommitted state carried as patches and stashes and verified by status parity; dangling linked-worktree filesystem copies are not migrated.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-003",
+      "kind": "requirement",
+      "text": "The company workspace repository migrates as one full clone under the VM project root, and the handoff note documents its relevant rdev branch inventory.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-004",
+      "kind": "requirement",
+      "text": "A handoff note records the old-to-new path map, per-unit carried WIP, and the remaining operator steps: workspace mise tooling install, one gcloud authentication, session resume.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-005",
+      "kind": "constraint",
+      "text": "Every artifact in this repository is company-anonymized: no organization names, company repository names, session identifiers, or tab-fork labels appear in tracked files; the repository publication identifier test passes.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-006",
+      "kind": "constraint",
+      "text": "No company credentials, tokens, or session content enter this public repository; imported session rows stay in the VM-private store.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-007",
+      "kind": "decision",
+      "text": "Destination root is the VM project directory (established flat kebab-case convention); migrated units keep their source slugs, lowercased and kebab-cased where needed.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-008",
+      "kind": "decision",
+      "text": "Session import uses the established transplant machinery (row-scoped export plus project re-homing), not raw file copies of the store.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-009",
+      "kind": "decision",
+      "text": "The rdev forks resolve to tab-fork sessions and rdev/workspace-dotfiles branches inside the company workspace repository, not standalone remote repositories; build triage verifies this against the host store before import.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-010",
+      "kind": "risk",
+      "text": "The two operator-named session identifiers matched no row in any inspected store (host live store, host personal store, VM store); the final set is enumerated from title candidates and confirmed with the operator at build start. A wrong import is reversible by row deletion.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-011",
+      "kind": "risk",
+      "text": "The host opencode store is 91 GB; exports must be row-scoped and size-checked per session to bound transfer time and VM store growth.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-012",
+      "kind": "risk",
+      "text": "Dirty-state carry may not re-apply bit-for-bit onto fresh clones; patches and stashes are exported separately and the handoff note records status-parity results.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-013",
+      "kind": "non-goal",
+      "text": "No cloud company VM access and no gcloud authentication inside this initiative; the operator authenticates once after migration.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-014",
+      "kind": "non-goal",
+      "text": "No bulk migration of the historical worktree sprawl beyond the triaged rdev set; the host external volume remains the deep backup.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-015",
+      "kind": "non-goal",
+      "text": "No new managed tooling in this repository and no changes to the retired darwin workstation stack.",
+      "disposition": "ready",
+      "artifacts": []
+    },
+    {
+      "id": "INT-016",
+      "kind": "idea",
+      "text": "Fold the VM project-root convention into the personal dotfiles as declarative state in a future initiative.",
+      "disposition": "deferred",
+      "artifacts": []
+    }
+  ],
+  "contexts": [
+    {
+      "id": "dotfiles_ai_distribution",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "rdev_workspace_import",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    }
+  ],
+  "slices": [
+    {
+      "id": "import-rdev-sessions",
+      "context": "rdev_workspace_import",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-001",
+        "INT-008",
+        "INT-010",
+        "INT-011",
+        "INT-009"
+      ],
+      "depends_on": [],
+      "release_group": "rdev-import",
+      "artifacts": [
+        "docs/initiatives/rdev-workspace-import/README.md",
+        "docs/initiatives/rdev-workspace-import/MANIFEST.json",
+        "docs/specs/rdev_workspace_import/README.md"
+      ]
+    },
+    {
+      "id": "migrate-rdev-worktrees",
+      "context": "rdev_workspace_import",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-002",
+        "INT-003",
+        "INT-007",
+        "INT-012"
+      ],
+      "depends_on": [],
+      "release_group": "rdev-import",
+      "artifacts": [
+        "docs/initiatives/rdev-workspace-import/README.md",
+        "docs/initiatives/rdev-workspace-import/MANIFEST.json",
+        "docs/specs/rdev_workspace_import/README.md"
+      ]
+    },
+    {
+      "id": "handoff-and-resume",
+      "context": "rdev_workspace_import",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-013",
+        "INT-014",
+        "INT-015"
+      ],
+      "depends_on": [],
+      "release_group": "rdev-import",
+      "artifacts": [
+        "docs/initiatives/rdev-workspace-import/README.md",
+        "docs/initiatives/rdev-workspace-import/MANIFEST.json",
+        "docs/specs/rdev_workspace_import/README.md"
+      ]
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "rdev-import",
+      "members": [
+        "import-rdev-sessions",
+        "migrate-rdev-worktrees",
+        "handoff-and-resume"
+      ],
+      "state": "ready"
+    }
+  ]
+}
