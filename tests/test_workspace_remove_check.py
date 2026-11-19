@@ -480,6 +480,20 @@ def test_unrelated_preservation_policy_retains_legacy_inspection(removal, monkey
     assert "retained_24_hours" in expected["reasons"]
 
 
+def test_merged_delivery_waives_young_retention(removal, monkeypatch):
+    core, primary, target = removal
+    path, record, policy = strict_cycle(core, target)
+    monkeypatch.delenv("DBSCTR_REMOVAL_FD", raising=False)
+    head = record["commits"][-1]["id"]
+    # Unmerged: the young completed cycle is retained.
+    assert "retained_24_hours" in core.legacy_workspace_remove_check(target)["reasons"]
+    # Merged into the default branch (remote-tracking ref): retention waived.
+    git(primary, "update-ref", "refs/remotes/origin/main", head)
+    result = core.legacy_workspace_remove_check(target)
+    assert "retained_24_hours" not in result["reasons"]
+    assert core.cycle_merged_into_default(primary, record) is True
+
+
 def test_satisfied_synthetic_oracle_cannot_remove_permanent_runtime_blockers(removal, monkeypatch):
     core, _, target = removal
     _, _, policy = strict_cycle(core, target)

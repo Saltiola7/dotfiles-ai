@@ -34,7 +34,7 @@ substitute. Skill activation does not grant external-action authority.
    safety, delivery, or validation.
 4. Record current affected scope, risk, delivery intent, applicable modules, and
    required capabilities.
-5. Report Method Revision `3.30` (older V3 records remain readable). Use
+5. Report Method Revision `3.31` (older V3 records remain readable). Use
    `dbsctrctl status` in the explicit task checkout to resume its Cycle Record.
    Worktrunk owns task checkout creation and navigation. Codex CLI and Desktop
    may retain the current conversation while commands use the selected checkout's
@@ -262,8 +262,9 @@ Delivery to the same upstream is serialized by the helper's target lock.
 `begin` refuses dirty initial state and unknown ahead commits without changing
 files or refs. Use native Worktrunk inventory and navigation. Removal requires
 operator authorization and its blocking managed user pre-remove hook:
-`dbsctrctl workspace-remove-check --json`. Retain successful cycles for at least
-24 hours; failed gates, unknown delivery, dirty/private data or unavailable
+`dbsctrctl workspace-remove-check --json`. Retain successful cycles until their
+delivery merges into the protected default branch (or 24 hours when no merge
+applies); failed gates, unknown delivery, dirty/private data or unavailable
 process evidence block removal. Never bypass hooks, force removal, delete branches
 automatically or garbage-collect shared caches. DBSCTR cleanup is retired.
 

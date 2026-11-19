@@ -51,7 +51,7 @@ SECRET_NAMES = ("credentials", "credentials.json", "id_rsa", "private_key", "pas
 MANDATORY_GATES = set(GATES[:6]) | {"review_integrate"}
 RISK_RANK = {"routine": 0, "elevated": 1, "critical": 2}
 DELIVERY_INTENTS = ("local", "merge", "release", "deploy", "draft_pr")
-CURRENT_METHOD_REVISION = "3.30"
+CURRENT_METHOD_REVISION = "3.31"
 REVIEW_START_MS = 1783814400000
 REVIEW_SCAN_HARD = 64 * 1024
 HISTORY_SCAN_HARD = 256 * 1024
@@ -7881,8 +7881,14 @@ def cleanup_cycle(root, cycle_id, immediate):
         save(path, record)
         cleanup = record["cleanup"]
     completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
-    if not immediate and datetime.now(timezone.utc) - completed < timedelta(hours=24):
-        fail("successful worktrees are retained for 24 hours; use --now to remove earlier")
+    if not immediate:
+        delivery = record.get("delivery", {})
+        if delivery.get("remote") and delivery.get("base_branch"):
+            git(root, "fetch", delivery["remote"], delivery["base_branch"], check=False)
+        if not cycle_merged_into_default(root, record) \
+                and datetime.now(timezone.utc) - completed < timedelta(hours=24):
+            fail("successful worktrees are retained until merged into the default branch "
+                 "(or for 24 hours); use --now to remove earlier")
     if worktree.is_dir() and status_paths(worktree):
         fail("refusing to remove a dirty cycle worktree")
     if worktree.is_dir() and branch(worktree) != record["worktree"]["branch"]:
@@ -8192,9 +8198,25 @@ def global_worktree_roots(registry=None):
     return sorted(repositories), sorted(failures, key=lambda item: item["repository_id"])
 
 
+def cycle_merged_into_default(root, record):
+    """A completed cycle's delivery is merged once its recorded commits are
+    contained in the protected default branch, observed through local
+    remote-tracking refs (callers may fetch first for a fresh observation)."""
+    commits = [entry.get("id") for entry in record.get("commits", []) if entry.get("id")]
+    head = commits[-1] if commits else record.get("git", {}).get("head")
+    delivery = record.get("delivery", {})
+    base = delivery.get("base_branch")
+    remote = delivery.get("remote") or record.get("git", {}).get("remote", {}).get("name")
+    if not (head and base and remote):
+        return False
+    return git(root, "merge-base", "--is-ancestor", head,
+               f"refs/remotes/{remote}/{base}", check=False).returncode == 0
+
+
 def maintenance_error(error):
     message = str(error).casefold()
     for needle, code in (
+        ("retained until merged", "retained_24_hours"),
         ("retained for 24 hours", "retained_24_hours"), ("dirty", "dirty"),
         ("authentication failed", "delivery_unavailable"),
         ("repository not found", "delivery_unavailable"),
@@ -8225,7 +8247,8 @@ def worktree_inventory(root, immediate=False, allowed_root=None):
         elif not shared_retired:
             try:
                 completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
-                if not immediate and datetime.now(timezone.utc) - completed < timedelta(hours=24):
+                if not immediate and not cycle_merged_into_default(root, record) \
+                        and datetime.now(timezone.utc) - completed < timedelta(hours=24):
                     blockers.append("retained_24_hours")
             except (KeyError, ValueError):
                 blockers.append("invalid_completed_at")
@@ -11467,7 +11490,8 @@ def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
                 fail("unclassified cycle state")
             if record["state"] == "completed":
                 completed = datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))
-                if not (strict and immediate) and datetime.now(timezone.utc) - completed < timedelta(hours=24):
+                if not (strict and immediate) and not cycle_merged_into_default(root, record) \
+                        and datetime.now(timezone.utc) - completed < timedelta(hours=24):
                     reasons.append("retained_24_hours")
                 if any(gate.get("applicability") == "required" and gate.get("result") != "passed"
                        and not valid_gate_exception(gate) for gate in record["gates"].values()):
