@@ -1,5 +1,10 @@
 # DKS Operations
 
+> **2026-11-18:** DKS is dormant (experimental dial-down). The darwin
+> LaunchAgent supervision retired with the macOS workstation; operations run
+> on demand inside DBSCTR cycles on the Try Omarchy VM against pm-postgres.
+> The runbook below is the historical operating procedure, kept as record.
+
 DKS is a rebuildable local projection. Git and typed DBSCTR stores remain source
 authority. Never repair source truth through PostgreSQL.
 

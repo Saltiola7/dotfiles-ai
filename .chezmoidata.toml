@@ -61,7 +61,6 @@ tab_bar_mode = ""
 runtime = "tui"
 theme = "catppuccin"
 agent_panel_sort = "priority"
-launchagent = true
 host_enabled = false
 signing_identity_sha256 = ""
 state_volume_uuid = ""
@@ -180,17 +179,6 @@ reconcile_timeout_seconds = 21600
 
 [dotfiles_ai.knowledge_store.projects]
 
-[dotfiles_ai.sandbox]
-enabled = false
-build_workspace = ""
-atuin_workspace = ""
-lima_home = ""
-workspaces = []
-cpus = 4
-memory_gib = 8
-disk_gib = 60
-
-# Linux desktop is independent of the legacy Herdr TUI/server.
 [dotfiles_ai.herdr_linux_desktop]
 enabled = false
 app_version = "0.1.15"

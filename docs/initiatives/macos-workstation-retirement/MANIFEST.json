@@ -1,0 +1,289 @@
+{
+  "schema_version": 1,
+  "id": "macos-workstation-retirement",
+  "title": "Retire the macOS AI workstation: lima sandbox, darwin agent stack, and mini as thin host",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "The lima sandbox subsystem is permanently removed from dotfiles-ai: sandbox-vm, sandbox.json, the lima/ instance templates, the atuin-workspace LaunchAgent and loader, sandbox data keys (atuin_workspace, lima_home, build_workspace, workspaces), sandbox shell aliases, and LIMA_SANDBOX.md.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "kind": "requirement",
+      "text": "The mac-mini stops applying the dotfiles-ai workstation stack: all darwin LaunchAgents (dbsctr-embedding, dbsctr-code-embedding, dbsctr-knowledge-reconcile, dbsctr-reranker, dbsctr-spawner, dbsctr-watchdog, pm-postgres-backup, history-projection-refresh, herdr-server, atuin-workspace) and their loaders are deleted from the source, and the mini's dotfiles-ai config is retired so nothing re-renders them.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "kind": "decision",
+      "text": "The Try Omarchy VM is the verified replacement host: atuin runs as the self-hosted fleet server (podman quadlet, 18.24.8, fleet-syncing) and PM/DBSCTR PostgreSQL runs as the pm-postgres quadlet (pgvector 19beta3, healthy). Verified live on the VM during discovery.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/ATUIN_PODMAN.md",
+        "docs/OMARCHY_TRY.md"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "kind": "constraint",
+      "text": "The herdr desktop binary and its installed state on the mini are NOT removed in this initiative; only its declarative plumbing and auto-start configuration retire. Binary removal is operator-gated on completed migration and explicitly deferred.",
+      "disposition": "deferred",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-005",
+      "kind": "risk",
+      "text": "The VM's pm-postgres quadlet has no backup timer today; the darwin backup agent retires without a linux replacement. Accepted risk with follow-up slice; the pm-kernel refactor proceeding in a parallel operator session owns the eventual design and this initiative must not touch pm-kernel internals.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "kind": "decision",
+      "text": "The DBSCTR knowledge store (DKS) is dialed down to documented-dormant: experimental, not developed further; its spec documents current state and the darwin delivery retirement. DKS plan artifacts remain as historical record. Future work refactors rather than resumes the darwin design.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_knowledge_store/README.md",
+        "docs/specs/dbsctr_knowledge_store/OPERATION.md"
+      ]
+    },
+    {
+      "id": "INT-007",
+      "kind": "decision",
+      "text": "On the VM, knowledge services (embedding, reranker, reconcile) run on demand inside DBSCTR cycles against pm-postgres; the darwin daemons were the macOS workaround, so deleting them is behavior-neutral on the VM.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_knowledge_store/README.md"
+      ]
+    },
+    {
+      "id": "INT-008",
+      "kind": "decision",
+      "text": "Continuous validation is a new experimental feature still to be developed \u2014 not retired here. Only the obsolete lima-backed execution path from its prototype (local_engine.py + engine/lima.yaml) is removed with the lima subsystem; the feature's VM-native development (dagger backend against the local podman socket) proceeds as the operator's separate follow-on effort.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md"
+      ]
+    },
+    {
+      "id": "INT-009",
+      "kind": "constraint",
+      "text": "Verified survivors with live linux consumers must not be removed: state-root-exec (hermes, codex, herdr-host scripts; active on the VM), install-dbsctr-embedding (OS-neutral installer), enable-pm-postgres (linux quadlet path), enable-atuin-server (linux), the remote-* install scripts (fleet remote user environments), the herdr-host build path, and dagger_backend._local_engine (local socket/container engine validation, unrelated to lima).",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-010",
+      "kind": "requirement",
+      "text": "Personal dotfiles drop the stale residue: LIMA_HOME/COLIMA_HOME/COLIMA_CACHE_HOME exports in common_profile, the '# Added by Colima' ssh-config include, and the /Volumes/ext/state/lima Spotlight exclusion path.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-011",
+      "kind": "requirement",
+      "text": "The mini teardown is this initiative's deployment step: boot out and remove all dotfiles-ai LaunchAgents including the drift obsidian agents (never repo-managed), remove the plists from disk, retire ~/.config/dotfiles-ai/chezmoi.toml, and leave the machine applying only the personal dotfiles.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-012",
+      "kind": "requirement",
+      "text": "Post-merge convergence: the shared ext working tree fast-forwards to main, the VM applies clean (no removed targets remain managed), and the mini has no loaded dotfiles-ai agents.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-013",
+      "kind": "risk",
+      "text": "dotfiles-ai is a public repository: deletions must not expose secrets, private hosts, or credentials in diffs or docs. Publication checks run before push against the repository's existing public-content authority.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-014",
+      "kind": "non-goal",
+      "text": "No scope over company-VM work, colima on pi400, blackarch bundles, or any new feature work; this initiative only deletes and documents.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-015",
+      "kind": "non-goal",
+      "text": "No pm-kernel or pm-postgres schema changes; the parallel pm-kernel refactor session owns that surface (see INT-005).",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-016",
+      "kind": "decision",
+      "text": "The obsidian LaunchAgents found running on the mini (server, watcher, source-pulls) are drift: they exist on disk but are not managed by the current source, so no repo apply can remove them; teardown removes them explicitly.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-017",
+      "kind": "constraint",
+      "text": "The lima instance data, LIMA_HOME state root, and LaunchAgent were already torn down on the mini during discovery (instance deleted, /Volumes/ext/state/lima removed, agent booted out and disabled, plist removed); the source changes make that state permanent instead of re-creatable at next apply.",
+      "disposition": "delivered",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "id": "dotfiles_ai_distribution",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "dbsctr_knowledge_store",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "continuous_validation",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "personal_dotfiles_residue",
+      "repository": "Saltiola7/dotfiles",
+      "status": "ready",
+      "depends_on": []
+    }
+  ],
+  "slices": [
+    {
+      "id": "retire-workstation-source",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-001",
+        "INT-002",
+        "INT-004",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-009",
+        "INT-013",
+        "INT-016",
+        "INT-017"
+      ],
+      "depends_on": [],
+      "release_group": "retirement",
+      "artifacts": [
+        ".chezmoidata.toml",
+        ".chezmoiignore",
+        ".chezmoitemplates/opencode.json.tmpl",
+        "config.example.toml",
+        "docs/OMARCHY_TRY.md",
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/specs/continuous_validation/README.md",
+        "docs/specs/dbsctr_knowledge_store/CHANGELOG.md",
+        "docs/specs/dbsctr_knowledge_store/OPERATION.md",
+        "docs/specs/dbsctr_knowledge_store/README.md",
+        "docs/specs/dotfiles_ai_distribution/CHANGELOG.md",
+        "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+        "docs/specs/dotfiles_ai_distribution/README.md",
+        "docs/initiatives/macos-workstation-retirement/README.md",
+        "docs/initiatives/macos-workstation-retirement/MANIFEST.json"
+      ]
+    },
+    {
+      "id": "personal-dotfiles-residue",
+      "context": "personal_dotfiles_residue",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-010"
+      ],
+      "depends_on": [],
+      "release_group": "retirement",
+      "artifacts": [
+        "dot_common_profile.tmpl",
+        "private_dot_ssh/config.tmpl",
+        "run_onchange_after_exclude-vm-state-from-spotlight.sh.tmpl"
+      ]
+    },
+    {
+      "id": "mini-teardown-deployment",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-011",
+        "INT-016",
+        "INT-017"
+      ],
+      "depends_on": [],
+      "release_group": "retirement",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/CHANGELOG.md"
+      ]
+    },
+    {
+      "id": "vm-convergence-verification",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-003",
+        "INT-012"
+      ],
+      "depends_on": [],
+      "release_group": "retirement",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/CHANGELOG.md"
+      ]
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "retirement",
+      "members": [
+        "retire-workstation-source",
+        "personal-dotfiles-residue",
+        "mini-teardown-deployment",
+        "vm-convergence-verification"
+      ],
+      "state": "ready"
+    }
+  ]
+}

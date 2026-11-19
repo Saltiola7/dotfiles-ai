@@ -70,74 +70,7 @@ def test_knowledge_store_defaults_off_and_is_host_only() -> None:
     assert "embedding_port = 11435" in defaults + example
     assert "embedding_dimensions = 4096" in defaults + example
     assert ".dotfiles_ai.knowledge_store.enabled" in ignore
-    assert "dev.dotfiles-ai.dbsctr-embedding.plist" in ignore
     assert "install-dbsctr-embedding.sh" in ignore
-
-
-def test_disabled_host_removes_only_exact_dks_runtime_targets(tmp_path: Path) -> None:
-    path = "run_before_disable-dks-host.sh.tmpl"
-    source = (ROOT / path).read_text()
-    disabled = render(path, enabled=False)
-    subprocess.run(["bash", "-n"], input=disabled, text=True, check=True)
-    for value in (
-        "dev.dotfiles-ai.dbsctr-knowledge-reconcile",
-        "dev.dotfiles-ai.dbsctr-embedding",
-        "dev.dotfiles-ai.dbsctr-code-embedding",
-        "dev.dotfiles-ai.dbsctr-reranker",
-        '"$HOME/.local/bin/dksctl"',
-        '"$HOME/.local/bin/dks-psql"',
-        '"$HOME/.local/bin/dks-postgres-migrate"',
-        '"$HOME/.local/bin/dks-benchmark-collector"',
-        '"$HOME/.config/opencode/tools/dks.ts"',
-        "dks-host-disable: %s",
-    ):
-        assert value in disabled
-    for forbidden in ("rm -rf", "Library/Logs", "dbsctr/knowledge", "dropdb",
-                      "security delete", "op item delete", "pm_kernel"):
-        assert forbidden not in disabled
-    ignore = (ROOT / ".chezmoiignore").read_text()
-    assert ".local/bin/dks-postgres-migrate" in ignore
-    assert ".config/opencode/tools/dks.ts" in ignore
-    linux = ignore[ignore.index('{{ if eq .chezmoi.os "linux" }}'):]
-    assert "disable-dks-host.sh" in linux
-
-    values = {"dotfiles_ai": {"knowledge_store": {"enabled": True}}}
-    enabled = subprocess.run([
-        "chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
-        "--override-data", json.dumps(values), "execute-template",
-    ], input=source, text=True, capture_output=True)
-    assert enabled.returncode != 0
-    assert "knowledge_store_controlled_environment_required" in enabled.stderr
-
-    launchctl = tmp_path / "launchctl"
-    lsof = tmp_path / "lsof"
-    for executable in (launchctl, lsof):
-        executable.write_text("#!/bin/sh\nexit 1\n")
-        executable.chmod(0o700)
-    executable_script = disabled.replace("/bin/launchctl", str(launchctl)).replace(
-        "/usr/sbin/lsof", str(lsof))
-    removed = (
-        tmp_path / ".local/bin/dksctl",
-        tmp_path / ".config/opencode/tools/dks.ts",
-        tmp_path / "Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist",
-    )
-    retained = (
-        tmp_path / "Library/Logs/dbsctr-embedding.log",
-        tmp_path / ".local/state/dbsctr/knowledge/private/embedding-api-key",
-    )
-    for file in removed + retained:
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text("owned")
-    subprocess.run(["bash"], input=executable_script, text=True, check=True,
-                   env={**os.environ, "HOME": str(tmp_path)})
-    assert not any(file.exists() for file in removed)
-    assert all(file.read_text() == "owned" for file in retained)
-
-    lsof.write_text("#!/bin/sh\nexit 0\n")
-    failed = subprocess.run(["bash"], input=executable_script, text=True, capture_output=True,
-                            env={**os.environ, "HOME": str(tmp_path)})
-    assert failed.returncode == 1 and failed.stdout == ""
-    assert failed.stderr == "dks-host-disable: process_running\n"
 
 
 def test_installer_pins_runtime_and_model_and_installs_atomically() -> None:
@@ -208,14 +141,7 @@ def test_manifest_and_launchagent_are_stable_and_private(tmp_path: Path) -> None
         "template_version": "dks-query-v1",
     }
 
-    plist = render("private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist.tmpl")
-    target = tmp_path / "embedding.plist"
-    target.write_text(plist)
-    subprocess.run(["plutil", "-lint", str(target)], check=True, capture_output=True)
-    assert "dev.dotfiles-ai.dbsctr-embedding" in plist
-    assert "state-root-exec" in plist and "dbsctr-embedding" in plist
-    assert "RunAtLoad" in plist and "KeepAlive" in plist
-    assert "127.0.0.1" not in plist  # Wrapper owns network arguments.
+    # darwin LaunchAgent delivery retired 2026-11-18; the manifest contract survives.
 
 
 def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path: Path) -> None:
@@ -264,11 +190,7 @@ def test_quality_service_manifests_wrappers_and_launchagents_are_pinned(tmp_path
     installer = (ROOT / "run_onchange_after_install-dbsctr-quality-services.sh.tmpl").read_text()
     assert "graphify-sql-0.9.48-71cb9828" in installer
     assert 'candidate_root="$HOME/.config/dotfiles-ai/models' not in installer
-    for name in ("code-embedding", "reranker"):
-        plist = render(f"private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-{name}.plist.tmpl")
-        target = tmp_path / f"{name}.plist"
-        target.write_text(plist)
-        subprocess.run(["plutil", "-lint", str(target)], check=True, capture_output=True)
+    # darwin LaunchAgent delivery retired 2026-11-18; wrappers and manifests survive.
     for name in ("code-embedding", "reranker"):
         manifest = json.loads(render(f"private_dot_config/dotfiles-ai/knowledge/{name}-space.json.tmpl"))
         assert manifest["service"]["artifact_root"] == "/Volumes/ext/state/models/dbsctr"
@@ -321,30 +243,11 @@ def test_memory_pressure_requires_exact_kernel_state(tmp_path: Path, monkeypatch
         dksctl.memory_pressure_state(config)
 
 
-def test_loader_bootstraps_only_after_install_and_removes_only_owned_targets() -> None:
-    source = (ROOT / "run_onchange_after_load-dbsctr-embedding.sh.tmpl").read_text()
-    enabled = render("run_onchange_after_load-dbsctr-embedding.sh.tmpl")
-    disabled = render("run_onchange_after_load-dbsctr-embedding.sh.tmpl", enabled=False)
-
-    assert enabled.index('"$wrapper" verify') < enabled.index("launchctl bootstrap")
-    assert enabled.index('prior service did not unload') < enabled.index("launchctl bootstrap")
-    assert enabled.index("launchctl bootstrap") < enabled.index('"$wrapper" check')
-    assert "dev.dotfiles-ai.dbsctr-embedding" in disabled
-    assert 'launchctl bootout "$domain/$label"' in disabled
-    assert disabled.index('launchctl print "$domain/$label"') < disabled.index('launchctl bootout "$domain/$label"')
-    assert 'rm -f "$plist"' in disabled
-    assert "rm -rf" not in source
-    assert "Qwen3-Embedding" not in disabled
-    assert "cleanup_candidate" in enabled and "trap cleanup_candidate ERR" in enabled
-    assert "trap cleanup_signal INT TERM" in enabled
-
-
 @pytest.mark.parametrize(
     "path",
     [
         "dot_local/bin/executable_dbsctr-embedding.tmpl",
         "run_onchange_after_install-dbsctr-embedding.sh.tmpl",
-        "run_onchange_after_load-dbsctr-embedding.sh.tmpl",
     ],
 )
 def test_rendered_shell_is_valid(path: str) -> None:
@@ -394,56 +297,6 @@ def test_runtime_archive_verifier_rejects_escaping_members(tmp_path: Path) -> No
         member.size = 1
         stream.addfile(member, io.BytesIO(b"x"))
     assert subprocess.run(["python3", str(verifier), "archive", str(archive), expected]).returncode != 0
-
-
-def test_loader_unloads_before_cleanup_and_unloads_failed_candidate(tmp_path: Path) -> None:
-    home = tmp_path / "home"
-    plist = home / "Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist"
-    wrapper = home / ".local/bin/dbsctr-embedding"
-    verifier = home / ".local/bin/dbsctr-embedding-runtime-verify"
-    manifest = home / ".config/dotfiles-ai/knowledge/embedding-space.json"
-    for parent in {plist.parent, wrapper.parent, manifest.parent}:
-        parent.mkdir(parents=True, exist_ok=True)
-    plist.write_text(render("private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist.tmpl"))
-    for path in (wrapper, verifier, manifest):
-        path.write_text("owned")
-    wrapper.chmod(0o755)
-
-    state = tmp_path / "launch-state"
-    state.touch()
-    launchctl = tmp_path / "launchctl"
-    launchctl.write_text(
-        "#!/bin/bash\n"
-        "case $1 in\n"
-        "  print) [[ -e $FAKE_LAUNCH_STATE ]];;\n"
-        "  bootout) rm -f \"$FAKE_LAUNCH_STATE\";;\n"
-        "  bootstrap) touch \"$FAKE_LAUNCH_STATE\";;\n"
-        "esac\n"
-    )
-    launchctl.chmod(0o755)
-    env = {"HOME": str(home), "FAKE_LAUNCH_STATE": str(state), "PATH": "/usr/bin:/bin"}
-
-    disabled = render("run_onchange_after_load-dbsctr-embedding.sh.tmpl", enabled=False)
-    disabled = disabled.replace("/bin/launchctl", str(launchctl))
-    subprocess.run(["/bin/bash"], input=disabled, text=True, env=env, check=True)
-    assert not state.exists()
-    assert not any(path.exists() for path in (plist, wrapper, verifier, manifest))
-
-    plist.parent.mkdir(parents=True, exist_ok=True)
-    wrapper.parent.mkdir(parents=True, exist_ok=True)
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    plist.write_text(render("private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist.tmpl"))
-    wrapper.write_text("#!/bin/bash\n[[ $1 == verify ]]\n")
-    wrapper.chmod(0o755)
-    manifest.write_text("owned")
-    curl = tmp_path / "curl"
-    curl.write_text("#!/bin/sh\nexit 0\n")
-    curl.chmod(0o755)
-    enabled = render("run_onchange_after_load-dbsctr-embedding.sh.tmpl")
-    enabled = enabled.replace("/bin/launchctl", str(launchctl)).replace("/usr/bin/curl", str(curl))
-    failed = subprocess.run(["/bin/bash"], input=enabled, text=True, env=env)
-    assert failed.returncode != 0
-    assert not state.exists()
 
 
 @pytest.mark.parametrize(
@@ -1774,10 +1627,9 @@ def test_dks002_pgvector_image_and_migration_are_pinned_and_recoverable() -> Non
     builder = (ROOT / "dot_local/bin/executable_pm-postgres-image-build").read_text()
     container = (ROOT / "private_dot_config/containers/systemd/pm-postgres.container.tmpl").read_text()
     guest_loader = (ROOT / "run_onchange_after_enable-pm-postgres.sh.tmpl").read_text()
-    host_loader = (ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()
     migrator = (ROOT / "dot_local/bin/executable_dks-postgres-migrate.tmpl").read_text()
     verifier = (ROOT / "dot_local/bin/executable_pm-postgres-image-verify").read_text()
-    baseline = (ROOT / "dot_local/bin/executable_pm-postgres-baseline.tmpl").read_text()
+    # pm-postgres-baseline retired with the lima execution path (2026-11-18)
 
     base_digest = "bfa69ac147240b42c3fc9005d8d173a8b0f07949c7d5c5bbc8985c17b011ec40"
     source_digest = "d076a3098010905fd60256649327809651f6288327db6413f0938305f62ea299"
@@ -1790,12 +1642,6 @@ def test_dks002_pgvector_image_and_migration_are_pinned_and_recoverable() -> Non
     assert "pm-postgres-image-build" in guest_loader
     assert "pm-postgres-image-verify" in guest_loader and "ExecStartPre" in container
     assert "image_id" in verifier and "0.8.6" in verifier
-    assert "schema_migration" in baseline and "pm_state_preserved" in baseline
-    assert host_loader.index("pm-postgres-backup") < host_loader.index('sandbox-vm" update')
-    assert host_loader.index('baseline=$("$HOME/.local/bin/pm-postgres-baseline")') < \
-        host_loader.index('"$HOME/.local/bin/pm-postgres-backup"')
-    assert "existing inactive volume" in host_loader
-    assert host_loader.index('sandbox-vm" update') < host_loader.index("dks-postgres-migrate")
     assert "\\getenv dks_password DKS_PASSWORD" in migrator
     assert "CREATE DATABASE dbsctr_knowledge" in migrator
     assert "dks_dotfiles_ai" in migrator
@@ -1811,7 +1657,7 @@ def test_dks002_pgvector_image_and_migration_are_pinned_and_recoverable() -> Non
     commit = migrator.index("COMMIT;", vectors)
     assert vectors < version < commit
     assert "policy_id='dks-quality-v2'" in migrator and "activation_id='dks-rrf-v1'" in migrator
-    assert "same-base compatible" in baseline
+    # pm-postgres-baseline retired with the lima execution path (2026-11-18)
 
 
 def test_dks002_config_is_default_off_project_scoped_and_private() -> None:
@@ -1820,7 +1666,6 @@ def test_dks002_config_is_default_off_project_scoped_and_private() -> None:
     ignore = (ROOT / ".chezmoiignore").read_text()
     project = (ROOT / "private_dot_config/dotfiles-ai/knowledge/projects.json.tmpl").read_text()
     psql = (ROOT / "dot_local/bin/executable_dks-psql.tmpl").read_text()
-    configure = (ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()
 
     assert "postgres_enabled = false" in defaults
     assert "[dotfiles_ai.knowledge_store.projects]" in defaults
@@ -1833,8 +1678,6 @@ def test_dks002_config_is_default_off_project_scoped_and_private() -> None:
     assert "op read" in psql and "DBSCTR_KNOWLEDGE_PASSWORD" not in psql
     assert "127.0.0.1" in psql and "dbsctr_knowledge" in psql
     assert "/usr/bin/security find-generic-password" in psql
-    assert "| /usr/bin/security add-generic-password" in configure
-    assert '-w "$dks_password"' not in configure
 
 
 def test_dks_project_config_renders_runtime_id_and_manifest_hash() -> None:
@@ -1870,8 +1713,6 @@ def test_dks_project_config_renders_runtime_id_and_manifest_hash() -> None:
 @pytest.mark.parametrize("path", [
     "dot_local/bin/executable_dbsctr-code-embedding.tmpl",
     "run_onchange_after_install-dbsctr-quality-services.sh.tmpl",
-    "run_onchange_after_load-dbsctr-code-embedding.sh.tmpl",
-    "run_onchange_after_load-dbsctr-reranker.sh.tmpl",
 ])
 def test_quality_service_rendered_shell_is_valid(path: str) -> None:
     subprocess.run(["/bin/bash", "-n"], input=render(path), text=True, check=True)
@@ -1933,10 +1774,7 @@ def test_reconcile_identity_freshness_and_delivery_contract() -> None:
     assert not dks.authority_activation_safe(export, current, privacy,
                                               {**privacy, "privacy_sequence": 3})
 
-    plist = render("private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-knowledge-reconcile.plist.tmpl")
-    subprocess.run(["plutil", "-lint", "--", "-"], input=plist, text=True, check=True)
-    assert "StartInterval" in plist and "KeepAlive" not in plist
-    assert "DOTFILES_AI_DKS_POSTGRES_KEYCHAIN" in plist
+    # reconcile LaunchAgent retired with the darwin delivery (2026-11-18)
     source = DKSCTL.read_text()
     assert 'commands.add_parser("reconcile"' in source
     assert 'commands.add_parser("doctor"' in source

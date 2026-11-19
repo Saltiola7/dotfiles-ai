@@ -1221,8 +1221,7 @@ def test_dks_retirement_slices_preserve_non_dks_delivery():
     assert "never recursively delete the knowledge root" in retirement
     assert "PM baselines are not residual DKS state" in retirement
     assert "delete the complete configured DKS knowledge-state tree" not in retirement
-    baseline = text("dot_local/bin/executable_pm-postgres-baseline.tmpl")
-    assert 'output_dir="$state_root/dbsctr/knowledge/postgres"' in baseline
+    # pm-postgres-baseline retired with the lima execution path (2026-11-18)
     for name in ("dks-fast-fallback", "runtime-query-recovery",
                  "knowledge-privacy-lock-isolation", "dks-routing-value-gate"):
         assert slices[name]["state"] == "blocked"

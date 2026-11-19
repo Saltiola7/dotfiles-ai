@@ -113,22 +113,6 @@ def assert_terminal_summary(run, duration, state="succeeded", failure=None,
     )
 
 
-def test_default_is_disabled_and_enabled_plist_is_daily_background():
-    loader = render("run_onchange_after_load-history-projection-refresh.sh.tmpl")
-    disabled = render("run_onchange_after_load-history-projection-refresh.sh.tmpl", data(False))
-    plist = plistlib.loads(render(
-        "private_Library/LaunchAgents/dev.dotfiles-ai.history-projection-refresh.plist.tmpl",
-        data(True),
-    ).encode())
-    assert "bootout" in disabled and "bootstrap" in loader
-    subprocess.run(["bash", "-n"], input=loader, text=True, check=True)
-    assert plist["StartCalendarInterval"] == {"Hour": 4, "Minute": 30}
-    assert plist["ProcessType"] == "Background"
-    assert plist["ProgramArguments"][-2:] == ["run", "3600"]
-    with pytest.raises(subprocess.CalledProcessError):
-        render("run_onchange_after_load-history-projection-refresh.sh.tmpl", data(True, hour=24))
-
-
 def test_status_missing_and_invalid_state(tmp_path):
     script = wrapper(tmp_path)
     state = tmp_path / "state"

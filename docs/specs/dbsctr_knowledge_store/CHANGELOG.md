@@ -179,3 +179,11 @@
   activated, and `dks-rrf-v1` remained the production policy.
 - Retained DKS-006 as recommendation-only and blocked production
   `pg_textsearch` work solely on official PostgreSQL 19 support.
+
+## 2026-11-18 — dial-down: experimental, dormant; darwin delivery retired
+
+- Initiative: macos-workstation-retirement (INT-006, INT-007).
+- DKS recorded as experimental and dormant; no resident services deployed.
+- darwin LaunchAgent delivery retired with the macOS workstation; VM model is
+  on-demand execution inside DBSCTR cycles against the pm-postgres quadlet.
+- DKS-001..007 plans retained as the historical record of the experiment.

@@ -16,7 +16,6 @@
     "dot_local/bin/executable_pm-postgres-image-verify",
     "dot_local/bin/executable_pm-postgres-migrate",
     "dot_local/bin/executable_pmctl",
-    "dot_local/bin/executable_sandbox-vm",
     "dot_local/bin/executable_state-root-exec",
     "dot_local/bin/executable_vertex-reauth-browser"
   ],

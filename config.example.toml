@@ -105,7 +105,6 @@ theme = "catppuccin"
 [data.dotfiles_ai.herdr]
 theme = "catppuccin"
 agent_panel_sort = "priority"
-launchagent = true
 # Opt-in durable macOS TCC responsibility host. Building installs the signed
 # ~/Applications/Herdr Host.app in probe-only mode; it never replaces or
 # restarts a running Herdr server. Activation is a separate manual operation.
@@ -231,48 +230,3 @@ remote = "https://github.com/your-account/dotfiles-ai"
 postgres_password_ref = "op://Private/DBSCTR Knowledge/password"
 reconcile_ref = "refs/remotes/origin/main"
 reconcile_fetch = false
-
-[data.dotfiles_ai.sandbox]
-# Lima disks are sparse maximums; host allocation grows with actual guest use.
-# Every managed Fedora guest uses rootless Podman, pinned Docker Compose v2, and
-# a guest-only `docker` compatibility shim. Host container runtimes are unsupported.
-enabled = false
-build_workspace = "workspace1"
-atuin_workspace = "" # optional always-on workspace for rootless Atuin
-# Optional machine-local Lima state root. Empty keeps Lima's native default.
-lima_home = ""
-cpus = 4
-memory_gib = 8
-disk_gib = 60
-
-[[data.dotfiles_ai.sandbox.workspaces]]
-name = "workspace1"
-instance = "workspace1-sandbox"
-shell_alias = "workspace1sh"
-federate = true
-runtime = "codex" # empty inherits data.dotfiles_ai.rnd.runtime
-
-[[data.dotfiles_ai.sandbox.workspaces.mounts]]
-host = "/Users/you/projects"
-guest = "/workspace/projects"
-writable = true
-protect_git_submodules = false
-reference_name = ""
-reference_description = ""
-reference_subpath = ""
-
-[[data.dotfiles_ai.sandbox.workspaces]]
-name = "workspace2"
-instance = "workspace2-sandbox"
-shell_alias = "workspace2sh"
-federate = true
-runtime = ""
-
-[[data.dotfiles_ai.sandbox.workspaces.mounts]]
-host = "/Users/you/reference"
-guest = "/workspace/reference"
-writable = true
-protect_git_submodules = true
-reference_name = "project-reference"
-reference_description = "Optional architecture and implementation reference."
-reference_subpath = ""

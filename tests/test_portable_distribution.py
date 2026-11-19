@@ -539,24 +539,19 @@ def test_opencode_distribution_retains_legacy_assets_only_for_fallback_routes() 
     updater = (ROOT / "dot_local/bin/executable_opencode-update-all").read_text()
     wrapper = (ROOT / "dot_local/bin/executable_opencode.tmpl").read_text()
     run_after = (ROOT / "run_after_update-opencode.sh.tmpl").read_text()
-    pm_configure = (ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()
-    lima = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
 
     assert "api.github.com/repos/anomalyco/opencode/releases/latest" in updater
     assert "opencode-darwin-arm64.zip" in updater
     assert "opencode-linux-arm64.tar.gz" in updater
     assert "release-lock.json" in updater
     assert 'exec "$HOME/.local/bin/opencode-update-all"' in run_after
-    assert '"$HOME/.local/bin/opencode-update-all"' in pm_configure
     assert "$HOME/.local/libexec/dotfiles-ai/opencode" in wrapper
     assert 'exec "$HOME/.local/bin/opencode-update-all" exec-managed "$@"' in wrapper
     assert 'herdr-opencode-restore' not in wrapper
     assert "/opt/homebrew/bin/opencode" in wrapper
     assert "/usr/local/libexec/opencode" in updater
-    assert "opencode-linux-arm64.tar.gz" not in lima
-    assert ".local/bin/opencode" in lima
     assert ".local/bin/opencode-update-all" in chezmoi("managed").stdout.splitlines()
-    for template in (wrapper, run_after, pm_configure):
+    for template in (wrapper, run_after):
         rendered = chezmoi("execute-template", template=template).stdout
         subprocess.run(["bash", "-n"], input=rendered, text=True, check=True)
     for platform, arch in [('darwin', 'arm64'), ('linux', 'arm64'), ('linux', 'amd64')]:
@@ -564,20 +559,6 @@ def test_opencode_distribution_retains_legacy_assets_only_for_fallback_routes() 
             '.chezmoi.os', json.dumps(platform)).replace('.chezmoi.arch', json.dumps(arch))).stdout
         assert 'target="$HOME/.opencode/bin/opencode"' in native_wrapper
         assert 'exec-managed' not in native_wrapper
-
-
-@pytest.mark.parametrize("global_runtime,workspace_runtime", [
-    ("invalid", ""),
-    ("opencode", "invalid"),
-    (False, ""),
-    ("opencode", True),
-])
-def test_runtime_selector_rejects_invalid_rendered_values(
-        global_runtime: object, workspace_runtime: object) -> None:
-    template = (ROOT / "private_dot_config/dotfiles-ai/sandbox.json.tmpl").read_text()
-    with pytest.raises(subprocess.CalledProcessError):
-        chezmoi("execute-template", rnd_runtime=global_runtime,
-                workspace_runtime=workspace_runtime, template=template)
 
 
 def test_homebrew_install_no_longer_owns_or_uninstalls_codex() -> None:
@@ -689,15 +670,6 @@ def test_local_data_renders_complete_configs() -> None:
         },
     }
 
-    sandbox = json.loads(
-        chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")).stdout
-    )
-    assert sandbox["lima_home"] == "/Volumes/ext/state/lima"
-    assert sandbox["state_root"] == "/Volumes/ext/state"
-    assert sandbox["schema_version"] == 9
-    assert sandbox["codex"] == {"channel": "stable"}
-    assert sandbox["pm_kernel"]["knowledge_postgres_enabled"] is False
-    assert sandbox["atuin_workspace"] == "workspace1"
     assert config["provider"]["lmstudio"]["options"]["baseURL"] == "http://localhost:1234/v1"
     assert "theme" not in config
 
@@ -710,26 +682,11 @@ def test_local_data_renders_complete_configs() -> None:
     }
 
     herdr = chezmoi("cat", str(Path.home() / ".config/herdr/config.toml")).stdout
-    plist = chezmoi(
-        "cat", str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist")
-    ).stdout
-    assert 'name = "nord"' in herdr
-    assert "allow_nested = true" in herdr
-    assert "/.local/bin/herdr-launchagent-supervisor" in plist
-    assert "/.local/bin/herdr-server-owner" in plist
+    # herdr-server LaunchAgent retired 2026-11-18
     wrapper = chezmoi("cat", str(Path.home() / ".local/bin/herdr-server-owner")).stdout
     assert '/usr/local/bin/herdr' in wrapper
 
-    sandbox = json.loads(
-        chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")).stdout
-    )
-    assert sandbox["guest"]["atuin_sync_address"] == "https://atuin.example.com"
-    assert sandbox["guest"]["hermes_enabled"] is True
-    assert sandbox["guest"]["rnd_backend"] == "native"
-    assert sandbox["guest"]["rnd_runtime"] == "opencode"
-    assert sandbox["workspaces"][0]["runtime"] == "codex"
-    assert sandbox["workspaces"][0]["rnd_enabled"] is False
-    assert sandbox["tailscale"] == {"enabled": False, "ssh": False}
+    # sandbox registry retired with the lima subsystem (2026-11-18)
 
 
 def test_tailscale_defaults_and_local_state_stay_out_of_git() -> None:
@@ -785,9 +742,6 @@ def test_portable_terminal_config_is_guest_only() -> None:
     assert "install-bash-preexec.sh" in ignore
     assert "install-guest-development-tools.sh" in ignore
     assert ".local/bin/docker" in ignore
-    assert "reconcile-sandbox-shell-aliases.sh" in ignore
-    assert "build-herdr-launchagent-supervisor.sh" in ignore
-    assert "run_onchange_after_reconcile-sandbox-shell-aliases.sh" not in ignore
     installer = (ROOT / "run_onchange_after_install-starship.sh.tmpl").read_text()
     assert "command -v starship" not in installer
     assert 'mv -f "$HOME/.local/bin/.starship.new"' in installer
@@ -823,7 +777,6 @@ def test_guest_profile_resolves_runtime_home_tools(tmp_path: Path) -> None:
 def test_current_distribution_contract_has_no_colima_fallback() -> None:
     current_docs = [
         ROOT / "config.example.toml",
-        ROOT / "docs/LIMA_SANDBOX.md",
         ROOT / "docs/ATUIN_PODMAN.md",
     ]
     assert all("colima" not in path.read_text().lower() for path in current_docs)
@@ -891,18 +844,7 @@ def test_atuin_server_uses_rootless_quadlet_without_project_mounts() -> None:
     assert "systemctl --user stop atuin.service" in installer
     assert 'include "private_dot_config/containers/systemd/atuin.container" | sha256sum' in installer
     assert '/bin/rm -f "$HOME/.config/containers/systemd/atuin.container"' in installer
-    plist = (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist.tmpl").read_text()
-    assert "state-root-exec" in plist
-    assert "LIMA_HOME" in plist
-    assert "--foreground" in plist
-    assert "start-atuin-workspace" not in plist
-    template = (ROOT / "private_dot_config/dotfiles-ai/lima/workspace.yaml.tmpl").read_text()
-    assert "NOPASSWD: /usr/bin/cat /mnt/lima-cidata/param.env" in template
-    assert "sudo -n /usr/bin/id" in template
-    loader = (ROOT / "run_onchange_after_load-atuin-workspace-launchagent.sh.tmpl").read_text()
-    assert 'configure-atuin --remove' in loader
-    assert '/bin/rm -f "$plist"' in loader
-    assert loader.index('sandbox-vm" validate') < loader.index("launchctl bootstrap")
+    # atuin-workspace LaunchAgent and lima template retired 2026-11-18
 
 
 def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
@@ -948,137 +890,31 @@ def test_pm_postgres_is_default_off_and_requires_exact_image() -> None:
             chezmoi("execute-template", pm_image=invalid, template=container)
 
     psql = (ROOT / "dot_local/bin/executable_pm-psql.tmpl").read_text()
-    backup = (ROOT / "dot_local/bin/executable_pm-postgres-backup.tmpl").read_text()
-    loader = (ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()
     guest_loader = (ROOT / "run_onchange_after_enable-pm-postgres.sh.tmpl").read_text()
-    plist = (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.pm-postgres-backup.plist.tmpl").read_text()
     assert "op read" in psql and "127.0.0.1" in psql and "55432" in psql
-    assert "pg_dump" in backup and "pg_restore" in backup and "retain=7" in backup
-    assert "configure-pm-postgres --remove" in loader
-    assert loader.index("provision-pm-postgres") < loader.index('sandbox-vm" update')
-    assert loader.index('sandbox-vm" update') < loader.index("configure-pm-postgres")
-    assert loader.index("configure-pm-postgres") < loader.rindex("podman healthcheck run pm-postgres")
-    assert "service did not recover after Lima reconfiguration" in loader
     assert "systemctl --user start pm-postgres.service" in guest_loader
     assert "systemctl --user restart pm-postgres.service" in guest_loader
     assert "systemctl --user stop pm-postgres.service" in guest_loader
     assert "container hash:" in guest_loader and "schema hash:" in guest_loader and "health hash:" in guest_loader
     assert "podman secret rm pm-postgres-password" in guest_loader
     assert "podman volume rm" not in guest_loader
-    assert "StartCalendarInterval" in plist and "pm-postgres-backup" in plist
-    sandbox_template = (ROOT / "private_dot_config/dotfiles-ai/sandbox.json.tmpl").read_text()
-    with pytest.raises(subprocess.CalledProcessError):
-        chezmoi("execute-template", onepassword=True, pm_image=image,
-                pm_backup_dir="/Volumes/ext/state-foreign/backups", template=sandbox_template)
-    with pytest.raises(subprocess.CalledProcessError):
-        chezmoi("execute-template", onepassword=True, pm_image=image,
-                pm_backup_dir="/Volumes/ext/state/../outside", template=sandbox_template)
+    # darwin backup plist + host configure loader retired 2026-11-18
 
 
 @pytest.mark.parametrize("knowledge_postgres", [False, True])
 def test_disabled_dks_cannot_override_pm_or_delete_retained_credentials(knowledge_postgres) -> None:
     image = "docker.io/library/postgres:19beta3@sha256:" + "a" * 64
     options = {"onepassword": True, "pm_image": image, "knowledge_postgres": knowledge_postgres}
-    sandbox = json.loads(chezmoi("execute-template", **options, template=(
-        ROOT / "private_dot_config/dotfiles-ai/sandbox.json.tmpl").read_text()).stdout)
-    assert sandbox["pm_kernel"]["postgres_enabled"] is True
-    assert sandbox["pm_kernel"]["knowledge_postgres_enabled"] is False
+    # sandbox registry retired with the lima subsystem (2026-11-18)
     container = chezmoi("execute-template", **options, template=(
         ROOT / "private_dot_config/containers/systemd/pm-postgres.container.tmpl").read_text()).stdout
     assert f"Image={image}" in container
     assert "pgvector" not in container
-    host = chezmoi("execute-template", **options, template=(
-        ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()).stdout
-    assert "dks-postgres-migrate" not in host
-    assert "delete-generic-password" not in host
-    assert "dks-postgres" not in host
-    assert "configure-pm-postgres" in host and "podman healthcheck run pm-postgres" in host
     guest = chezmoi("execute-template", **options, template=(
         ROOT / "run_onchange_after_enable-pm-postgres.sh.tmpl").read_text()).stdout
     assert "pm-postgres-image-build" not in guest
     assert "systemctl --user start pm-postgres.service" in guest
-    for script in (host, guest):
-        subprocess.run(["sh", "-n"], input=script, text=True, check=True)
-
-
-def test_pm_postgres_backup_verifies_restore_retains_seven_and_preserves_collisions(tmp_path) -> None:
-    image = "docker.io/library/postgres:19beta3@sha256:" + "a" * 64
-    source = (ROOT / "dot_local/bin/executable_pm-postgres-backup.tmpl").read_text()
-    rendered = chezmoi("execute-template", onepassword=True, pm_image=image,
-                       pm_backup_dir=str(tmp_path / "backups"), state_root=str(tmp_path),
-                       template=source).stdout
-    script = tmp_path / "pm-postgres-backup"
-    script.write_text(rendered)
-    script.chmod(0o755)
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    log = tmp_path / "sandbox.log"
-    sandbox = fake_bin / "sandbox-vm"
-    sandbox.write_text(f"""#!/bin/sh
-printf '%s\\n' "$*" >> {log}
-case "$*" in
-  *createdb*) test -z "$FAIL_CREATE" ;;
-  *'pg_dump '*) printf 'private-dump' ;;
-  *'pg_restore --list'*) cat >/dev/null ;;
-  *'pg_restore '*) cat >/dev/null ;;
-  *' psql '*) printf '1\\n' ;;
-esac
-""")
-    sandbox.chmod(0o755)
-    backups = tmp_path / "backups"
-    backups.mkdir()
-    for day in range(1, 9):
-        (backups / f"pm-kernel-202601{day:02d}T000000Z.dump").write_text("old")
-        (backups / f"pm-kernel-202601{day:02d}T000000Z.dump.sha256").write_text("sum")
-    env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "FAIL_CREATE": ""}
-    subprocess.run([str(script)], check=True, text=True, capture_output=True, env=env)
-    assert len(list(backups.glob("pm-kernel-*.dump"))) == 7
-    assert json.loads((backups / "last-verified.json").read_text())["restore_verified"] is True
-
-    collision_dir = tmp_path / "collision"
-    collision_source = chezmoi("execute-template", onepassword=True, pm_image=image,
-                               pm_backup_dir=str(collision_dir), state_root=str(tmp_path),
-                               template=source).stdout
-    script.write_text(collision_source)
-    log.write_text("")
-    failed = subprocess.run([str(script)], text=True, capture_output=True,
-                            env={**env, "FAIL_CREATE": "1"})
-    assert failed.returncode == 1
-    assert "dropdb" not in log.read_text()
-
-
-def test_pm_postgres_configure_fails_when_service_does_not_recover(tmp_path) -> None:
-    image = "docker.io/library/postgres:19beta3@sha256:" + "a" * 64
-    source = (ROOT / "run_onchange_after_configure-pm-postgres.sh.tmpl").read_text()
-    rendered = chezmoi("execute-template", onepassword=True, pm_image=image,
-                       pm_backup_dir=str(tmp_path / "backups"), state_root=str(tmp_path),
-                       template=source).stdout
-    script = tmp_path / "configure"
-    script.write_text(rendered)
-    script.chmod(0o755)
-    local_bin = tmp_path / ".local/bin"
-    local_bin.mkdir(parents=True)
-    (local_bin / "op-session").write_text("op() { printf 'a-secure-password-with-24-chars'; }\n")
-    (local_bin / "opencode-update-all").write_text("#!/bin/sh\nexit 0\n")
-    (local_bin / "opencode-update-all").chmod(0o755)
-    sandbox = local_bin / "sandbox-vm"
-    sandbox.write_text("#!/bin/sh\ncase \"$*\" in *'sh -c'*) exit 1;; *) exit 0;; esac\n")
-    sandbox.chmod(0o755)
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    for name, body in {
-        "launchctl": "#!/bin/sh\nexit 1\n",
-        "seq": "#!/bin/sh\nprintf '1\\n'\n",
-        "sleep": "#!/bin/sh\nexit 0\n",
-    }.items():
-        path = fake_bin / name
-        path.write_text(body)
-        path.chmod(0o755)
-    failed = subprocess.run([str(script)], text=True, capture_output=True,
-                            env={**os.environ, "HOME": str(tmp_path),
-                                 "PATH": f"{fake_bin}:{os.environ['PATH']}"})
-    assert failed.returncode == 1
-    assert "did not recover after Lima reconfiguration" in failed.stderr
+    subprocess.run(["sh", "-n"], input=guest, text=True, check=True)
 
 
 def test_onepassword_helper_is_opt_in_and_localized() -> None:
@@ -1244,72 +1080,6 @@ def test_vertex_reauth_isolates_gcloud_from_ambient_credentials(tmp_path: Path) 
     )
     assert invalid.returncode == 2
     assert "must end with application_default_credentials.json" in invalid.stderr
-
-
-def test_dynamic_workspace_registry_and_template_render() -> None:
-    registry = json.loads(chezmoi(
-        "cat", str(Path.home() / ".config/dotfiles-ai/sandbox.json")
-    ).stdout)
-    assert registry["enabled"] is True
-    assert registry["schema_version"] == 9
-    assert registry["build_workspace"] == "workspace1"
-    assert registry["atuin_workspace"] == "workspace1"
-    assert [workspace["name"] for workspace in registry["workspaces"]] == ["workspace1", "workspace2"]
-    assert [workspace["shell_alias"] for workspace in registry["workspaces"]] == ["workspace1sh", "workspace2sh"]
-    assert registry["workspaces"][1]["mounts"][0]["writable"] is False
-    template = chezmoi("cat", str(Path.home() / ".config/dotfiles-ai/lima/workspace.yaml")).stdout
-    assert 'disk: "60GiB"' in template
-    assert "@@MOUNTS@@" in template
-    assert "@@WORKSPACE_JSON@@" in template
-    assert "@@PORT_FORWARDS@@" in template
-
-
-def test_shell_alias_reconciler_refuses_unmanaged_command(tmp_path: Path) -> None:
-    script = chezmoi(
-        "execute-template", "--file",
-        str(ROOT / "run_onchange_after_reconcile-sandbox-shell-aliases.sh.tmpl"),
-    ).stdout
-    command = tmp_path / ".local/bin/workspace1sh"
-    command.parent.mkdir(parents=True)
-    command.write_text("unmanaged\n")
-    controller = command.parent / "sandbox-vm"
-    controller.write_text("#!/bin/sh\n")
-    controller.chmod(0o755)
-
-    result = subprocess.run(
-        ["sh"], input=script, text=True, capture_output=True,
-        env={**os.environ, "HOME": str(tmp_path)},
-    )
-
-    assert result.returncode != 0
-    assert "refusing to replace unmanaged command" in result.stderr
-    assert command.read_text() == "unmanaged\n"
-
-
-def test_shell_alias_reconciler_replaces_managed_alias_set(tmp_path: Path) -> None:
-    script = chezmoi(
-        "execute-template", "--file",
-        str(ROOT / "run_onchange_after_reconcile-sandbox-shell-aliases.sh.tmpl"),
-    ).stdout
-    bin_dir = tmp_path / ".local/bin"
-    state = tmp_path / ".config/dotfiles-ai/sandbox-shell-aliases"
-    bin_dir.mkdir(parents=True)
-    state.parent.mkdir(parents=True)
-    controller = bin_dir / "sandbox-vm"
-    controller.write_text("#!/bin/sh\n")
-    controller.chmod(0o755)
-    (bin_dir / "oldsh").symlink_to(controller)
-    state.write_text("oldsh\n")
-
-    subprocess.run(
-        ["sh"], input=script, text=True, check=True,
-        env={**os.environ, "HOME": str(tmp_path)},
-    )
-
-    assert not (bin_dir / "oldsh").exists()
-    assert (bin_dir / "workspace1sh").resolve() == controller
-    assert (bin_dir / "workspace2sh").resolve() == controller
-    assert state.read_text().splitlines() == ["workspace1sh", "workspace2sh"]
 
 
 def test_onepassword_helper_supports_noclobber(tmp_path: Path) -> None:
