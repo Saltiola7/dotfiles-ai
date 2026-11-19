@@ -336,6 +336,25 @@ Use synthetic IDs, not live session prefixes or operator paths. Pins, live recov
 rollout, VM/Mac changes, 007H wrapper/config/activation work and 007I editor recovery
 remain outside this slice. Fork A owns the subsequent reviewed live operation.
 
+### Completed unrecorded swap (RRW-007G-R5 / INT-082)
+
+A durable create can reach the document while its receipt write never lands: a
+crash or core restart between the core mutation and the durable update leaves
+the leaf standing on the created terminal while the repair still names the old
+one. Classify must treat a leaf bound to `repair['created']` — with exact owned
+labels and the desired program (or an R4 retained shell) — as a completed
+repair, whether the old repair terminal is finished or gone from inventory
+entirely. Absence of a finished record is not weaker stop evidence once the
+recorded pids are proven absent; a retained-source observation, a stop guard or
+an apply-boundary rebind that indexes the old terminal must tolerate its
+absence the same way. Every ownership, process, version and CAS check is kept:
+a leaf bound to any terminal other than the old one or the created one still
+refuses, and the replacement is re-proven (labels, program, process identity,
+session coverage) before the bookkeeping completes. A failed terminal lookup
+is not proof of absence; the old address must be missing from valid inventory.
+Recovery proceeds from the exact retained state without hand edits, replays
+no run/kill intent, and then adopts later panes as designed.
+
 ### Reboot-interrupted repair (RRW-007G-R4 / INT-082)
 
 Core can return an already-created replacement as a live labelled plain shell
@@ -649,6 +668,7 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Pending run with gone leaf and zero live or finished label matches | Recovery controller | Preserve closure, resolve repair, continue others without replay |
 | Crash after leaf CAS but before old-shell exit | Recovery controller | Prove replacement binding and original identity; reconcile old-shell stop only |
 | Created replacement returns as an owned plain shell after restart | Recovery controller | Reclassify current program; admit fresh proven shell repair, never call it a ready client |
+| Completed swap missing from receipt after restart | Recovery controller | Require finished or inventory-absent old terminal, absent old pids, proven replacement and unchanged document version; finish receipt without replay |
 | Stopped repair leaf absent after restart | Recovery controller | Reconcile original exit and uncertain live clients, retain closure, continue other repairs |
 | Restart during run/CAS/cleanup or after completion | Recovery controller | Reconcile durable intent against current process/document facts without replay or stale process authority |
 | Any uncertain or failed transition | Recovery controller | Retain evidence; no duplicate activation |
@@ -659,6 +679,9 @@ only the explicitly selected runtime. Switching first captures private state,
 then proves the source stopped before any target agent starts. Target readiness
 requires live session and layout fidelity. Shell recovery accepts the core's
 omitted empty session label without relaxing owner or process checks. Uncertainty retains evidence and
-blocks activation. Canonical source: approved INT-077/079 and this behavior
+blocks activation. An unrecorded completed swap finalizes the receipt without
+replay only after proving the old terminal finished or absent from inventory,
+its old pids absent, the exact replacement valid and the document version
+unchanged. Canonical source: approved INT-077/079/082 and this behavior
 contract; hosted qualification is distinct from live acceptance. Owner: distribution maintainer.
 Update with selection, native interface, ownership or recovery changes.
