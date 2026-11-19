@@ -29,6 +29,16 @@ def removal(fixture, monkeypatch):
     return core, fixture.repo, target
 
 
+def test_process_scan_ignores_the_checkers_own_descendants(removal):
+    core, _, target = removal
+    child = subprocess.Popen(["sleep", "30"], cwd=target)
+    try:
+        assert core.workspace_processes(target) == []
+    finally:
+        child.terminate()
+        child.wait()
+
+
 def test_clean_code_only_checkout_can_be_removed_without_a_cycle(removal):
     core, primary, target = removal
     before = git(primary, "worktree", "list", "--porcelain")

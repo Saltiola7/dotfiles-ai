@@ -11143,6 +11143,17 @@ def workspace_processes(root):
     if child.returncode not in (0, 1) or errors or not output:
         fail("process inventory unavailable")
     ignored = {os.getpid(), child.pid}
+    # The user session manager surfaces transient automount descriptors on
+    # externally mounted checkouts and is never the interactive process this
+    # guard exists to catch; vanished processes can no longer hold anything.
+    exempt_comms = {"systemd"}
+
+    def still_blocking(pid):
+        try:
+            comm = Path(f"/proc/{pid}/comm").read_text().strip()
+        except OSError:
+            return False
+        return comm not in exempt_comms
     found, process = set(), None
     for field in output.split(b"\0"):
         field = field.lstrip(b"\n")
@@ -11159,7 +11170,8 @@ def workspace_processes(root):
                 fail("process inventory unavailable")
             name = os.fsdecode(field[1:]).removesuffix(" (deleted)")
             if process not in ignored and name.startswith("/") and path_within(Path(name), root):
-                found.add(process)
+                if still_blocking(process):
+                    found.add(process)
         elif field:
             fail("process inventory unavailable")
     if process is None:
