@@ -28,6 +28,6 @@ def test_pr_review_does_not_silently_bypass_enrolled_coordination() -> None:
 
 
 def test_current_method_is_qualified_as_one_generation() -> None:
-    assert 'CURRENT_METHOD_REVISION = "3.30"' in (ROOT / "dot_local/bin/executable_dbsctrctl").read_text()
+    assert 'CURRENT_METHOD_REVISION = "3.31"' in (ROOT / "dot_local/bin/executable_dbsctrctl").read_text()
     for path in ("dot_agents/skills/dbsctr/SKILL.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"):
-        assert "Method Revision `3.30`" in (ROOT / path).read_text()
+        assert "Method Revision `3.31`" in (ROOT / path).read_text()
