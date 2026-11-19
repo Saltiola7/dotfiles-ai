@@ -18,7 +18,6 @@ replace the DBSCTR specifications as lifecycle authority.
 | Start isolated native task work | [Native Task Workspaces](#native-task-workspaces) |
 | Configure Git identities and signed commits | [Git identity and signing guide](docs/git-identity-signing.md) |
 | Enable autonomous R&D | [Optional Autonomous RD](#optional-autonomous-rd) |
-| Create isolated Fedora workspaces | [Optional Lima Workspaces](#optional-lima-workspaces) |
 | Plan a standalone RHEL 10 user | [RHEL 10 Remote User Foundation](#rhel-10-remote-user-foundation) |
 | Maintain this repository | [Update And Validate](#update-and-validate) and [Documentation Authority](#documentation-authority) |
 | Update tools and dependencies | [Manual update runbook](docs/UPDATES.md) |
@@ -55,7 +54,6 @@ skill licenses remain per bundle, including service-scoped Databricks material. 
 - Python 3.12+ and `uv` for repository validation
 - Worktrunk for task checkout management; `lsof` for removal checks (`xz` also required on Linux)
 - Optional: 1Password CLI for `op-session`
-- Optional: Lima for managed Fedora workspaces
 - Optional: Hermes for autonomous R&D; enabled installations manage it through
   this source
 
@@ -99,9 +97,7 @@ setup or an intentional upgrade.
 ## Configuration
 
 - `opencode`: provider profile/region, models, local endpoint, and theme.
-- `sandbox`: named Lima workspaces, mounts, Git protection, references,
-  federation, aliases, and the approved Build destination.
-- `herdr`: theme, Aqua LaunchAgent ownership for the Herdr server, and executable.
+- `herdr`: theme and executable (the darwin Aqua LaunchAgent retired 2026-11-18).
 - `rnd`: optional Hermes profiles, schedule, review workspace, writable source,
   and non-secret GitHub identity.
 - `onepassword`: optional account UUID, alias, and Keychain service.
@@ -364,16 +360,6 @@ and pinned runtime versions before running that probe. Damage becomes
 `failed_retryable`; incomplete login becomes `auth_pending`; complete probes
 become `ready`. It never starts a login.
 
-## Optional Lima Workspaces
-
-Managed Fedora workspaces keep OpenCode, Herdr, credentials, sessions, and
-Hermes profiles isolated. Only declared mounts cross the VM boundary. Optional
-Tailscale enrollment creates an external tailnet identity that disabling local
-configuration does not revoke.
-
-See [`docs/LIMA_SANDBOX.md`](docs/LIMA_SANDBOX.md) for creation, protected mounts,
-credentials, federation, updates, recovery, and explicit peer retirement.
-
 ## JFrog guidance and optional CLI
 
 All seven official JFrog workflows are supplied as portable shared skills: base
@@ -487,7 +473,7 @@ profile health verification.
 | Bounded context | Authority |
 |---|---|
 | [`dbsctr_v3_lifecycle`](docs/specs/dbsctr_v3_lifecycle/) | Lifecycle method, gates, evidence, delivery, and retirement |
-| [`dotfiles_ai_distribution`](docs/specs/dotfiles_ai_distribution/) | Portable distribution, Hermes, R&D, Lima, and delivery operations |
+| [`dotfiles_ai_distribution`](docs/specs/dotfiles_ai_distribution/) | Portable distribution, Hermes, R&D, and delivery operations |
 | [`opencode_control_plane`](docs/specs/opencode_control_plane/) | Providers, agents, prompts, permissions, skills, and routing |
 | [`shell_auth_startup`](docs/specs/shell_auth_startup/) | Shell, 1Password, Keychain, and Herdr startup boundaries |
 | [`writing_skills`](docs/specs/writing_skills/) | Jira and Pyramid writing behavior and evidence contracts |

@@ -1778,9 +1778,7 @@ def compare(value):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else list(argv)
-    if argv and argv[0] == "engine":
-        from . import local_engine
-        return local_engine.main(argv[1:])
+    # the lima-backed `engine` subcommand retired with the macOS workstation (2026-11-18)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version", action="version", version="continuous-validation " + VERSION)
     commands = parser.add_subparsers(dest="operation", required=True)

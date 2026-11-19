@@ -63,17 +63,6 @@ def render(path, data=None):
 def test_rnd_schedule_is_machine_local_opt_in():
     enabled = set(chezmoi("managed").stdout.splitlines())
     disabled = set(chezmoi("managed", enabled=False).stdout.splitlines())
-    jobs = {
-        "Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist",
-        "Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist",
-    }
-    assert jobs <= enabled
-    assert not jobs & disabled
-    hermes = subprocess.run([
-        "chezmoi", "-S", str(ROOT), "--config", "/dev/null", "--config-format", "toml",
-        "--override-data", json.dumps(values(backend="hermes")), "managed",
-    ], text=True, capture_output=True, check=True)
-    assert not jobs & set(hermes.stdout.splitlines())
     assert ".local/bin/dbsctr-rnd" in disabled
     assert not (ROOT / "dot_local/bin/executable_hermes-update").exists()
     assert not (ROOT / "private_Library/LaunchAgents/dev.dotfiles-ai.hermes-update.plist.tmpl").exists()
@@ -84,16 +73,8 @@ def test_runtime_selector_does_not_activate_worker_routing():
     codex = values(runtime="codex")
     assert render("dot_local/bin/executable_dbsctr-rnd.tmpl", opencode) == render(
         "dot_local/bin/executable_dbsctr-rnd.tmpl", codex)
-    assert render(
-        "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist.tmpl", opencode
-    ) == render(
-        "private_Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist.tmpl", codex
-    )
-    for path in (
-        "run_onchange_after_configure-hermes.sh.tmpl",
-        "run_onchange_after_load-dbsctr-rnd-launchagents.sh.tmpl",
-    ):
-        assert render(path, opencode) == render(path, codex)
+    assert render("run_onchange_after_configure-hermes.sh.tmpl", opencode) == render(
+        "run_onchange_after_configure-hermes.sh.tmpl", codex)
 
     distribution = "\n".join((ROOT / path).read_text() for path in (
         "dot_local/bin/executable_codex-install.tmpl",
@@ -131,46 +112,6 @@ def test_rnd_expands_machine_local_herdr_path():
     data["dotfiles_ai"]["herdr"]["executable"] = "~/.local/bin/herdr"
     script = render("dot_local/bin/executable_dbsctr-rnd.tmpl", data)
     assert 'str(Path("~/.local/bin/herdr").expanduser())' in script
-
-
-def test_launchd_uses_native_daily_and_interval_schedules():
-    spawner = chezmoi("cat", str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist")).stdout
-    watchdog = chezmoi("cat", str(Path.home() / "Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist")).stdout
-    assert "<key>Hour</key>\n        <integer>9</integer>" in spawner
-    assert "<key>Minute</key>\n        <integer>15</integer>" in spawner
-    assert "RunAtLoad" not in spawner
-    assert "<key>StartInterval</key>\n    <integer>300</integer>" in watchdog
-    assert "<key>RunAtLoad</key>\n    <true/>" in watchdog
-    assert plistlib.loads(spawner.encode())["StartCalendarInterval"] == {"Hour": 9, "Minute": 15}
-    assert plistlib.loads(watchdog.encode())["StartInterval"] == 300
-
-
-def test_disabled_loader_removes_only_replacement_jobs():
-    loader = render("run_onchange_after_load-dbsctr-rnd-launchagents.sh.tmpl", values(False))
-    subprocess.run(["bash", "-n"], input=loader, text=True, check=True)
-    assert "dev.dotfiles-ai.dbsctr-spawner" in loader
-    assert "dev.dotfiles-ai.dbsctr-watchdog" in loader
-    assert "bootout" in loader and "PlistBuddy" in loader
-    assert "gateway stop" in loader
-    assert "hermes-review-cron-id" not in loader
-
-
-def test_enabled_loader_is_valid_bash():
-    subprocess.run(
-        ["bash", "-n"], input=render("run_onchange_after_load-dbsctr-rnd-launchagents.sh.tmpl"),
-        text=True, check=True,
-    )
-
-
-def test_hermes_backend_retires_native_jobs_only_after_health_contract():
-    loader = render("run_onchange_after_load-dbsctr-rnd-launchagents.sh.tmpl",
-                    values(backend="hermes"))
-    subprocess.run(["bash", "-n"], input=loader, text=True, check=True)
-    assert "gateway status" in loader
-    assert "launchctl print" in loader and "state = running" in loader
-    assert "*-cron-id" in loader
-    assert "remove_job dev.dotfiles-ai.dbsctr-spawner" in loader
-    assert loader.index("gateway status") < loader.index("launchctl bootstrap")
 
 
 def test_hermes_templates_are_profile_local_and_valid_bash():

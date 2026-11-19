@@ -11,7 +11,7 @@
     "dot_local/bin/executable_herdr-history-maintain", "dot_local/bin/executable_herdr-opencode-restore",
     "dot_local/bin/executable_pm-postgres-image-build", "dot_local/bin/executable_pm-postgres-image-verify",
     "dot_local/bin/executable_pm-postgres-migrate", "dot_local/bin/executable_pmctl",
-    "dot_local/bin/executable_sandbox-vm", "dot_local/bin/executable_state-root-exec",
+    "dot_local/bin/executable_state-root-exec",
     "dot_local/bin/executable_vertex-reauth-browser"
   ],
   "excluded_components": [".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", ".venv", "__pycache__", "_archive", "build", "data", "dist", "graphify-out", "node_modules", "state", "vendor", "venv"],

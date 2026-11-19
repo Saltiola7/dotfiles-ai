@@ -126,8 +126,6 @@ enable-atuin-server.sh
 .config/containers/systemd/pm-postgres.container
 .config/containers/systemd/pm-postgres-data.volume
 .local/bin/pm-psql
-.local/bin/pm-postgres-backup
-Library/LaunchAgents/dev.dotfiles-ai.pm-postgres-backup.plist
 {{ end }}
 {{ if ne .dotfiles_ai.pm_kernel.jira_adapter "acli" }}
 .local/bin/pm-jira
@@ -138,15 +136,12 @@ Library/LaunchAgents/dev.dotfiles-ai.pm-postgres-backup.plist
 .local/bin/dks-postgres-migrate
 .config/dotfiles-ai/knowledge/embedding-space.json
 .config/opencode/tools/dks.ts
-Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist
 {{ end }}
 {{ if not (and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.quality_services_enabled) }}
 .local/bin/dbsctr-code-embedding
 .local/bin/dbsctr-reranker
 .config/dotfiles-ai/knowledge/code-embedding-space.json
 .config/dotfiles-ai/knowledge/reranker-space.json
-Library/LaunchAgents/dev.dotfiles-ai.dbsctr-code-embedding.plist
-Library/LaunchAgents/dev.dotfiles-ai.dbsctr-reranker.plist
 {{ end }}
 {{ if not (and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled) }}
 .local/bin/dksctl
@@ -155,14 +150,6 @@ Library/LaunchAgents/dev.dotfiles-ai.dbsctr-reranker.plist
 .config/dotfiles-ai/knowledge/projects.json
 .local/share/dbsctr-knowledge/
 {{ end }}
-{{ if not (and .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.knowledge_store.postgres_enabled .dotfiles_ai.knowledge_store.reconcile_enabled) }}
-Library/LaunchAgents/dev.dotfiles-ai.dbsctr-knowledge-reconcile.plist
-{{ end }}
-
-{{ if not .dotfiles_ai.sandbox.atuin_workspace }}
-Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist
-{{ end }}
-
 {{ if not .dotfiles_ai.opencode.vertex_project }}
 .config/opencode/agents/build-claude.md
 .config/opencode/agents/explore-vertex.md
@@ -176,10 +163,6 @@ Library/LaunchAgents/dev.dotfiles-ai.atuin-workspace.plist
 {{ if not .dotfiles_ai.onepassword.enabled }}
 .local/bin/op-session
 {{ end }}
-{{ if not .dotfiles_ai.herdr.launchagent }}
-Library/LaunchAgents/dev.dotfiles-ai.herdr-server.plist
-build-herdr-launchagent-supervisor.sh
-{{ end }}
 {{ if not .dotfiles_ai.herdr.host_enabled }}
 build-herdr-host.sh
 .local/bin/herdr-host
@@ -187,19 +170,10 @@ build-herdr-host.sh
 {{ if not .dotfiles_ai.hermes.enabled }}
 .hermes/managed
 {{ end }}
-{{ if or (not .dotfiles_ai.rnd.enabled) (ne .dotfiles_ai.rnd.backend "native") }}
-Library/LaunchAgents/dev.dotfiles-ai.dbsctr-spawner.plist
-Library/LaunchAgents/dev.dotfiles-ai.dbsctr-watchdog.plist
-{{ end }}
 {{ if eq .chezmoi.os "linux" }}
 Library/
-disable-dks-host.sh
-load-herdr-launchagent.sh
-build-herdr-launchagent-supervisor.sh
 build-herdr-host.sh
 .local/bin/herdr-host
-load-dbsctr-rnd-launchagents.sh
-.local/bin/sandbox-vm
 {{ if not (or .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.linux_workstation.enabled) }}
 {{ if not (or (eq .chezmoi.arch "arm64") (eq .chezmoi.arch "amd64")) }}
 .local/bin/opencode
@@ -211,28 +185,16 @@ install-01-remote-opencode.sh
 .local/bin/remote-agent-readiness
 install-00-remote-herdr.sh
 {{ end }}
-.config/dotfiles-ai/sandbox-shell-aliases
-reconcile-sandbox-shell-aliases.sh
-load-atuin-workspace-launchagent.sh
-configure-pm-postgres.sh
 .local/bin/dksctl
 .local/bin/dks-psql
 .local/bin/dks-postgres-migrate
-.local/bin/pm-postgres-baseline
 .local/share/dbsctr-knowledge/
 .local/bin/dbsctr-embedding
 .local/bin/dbsctr-embedding-runtime-verify
 .config/dotfiles-ai/knowledge/
-Library/LaunchAgents/dev.dotfiles-ai.dbsctr-embedding.plist
-Library/LaunchAgents/dev.dotfiles-ai.dbsctr-code-embedding.plist
-Library/LaunchAgents/dev.dotfiles-ai.dbsctr-reranker.plist
 install-dbsctr-embedding.sh
-load-dbsctr-embedding.sh
 install-dbsctr-quality-services.sh
-load-dbsctr-code-embedding.sh
-load-dbsctr-reranker.sh
 .local/bin/pm-psql
-.local/bin/pm-postgres-backup
 .local/bin/pm-jira
 .config/dotfiles-ai/*
 {{ if .dotfiles_ai.remote_user_environment.enabled }}
