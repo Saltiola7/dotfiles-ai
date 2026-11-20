@@ -1,5 +1,17 @@
 # Codex Control Plane Changelog
 
+## 2026-11-13 — Bounded probe command cleanup
+
+- Reap command leaders before signaling their process group and retry one exit
+  race, while retaining group cleanup when a successful leader leaves descendants.
+- Keep reaping within the selected command deadline and release owned streams
+  and selectors on success, failure and partial setup. Persistent cleanup denial
+  remains a typed failure and preserves the existing sanitized probe/hook output.
+- Added deterministic race, denial, timeout-budget and handle-release regressions,
+  alongside real overflow and descendant checks. Scoped adapter, publication and
+  distribution validation qualify source delivery; hosted CI and the final merge
+  outcome remain in private task evidence. No installed runtime is changed.
+
 ## 2026-10-24 — Desktop and CLI explicit lifecycle checkout
 
 - Clarified Desktop and CLI consumption of the existing shared lifecycle through

@@ -174,7 +174,7 @@ Adjacent contexts own:
 |---|---|---|---|---|
 | Boundary | `required: peer-runtime flowchart` | Which runtime owns native behavior and which contracts remain shared? | Architecture | Control-plane owner; runtime or ownership change |
 | Interaction | `required: adapter sequence` | How do Codex events reach DBSCTR without becoming lifecycle authority? | Adapter behavior | Control-plane owner; adapter surface change |
-| State | `required: capability transition table` | When may a capability be called parity-ready? | Parity contract | Control-plane owner; disposition change |
+| State | `required: capability and command-cleanup transition tables` | When may a capability be called parity-ready or a bounded command return? | Parity contract and Bounded command cleanup | Control-plane owner; disposition or cleanup change |
 | Data/trust | `required: identity and evidence flowchart` | Which private data may cross into shared evidence? | Trust contracts | Control-plane owner; source or output change |
 | Schema | `not_applicable`: Codex private schemas are explicitly non-contractual | What private Codex shape is supported? | Non-goals and contracts | A private schema is proposed |
 | Dependency/deployment | `required: host/guest deployment flowchart` | Which runtime, home, and adapter run in each boundary? | Distribution feature spec | Distribution owner; topology change |
@@ -484,6 +484,35 @@ handshake messages without opting into `experimentalApi` before a thread method.
 The adapter executes argument vectors without shell interpolation, bounds time
 and output, rejects malformed or unknown required fields, and emits only
 schema-validated JSON. `dbsctrctl` remains the sole lifecycle writer.
+
+### Bounded command cleanup
+
+The adapter owns each command's new process group, child handle, selector and
+output streams. It reaps an exited leader before signaling and retries a denied
+group signal once after polling again, covering an exit between observation and
+signal. Leader exit alone does not prove descendant cleanup. A successful group
+signal or confirmed group absence is required; persistent denial remains a
+sanitized command failure, with bounded direct-child cleanup attempted.
+
+Execution reserves up to one second, and at most half its selected timeout, for
+cleanup within the same deadline. Cleanup waits consume the remaining budget,
+close every owned stream and selector, and never turn an uncertain outcome into
+success. Ordinary operating-system spawn/close calls are not hard real-time
+guarantees. Probe failures retain exit 1 and `runtime_probe_failed` JSON without
+raw subprocess errors; hook workspace classification retains `unknown`.
+
+| Observed condition | Required cleanup and result |
+|---|---|
+| Output overflow, timeout or command failure | Clean the owned group and preserve the original command failure when cleanup succeeds. |
+| Leader exits before or during a denied signal | Reap and retry once; confirmed absence preserves the original result. |
+| Leader exits while descendants remain | Signal the group even after successful leader exit. |
+| Group signaling, reaping or handle closure remains uncertain | Attempt remaining owned cleanup and return a typed failure, including after otherwise successful execution. |
+
+**Text Equivalent:** Every command exit attempts group cleanup and releases owned
+handles within its selected budget. An exit race can be resolved by reaping and
+one retry; a persistent denial cannot authorize success. Canonical source:
+`codex-control-plane` command runner and its regression tests. Owner: control-plane
+maintainer. Update trigger: process ownership, deadline or failure-contract changes.
 
 ## Evidence Sources
 
