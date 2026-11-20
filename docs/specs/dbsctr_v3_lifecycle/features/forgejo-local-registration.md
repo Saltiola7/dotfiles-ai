@@ -85,6 +85,7 @@ runtime blocker, not permission to start a login or broaden credentials.
 | Existing supported GitHub records and schema 1 Initiatives | Their existing workflows run | Preserve existing identities, digests, record shapes and delivery behavior, including legacy schema 5 local intent. |
 | Missing credentials, endpoint mismatch, redirect or unsafe Git configuration | A controlled fetch is requested | Fail safely without another account, interactive login, credential enrollment or remote write. |
 | Zero, ambiguous or malformed native credential matches | Exact metadata selection runs | Refuse before requesting any password data. A unique match permits only a reference-bound single-item read, followed by attribute revalidation. |
+| A dedicated reader is installed | The reader rejects the lookup or its executable fails validation | Stop the fetch without retrying through Python. |
 | Git has an isolated home | Its dedicated credential child starts | Bind only that child's native lookup home to the current operating-system UID; malformed account-home metadata refuses before lookup. |
 | Output exceeds the bound and its child leader has exited | Cleanup runs | Reap the leader and still terminate the owned group; preserve the sanitized output failure when the group is gone or signaled. |
 | Group cleanup remains denied or the child cannot be reaped within its cleanup bound | Transport exits | Close owned pipes and report fixed cleanup-unavailable without claiming successful descendant cleanup. |
@@ -193,12 +194,19 @@ manifest schema 2 or attempting local-only registration.
 ## Fetch, approval and completion contracts
 
 The implementation supports macOS and the existing native `osxkeychain`
-credential namespace. A get-only Security.framework bridge selects a unique
-HTTPS Internet Password item with interaction disabled; it neither invokes an
-interactive CLI fallback nor enrolls credentials. The Python executable's
-Keychain access must be qualified separately: access granted to another Git
-helper does not establish access for this executable. Missing access fails
-without a prompt.
+credential namespace. A get-only Security.framework reader selects a unique
+HTTPS Internet Password item with interaction disabled. This performs no
+credential enrollment. Keychain evaluates the process that reads the secret,
+so trusting the Python script pathname may still leave the lookup unauthorized.
+
+An operator can install the dedicated native reader at
+`~/.local/libexec/dbsctr-forgejo-keychain` and grant it access only to the
+specific Forgejo Keychain item. Its lookup still binds the exact HTTPS host,
+port, repository path and account. If the reader is absent, the original Python
+bridge remains available to installations where the executable already has
+access. A present reader that cannot be used or cannot obtain the item fails
+closed. The transport does not retry with Python or prompt. Linux behavior and
+CI requirements are unchanged.
 
 First enumerate only attributes and item references for the exact selection.
 After one valid match is established, request attributes and password data for
@@ -208,7 +216,52 @@ no credential. Both reads retain the process-wide and query-level UI denial.
 Do not combine password data with an all-items limit: [Apple explicitly rejects
 that query for password items](https://developer.apple.com/documentation/security/secitemcopymatching(_:_:)).
 The existing data/trust visual table represents both reads inside the same
-native lookup boundary; no new source, sink or credential owner is introduced.
+native lookup boundary. The optional native executable narrows the process that
+the operator can authorize without introducing another credential source.
+
+### Opt-in native reader setup
+
+Install the reader on the Mac that runs DBSCTR. The source is
+`dot_local/share/dbsctr/forgejo-keychain.swift`. From the root of the reviewed
+checkout, run the following once with the Xcode Command Line Tools available.
+The installation checks that the destination is absent before building.
+
+```bash
+(
+  set -eu
+  reader="$HOME/.local/libexec/dbsctr-forgejo-keychain"
+  if [ -e "$reader" ] || [ -L "$reader" ]; then
+    printf '%s\n' 'The native reader is already installed.' >&2
+    exit 1
+  fi
+  mkdir -p "$HOME/.local/libexec"
+  staging=$(mktemp -d "$HOME/.local/libexec/.forgejo-keychain.XXXXXX")
+  trap 'rm -rf "$staging"' EXIT
+  xcrun swiftc -O -framework Security \
+    dot_local/share/dbsctr/forgejo-keychain.swift \
+    -o "$staging/dbsctr-forgejo-keychain"
+  codesign --force --sign - --identifier org.dbsctr.forgejo-keychain \
+    "$staging/dbsctr-forgejo-keychain"
+  codesign --verify --strict "$staging/dbsctr-forgejo-keychain"
+  chmod 0700 "$staging/dbsctr-forgejo-keychain"
+  ln "$staging/dbsctr-forgejo-keychain" "$reader"
+)
+```
+
+In Keychain Access, open the existing HTTPS Internet Password item for the
+intended Forgejo server, account, and exact repository path. In its **Access
+Control**, add `~/.local/libexec/dbsctr-forgejo-keychain` to the list of allowed
+applications. In the file chooser, press **⌘⇧G**, enter `~/.local/libexec/`,
+and select `dbsctr-forgejo-keychain`.
+Keep the item restricted to its approved applications. This step needs the
+operator's approval because it grants the new executable access to that stored
+token. The token remains in its existing item. A rebuilt binary requires
+explicit approval of its Keychain access before use.
+
+Rerun the repository-scoped DBSCTR preflight for local verification. A
+successful preflight verifies the fetch path without registering a cycle.
+Installation and preflight qualification are operator-run and do not add a
+macOS CI job.
 
 The new transport requires Git 2.56 or newer with credential `authtype`
 capability support. It supplies only an ephemeral pre-encoded Basic credential
@@ -344,10 +397,10 @@ The primary stages only intended artifacts for that authority; a helper must not
 claim untracked files were checked by a tracked-file scan. Manifest validation,
 receipt provenance and privacy review remain distinct proofs. Run affected
 pytest, Python compilation of changed helpers, `git diff --check`, and applicable
-managed configuration rendering. Current CI also runs the explicit native Swift
-warnings-as-errors authority and `uv run --group test pytest --maxfail=1`. Bun
-checks are conditional on changed TypeScript adapters; no adapter rewrite is
-required by this feature.
+managed configuration rendering. Hosted validation stays on Linux. The optional
+native Forgejo reader's build and Keychain qualification run locally when needed,
+outside CI. Bun checks are conditional on changed TypeScript adapters; no adapter
+rewrite is required by this feature.
 
 Acceptance must cover these meaningful boundaries:
 
@@ -440,6 +493,7 @@ without completing the read or granting publication authority.
 | Private manifest to receipt | Typed repository and committed provenance; account/credential bytes are absent from manifest identity. |
 | Private selector to native Keychain lookup | Exact origin/account/repository selection; lookup grants no API principal or mutation claim. |
 | Operating-system account record to credential child | Bind the current UID's native home before Keychain discovery; Git's home, XDG and configuration remain isolated. |
+| Operator to exact Keychain item | The operator authorizes the dedicated native reader for that item. The reader has no prompt or write path. |
 | Lookup to controlled Git fetch | Secret stays in private memory and is released only for exact selected HTTPS destination. |
 | Transport cleanup to caller | Fixed safe failure category only; no raw process, permission or provider diagnostic escapes. |
 | Git/profile/plan/receipt to native Cycle Record | Exact non-secret provenance, private selections and gate evidence; no raw provider error or token. |
@@ -448,16 +502,19 @@ without completing the read or granting publication authority.
 **Text Equivalent (data/trust):** Public support artifacts contain generic
 contracts only. Private identities and credential selections remain local to the
 consumer and runtime record. Only the credential child's native home comes from
-the current operating-system UID; the Git transport remains isolated. Secret bytes flow only from exact Keychain lookup
-to controlled Git fetch. Local completion retains source evidence privately and
-exports nothing. Cleanup errors cross the caller boundary only as fixed safe
-categories.
+the current operating-system UID; the Git transport remains isolated. An
+operator can grant the optional native reader access to one Keychain item.
+Secret bytes flow only from exact Keychain lookup to controlled Git fetch,
+without prompting or writing to Keychain. Local completion retains source
+evidence privately and exports nothing. Cleanup errors cross the caller boundary
+only as fixed safe categories.
 
 | Dependency | Permitted successor |
 |---|---|
 | Settled public Discovery plus exact publication checks | Fresh GitHub support-cycle receipt and actual preflight. |
 | Exact support-cycle launch approval | Native DBSCTR implementation and affected validation. |
 | Passing support gates and reviewed verified GitHub integration | Approved managed installation of that merged revision on the current computer. |
+| Optional local native reader build and exact Keychain approval | The consumer can qualify the read-only Forgejo fetch using that reader. |
 | Verified installed capability plus private consumer authority/transport | Fresh private local-cycle receipt, preflight and approval. |
 | Passing private local gates | Local completion and retained pending manual delivery. |
 | Unresolved full Forgejo safety contracts | Full remote automation remains blocked independently of the local-only release. |
@@ -465,6 +522,8 @@ categories.
 **Text Equivalent (dependency/deployment):** Public source must pass its existing
 GitHub delivery path before approved local managed installation. The consumer
 then proves installed capability and its own private launch/transport authority.
+The optional native reader is built and authorized locally before qualifying
+its fetch path.
 Local validation can complete, while full remote automation remains blocked.
 No server guard or consumer deployment is a dependency introduced by this slice.
 

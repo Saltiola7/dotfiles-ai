@@ -1,5 +1,13 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-19 — Dedicated Forgejo Keychain reader
+
+- Add an opt-in native macOS reader so the operator can authorize a dedicated
+  executable for the exact Forgejo Keychain item. The lookup remains read-only
+  and prompt-free. A failure from an installed reader stops the operation.
+- Document local installation and Keychain approval. Linux behavior and hosted
+  validation stay unchanged.
+
 ## 2026-11-19 — Move the full-suite matrix to Linux runners
 
 - Rewrite the hosted validation plane to ubuntu-24.04: workers and the
