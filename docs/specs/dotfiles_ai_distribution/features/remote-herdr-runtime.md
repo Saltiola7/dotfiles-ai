@@ -355,6 +355,23 @@ is not proof of absence; the old address must be missing from valid inventory.
 Recovery proceeds from the exact retained state without hand edits, replays
 no run/kill intent, and then adopts later panes as designed.
 
+### Legacy stop proof after PID reuse (RRW-007G-R6 / INT-082)
+
+Given a retained owner-captured stop proof containing only PID and start ticks,
+an absent PID, a reliably observed foreign UID, or a different start time
+proves the original process exited. A live PID with the same owner UID and
+start ticks still blocks. Unavailable or ambiguous ownership is not a UID
+mismatch. Foreign UID evidence does not authorize reading that process's stat
+or signaling it. Boot identity validation and boot-bound proof handling, process
+ownership for signaling, version and CAS, layout, and duplicate checks stay
+unchanged. Recovery needs no receipt edits or additional reboot.
+
+Qualify a synthetic reboot with two stopped legacy proofs (one PID absent, one
+reused by a different UID), a completed journal and 51 leaves with 50 exact
+sessions. Recover, then switch to TUI with every exact session present once and
+the core endpoint stopped before TUI startup. This fixture models the retained
+condition; Fork A owns deployment and live verification.
+
 ### Reboot-interrupted repair (RRW-007G-R4 / INT-082)
 
 Core can return an already-created replacement as a live labelled plain shell
@@ -669,6 +686,7 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Crash after leaf CAS but before old-shell exit | Recovery controller | Prove replacement binding and original identity; reconcile old-shell stop only |
 | Created replacement returns as an owned plain shell after restart | Recovery controller | Reclassify current program; admit fresh proven shell repair, never call it a ready client |
 | Completed swap missing from receipt after restart | Recovery controller | Require finished or inventory-absent old terminal, absent old pids, proven replacement and unchanged document version; finish receipt without replay |
+| Retained legacy stop proof with reused PID | Recovery controller | Proven foreign UID or changed start ticks establishes exit, never signaling authority; a matching live identity or ambiguous evidence blocks |
 | Stopped repair leaf absent after restart | Recovery controller | Reconcile original exit and uncertain live clients, retain closure, continue other repairs |
 | Restart during run/CAS/cleanup or after completion | Recovery controller | Reconcile durable intent against current process/document facts without replay or stale process authority |
 | Any uncertain or failed transition | Recovery controller | Retain evidence; no duplicate activation |
@@ -682,6 +700,8 @@ omitted empty session label without relaxing owner or process checks. Uncertaint
 blocks activation. An unrecorded completed swap finalizes the receipt without
 replay only after proving the old terminal finished or absent from inventory,
 its old pids absent, the exact replacement valid and the document version
-unchanged. Canonical source: approved INT-077/079/082 and this behavior
+unchanged. For legacy stop proofs, proven PID reuse establishes original exit,
+not signaling authority. A matching live identity or ambiguous evidence blocks.
+Canonical source: approved INT-077/079/082 and this behavior
 contract; hosted qualification is distinct from live acceptance. Owner: distribution maintainer.
 Update with selection, native interface, ownership or recovery changes.

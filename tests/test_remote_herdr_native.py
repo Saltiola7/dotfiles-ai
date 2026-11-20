@@ -64,12 +64,12 @@ def backend(tmp_path):
     return b
 
 
-def synthetic_process(backend, pid, argv, cwd='/work', ticks=10):
+def synthetic_process(backend, pid, argv, cwd='/work', ticks=10, *, uid=None):
     directory = backend.proc_root / str(pid)
     directory.mkdir(exist_ok=True)
     fields = ['S'] + ['0'] * 18 + [str(ticks)] + ['0'] * 10
     (directory / 'stat').write_text(f'{pid} (synthetic) ' + ' '.join(fields))
-    (directory / 'status').write_text('Uid:\t' + '\t'.join([str(native.os.getuid())] * 4) + '\n')
+    (directory / 'status').write_text('Uid:\t' + '\t'.join([str(native.os.getuid() if uid is None else uid)] * 4) + '\n')
     (directory / 'cmdline').write_bytes('\0'.join(argv).encode() + b'\0')
     (directory / 'cwd').unlink(missing_ok=True)
     (directory / 'cwd').symlink_to(cwd)
@@ -135,6 +135,33 @@ def test_r4_boot_proofs_preserve_exact_legacy_form_without_inventing_boot(backen
     synthetic_process(backend, 20, ['/foreign'], ticks=10)
     assert not backend._pids_absent([legacy])
     assert legacy == {'pid': 20, 'start_ticks': 10}
+
+
+def test_r6_foreign_uid_proves_legacy_exit_without_granting_process_access(backend, monkeypatch):
+    proof = backend._pid_proofs([20])[0]
+    legacy = {'pid': 20, 'start_ticks': 10}
+    synthetic_process(backend, 20, ['/unrelated'], uid=native.os.getuid() + 1)
+
+    def forbidden_identity(*args):
+        raise AssertionError('foreign process stat must not be read')
+
+    monkeypatch.setattr(native.processes, 'identity', forbidden_identity)
+    assert backend._pids_absent([legacy])
+    with pytest.raises(native.NativeError, match='native client exit ownership uncertain'):
+        backend._pids_absent([proof])
+    with pytest.raises(native.NativeError, match='native client ownership unavailable'):
+        backend._pid_proofs([20])
+    (backend.proc_root / '20/status').write_text('Uid:\tbad\n')
+    with pytest.raises(native.processes.ProcessProofError):
+        backend._pids_absent([legacy])
+
+
+def test_r6_same_uid_changed_ticks_prove_legacy_exit(backend):
+    legacy = {'pid': 20, 'start_ticks': 10}
+    with pytest.raises(native.NativeError, match='owned shell still running'):
+        backend._pids_absent_or_fail([legacy])
+    synthetic_process(backend, 20, ['/unrelated'], ticks=11)
+    assert backend._pids_absent([legacy])
 
 
 @pytest.mark.parametrize('bad', ['null', 'uppercase', 'extra', 'duplicate', 'mixed-form', 'mixed-boot', 'bool-start'])
@@ -834,6 +861,89 @@ def test_completed_unrecorded_swap_survives_core_restart(backend, old_terminal):
     assert not saved['receipt']['repairs']
     assert native.sessions(saved['plan']) == {pane['session_id']}
     assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
+
+
+def test_r6_recover_legacy_stops_then_switch_50_exact_clients_to_tui(backend):
+    core = FakeCore(backend)
+    expected = {f'ses_r6x{i}' for i in range(50)}
+    value = {'schema_version': 1, 'spaces': [
+        {'name': f'Space {si}', 'directory': '/work', 'tabs': [
+            {'name': f'Tab {ti}', 'root': {'pane': key},
+             'panes': [{'key': key, 'cwd': '/work',
+                        'session_id': f'ses_r6x{17 * si + ti}' if (si, ti) != (2, 16) else None}]}
+            for ti in range(17) for key in [f's{si}-t{ti}-p0']]}
+        for si in range(3)]}
+    with sqlite3.connect(backend.database_path()) as db:
+        db.executemany('INSERT INTO session VALUES (?, ?)', [(sid, '/work') for sid in expected])
+    manifest = manifest_for(backend, core, value)
+    backend.restore_current()
+    manifest = backend.store.read('manifest.json')
+    receipt = manifest['receipt']
+    swaps = {}
+    legacy_pids = []
+    for key in ('s1-t0-p0', 's2-t1-p0'):
+        pane = next(p for p in native.panes(value) if p['key'] == key)
+        old = receipt['terminals'][key]
+        pid = core.terminals[old]['pid']
+        legacy_pids.append(pid)
+        repair = backend._new_repair('testtx', key, old, pane, stopped=True,
+                                     pids=[{'pid': pid, 'start_ticks': 10}])
+        created = core.rpc('terminal.run', {'argv': [str(backend.home / '.local/bin/opencode'),
+                                                     '--session', pane['session_id']],
+                                            'cwd': pane['cwd'], 'labels': repair['labels']})
+        repair['created'] = created['address']
+        receipt.setdefault('repairs', {})[key] = repair
+        swaps[key] = (old, repair['created'])
+        core.rpc('terminal.kill', {'terminal': old})
+    core.document = native.layout.rebind_app_document(receipt['document'], swaps)
+    core.version = 97
+    backend.store.write('receipt-testtx.json', receipt)
+    backend.store.write('transaction.json', {'schema_version': 1, 'txid': 'testtx', 'phase': 'complete',
+                        'source': 'tui', 'target': 'herdr-core', 'plan': value, 'receipt': receipt})
+    # Model the post-boot core inventory (already has all exact clients).
+    core.restart(keep_addresses=tuple(t['address'] for t in core.terminals.values() if t['state'] == 'live'))
+    backend.test_boot_id = '00000002-0000-4000-8000-000000000001'
+    foreign_pid = legacy_pids[1]
+    foreign = backend.proc_root / str(foreign_pid)
+    synthetic_process(backend, foreign_pid, ['/unrelated'], uid=native.os.getuid() + 1)
+    foreign_status = (foreign / 'status').read_bytes()
+    backend.select = native.Native.select.__get__(backend)
+    backend.selected = native.Native.selected.__get__(backend)
+    tui_plan = None
+
+    def command(argv, timeout=30):
+        nonlocal tui_plan
+        if argv[0].endswith('/chezmoi'):
+            return {}
+        if argv == ['/usr/bin/systemctl', '--user', 'start', 'remote-herdr-tui.service']:
+            assert not core.active and not backend.scan(expected)
+            tui_plan = native.layout.from_tui_snapshot(json.loads(backend.snapshot_path.read_text()))
+            for i, pane in enumerate(native.panes(tui_plan), start=1000):
+                if pane['session_id']:
+                    synthetic_process(backend, i, wrapper_argv(backend, pane['session_id']), pane['cwd'])
+            return {}
+        return core.command(argv, timeout)
+
+    backend.command = command
+    backend.endpoint_present = lambda target: core.active if target == 'herdr-core' else tui_plan is not None
+    backend._tui_live = lambda: (tui_plan, {}, [])
+    backend.select('herdr-core')
+    before = len(core.calls)
+    ctl = runtime_controller.Controller(backend.store, backend)
+    ctl.recover()
+    recovered = backend.store.read('manifest.json')
+    assert not recovered['receipt']['repairs'] and recovered['receipt']['pending'] is None
+    assert core.version == 97 and not any(m in ('terminal.run', 'terminal.kill', 'doc.set')
+                                          for m, _ in core.calls[before:])
+    assert len(native.panes(recovered['plan'])) == 51 and native.sessions(recovered['plan']) == expected
+    ctl.switch('tui')
+    assert backend.selected() == 'tui' and not core.active
+    assert backend.store.read('transaction.json')['phase'] == 'complete'
+    assert tui_plan is not None and len(native.panes(tui_plan)) == 51
+    clients = backend._coverage(tui_plan)
+    assert {c['session_id'] for c in clients} == expected and len(clients) == 50
+    assert all(c['pid'] >= 1000 for c in clients)
+    assert (foreign / 'status').read_bytes() == foreign_status
 
 
 def test_unrecorded_swap_to_unknown_terminal_still_refuses(backend):
