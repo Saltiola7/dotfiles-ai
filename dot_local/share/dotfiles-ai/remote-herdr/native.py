@@ -1739,6 +1739,7 @@ class Native:
         live, proofs, actuals = {}, {}, {}
         source_guards = {}
         retained_shells = set()
+        completed_in_place = {}
         stop = self.store.read('source-stop.json')
         stopped = {}
         if (stop and stop.get('runtime') == 'herdr-core' and stop.get('txid') == receipt['txid']):
@@ -1829,8 +1830,18 @@ class Native:
                         if guard_source() != 'live':
                             raise NativeError('core repair guard state changed')
                         source_guards[leaf] = guard_source
-                    elif self._actual_core_program(actual) != (None, desired['cwd']):
-                        raise NativeError('core repair source ownership or program changed')
+                    else:
+                        program = self._actual_core_program(actual)
+                        if ('source' not in repair and receipt.get('pending') is None
+                                and program == (desired['session_id'], desired['cwd'])):
+                            if self._repair_candidates(terminals, repair):
+                                raise NativeError('prior terminal creation requires recovery')
+                            live[leaf], proofs[leaf] = actual, current_proofs
+                            actuals[leaf] = (*program, self.process_argv((actual.get('foreground') or actual)['pid']))
+                            completed_in_place[leaf] = repairs.pop(leaf)
+                            return {'cwd': desired['cwd'], 'session_id': desired['session_id']}
+                        if program != (None, desired['cwd']):
+                            raise NativeError('core repair source ownership or program changed')
                     live[leaf] = actual
                     actuals[leaf] = (None, desired['cwd'], self.process_argv((actual.get('foreground') or actual)['pid']))
                     proofs[leaf] = self._pid_proofs([actual['pid'], (actual.get('foreground') or actual)['pid']])
@@ -1921,6 +1932,10 @@ class Native:
                     raise NativeError('session client directory or PID mismatch')
                 self._client_argv(pid, identity)
         self._db_sessions(projected)
+        if completed_in_place:
+            current_inventory = self._terminals()
+            if any(self._repair_candidates(current_inventory, repair) for repair in completed_in_place.values()):
+                raise NativeError('prior terminal creation requires recovery')
         # Recheck actual programs and start times across the inventory boundary.
         for leaf, terminal in live.items():
             current = self._terminal(terminal['address'])
@@ -2808,6 +2823,7 @@ class Native:
             document, self._terminals(), plan, receipt)
         if any(leaf not in {b['leaf'] for b in bindings.values()} for leaf in repairs):
             raise NativeError('core repair leaf missing')
+        self._same_document((document, version))
         if not receipt.get('current_document'):
             receipt['adoption_backup'] = self._backup({'manifest': manifest, 'receipt': receipt})
         elif receipt.get('repairs') != repairs:

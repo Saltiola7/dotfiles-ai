@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-19 — Observe completed in-place Herdr repairs (RRW-007G-R7)
+
+- Reconcile exact live clients on their original owned bindings without
+  replaying terminal or document effects. Keep version, ownership, duplicate,
+  and closed-leaf guards.
+- Qualify the mixed 54-repair receipt with a connected app-like observer;
+  disconnect it before switching the 50 exact sessions to TUI. Final Push
+  targets `main` by PR. No bootstrap, pin or input changes; Fork A owns rollout.
+
 ## 2026-11-19 — Legacy stop proof after PID reuse (RRW-007G-R6)
 
 - Accept proven foreign PID ownership as exit evidence for owner-captured stop

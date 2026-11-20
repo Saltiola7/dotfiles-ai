@@ -10,9 +10,11 @@ from test_remote_herdr_native import (
 
 
 class AppCore(FakeCore):
+    app_connected = True
+
     def rpc(self, method, params):
         result = super().rpc(method, params)
-        if method == 'terminal.kill':
+        if self.app_connected and method == 'terminal.kill':
             assert self.document is not None
             finished = {a for a, t in self.terminals.items() if t['state'] == 'finished'}
             def prune(node):
