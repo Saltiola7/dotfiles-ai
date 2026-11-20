@@ -1,5 +1,11 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-20 — Diagnose the R8 native qualification refusal
+
+- Report the original controller refusal during the disposable edited-document
+  recovery check. Do not diagnose adopted bindings using pre-adoption journal
+  keys. Keep the original checks, production behavior and bootstrap unchanged.
+
 ## 2026-11-20 — Staggered TUI startup and offline recovery (RRW-007G-R8)
 
 - Pace controller-started Linux TUI clients without relaxing shared backend

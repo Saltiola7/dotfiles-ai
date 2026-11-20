@@ -121,7 +121,61 @@ def kept_spawn_diagnostics(backend):
     return label
 
 
+def edited_recovery_cli():
+    """Execute the installed CLI once; report only a source-defined refusal label."""
+    labels = r1_refusal_labels() | {
+        'core current restored layout differs': 'current-layout',
+        'core current restored bindings differ': 'current-bindings',
+        'core current inventory changed': 'current-inventory',
+        'core current process identity changed': 'current-process',
+        'core recovery document changed before mutation': 'document-changed',
+        'core repair source ownership or program changed': 'source-program',
+        'core terminal ownership mismatch': 'terminal-ownership',
+        'session client coverage incomplete or duplicate': 'client-coverage',
+        'native observation or mutation uncertain': 'native-uncertain',
+    }
+    trace_program = """
+import json, runpy, sys
+entrypoint, controller, labels = sys.argv[1:]
+labels = json.loads(labels)
+failure = None
+
+def trace(frame, event, arg):
+    global failure
+    if frame.f_code.co_filename != controller or frame.f_code.co_name != 'recover':
+        return None
+    if event == 'exception':
+        error = arg[1]
+        if type(error).__name__ == 'NativeError':
+            failure = (labels.get(str(error), 'unclassified'), frame.f_lineno)
+        elif failure is None:
+            failure = ('other', frame.f_lineno)
+    return trace
+
+sys.argv = [entrypoint, 'recover']
+sys.settrace(trace)
+try:
+    runpy.run_path(entrypoint, run_name='__main__')
+except SystemExit as error:
+    if error.code == 75 and failure is not None:
+        print(f'CI-recover-{failure[0]}-line-{failure[1]}')
+    raise
+finally:
+    sys.settrace(None)
+"""
+    result = subprocess.run(['/usr/bin/python3', '-I', '-c', trace_program, str(BIN / 'remote-herdr'),
+                             str(HOME / '.local/share/dotfiles-ai/remote-herdr/controller.py'),
+                             json.dumps(labels)], capture_output=True, text=True, cwd=HOME, timeout=855)
+    if result.returncode != 0:
+        match = re.fullmatch(r'CI-recover-([a-z-]+)-line-([1-9][0-9]{0,4})\n', result.stdout)
+        if result.returncode == 75 and match and match[1] in {*labels.values(), 'unclassified', 'other'}:
+            raise CommandFailure(f'controller-{match[1]}-line-{match[2]}')
+        raise CommandFailure('controller-command-exit-' + str(result.returncode))
+
+
 def cli(*args):
+    if args == ('recover',) and STEP == 'edited-document-installed-recovery':
+        return edited_recovery_cli()
     try:
         return run(BIN / 'remote-herdr', *args, timeout=855 if args[0] == 'recover' else 330)
     except CommandFailure:
@@ -175,7 +229,8 @@ def cli(*args):
                 label += '-' + check
                 if check.endswith('-spawn-pending'):
                     label += kept_spawn_diagnostics(backend)
-            elif phase in {'restore_pending', 'verify_pending'} and journal.get('target') == 'herdr-core':
+            elif (phase in {'restore_pending', 'verify_pending'} and journal.get('target') == 'herdr-core'
+                  and not (receipt or {}).get('current_document')):
                 # Inspect only after a failed CLI. No retries, stop or relaunch.
                 check = 'receipt'
                 refusals = {
