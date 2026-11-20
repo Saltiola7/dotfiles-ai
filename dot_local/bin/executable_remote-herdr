@@ -4,8 +4,17 @@ import argparse
 import json
 import os
 from pathlib import Path
+import signal
 import stat
 import sys
+
+
+class RecoveryDeadline(BaseException):
+    """Do not translate an overall deadline into retryable readiness."""
+
+
+def recovery_deadline(_signum, _frame):
+    raise RecoveryDeadline()
 
 
 class NoState:
@@ -76,7 +85,8 @@ def main():
             env = {'HOME': str(home), 'PATH': str(home / '.local/bin') + ':/usr/bin:/bin',
                    'XDG_CONFIG_HOME': str(home / '.config'), 'XDG_DATA_HOME': str(home / '.local/share'),
                    'XDG_STATE_HOME': str(home / '.local/state'), 'LANG': 'C.UTF-8',
-                   'XDG_RUNTIME_DIR': f'/run/user/{os.getuid()}'}
+                   'XDG_RUNTIME_DIR': f'/run/user/{os.getuid()}',
+                   'DOTFILES_AI_HERDR_PACE': '1'}
             os.execve(executable, [str(executable), '--session', 'default', 'server'], env)
         with Store(root) as store:
             backend = Native(home, store)
@@ -94,11 +104,16 @@ def main():
                         imported = layout.validate_plan(value)
                 controller.switch(args.runtime, replace_target=args.replace_target, imported=imported)
             elif args.operation == 'recover':
-                controller.recover()
+                signal.signal(signal.SIGALRM, recovery_deadline)
+                signal.alarm(840)
+                try:
+                    controller.recover()
+                finally:
+                    signal.alarm(0)
             else:
                 controller.restore()
         return 0
-    except Exception:
+    except (Exception, RecoveryDeadline):
         print('Herdr operation refused or incomplete; retained state requires inspection/recovery', file=sys.stderr)
         return 75
 

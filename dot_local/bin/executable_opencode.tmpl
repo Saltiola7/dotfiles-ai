@@ -92,14 +92,53 @@ PY
 [[ -x $target ]] || { echo "native OpenCode is not executable" >&2; exit 75; }
 if [[ $interactive == 1 && $explicit_server == 0 ]]; then
     exec python3 -c '
-import json, os, pathlib, stat, subprocess, sys
+import fcntl, json, math, os, pathlib, stat, subprocess, sys, time
 from urllib.parse import urlsplit
 target = sys.argv[1]
 environment = os.environ.copy()
+pace = environment.get("DOTFILES_AI_HERDR_PACE") == "1" and sys.platform == "linux"
+deadline = time.monotonic() + 280
 def read(*args):
     return subprocess.check_output([target, *args], env=environment, text=True,
-                                   stderr=subprocess.DEVNULL, timeout=10).strip()
+                                   stderr=subprocess.DEVNULL,
+                                   timeout=min(10, max(0.001, deadline - time.monotonic()))).strip()
+
+def admit():
+    root = "/run/user/" + str(os.getuid())
+    directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        metadata = os.fstat(directory)
+        if metadata.st_uid != os.getuid() or metadata.st_mode & 0o077:
+            raise ValueError("unsafe TUI admission directory")
+        fd = os.open("dotfiles-ai-herdr-start.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     0o600, dir_fd=directory)
+    finally:
+        os.close(directory)
+    metadata = os.fstat(fd)
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+            or metadata.st_mode & 0o077 or metadata.st_nlink != 1 or metadata.st_size > 64):
+        raise ValueError("unsafe TUI admission record")
+    while time.monotonic() < deadline:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            time.sleep(0.2)
+            continue
+        prior = os.pread(fd, 64, 0)
+        now = time.monotonic()
+        stamp = float(prior) if prior else 0
+        if not math.isfinite(stamp) or not 0 <= stamp <= now:
+            raise ValueError("invalid TUI admission timestamp")
+        delay = stamp + 2.5 - now
+        if delay > 0:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            time.sleep(delay)
+            continue
+        return fd  # Closed by exec; not inherited by the native client.
+    raise TimeoutError("TUI admission expired")
+
 try:
+    admission = admit() if pace else None
     server = read("service", "status")
     url = urlsplit(server)
     if url.scheme not in {"http", "https"} or url.hostname not in {"127.0.0.1", "localhost", "::1"} or not url.port:
@@ -125,6 +164,12 @@ try:
     index = int(sys.argv[2])
     arguments[index:index] = ["--server", server]
     launch = [target, *arguments]
+    if admission is not None:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("TUI admission expired")
+        stamp = str(time.monotonic()).encode("ascii")
+        os.ftruncate(admission, 0)
+        os.pwrite(admission, stamp, 0)
     # An explicit authenticated endpoint cannot enter native service replacement.
     os.execvpe(launch[0], launch, environment)
 except (OSError, ValueError, AttributeError, subprocess.SubprocessError):

@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-20 — Staggered TUI startup and offline recovery (RRW-007G-R8)
+
+- Pace controller-started Linux TUI clients without relaxing shared backend
+  identity checks. Reconcile a narrowly matched offline shutdown save from
+  retained switch intent and keep the original privately.
+- Bound explicit recovery independently of per-call deadlines. Add real native
+  50-session recovery and second-boot checks to the Linux qualification lane.
+  No bootstrap, pin or setup inputs change; Fork A owns live rollout.
+
 ## 2026-11-19 — Observe completed in-place Herdr repairs (RRW-007G-R7)
 
 - Reconcile exact live clients on their original owned bindings without

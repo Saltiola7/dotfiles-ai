@@ -123,7 +123,7 @@ def kept_spawn_diagnostics(backend):
 
 def cli(*args):
     try:
-        return run(BIN / 'remote-herdr', *args, timeout=180)
+        return run(BIN / 'remote-herdr', *args, timeout=855 if args[0] == 'recover' else 330)
     except CommandFailure:
         # Inspect only the failed fixture transaction, never replay its effects.
         # Phase and pending operations are restricted to source-defined labels.
@@ -2796,13 +2796,104 @@ def boot(target):
             backend._binary('herdr-core')
 
 
+def arm_r8():
+    """Retain the real controller's start intent with an offline v3 save."""
+    global STEP
+    STEP = 'r8-retain-start-intent'
+    pid = backend_pid()
+    run(BIN / 'herdr', 'session', 'stop', 'default', '--json')
+    unit('stop', 'remote-herdr-tui.service')
+    Store, Native = adapter()
+    from controller import Controller, ControllerError
+    cwd = str(HOME / 'project alpha')
+    tabs = []
+    for index in range(51):
+        session = None
+        if index:
+            session = api('post', '/api/session', {
+                'location': {'directory': cwd}, 'title': f'R8 fixture {index}',
+                'model': {'id': 'held', 'providerID': 'rrw007f'},
+            })['data']['id']
+        key = f's0-t{index}-p0'
+        tabs.append({'name': f'R8 tab {index}', 'root': {'pane': key},
+                     'panes': [{'key': key, 'cwd': cwd, 'session_id': session}]})
+    plan = {'schema_version': 1, 'spaces': [{'name': 'R8 space', 'directory': cwd, 'tabs': tabs}]}
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
+        backend.select('herdr-core')
+        original = backend.command
+
+        def interrupt(argv, timeout=30):
+            if argv == ['/usr/bin/systemctl', '--user', 'start', 'remote-herdr-tui.service']:
+                raise CommandFailure('r8-offline-checkpoint')
+            return original(argv, timeout=timeout)
+
+        backend.command = interrupt
+        try:
+            Controller(store, backend).switch('tui', replace_target=True, imported=plan)
+        except ControllerError:
+            pass
+        journal = store.read('transaction.json')
+        require(journal['phase'] == 'restore_pending' and backend.selected() == 'tui')
+        receipt = store.read('receipt-' + journal['txid'] + '.json')
+        require(receipt['pending'] == {'operation': 'tui.start'})
+        saved = backend._optional_snapshot()
+        require(saved == receipt['document'])
+        # Pinned writer omits absent Option fields; null is equivalent.
+        for tab in saved['workspaces'][0]['tabs'][2:39]:
+            for pane in tab['panes'].values():
+                for key in ('agent_name', 'managed_agent_kind', 'agent_session', 'launch_argv'):
+                    pane.pop(key)
+        saved['selected'] = 0
+        saved['sidebar_width'] = 42
+        write(backend.snapshot_path, saved)
+    write(EXPECTED, plan)
+    require(backend_pid() == pid)
+
+
+def verify_r8(*, recover):
+    global STEP
+    STEP = 'r8-recover' if recover else 'r8-second-boot'
+    plan = json.loads(EXPECTED.read_text())
+    pid = backend_pid()
+    Store, Native = adapter()
+    if recover:
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            journal = store.read('transaction.json')
+            retained = store.read('receipt-' + journal['txid'] + '.json')
+            require(journal['phase'] == 'restore_pending' and retained['pending'] == {'operation': 'tui.start'})
+            require(backend._optional_snapshot() != retained['document'])
+            require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
+        cli('recover')
+    else:
+        def ready():
+            with Store(ROOT) as store:
+                boot = store.read('boot.json')
+                return boot is not None and boot['status'] == 'complete'
+        wait(ready, seconds=340)
+    observe('tui', plan)
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        require(not backend.endpoint_present('herdr-core'))
+        require(len(backend._coverage(plan)) == 50)
+        journal = store.read('transaction.json')
+        require(journal['phase'] == 'complete')
+        require(store.read(journal['receipt']['shutdown_snapshot_backup']) is not None)
+    require(backend_pid() == pid)
+    print('F07: r8-exact-50-shared-service-clients', 'recovered' if recover else 'second-boot')
+
+
 if __name__ == '__main__':
     try:
         os.umask(0o077)
         require(os.getuid() == 1000 and Path.home() == HOME)
         require(len(sys.argv) == 2)
         stages = {'prepare': prepare, 'verify-core': lambda: boot('herdr-core'),
-                  'verify-tui': lambda: boot('tui')}
+                  'verify-tui': lambda: (boot('tui'), arm_r8()),
+                  'verify-r8-recover': lambda: verify_r8(recover=True),
+                  'verify-r8-boot': lambda: verify_r8(recover=False)}
         stages[sys.argv[1]]()
         print('F07: stage-complete')
     except Exception as error:

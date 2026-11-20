@@ -1886,6 +1886,48 @@ def test_tui_uncertain_exec_waits_without_second_start(backend):
     assert not any('start' in argv for argv in calls)
 
 
+@pytest.mark.parametrize('drift', [None, 'cwd', 'session', 'argv', 'label', 'unknown', 'receipt', 'client'])
+def test_r8_offline_shutdown_save_only_recovers_missing_planned_sessions(backend, drift):
+    generated = native.layout.to_tui_snapshot(plan())
+    snapshot = copy.deepcopy(generated)
+    snapshot['sidebar_width'] = 45
+    tab = snapshot['workspaces'][0]['tabs'][0]
+    tab['zoomed'] = True
+    pane = tab['panes']['0']
+    for key in ('agent_session', 'agent_name', 'managed_agent_kind', 'launch_argv'):
+        pane[key] = None
+    if drift == 'cwd':
+        pane['cwd'] = '/other'
+    elif drift == 'session':
+        pane['launch_argv'] = ['opencode', '--session', 'ses_other']
+    elif drift == 'argv':
+        pane['launch_argv'] = ['opencode', '--session', 'ses_abc', '--prompt', 'unexpected']
+    elif drift == 'label':
+        pane['label'] = 'unexplained edit'
+    elif drift == 'unknown':
+        snapshot['unrecognized'] = 1
+    elif drift == 'client':
+        synthetic_process(backend, 88, wrapper_argv(backend))
+    backend.snapshot_path.parent.mkdir(parents=True)
+    backend.snapshot_path.write_text(json.dumps(snapshot))
+    receipt = {'runtime': 'tui', 'txid': 'shutdown', 'document': generated if drift != 'receipt' else {},
+               'pending': {'operation': 'tui.start'}}
+    calls = []
+    backend.command = lambda argv, timeout=30: calls.append(argv) or ('inactive\n' if 'show' in argv else {})
+    backend._wait_ready = lambda *args: None
+    if drift:
+        with pytest.raises(native.NativeError):
+            backend.recover_tui(plan(), 'shutdown', receipt)
+        assert not any('start' in argv for argv in calls)
+        assert json.loads(backend.snapshot_path.read_text()) == snapshot
+        return
+    saved = backend.recover_tui(plan(), 'shutdown', receipt)
+    assert saved['pending'] is None and saved['document'] == generated
+    assert backend.store.read(saved['shutdown_snapshot_backup']) == {'snapshot': snapshot}
+    assert json.loads(backend.snapshot_path.read_text()) == generated
+    assert sum('start' in argv for argv in calls) == 1
+
+
 @pytest.mark.parametrize('change', [None, 'snapshot', 'surviving-client'])
 def test_interrupted_boot_preserves_exact_native_snapshot(backend, change):
     backend.snapshot_path.parent.mkdir(parents=True)

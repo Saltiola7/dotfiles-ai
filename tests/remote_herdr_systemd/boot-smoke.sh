@@ -76,6 +76,22 @@ case ${1:-} in
         wait_user
         no_login
         as_user timeout 600 python3 /opt/f07/verify-user.py verify-tui
+        touch /var/lib/f07/r8-armed /run/f07-r8-recover
+        ;;
+    verify-r8-recover)
+        stage=verify-r8-recover-precondition
+        [[ -f /var/lib/f07/r8-armed && ! -e /run/f07-r8-recover && ! -e /var/lib/f07/r8-recovered ]] || fail
+        wait_user
+        no_login
+        as_user timeout 900 python3 /opt/f07/verify-user.py verify-r8-recover
+        touch /var/lib/f07/r8-recovered /run/f07-r8-boot
+        ;;
+    verify-r8-boot)
+        stage=verify-r8-boot-precondition
+        [[ -f /var/lib/f07/r8-recovered && ! -e /run/f07-r8-boot && ! -e /var/lib/f07/qualified ]] || fail
+        wait_user
+        no_login
+        as_user timeout 600 python3 /opt/f07/verify-user.py verify-r8-boot
         touch /var/lib/f07/qualified
         echo 'F07: native-layout-and-inflight-turn-qualification-complete'
         ;;

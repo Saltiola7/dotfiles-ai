@@ -473,6 +473,35 @@ def to_tui_snapshot(plan):
                        'active': 0 if workspaces else None, 'selected': 0})
 
 
+def matches_tui_shutdown(snapshot, plan):
+    """Recognize a pinned native save without trusting its launch instructions."""
+    actual = from_tui_snapshot(snapshot)
+    if set(snapshot) - {'version', 'workspaces', 'active', 'selected', 'sidebar_width',
+                        'sidebar_section_split', 'collapsed_space_keys'}:
+        return False
+    # Validate persisted identifiers when the native writer supplied them.
+    tui_public_identities(snapshot)
+    for space in snapshot['workspaces']:
+        if set(space) - {'id', 'custom_name', 'identity_cwd', 'public_pane_numbers',
+                         'next_public_pane_number', 'public_tab_numbers', 'next_public_tab_number',
+                         'tabs', 'active_tab'}:
+            return False
+        for tab in space['tabs']:
+            if (set(tab) - {'custom_name', 'layout', 'panes', 'zoomed', 'focused', 'root_pane'}
+                    or any(not isinstance(pane, dict) or set(pane) - {
+                        'cwd', 'session_id', 'agent_name', 'managed_agent_kind',
+                        'agent_session', 'agent_resume', 'launch_argv', 'history'}
+                        or pane.get('session_id') is not None for pane in tab['panes'].values())):
+                return False
+    observed = _json_copy(actual)
+    for got_space, want_space in zip(observed['spaces'], plan['spaces']):
+        for got_tab, want_tab in zip(got_space['tabs'], want_space['tabs']):
+            for got, want in zip(got_tab['panes'], want_tab['panes']):
+                if got['session_id'] is None:
+                    got['session_id'] = want['session_id']
+    return observed == plan
+
+
 def to_app_document(plan, terminal_map):
     """Generate selected machine-local layout only, not private UI view state.
 

@@ -33,7 +33,7 @@ jobs:
   qualified-native-idle-layout:
     # Match the qualified F01 lingering-user-manager runner and container host.
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -68,5 +68,9 @@ jobs:
           docker exec "$container" bash /opt/f07/boot-smoke.sh verify-core
           docker restart --time 40 "$container" >/dev/null 2>&1 || { echo 'F07: tui-reboot-failed'; exit 1; }
           docker exec "$container" bash /opt/f07/boot-smoke.sh verify-tui
+          docker restart --time 40 "$container" >/dev/null 2>&1 || { echo 'F07: r8-recovery-reboot-failed'; exit 1; }
+          docker exec "$container" bash /opt/f07/boot-smoke.sh verify-r8-recover
+          docker restart --time 40 "$container" >/dev/null 2>&1 || { echo 'F07: r8-convergence-reboot-failed'; exit 1; }
+          docker exec "$container" bash /opt/f07/boot-smoke.sh verify-r8-boot
           # Success requires the last native stage, without skipping failures.
           docker exec "$container" test -f /var/lib/f07/qualified

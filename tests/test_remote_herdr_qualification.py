@@ -1605,9 +1605,10 @@ class QualificationSourceTests(unittest.TestCase):
         docker_run = workflow.split('docker run -d', 1)[1].split('docker exec', 1)[0]
         self.assertNotRegex(docker_run, r'--(?:volume|mount|network)|(?:^|\s)-[vp]\s')
         self.assertNotRegex(workflow, r'git push|gh pr|upload-artifact|secrets\.')
-        stages = re.findall(r'boot-smoke.sh (prepare|verify-core|verify-tui)|docker (restart)', workflow)
+        stages = re.findall(r'boot-smoke.sh (prepare|verify-core|verify-tui|verify-r8-recover|verify-r8-boot)|docker (restart)', workflow)
         self.assertEqual([a or b for a, b in stages],
-                         ['prepare', 'restart', 'verify-core', 'restart', 'verify-tui'])
+                         ['prepare', 'restart', 'verify-core', 'restart', 'verify-tui',
+                          'restart', 'verify-r8-recover', 'restart', 'verify-r8-boot'])
         self.assertIn('test -f /var/lib/f07/qualified', workflow)
         self.assertIn('docker exec "$probe" bash /opt/f07/kept-probe.sh approved-disposable-container', workflow)
         self.assertLess(workflow.index('bash /opt/f07/kept-probe.sh'),
