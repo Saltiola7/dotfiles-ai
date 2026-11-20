@@ -54,6 +54,9 @@ else:
     print(sys.stdin.read() if os.environ.get("TEST_NATIVE_STDIN") else json.dumps(args))
 ''')
     native.chmod(0o700)
+    helper = home / '.local/share/dotfiles-ai/opencode-shared-client.py'
+    helper.parent.mkdir(parents=True)
+    helper.write_bytes((ROOT / 'dot_local/share/dotfiles-ai/opencode-shared-client.py').read_bytes())
     pacing = home / '.local/bin/herdr-opencode-restore'
     pacing.write_text('#!/bin/sh\n[ "$1" = --pace-start ] || exit 91\n'
                       'touch "$HOME/paced"\nshift\nexec "$@"\n')
@@ -250,6 +253,50 @@ def test_native_guard_preserves_client_standard_input(native_host_fixture, monke
                             input='synthetic piped input', text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == 'synthetic piped input'
+
+
+def test_native_guard_launch_fits_herdr_inventory(native_host_fixture, monkeypatch, tmp_path):
+    from test_remote_herdr_native import native as herdr_native
+
+    _, _, scripts = native_host_fixture
+    bin_dir = tmp_path / 'record-python'
+    bin_dir.mkdir()
+    capture = tmp_path / 'python-argv.json'
+    python = bin_dir / 'python3'
+    python.write_text(f'''#!{sys.executable}
+import json, os, sys
+if "-c" in sys.argv[1:3] or any(a.endswith("/opencode-shared-client.py") for a in sys.argv[1:3]):
+    with open({str(capture)!r}, "w") as stream:
+        json.dump(sys.argv, stream)
+os.execv({sys.executable!r}, [{sys.executable!r}, *sys.argv[1:]])
+''')
+    python.chmod(0o700)
+    monkeypatch.setenv('PATH', str(bin_dir) + os.pathsep + os.environ['PATH'])
+    result = subprocess.run(['/bin/bash', str(scripts['opencode']), '--session', 'ses_test'],
+                            text=True, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    argv = json.loads(capture.read_text())
+    inventory = [{'foreground': {'argv': argv}}]
+    assert herdr_native.layout._json_copy(inventory) == inventory
+    assert 'synthetic-private' not in json.dumps(argv)
+    assert json.loads(result.stdout)[:2] == ['--server', 'http://127.0.0.1:12345']
+
+
+@pytest.mark.parametrize('fault', ['missing', 'symlink', 'writable'])
+def test_shared_client_helper_fails_closed(native_host_fixture, fault):
+    _, _, scripts = native_host_fixture
+    helper = Path(os.environ['HOME']) / '.local/share/dotfiles-ai/opencode-shared-client.py'
+    if fault == 'writable':
+        helper.chmod(0o666)
+    else:
+        saved = helper.with_suffix('.saved')
+        helper.rename(saved)
+        if fault == 'symlink':
+            helper.symlink_to(saved)
+    result = subprocess.run(['/bin/bash', str(scripts['opencode']), '--session', 'ses_test'],
+                            text=True, capture_output=True)
+    assert result.returncode == 75 and not result.stdout
+    assert not (Path(os.environ['HOME']) / 'native-calls').exists()
 
 
 def test_native_bootstrap_installs_only_when_missing(tmp_path, native_host_fixture, monkeypatch):

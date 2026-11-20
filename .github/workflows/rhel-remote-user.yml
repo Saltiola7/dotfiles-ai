@@ -22,6 +22,7 @@ on:
       - "dot_local/bin/executable_dbsctrctl"
       - "private_dot_config/worktrunk/**"
       - "dot_local/bin/executable_opencode*"
+      - "dot_local/share/dotfiles-ai/opencode-shared-client.py"
       - "dot_local/bin/executable_remote-agent-readiness.tmpl"
       - "dot_local/bin/executable_remote-user-bootstrap"
       - "dot_local/bin/executable_remote-user-foundation"

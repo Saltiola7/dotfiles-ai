@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-20 — Keep shared-client startup within Herdr inventory limits
+
+- Move existing OpenCode admission into a checked managed script instead of
+  putting its source in process arguments. Retain the Herdr string limit,
+  backend authentication, pacing and exact client exec.
+- Exercise the rendered launch in Herdr's inventory validator and include
+  the helper in both native Linux fixtures. No bootstrap, pin or input changes.
+
 ## 2026-11-20 — Diagnose the R8 native qualification refusal
 
 - Report the original controller refusal during the disposable edited-document

@@ -1528,6 +1528,7 @@ class QualificationSourceTests(unittest.TestCase):
         allowed = {
             '.chezmoidata.toml', 'config.remote-user.example.toml',
             'dot_local/bin/executable_opencode.tmpl',
+            'dot_local/share/dotfiles-ai/opencode-shared-client.py',
             'dot_local/bin/executable_opencode-install.tmpl',
             'dot_local/bin/executable_remote-herdr',
             'dot_local/bin/executable_remote-herdr-core',

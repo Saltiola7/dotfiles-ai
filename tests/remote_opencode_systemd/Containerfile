@@ -15,6 +15,7 @@ RUN dnf -y --setopt=install_weak_deps=False install \
 COPY .chezmoidata.toml /opt/f01/source/.chezmoidata.toml
 COPY config.remote-user.example.toml /opt/f01/source/config.remote-user.example.toml
 COPY dot_local/bin/executable_opencode.tmpl dot_local/bin/executable_opencode-install.tmpl /opt/f01/source/dot_local/bin/
+COPY dot_local/share/dotfiles-ai/opencode-shared-client.py /opt/f01/source/dot_local/share/dotfiles-ai/
 COPY private_dot_config/systemd/user/opencode-shared.service /opt/f01/source/private_dot_config/systemd/user/opencode-shared.service
 COPY run_onchange_after_install-01-remote-opencode.sh.tmpl run_after_install-04-remote-opencode-service.sh.tmpl /opt/f01/source/
 # Reuse the public checksum-verified chezmoi bootstrap, without applying the
