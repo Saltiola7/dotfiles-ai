@@ -355,6 +355,24 @@ is not proof of absence; the old address must be missing from valid inventory.
 Recovery proceeds from the exact retained state without hand edits, replays
 no run/kill intent, and then adopts later panes as designed.
 
+### Offline TUI shutdown save and paced restore (RRW-007G-R8 / INT-082)
+
+Given an offline `tui.start` switch intent and no surviving source endpoint or
+planned clients, permit regeneration only if the receipt still names the exact
+generated snapshot. The shutdown save must retain layout, names, working
+directories and all remaining session identities. Only omissions of planned
+identities and recognized native presentation metadata are allowed. Save the
+preimage privately, persist the write intent before changing the file, and
+recheck absence and the file before writing. Do not apply this rule to a live
+endpoint or an ordinary boot's saved snapshot.
+
+The controller-started Linux TUI spaces authenticated OpenCode launch admission
+by 2.5 seconds under a bounded user-local lock. It does not restart the shared
+backend or replay a client launch. Keep per-call timeouts and bound explicit
+recovery to 840 seconds, below the restore unit's 900-second limit. Qualify the
+offline 51-pane, 50-session recovery against the real shared service on Linux,
+then check automatic restore after another user-manager reboot.
+
 ### In-place client already running (RRW-007G-R7 / INT-082)
 
 Given a pending repair with no recorded source, stop, or created terminal and
@@ -706,6 +724,7 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Completed swap missing from receipt after restart | Recovery controller | Require finished or inventory-absent old terminal, absent old pids, proven replacement and unchanged document version; finish receipt without replay |
 | Retained legacy stop proof with reused PID | Recovery controller | Proven foreign UID or changed start ticks establishes exit, never signaling authority; a matching live identity or ambiguous evidence blocks |
 | Pending in-place repair to completed receipt | Recovery controller | Exact owned live binding, program, process, version and unique client; no native mutation |
+| Offline TUI start with native shutdown save | Recovery controller | Prove snapshot differs only in allowed metadata or omitted planned identities; back up and regenerate before paced start |
 | Stopped repair leaf absent after restart | Recovery controller | Reconcile original exit and uncertain live clients, retain closure, continue other repairs |
 | Restart during run/CAS/cleanup or after completion | Recovery controller | Reconcile durable intent against current process/document facts without replay or stale process authority |
 | Any uncertain or failed transition | Recovery controller | Retain evidence; no duplicate activation |
@@ -723,6 +742,8 @@ unchanged. For legacy stop proofs, proven PID reuse establishes original exit,
 not signaling authority. A matching live identity or ambiguous evidence blocks.
 An in-place client completes only with the original owned binding, exact session
 and cwd, stable process/document evidence, and no related terminal or duplicate.
+Offline TUI recovery preserves the shutdown preimage and regenerates only after
+proving layout compatibility, no unexpected identities and no surviving clients.
 Canonical source: approved INT-077/079/082 and this behavior
 contract; hosted qualification is distinct from live acceptance. Owner: distribution maintainer.
 Update with selection, native interface, ownership or recovery changes.

@@ -1346,10 +1346,21 @@ class Native:
             # Supported focus/default/history fields and original bytes stay intact.
             generated = current
         elif current != generated:
-            if current != receipt['document'] or pending and pending.get('operation') == 'tui.start':
+            if pending == {'operation': 'tui.start'}:
+                if (receipt['document'] != generated or current is None
+                        or not layout.matches_tui_shutdown(current, plan)):
+                    raise NativeError('TUI recovery snapshot has unexplained edits')
+                receipt['shutdown_snapshot_backup'] = self._backup({'snapshot': current})
+                # Preserve the exact preimage for a crash between intent and write.
+                receipt['document'] = current
+            elif current != receipt['document']:
                 raise NativeError('TUI recovery snapshot has unexplained edits')
             receipt['pending'] = {'operation': 'tui.write', 'document': generated}
             self._receipt(receipt)
+            if self.endpoint_present('tui') or self._optional_snapshot() != current:
+                raise NativeError('TUI recovery snapshot changed before write')
+            self._other_off('tui')
+            self.absent(sessions(plan), [])
             self._atomic(self.snapshot_path, json.dumps(generated).encode())
         receipt['document'] = generated
         receipt['pending'] = {'operation': 'tui.start'}
@@ -1488,7 +1499,8 @@ class Native:
             except NativeError:
                 return False
         try:
-            self._wait(ready)
+            self._wait(ready, seconds=max(self.poll_seconds, 300) if target == 'tui' and len(sessions(plan)) > 1
+                       else None)
         except NativeError as error:
             if str(error) == 'native readiness or stop proof unavailable':
                 raise NativeError('restored runtime layout readiness unavailable') from None

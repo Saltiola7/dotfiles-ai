@@ -11,6 +11,7 @@ RUN dnf -y --setopt=install_weak_deps=False install \
     && systemctl add-wants multi-user.target systemd-logind.service dbus.socket
 COPY .chezmoidata.toml config.remote-user.example.toml /opt/f01/source/
 COPY dot_local/bin/executable_opencode.tmpl dot_local/bin/executable_opencode-install.tmpl dot_local/bin/executable_remote-herdr dot_local/bin/executable_remote-herdr-core /opt/f01/source/dot_local/bin/
+COPY dot_local/share/dotfiles-ai/opencode-shared-client.py /opt/f01/source/dot_local/share/dotfiles-ai/
 COPY dot_local/share/dotfiles-ai/remote-herdr/controller.py dot_local/share/dotfiles-ai/remote-herdr/native.py dot_local/share/dotfiles-ai/remote-herdr/layout.py dot_local/share/dotfiles-ai/remote-herdr/processes.py dot_local/share/dotfiles-ai/remote-herdr/protocol.py /opt/f01/source/dot_local/share/dotfiles-ai/remote-herdr/
 COPY private_dot_config/systemd/user/opencode-shared.service private_dot_config/systemd/user/remote-herdr-tui.service.tmpl private_dot_config/systemd/user/remote-herdr-restore.service.tmpl private_dot_config/systemd/user/remote-herdr-restore.timer.tmpl /opt/f01/source/private_dot_config/systemd/user/
 COPY private_dot_config/herdr/config.toml.tmpl /opt/f01/source/private_dot_config/herdr/

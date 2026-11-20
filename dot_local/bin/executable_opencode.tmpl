@@ -77,7 +77,12 @@ if [[ -n ${HERDR_ENV:-} ]]; then
 fi
 {{ if or (and (eq .chezmoi.os "darwin") (eq .chezmoi.arch "arm64")) (and (eq .chezmoi.os "linux") (or (eq .chezmoi.arch "arm64") (eq .chezmoi.arch "amd64"))) -}}
 target="$HOME/.opencode/bin/opencode"
-python3 - "$target" <<'PY' || exit 75
+helper="$HOME/.local/share/dotfiles-ai/opencode-shared-client.py"
+guard=()
+if [[ $interactive == 1 && $explicit_server == 0 ]]; then
+    guard=("$helper")
+fi
+python3 -I - "$target" "${guard[@]}" <<'PY' || exit 75
 import os, pathlib, stat, sys
 p = pathlib.Path(sys.argv[1])
 for path in (p.parent.parent, p.parent, p):
@@ -88,50 +93,22 @@ for path in (p.parent.parent, p.parent, p):
     kind = stat.S_ISREG if path == p else stat.S_ISDIR
     if not kind(s.st_mode) or s.st_uid != os.getuid() or s.st_mode & 0o022:
         sys.exit("native OpenCode target is unsafe")
+if len(sys.argv) == 3:
+    helper = pathlib.Path(sys.argv[2])
+    for path in (*helper.parents[:3], helper):
+        try:
+            s = path.lstat()
+        except OSError:
+            sys.exit("managed OpenCode shared client helper is unavailable")
+        kind = stat.S_ISREG if path == helper else stat.S_ISDIR
+        if (not kind(s.st_mode) or s.st_uid != os.getuid() or s.st_mode & 0o022
+                or (path == helper and s.st_nlink != 1)):
+            sys.exit("managed OpenCode shared client helper is unsafe")
 PY
 [[ -x $target ]] || { echo "native OpenCode is not executable" >&2; exit 75; }
 if [[ $interactive == 1 && $explicit_server == 0 ]]; then
-    exec python3 -c '
-import json, os, pathlib, stat, subprocess, sys
-from urllib.parse import urlsplit
-target = sys.argv[1]
-environment = os.environ.copy()
-def read(*args):
-    return subprocess.check_output([target, *args], env=environment, text=True,
-                                   stderr=subprocess.DEVNULL, timeout=10).strip()
-try:
-    server = read("service", "status")
-    url = urlsplit(server)
-    if url.scheme not in {"http", "https"} or url.hostname not in {"127.0.0.1", "localhost", "::1"} or not url.port:
-        raise ValueError("shared service unavailable")
-    registration = pathlib.Path(read("debug", "paths", "state")) / "service.json"
-    with os.fdopen(os.open(registration, os.O_RDONLY | os.O_NOFOLLOW)) as stream:
-        metadata = os.fstat(stream.fileno())
-        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
-                or metadata.st_mode & 0o077 or metadata.st_size > 65536):
-            raise ValueError("unsafe native service registration")
-        service = json.load(stream)
-    if (service.get("url") != server or type(service.get("pid")) is not int
-            or not isinstance(service.get("password"), str) or not service["password"]):
-        raise ValueError("invalid native service registration")
-    # Keep native service credentials in this child environment, never argv/output.
-    environment["OPENCODE_PASSWORD"] = service["password"]
-    # Explicit server selection never asks native discovery to replace a service.
-    info = json.loads(read("api", "--server", server, "get", "/api/info"))
-    version = read("--version").removeprefix("opencode v")
-    if info.get("version") != version or info.get("pid") != service["pid"]:
-        raise ValueError("shared service version mismatch")
-    arguments = sys.argv[3:]
-    index = int(sys.argv[2])
-    arguments[index:index] = ["--server", server]
-    launch = [target, *arguments]
-    # An explicit authenticated endpoint cannot enter native service replacement.
-    os.execvpe(launch[0], launch, environment)
-except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
-    print("OpenCode start blocked: shared service unavailable or version mismatch; "
-          "use a coordinated opencode service start/restart, or explicit --standalone/--server.", file=sys.stderr)
-    sys.exit(75)
-' "$target" "$command_index" "$@"
+    # Keep Python source out of the foreground process argv Herdr inventories.
+    exec python3 -I "$helper" "$target" "$command_index" "$@"
 fi
 exec "$target" "$@"
 {{ else if eq .chezmoi.os "linux" -}}

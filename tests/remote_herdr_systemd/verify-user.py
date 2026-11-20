@@ -9,6 +9,7 @@ packages/schema/src/{location,session}.ts: location.directory, response.data.id.
 Runtime OpenAPI is checked before the first mutation. Unsupported schemas fail;
 the fixture never fabricates or migrates SQLite rows to satisfy the adapter.
 """
+import ast
 import importlib.util
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,6 +37,7 @@ BIN = HOME / '.local/bin'
 NATIVE = HOME / '.opencode/bin/opencode'
 ROOT = HOME / '.local/state/dotfiles-ai/herdr-runtime'
 EXPECTED = HOME / 'qualification.json'
+R8_PRIOR_BOOT = HOME / 'qualification-r8-prior-boot.json'
 STEP = 'initialization'
 
 
@@ -121,9 +123,112 @@ def kept_spawn_diagnostics(backend):
     return label
 
 
+def recovery_origin(error, directory):
+    """Value-free origin of a wrapped native failure in the disposable fixture."""
+    # `raise ... from None` hides the original in formatted output but
+    # deliberately leaves its context available to this disposable fixture.
+    underlying = error.__context__
+    if underlying is None:
+        return 'none-none'
+    modules = {str(directory / (name + '.py')): name for name in
+               ('native', 'layout', 'protocol', 'processes', 'controller')}
+    categories = {'AttributeError', 'FileNotFoundError', 'KeyError', 'OSError',
+                  'PermissionError', 'ProcessLookupError', 'TypeError',
+                  'ValueError', 'LayoutError', 'ProcessProofError'}
+    category = type(underlying).__name__
+    category = category if category in categories else 'other'
+    sites = []
+    tb = underlying.__traceback__
+    while tb is not None:
+        name = modules.get(tb.tb_frame.f_code.co_filename)
+        if name is not None:
+            sites.append((name, tb.tb_lineno))
+        tb = tb.tb_next
+    rule = 'unknown'
+    if type(underlying) is ValueError and len(sites) > 1 and sites[-2][0] == 'layout' and sites[-1][0] == 'layout':
+        try:
+            source = ast.parse((directory / 'layout.py').read_text(encoding='utf-8'))
+        except (OSError, UnicodeError, SyntaxError):
+            source = None
+        for node in ast.walk(source) if source is not None else ():
+            if (isinstance(node, ast.Call) and node.lineno == sites[-2][1]
+                    and isinstance(node.func, ast.Name) and node.func.id == '_fail'
+                    and len(node.args) == 1 and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                    and re.fullmatch(r'[a-zA-Z0-9 ]{1,80}', node.args[0].value)
+                    and underlying.args == (node.args[0].value,)):
+                rule = node.args[0].value.lower().replace(' ', '-')
+                break
+    path = '.'.join(f'{name}-{line}' for name, line in sites[-8:]) or 'unknown-0'
+    return f'{category}-{rule}-{path}'
+
+
+def edited_recovery_cli():
+    """Execute the installed CLI once; report only a source-defined refusal label."""
+    labels = r1_refusal_labels() | {
+        'core current restored layout differs': 'current-layout',
+        'core current restored bindings differ': 'current-bindings',
+        'core current inventory changed': 'current-inventory',
+        'core current process identity changed': 'current-process',
+        'core recovery document changed before mutation': 'document-changed',
+        'core repair source ownership or program changed': 'source-program',
+        'core terminal ownership mismatch': 'terminal-ownership',
+        'session client coverage incomplete or duplicate': 'client-coverage',
+        'native observation or mutation uncertain': 'native-uncertain',
+    }
+    trace_program = """
+import json, runpy, sys
+from pathlib import Path
+entrypoint, controller, fixture, labels = sys.argv[1:]
+labels = json.loads(labels)
+failure = None
+origin = runpy.run_path(fixture)['recovery_origin']
+directory = Path(controller).parent
+
+def trace(frame, event, arg):
+    global failure
+    if frame.f_code.co_filename != controller or frame.f_code.co_name != 'recover':
+        return None
+    if event == 'exception':
+        error = arg[1]
+        if type(error).__name__ == 'NativeError':
+            label = labels.get(str(error), 'unclassified')
+            failure = (label, frame.f_lineno, origin(error, directory) if label == 'native-uncertain' else 'none-none')
+        elif failure is None:
+            failure = ('other', frame.f_lineno, 'none-none')
+    return trace
+
+sys.argv = [entrypoint, 'recover']
+sys.settrace(trace)
+try:
+    runpy.run_path(entrypoint, run_name='__main__')
+except SystemExit as error:
+    if error.code == 75 and failure is not None:
+        print(f'CI-recover-{failure[0]}-line-{failure[1]}-origin-{failure[2]}')
+    raise
+finally:
+    sys.settrace(None)
+"""
+    result = subprocess.run(['/usr/bin/python3', '-I', '-c', trace_program, str(BIN / 'remote-herdr'),
+                             str(HOME / '.local/share/dotfiles-ai/remote-herdr/controller.py'),
+                             __file__, json.dumps(labels)], capture_output=True, text=True, cwd=HOME, timeout=855)
+    if result.returncode != 0:
+        match = re.fullmatch(
+            r'CI-recover-([a-z-]+)-line-([1-9][0-9]{0,4})-origin-'
+            r'(none-none|(?:AttributeError|FileNotFoundError|KeyError|OSError|PermissionError|ProcessLookupError|'
+            r'TypeError|ValueError|LayoutError|ProcessProofError|other)-[a-z0-9-]{1,80}-'
+            r'(?:native|layout|protocol|processes|controller|unknown)-[0-9]{1,5}'
+            r'(?:\.(?:native|layout|protocol|processes|controller)-[0-9]{1,5}){0,7})\n', result.stdout)
+        if result.returncode == 75 and match and match[1] in {*labels.values(), 'unclassified', 'other'}:
+            raise CommandFailure(f'controller-{match[1]}-line-{match[2]}-origin-{match[3]}')
+        raise CommandFailure('controller-command-exit-' + str(result.returncode))
+
+
 def cli(*args):
+    if args == ('recover',) and STEP == 'edited-document-installed-recovery':
+        return edited_recovery_cli()
     try:
-        return run(BIN / 'remote-herdr', *args, timeout=180)
+        return run(BIN / 'remote-herdr', *args, timeout=855 if args[0] == 'recover' else 330)
     except CommandFailure:
         # Inspect only the failed fixture transaction, never replay its effects.
         # Phase and pending operations are restricted to source-defined labels.
@@ -175,7 +280,8 @@ def cli(*args):
                 label += '-' + check
                 if check.endswith('-spawn-pending'):
                     label += kept_spawn_diagnostics(backend)
-            elif phase in {'restore_pending', 'verify_pending'} and journal.get('target') == 'herdr-core':
+            elif (phase in {'restore_pending', 'verify_pending'} and journal.get('target') == 'herdr-core'
+                  and not (receipt or {}).get('current_document')):
                 # Inspect only after a failed CLI. No retries, stop or relaunch.
                 check = 'receipt'
                 refusals = {
@@ -2762,6 +2868,8 @@ def restart_and_recover(plan, pid):
             Controller(store, Native(HOME, store)).restore()
     except Exception as error:
         label = labels.get(str(error), 'unclassified') if type(error).__name__ == 'NativeError' else 'controller'
+        if label == 'native-uncertain':
+            label += '-origin-' + recovery_origin(error, HOME / '.local/share/dotfiles-ai/remote-herdr')
         if label == 'kept-spawn-readiness':
             with Store(ROOT) as store:
                 backend = Native(HOME, store)
@@ -2796,13 +2904,138 @@ def boot(target):
             backend._binary('herdr-core')
 
 
+def arm_r8():
+    """Retain the real controller's start intent with an offline v3 save."""
+    global STEP
+    STEP = 'r8-capture-and-stop-owned-tui'
+    pid = backend_pid()
+    Store, Native = adapter()
+    from controller import Controller, ControllerError
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        captured = backend.capture('tui')
+        backend.stop('tui', captured)
+        require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
+    STEP = 'r8-create-fixture-sessions'
+    cwd = str(HOME / 'project alpha')
+    tabs = []
+    for index in range(51):
+        session = None
+        if index:
+            session = api('post', '/api/session', {
+                'location': {'directory': cwd}, 'title': f'R8 fixture {index}',
+                'model': {'id': 'held', 'providerID': 'rrw007f'},
+            })['data']['id']
+        key = f's0-t{index}-p0'
+        tabs.append({'name': f'R8 tab {index}', 'root': {'pane': key},
+                     'panes': [{'key': key, 'cwd': cwd, 'session_id': session}]})
+    plan = {'schema_version': 1, 'spaces': [{'name': 'R8 space', 'directory': cwd, 'tabs': tabs}]}
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        STEP = 'r8-offline-import-preflight'
+        require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
+        backend.select('herdr-core')
+        backend.preflight('tui', replace_target=True)
+        original = backend.command
+        interrupted = False
+
+        def interrupt(argv, timeout=30):
+            nonlocal interrupted
+            if argv == ['/usr/bin/systemctl', '--user', 'start', 'remote-herdr-tui.service']:
+                interrupted = True
+                raise CommandFailure('r8-offline-checkpoint')
+            return original(argv, timeout=timeout)
+
+        backend.command = interrupt
+        STEP = 'r8-reach-offline-start-checkpoint'
+        try:
+            Controller(store, backend).switch('tui', replace_target=True, imported=plan)
+        except ControllerError:
+            if not interrupted:
+                raise CommandFailure('r8-start-checkpoint-not-reached') from None
+        else:
+            raise CommandFailure('r8-start-checkpoint-not-interrupted')
+        STEP = 'r8-verify-retained-start-intent'
+        journal = store.read('transaction.json')
+        require(journal['phase'] == 'restore_pending' and backend.selected() == 'tui')
+        receipt = store.read('receipt-' + journal['txid'] + '.json')
+        require(receipt['pending'] == {'operation': 'tui.start'})
+        saved = backend._optional_snapshot()
+        require(saved == receipt['document'])
+        STEP = 'r8-save-incomplete-fixture-snapshot'
+        # Pinned writer omits absent Option fields; null is equivalent.
+        for tab in saved['workspaces'][0]['tabs'][2:39]:
+            for pane in tab['panes'].values():
+                for key in ('agent_name', 'managed_agent_kind', 'agent_session', 'launch_argv'):
+                    pane.pop(key)
+        saved['selected'] = 0
+        saved['sidebar_width'] = 42
+        write(backend.snapshot_path, saved)
+    write(EXPECTED, plan)
+    require(backend_pid() == pid)
+
+
+def r8_boot_ready(boot, prior_txid, plan, semantic):
+    if not (isinstance(boot, dict) and boot.get('schema_version') == 1
+            and boot.get('runtime') == 'tui' and boot.get('status') == 'complete'):
+        return False
+    receipt = boot.get('receipt')
+    return (isinstance(receipt, dict) and receipt.get('runtime') == 'tui'
+            and isinstance(receipt.get('txid'), str) and bool(receipt['txid'])
+            and receipt['txid'] != prior_txid and 'pending' in receipt and receipt['pending'] is None
+            and 'plan' in boot and semantic(boot['plan']) == semantic(plan))
+
+
+def verify_r8(*, recover):
+    global STEP
+    STEP = 'r8-recover' if recover else 'r8-second-boot'
+    plan = json.loads(EXPECTED.read_text())
+    pid = backend_pid()
+    Store, Native = adapter()
+    if recover:
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            journal = store.read('transaction.json')
+            retained = store.read('receipt-' + journal['txid'] + '.json')
+            require(journal['phase'] == 'restore_pending' and retained['pending'] == {'operation': 'tui.start'})
+            require(backend._optional_snapshot() != retained['document'])
+            require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
+        cli('recover')
+    else:
+        prior_txid = json.loads(R8_PRIOR_BOOT.read_text())['txid']
+
+        def ready():
+            with Store(ROOT) as store:
+                backend = Native(HOME, store)
+                return r8_boot_ready(store.read('boot.json'), prior_txid, plan, backend._semantic)
+
+        wait(ready, seconds=340)
+    observe('tui', plan)
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        require(not backend.endpoint_present('herdr-core'))
+        require(len(backend._coverage(plan)) == 50)
+        journal = store.read('transaction.json')
+        require(journal['phase'] == 'complete')
+        require(store.read(journal['receipt']['shutdown_snapshot_backup']) is not None)
+        if recover:
+            boot = store.read('boot.json')
+            prior_txid = None if boot is None else boot['receipt']['txid']
+            require(prior_txid is None or isinstance(prior_txid, str) and bool(prior_txid))
+            write(R8_PRIOR_BOOT, {'txid': prior_txid})
+    require(backend_pid() == pid)
+    print('F07: r8-exact-50-shared-service-clients', 'recovered' if recover else 'second-boot')
+
+
 if __name__ == '__main__':
     try:
         os.umask(0o077)
         require(os.getuid() == 1000 and Path.home() == HOME)
         require(len(sys.argv) == 2)
         stages = {'prepare': prepare, 'verify-core': lambda: boot('herdr-core'),
-                  'verify-tui': lambda: boot('tui')}
+                  'verify-tui': lambda: (boot('tui'), arm_r8()),
+                  'verify-r8-recover': lambda: verify_r8(recover=True),
+                  'verify-r8-boot': lambda: verify_r8(recover=False)}
         stages[sys.argv[1]]()
         print('F07: stage-complete')
     except Exception as error:
@@ -2829,5 +3062,8 @@ if __name__ == '__main__':
         protocol_labels.update(r1_refusal_labels())
         if type(error).__name__ == 'NativeError' and str(error) in protocol_labels:
             suffix = '-' + protocol_labels[str(error)]
+        if type(error).__name__ == 'NativeError' and str(error) == 'native observation or mutation uncertain':
+            suffix = '-native-uncertain-origin-' + recovery_origin(
+                error, HOME / '.local/share/dotfiles-ai/remote-herdr')
         print('F07: failed-' + STEP + suffix, file=sys.stderr)
         sys.exit(1)

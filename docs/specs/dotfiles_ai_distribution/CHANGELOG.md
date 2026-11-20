@@ -1,5 +1,47 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-20 — Bind the R8 second-boot check to a fresh receipt
+
+- Wait for a new completed TUI boot receipt with no pending mutation and the
+  expected layout before observing live clients. Retain all native assertions.
+  Fixture only; no production changes.
+
+## 2026-11-20 — Correct R8 qualification fixture setup
+
+- Install the managed shared client in the synthetic resume fixture.
+- Reconcile the native TUI shutdown save through the existing guarded stop
+  before staging the interrupted start. Require the intended checkpoint and
+  retain both 50-session reboot checks. No production changes.
+
+## 2026-11-20 — Keep shared-client startup within Herdr inventory limits
+
+- Move existing OpenCode admission into a checked managed script instead of
+  putting its source in process arguments. Retain the Herdr string limit,
+  backend authentication, pacing and exact client exec.
+- Exercise the rendered launch in Herdr's inventory validator and include
+  the helper in both native Linux fixtures. No bootstrap, pin or input changes.
+
+## 2026-11-20 — Diagnose the R8 native qualification refusal
+
+- Report the original controller refusal during the disposable edited-document
+  recovery check. Do not diagnose adopted bindings using pre-adoption journal
+  keys. Keep the original checks, production behavior and bootstrap unchanged.
+- For a generic native refusal, report only the installed source module, line,
+  and allowlisted underlying exception category. Never publish native values.
+- Distinguish shared layout failure helpers from the rejecting rule with an
+  allowlisted source-literal rule and bounded module/line sequence.
+- Reuse the same value-free origin reporting for direct fixture recovery
+  failures, including explicit-stop shell restoration.
+
+## 2026-11-20 — Staggered TUI startup and offline recovery (RRW-007G-R8)
+
+- Pace controller-started Linux TUI clients without relaxing shared backend
+  identity checks. Reconcile a narrowly matched offline shutdown save from
+  retained switch intent and keep the original privately.
+- Bound explicit recovery independently of per-call deadlines. Add real native
+  50-session recovery and second-boot checks to the Linux qualification lane.
+  No bootstrap, pin or setup inputs change; Fork A owns live rollout.
+
 ## 2026-11-19 — Observe completed in-place Herdr repairs (RRW-007G-R7)
 
 - Reconcile exact live clients on their original owned bindings without

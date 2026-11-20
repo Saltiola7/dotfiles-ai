@@ -8,6 +8,7 @@ on:
       - "config.remote-user.example.toml"
       - "dot_local/bin/executable_remote-user-bootstrap"
       - "dot_local/bin/executable_opencode.tmpl"
+      - "dot_local/share/dotfiles-ai/opencode-shared-client.py"
       - "dot_local/bin/executable_opencode-install.tmpl"
       - "private_dot_config/systemd/user/opencode-shared.service"
       - "run_onchange_after_install-01-remote-opencode.sh.tmpl"
