@@ -2906,12 +2906,16 @@ def boot(target):
 def arm_r8():
     """Retain the real controller's start intent with an offline v3 save."""
     global STEP
-    STEP = 'r8-retain-start-intent'
+    STEP = 'r8-capture-and-stop-owned-tui'
     pid = backend_pid()
-    run(BIN / 'herdr', 'session', 'stop', 'default', '--json')
-    unit('stop', 'remote-herdr-tui.service')
     Store, Native = adapter()
     from controller import Controller, ControllerError
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        captured = backend.capture('tui')
+        backend.stop('tui', captured)
+        require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
+    STEP = 'r8-create-fixture-sessions'
     cwd = str(HOME / 'project alpha')
     tabs = []
     for index in range(51):
@@ -2927,26 +2931,37 @@ def arm_r8():
     plan = {'schema_version': 1, 'spaces': [{'name': 'R8 space', 'directory': cwd, 'tabs': tabs}]}
     with Store(ROOT) as store:
         backend = Native(HOME, store)
+        STEP = 'r8-offline-import-preflight'
         require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
         backend.select('herdr-core')
+        backend.preflight('tui', replace_target=True)
         original = backend.command
+        interrupted = False
 
         def interrupt(argv, timeout=30):
+            nonlocal interrupted
             if argv == ['/usr/bin/systemctl', '--user', 'start', 'remote-herdr-tui.service']:
+                interrupted = True
                 raise CommandFailure('r8-offline-checkpoint')
             return original(argv, timeout=timeout)
 
         backend.command = interrupt
+        STEP = 'r8-reach-offline-start-checkpoint'
         try:
             Controller(store, backend).switch('tui', replace_target=True, imported=plan)
         except ControllerError:
-            pass
+            if not interrupted:
+                raise CommandFailure('r8-start-checkpoint-not-reached') from None
+        else:
+            raise CommandFailure('r8-start-checkpoint-not-interrupted')
+        STEP = 'r8-verify-retained-start-intent'
         journal = store.read('transaction.json')
         require(journal['phase'] == 'restore_pending' and backend.selected() == 'tui')
         receipt = store.read('receipt-' + journal['txid'] + '.json')
         require(receipt['pending'] == {'operation': 'tui.start'})
         saved = backend._optional_snapshot()
         require(saved == receipt['document'])
+        STEP = 'r8-save-incomplete-fixture-snapshot'
         # Pinned writer omits absent Option fields; null is equivalent.
         for tab in saved['workspaces'][0]['tabs'][2:39]:
             for pane in tab['panes'].values():

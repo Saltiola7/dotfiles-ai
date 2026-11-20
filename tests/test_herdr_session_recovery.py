@@ -347,6 +347,9 @@ else:
     print(json.dumps([args, time.monotonic()]))
 ''')
     target.chmod(0o755)
+    shared_client = tmp_path / 'home/.local/share/dotfiles-ai/opencode-shared-client.py'
+    shared_client.parent.mkdir(parents=True)
+    shared_client.write_bytes((ROOT / 'dot_local/share/dotfiles-ai/opencode-shared-client.py').read_bytes())
     wrapper = tmp_path / "wrapper"
     wrapper.write_text(_render_herdr_script(".local/bin/opencode", {
         "chezmoi": {"os": "darwin", "arch": "arm64"},

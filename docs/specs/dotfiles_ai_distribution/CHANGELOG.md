@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-20 — Correct R8 qualification fixture setup
+
+- Install the managed shared client in the synthetic resume fixture.
+- Reconcile the native TUI shutdown save through the existing guarded stop
+  before staging the interrupted start. Require the intended checkpoint and
+  retain both 50-session reboot checks. No production changes.
+
 ## 2026-11-20 — Keep shared-client startup within Herdr inventory limits
 
 - Move existing OpenCode admission into a checked managed script instead of
