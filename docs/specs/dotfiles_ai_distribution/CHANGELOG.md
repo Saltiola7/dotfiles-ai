@@ -1,5 +1,15 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-19 — Legacy stop proof after PID reuse (RRW-007G-R6)
+
+- Accept proven foreign PID ownership as exit evidence for owner-captured stop
+  proofs without `boot_id`. Keep same-identity, ambiguous ownership and
+  boot-bound refusals, along with existing signaling, CAS and version guards.
+- Exercise retained-state recovery and the 50-session core-to-TUI switch on
+  synthetic process and runtime boundaries. Final Push targets `main` by PR;
+  Linux matrix and native runtime CI must pass before merge. No bootstrap,
+  pin or input changes. Fork A owns live rollout and verification.
+
 ## 2026-11-18 — Completed unrecorded swap recovery (RRW-007G-R5)
 
 - Classify admits a leaf standing on `repair['created']` (exact owned labels,
