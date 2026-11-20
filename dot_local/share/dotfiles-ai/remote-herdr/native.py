@@ -975,7 +975,14 @@ class Native:
             directory = self.proc_root / str(item['pid'])
             try:
                 info = directory.lstat()
-                if not stat.S_ISDIR(info.st_mode) or processes.task_uid(directory) != os.getuid():
+                if not stat.S_ISDIR(info.st_mode):
+                    raise NativeError('native client exit ownership uncertain')
+                uid = processes.task_uid(directory)
+                if uid is None and 'boot_id' not in item:
+                    # Legacy proofs were captured only for our UID. A proven
+                    # foreign occupant is not the captured client; don't read its stat.
+                    continue
+                if uid != os.getuid():
                     raise NativeError('native client exit ownership uncertain')
                 state, ticks = processes.identity(directory, item['pid'])
                 if state not in ('Z', 'X') and ticks == item['start_ticks']:
