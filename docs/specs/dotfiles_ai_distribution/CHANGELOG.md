@@ -9,6 +9,8 @@
   and allowlisted underlying exception category. Never publish native values.
 - Distinguish shared layout failure helpers from the rejecting rule with an
   allowlisted source-literal rule and bounded module/line sequence.
+- Reuse the same value-free origin reporting for direct fixture recovery
+  failures, including explicit-stop shell restoration.
 
 ## 2026-11-20 — Staggered TUI startup and offline recovery (RRW-007G-R8)
 

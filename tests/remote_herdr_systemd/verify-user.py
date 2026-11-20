@@ -9,6 +9,7 @@ packages/schema/src/{location,session}.ts: location.directory, response.data.id.
 Runtime OpenAPI is checked before the first mutation. Unsupported schemas fail;
 the fixture never fabricates or migrates SQLite rows to satisfy the adapter.
 """
+import ast
 import importlib.util
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -121,6 +122,46 @@ def kept_spawn_diagnostics(backend):
     return label
 
 
+def recovery_origin(error, directory):
+    """Value-free origin of a wrapped native failure in the disposable fixture."""
+    # `raise ... from None` hides the original in formatted output but
+    # deliberately leaves its context available to this disposable fixture.
+    underlying = error.__context__
+    if underlying is None:
+        return 'none-none'
+    modules = {str(directory / (name + '.py')): name for name in
+               ('native', 'layout', 'protocol', 'processes', 'controller')}
+    categories = {'AttributeError', 'FileNotFoundError', 'KeyError', 'OSError',
+                  'PermissionError', 'ProcessLookupError', 'TypeError',
+                  'ValueError', 'LayoutError', 'ProcessProofError'}
+    category = type(underlying).__name__
+    category = category if category in categories else 'other'
+    sites = []
+    tb = underlying.__traceback__
+    while tb is not None:
+        name = modules.get(tb.tb_frame.f_code.co_filename)
+        if name is not None:
+            sites.append((name, tb.tb_lineno))
+        tb = tb.tb_next
+    rule = 'unknown'
+    if type(underlying) is ValueError and len(sites) > 1 and sites[-2][0] == 'layout' and sites[-1][0] == 'layout':
+        try:
+            source = ast.parse((directory / 'layout.py').read_text(encoding='utf-8'))
+        except (OSError, UnicodeError, SyntaxError):
+            source = None
+        for node in ast.walk(source) if source is not None else ():
+            if (isinstance(node, ast.Call) and node.lineno == sites[-2][1]
+                    and isinstance(node.func, ast.Name) and node.func.id == '_fail'
+                    and len(node.args) == 1 and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)
+                    and re.fullmatch(r'[a-zA-Z0-9 ]{1,80}', node.args[0].value)
+                    and underlying.args == (node.args[0].value,)):
+                rule = node.args[0].value.lower().replace(' ', '-')
+                break
+    path = '.'.join(f'{name}-{line}' for name, line in sites[-8:]) or 'unknown-0'
+    return f'{category}-{rule}-{path}'
+
+
 def edited_recovery_cli():
     """Execute the installed CLI once; report only a source-defined refusal label."""
     labels = r1_refusal_labels() | {
@@ -135,46 +176,13 @@ def edited_recovery_cli():
         'native observation or mutation uncertain': 'native-uncertain',
     }
     trace_program = """
-import ast, json, re, runpy, sys
-entrypoint, controller, labels = sys.argv[1:]
+import json, runpy, sys
+from pathlib import Path
+entrypoint, controller, fixture, labels = sys.argv[1:]
 labels = json.loads(labels)
 failure = None
-directory = controller.rsplit('/', 1)[0]
-modules = {directory + '/' + name + '.py': name for name in
-           ('native', 'layout', 'protocol', 'processes', 'controller')}
-categories = {'AttributeError', 'FileNotFoundError', 'KeyError', 'OSError',
-              'PermissionError', 'ProcessLookupError', 'TypeError',
-              'ValueError', 'LayoutError', 'ProcessProofError'}
-layout_file = directory + '/layout.py'
-with open(layout_file, encoding='utf-8') as source:
-    rules = {node.lineno: node.args[0].value for node in ast.walk(ast.parse(source.read()))
-             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-             and node.func.id == '_fail' and len(node.args) == 1
-             and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)
-             and re.fullmatch(r'[a-zA-Z0-9 ]{1,80}', node.args[0].value)}
-
-def origin(error):
-    # `raise ... from None` hides the original in formatted output but
-    # deliberately leaves its context available to this disposable fixture.
-    underlying = error.__context__
-    if underlying is None:
-        return 'none-none'
-    category = type(underlying).__name__
-    category = category if category in categories else 'other'
-    sites = []
-    tb = underlying.__traceback__
-    while tb is not None:
-        name = modules.get(tb.tb_frame.f_code.co_filename)
-        if name is not None:
-            sites.append((name, tb.tb_lineno))
-        tb = tb.tb_next
-    rule = 'unknown'
-    if type(underlying) is ValueError and len(sites) > 1 and sites[-2][0] == 'layout':
-        literal = rules.get(sites[-2][1])
-        if literal is not None and underlying.args == (literal,):
-            rule = literal.lower().replace(' ', '-')
-    path = '.'.join(f'{name}-{line}' for name, line in sites[-8:]) or 'unknown-0'
-    return f'{category}-{rule}-{path}'
+origin = runpy.run_path(fixture)['recovery_origin']
+directory = Path(controller).parent
 
 def trace(frame, event, arg):
     global failure
@@ -184,7 +192,7 @@ def trace(frame, event, arg):
         error = arg[1]
         if type(error).__name__ == 'NativeError':
             label = labels.get(str(error), 'unclassified')
-            failure = (label, frame.f_lineno, origin(error) if label == 'native-uncertain' else 'none-none')
+            failure = (label, frame.f_lineno, origin(error, directory) if label == 'native-uncertain' else 'none-none')
         elif failure is None:
             failure = ('other', frame.f_lineno, 'none-none')
     return trace
@@ -202,7 +210,7 @@ finally:
 """
     result = subprocess.run(['/usr/bin/python3', '-I', '-c', trace_program, str(BIN / 'remote-herdr'),
                              str(HOME / '.local/share/dotfiles-ai/remote-herdr/controller.py'),
-                             json.dumps(labels)], capture_output=True, text=True, cwd=HOME, timeout=855)
+                             __file__, json.dumps(labels)], capture_output=True, text=True, cwd=HOME, timeout=855)
     if result.returncode != 0:
         match = re.fullmatch(
             r'CI-recover-([a-z-]+)-line-([1-9][0-9]{0,4})-origin-'
@@ -2859,6 +2867,8 @@ def restart_and_recover(plan, pid):
             Controller(store, Native(HOME, store)).restore()
     except Exception as error:
         label = labels.get(str(error), 'unclassified') if type(error).__name__ == 'NativeError' else 'controller'
+        if label == 'native-uncertain':
+            label += '-origin-' + recovery_origin(error, HOME / '.local/share/dotfiles-ai/remote-herdr')
         if label == 'kept-spawn-readiness':
             with Store(ROOT) as store:
                 backend = Native(HOME, store)
@@ -3017,5 +3027,8 @@ if __name__ == '__main__':
         protocol_labels.update(r1_refusal_labels())
         if type(error).__name__ == 'NativeError' and str(error) in protocol_labels:
             suffix = '-' + protocol_labels[str(error)]
+        if type(error).__name__ == 'NativeError' and str(error) == 'native observation or mutation uncertain':
+            suffix = '-native-uncertain-origin-' + recovery_origin(
+                error, HOME / '.local/share/dotfiles-ai/remote-herdr')
         print('F07: failed-' + STEP + suffix, file=sys.stderr)
         sys.exit(1)
