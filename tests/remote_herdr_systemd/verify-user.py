@@ -37,6 +37,7 @@ BIN = HOME / '.local/bin'
 NATIVE = HOME / '.opencode/bin/opencode'
 ROOT = HOME / '.local/state/dotfiles-ai/herdr-runtime'
 EXPECTED = HOME / 'qualification.json'
+R8_PRIOR_BOOT = HOME / 'qualification-r8-prior-boot.json'
 STEP = 'initialization'
 
 
@@ -2974,6 +2975,17 @@ def arm_r8():
     require(backend_pid() == pid)
 
 
+def r8_boot_ready(boot, prior_txid, plan, semantic):
+    if not (isinstance(boot, dict) and boot.get('schema_version') == 1
+            and boot.get('runtime') == 'tui' and boot.get('status') == 'complete'):
+        return False
+    receipt = boot.get('receipt')
+    return (isinstance(receipt, dict) and receipt.get('runtime') == 'tui'
+            and isinstance(receipt.get('txid'), str) and bool(receipt['txid'])
+            and receipt['txid'] != prior_txid and 'pending' in receipt and receipt['pending'] is None
+            and 'plan' in boot and semantic(boot['plan']) == semantic(plan))
+
+
 def verify_r8(*, recover):
     global STEP
     STEP = 'r8-recover' if recover else 'r8-second-boot'
@@ -2990,10 +3002,13 @@ def verify_r8(*, recover):
             require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
         cli('recover')
     else:
+        prior_txid = json.loads(R8_PRIOR_BOOT.read_text())['txid']
+
         def ready():
             with Store(ROOT) as store:
-                boot = store.read('boot.json')
-                return boot is not None and boot['status'] == 'complete'
+                backend = Native(HOME, store)
+                return r8_boot_ready(store.read('boot.json'), prior_txid, plan, backend._semantic)
+
         wait(ready, seconds=340)
     observe('tui', plan)
     with Store(ROOT) as store:
@@ -3003,6 +3018,11 @@ def verify_r8(*, recover):
         journal = store.read('transaction.json')
         require(journal['phase'] == 'complete')
         require(store.read(journal['receipt']['shutdown_snapshot_backup']) is not None)
+        if recover:
+            boot = store.read('boot.json')
+            prior_txid = None if boot is None else boot['receipt']['txid']
+            require(prior_txid is None or isinstance(prior_txid, str) and bool(prior_txid))
+            write(R8_PRIOR_BOOT, {'txid': prior_txid})
     require(backend_pid() == pid)
     print('F07: r8-exact-50-shared-service-clients', 'recovered' if recover else 'second-boot')
 

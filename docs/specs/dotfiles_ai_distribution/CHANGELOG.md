@@ -1,5 +1,11 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-20 — Bind the R8 second-boot check to a fresh receipt
+
+- Wait for a new completed TUI boot receipt with no pending mutation and the
+  expected layout before observing live clients. Retain all native assertions.
+  Fixture only; no production changes.
+
 ## 2026-11-20 — Correct R8 qualification fixture setup
 
 - Install the managed shared client in the synthetic resume fixture.

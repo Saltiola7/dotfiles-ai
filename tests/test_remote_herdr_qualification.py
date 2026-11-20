@@ -22,6 +22,24 @@ FIXTURE = ROOT / 'tests/remote_herdr_systemd'
 WORKFLOW = ROOT / '.github/workflows/remote-herdr-runtime.yml'
 
 
+def test_r8_second_boot_requires_fresh_completed_expected_receipt():
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    ready = fixture['r8_boot_ready']
+    # Stub only semantic layout comparison; no native services or file I/O.
+    plan = {'spaces': ['expected-layout']}
+    boot = {'schema_version': 1, 'runtime': 'tui', 'status': 'complete', 'plan': plan,
+            'receipt': {'runtime': 'tui', 'txid': 'new-boot', 'pending': None}}
+    assert ready(boot, 'prior-boot', plan, lambda value: value)
+    assert not ready(boot, 'new-boot', plan, lambda value: value)
+    assert not ready(None, 'prior-boot', plan, lambda value: value)
+    assert not ready({**boot, 'status': 'start_pending'}, 'prior-boot', plan, lambda value: value)
+    assert not ready({**boot, 'plan': {'spaces': []}}, 'prior-boot', plan, lambda value: value)
+    for receipt in ({}, {'runtime': 'tui', 'txid': 'new-boot'},
+                    {**boot['receipt'], 'pending': {'operation': 'tui.start'}},
+                    {**boot['receipt'], 'txid': ''}):
+        assert not ready({**boot, 'receipt': receipt}, 'prior-boot', plan, lambda value: value)
+
+
 def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
     fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
     def failed(argv, **kwargs):
