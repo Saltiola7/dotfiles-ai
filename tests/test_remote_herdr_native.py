@@ -863,25 +863,34 @@ def test_completed_unrecorded_swap_survives_core_restart(backend, old_terminal):
     assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
 
 
-def test_r6_recover_legacy_stops_then_switch_50_exact_clients_to_tui(backend):
-    core = FakeCore(backend)
+@pytest.mark.parametrize('scenario', ['r6-legacy-stops', 'r7-mixed-receipt', 'r7-connected-switch'])
+def test_recover_retained_repairs_then_switch_50_exact_clients_to_tui(backend, scenario):
+    from test_remote_herdr_app_race import AppCore
+
+    mixed = scenario.startswith('r7')
+    app = AppCore(backend) if mixed else None
+    core = app if app is not None else FakeCore(backend)
     expected = {f'ses_r6x{i}' for i in range(50)}
+    closed = {f's2-t{i}-p0' for i in range(17, 23)} if mixed else set()
     value = {'schema_version': 1, 'spaces': [
         {'name': f'Space {si}', 'directory': '/work', 'tabs': [
             {'name': f'Tab {ti}', 'root': {'pane': key},
              'panes': [{'key': key, 'cwd': '/work',
-                        'session_id': f'ses_r6x{17 * si + ti}' if (si, ti) != (2, 16) else None}]}
-            for ti in range(17) for key in [f's{si}-t{ti}-p0']]}
+                        'session_id': (f'ses_closed{ti}' if key in closed else
+                                       None if (si, ti) == (2, 16) else f'ses_r6x{17 * si + ti}')}]}
+            for ti in range(23 if mixed and si == 2 else 17) for key in [f's{si}-t{ti}-p0']]}
         for si in range(3)]}
     with sqlite3.connect(backend.database_path()) as db:
-        db.executemany('INSERT INTO session VALUES (?, ?)', [(sid, '/work') for sid in expected])
+        db.executemany('INSERT INTO session VALUES (?, ?)',
+                       [(p['session_id'], '/work') for p in native.panes(value) if p['session_id']])
     manifest = manifest_for(backend, core, value)
     backend.restore_current()
     manifest = backend.store.read('manifest.json')
     receipt = manifest['receipt']
     swaps = {}
     legacy_pids = []
-    for key in ('s1-t0-p0', 's2-t1-p0'):
+    swapped = ('s1-t0-p0', 's2-t1-p0')
+    for key in swapped:
         pane = next(p for p in native.panes(value) if p['key'] == key)
         old = receipt['terminals'][key]
         pid = core.terminals[old]['pid']
@@ -894,9 +903,35 @@ def test_r6_recover_legacy_stops_then_switch_50_exact_clients_to_tui(backend):
         repair['created'] = created['address']
         receipt.setdefault('repairs', {})[key] = repair
         swaps[key] = (old, repair['created'])
-        core.rpc('terminal.kill', {'terminal': old})
     core.document = native.layout.rebind_app_document(receipt['document'], swaps)
+    for old, _ in swaps.values():
+        core.rpc('terminal.kill', {'terminal': old})
+    if mixed:
+        in_place = [p for p in native.panes(value) if p['session_id'] and
+                    p['key'] not in swapped and p['key'] not in closed][:46]
+        assert len(in_place) == 46
+        for pane in in_place:
+            key = pane['key']
+            old = receipt['terminals'][key]
+            receipt['repairs'][key] = backend._new_repair('testtx', key, old, pane)
+            # Kept terminal's launch metadata can still describe the shell.
+            terminal = core.terminals[old]
+            terminal['foreground'] = {'pid': terminal['pid'], 'cwd': pane['cwd'],
+                                      'argv': wrapper_argv(backend, pane['session_id'])}
+            core.terminals[old]['argv'] = ['/bin/bash', '-l']
+        for pane in (p for p in native.panes(value) if p['key'] in closed):
+            key = pane['key']
+            old = receipt['terminals'][key]
+            stopped = key == 's2-t22-p0'
+            pids = backend._pid_proofs([core.terminals[old]['pid']]) if stopped else None
+            receipt['repairs'][key] = backend._new_repair('testtx', key, old, pane,
+                                                          stopped=stopped, pids=pids)
+            core.rpc('terminal.kill', {'terminal': old})
+        assert len(receipt['repairs']) == 54
+        manifest['receipt'] = receipt
+        backend.store.write('manifest.json', manifest)
     core.version = 97
+    document = copy.deepcopy(core.document)
     backend.store.write('receipt-testtx.json', receipt)
     backend.store.write('transaction.json', {'schema_version': 1, 'txid': 'testtx', 'phase': 'complete',
                         'source': 'tui', 'target': 'herdr-core', 'plan': value, 'receipt': receipt})
@@ -930,12 +965,28 @@ def test_r6_recover_legacy_stops_then_switch_50_exact_clients_to_tui(backend):
     backend.select('herdr-core')
     before = len(core.calls)
     ctl = runtime_controller.Controller(backend.store, backend)
+    if mixed:
+        # Red evidence exposes the native guard rather than the controller's
+        # intentionally value-free wrapper; the actual path below is recover().
+        with pytest.raises(runtime_controller.ControllerError):
+            ctl.switch('tui')
+        assert core.active and tui_plan is None
     ctl.recover()
     recovered = backend.store.read('manifest.json')
     assert not recovered['receipt']['repairs'] and recovered['receipt']['pending'] is None
-    assert core.version == 97 and not any(m in ('terminal.run', 'terminal.kill', 'doc.set')
+    assert core.document == document and core.version == 97
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set')
                                           for m, _ in core.calls[before:])
     assert len(native.panes(recovered['plan'])) == 51 and native.sessions(recovered['plan']) == expected
+    if scenario == 'r7-connected-switch':
+        with pytest.raises(runtime_controller.ControllerError, match='switch incomplete'):
+            ctl.switch('tui')
+        assert core.active and tui_plan is None and core.version > 97
+        assert backend.store.read('transaction.json')['phase'] == 'stop_pending'
+        assert sum(m == 'terminal.kill' for m, _ in core.calls[before:]) == 1
+        return
+    if app is not None:
+        app.app_connected = False
     ctl.switch('tui')
     assert backend.selected() == 'tui' and not core.active
     assert backend.store.read('transaction.json')['phase'] == 'complete'
@@ -944,6 +995,42 @@ def test_r6_recover_legacy_stops_then_switch_50_exact_clients_to_tui(backend):
     assert {c['session_id'] for c in clients} == expected and len(clients) == 50
     assert all(c['pid'] >= 1000 for c in clients)
     assert (foreign / 'status').read_bytes() == foreign_status
+
+
+@pytest.mark.parametrize('drift', ['session', 'cwd', 'program', 'label', 'duplicate', 'version'])
+def test_r7_in_place_repair_refuses_drift(backend, drift):
+    core = FakeCore(backend)
+    manifest_for(backend, core)
+    backend.restore_current()
+    manifest = backend.store.read('manifest.json')
+    receipt = manifest['receipt']
+    pane = native.panes(manifest['plan'])[0]
+    key = pane['key']
+    receipt['repairs'][key] = backend._new_repair('testtx', key, 't1', pane)
+    backend.store.write('receipt-testtx.json', receipt)
+    if drift == 'session':
+        synthetic_process(backend, 31, wrapper_argv(backend, 'ses_other'))
+    elif drift == 'cwd':
+        synthetic_process(backend, 31, wrapper_argv(backend), '/other')
+    elif drift == 'program':
+        synthetic_process(backend, 31, ['/usr/bin/vim'])
+    elif drift == 'label':
+        core.terminals['t1']['labels']['remote-herdr-owner'] = 'other'
+    elif drift == 'duplicate':
+        synthetic_process(backend, 1000, wrapper_argv(backend))
+    else:
+        original = backend._db_sessions
+
+        def changed_version(plan):
+            original(plan)
+            core.version += 1
+
+        backend._db_sessions = changed_version
+    before = len(core.calls)
+    with pytest.raises(native.NativeError):
+        backend.restore_current()
+    assert backend.store.read('receipt-testtx.json') == receipt
+    assert not any(m in ('terminal.run', 'terminal.kill', 'doc.set') for m, _ in core.calls[before:])
 
 
 def test_unrecorded_swap_to_unknown_terminal_still_refuses(backend):

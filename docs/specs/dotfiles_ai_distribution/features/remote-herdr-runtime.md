@@ -355,6 +355,24 @@ is not proof of absence; the old address must be missing from valid inventory.
 Recovery proceeds from the exact retained state without hand edits, replays
 no run/kill intent, and then adopts later panes as designed.
 
+### In-place client already running (RRW-007G-R7 / INT-082)
+
+Given a pending repair with no recorded source, stop, or created terminal and
+no pending mutation, keep the original leaf and terminal when its live program
+is exactly the desired session in the expected cwd and its labels match the
+owned binding. Prove process and inventory stability, reject related terminal
+candidates or duplicate clients, and check the document version before recording
+completion. Do not replay `terminal.run`, `terminal.kill`, or `doc.set`.
+A foreign or different session still refuses. Created, stopped, and closed
+repairs retain their separate proof requirements; do not resurrect closed panes.
+
+Qualify one completed journal with 46 in-place, two created/stopped, five
+pending closed, and one stopped closed repair. Recover 51 leaves and 50 exact
+clients with an app-like finish-event observer connected. Disconnect Desktop
+before switching: a finish-event document edit during core shutdown trips the
+existing version guard and retains the interrupted switch journal. With no
+competing writer, switch all 50 clients once to TUI after core stops.
+
 ### Legacy stop proof after PID reuse (RRW-007G-R6 / INT-082)
 
 Given a retained owner-captured stop proof containing only PID and start ticks,
@@ -687,6 +705,7 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Created replacement returns as an owned plain shell after restart | Recovery controller | Reclassify current program; admit fresh proven shell repair, never call it a ready client |
 | Completed swap missing from receipt after restart | Recovery controller | Require finished or inventory-absent old terminal, absent old pids, proven replacement and unchanged document version; finish receipt without replay |
 | Retained legacy stop proof with reused PID | Recovery controller | Proven foreign UID or changed start ticks establishes exit, never signaling authority; a matching live identity or ambiguous evidence blocks |
+| Pending in-place repair to completed receipt | Recovery controller | Exact owned live binding, program, process, version and unique client; no native mutation |
 | Stopped repair leaf absent after restart | Recovery controller | Reconcile original exit and uncertain live clients, retain closure, continue other repairs |
 | Restart during run/CAS/cleanup or after completion | Recovery controller | Reconcile durable intent against current process/document facts without replay or stale process authority |
 | Any uncertain or failed transition | Recovery controller | Retain evidence; no duplicate activation |
@@ -702,6 +721,8 @@ replay only after proving the old terminal finished or absent from inventory,
 its old pids absent, the exact replacement valid and the document version
 unchanged. For legacy stop proofs, proven PID reuse establishes original exit,
 not signaling authority. A matching live identity or ambiguous evidence blocks.
+An in-place client completes only with the original owned binding, exact session
+and cwd, stable process/document evidence, and no related terminal or duplicate.
 Canonical source: approved INT-077/079/082 and this behavior
 contract; hosted qualification is distinct from live acceptance. Owner: distribution maintainer.
 Update with selection, native interface, ownership or recovery changes.
