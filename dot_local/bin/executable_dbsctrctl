@@ -3922,9 +3922,17 @@ def forgejo_remote_urls(root, remote, identity):
 
 def _forgejo_security_lookup(query):
     """Read exact native internet-password matches with authentication UI denied."""
-    import ctypes
     if sys.platform != "darwin":
         fail("Forgejo native credential unavailable")
+    native = _forgejo_native_reader(query)
+    if native is not None:
+        return native
+    return _forgejo_legacy_security_lookup(query)
+
+
+def _forgejo_legacy_security_lookup(query):
+    import ctypes
+
     references = []
     result = ctypes.c_void_p()
     credential_result = ctypes.c_void_p()
@@ -4091,6 +4099,44 @@ def _forgejo_security_lookup(query):
                 core.CFRelease(reference)
 
 
+def _forgejo_native_reader(query):
+    """Use the operator-installed executable with an item-specific Keychain ACL."""
+    import pwd
+
+    home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    reader = home / ".local/libexec/dbsctr-forgejo-keychain"
+    try:
+        details = reader.lstat()
+    except FileNotFoundError:
+        # Preserve compatibility for Keychain items already qualified with Python.
+        return None
+    except OSError:
+        fail("Forgejo native credential unavailable")
+    if not stat.S_ISREG(details.st_mode):
+        fail("Forgejo native credential unavailable")
+
+    try:
+        # Keep the reader in the controlled Git fetch's process group.
+        reply = subprocess.run(
+            [_forgejo_trusted_file(reader), query["server"], str(query["port"]),
+             query["account"], query["path"]],
+            cwd="/", env=_forgejo_environment(home), timeout=5,
+            stdin=subprocess.DEVNULL, capture_output=True, check=False,
+        )
+        password = reply.stdout.decode("utf-8")
+    except (OSError, RuntimeError, UnicodeError, subprocess.TimeoutExpired):
+        raise RuntimeError("Forgejo native credential unavailable") from None
+    if reply.returncode or reply.stderr or not _forgejo_valid_password(password):
+        fail("Forgejo native credential unavailable")
+    identity = {key: query[key] for key in ("server", "port", "protocol", "account", "path")}
+    return [{**identity, "password": password}]
+
+
+def _forgejo_valid_password(password):
+    return (isinstance(password, str) and 0 < len(password.encode("utf-8", errors="replace")) <= 4096
+            and not any(character in password for character in "\r\n\0\ufffd"))
+
+
 def forgejo_credential_helper(operation, identity, account):
     """Implement the get-only Git helper protocol; native storage is never changed."""
     if operation != "get":
@@ -4134,8 +4180,7 @@ def forgejo_credential_helper(operation, identity, account):
     if any(item.get(key) != query[key] for key in ("server", "port", "protocol", "account", "path")):
         fail("Forgejo native credential selection mismatch")
     password = item.get("password")
-    if (not isinstance(password, str) or not 0 < len(password) <= 4096
-            or any(character in password for character in "\r\n\0") or "\ufffd" in password):
+    if not _forgejo_valid_password(password):
         fail("Forgejo native credential unavailable")
     encoded = base64.b64encode((account + ":" + password).encode("utf-8")).decode("ascii")
     sys.stdout.write(f"capability[]=authtype\nauthtype=basic\ncredential={encoded}\nephemeral=true\n\n")

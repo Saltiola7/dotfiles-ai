@@ -290,6 +290,37 @@ class ForgejoTransportTest(unittest.TestCase):
             self.assertEqual(self.last_output.getvalue(), "")
             self.assertNotIn("PRIVATE_TOKEN_SENTINEL", str(caught.exception))
 
+    def test_installed_reader_gets_only_the_selected_identity_and_never_falls_back(self):
+        home = Path(self.directory.name)
+        reader = home / ".local/libexec/dbsctr-forgejo-keychain"
+        reader.parent.mkdir(parents=True)
+        reader.touch(mode=0o700)
+        query = self.native_match()
+        query.pop("password")
+        with mock.patch("pwd.getpwuid") as user, \
+                mock.patch.object(self.core.sys, "platform", "darwin"), \
+                mock.patch.object(self.core, "_forgejo_legacy_security_lookup") as legacy, \
+                mock.patch.object(self.core.subprocess, "run") as run:
+            user.return_value.pw_dir = str(home)
+            run.return_value = subprocess.CompletedProcess([], 0, b"PRIVATE_TOKEN_SENTINEL", b"")
+            self.assertEqual(self.core._forgejo_security_lookup(query), [self.native_match()])
+            command, = run.call_args.args
+            self.assertEqual(command, [str(reader.resolve()), query["server"], "8443",
+                                       query["account"], query["path"]])
+            self.assertEqual(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+            self.assertNotIn("start_new_session", run.call_args.kwargs)
+            self.assertNotIn("PRIVATE_TOKEN_SENTINEL", repr(run.call_args))
+            for failure in (subprocess.CompletedProcess([], 1, b"", b"PRIVATE_TOKEN_SENTINEL"),
+                            subprocess.CompletedProcess([], 0, b"token\nextra", b""),
+                            subprocess.CompletedProcess([], 0, b"\xff", b"")):
+                run.return_value = failure
+                with self.assertRaisesRegex(RuntimeError, "^Forgejo native credential unavailable$"):
+                    self.core._forgejo_security_lookup(query)
+            legacy.assert_not_called()
+            reader.unlink()
+            self.core._forgejo_security_lookup(query)
+            legacy.assert_called_once_with(query)
+
     def test_native_security_boundary_disables_and_restores_process_ui_before_lookup(self):
         query = {"server": "forge.example.invalid", "port": 8443, "protocol": "https",
                  "account": "fixture-user", "path": "example/private-config.git",
@@ -349,7 +380,7 @@ class ForgejoTransportTest(unittest.TestCase):
                 mock.patch.object(ctypes, "c_void_p", Pointer), mock.patch.object(ctypes, "c_byte", Byte), \
                 mock.patch.object(self.core.sys, "platform", "darwin"):
             with self.assertRaisesRegex(RuntimeError, "Forgejo native credential unavailable"):
-                self.core._forgejo_security_lookup(query)
+                self.core._forgejo_legacy_security_lookup(query)
         self.assertEqual(interactions, [0, 1])
         self.assertEqual(len(copied), 1)
         self.assertEqual(copied[0]["kSecUseAuthenticationUI"], "kSecUseAuthenticationUIFail")
@@ -379,7 +410,7 @@ class ForgejoTransportTest(unittest.TestCase):
         with mock.patch.object(ctypes, "CDLL", side_effect=[core, security]), \
                 mock.patch.object(self.core.sys, "platform", "darwin"):
             with self.assertRaisesRegex(RuntimeError, "Forgejo native credential unavailable"):
-                self.core._forgejo_security_lookup({})
+                self.core._forgejo_legacy_security_lookup({})
         lookup.assert_not_called()
 
     @unittest.skipUnless(sys.platform == "darwin", "requires native CoreFoundation ABI")
@@ -418,7 +449,7 @@ class ForgejoTransportTest(unittest.TestCase):
                  "account": "probe-" + uuid.uuid4().hex, "path": "probe/absent.git"}
         with mock.patch.object(ctypes, "CDLL", side_effect=[core, Boundary()]):
             with self.assertRaisesRegex(RuntimeError, "^Forgejo native credential unavailable$"):
-                self.core._forgejo_security_lookup(query)
+                self.core._forgejo_legacy_security_lookup(query)
         # Missing item, denied UI or missing Keychain are valid native refusals;
         # a parameter error is not a valid query-construction result.
         self.assertEqual(len(statuses), 1)
@@ -569,10 +600,10 @@ class ForgejoTransportTest(unittest.TestCase):
                 try:
                     with mock.patch.object(ctypes, "CDLL", side_effect=[core, security]):
                         if accepted:
-                            self.assertEqual(self.core._forgejo_security_lookup(query), [self.native_match()])
+                            self.assertEqual(self.core._forgejo_legacy_security_lookup(query), [self.native_match()])
                         else:
                             with self.assertRaisesRegex(RuntimeError, "Forgejo native credential") as caught:
-                                self.core._forgejo_security_lookup(query)
+                                self.core._forgejo_legacy_security_lookup(query)
                             self.assertNotIn("PRIVATE_TOKEN_SENTINEL", str(caught.exception))
                     two_reads = shape in {"string-https", "number-https", "data-string", "data-invalid-utf8",
                                           "changed-data-identity", "data-denied", "not-data-dictionary"}
