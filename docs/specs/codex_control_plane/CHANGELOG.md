@@ -79,9 +79,9 @@
   into main, exact-head hosted checks and merge, then qualified production refresh.
 - Production readiness remains failed with operator-approved deferred exceptions
   for Deploy, Operate and Maintain/Retire. Close these after production refresh
-  and the original coordinator's native check, before PPC work resumes.
+  and the original coordinator's native check, before private-project work resumes.
 - Retain qualification lanes, journals and uncertain interruption evidence.
-  No production deployment, PPC delivery or new Plan-mode enforcement is claimed.
+  No production deployment, private-project delivery or new Plan-mode enforcement is claimed.
 
 ## 2026-09-26 - Selected Desktop Requalification
 

@@ -9,6 +9,16 @@ This repository manages platform-selected agent installers, pinned Herdr release
 and AI workbench configuration. It does not store provider credentials or
 replace the DBSCTR specifications as lifecycle authority.
 
+## Repository privacy
+
+Keep this repository client-neutral. Client and employer identities, project paths,
+account identifiers, internal links, infrastructure inventories and operational
+evidence belong in ignored private configuration or private storage outside the repository. Source files, docs,
+examples and filenames must use neutral labels and synthetic values. All new commit
+messages and pull request titles and bodies must follow the same rule. Existing Git
+history is retained. Public vendor references and personal homelab configuration
+are permitted.
+
 ## Choose Your Path
 
 | Goal | Start here |

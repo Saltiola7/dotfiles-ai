@@ -9,13 +9,11 @@ maintenance: dotfiles PR #22 (Aider/nginx retirement), dotfiles-ai PR #202 (test
 dependencies) and #203 (Hermes Python patch). Published; required checks and
 verified-head merges are pending.
 
-SDS root development compatibility candidate, using copied manifests only, resolves
-LiteLLM 1.89.0 to 1.104.0 on Python 3.14.8. Dependency and SSL/SQLite/import checks
-passed with FastAPI 0.136.3 and Prefect 3.7.4. Shared-library manifest and worker
-inputs are unchanged; live environments have not been replaced. Synthetic mocked
-LiteLLM completion and an ephemeral Prefect flow are the next runtime checks,
-followed by full allowed-constraint refresh qualification. Candidate execution uses
-an isolated home without inherited provider or production credentials.
+A private project development candidate completed isolated dependency and runtime
+checks against copied manifests. Exact versions, paths and project-specific
+compatibility findings remain in private evidence. Shared production inputs and
+live environments were unchanged; further project-owned qualification is required
+before activation. Candidate checks use no inherited production credentials.
 
 Aider tool qualification found a minor-version conflict: installed and newly
 resolved aider-chat 0.86.2 both declare Python >=3.10,<3.13, but the existing tool
@@ -230,7 +228,7 @@ It does not classify all consumers or authorize mass activation. Additional nest
 tool and guest environments remain outside this bounded scan. Excluded project
 directories were skipped. Raw paths and inventory remain private.
 
-Both previously failing SDS worktree locations are absent directories, rather than
+Both previously failing private-project worktree locations are absent directories, rather than
 existing directories with broken `.git` files. No registrations were pruned and no
 checkout was recreated. Distinguish intentional disposal from missing retained
 work before proposing recovery.
