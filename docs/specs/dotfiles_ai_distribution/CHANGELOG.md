@@ -5,6 +5,8 @@
 - Report the original controller refusal during the disposable edited-document
   recovery check. Do not diagnose adopted bindings using pre-adoption journal
   keys. Keep the original checks, production behavior and bootstrap unchanged.
+- For a generic native refusal, report only the installed source module, line,
+  and allowlisted underlying exception category. Never publish native values.
 
 ## 2026-11-20 — Staggered TUI startup and offline recovery (RRW-007G-R8)
 

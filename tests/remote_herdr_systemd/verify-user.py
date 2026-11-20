@@ -139,6 +139,29 @@ import json, runpy, sys
 entrypoint, controller, labels = sys.argv[1:]
 labels = json.loads(labels)
 failure = None
+directory = controller.rsplit('/', 1)[0]
+modules = {directory + '/' + name + '.py': name for name in
+           ('native', 'layout', 'protocol', 'processes', 'controller')}
+categories = {'AttributeError', 'FileNotFoundError', 'KeyError', 'OSError',
+              'PermissionError', 'ProcessLookupError', 'TypeError',
+              'ValueError', 'LayoutError', 'ProcessProofError'}
+
+def origin(error):
+    # `raise ... from None` hides the original in formatted output but
+    # deliberately leaves its context available to this disposable fixture.
+    underlying = error.__context__
+    if underlying is None:
+        return 'none-0-none'
+    category = type(underlying).__name__
+    category = category if category in categories else 'other'
+    module, line = 'unknown', 0
+    tb = underlying.__traceback__
+    while tb is not None:
+        name = modules.get(tb.tb_frame.f_code.co_filename)
+        if name is not None:
+            module, line = name, tb.tb_lineno
+        tb = tb.tb_next
+    return f'{module}-{line}-{category}'
 
 def trace(frame, event, arg):
     global failure
@@ -147,9 +170,10 @@ def trace(frame, event, arg):
     if event == 'exception':
         error = arg[1]
         if type(error).__name__ == 'NativeError':
-            failure = (labels.get(str(error), 'unclassified'), frame.f_lineno)
+            label = labels.get(str(error), 'unclassified')
+            failure = (label, frame.f_lineno, origin(error) if label == 'native-uncertain' else 'none-0-none')
         elif failure is None:
-            failure = ('other', frame.f_lineno)
+            failure = ('other', frame.f_lineno, 'none-0-none')
     return trace
 
 sys.argv = [entrypoint, 'recover']
@@ -158,7 +182,7 @@ try:
     runpy.run_path(entrypoint, run_name='__main__')
 except SystemExit as error:
     if error.code == 75 and failure is not None:
-        print(f'CI-recover-{failure[0]}-line-{failure[1]}')
+        print(f'CI-recover-{failure[0]}-line-{failure[1]}-origin-{failure[2]}')
     raise
 finally:
     sys.settrace(None)
@@ -167,9 +191,13 @@ finally:
                              str(HOME / '.local/share/dotfiles-ai/remote-herdr/controller.py'),
                              json.dumps(labels)], capture_output=True, text=True, cwd=HOME, timeout=855)
     if result.returncode != 0:
-        match = re.fullmatch(r'CI-recover-([a-z-]+)-line-([1-9][0-9]{0,4})\n', result.stdout)
+        match = re.fullmatch(
+            r'CI-recover-([a-z-]+)-line-([1-9][0-9]{0,4})-origin-'
+            r'((?:native|layout|protocol|processes|controller|unknown|none)-[0-9]{1,5}-'
+            r'(?:AttributeError|FileNotFoundError|KeyError|OSError|PermissionError|ProcessLookupError|'
+            r'TypeError|ValueError|LayoutError|ProcessProofError|other|none))\n', result.stdout)
         if result.returncode == 75 and match and match[1] in {*labels.values(), 'unclassified', 'other'}:
-            raise CommandFailure(f'controller-{match[1]}-line-{match[2]}')
+            raise CommandFailure(f'controller-{match[1]}-line-{match[2]}-origin-{match[3]}')
         raise CommandFailure('controller-command-exit-' + str(result.returncode))
 
 
