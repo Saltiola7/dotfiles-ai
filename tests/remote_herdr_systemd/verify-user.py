@@ -135,7 +135,7 @@ def edited_recovery_cli():
         'native observation or mutation uncertain': 'native-uncertain',
     }
     trace_program = """
-import json, runpy, sys
+import ast, json, re, runpy, sys
 entrypoint, controller, labels = sys.argv[1:]
 labels = json.loads(labels)
 failure = None
@@ -145,23 +145,36 @@ modules = {directory + '/' + name + '.py': name for name in
 categories = {'AttributeError', 'FileNotFoundError', 'KeyError', 'OSError',
               'PermissionError', 'ProcessLookupError', 'TypeError',
               'ValueError', 'LayoutError', 'ProcessProofError'}
+layout_file = directory + '/layout.py'
+with open(layout_file, encoding='utf-8') as source:
+    rules = {node.lineno: node.args[0].value for node in ast.walk(ast.parse(source.read()))
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+             and node.func.id == '_fail' and len(node.args) == 1
+             and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)
+             and re.fullmatch(r'[a-zA-Z0-9 ]{1,80}', node.args[0].value)}
 
 def origin(error):
     # `raise ... from None` hides the original in formatted output but
     # deliberately leaves its context available to this disposable fixture.
     underlying = error.__context__
     if underlying is None:
-        return 'none-0-none'
+        return 'none-none'
     category = type(underlying).__name__
     category = category if category in categories else 'other'
-    module, line = 'unknown', 0
+    sites = []
     tb = underlying.__traceback__
     while tb is not None:
         name = modules.get(tb.tb_frame.f_code.co_filename)
         if name is not None:
-            module, line = name, tb.tb_lineno
+            sites.append((name, tb.tb_lineno))
         tb = tb.tb_next
-    return f'{module}-{line}-{category}'
+    rule = 'unknown'
+    if type(underlying) is ValueError and len(sites) > 1 and sites[-2][0] == 'layout':
+        literal = rules.get(sites[-2][1])
+        if literal is not None and underlying.args == (literal,):
+            rule = literal.lower().replace(' ', '-')
+    path = '.'.join(f'{name}-{line}' for name, line in sites[-8:]) or 'unknown-0'
+    return f'{category}-{rule}-{path}'
 
 def trace(frame, event, arg):
     global failure
@@ -171,9 +184,9 @@ def trace(frame, event, arg):
         error = arg[1]
         if type(error).__name__ == 'NativeError':
             label = labels.get(str(error), 'unclassified')
-            failure = (label, frame.f_lineno, origin(error) if label == 'native-uncertain' else 'none-0-none')
+            failure = (label, frame.f_lineno, origin(error) if label == 'native-uncertain' else 'none-none')
         elif failure is None:
-            failure = ('other', frame.f_lineno, 'none-0-none')
+            failure = ('other', frame.f_lineno, 'none-none')
     return trace
 
 sys.argv = [entrypoint, 'recover']
@@ -193,9 +206,10 @@ finally:
     if result.returncode != 0:
         match = re.fullmatch(
             r'CI-recover-([a-z-]+)-line-([1-9][0-9]{0,4})-origin-'
-            r'((?:native|layout|protocol|processes|controller|unknown|none)-[0-9]{1,5}-'
-            r'(?:AttributeError|FileNotFoundError|KeyError|OSError|PermissionError|ProcessLookupError|'
-            r'TypeError|ValueError|LayoutError|ProcessProofError|other|none))\n', result.stdout)
+            r'(none-none|(?:AttributeError|FileNotFoundError|KeyError|OSError|PermissionError|ProcessLookupError|'
+            r'TypeError|ValueError|LayoutError|ProcessProofError|other)-[a-z0-9-]{1,80}-'
+            r'(?:native|layout|protocol|processes|controller|unknown)-[0-9]{1,5}'
+            r'(?:\.(?:native|layout|protocol|processes|controller)-[0-9]{1,5}){0,7})\n', result.stdout)
         if result.returncode == 75 and match and match[1] in {*labels.values(), 'unclassified', 'other'}:
             raise CommandFailure(f'controller-{match[1]}-line-{match[2]}-origin-{match[3]}')
         raise CommandFailure('controller-command-exit-' + str(result.returncode))

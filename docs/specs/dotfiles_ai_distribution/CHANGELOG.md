@@ -7,6 +7,8 @@
   keys. Keep the original checks, production behavior and bootstrap unchanged.
 - For a generic native refusal, report only the installed source module, line,
   and allowlisted underlying exception category. Never publish native values.
+- Distinguish shared layout failure helpers from the rejecting rule with an
+  allowlisted source-literal rule and bounded module/line sequence.
 
 ## 2026-11-20 — Staggered TUI startup and offline recovery (RRW-007G-R8)
 
