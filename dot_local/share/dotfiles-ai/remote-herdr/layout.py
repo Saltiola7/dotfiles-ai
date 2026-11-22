@@ -12,6 +12,7 @@ import json
 import math
 import re
 import shlex
+import struct
 from typing import NoReturn
 
 
@@ -473,6 +474,34 @@ def to_tui_snapshot(plan):
                        'active': 0 if workspaces else None, 'selected': 0})
 
 
+def _f32(value):
+    """Quantize to the pinned native writer's 32-bit split-ratio precision."""
+    return struct.unpack('f', struct.pack('f', value))[0]
+
+
+def _ratio_at_native_precision(node):
+    if 'pane' in node:
+        return node
+    return {'axis': node['axis'], 'ratio': _f32(node['ratio']),
+            'children': [_ratio_at_native_precision(child) for child in node['children']]}
+
+
+def plans_match_at_native_precision(observed, plan):
+    """Exact canonical equality except split ratios at native f32 precision."""
+    if len(observed['spaces']) != len(plan['spaces']):
+        return False
+    for got_space, want_space in zip(observed['spaces'], plan['spaces']):
+        if (got_space['name'] != want_space['name'] or got_space['directory'] != want_space['directory']
+                or len(got_space['tabs']) != len(want_space['tabs'])):
+            return False
+        for got_tab, want_tab in zip(got_space['tabs'], want_space['tabs']):
+            if (got_tab['name'] != want_tab['name'] or got_tab['panes'] != want_tab['panes']
+                    or _ratio_at_native_precision(got_tab['root'])
+                    != _ratio_at_native_precision(want_tab['root'])):
+                return False
+    return True
+
+
 def matches_tui_shutdown(snapshot, plan):
     """Recognize a pinned native save without trusting its launch instructions."""
     actual = from_tui_snapshot(snapshot)
@@ -499,7 +528,8 @@ def matches_tui_shutdown(snapshot, plan):
             for got, want in zip(got_tab['panes'], want_tab['panes']):
                 if got['session_id'] is None:
                     got['session_id'] = want['session_id']
-    return observed == plan
+    # Native saves round split ratios to 32-bit floats; every other field is exact.
+    return plans_match_at_native_precision(observed, plan)
 
 
 def to_app_document(plan, terminal_map):

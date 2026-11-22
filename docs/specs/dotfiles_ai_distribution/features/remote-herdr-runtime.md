@@ -366,6 +366,11 @@ preimage privately, persist the write intent before changing the file, and
 recheck absence and the file before writing. Do not apply this rule to a live
 endpoint or an ordinary boot's saved snapshot.
 
+Native saves serialize split ratios as 32-bit floats while canonical plans keep
+64-bit values (RRW-007G-R9). Compare ratios after rounding both sides to 32-bit
+precision in the shutdown-save match and the boot snapshot-preservation check.
+Every other field remains exact; a genuinely changed ratio still refuses.
+
 The controller-started Linux TUI spaces authenticated OpenCode launch admission
 by 2.5 seconds under a bounded user-local lock. It does not restart the shared
 backend or replay a client launch. Keep per-call timeouts and bound explicit

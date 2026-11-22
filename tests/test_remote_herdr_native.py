@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sqlite3
+import struct
 import sys
 
 import pytest
@@ -1886,9 +1887,34 @@ def test_tui_uncertain_exec_waits_without_second_start(backend):
     assert not any('start' in argv for argv in calls)
 
 
-@pytest.mark.parametrize('drift', [None, 'cwd', 'session', 'argv', 'label', 'unknown', 'receipt', 'client'])
+def split_plan():
+    return {'schema_version': 1, 'spaces': [{'name': 'Space', 'directory': '/work', 'tabs': [
+        {'name': 'Split', 'root': {'axis': 'row', 'ratio': 0.41237114108714884, 'children': [
+            {'pane': 's0-t0-p0'},
+            {'axis': 'column', 'ratio': 0.509433999938786, 'children': [
+                {'pane': 's0-t0-p1'}, {'pane': 's0-t0-p2'}]}]},
+         'panes': [{'key': 's0-t0-p0', 'cwd': '/work', 'session_id': 'ses_abc'},
+                   {'key': 's0-t0-p1', 'cwd': '/work', 'session_id': None},
+                   {'key': 's0-t0-p2', 'cwd': '/work', 'session_id': 'ses_other'}]}]}]}
+
+
+def _f32(value):
+    return struct.unpack('f', struct.pack('f', value))[0]
+
+
+def _round_native_splits(node):
+    if 'Split' in node:
+        split = node['Split']
+        split['ratio'] = _f32(split['ratio'])
+        _round_native_splits(split['first'])
+        _round_native_splits(split['second'])
+
+
+@pytest.mark.parametrize('drift', [None, 'cwd', 'session', 'argv', 'label', 'unknown', 'receipt', 'client',
+                                   'ratio-f32', 'ratio-real'])
 def test_r8_offline_shutdown_save_only_recovers_missing_planned_sessions(backend, drift):
-    generated = native.layout.to_tui_snapshot(plan())
+    value = split_plan() if drift in ('ratio-f32', 'ratio-real') else plan()
+    generated = native.layout.to_tui_snapshot(value)
     snapshot = copy.deepcopy(generated)
     snapshot['sidebar_width'] = 45
     tab = snapshot['workspaces'][0]['tabs'][0]
@@ -1896,7 +1922,12 @@ def test_r8_offline_shutdown_save_only_recovers_missing_planned_sessions(backend
     pane = tab['panes']['0']
     for key in ('agent_session', 'agent_name', 'managed_agent_kind', 'launch_argv'):
         pane[key] = None
-    if drift == 'cwd':
+    if drift in ('ratio-f32', 'ratio-real'):
+        # The pinned native writer serializes split ratios as 32-bit floats.
+        _round_native_splits(tab['layout'])
+        if drift == 'ratio-real':
+            tab['layout']['Split']['ratio'] = 0.45
+    elif drift == 'cwd':
         pane['cwd'] = '/other'
     elif drift == 'session':
         pane['launch_argv'] = ['opencode', '--session', 'ses_other']
@@ -1915,13 +1946,13 @@ def test_r8_offline_shutdown_save_only_recovers_missing_planned_sessions(backend
     calls = []
     backend.command = lambda argv, timeout=30: calls.append(argv) or ('inactive\n' if 'show' in argv else {})
     backend._wait_ready = lambda *args: None
-    if drift:
+    if drift not in (None, 'ratio-f32'):
         with pytest.raises(native.NativeError):
-            backend.recover_tui(plan(), 'shutdown', receipt)
+            backend.recover_tui(value, 'shutdown', receipt)
         assert not any('start' in argv for argv in calls)
         assert json.loads(backend.snapshot_path.read_text()) == snapshot
         return
-    saved = backend.recover_tui(plan(), 'shutdown', receipt)
+    saved = backend.recover_tui(value, 'shutdown', receipt)
     assert saved['pending'] is None and saved['document'] == generated
     assert backend.store.read(saved['shutdown_snapshot_backup']) == {'snapshot': snapshot}
     assert json.loads(backend.snapshot_path.read_text()) == generated

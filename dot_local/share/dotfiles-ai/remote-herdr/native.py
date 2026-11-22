@@ -1055,7 +1055,7 @@ class Native:
         value['runtime'] = source
         return value
 
-    def _semantic(self, plan):
+    def _semantic(self, plan, *, native_ratios=False):
         """Compare topology/labels/identities independent of native pane numbering."""
         result = []
         for space in checked_plan(plan)['spaces']:
@@ -1067,7 +1067,8 @@ class Native:
                     if 'pane' in node:
                         p = lookup[node['pane']]
                         return {'cwd': p['cwd'], 'session_id': p['session_id']}
-                    return {'axis': node['axis'], 'ratio': round(node['ratio'], 6),
+                    ratio = layout._f32(node['ratio']) if native_ratios else round(node['ratio'], 6)
+                    return {'axis': node['axis'], 'ratio': ratio,
                             'children': [tree(c) for c in node['children']]}
 
                 tabs.append({'name': tab['name'], 'root': tree(tab['root'])})
@@ -1340,7 +1341,8 @@ class Native:
         current = self._optional_snapshot()
         if preserve_snapshot:
             if (current != receipt['document'] or current is None
-                    or self._semantic(layout.from_tui_snapshot(current)) != self._semantic(plan)):
+                    or self._semantic(layout.from_tui_snapshot(current), native_ratios=True)
+                    != self._semantic(plan, native_ratios=True)):
                 raise NativeError('TUI boot snapshot has unexplained edits')
             # Boot observes a saved native snapshot, not a switch-generated file.
             # Supported focus/default/history fields and original bytes stay intact.
