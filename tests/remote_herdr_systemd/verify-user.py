@@ -2918,18 +2918,29 @@ def arm_r8():
         require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
     STEP = 'r8-create-fixture-sessions'
     cwd = str(HOME / 'project alpha')
+    sessions = [None]
+    for index in range(1, 51):
+        sessions.append(api('post', '/api/session', {
+            'location': {'directory': cwd}, 'title': f'R9 fixture {index}',
+            'model': {'id': 'held', 'providerID': 'rrw007f'},
+        })['data']['id'])
+    # 17 tabs x 3 panes with nested uneven 64-bit ratios that do not survive
+    # the native writer's 32-bit serialization (0.5 survives; the rest do not).
+    ratios = [0.41237114108714884, 0.509433999938786, 0.375,
+              0.12345678901234568, 0.7777777777011148, 0.5000001, 0.234567891]
     tabs = []
-    for index in range(51):
-        session = None
-        if index:
-            session = api('post', '/api/session', {
-                'location': {'directory': cwd}, 'title': f'R8 fixture {index}',
-                'model': {'id': 'held', 'providerID': 'rrw007f'},
-            })['data']['id']
-        key = f's0-t{index}-p0'
-        tabs.append({'name': f'R8 tab {index}', 'root': {'pane': key},
-                     'panes': [{'key': key, 'cwd': cwd, 'session_id': session}]})
-    plan = {'schema_version': 1, 'spaces': [{'name': 'R8 space', 'directory': cwd, 'tabs': tabs}]}
+    for tab_index in range(17):
+        panes = []
+        for pane_index in range(3):
+            index = tab_index * 3 + pane_index
+            panes.append({'key': f's0-t{tab_index}-p{pane_index}', 'cwd': cwd,
+                          'session_id': sessions[index]})
+        root = {'axis': 'row', 'ratio': ratios[tab_index % len(ratios)], 'children': [
+            {'pane': panes[0]['key']},
+            {'axis': 'column', 'ratio': ratios[(tab_index + 3) % len(ratios)], 'children': [
+                {'pane': panes[1]['key']}, {'pane': panes[2]['key']}]}]}
+        tabs.append({'name': f'R9 tab {tab_index}', 'root': root, 'panes': panes})
+    plan = {'schema_version': 1, 'spaces': [{'name': 'R9 space', 'directory': cwd, 'tabs': tabs}]}
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         STEP = 'r8-offline-import-preflight'
@@ -2964,10 +2975,21 @@ def arm_r8():
         require(saved == receipt['document'])
         STEP = 'r8-save-incomplete-fixture-snapshot'
         # Pinned writer omits absent Option fields; null is equivalent.
-        for tab in saved['workspaces'][0]['tabs'][2:39]:
+        for tab in saved['workspaces'][0]['tabs'][2:12]:
             for pane in tab['panes'].values():
                 for key in ('agent_name', 'managed_agent_kind', 'agent_session', 'launch_argv'):
                     pane.pop(key)
+
+        def round_split(node):
+            if 'Split' in node:
+                split = node['Split']
+                split['ratio'] = struct.unpack('f', struct.pack('f', split['ratio']))[0]
+                round_split(split['first'])
+                round_split(split['second'])
+
+        # The native writer serializes split ratios as 32-bit floats.
+        for tab in saved['workspaces'][0]['tabs']:
+            round_split(tab['layout'])
         saved['selected'] = 0
         saved['sidebar_width'] = 42
         write(backend.snapshot_path, saved)

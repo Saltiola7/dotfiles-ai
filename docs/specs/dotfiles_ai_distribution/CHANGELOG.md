@@ -1,5 +1,13 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-22 — Compare native split ratios at 32-bit precision (RRW-007G-R9)
+
+- Round both sides to native f32 precision when matching a shutdown save or
+  preserving a boot snapshot; every other check stays exact and a genuinely
+  changed ratio still refuses. Qualify with uneven nested 64-bit ratios across
+  the 50-session shutdown/reboot recovery and second-boot scenario.
+  No bootstrap, pin or input changes.
+
 ## 2026-11-20 — Bind the R8 second-boot check to a fresh receipt
 
 - Wait for a new completed TUI boot receipt with no pending mutation and the
