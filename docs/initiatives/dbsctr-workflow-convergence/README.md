@@ -1,5 +1,25 @@
 # DBSCTR Workflow Convergence
 
+## Operator CLI fixes and Linux rollout
+
+[Lifecycle contracts](../../specs/dbsctr_v3_lifecycle/features/operator-cli-fixes.md)
+cover INT-104–109; [managed deployment](../../specs/dotfiles_ai_distribution/features/operator-cli-rollout.md)
+covers INT-110. In order: tracked-file staging, amendment reasons, early checkout
+setup diagnosis, handoff into the existing published-feature route, unrelated
+orphan isolation, and checkout-scoped process proof. Each uses a separate
+Build-owned source cycle, digest approval, full CI and verified merge. Only the
+first is initially ready; promote each successor after actual predecessor
+delivery. The rollout requires independent installed qualification on an
+Omarchy desktop and a nominated RHEL-family server. These slices share the
+existing lifecycle and distribution owners; no consumer repository changes.
+
+The first source receipt carries the complete changed Discovery document set;
+the distribution contract is read-only authority in that cycle, not deployment
+approval. Subsequent source cycles reuse the existing Core source gate plan.
+Review README and CHANGELOG per cycle; report actual checks and delivery only
+when performed. Public Git contains synthetic examples; machine evidence is
+retained privately.
+
 ## Successful completion reconciliation
 
 [Completion reconciliation](COMPLETION-RECONCILIATION.md) extends the approved
