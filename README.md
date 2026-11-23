@@ -502,6 +502,12 @@ Omarchy shell configuration and disables guest VMs in the example. It does not
 use the standalone remote-user role (RHEL successor qualification pending).
 Authenticate providers separately on the laptop.
 
+On Omarchy (including Try Omarchy), the workstation profile also ensures that
+`openai-codex-desktop`, the ChatGPT desktop app with Codex, is installed.
+It uses Omarchy's pacman helper; repeat applies skip an installed package,
+and normal Omarchy updates upgrade it. Launch `chatgpt` and sign in locally.
+The existing `codex` CLI installer and desktop login settings are separate.
+
 On Omarchy, `dotfiles-ai-omarchy-setup` creates a private user-owned state root
 at `/var/lib/dotfiles-ai/<username>` and applies the profile. This avoids placing
 provider credentials under a home directory that may itself be a Git worktree.
