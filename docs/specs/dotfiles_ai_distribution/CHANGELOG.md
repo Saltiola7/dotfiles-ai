@@ -16,6 +16,8 @@
 - Follow-up two: a spawn-failed pane may keep its exact agent view while
   deferred; only a differing view identity refuses. Name the underlying
   recover refusal in the fixture with the value-free origin tracer.
+- Follow-up three: allowlist the fixed TUI refusal literals in that tracer so
+  the exact recover refusal is named in the native job log.
 
 ## 2026-11-22 — Compare native split ratios at 32-bit precision (RRW-007G-R9)
 
