@@ -8,6 +8,8 @@
 - Cover refusal before fetch, tracking drift during confirmation and the
   existing supported registration routes. Refresh the CLI benchmark source
   digest without changing its workloads. Source-only draft PR to `main`.
+- Update the managed DVC registration test to assert read-only status
+  inspection. This CI follow-up changes no production code.
 
 ## 2026-11-23 — Explain Initiative amendment refusals (INT-105)
 
