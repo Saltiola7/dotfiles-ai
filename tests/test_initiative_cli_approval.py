@@ -159,7 +159,7 @@ def test_changed_plan_during_confirmation_refuses(initiative, monkeypatch):
     assert not path.exists()
 
 
-@pytest.mark.parametrize("change", ["branch", "head", "target"])
+@pytest.mark.parametrize("change", ["branch", "head", "target", "tracking"])
 def test_changed_git_state_during_confirmation_refuses(initiative, fixture, monkeypatch, change):
     core, target, path, argv, prepared, _ = initiative
 
@@ -170,6 +170,8 @@ def test_changed_git_state_during_confirmation_refuses(initiative, fixture, monk
                 git(target, "branch", "--set-upstream-to", "upstream/base")
             elif change == "head":
                 git(target, "commit", "--allow-empty", "-m", "intervening commit")
+            elif change == "tracking":
+                git(target, "branch", "--unset-upstream")
             else:
                 git(fixture.repo, "commit", "--allow-empty", "-m", "target advance")
                 git(fixture.repo, "push", "upstream", "HEAD:refs/heads/base")
@@ -179,6 +181,8 @@ def test_changed_git_state_during_confirmation_refuses(initiative, fixture, monk
     with pytest.raises(RuntimeError, match="changed"):
         core.command_begin(core.parser().parse_args(argv))
     assert not path.exists()
+    if change == "tracking":
+        assert core.configured_upstream(target) == (None, None)
 
 
 def test_stale_digest_is_rejected_before_prompt(initiative, monkeypatch):

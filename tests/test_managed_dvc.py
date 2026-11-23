@@ -110,7 +110,12 @@ def test_registration_runs_the_paired_setup_check_with_inspection_env(tmp_path, 
     monkeypatch.setattr(core, "primary_worktree", lambda _: tmp_path / "other")
     monkeypatch.setattr(core, "git_worktrees", lambda _: [{"worktree": str(tmp_path)}])
     monkeypatch.setattr(core, "branch", lambda _: "task")
-    monkeypatch.setattr(core, "status_paths", lambda _: [])
+    def clean_status(root, *, read_only):
+        assert root == tmp_path
+        assert read_only is True
+        return []
+
+    monkeypatch.setattr(core, "status_paths", clean_status)
     seen = []
     def run(argv, **kwargs):
         seen.append((argv, kwargs))
