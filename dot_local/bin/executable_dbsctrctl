@@ -5514,10 +5514,22 @@ def require_amendment_completion(root, record):
         fail("effective Initiative authority needs its exact Gate Commit closure at HEAD")
 
 
+class AmendmentRefusal(RuntimeError):
+    """A fixed public reason emitted only at a known amendment check."""
+
+
+AMENDMENT_NEXT_ACTION = {
+    "amendment_selection_inactive": "select_active_cycle",
+    "amendment_applicability_changed": "restore_registered_plan",
+    "amendment_approval_stale": "rerun_preflight",
+}
+
+
 def amendment_selection(root, args):
     require_local_read_filters(root)
     path, record = load(root)
-    require_active(record)
+    if record["state"] != "active":
+        raise AmendmentRefusal("amendment_selection_inactive")
     if (record.get("cycle_id") != args.cycle_id or record.get("schema_version") not in (3, 4, 5, 6)
             or not native_workspace_execution(record) or not record_worktree_matches(root, record, root)
             or not isinstance(effective_initiative(record), dict)):
@@ -5559,7 +5571,7 @@ def amendment_selection(root, args):
     if ({key: value for key, value in normalized.items() if key != "evidence_policy"}
             != {key: value for key, value in record["applicability_plan"].items() if key != "evidence_policy"}
             or record["engineering_profile"] != {"path": profile, "blob": blob}):
-        fail("Initiative amendment applicability changed")
+        raise AmendmentRefusal("amendment_applicability_changed")
     retained = amendment_external_authority(str(authority), receipt) if external else None
     if external:
         closure = amendment_local_profile(root, profile, blob)
@@ -5616,8 +5628,9 @@ def initiative_amend_offline(args):
     durable = False
     try:
         with evidence_lock(root, "local-mutation-" + args.cycle_id, timeout=1), evidence_lock(root, args.cycle_id, timeout=1):
-            if active_pointer_id(root, resolved_active_path(root, bindings=False)) != args.cycle_id:
-                fail("Initiative amendment pointer changed")
+            pointer = resolved_active_path(root, bindings=False)
+            if not os.path.lexists(pointer) or active_pointer_id(root, pointer) != args.cycle_id:
+                raise AmendmentRefusal("amendment_selection_inactive")
             custody_root = amendment_location(root, args.cycle_id, "0" * 64, "plan.json").parent.parent
             durable = os.path.lexists(custody_root)
             custody = amendment_custody(root, args.cycle_id)
@@ -5653,8 +5666,8 @@ def initiative_amend_offline(args):
                 digest = expected
                 if unchanged != bound or raw != outcome["replacement"].encode():
                     durable = False  # Verified history plus normal progress: stale replay, not uncertain custody.
-                    fail("stale Initiative amendment replay")
-                return "already_applied", digest
+                    raise AmendmentRefusal("amendment_approval_stale")
+                return "already_applied", digest, None
             if record.get("lineage_recovery") and "evidence_policy_revision" not in launch:
                 fail("legacy Initiative amendment after lineage recovery is not supported; select qualified policy enrollment")
             if launch["receipt"] == effective_initiative(record) and "evidence_policy_revision" not in launch:
@@ -5665,9 +5678,9 @@ def initiative_amend_offline(args):
             plan_path = amendment_location(root, args.cycle_id, digest, "plan.json")
             if args.preflight:
                 amendment_write_once(root, plan_path, amendment_bytes(launch))
-                return "preflight", digest
+                return "preflight", digest, None
             if expected != digest or amendment_json(root, plan_path) != launch:
-                fail("Initiative amendment approval is stale")
+                raise AmendmentRefusal("amendment_approval_stale")
             if args.approval == "interactive":
                 if not sys.stdin.isatty():
                     fail("Initiative amendment requires operator confirmation")
@@ -5676,7 +5689,7 @@ def initiative_amend_offline(args):
                     fail("Initiative amendment confirmation declined")
             method = "agent_confirmed" if args.approval == "agent-confirmed" else "interactive_cli"
             if amendment_selection(root, args)[3] != launch:
-                fail("Initiative amendment state changed during approval")
+                raise AmendmentRefusal("amendment_approval_stale")
             envelope_path = amendment_location(root, args.cycle_id, digest, "envelope.json")
             before_path = amendment_location(root, args.cycle_id, digest, "before.json")
             outcome_path = amendment_location(root, args.cycle_id, digest, "outcome.json")
@@ -5710,21 +5723,28 @@ def initiative_amend_offline(args):
             if amendment_selection(root, args)[3] != launch:
                 fail("Initiative amendment state changed before replacement")
             private_json(path, replacement, strict=True)
-            return "applied", digest
-    except (RuntimeError, OSError, ValueError, TypeError, KeyError, AttributeError):
+            return "applied", digest, None
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, AttributeError) as error:
         # Detailed inputs, private reasons and host errors never cross this result.
-        status = "recovery_required" if durable else "blocked"
-        return status, digest
+        if durable:
+            return "recovery_required", digest, "amendment_custody_needs_review"
+        reason = str(error) if isinstance(error, AmendmentRefusal) else None
+        return "blocked", digest, reason if reason in AMENDMENT_NEXT_ACTION else None
 
 
 def command_initiative_amend(args):
     with local_completion_git_context():
-        status, digest = initiative_amend_offline(args)
+        status, digest, reason = initiative_amend_offline(args)
+    reasons = []
+    if status in {"blocked", "recovery_required"}:
+        reasons.append("amendment_blocked" if status == "blocked" else "amendment_recovery_required")
+        if reason is not None:
+            reasons.append(reason)
     print(json.dumps({"schema_version": 1, "cycle_id": args.cycle_id if OPAQUE_ID.fullmatch(args.cycle_id) else None, "status": status,
-                      "state_digest": digest, "reasons": [] if status in {"preflight", "applied", "already_applied"}
-                      else ["amendment_recovery_required" if status == "recovery_required" else "amendment_blocked"],
+                      "state_digest": digest, "reasons": reasons,
                       "next_action": "continue" if status in {"applied", "already_applied"} else
-                      "approve_exact_plan" if status == "preflight" else "retain_and_reconcile"}, sort_keys=True))
+                      "approve_exact_plan" if status == "preflight" else
+                      AMENDMENT_NEXT_ACTION.get(reason, "retain_and_reconcile")}, sort_keys=True))
     if status in {"blocked", "recovery_required"}:
         raise SystemExit(75 if status == "recovery_required" else 1)
 
