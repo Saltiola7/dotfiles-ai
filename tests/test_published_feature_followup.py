@@ -105,6 +105,29 @@ def commit_and_close(case, selectors):
                  "--reason", "Recorded", "--path", "docs/specs/test/CHANGELOG.md")
 
 
+@pytest.mark.parametrize("tracking", ["missing", "wrong"])
+def test_followup_preflight_diagnoses_feature_upstream(followup, capsys, monkeypatch, tracking):
+    case = followup
+    core, root = case.core, case.root
+    feature = core.branch(root)
+    if tracking == "missing":
+        core.git(root, "branch", "--unset-upstream")
+        expected = f"missing published feature upstream; expected a verified remote's {feature} branch"
+    else:
+        core.git(root, "branch", "--set-upstream-to=origin/main")
+        expected = f"wrong published feature upstream; expected origin/{feature}"
+    before = core.git(root, "config", "--local", "--list").stdout
+    monkeypatch.setattr(core, "fetch_github_branch", lambda *_: pytest.fail("invalid checkout reached fetch"))
+    case.args.preflight = True
+    with pytest.raises(RuntimeError) as error:
+        core.command_begin(case.args)
+    assert expected in str(error.value)
+    assert capsys.readouterr() == ("", "")
+    assert core.git(root, "config", "--local", "--list").stdout == before
+    assert core.git(root, "rev-parse", "HEAD").stdout.strip() == case.published
+    assert not (root / case.args.initiative_manifest).exists()
+
+
 def test_followup_selector_is_only_on_begin(followup):
     core, fixture = followup.core, followup.fixture
     parsed = core.parser().parse_args([*fixture.launch_argv, "--follow-up-pr", "17"])
@@ -159,7 +182,7 @@ def test_ordinary_registration_still_refuses_published_feature(followup):
     case = followup
     case.args.follow_up_pr = None
     case.args.preflight = True
-    with pytest.raises(RuntimeError, match="approved base"):
+    with pytest.raises(RuntimeError, match="wrong comparison base upstream; expected origin/main"):
         case.core.command_begin(case.args)
     assert not case.core.resolved_active_path(case.root).exists()
 

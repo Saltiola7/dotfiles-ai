@@ -9,6 +9,7 @@ import json
 import hashlib
 import sys
 import os
+import re
 import subprocess
 import shutil
 from pathlib import Path
@@ -71,6 +72,39 @@ def launch(tmp_path, monkeypatch, request):
     # Synthetic operator input only. Native CLI noninteractive refusal is tested below.
     monkeypatch.setattr(helper.sys, "stdin", FixtureConfirmation())
     yield helper, fixture, args
+
+
+@pytest.mark.parametrize("problem", ["dirty", "missing", "wrong"])
+def test_begin_preflight_diagnoses_checkout_before_fetch(launch, capsys, monkeypatch, problem):
+    helper, fixture, args = launch
+    root = fixture.native_task
+    git = lambda *argv: helper.git(root, *argv).stdout
+    if problem == "dirty":
+        (root / "tracked.txt").write_text("operator change\n")
+        git("add", "tracked.txt")
+        expected = "review `git status`"
+    elif problem == "missing":
+        git("branch", "--unset-upstream")
+        expected = "missing comparison base upstream; expected origin/main"
+    else:
+        git("update-ref", "refs/remotes/origin/other", "HEAD")
+        git("branch", "--set-upstream-to=origin/other")
+        expected = "wrong comparison base upstream; expected origin/main"
+
+    def snapshot():
+        return (git("status", "--porcelain"), git("ls-files", "--stage"),
+                git("rev-parse", "HEAD"), git("config", "--local", "--list"))
+
+    before = snapshot()
+    monkeypatch.setattr(helper, "fetch_github_branch",
+                        lambda *_: pytest.fail("invalid checkout reached fetch"))
+    args.preflight = True
+    with pytest.raises(RuntimeError, match=re.escape(expected)):
+        helper.command_begin(args)
+    assert capsys.readouterr() == ("", "")
+    assert snapshot() == before
+    assert not (root / args.initiative_manifest).exists()
+    assert not (fixture.repo / ".git/dbsctr/cycles/local-1.json").exists()
 
 
 def test_unpublished_discovery_launch_preserves_source_and_records_import(launch, capsys, monkeypatch):
