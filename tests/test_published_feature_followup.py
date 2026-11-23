@@ -405,6 +405,9 @@ def test_followup_preserves_completed_prior_cycle_bytes(followup, capsys):
     case.core.finish_push(case.root, prior_path, prior)
     original_bytes = prior_path.read_bytes()
     capsys.readouterr()
+    advance_default(case)
+    assert_reconciliation_handoff(case)
+    assert prior_path.read_bytes() == original_bytes
     case.args.cycle_id = "local-2"
     case.published = case.pull["head"]["sha"]
     # Renew the synthetic Discovery authority against the newly published source;
@@ -417,6 +420,24 @@ def test_followup_preserves_completed_prior_cycle_bytes(followup, capsys):
     assert next_record["commits"] == []
     assert all(g["result"] == "pending" for g in next_record["gates"].values()
                if g["applicability"] == "required")
+
+
+def assert_reconciliation_handoff(case):
+    git = lambda *argv: case.core.git(case.root, *argv).stdout
+    before = git("show-ref"), git("status", "--porcelain"), git("ls-files", "--stage")
+    result = fixtures.run(case.root, "reconcile-target", "--mode", "prepare", "--json", ok=False)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert "no active DBSCTR cycle" in result.stderr
+    assert "If an open same-repository GitHub PR" in result.stderr
+    assert "begin --follow-up-pr NUMBER" in result.stderr
+    assert "fresh exact approval" in result.stderr
+    assert (git("show-ref"), git("status", "--porcelain"), git("ls-files", "--stage")) == before
+
+
+def test_reconcile_without_active_cycle_does_not_infer_a_pull_request(launch):
+    core, fixture, _ = launch
+    assert_reconciliation_handoff(SimpleNamespace(core=core, root=fixture.native_task))
 
 
 def test_followup_rejects_arbitrary_second_parent_despite_fresh_gates(followup, capsys):

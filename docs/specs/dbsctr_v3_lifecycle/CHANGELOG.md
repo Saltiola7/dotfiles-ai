@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-23 — Explain published PR reconciliation (INT-107)
+
+- When `reconcile-target` has no active cycle, point to the existing approved
+  Initiative follow-up for an operator-verified open PR. Do not infer a PR,
+  fetch, or reopen a Cycle Record on this refusal.
+- Cover an advanced default and immutable prior records in the follow-up
+  tests. Refresh the CLI benchmark digest without changing its workloads.
+  Source-only draft PR to `main`; rollout remains separate.
+
 ## 2026-11-23 — Diagnose checkout setup before approval (INT-106)
 
 - Explain dirty checkouts and missing or wrong upstreams before offering a
