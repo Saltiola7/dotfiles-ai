@@ -3890,6 +3890,83 @@ class DbsctrctlTest(unittest.TestCase):
         ).stdout.strip()
         self.assertEqual(tracked, "new.txt")
 
+    def ignored_tracked_fixture(self):
+        def git(*args):
+            return subprocess.check_output(["git", *args], cwd=self.repo, text=True)
+
+        owned, neighbor = "samples/owned.txt", "samples/local.txt"
+        (self.repo / "samples").mkdir()
+        (self.repo / owned).write_text("original\n")
+        git("add", "--", owned)
+        (self.repo / ".gitignore").write_text("/samples/\n")
+        git("add", "--", ".gitignore")
+        git("commit", "-m", "ignore parent after tracking exact path")
+        self.start()
+        (self.repo / owned).write_text("updated\n")
+        (self.repo / neighbor).write_text("local only\n")
+        return git, owned, neighbor
+
+    def test_gate_commit_accepts_explicit_tracked_file_under_ignored_parent(self):
+        git, owned, neighbor = self.ignored_tracked_fixture()
+        self.record_gate("domain", paths=(owned,))
+        before = git("rev-parse", "HEAD").strip()
+        commit = run(self.repo, "gate-commit", "--message", "edit tracked file",
+                     "--gates", "domain", "--paths", owned).stdout.strip()
+        self.assertEqual(git("diff", "--name-only", before, commit).splitlines(), [owned])
+        self.assertEqual(git("show", f"{commit}:{owned}"), "updated\n")
+        self.assertEqual(git("show", f"{commit}:.gitignore"), "/samples/\n")
+        self.assertEqual(git("ls-files", "--", neighbor), "")
+        self.assertEqual((self.repo / neighbor).read_text(), "local only\n")
+        self.assertEqual(json.loads(self.record_path().read_text())["commits"],
+                         [{"id": commit, "gates": ["domain"]}])
+
+    def test_gate_commit_mixes_prestaged_ignored_tracked_edit_and_new_file(self):
+        git, owned, neighbor = self.ignored_tracked_fixture()
+        git("add", "-u", "--", owned)
+        new = "new.txt"
+        (self.repo / new).write_text("new\n")
+        self.record_gate("domain", paths=(owned, new))
+        commit = run(self.repo, "gate-commit", "--message", "mixed paths",
+                     "--gates", "domain", "--paths", owned, new).stdout.strip()
+        self.assertEqual(git("diff", "--name-only", f"{commit}^", commit).splitlines(), [new, owned])
+        self.assertEqual(git("show", f"{commit}:{owned}"), "updated\n")
+        self.assertEqual(git("show", f"{commit}:{new}"), "new\n")
+        self.assertEqual(git("ls-files", "--", neighbor), "")
+
+    def test_gate_evidence_refuses_ignored_neighbor_even_when_staged(self):
+        git, owned, neighbor = self.ignored_tracked_fixture()
+        for staged in (False, True):
+            with self.subTest(staged=staged):
+                if staged:
+                    git("add", "-f", "--", neighbor)
+                before = git("write-tree")
+                record = self.record_path().read_bytes()
+                result = run(self.repo, "record-evidence", "domain", "--authority", "test",
+                             "--path", owned, "--path", neighbor, "--", sys.executable,
+                             "-c", "pass", ok=False)
+                self.assertIn("path is ignored", result.stderr)
+                self.assertEqual(git("write-tree"), before)
+                self.assertEqual(self.record_path().read_bytes(), record)
+
+    def test_gate_commit_refuses_ignored_tracked_edit_with_stale_evidence_or_unrelated_staging(self):
+        git, owned, _ = self.ignored_tracked_fixture()
+        self.record_gate("domain", paths=(owned,))
+        head = git("rev-parse", "HEAD")
+        record = self.record_path().read_bytes()
+        for stale in (True, False):
+            with self.subTest(stale=stale):
+                (self.repo / owned).write_text("unvalidated\n" if stale else "updated\n")
+                if not stale:
+                    (self.repo / "other.txt").write_text("unrelated\n")
+                    git("add", "--", "other.txt")
+                index = git("write-tree")
+                result = run(self.repo, "gate-commit", "--message", "must refuse",
+                             "--gates", "domain", "--paths", owned, ok=False)
+                self.assertIn("evidence paths changed" if stale else "unrelated staged paths", result.stderr)
+                self.assertEqual(git("write-tree"), index)
+                self.assertEqual(git("rev-parse", "HEAD"), head)
+                self.assertEqual(self.record_path().read_bytes(), record)
+
     def test_gate_commit_accepts_tracked_deletion_and_nonsecret_source_name(self):
         (self.repo / "test_secret_loader.py").write_text("safe source\n")
         subprocess.run(["git", "add", "test_secret_loader.py"], cwd=self.repo, check=True)

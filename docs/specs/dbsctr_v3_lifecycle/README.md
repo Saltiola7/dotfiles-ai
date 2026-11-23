@@ -1,5 +1,11 @@
 # DBSCTR V3 Lifecycle
 
+[Operator CLI fixes](features/operator-cli-fixes.md) specifies tracked-path
+staging, actionable amendment and registration refusals, the handoff for an
+already-published PR, and safe removal-check scope and process evidence.
+The six fixes have separate source cycles; their installed qualification is
+owned by distribution.
+
 [Completion reconciliation](features/workflow-completion-reconciliation.md)
 specifies the new Discovery-defined successful-completion route: multi-PR and
 amendment provenance, affected evidence reuse, early structural preflight and
