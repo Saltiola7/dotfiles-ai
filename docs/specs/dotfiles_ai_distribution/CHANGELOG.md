@@ -10,6 +10,9 @@
   process can never be a session client while PID proof paths stay exact.
   Qualify the reported nested 0.9/0.1 geometry across two reboots.
   No bootstrap, pin or input changes.
+- Corrective follow-up: fix the qualification fixture's plan arithmetic
+  (fifty unique sessions, two-child splits) and lock it with a source test;
+  revert an accidental debug print in the native wrapper. No behavior change.
 
 ## 2026-11-22 — Compare native split ratios at 32-bit precision (RRW-007G-R9)
 
