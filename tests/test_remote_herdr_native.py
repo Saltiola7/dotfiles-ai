@@ -2570,7 +2570,7 @@ class FakeTui:
         return {}
 
 
-def degraded_tui(backend, *, live_view=False):
+def degraded_tui(backend):
     """One agent pane whose terminal failed to spawn (restore_error)."""
     tui = FakeTui(backend)
     directory = backend.proc_root / '31'
@@ -2581,12 +2581,42 @@ def degraded_tui(backend, *, live_view=False):
     pane = base['panes'][0]
     pane['restore_error'] = 'synthetic spawn failure'
     pane.pop('foreground_cwd', None)
-    if live_view:
-        base['agents'][0]['agent_status'] = 'idle'
-    else:
-        base['agents'] = []
+    base['agents'] = []
     tui.snapshot_override = base
     return tui
+
+
+def test_r10_failed_pane_tolerates_exact_identity_view(backend):
+    tui = FakeTui(backend)
+    directory = backend.proc_root / '31'
+    for name in ('stat', 'cmdline', 'cwd', 'status'):
+        (directory / name).unlink()
+    directory.rmdir()
+    base = tui.snapshot()
+    base['panes'][0]['restore_error'] = 'synthetic spawn failure'
+    base['panes'][0].pop('foreground_cwd', None)
+    # Spawn-failed pane still exposes its exact agent view.
+    base['agents'][0]['launch_pending'] = True
+    tui.snapshot_override = base
+    receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
+    backend.verify('tui', plan(), receipt)
+
+
+def test_r10_failed_pane_view_with_other_identity_refuses(backend):
+    tui = FakeTui(backend)
+    directory = backend.proc_root / '31'
+    for name in ('stat', 'cmdline', 'cwd', 'status'):
+        (directory / name).unlink()
+    directory.rmdir()
+    base = tui.snapshot()
+    base['panes'][0]['restore_error'] = 'synthetic spawn failure'
+    base['panes'][0].pop('foreground_cwd', None)
+    base['agents'][0]['agent_session'] = {'source': 'herdr:opencode', 'agent': 'opencode',
+                                          'kind': 'id', 'value': 'ses_other'}
+    tui.snapshot_override = base
+    receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
+    with pytest.raises(native.NativeError, match='^TUI inconsistent agent view$'):
+        backend.verify('tui', plan(), receipt)
 
 
 def test_r10_failed_agent_pane_is_deferred_and_verify_tolerates(backend):
@@ -2605,13 +2635,6 @@ def test_r10_deferred_session_running_elsewhere_refuses(backend):
     synthetic_process(backend, 88, wrapper_argv(backend))
     receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
     with pytest.raises(native.NativeError, match='^session client coverage incomplete or duplicate$'):
-        backend.verify('tui', plan(), receipt)
-
-
-def test_r10_failed_pane_with_live_agent_view_refuses(backend):
-    degraded_tui(backend, live_view=True)
-    receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
-    with pytest.raises(native.NativeError, match='^TUI inconsistent agent view$'):
         backend.verify('tui', plan(), receipt)
 
 

@@ -13,6 +13,9 @@
 - Corrective follow-up: fix the qualification fixture's plan arithmetic
   (fifty unique sessions, two-child splits) and lock it with a source test;
   revert an accidental debug print in the native wrapper. No behavior change.
+- Follow-up two: a spawn-failed pane may keep its exact agent view while
+  deferred; only a differing view identity refuses. Name the underlying
+  recover refusal in the fixture with the value-free origin tracer.
 
 ## 2026-11-22 — Compare native split ratios at 32-bit precision (RRW-007G-R9)
 

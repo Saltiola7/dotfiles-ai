@@ -225,6 +225,8 @@ finally:
 
 
 def cli(*args):
+    if args == ('recover',) and STEP.split('-')[0] == 'r8':
+        return edited_recovery_cli()
     if args == ('recover',) and STEP == 'edited-document-installed-recovery':
         return edited_recovery_cli()
     try:

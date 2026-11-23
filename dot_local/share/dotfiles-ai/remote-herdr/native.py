@@ -795,7 +795,11 @@ class Native:
                     if len(views) > 1:
                         raise NativeError('TUI duplicate agent views')
                     if failed:
-                        if views:
+                        # A spawn-failed pane can still hold its exact agent
+                        # view; it is deferred, never live. Only an unknown or
+                        # contradictory view identity refuses.
+                        if any(view.get('agent') != 'opencode'
+                               or view.get('agent_session') != native_identity for view in views):
                             raise NativeError('TUI inconsistent agent view')
                         deferred_pids.add(pid)
                     elif identity is not None:
