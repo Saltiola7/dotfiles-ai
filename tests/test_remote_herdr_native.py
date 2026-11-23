@@ -962,7 +962,7 @@ def test_recover_retained_repairs_then_switch_50_exact_clients_to_tui(backend, s
 
     backend.command = command
     backend.endpoint_present = lambda target: core.active if target == 'herdr-core' else tui_plan is not None
-    backend._tui_live = lambda: (tui_plan, {}, [])
+    backend._tui_live = lambda: (tui_plan, {}, [], set())
     backend.select('herdr-core')
     before = len(core.calls)
     ctl = runtime_controller.Controller(backend.store, backend)
@@ -2570,6 +2570,63 @@ class FakeTui:
         return {}
 
 
+def degraded_tui(backend, *, live_view=False):
+    """One agent pane whose terminal failed to spawn (restore_error)."""
+    tui = FakeTui(backend)
+    directory = backend.proc_root / '31'
+    for name in ('stat', 'cmdline', 'cwd', 'status'):
+        (directory / name).unlink()
+    directory.rmdir()
+    base = tui.snapshot()
+    pane = base['panes'][0]
+    pane['restore_error'] = 'synthetic spawn failure'
+    pane.pop('foreground_cwd', None)
+    if live_view:
+        base['agents'][0]['agent_status'] = 'idle'
+    else:
+        base['agents'] = []
+    tui.snapshot_override = base
+    return tui
+
+
+def test_r10_failed_agent_pane_is_deferred_and_verify_tolerates(backend):
+    degraded_tui(backend)
+    receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
+    backend.verify('tui', plan(), receipt)
+    assert backend._coverage(plan(), deferred={'ses_abc'}) == []
+    capture = backend.capture('tui')
+    assert capture['clients'] == [] and capture['pids'] == []
+    assert native.sessions(capture['plan']) == {'ses_abc'}
+    backend.store.write('owned-tui.json', {'document': backend._optional_snapshot()})
+
+
+def test_r10_deferred_session_running_elsewhere_refuses(backend):
+    degraded_tui(backend)
+    synthetic_process(backend, 88, wrapper_argv(backend))
+    receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
+    with pytest.raises(native.NativeError, match='^session client coverage incomplete or duplicate$'):
+        backend.verify('tui', plan(), receipt)
+
+
+def test_r10_failed_pane_with_live_agent_view_refuses(backend):
+    degraded_tui(backend, live_view=True)
+    receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
+    with pytest.raises(native.NativeError, match='^TUI inconsistent agent view$'):
+        backend.verify('tui', plan(), receipt)
+
+
+def test_r10_scan_skips_mixed_ownership_processes(backend):
+    user = native.os.getuid()
+    synthetic_process(backend, 4100, ['sudo', 'opencode', '--session', 'ses_abc'], uid=user)
+    (backend.proc_root / '4100' / 'status').write_text(
+        'Uid:\t' + '\t'.join([str(user), '0', '0', str(user)]) + '\n')
+    synthetic_process(backend, 4101, wrapper_argv(backend))
+    found = native.processes.scan_sessions({'ses_abc'}, backend.proc_root)
+    assert [item['pid'] for item in found] == [4101]
+    with pytest.raises(native.processes.ProcessProofError, match='^process ownership ambiguous$'):
+        native.processes.task_uid(backend.proc_root / '4100')
+
+
 def test_tui_capture_observational_api_never_written_as_native_file(backend):
     tui = FakeTui(backend)
     before = backend.snapshot_path.read_bytes()
@@ -2761,7 +2818,7 @@ def test_tui_public_binding_proves_ordered_topology_and_pane_identity(backend, c
         return result
     backend.tui = split_rpc
     if change is None:
-        value, _, _ = backend._tui_live()
+        value, _, _, _ = backend._tui_live()
         assert value['spaces'][0]['tabs'][0]['root']['axis'] == 'column'
         assert value['spaces'][0]['tabs'][0]['panes'][0]['session_id'] is None
     else:
@@ -2796,7 +2853,7 @@ def test_tui_unnamed_tabs_display_position_not_public_number(backend):
         elif method == 'pane.process_info': result['process_info']['pane_id'] = params['pane_id']
         return result
     backend.tui = tabs_rpc
-    value, _, _ = backend._tui_live()
+    value, _, _, _ = backend._tui_live()
     assert [tab['name'] for tab in value['spaces'][0]['tabs']] == ['', '']
     api['tabs'][1]['label'] = '3'
     with pytest.raises(native.NativeError): backend._tui_live()
@@ -2824,7 +2881,7 @@ def test_tui_stop_rechecks_actual_foreground_after_durable_intent(backend, bound
     facts = [tui.rpc('pane.process_info', {})['process_info'],
              {'pane_id': 'plain', 'shell_pid': 40,
               'foreground_processes': [{'pid': 40, 'name': 'bash', 'cwd': '/work'}]}]
-    backend._tui_live = lambda: (copy.deepcopy(value), {}, copy.deepcopy(facts))
+    backend._tui_live = lambda: (copy.deepcopy(value), {}, copy.deepcopy(facts), set())
     captured = backend.capture('tui')
     def mutate():
         argv = ['/usr/bin/vim'] if change == 'foreign-program' else ['/bin/bash', '-l']

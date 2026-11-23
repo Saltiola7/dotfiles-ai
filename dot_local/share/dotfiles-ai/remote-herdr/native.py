@@ -53,7 +53,8 @@ def bounded(method):
             # Protocol errors contain only source-literal labels, never peer
             # message text. Preserve that distinction for private diagnostics.
             raise NativeError('core protocol: ' + str(error)) from None
-        except Exception:
+        except Exception as e:
+            import traceback; traceback.print_exc()
             raise NativeError('native observation or mutation uncertain') from None
     return call
 
@@ -321,17 +322,21 @@ class Native:
     def absent(self, identities, captured):
         processes.assert_absent(identities, captured, self.proc_root)
 
-    def _coverage(self, plan):
+    def _coverage(self, plan, *, deferred=frozenset()):
         expected = sessions(plan)
         found = self.scan(expected)
-        if any(sum(item['session_id'] == identity for item in found) != 1 for identity in expected):
-            raise NativeError('session client coverage incomplete or duplicate')
-        for item in found:
-            self._client_argv(item['pid'], item['session_id'])
-            # The process seam proves exact ID; cwd must independently agree.
-            wanted = next(p['cwd'] for p in panes(plan) if p['session_id'] == item['session_id'])
-            if self.process_cwd(item['pid']) != wanted:
-                raise NativeError('session client directory mismatch')
+        for identity in expected:
+            matches = [p for p in found if p['session_id'] == identity]
+            # A deferred pane kept its exact identity but has no live client;
+            # its session must be absent everywhere, never duplicated.
+            if len(matches) != (0 if identity in deferred else 1):
+                raise NativeError('session client coverage incomplete or duplicate')
+            if matches:
+                self._client_argv(matches[0]['pid'], identity)
+                # The process seam proves exact ID; cwd must independently agree.
+                wanted = next(p['cwd'] for p in panes(plan) if p['session_id'] == identity)
+                if self.process_cwd(matches[0]['pid']) != wanted:
+                    raise NativeError('session client directory mismatch')
         return found
 
     def process_cwd(self, pid):
@@ -770,11 +775,16 @@ class Native:
                 native_panes = [p for p in snapshot['panes'] if p['tab_id'] == tid and p['workspace_id'] == wid]
                 agents = [a for a in snapshot['agents'] if a['tab_id'] == tid and a['workspace_id'] == wid]
                 mapped = {}
+                deferred_pids = set()
                 for pane in native_panes:
                     pid = pane['pane_id']
-                    if pid in seen_panes or pane.get('restore_error'):
-                        raise NativeError('TUI duplicate or failed pane')
+                    if pid in seen_panes:
+                        raise NativeError('TUI duplicate pane')
                     seen_panes.add(pid)
+                    # The pinned runtime leaves a spawn-failed pane permanently
+                    # without a terminal. Admit it as a repairable deferred
+                    # pane: exact identity retained, never a live agent view.
+                    failed = pane.get('restore_error') is not None
                     agent = pane.get('agent')
                     native_identity = pane.get('agent_session')
                     if pane.get('display_agent') is not None and agent is None:
@@ -785,7 +795,11 @@ class Native:
                     views = [a for a in agents if a['pane_id'] == pid]
                     if len(views) > 1:
                         raise NativeError('TUI duplicate agent views')
-                    if identity is not None:
+                    if failed:
+                        if views:
+                            raise NativeError('TUI inconsistent agent view')
+                        deferred_pids.add(pid)
+                    elif identity is not None:
                         if (len(views) != 1 or views[0].get('agent_session') != native_identity
                                 or views[0].get('agent') != 'opencode' or views[0].get('launch_pending')):
                             raise NativeError('TUI agent identity not live')
@@ -808,14 +822,18 @@ class Native:
                        (view['workspace_id'], view['tab_id'], view['pane_id'])]
             if len(matches) != 1:
                 raise NativeError('TUI orphaned agent view')
-        return result
+        deferred_sessions = {pane['session_id']
+                             for space in result for tab in space['tabs']
+                             for pid, pane in tab['panes'].items()
+                             if pid in deferred_pids and pane['session_id'] is not None}
+        return result, deferred_pids, deferred_sessions
 
     def _tui_live(self):
         response = self.tui('session.snapshot', {})
         if response.get('type') != 'session_snapshot':
             raise NativeError('TUI snapshot response invalid')
         snapshot = layout._json_copy(response['snapshot'])
-        inventory = self._api_inventory(snapshot)
+        inventory, deferred_pids, deferred = self._api_inventory(snapshot)
         # API has no workspace identity_cwd. Retain it from the private native
         # snapshot; refuse missing/stale workspace identity instead of guessing.
         disk = self._optional_snapshot()
@@ -876,13 +894,14 @@ class Native:
                         key = f's{si}-t{ti}-p{len(tab_panes)}'
                         public_keys[key] = pid
                         tab_panes.append({'key': key, **tab['panes'][pid]})
-                        facts = self.tui('pane.process_info', {'pane_id': pid})
-                        if facts.get('type') != 'pane_process_info':
-                            raise NativeError('TUI process proof unavailable')
-                        info = facts['process_info']
-                        if info.get('pane_id') != pid or type(info.get('shell_pid')) is not int:
-                            raise NativeError('TUI process coverage incomplete')
-                        process_info.append(info)
+                        if pid not in deferred_pids:
+                            facts = self.tui('pane.process_info', {'pane_id': pid})
+                            if facts.get('type') != 'pane_process_info':
+                                raise NativeError('TUI process proof unavailable')
+                            info = facts['process_info']
+                            if info.get('pane_id') != pid or type(info.get('shell_pid')) is not int:
+                                raise NativeError('TUI process coverage incomplete')
+                            process_info.append(info)
                         return {'pane': key}
                     # Pinned schema/common.rs SplitDirection (snake_case).
                     if node.get('type') != 'split' or node.get('direction') not in ('right', 'down'):
@@ -903,7 +922,7 @@ class Native:
                 canonical['tabs'].append({'name': previous['tabs'][ti]['name'], 'root': root, 'panes': tab_panes})
             spaces.append(canonical)
         plan = checked_plan({'schema_version': 1, 'spaces': spaces})
-        return plan, snapshot, process_info
+        return plan, snapshot, process_info, deferred
 
     @staticmethod
     def _checked_boot_id(value):
@@ -1028,8 +1047,8 @@ class Native:
         if not self.endpoint_present(source):
             raise NativeError('source endpoint unavailable')
         if source == 'tui':
-            plan, api, facts = self._tui_live()
-            clients = self._coverage(plan)
+            plan, api, facts, deferred = self._tui_live()
+            clients = self._coverage(plan, deferred=deferred)
             proofs = self._tui_process_proofs(facts, clients)
             snapshot = self._optional_snapshot()
             value = {'plan': plan, 'api': api, 'clients': clients, 'pids': proofs,
@@ -1081,11 +1100,12 @@ class Native:
         if capture.get('runtime') != source:
             raise NativeError('source capture runtime mismatch')
         plan = checked_plan(capture['plan'])
+        deferred = frozenset()
         previous_stop = self.store.read('source-stop.json')
         if previous_stop and previous_stop.get('backup') == capture['backup'] and previous_stop.get('pending'):
             raise NativeError('source stop outcome requires explicit recovery')
         self._source_other_safe(source)
-        if self._coverage(plan) != capture['clients']:
+        if self._coverage(plan, deferred=deferred) != capture['clients']:
             raise NativeError('source client inventory changed after capture')
         stop_record = {'runtime': source, 'backup': capture['backup'], 'pending': None}
         manifest = self.store.read('manifest.json')
@@ -1101,7 +1121,7 @@ class Native:
             self.store.write('source-stop.json', stop_record)
 
         if source == 'tui':
-            live, _, _ = self._tui_live()
+            live, _, _, deferred = self._tui_live()
             if (self._semantic(live) != self._semantic(plan)
                     or layout.tui_names(self._optional_snapshot()) != self._captured_tui_names(capture)):
                 raise NativeError('TUI source changed after capture')
@@ -1110,11 +1130,11 @@ class Native:
             intent('tui.stop')
             # Durable intent is a scheduling boundary. Re-observe actual programs
             # and PID identities immediately before the destructive native stop.
-            live, _, facts = self._tui_live()
+            live, _, facts, deferred = self._tui_live()
             if (self._semantic(live) != self._semantic(plan)
                     or layout.tui_names(self._optional_snapshot()) != self._captured_tui_names(capture)):
                 raise NativeError('TUI source changed after capture')
-            clients = self._coverage(live)
+            clients = self._coverage(live, deferred=deferred)
             if clients != capture['clients'] or self._tui_process_proofs(facts, clients) != capture['pids']:
                 raise NativeError('TUI source process inventory changed after capture')
             self.command(['herdr', 'session', 'stop', 'default', '--json'], timeout=25)
@@ -1515,6 +1535,7 @@ class Native:
         self._other_off(target)
         if self.selected() != target or not self.endpoint_present(target):
             raise NativeError('selected runtime readiness unavailable')
+        deferred = frozenset()
         if target == 'herdr-core':
             document, version = self._document()
             if receipt.get('current_document') is True:
@@ -1529,10 +1550,10 @@ class Native:
             self._safe_live_terminals(plan, receipt)
             receipt.update({'document': document, 'doc_version': version})
         else:
-            live, _, _ = self._tui_live()
+            live, _, _, deferred = self._tui_live()
             if self._semantic(live) != self._semantic(plan):
                 raise NativeError('TUI restored layout differs')
-        self._coverage(plan)
+        self._coverage(plan, deferred=deferred)
         self._db_sessions(plan)
         owned = receipt['document']
         self.store.write('owned-' + target + '.json', {'document': owned})

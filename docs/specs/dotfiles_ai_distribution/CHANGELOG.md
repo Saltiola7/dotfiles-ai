@@ -1,5 +1,16 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-23 — Repairable failed panes and headless sizing (RRW-007G-R10)
+
+- Configure the managed TUI headless grid (240x80) so restored panes stay
+  above the native spawn minimum. Admit a spawn-failed pane as a deferred
+  repairable pane: exact identity retained, no live agent view, session
+  required absent elsewhere, excluded from client coverage and process proofs.
+- Skip processes with mixed kernel ownership in session discovery; a setuid
+  process can never be a session client while PID proof paths stay exact.
+  Qualify the reported nested 0.9/0.1 geometry across two reboots.
+  No bootstrap, pin or input changes.
+
 ## 2026-11-22 — Compare native split ratios at 32-bit precision (RRW-007G-R9)
 
 - Round both sides to native f32 precision when matching a shutdown save or
