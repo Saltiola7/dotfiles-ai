@@ -1523,9 +1523,11 @@ class Native:
                 return True
             except NativeError:
                 return False
+        # A paced multi-session TUI restore converges slowly (2.5 s per client
+        # plus client startup). Stay below the 840 s explicit-recovery deadline.
+        budget = 700 if target == 'tui' and len(sessions(plan)) > 1 else None
         try:
-            self._wait(ready, seconds=max(self.poll_seconds, 300) if target == 'tui' and len(sessions(plan)) > 1
-                       else None)
+            self._wait(ready, seconds=max(self.poll_seconds, budget) if budget else None)
         except NativeError as error:
             if str(error) == 'native readiness or stop proof unavailable':
                 raise NativeError('restored runtime layout readiness unavailable') from None

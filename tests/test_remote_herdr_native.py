@@ -1801,6 +1801,21 @@ def test_readiness_timeouts_identify_the_failed_boundary(backend):
     assert sum(method == 'terminal.run' for method, _ in core.calls) == 1
 
 
+@pytest.mark.parametrize('target,session,expected', [
+    ('tui', 'ses_abc', 700.0), ('herdr-core', 'ses_abc', None), ('tui', None, None)])
+def test_r10_readiness_budget_covers_paced_multi_session_tui_only(backend, target, session, expected):
+    # The plan must carry more than one session for the paced-restore budget.
+    value = plan(session)
+    if session:
+        value['spaces'][0]['tabs'][0]['panes'].append(
+            {'key': 's0-t0-p1', 'cwd': '/work', 'session_id': 'ses_second'})
+    seen = []
+    backend._wait = lambda check, *, seconds=None: seen.append(seconds)
+    backend.verify = lambda *args: None
+    backend._wait_ready(target, value, {})
+    assert seen == [expected]
+
+
 @pytest.mark.parametrize('recovers', [True, False])
 def test_kept_spawn_wait_covers_native_backoff_cap_and_remains_bounded(backend, monkeypatch, recovers):
     core = FakeCore(backend)

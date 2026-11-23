@@ -18,6 +18,10 @@
   recover refusal in the fixture with the value-free origin tracer.
 - Follow-up three: allowlist the fixed TUI refusal literals in that tracer so
   the exact recover refusal is named in the native job log.
+- Follow-up four: raise the observational readiness budget for paced
+  multi-session TUI restores to 700 seconds (still below the 840 second
+  explicit-recovery deadline) and the matching fixture waits, because slower
+  client startup under the current shared service exceeded 300 seconds.
 
 ## 2026-11-22 — Compare native split ratios at 32-bit precision (RRW-007G-R9)
 

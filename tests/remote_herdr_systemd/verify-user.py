@@ -3081,7 +3081,7 @@ def verify_r8(*, recover):
                 backend = Native(HOME, store)
                 return r8_boot_ready(store.read('boot.json'), prior_txid, plan, backend._semantic)
 
-        wait(ready, seconds=340)
+        wait(ready, seconds=760)
     observe('tui', plan)
     with Store(ROOT) as store:
         backend = Native(HOME, store)
