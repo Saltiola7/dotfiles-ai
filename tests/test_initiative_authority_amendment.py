@@ -99,7 +99,42 @@ def test_stale_consent_preserves_unrelated_work(amendment):
     result = harness.run(target, *argv, "--expected-launch-digest", digest,
                          "--approval", "agent-confirmed", ok=False)
     assert result.returncode == 1
-    assert json.loads(result.stdout)["status"] == "blocked"
+    body = json.loads(result.stdout)
+    assert_result(body, "blocked")
+    assert body["reasons"] == ["amendment_blocked", "amendment_approval_stale"]
+    assert body["next_action"] == "rerun_preflight"
+    assert result.stderr == ""
+    assert path.read_bytes() == before
+    assert git_snapshot(target) == checkout
+
+
+@pytest.mark.parametrize(("change", "reason", "next_action"), [
+    ("selection", "amendment_selection_inactive", "select_active_cycle"),
+    ("applicability", "amendment_applicability_changed", "restore_registered_plan"),
+    ("unknown", None, "retain_and_reconcile"),
+])
+def test_preflight_reports_bounded_refusal(amendment, tmp_path, change, reason, next_action):
+    target, path, argv = amendment
+    if change == "selection":
+        argv = [*argv, "--cycle-id", "other-cycle"]
+    else:
+        plan = tmp_path / "private-plan.json"
+        value = json.loads(Path(argv[argv.index("--plan") + 1]).read_text())
+        value["gates"]["release"]["reason"] += " PRIVATE_REASON_SENTINEL"
+        plan.write_text(json.dumps(value) if change == "applicability" else "PRIVATE_REASON_SENTINEL")
+        argv = [*argv, "--plan", str(plan), "--expected-plan-digest",
+                hashlib.sha256(plan.read_bytes()).hexdigest()]
+    before, checkout = path.read_bytes(), git_snapshot(target)
+    result = harness.run(target, *argv, "--preflight", ok=False)
+    assert result.returncode == 1
+    assert result.stderr == ""
+    assert "PRIVATE_REASON_SENTINEL" not in result.stdout
+    assert str(tmp_path) not in result.stdout
+    body = json.loads(result.stdout)
+    assert body["status"] == "blocked"
+    assert body["state_digest"] is None
+    assert body["reasons"] == ["amendment_blocked"] + ([reason] if reason else [])
+    assert body["next_action"] == next_action
     assert path.read_bytes() == before
     assert git_snapshot(target) == checkout
 
@@ -353,7 +388,11 @@ def test_missing_or_inconsistent_durable_outcome_requires_recovery(amendment, co
     before, checkout = path.read_bytes(), git_snapshot(target)
     result = harness.run(target, *replay, ok=False)
     assert result.returncode == 75
-    assert_result(json.loads(result.stdout), "recovery_required", digest)
+    body = json.loads(result.stdout)
+    assert_result(body, "recovery_required", digest)
+    assert body["reasons"] == ["amendment_recovery_required", "amendment_custody_needs_review"]
+    assert body["next_action"] == "retain_and_reconcile"
+    assert result.stderr == ""
     assert path.read_bytes() == before
     assert git_snapshot(target) == checkout
 
