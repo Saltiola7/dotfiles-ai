@@ -46,6 +46,22 @@ def render(path, data=None):
     return result
 
 
+@pytest.mark.parametrize("os_name,distro,workstation,remote,expected", [
+    ("linux", "omarchy", True, False, True),
+    ("linux", "fedora", True, False, False),
+    ("linux", "omarchy", False, False, False),
+    ("linux", "omarchy", True, True, False),
+    ("darwin", "", True, False, False),
+])
+def test_chatgpt_package_is_only_managed_on_omarchy_workstations(os_name, distro, workstation, remote, expected):
+    data = configured()
+    data["chezmoi"].update(os=os_name, osRelease={"id": distro})
+    data["dotfiles_ai"]["linux_workstation"]["enabled"] = workstation
+    data["dotfiles_ai"]["remote_user_environment"]["enabled"] = remote
+    scripts = chezmoi("managed", "--include=scripts", data=data).splitlines()
+    assert ("install-omarchy-chatgpt-desktop.sh" in scripts) == expected
+
+
 @pytest.mark.parametrize("arch", ["arm64", "amd64"])
 def test_native_profile_owns_ai_only_and_installs_worktrunk_before_consumers(arch):
     managed = set(chezmoi("managed", data=configured(arch)).splitlines())

@@ -243,6 +243,10 @@ install-guest-development-tools.sh
 .local/bin/dotfiles-ai-omarchy-setup
 {{ end }}
 
+{{ if not (and .dotfiles_ai.linux_workstation.enabled (not .dotfiles_ai.remote_user_environment.enabled) (eq .chezmoi.os "linux") (eq (dig "osRelease" "id" "" .chezmoi) "omarchy")) }}
+install-omarchy-chatgpt-desktop.sh
+{{ end }}
+
 # Native headless server: base dotfiles owns shell; upstream owns codex/state.
 {{ if .dotfiles_ai.headless_server.enabled }}
 {{ if or (ne .chezmoi.os "linux") (ne .chezmoi.arch "arm64") .dotfiles_ai.remote_user_environment.enabled .dotfiles_ai.linux_workstation.enabled .dotfiles_ai.state.root }}
