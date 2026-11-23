@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-23 — Explain Initiative amendment refusals (INT-105)
+
+- Keep the result shape, broad reason and exit codes. Add fixed refusal
+  codes and next actions for inactive selections, changed applicability,
+  stale approvals and durable custody needing reconciliation. Unknown
+  failures keep the generic response; private exception text stays local.
+- Cover classified refusals, replay and custody using the public CLI.
+  Refresh the benchmark helper digest without changing its workloads.
+  Source delivery targets a draft PR against `main`; rollout is separate.
+
 ## 2026-11-23 — Stage exact tracked files under ignored parents (INT-104)
 
 - Use literal, update-only staging for explicitly requested paths already
