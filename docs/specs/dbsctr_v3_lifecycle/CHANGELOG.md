@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-23 — Diagnose checkout setup before approval (INT-106)
+
+- Explain dirty checkouts and missing or wrong upstreams before offering a
+  launch digest. Distinguish comparison-base tracking from published-feature
+  tracking without changing user files, staging, or branch configuration.
+- Cover refusal before fetch, tracking drift during confirmation and the
+  existing supported registration routes. Refresh the CLI benchmark source
+  digest without changing its workloads. Source-only draft PR to `main`.
+
 ## 2026-11-23 — Explain Initiative amendment refusals (INT-105)
 
 - Keep the result shape, broad reason and exit codes. Add fixed refusal

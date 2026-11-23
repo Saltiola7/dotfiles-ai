@@ -7151,8 +7151,8 @@ def require_native_checkout(root, args, *, clean=True):
         fail("native CLI attribution is unavailable; caller-supplied runtime identity is not accepted")
     if os.environ.get("DBSCTR_IMPROVEMENT_WORKER_ID"):
         fail("native worker launch identity is unavailable; independent authorization must be qualified")
-    if clean and status_paths(root):
-        fail("cycle must start with a clean worktree")
+    if clean and status_paths(root, read_only=True):
+        fail("cycle must start with a clean worktree; review `git status` and preserve staged, unstaged, and untracked work before retrying")
     if clean and ((root / ".dvc").exists() or (root / "dvc.yaml").exists()):
         helper = Path(__file__).resolve().with_name(
             "executable_worktree-dvc-setup" if Path(__file__).name.startswith("executable_") else "worktree-dvc-setup")
@@ -7496,6 +7496,26 @@ def command_begin(args):
         return begin_registration(args)
 
 
+def begin_upstream(root, args, *, comparison_remote=None):
+    """Diagnose tracking without changing it or guessing a remote."""
+    target = upstream(root)
+    remote, remote_branch = configured_upstream(root)
+    follow_up = args.follow_up_pr is not None
+    expected_branch = branch(root) if follow_up else args.base_branch
+    role = "published feature" if follow_up else "comparison base"
+    expected_remote = comparison_remote or (remote if remote and remote != "." else None)
+    expected = f"{expected_remote}/{expected_branch}" if expected_remote else f"a verified remote's {expected_branch} branch"
+    remedy = "; verify the remote and set the task branch upstream before retrying"
+    if not target or not remote or not remote_branch or remote == ".":
+        fail(f"missing {role} upstream; expected {expected}{remedy}")
+    if ((comparison_remote is not None and (remote, remote_branch) != (comparison_remote, expected_branch))
+            or (follow_up and (remote_branch != expected_branch or remote_branch == args.base_branch))
+            or (not follow_up and (args.delivery_intent == "draft_pr" or forgejo_selection(args) is not None)
+                and remote_branch != expected_branch)):
+        fail(f"wrong {role} upstream; expected {expected}{remedy}")
+    return target, remote, remote_branch
+
+
 def begin_registration(args):
     source = root_dir()
     forge = forgejo_selection(args)
@@ -7570,16 +7590,13 @@ def begin_registration(args):
         if initiative is None:
             fail("evidence policy requires exact approved Initiative registration")
         validate_evidence_policy(plan["evidence_policy"], plan["gates"], initiative["requirements"])
-    target = upstream(source)
-    remote, remote_branch = configured_upstream(source)
+    comparison_remote = None
     if (follow_up_number is None and initiative is not None and (args.delivery_intent == "draft_pr" or forge is not None)
             and common_git_dir(source).resolve() == common_git_dir(initiative_source).resolve()):
         if git(source, "check-ref-format", "--branch", args.base_branch, check=False).returncode:
             fail("invalid protected base branch")
-        remote, remote_branch = "origin", args.base_branch
-        target = f"{remote}/{remote_branch}"
-    if not target or not remote or not remote_branch:
-        fail("begin requires a configured remote upstream")
+        comparison_remote = "origin"
+    target, remote, remote_branch = begin_upstream(source, args, comparison_remote=comparison_remote)
     normalize_begin_delivery(source, args, remote_branch)
     if forge is not None:
         remote_url, delivery_env = None, None
@@ -7596,8 +7613,6 @@ def begin_registration(args):
         git(source, "fetch", remote, remote_branch)
     follow_up = None
     if follow_up_number is not None:
-        if remote_branch != branch(source) or remote_branch == args.base_branch:
-            fail("follow-up requires the configured published feature upstream")
         published = git(source, "rev-parse", target).stdout.strip()
         follow_up, _ = observe_follow_up(source, delivery_env, args.github_account, args.github_repository,
                                          follow_up_number, remote_branch, args.base_branch, published)
@@ -7711,7 +7726,8 @@ def begin_registration(args):
         current["manifest_path"] = args.initiative_manifest
         require_repository_home(source, initiative["repository"])
         require_repository_home(initiative_source, initiative["coordinator_repository"])
-        if (current != initiative or root_dir().resolve() != source.resolve() or upstream(source) != target):
+        if (current != initiative or root_dir().resolve() != source.resolve()
+                or upstream(source) != target or configured_upstream(source) != (remote, remote_branch)):
             fail("Initiative authority or checkout changed during confirmation; request fresh preflight")
         check_initiative_cycle_occupancy(source, args.cycle_id, current)
         require_registration_available(source, args.cycle_id)
