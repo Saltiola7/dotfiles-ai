@@ -53,8 +53,7 @@ def bounded(method):
             # Protocol errors contain only source-literal labels, never peer
             # message text. Preserve that distinction for private diagnostics.
             raise NativeError('core protocol: ' + str(error)) from None
-        except Exception as e:
-            import traceback; traceback.print_exc()
+        except Exception:
             raise NativeError('native observation or mutation uncertain') from None
     return call
 

@@ -2904,6 +2904,31 @@ def boot(target):
             backend._binary('herdr-core')
 
 
+def r8_fixture_plan(cwd, sessions):
+    """51-pane plan: the reported live geometry plus uneven nested splits."""
+    ratios = [0.41237114108714884, 0.509433999938786, 0.375,
+              0.12345678901234568, 0.7777777777011148, 0.5000001, 0.234567891]
+    panes = [{'key': f's0-t0-p{pane_index}', 'cwd': cwd, 'session_id': sessions[pane_index]}
+             for pane_index in range(5)]
+    tabs = [{'name': 'R10 reported', 'panes': panes, 'root': {
+        'axis': 'column', 'ratio': 0.5361, 'children': [
+            {'pane': panes[0]['key']},
+            {'axis': 'row', 'ratio': 0.9, 'children': [
+                {'pane': panes[1]['key']},
+                {'axis': 'column', 'ratio': 0.6444, 'children': [
+                    {'pane': panes[2]['key']},
+                    {'axis': 'row', 'ratio': 0.1, 'children': [
+                        {'pane': panes[3]['key']}, {'pane': panes[4]['key']}]}]}]}]}}]
+    for tab_index in range(1, 24):
+        tab_panes = [{'key': f's0-t{tab_index}-p{pane_index}', 'cwd': cwd,
+                      'session_id': sessions[5 + (tab_index - 1) * 2 + pane_index]}
+                     for pane_index in range(2)]
+        root = {'axis': 'row', 'ratio': ratios[tab_index % len(ratios)],
+                'children': [{'pane': tab_panes[0]['key']}, {'pane': tab_panes[1]['key']}]}
+        tabs.append({'name': f'R10 tab {tab_index}', 'root': root, 'panes': tab_panes})
+    return {'schema_version': 1, 'spaces': [{'name': 'R10 space', 'directory': cwd, 'tabs': tabs}]}
+
+
 def arm_r8():
     """Retain the real controller's start intent with an offline v3 save."""
     global STEP
@@ -2924,33 +2949,7 @@ def arm_r8():
             'location': {'directory': cwd}, 'title': f'R10 fixture {index}',
             'model': {'id': 'held', 'providerID': 'rrw007f'},
         })['data']['id'])
-    # Tab 0 reproduces the reported live geometry whose nested 0.9/0.1 row
-    # splits rounded the deepest pane to zero columns at the 120-col default
-    # headless grid; the remaining tabs keep uneven 64-bit ratios that do not
-    # survive the native writer's 32-bit serialization.
-    ratios = [0.41237114108714884, 0.509433999938786, 0.375,
-              0.12345678901234568, 0.7777777777011148, 0.5000001, 0.234567891]
-    panes = [{'key': f's0-t0-p{pane_index}', 'cwd': cwd, 'session_id': sessions[pane_index]}
-             for pane_index in range(5)]
-    tabs = [{'name': 'R10 reported', 'panes': panes, 'root': {
-        'axis': 'column', 'ratio': 0.5361, 'children': [
-            {'pane': panes[0]['key']},
-            {'axis': 'row', 'ratio': 0.9, 'children': [
-                {'pane': panes[1]['key']},
-                {'axis': 'column', 'ratio': 0.6444, 'children': [
-                    {'pane': panes[2]['key']},
-                    {'axis': 'row', 'ratio': 0.1, 'children': [
-                        {'pane': panes[3]['key']}, {'pane': panes[4]['key']}]}]}]}]}}]
-    for tab_index in range(1, 24):
-        tab_panes = [{'key': f's0-t{tab_index}-p{pane_index}', 'cwd': cwd,
-                      'session_id': sessions[3 + (tab_index - 1) * 2 + pane_index]}
-                     for pane_index in range(2)]
-        root = {'axis': 'row', 'ratio': ratios[tab_index % len(ratios)], 'children': [
-            {'pane': tab_panes[0]['key']},
-            {'axis': 'column', 'ratio': ratios[(tab_index + 3) % len(ratios)], 'children': [
-                {'pane': tab_panes[1]['key']}]}]}
-        tabs.append({'name': f'R10 tab {tab_index}', 'root': root, 'panes': tab_panes})
-    plan = {'schema_version': 1, 'spaces': [{'name': 'R10 space', 'directory': cwd, 'tabs': tabs}]}
+    plan = r8_fixture_plan(cwd, sessions)
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         STEP = 'r8-offline-import-preflight'

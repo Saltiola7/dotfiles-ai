@@ -40,6 +40,20 @@ def test_r8_second_boot_requires_fresh_completed_expected_receipt():
         assert not ready({**boot, 'receipt': receipt}, 'prior-boot', plan, lambda value: value)
 
 
+def test_r10_fixture_plan_is_canonical_with_fifty_unique_sessions():
+    import sys
+    sys.path.insert(0, str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr'))
+    import layout
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    sessions = [None] + [f'ses_r10x{index}' for index in range(1, 51)]
+    plan = fixture['r8_fixture_plan']('/work', sessions)
+    checked = layout.validate_plan(plan)
+    panes = [p for space in checked['spaces'] for tab in space['tabs'] for p in tab['panes']]
+    identities = [p['session_id'] for p in panes if p['session_id'] is not None]
+    assert len(panes) == 51 and len(identities) == 50 and len(set(identities)) == 50
+    assert identities == sessions[1:]
+
+
 def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
     fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
     def failed(argv, **kwargs):
