@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-23 — Stage exact tracked files under ignored parents (INT-104)
+
+- Use literal, update-only staging for explicitly requested paths already
+  tracked beneath ignore rules. Keep ignored untracked files out, even if
+  previously staged, and preserve exact path/blob and unrelated-index checks.
+- Add public CLI regressions for unstaged edits, mixed staging and refusal
+  cases. Retain tracked deletion and published template coverage, and refresh
+  the unchanged CLI benchmark workloads' source digest.
+- Source delivery targets a draft PR against `main`; no release or deployment
+  in this cycle. Managed Linux qualification follows the source series.
+
 ## 2026-11-19 — Dedicated Forgejo Keychain reader
 
 - Add an opt-in native macOS reader so the operator can authorize a dedicated

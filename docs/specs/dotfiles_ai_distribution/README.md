@@ -1,5 +1,9 @@
 # dotfiles-ai Distribution
 
+[Lifecycle CLI rollout](features/operator-cli-rollout.md) specifies how to
+qualify the operator CLI fixes on Omarchy desktops and RHEL-family servers
+after verified source delivery.
+
 ## macOS workstation retirement (2026-11-18)
 
 The mac-mini workstation stack retired

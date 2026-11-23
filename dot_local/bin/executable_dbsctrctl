@@ -19786,6 +19786,15 @@ def verified_upstream_template(root, name):
         return False
 
 
+def path_is_ignored(root: Path, name: str) -> bool:
+    # check-ignore does not support --literal-pathspecs. The ./ prefix
+    # prevents a leading colon in a filename from becoming pathspec magic.
+    result = git(root, "check-ignore", "--no-index", "--quiet", "--", "./" + name, check=False)
+    if result.returncode not in (0, 1):
+        fail(f"cannot determine ignore status: {name}")
+    return result.returncode == 0
+
+
 def safe_paths(root, paths):
     if not paths:
         fail("at least one path is required")
@@ -19798,10 +19807,11 @@ def safe_paths(root, paths):
         if basename == ".env" or basename.startswith(".env.") or basename in SECRET_NAMES or pure.suffix.lower() in (".key", ".pem"):
             if not verified_upstream_template(root, name):
                 fail(f"refusing possible secret path: {name}")
-        tracked = git(root, "ls-files", "--error-unmatch", "--", name, check=False).returncode == 0
+        tracked = git(root, "--literal-pathspecs", "ls-files", "--error-unmatch", "--", name,
+                      check=False).returncode == 0
         if not (root / pure).is_file() and not tracked and tracked_predecessor(root, name) is None:
             fail(f"path does not exist: {name}")
-        if git(root, "check-ignore", "--quiet", "--", name, check=False).returncode == 0:
+        if path_is_ignored(root, name) and tracked_predecessor(root, name) is None:
             fail(f"path is ignored: {name}")
         cleaned.append(name)
     return cleaned
@@ -19826,23 +19836,35 @@ def command_gate_commit(args):
                 fail(f"evidence paths changed after validation: {name}")
             schema3_items.append((name, item))
     paths = safe_paths(root, args.paths)
-    staged = git(root, "diff", "--cached", "--name-only").stdout.splitlines()
-    if staged and set(staged) != set(paths):
-        fail("unrelated staged paths present: " + ", ".join(staged))
+    staged = set(git(root, "diff", "--cached", "--no-renames", "--name-only", "-z").stdout.split("\0")[:-1])
+    if unrelated := staged - set(paths):
+        fail("unrelated staged paths present: " + ", ".join(sorted(unrelated)))
     if git(root, "diff", "--check", check=False).returncode:
         fail("git diff --check failed")
     to_stage = [name for name in paths if os.path.lexists(root / name)
                 or git(root, "--literal-pathspecs", "ls-files", "--error-unmatch", "--", name,
                        check=False).returncode == 0]
-    if to_stage:
-        git(root, "--literal-pathspecs", "add", "--", *to_stage)
+    ignored_tracked = []
+    ordinary = []
+    for name in to_stage:
+        if path_is_ignored(root, name):
+            if tracked_predecessor(root, name) is None:
+                fail(f"path is ignored: {name}")
+            ignored_tracked.append(name)
+        else:
+            ordinary.append(name)
+    if ignored_tracked:
+        # Plain add can stage a tracked edit under an ignored parent but exit 1.
+        git(root, "--literal-pathspecs", "add", "-u", "--", *ignored_tracked)
+    if ordinary:
+        git(root, "--literal-pathspecs", "add", "--", *ordinary)
     for name, item in schema3_items:
         if evidence_path_blobs(root, args.paths, index=True) != item["paths"]:
             fail(f"staged paths differ from evidence: {name}")
     if git(root, "diff", "--cached", "--check", check=False).returncode:
         fail("staged git diff --check failed")
-    staged = git(root, "diff", "--cached", "--name-only").stdout.splitlines()
-    if set(staged) != set(paths):
+    staged = set(git(root, "diff", "--cached", "--no-renames", "--name-only", "-z").stdout.split("\0")[:-1])
+    if staged != set(paths):
         fail("staged paths differ from requested paths")
     if not staged or not git(root, "diff", "--cached", "--quiet", check=False).returncode:
         fail("staged diff is empty")
