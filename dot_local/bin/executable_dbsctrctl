@@ -3599,13 +3599,17 @@ def configured_upstream(root):
     return remote, merge.removeprefix("refs/heads/")
 
 
+class NoActiveCycle(RuntimeError):
+    """A checkout has no active cycle pointer."""
+
+
 def load(root, *, bindings=True):
     active = resolved_active_path(root, bindings=bindings)
     records = cycle_dir(root) / "cycles"
     if active == legacy_cycle_dir(root) / "active":
         records = legacy_cycle_dir(root)
     if not active.exists():
-        fail("no active DBSCTR cycle")
+        raise NoActiveCycle("no active DBSCTR cycle")
     cycle_id = active_pointer_id(root, active)
     path = records / f"{cycle_id}.json"
     if not cycle_id or not path.is_file():
@@ -24200,7 +24204,13 @@ def validate_reconciliation_paths(paths):
 
 def command_reconcile_target(args):
     root = root_dir()
-    _, record = load(root)
+    try:
+        _, record = load(root)
+    except NoActiveCycle:
+        fail("no active DBSCTR cycle. If an open same-repository GitHub PR needs a base update after "
+             "publication, verify its head and target, then use `begin --follow-up-pr NUMBER` in a "
+             "new Initiative cycle. Run preflight, obtain fresh exact approval, and rerun CI after "
+             "updating the same PR. Do not reopen the prior cycle.")
     refuse_local_delivery(record)
     require_active(record)
     require_current_profile(root, record)
