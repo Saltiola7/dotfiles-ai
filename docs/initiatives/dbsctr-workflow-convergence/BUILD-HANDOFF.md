@@ -1,5 +1,37 @@
 # Build handoff — workflow convergence
 
+## Post-delivery receipts
+
+First Build slice: `post-delivery-receipts`, after delivered
+`completion-reconciliation-core`. The [feature](../../specs/dbsctr_v3_lifecycle/features/post-delivery-receipts.md)
+owns INT-111–116 and the acceptance matrix. Use the committed
+[CORE-SOURCE plan](CORE-SOURCE.plan.json) and lifecycle Profile: critical risk,
+Python/Security, source-only `draft_pr`. Reuse the existing completion verifier,
+evidence bindings and private custody. Build owns `dot_local/bin/executable_dbsctrctl`,
+its lifecycle regression fixtures and lifecycle docs. Serialize changes to the
+shared helper with other CLI slices. OpenCode owns subsequent operator guidance;
+distribution owns separately approved managed installation and qualification.
+
+| Delivery boundary | Scope and dependency |
+|---|---|
+| Ready: receipt core | Preview, exact-approved append and offline readback. Show original facts, verified landing and later obligations separately. No live consumer recovery in the source cycle. |
+| Captured: `post-publication-deferrals` | After receipt core: predeclare a post-publication condition, evidence authority, owner and review trigger in approved authority. Keep the unexecuted gate pending with an explicitly approved deferral. Do not manufacture a failed probe or soften a known failure. |
+| Captured: `standalone-published-followup` | Separate release for new non-Initiative cycles on a published open PR. Preserve exact native head/base binding, explicit approval and fresh CI. Existing `cli-published-pr-handoff` only guides the Initiative route. |
+| Captured: `retained-checkout-diagnostics` | Separate release for explaining missing Git custody, DVC disposition and process blockers. Reuse `cli-removal-orphan-scope` and `cli-removal-process-proof` for their existing questions. Review missing-pointer diagnostics here: distinguish completed/no active cycle from an active pointer with a missing record. More precise reporting grants no new removal eligibility. |
+
+**Text Equivalent:** The evidence reader/writer comes first; prospective deferrals
+depend on it. Registration, retention diagnostics and managed rollout have their
+own acceptance. The lifecycle maintainer updates this table with changes to
+dependencies or write ownership.
+
+The first slice's manifest artifacts include the complete changed Discovery set.
+Validate the staged set with the repository's tracked-tree publication and
+instruction checks before import. For Build, exercise `test_dbsctr_external_completion`,
+the existing completion segment/binding/journey suites and synthetic public-CLI
+receipt cases; include negative local-only and preservation regressions. Review the
+context README and CHANGELOG; record source results only after they exist.
+Later launch requires a fresh receipt, preflight and exact approval.
+
 ## Next corrective release group
 
 [RETIREMENT-RECOVERY.md](RETIREMENT-RECOVERY.md) owns the approved additional
