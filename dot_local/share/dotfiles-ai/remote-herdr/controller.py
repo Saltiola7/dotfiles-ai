@@ -271,7 +271,9 @@ class Controller:
             if snapshot is None:
                 raise ControllerError('TUI boot requires an explicit saved layout')
             plan = layout.from_tui_snapshot(snapshot)
-            if manifest and self.backend._semantic(plan) != self.backend._semantic(manifest['plan']):
+            # The native save carries 32-bit split ratios (RRW-007G-R11).
+            if (manifest and self.backend._semantic(plan, native_ratios=True)
+                    != self.backend._semantic(manifest['plan'], native_ratios=True)):
                 raise ControllerError('TUI boot snapshot differs from owned layout')
             boot = self.store.read('boot.json')
             if boot and boot.get('status') == 'start_pending':

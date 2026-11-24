@@ -2,6 +2,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import struct
 import sys
 
 import pytest
@@ -307,3 +308,85 @@ def test_boot_recovery_explicitly_preserves_native_snapshot(tmp_path):
         controller.recover()
         assert backend.events[-1] == 'recover_boot'
         assert store.read('boot.json')['status'] == 'complete'
+
+
+def split_at(planned):
+    value = plan()
+    tab = value['spaces'][0]['tabs'][0]
+    tab['panes'].append({'key': 's0-t0-p1', 'cwd': '/work', 'session_id': None})
+    tab['root'] = {'axis': 'row', 'ratio': planned,
+                   'children': [{'pane': 's0-t0-p0'}, {'pane': 's0-t0-p1'}]}
+    return value
+
+
+def native_save(value, reported):
+    """The saved session.json as the pinned TUI writes it (RRW-007G-R11).
+
+    The native writer prints a 32-bit ratio as its shortest decimal, here
+    0.5869565 for a plan ratio of 0.58695651. The two round to different
+    6-decimal values.
+    """
+    import copy
+    import layout
+    saved = copy.deepcopy(layout.to_tui_snapshot(value))
+    saved['workspaces'][0]['tabs'][0]['layout']['Split']['ratio'] = reported
+    return saved
+
+
+class NativeRatioBootBackend(BootBackend):
+    """Boot backend with the real saved-snapshot reader and the real comparison."""
+
+    def __init__(self, store, home, owned, reported):
+        super().__init__(store)
+        import native
+        self.saved = native_save(owned, reported)
+        self.adapter = native.Native(home, store)
+
+    def _optional_snapshot(self):
+        return self.saved
+
+    def _semantic(self, value, native_ratios=False):
+        return self.adapter._semantic(value, native_ratios=native_ratios)
+
+
+def native_ratio_boot_backend(store, owned, reported):
+    return NativeRatioBootBackend(store, store.root.parent, owned, reported)
+
+
+def owned_tui(store, plan_value):
+    receipt = {'runtime': 'tui', 'txid': 'owned', 'pending': None}
+    store.write('manifest.json', {'schema_version': 1, 'runtime': 'tui', 'txid': 'owned',
+                                  'plan': plan_value, 'receipt': receipt})
+
+
+def test_r11_tui_boot_accepts_the_native_form_of_an_owned_full_precision_ratio(tmp_path):
+    c = module()
+    owned = split_at(0.58695651)
+    with c.Store(tmp_path / 'state') as store:
+        owned_tui(store, owned)
+        backend = native_ratio_boot_backend(store, owned, 0.5869565)
+        c.Controller(store, backend).restore()
+        assert backend.events == ['absence', 'unit_start', 'ready']
+        boot = store.read('boot.json')
+        assert boot['status'] == 'complete'
+        assert boot['plan']['spaces'][0]['tabs'][0]['root']['ratio'] == 0.5869565
+        # A real edit of the saved ratio still refuses the boot and never starts the unit.
+        backend = native_ratio_boot_backend(store, owned, 0.45)
+        with pytest.raises(c.ControllerError, match='differs from owned layout'):
+            c.Controller(store, backend).restore()
+        assert backend.events == []
+
+
+def test_r11_tui_boot_refuses_a_ratio_that_differs_in_the_native_float(tmp_path):
+    c = module()
+    owned = split_at(0.58695651)
+    # The adjacent lower 32-bit float rounds to the same 6 decimals.
+    order = struct.unpack('I', struct.pack('f', 0.5869565))[0]
+    reported = struct.unpack('f', struct.pack('I', order - 1))[0]
+    assert reported != 0.5869565 and round(reported, 6) == round(0.5869565, 6)
+    with c.Store(tmp_path / 'state') as store:
+        owned_tui(store, owned)
+        backend = native_ratio_boot_backend(store, owned, reported)
+        with pytest.raises(c.ControllerError, match='differs from owned layout'):
+            c.Controller(store, backend).restore()
+        assert backend.events == [] and store.read('boot.json') is None

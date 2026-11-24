@@ -2102,3 +2102,46 @@ class LoopbackProviderTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_r11_qualification_plan_carries_a_ratio_the_exact_comparison_misreads():
+    import struct
+    sys.path.insert(0, str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr'))
+    import layout
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    sessions = [None] + [f'ses_r11x{index}' for index in range(1, 51)]
+    plan = fixture['r8_fixture_plan']('/work', sessions)
+
+    def printed(value):
+        """Shortest decimal the pinned TUI prints for a 32-bit ratio."""
+        wide = layout._f32(value)
+        for digits in range(1, 10):
+            if layout._f32(float('%.*g' % (digits, wide))) == wide:
+                return float('%.*g' % (digits, wide))
+
+    tabs = [tab for tab in plan['spaces'][0]['tabs'] if 'ratio' in tab['root']]
+    def misread(tab):
+        ratio = tab['root']['ratio']
+        return round(ratio, 6) != round(printed(ratio), 6)
+    misread_tabs = [tab for tab in tabs if misread(tab)]
+    # Verify, capture fidelity and the second boot must all meet this ratio.
+    assert {tab['name'] for tab in misread_tabs} == {'R10 tab 7', 'R10 tab 14', 'R10 tab 21'}
+    assert {tab['root']['ratio'] for tab in misread_tabs} == {0.58695651}
+    assert printed(0.58695651) == 0.5869565
+    for tab in tabs:
+        ratio = tab['root']['ratio']
+        assert layout._f32(ratio) == layout._f32(printed(ratio))
+
+
+def test_r11_native_ratio_precision_is_confined_to_tui_stored_layouts():
+    source = ROOT / 'dot_local/share/dotfiles-ai/remote-herdr'
+    adapter = (source / 'native.py').read_text()
+    controller = (source / 'controller.py').read_text()
+    # recover_tui boot path (two operands) and verify (two operands).
+    assert adapter.count('native_ratios=True)') == 4
+    assert controller.count('native_ratios=True)') == 2
+    # The core source and the TUI-source stop comparisons keep the exact default.
+    assert adapter.count('if (self._semantic(live) != self._semantic(plan)') == 2
+    assert adapter.count('if self._semantic(live) != self._semantic(plan):') == 1
+    assert adapter.count('if (self._semantic(final) != self._semantic(plan)') == 1
+    assert 'def _semantic(self, plan, *, native_ratios=False):' in adapter
