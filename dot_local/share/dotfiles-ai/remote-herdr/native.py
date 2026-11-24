@@ -760,6 +760,9 @@ class Native:
         seen_panes = set()
         seen_tabs = set()
         seen_spaces = set()
+        # One set for the whole inventory: a failed pane in an early tab must
+        # stay deferred while later tabs are processed.
+        deferred_pids = set()
         for space in snapshot['workspaces']:
             wid = space['workspace_id']
             if wid in seen_spaces:
@@ -774,7 +777,6 @@ class Native:
                 native_panes = [p for p in snapshot['panes'] if p['tab_id'] == tid and p['workspace_id'] == wid]
                 agents = [a for a in snapshot['agents'] if a['tab_id'] == tid and a['workspace_id'] == wid]
                 mapped = {}
-                deferred_pids = set()
                 for pane in native_panes:
                     pid = pane['pane_id']
                     if pid in seen_panes:

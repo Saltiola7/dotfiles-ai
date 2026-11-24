@@ -371,16 +371,29 @@ Native saves serialize split ratios as 32-bit floats while canonical plans keep
 precision in the shutdown-save match and the boot snapshot-preservation check.
 Every other field remains exact; a genuinely changed ratio still refuses.
 
-The managed TUI server runs a sized headless grid (RRW-007G-R10). Deep nested
-splits that would round a pane below the native spawn minimum at the upstream
-120x40 default instead keep every pane viable. A pane whose terminal still
-failed to start is a repairable deferred pane: it keeps its exact agent
-identity, accepts no live agent view, is excluded from client coverage and
-process proofs, and its session must be absent everywhere else. Recovery
+A headless start has no client size, and the pinned TUI rounds every split
+while spending about two cells per split level on borders. A small nested
+share therefore rounds a pane to zero columns at the upstream 120x40 default
+and the server logs `failed to start shell for deferred agent resume`
+(RRW-007G-R10). The launcher derives the server grid from the plan before
+starting the TUI: every pane keeps at least two usable cells after rounding
+and borders, bounded between 240x80 and 1600x200. It hands the grid to the
+server through a private copy of the managed config, so the socket, session
+file and logs stay in the managed location. The managed config must not
+define its own `[server]` table; the launcher refuses such a config.
+
+A pane whose terminal still fails to start is a repairable deferred pane.
+The runtime leaves it without a terminal for the life of that server and
+keeps its leftover agent view, which may even claim readiness. A deferred pane
+therefore keeps its exact agent identity, is never queried for a process
+proof, is excluded from client coverage, and its session must be absent
+everywhere else. The set of deferred panes spans the whole inventory: a failed
+pane in an early tab stays deferred while later tabs are processed. Recovery
 completes around deferred panes without disturbing live clients; the pane
-itself revives on the next TUI start. Session discovery scans skip processes
-with mixed kernel ownership because a setuid process can never be a session
-client; PID capture and proof paths keep exact ownership semantics.
+itself revives on the next TUI start, which the plan-derived grid makes
+succeed. Session discovery scans skip processes with mixed kernel ownership
+because a setuid process can never be a session client; PID capture and proof
+paths keep exact ownership semantics.
 
 The controller-started Linux TUI spaces authenticated OpenCode launch admission
 by 2.5 seconds under a bounded user-local lock. It does not restart the shared
@@ -741,7 +754,7 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Retained legacy stop proof with reused PID | Recovery controller | Proven foreign UID or changed start ticks establishes exit, never signaling authority; a matching live identity or ambiguous evidence blocks |
 | Pending in-place repair to completed receipt | Recovery controller | Exact owned live binding, program, process, version and unique client; no native mutation |
 | Offline TUI start with native shutdown save | Recovery controller | Prove snapshot differs only in allowed metadata or omitted planned identities; back up and regenerate before paced start |
-| Spawn-failed TUI pane at headless start | Recovery controller | Sized headless grid keeps panes viable; a deferred failed pane keeps exact identity, no live view, session absent elsewhere, without disturbing live clients |
+| Spawn-failed TUI pane at headless start | Launcher, recovery controller | Plan-derived headless grid keeps panes viable; a deferred failed pane keeps exact identity, gets no process-proof query, its session stays absent elsewhere, and live clients are not disturbed |
 | Mixed-ownership process during session discovery | Process seam | Skip: a setuid process can never be a session client; PID proofs stay exact |
 | Stopped repair leaf absent after restart | Recovery controller | Reconcile original exit and uncertain live clients, retain closure, continue other repairs |
 | Restart during run/CAS/cleanup or after completion | Recovery controller | Reconcile durable intent against current process/document facts without replay or stale process authority |

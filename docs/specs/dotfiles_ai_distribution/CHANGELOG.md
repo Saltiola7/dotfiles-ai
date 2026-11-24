@@ -1,28 +1,30 @@
 # dotfiles-ai Distribution Changelog
 
-## 2026-11-23 — Repairable failed panes and headless sizing (RRW-007G-R10)
+## 2026-11-23 — Repairable failed panes and plan-sized headless grid (RRW-007G-R10)
 
-- Configure the managed TUI headless grid (240x80) so restored panes stay
-  above the native spawn minimum. Admit a spawn-failed pane as a deferred
-  repairable pane: exact identity retained, no live agent view, session
-  required absent elsewhere, excluded from client coverage and process proofs.
+- Derive the headless TUI grid from the plan in the launcher (every pane keeps
+  at least two usable cells after split rounding and borders, bounded
+  240x80 to 1600x200) and pass it through a private copy of the managed
+  config. A fixed grid was not enough: the reported nested 10%-of-10% pane
+  still rounded to zero columns at 240 and only spawns from 480.
+- Admit a spawn-failed pane as a deferred repairable pane: exact identity
+  retained, its leftover agent view ignored, no process-proof query, excluded
+  from client coverage, and its session required absent elsewhere. The
+  deferred set now spans the whole inventory; it was reset per tab, which
+  dropped a failed pane from an early tab and made readiness refuse forever.
 - Skip processes with mixed kernel ownership in session discovery; a setuid
   process can never be a session client while PID proof paths stay exact.
-  Qualify the reported nested 0.9/0.1 geometry across two reboots.
+- Follow-ups: correct the qualification fixture plan (fifty unique sessions,
+  two-child splits) and lock it with a source test; name TUI refusals and
+  their origin in the fixture tracer; widen the observational readiness budget
+  for paced multi-session restores to 700 seconds as headroom. The earlier
+  300-second timeouts were caused by the per-tab deferral reset, not by slow
+  client startup.
+- Validated against the real TUI 0.9.5 with synthetic clients: a launcher
+  start spawns every pane and passes verification with fifty clients; a server
+  already running on the old default grid with one failed pane and 49 live
+  clients recovers with that pane deferred and no client disturbed.
   No bootstrap, pin or input changes.
-- Corrective follow-up: fix the qualification fixture's plan arithmetic
-  (fifty unique sessions, two-child splits) and lock it with a source test;
-  revert an accidental debug print in the native wrapper. No behavior change.
-- Follow-up two: a spawn-failed pane may keep its exact agent view while
-  deferred; only a differing view identity refuses. Name the underlying
-  recover refusal in the fixture with the value-free origin tracer.
-- Follow-up three: allowlist the fixed TUI refusal literals in that tracer so
-  the exact recover refusal is named in the native job log.
-- Follow-up four: raise the observational readiness budget for paced
-  multi-session TUI restores to 700 seconds (still below the 840 second
-  explicit-recovery deadline) and the matching fixture waits, because slower
-  client startup under the current shared service exceeded 300 seconds.
-
 ## 2026-11-22 — Compare native split ratios at 32-bit precision (RRW-007G-R9)
 
 - Round both sides to native f32 precision when matching a shutdown save or

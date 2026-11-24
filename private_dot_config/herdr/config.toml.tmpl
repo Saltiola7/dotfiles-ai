@@ -22,8 +22,3 @@ directory = {{ printf "%s/herdr/worktrees" .dotfiles_ai.state.root | quote }}
 [session]
 resume_agents_on_restore = {{ eq .dotfiles_ai.herdr.runtime "tui" }}
 {{ end }}
-[server]
-# Headless virtual grid: keep every restored pane above the native spawn
-# minimum (upstream default 120x40 lets deep splits round to zero columns).
-headless_cols = 240
-headless_rows = 80

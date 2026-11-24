@@ -7,6 +7,7 @@ from pathlib import Path
 import signal
 import stat
 import sys
+import tomllib
 
 
 class RecoveryDeadline(BaseException):
@@ -87,6 +88,21 @@ def main():
                    'XDG_STATE_HOME': str(home / '.local/state'), 'LANG': 'C.UTF-8',
                    'XDG_RUNTIME_DIR': f'/run/user/{os.getuid()}',
                    'DOTFILES_AI_HERDR_PACE': '1'}
+            # A headless start has no client size. Derive the server grid from
+            # the plan so no restored pane rounds below the native spawn minimum,
+            # and hand it to the server through a private copy of the managed
+            # config; socket, session and logs stay in the managed location.
+            cols, rows = layout.headless_grid(journal['plan'] if switch_start else boot['plan'])
+            managed_config = home / '.config/herdr/config.toml'
+            managed = backend._read(managed_config).decode('utf-8') if managed_config.exists() else ''
+            if 'server' in tomllib.loads(managed):
+                raise ValueError()
+            generated = (managed.rstrip('\n') + '\n\n'
+                         + f'[server]\nheadless_cols = {cols}\nheadless_rows = {rows}\n')
+            tomllib.loads(generated)
+            headless_config = root / 'headless-config.toml'
+            backend._atomic(headless_config, generated.encode('utf-8'))
+            env['HERDR_CONFIG_PATH'] = str(headless_config)
             os.execve(executable, [str(executable), '--session', 'default', 'server'], env)
         with Store(root) as store:
             backend = Native(home, store)

@@ -3,9 +3,11 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sqlite3
 import struct
+import subprocess
 import sys
 
 import pytest
@@ -2653,6 +2655,7 @@ def test_r10_deferred_session_running_elsewhere_refuses(backend):
         backend.verify('tui', plan(), receipt)
 
 
+@pytest.mark.skipif(os.getuid() == 0, reason='root has no distinct setuid identity')
 def test_r10_scan_skips_mixed_ownership_processes(backend):
     user = native.os.getuid()
     synthetic_process(backend, 4100, ['sudo', 'opencode', '--session', 'ses_abc'], uid=user)
@@ -2663,6 +2666,112 @@ def test_r10_scan_skips_mixed_ownership_processes(backend):
     assert [item['pid'] for item in found] == [4101]
     with pytest.raises(native.processes.ProcessProofError, match='^process ownership ambiguous$'):
         native.processes.task_uid(backend.proc_root / '4100')
+
+
+def test_r10_failed_pane_in_early_tab_stays_deferred_across_later_tabs(backend):
+    # Native 0.9.5 keeps an interactive_ready agent view on a spawn-failed pane.
+    snap = FakeTui(backend).snapshot()
+    pane = snap['panes'][0]
+    pane['restore_error'] = 'Could not start the saved shell: ghostty error -2.'
+    pane.pop('foreground_cwd', None)
+    snap['agents'][0].update(launch_pending=None, interactive_ready=True)
+    snap['workspaces'][0]['tab_count'] = 2
+    snap['tabs'].append({'workspace_id': 'wid', 'tab_id': 'tid2', 'number': 2, 'label': '2',
+                         'focused': False, 'pane_count': 1, 'agent_status': 'idle'})
+    snap['panes'].append({'workspace_id': 'wid', 'tab_id': 'tid2', 'pane_id': 'later',
+                          'terminal_id': 'term2', 'focused': False, 'cwd': '/work',
+                          'foreground_cwd': '/work', 'agent': None, 'agent_status': None,
+                          'agent_session': None, 'revision': 1})
+    inventory, deferred_pids, deferred_sessions = backend._api_inventory(snap)
+    assert deferred_pids == {'pid'} and deferred_sessions == {'ses_abc'}
+    assert inventory[0]['tabs'][1]['panes'] == {'later': {'cwd': '/work', 'session_id': None}}
+
+
+def reported_geometry_plan():
+    panes = [{'key': 's0-t0-p%d' % index, 'cwd': '/work', 'session_id': 'ses_g%d' % index}
+             for index in range(5)]
+    return {'schema_version': 1, 'spaces': [{'name': 'Reported', 'directory': '/work', 'tabs': [
+        {'name': 'Tab', 'panes': panes, 'root': {
+            'axis': 'column', 'ratio': 0.5361, 'children': [
+                {'pane': 's0-t0-p0'},
+                {'axis': 'row', 'ratio': 0.9, 'children': [
+                    {'pane': 's0-t0-p1'},
+                    {'axis': 'column', 'ratio': 0.6444, 'children': [
+                        {'pane': 's0-t0-p2'},
+                        {'axis': 'row', 'ratio': 0.1, 'children': [
+                            {'pane': 's0-t0-p3'}, {'pane': 's0-t0-p4'}]}]}]}]}}]}]}
+
+
+def test_r10_headless_grid_scales_with_the_smallest_nested_share():
+    assert native.layout.headless_grid(plan()) == (240, 80)
+    assert native.layout.headless_grid(split_plan()) == (240, 80)
+    # The live geometry: a 10% share of a 10% share rounded to zero columns at
+    # the 120-column default and still failed at a fixed 240. Real TUI 0.9.5
+    # spawns every pane from 480 columns; this leaves rounding room.
+    assert native.layout.headless_grid(reported_geometry_plan()) == (1030, 80)
+    deep = reported_geometry_plan()
+    root = deep['spaces'][0]['tabs'][0]['root']
+    root['children'][1]['children'][1]['children'][1]['ratio'] = 0.01
+    assert native.layout.headless_grid(deep)[0] == native.layout.MAX_HEADLESS[0]
+
+
+FAKE_TUI = '''#!__PYEXECUTABLE__
+import json, os, pathlib, sys
+path = pathlib.Path(os.environ["HERDR_CONFIG_PATH"])
+print(json.dumps({"config": str(path), "mode": oct(path.stat().st_mode & 0o777),
+                  "text": path.read_text(), "argv": sys.argv[1:]}))
+'''
+
+
+def launcher_home(backend, plan_value, managed):
+    """Install the launcher, its modules and a reporting fake TUI in the fixture home."""
+    home = backend.home
+    modules = home / '.local/share/dotfiles-ai/remote-herdr'
+    modules.mkdir(parents=True)
+    for name in ('controller', 'native', 'layout', 'protocol', 'processes'):
+        (modules / (name + '.py')).write_bytes((SOURCE / (name + '.py')).read_bytes())
+    fake_tui = home / '.local/bin/herdr'
+    fake_tui.write_text(FAKE_TUI.replace('__PYEXECUTABLE__', sys.executable))
+    fake_tui.chmod(0o755)
+    pins = json.loads((home / '.config/dotfiles-ai/herdr-runtime.json').read_text())
+    pins['tui_sha256'] = hashlib.sha256(fake_tui.read_bytes()).hexdigest()
+    (home / '.config/dotfiles-ai/herdr-runtime.json').write_text(json.dumps(pins))
+    (home / '.config/herdr').mkdir(parents=True, exist_ok=True)
+    (home / '.config/herdr/config.toml').write_text(managed)
+    root = home / '.local/state/dotfiles-ai/herdr-runtime'
+    root.mkdir(parents=True, mode=0o700)
+    root.chmod(0o700)
+    (root / 'transaction.json').write_text(json.dumps({
+        'schema_version': 1, 'txid': 'launch', 'source': 'herdr-core', 'target': 'tui',
+        'phase': 'restore_pending', 'plan': plan_value, 'receipt': None}))
+    launcher = home / '.local/bin/remote-herdr'
+    launcher.write_bytes((SOURCE.parents[2] / 'bin/executable_remote-herdr').read_bytes())
+    launcher.chmod(0o755)
+    return subprocess.run(['/usr/bin/python3', '-I', str(launcher), 'exec-tui'],
+                          text=True, capture_output=True, timeout=30,
+                          env={'HOME': str(home), 'PATH': '/usr/bin:/bin'})
+
+
+live_core = Path('/run/user/%d/herdr-core/default.sock' % os.getuid()).exists()
+
+
+@pytest.mark.skipif(live_core, reason='a live core endpoint on this host makes exec-tui refuse by design')
+def test_r10_launcher_hands_the_tui_a_plan_sized_headless_grid(backend):
+    managed = 'onboarding = false\n\n[session]\nresume_agents_on_restore = true\n'
+    result = launcher_home(backend, reported_geometry_plan(), managed)
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report['argv'] == ['--session', 'default', 'server']
+    assert report['mode'] == '0o600' and report['config'].endswith('/herdr-runtime/headless-config.toml')
+    assert report['text'] == (managed.rstrip('\n') + '\n\n[server]\nheadless_cols = 1030\nheadless_rows = 80\n')
+
+
+@pytest.mark.skipif(live_core, reason='a live core endpoint on this host makes exec-tui refuse by design')
+def test_r10_launcher_refuses_a_managed_config_that_defines_its_own_server_table(backend):
+    managed = 'onboarding = false\n\n[server]\nheadless_cols = 9999\n'
+    result = launcher_home(backend, plan(), managed)
+    assert result.returncode == 75 and not result.stdout
+    assert not (backend.home / '.local/state/dotfiles-ai/herdr-runtime/headless-config.toml').exists()
 
 
 def test_tui_capture_observational_api_never_written_as_native_file(backend):
