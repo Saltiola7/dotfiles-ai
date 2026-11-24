@@ -1,0 +1,41 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {
+      "applicability": "required"
+    },
+    "behavior": {
+      "applicability": "required"
+    },
+    "spec": {
+      "applicability": "required"
+    },
+    "contract": {
+      "applicability": "required"
+    },
+    "test_driven_implementation": {
+      "applicability": "required"
+    },
+    "refactor": {
+      "applicability": "required"
+    },
+    "review_integrate": {
+      "applicability": "required"
+    },
+    "release": {
+      "applicability": "not_applicable",
+      "reason": "Source-only helper delivery publishes no standalone release artifact."
+    },
+    "deploy": {
+      "applicability": "not_applicable",
+      "reason": "No managed helper installation in this slice; first live use follows merge and managed installation."
+    },
+    "operate": {
+      "applicability": "not_applicable",
+      "reason": "No live cycle operation is authorized by this source-only slice."
+    },
+    "maintain_retire": {
+      "applicability": "required"
+    }
+  }
+}
