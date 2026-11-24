@@ -142,7 +142,7 @@
       "id": "INT-020",
       "kind": "risk",
       "text": "Before protected live Forgejo merge, qualify the selected CI producer and independent custody of its execution receipts on the isolated v15 target.",
-      "disposition": "open",
+      "disposition": "ready",
       "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
     }
   ],
@@ -184,7 +184,7 @@
     {
       "id": "forgejo-ci",
       "context": "dbsctr_v3_lifecycle",
-      "state": "ready",
+      "state": "delivered",
       "execution_owner": "build",
       "requirements": ["INT-001", "INT-007", "INT-008", "INT-009", "INT-013", "INT-018", "INT-019"],
       "depends_on": ["forgejo-pr"],
@@ -194,7 +194,7 @@
     {
       "id": "forgejo-merge",
       "context": "dbsctr_v3_lifecycle",
-      "state": "discovering",
+      "state": "ready",
       "execution_owner": "build",
       "requirements": ["INT-001", "INT-004", "INT-007", "INT-012", "INT-013", "INT-014", "INT-015", "INT-019", "INT-020"],
       "depends_on": ["forgejo-ci"],
