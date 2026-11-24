@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Forgejo PR adapter (FORGEJO-PR-PARITY)
+
+- Add source interfaces for exact Forgejo v15 PR lookup, bounded pagination,
+  native draft or ready creation, and identity and readiness readback. Use
+  read-only recovery when a create outcome is uncertain. PR creation is the
+  adapter's write interface.
+- Use synthetic provider fixtures and the existing GitHub and Forgejo local-only
+  compatibility suites for validation. Source delivery targets a GitHub draft
+  PR to `main`. Live credentials, feature push, CI, merge guards and deployment
+  require separate qualification.
+
 ## 2026-11-23 — Post-delivery receipts for completed draft deliveries (INT-111–116)
 
 - Add `complete-external --post-delivery` and `status --post-delivery`. A
