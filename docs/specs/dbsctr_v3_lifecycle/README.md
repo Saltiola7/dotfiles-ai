@@ -319,6 +319,25 @@ skipped work keep the candidate from advancing. Source fixtures exercise the
 receipt interface. Live producer qualification, verified receipt custody and
 protected integration remain separate.
 
+## Forgejo protected merge source interface
+
+The [guarded integration contract](../../initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md#integrate-through-the-protected-path)
+defines `integration_coordinator/forgejo_merge.py`. The adapter requires a
+persisted reservation for the exact candidate, a qualified guard and dispatcher,
+an exact fixture grant, independent review, and current Forgejo CI receipts.
+It durably claims the submission before requesting an immediate ordinary
+expected-head merge through native branch protection.
+
+Success requires native PR readback, the expected merge actor, the raw merge
+commit with ordered base and head parents and the tested tree, and inclusion on
+the target. The proof records the merge commit separately from its preserved
+source projection. A lost response keeps the reservation fenced while the
+adapter reconciles through read-only observations.
+
+Source acceptance exercises these boundaries with synthetic fixture ports.
+Native fixture qualification and consumer activation each require the
+corresponding guard, identity, branch protection, and operating evidence.
+
 ## Workflow regression source interface
 
 `WORKFLOW-REGRESSION-TELEMETRY` extends the existing CLI/evidence/phase owners;

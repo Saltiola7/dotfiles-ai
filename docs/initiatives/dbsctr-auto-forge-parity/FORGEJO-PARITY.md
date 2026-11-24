@@ -115,13 +115,16 @@ reason. The existing coordinator can consume that result for its later recovery
 and tally. Use provider-tagged evidence so a Forgejo creator or status ID cannot
 stand in for a GitHub App identity.
 
-Forgejo v15 status data supplies diagnostics. The live protected merge slice
-still needs independently verified custody for execution receipts from the
-selected project CI producer. For example, a status context and URL alone
-cannot establish that a particular workflow actually ran. The public Actions
-artifact APIs and corrected skipped-job reporting arrived in v16. Source
-fixtures verify the adapter seam while production evidence remains subject to
-that separate qualification. [Forgejo v16 Actions changes](https://forgejo.org/2026-07-release-v16-0/#actions-related-api-additions)
+Forgejo v15 status data supplies diagnostics. A native status context and URL
+alone cannot establish that a particular workflow ran. The public Actions
+artifact APIs and corrected skipped-job reporting arrived in v16. [Forgejo v16 Actions changes](https://forgejo.org/2026-07-release-v16-0/#actions-related-api-additions)
+
+The isolated v15 fixture verified exact native success and failure statuses
+from a restricted publisher against independently read execution receipts.
+The fixture rejected missing, stale, and misattributed evidence after reader
+restart. This qualifies the selected fixture producer and its receipt custody.
+The protected merge demonstration and consumer producer qualification are
+separate acceptance steps.
 
 ### Observe and reconcile CI on v15
 
