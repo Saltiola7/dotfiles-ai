@@ -10,6 +10,8 @@
   artifacts. Cover rendering, policy compatibility and exact launch in fixtures.
 - Deliver the source through a draft feature PR to `main`. Managed activation
   belongs to a subsequent rollout.
+- Refresh the benchmark fixture's helper checksum after partition 2 rejected
+  the stale pin. The recorded help output still matches Python 3.12–3.15.
 
 ## 2026-11-23 — Repairable failed panes and plan-sized headless grid (RRW-007G-R10)
 
