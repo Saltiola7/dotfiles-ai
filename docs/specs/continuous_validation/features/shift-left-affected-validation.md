@@ -1,7 +1,7 @@
 # Shift-left affected validation
 
-Status: specification ready; implementation, activation and measurements are
-pending. Slice `shift-left-affected-validation` in the
+Status: implemented in source with regression coverage; installation, activation
+and measurements are pending. Slice `shift-left-affected-validation` in the
 [shift-left-validation Initiative](../../../initiatives/shift-left-validation/README.md).
 Owner: continuous_validation owns the runner, the managed owner and the
 repository-adapter protocol; each repository owns its adapter and selection.
@@ -14,11 +14,11 @@ installation, activation or a speed improvement.
 ## Outcome and boundary
 
 Validation should begin when edits settle, not when a gate is due or a pull
-request opens. Today the repository adapter receives the changed-path set but
-selects by trigger only, four of its five checks refuse every non-macOS host,
-and no cheap edit check is eligible on the Linux workstation. The hosted matrix
-moved to Linux, so the adapter no longer describes where this repository is
-actually validated.
+request opens. Before this slice the repository adapter received the
+changed-path set but selected by trigger only, four of its five checks refused
+every non-macOS host, and no cheap edit check was eligible on the Linux
+workstation. The hosted matrix moved to Linux, so the adapter no longer described
+where this repository is actually validated.
 
 This slice makes the repository's affected selection real and reachable from
 three places: an enrolled worktree, the lifecycle's `validate` command and a
@@ -82,17 +82,34 @@ The boundary is unchanged from the [context](../README.md):
 - And execution refuses `selection_mismatch` when the requested check is not in
   the selection that function derives for the executed snapshot.
 
+- Given a request that names `checks`
+- When the runner builds the selection
+- Then it executes only the named checks and leaves each check's admissibility
+  to the adapter's `execute`
+- And it accepts the field only for trigger `affected`, refuses a malformed list
+  with `invalid_checks` before creating state and an unknown name with
+  `invalid_selection`.
+
 - Given this repository, which declares no lifecycle CI mapping
 - When the ownership table is read
 - Then the adapter's component table is its only instance
 - And a repository test requires any later CI mapping to repeat its component
   identifiers and path patterns exactly.
 
+- Given the ownership table at `.github/validation-ownership.json`
+- When the adapter reads it
+- Then it accepts the table only while its SHA-256 equals the digest pinned in
+  the adapter module, so a table change also changes the enrolled adapter digest
+  and needs explicit re-enrollment
+- And it reports `ownership_table_changed` or `invalid_ownership_table`
+  otherwise.
+
 - Given the first ownership table
 - When it is delivered
-- Then it maps the validation adapter and its two test modules to one check
-  that runs exactly those test modules, and every other path is unmapped. A
-  path under `.github/` that a component owns is affected, not broad.
+- Then it maps the validation adapter and its two test modules to one check,
+  `dotfiles.adapter`, that runs exactly those test modules, and every other
+  path is unmapped. A path under `.github/` that a component owns is affected,
+  not broad.
 
 - Given a path that no component owns
 - When it changes
@@ -105,9 +122,10 @@ The boundary is unchanged from the [context](../README.md):
 - When the adapter describes its checks
 - Then the check is eligible on the Linux native lane.
 
-- Given `dotfiles.instructions` and `dotfiles.full`
+- Given `dotfiles.instructions`, `dotfiles.adapter` and `dotfiles.full`
 - When they are described
-- Then both are Linux-native pytest checks.
+- Then all three are Linux-native pytest checks, and `dotfiles.syntax` is a
+  Linux-native syntax scan.
 
 - Given the macOS-only Swift compilation check, which the hosted matrix no
   longer runs
@@ -116,7 +134,7 @@ The boundary is unchanged from the [context](../README.md):
 
 - Given a host that cannot provide a check's declared lane
 - When the check executes
-- Then the result is `unavailable` with the existing classified code; no
+- Then the result is `unavailable` with `native_lane_unavailable`; no
   substitution, emulation or pass is inferred.
 
 ### Dagger is an optional executor
@@ -154,20 +172,29 @@ The lifecycle reaches this context only through the existing managed-owner
 selection, which requires `continuous_validation/cli.py`. This slice adds that
 module with two actions; the actions that the current source cannot perform
 return a bounded unavailable result and never change a formal lifecycle result.
+The owner rechecks the private policy itself and answers `disabled` without it.
+It finds the enrollment through the existing checkpoint binding registry, the
+lifecycle's only bounded lookup from a worktree and cycle to an enrollment, so a
+task is reachable for `validate` and `applicability` once its enrollment is
+created with `--checkpoints`.
 
 - Given a lifecycle `validate` request for a worktree and cycle that has an
-  enabled enrollment, an open task, a matching adapter digest and a current
-  generation
+  enabled enrollment, an open task, a matching adapter digest and a readable
+  generation record
 - When the owner handles it
 - Then it captures a fresh immutable snapshot of the settled worktree, runs the
-  repository selection for trigger `affected` (or only the named checks) under
-  the existing host admission, and returns one reference per observation.
+  repository selection for trigger `affected` (or only the named `check_ids`)
+  under the existing host admission, and returns one reference per observation
+- And reports `status` `completed`, or `pending` when a selected check stayed
+  pending, with the request, snapshot and generation identities.
 
-- Given no enabled enrollment, a closed task, a changed adapter digest or a
-  stale generation
+- Given no bound enabled enrollment, a closed task, a changed adapter digest or
+  an unreadable generation record
 - When a `validate` or `applicability` request arrives
 - Then the owner returns the existing classified unavailable result, creates no
-  state and starts nothing.
+  state and starts nothing
+- And `validate` reports the runner's code, such as `enrollment_inactive`,
+  `enrolled_task_closed` or `adapter_identity_changed`.
 
 - Given a snapshot identity previously returned for the task
 - When the owner handles `applicability`
@@ -175,14 +202,20 @@ return a bounded unavailable result and never change a formal lifecycle result.
   runner's existing source-freshness rule for the enrollment's capture
   patterns, with the changed paths
 - And a head that advanced without a content change inside those patterns
-  leaves the snapshot current, which the response states separately. This
-  differs from request replay, which also requires the same head: a receipt is
-  evidence about content, not about a request.
+  leaves the snapshot current, which the response states as `head_advanced`.
+  This differs from request replay, which also requires the same head: a receipt
+  is evidence about content, not about a request.
+- And it reports `enrollment_inactive`, `snapshot_unknown` when no completed
+  request produced observations for that snapshot, `source_changed` when the
+  content differs or cannot be inventoried, and `generation_changed` when the
+  enrollment's generation record cannot be read.
 
 - Given a managed action this owner does not implement
 - When the lifecycle delegates it
 - Then the owner returns `owner_action_unsupported` and the lifecycle command
-  keeps its own result.
+  keeps its own result. `enroll` answers `not_enrolled`; `checkpoint` answers
+  `legacy_enrolled` or `not_enrolled`, the statuses that keep the lifecycle's
+  existing checkpoint route; every other action answers `unavailable`.
 
 Feedback to an agent session is unchanged: it requires the separate existing
 [opt-in](../SESSION-HOOKS.md). A `validate` run sends nothing on its own.
@@ -198,35 +231,43 @@ Feedback to an agent session is unchanged: it requires the separate existing
 - When `python .github/continuous_validation.py run --base REV --output FILE`
   runs
 - Then it executes the selected Linux-native checks in that checkout and writes
-  one JSON result with the base, head, selection and per-check outcomes
-- And exits `0` when every selected check passed, `1` when one failed and `2`
+  one JSON result to FILE with the resolved base, head, trigger, selection, the
+  `executed` outcomes and the `not_executed` checks with a reason
+- And it leaves a Dagger-lane check unexecuted with `dagger_lane`, and an
+  expensive check at trigger `edit` unexecuted with `checkpoint_required`
+- And exits `0` when every executed check passed, `1` when one failed and `2`
   when a result is unavailable.
 
-- Given a dirty checkout, or a base revision that is not in the checkout's
-  history
+- Given a dirty checkout, a base revision that is unknown or not in the
+  checkout's history, an output inside the checkout, or an existing output file
 - When `plan` or `run` executes
-- Then it refuses with a classified error before running a check.
+- Then it refuses with one classified error before running a check:
+  `checkout_required`, `checkout_dirty`, `base_unknown`, `base_not_in_history`,
+  `output_invalid`, `output_inside_checkout`, `output_exists` or
+  `arguments_invalid`.
 
 ## Interfaces
 
 | Interface | Contract |
 |---|---|
 | Protocol triggers | The closed trigger set gains `affected`: an explicit request for the affected selection, including expensive affected checks. `edit`, `checkpoint` and `manual` keep their meaning |
+| Runner request | An `affected` request may carry `checks`, a bounded unique list of manifest check IDs. The runner executes only those and leaves admissibility to the adapter; other triggers refuse the field |
 | `select` response | The closed response set gains optional `basis`, one of `affected`, `broad`, `full`. An absent value means `full` for adapters that predate this contract. `checks`, `reason` and `complete` keep their meaning |
-| Ownership table | Adapter-owned: components with an identifier, owned path patterns and check identifiers; dependency edges from dependency to consumer; the broad rules above. Pattern syntax and matching follow the lifecycle's existing CI-mapping semantics, so one table can serve both later |
-| `managed_action("validate")` | Input: worktree, cycle, policy path, optional check identifiers. Output: `status` (`completed`, `pending`, `unavailable`), `observations` (reference, check identifier, status, snapshot identity, failed test identities) and an optional error code |
-| `managed_action("applicability")` | Input: worktree, cycle, snapshot identity. Output: `applicable`, `reason` (`current`, `source_changed`, `generation_changed`, `snapshot_unknown`, `enrollment_inactive`) and bounded `changed_paths` |
-| Adapter CLI | `plan` and `run` as defined above, both for trigger `affected` unless `--trigger` names another; thin wrappers over the protocol functions |
-| New diagnostic codes | `selection_mismatch` and `owner_action_unsupported`. Existing codes, including the Dagger engine and identity codes, are unchanged |
+| Ownership table | `.github/validation-ownership.json`: components with an identifier, owned path patterns and check identifiers; dependency edges from dependency to consumer; the broad check set. Its SHA-256 is pinned in the adapter, so a table change also changes the enrolled adapter digest. Pattern syntax and matching follow the lifecycle's existing CI-mapping semantics, so one table can serve both later |
+| `managed_action("validate")` | Input: worktree, cycle, policy path, optional `check_ids`, optional `request_id` for an idempotent retry. Output: `status` (`completed`, `pending`, `unavailable`), request, snapshot and generation identities, `new_execution`, `observations` (reference, check identifier, status, snapshot identity, failed test identities, diagnostic codes) and an optional error code |
+| `managed_action("applicability")` | Input: worktree, cycle, policy path, snapshot identity. Output: `applicable`, `reason` (`current`, `source_changed`, `generation_changed`, `snapshot_unknown`, `enrollment_inactive`) and bounded `changed_paths`; a changed or current snapshot also states whether the path list is complete, and a current snapshot states `head_advanced` and `generation_current` |
+| Adapter CLI | `plan` and `run` as defined above, both for trigger `affected` unless `--trigger` names another; thin wrappers over the protocol functions. `plan --json` prints the plan, `plan` prints the basis, selected checks and commands |
+| New diagnostic codes | `selection_mismatch`, `native_lane_unavailable` and `owner_action_unsupported`. Existing codes, including the Dagger engine and identity codes, are unchanged |
 
-Writable source: `private_dot_config/dotfiles-ai/continuous_validation/runner.py`
-(the `affected` trigger and the accepted `select` response),
-`private_dot_config/dotfiles-ai/continuous_validation/cli.py` (new: the two
-managed actions), `.github/continuous_validation.py`,
+Source: `private_dot_config/dotfiles-ai/continuous_validation/runner.py`
+(the `affected` trigger, named `checks` and the accepted `select` response),
+`private_dot_config/dotfiles-ai/continuous_validation/cli.py` (the two managed
+actions), `.github/continuous_validation.py`,
+`.github/validation-ownership.json`,
 `tests/test_continuous_validation_dotfiles_adapter.py`,
-`tests/test_dotfiles_validation_adapter.py`, new focused tests for the managed
-actions and the Dagger refusals, and this document with the context README and
-CHANGELOG.
+`tests/test_dotfiles_validation_adapter.py`, focused tests for the runner
+protocol, the managed actions and the Dagger refusals, and this document with
+the context README and CHANGELOG.
 
 ## Visual Evidence
 
@@ -274,18 +315,20 @@ the actions.
 
 | Selected check state | Condition | Result |
 |---|---|---|
-| Not eligible | No enrollment, closed task, stale adapter digest or generation | `unavailable`; nothing starts |
+| Not selected | The requested check is outside the selection derived for the executed snapshot | `unavailable`, `selection_mismatch` |
+| Not eligible | No enrollment, closed task, stale adapter digest or unreadable generation record | `unavailable`; nothing starts |
 | Lane unavailable | The host cannot provide the declared lane | `unavailable` with the lane code |
 | Engine unavailable | A Dagger check has no configured or reachable pinned engine | `unavailable` with the existing engine code |
 | Deferred | An expensive check requested at `edit` | `unavailable`, `checkpoint_required` |
 | Executed | Admitted and run to a terminal outcome | `passed`, `failed` or `unavailable`; one observation |
 
-**Text Equivalent:** A selected check is either not eligible to start, cannot
-run on this host, is deferred to a checkpoint, or executes to one observation.
-Only an executed check produces an observation, and an observation is the sole
-input this context hands to the lifecycle. Canonical source: the table above
-and the existing observation status set. Owner: continuous_validation. Update
-trigger: a new check disposition or status.
+**Text Equivalent:** A requested check is either outside the derived selection,
+not eligible to start, cannot run on this host, is deferred to a checkpoint, or
+executes to one observation. Only an executed check produces an observation,
+and an observation is the sole input this context hands to the lifecycle.
+Canonical source: the table above and the existing observation status set.
+Owner: continuous_validation. Update trigger: a new check disposition or
+status.
 
 ```mermaid
 flowchart LR

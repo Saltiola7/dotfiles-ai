@@ -1,5 +1,40 @@
 # Continuous Validation Changelog
 
+## 2026-11-24 — Shift-left affected validation: selection by changed path
+
+Make the repository's affected selection real. The adapter now selects checks
+through one ownership table bound to its digest: a change to an owned path runs
+the owning checks and their consumers, while an unmapped path, a workflow or
+action definition, a lockfile, the project manifest or shared test
+infrastructure selects the broad set. The first table,
+`.github/validation-ownership.json`, maps the validation adapter and its two
+test modules to the new `dotfiles.adapter` check. The adapter describes
+Linux-native lanes, drops the retired Swift check, refuses a check outside the
+derived selection with `selection_mismatch`, and adds `plan` and `run` commands
+that need only a clean checkout, Python and uv.
+
+The closed protocol gains the `affected` trigger, an optional selection `basis`
+and named `checks` on an affected request. A managed owner module,
+`continuous_validation/cli.py`, answers the lifecycle's `validate` and
+`applicability` actions for the one enrollment bound to a task: `validate` runs
+the affected selection through the ordinary request owner, and `applicability`
+follows captured content, so a commit that changes no content leaves a snapshot
+current. Actions the owner does not implement return `owner_action_unsupported`
+and keep the lifecycle's existing checkpoint route.
+
+Validation on Python 3.14: 668 affected continuous-validation, lifecycle
+compatibility, publication and instruction tests pass with one skip, and every
+changed Python file compiles. Typing of the adapter and runner reports the same
+diagnostics as the base. A full local suite run passed 7,945 tests with five
+failures: one lifecycle test that now runs the helper as installed so its tiny
+owner is selected again, and four that fail identically on the base commit (the
+installed `opencode` CLI and a local-data render). Deploy and Operate are
+deferred by an operator-approved exception: the runner generation is not
+installed on the development host and self-installing unmerged source is not
+authorized. Nothing is installed or activated. The Discovery import is
+`5252a102`; gate identities remain in the private Cycle Record. Intended draft
+delivery: `dbsctr/continuous_validation/CVS-SHIFT-LEFT-001`; never main.
+
 ## 2026-11-10 — Deterministic capacity-admission regression
 
 Repair the capacity test's shared 100 ms deadline: a delayed preparation-journal

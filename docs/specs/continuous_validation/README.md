@@ -14,7 +14,11 @@ proceeds as a separate effort and is not gated by this retirement.
 
 **Status:** implemented default-off local advisory shadow with explicit checkpoint
 hooks, complete test-identity receipts, typed Codex/OpenCode CLI feedback and
-independently opted-in PR-Agent review.
+independently opted-in PR-Agent review. The closed protocol also carries an
+explicit `affected` trigger, a selection `basis` and named checks, and a managed
+owner module answers lifecycle `validate` and `applicability` requests for one
+explicitly enrolled task
+([affected validation](features/shift-left-affected-validation.md)).
 Native transports and local ARM execution have bounded synthetic qualification;
 exact runtime evidence remains private. Qualification does not cover closed
 noninteractive sessions, arbitrary versions, production tasks, native amd64,
@@ -25,8 +29,9 @@ GCP or measured performance improvements.
 `continuous_validation` owns a portable Python runner that evaluates immutable
 worktree snapshots during development. Cheap affected checks run after edits
 settle; expensive checks run when an explicit checkpoint request is submitted. One host-wide
-admission budget coordinates all enrolled worktrees. Dagger executes Linux
-checks; a native backend executes checks whose contract requires macOS.
+admission budget coordinates all enrolled worktrees. The Dagger backend executes
+containerized Linux checks; the native backend executes checks on the host lane
+their contract names, which for this repository is Linux.
 
 The result is timely diagnostic evidence for the developer and the exact enrolled
 agent session. A shadow observation cannot pass a formal DBSCTR gate, replace a
@@ -186,6 +191,14 @@ controller does not import arbitrary discovered Python modules into its own
 process or execute definitions from an unenrolled checkout. Arguments are arrays;
 shell expansion is used only when explicitly declared by the approved check.
 
+A repository adapter may also offer commands that need no enrollment or runner,
+such as the `plan` and `run` commands of
+[affected validation](features/shift-left-affected-validation.md); they run in
+the caller's own checkout and produce no observation. The managed owner module
+`continuous_validation/cli.py` is the lifecycle's only entry point into this
+package: it answers `validate` and `applicability` for the one enrollment
+explicitly bound to the task and changes no formal lifecycle result.
+
 ### Closed protocol version 1
 
 Enrollment and request files must be owned regular files with one link and mode
@@ -221,7 +234,10 @@ Disabled records require only version and boolean flag and cause no adapter,
 state-directory, queue, or message side effects.
 
 Requests contain `schema_version`, private enrollment-file path `enrollment`,
-`trigger` (`edit`, `checkpoint`, or `manual`), and optional bounded `request_id`.
+`trigger` (`edit`, `affected`, `checkpoint`, or `manual`), and optional bounded `request_id`.
+An `affected` request may also name `checks`, a bounded unique list of manifest
+check IDs: the runner executes only those and leaves each check's admissibility
+to the adapter's `execute`. Other triggers refuse the field.
 A Gate Commit request also carries `checkpoint_head`, a full lowercase Git object
 ID allowed only for a checkpoint trigger. Its captured snapshot must match that
 HEAD before selection or execution; request identity includes the field. Explicit
@@ -240,8 +256,11 @@ Every action receives `schema_version: 1` and `config` (the adapter configuratio
 | Action | Additional input | Closed output |
 |---|---|---|
 | `describe` | None | `schema_version`, bounded `adapter_id`, `input_patterns`, `checks` |
-| `select` | `snapshot` root, mapped immutable `base`, `trigger`, relative `changed_paths` | `schema_version`, unique known check IDs in `checks`, `reason`, boolean `complete` |
+| `select` | `snapshot` root, mapped immutable `base`, `trigger`, relative `changed_paths` | `schema_version`, unique known check IDs in `checks`, `reason`, boolean `complete`, optional `basis` |
 | `execute` | `snapshot`, `base`, `trigger`, full `check`, private `log_path` | `schema_version`, matching `check_id`, `status`, nullable `exit_code`, `runtime`, `test_ids`, `diagnostic_codes` |
+
+`basis` is `affected`, `broad` or `full`; an absent value means the complete
+obligation for adapters that predate it, and it belongs to the selection identity.
 
 `input_patterns` requires a positive relative glob; positive globs include inputs
 and `!`-prefixed nonempty relative globs veto them consistently during capture,
@@ -294,7 +313,7 @@ managed controller rather than replacing its coherent generation.
 | Record | Required identity and contents | Relationship |
 |---|---|---|
 | Enrollment | Schema, feature flag, repository/worktree identity, approved adapter digest and private configuration, exact session target, enabled capabilities | One enrollment has one current generation |
-| Request | Schema, opaque request ID, enrollment path and trigger (`edit`, `checkpoint`, `manual`); generation, selection and lane resolve during processing | One request resolves exactly one snapshot and selection |
+| Request | Schema, opaque request ID, enrollment path and trigger (`edit`, `affected`, `checkpoint`, `manual`), optional named `checks`; generation, selection and lane resolve during processing | One request resolves exactly one snapshot and selection |
 | Snapshot | SHA-256 content digest, base and HEAD identities where available, canonical relative input inventory, content digests, file kinds and executable bits | Many requests may reference identical immutable content |
 | Selection | Manifest-bound check IDs, reason and completeness disposition; actual test IDs are returned by each executed check | One selection belongs to one request |
 | Observation | Request/snapshot/selection identities, full lane and cache identity, start/end times, status, test outcomes, bounded diagnostics references, reuse origin | One request has one terminal observation per selected check |
@@ -444,7 +463,7 @@ existing publication/instruction checks. Preserve configured vulnerability and
 coverage authorities rather than introducing competitors.
 
 Activation additionally requires pinned CLI/engine/Python compatibility, a real
-Linux Dagger smoke, a required native macOS smoke, responsive foreground behavior
+Linux Dagger smoke, a required native Linux smoke, responsive foreground behavior
 under two enrolled worktrees, disable/restart recovery, and exact-session active
 delivery plus idle-wake qualification. A missing capability is unavailable and
 cannot become a passing claim through a mock. GitHub-rendered visual validation
@@ -608,7 +627,7 @@ second worktree only for the bounded concurrency experiment, then stop both.
 | Cache state | First run in an isolated experiment cache; repeated identical input with retained cache | Label actual cold/warm conditions and engine/setup time; do not prune a shared cache or infer a cache hit from elapsed time |
 | Parallel work | One enrolled worktree; two enrolled worktrees sharing default 2-total/1-expensive admission | Compare queue/execution time and foreground responsiveness; native host resources remain best effort |
 | Selection | Existing affected selection; its repository-owned full/checkpoint obligation | Audit selected tests, full-only failures and incomplete/pending cases; this pair has different coverage and is not an identical-input latency comparison |
-| Platform | Native macOS ARM64; local Linux ARM64 Dagger | Preserve OS-specific obligations; matching results do not establish cross-platform equivalence |
+| Platform | Native Linux ARM64; local Linux ARM64 Dagger | Preserve OS-specific obligations; matching results do not establish cross-platform equivalence |
 | x86 obligation | Linux amd64 on a qualified owned x86 executor; unavailable when none is configured | Record unavailable and pending parity explicitly; the ARM64 engine refuses substituted emulation |
 | Feedback | Current failure during active open CLI work; current failure after that session becomes idle | Distinguish accepted queue input from independently observed consumption; closed noninteractive and version drift remain unavailable |
 | Cadence | Cheap checks after debounce; expensive checks at explicit checkpoints | Measure obsolete/canceled work, useful feedback and contention before selecting target cadence |
@@ -695,13 +714,13 @@ their existing authorization requirements.
 ```mermaid
 flowchart TD
     accTitle: Local advisory validation ownership and freshness
-    accDescr: An opted-in worktree or an explicit DBSCTR checkpoint requests checks from the Python runner. The runner captures an immutable snapshot, selects repository-owned checks, and admits them through one host-wide budget. Linux checks use Dagger through an explicitly provisioned local worker and macOS checks use the native backend. Results become private advisory observations. A freshness guard permits only current failures to reach the qualified Codex control-plane queue adapter. Formal DBSCTR gates remain a separate authority.
+    accDescr: An opted-in worktree or an explicit DBSCTR checkpoint requests checks from the Python runner. The runner captures an immutable snapshot, selects repository-owned checks, and admits them through one host-wide budget. Containerized Linux checks use Dagger through an explicitly provisioned local worker and host-lane checks use the native backend. Results become private advisory observations. A freshness guard permits only current failures to reach the qualified Codex control-plane queue adapter. Formal DBSCTR gates remain a separate authority.
     W[Opted-in worktree edits] --> R[Python runner]
     C[DBSCTR checkpoint request] --> R
     R --> S[Immutable snapshot and repository selection]
     S --> B[Shared local admission budget]
     B --> D[Dagger Linux backend]
-    B --> N[Native macOS backend]
+    B --> N[Native backend on the declared host lane]
     D --> L[Explicit optional local VM]
     L --> O[Private advisory observations]
     N --> O
@@ -714,8 +733,8 @@ flowchart TD
 **Text Equivalent:** Explicit enrollment is required for edit-triggered checks;
 DBSCTR can also submit checkpoint requests. The Python runner captures immutable
 inputs and asks the repository adapter for a selection. One shared local budget
-admits both Dagger Linux through the optional dedicated local VM and native macOS
-execution. Both produce private advisory
+admits both Dagger Linux through the optional dedicated local VM and native
+execution on the host lane a check declares. Both produce private advisory
 observations. Only current failures with qualified feedback can reach the exact
 enrolled session through the Codex control plane. Other observations remain
 historical or pending. No path automatically changes a formal DBSCTR gate.
