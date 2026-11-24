@@ -366,10 +366,18 @@ preimage privately, persist the write intent before changing the file, and
 recheck absence and the file before writing. Do not apply this rule to a live
 endpoint or an ordinary boot's saved snapshot.
 
-Native saves serialize split ratios as 32-bit floats while canonical plans keep
-64-bit values (RRW-007G-R9). Compare ratios after rounding both sides to 32-bit
-precision in the shutdown-save match and the boot snapshot-preservation check.
-Every other field remains exact; a genuinely changed ratio still refuses.
+The pinned TUI keeps split ratios as 32-bit floats while canonical plans keep
+64-bit values, and it reports and saves the shortest decimal that reads back as
+that float. That decimal can round to a different 6-decimal value than the plan
+ratio: a plan ratio of 0.58695651 is reported and saved as 0.5869565, which is
+0.586956 against 0.586957 at six decimals and the same native float
+(RRW-007G-R9, RRW-007G-R11). Wherever a layout the TUI reported or saved is
+compared with a canonical plan, compare ratios after rounding both sides to
+32-bit precision: verification of the live endpoint, an ordinary boot's saved
+snapshot against the owned plan, the shutdown-save match and the boot
+snapshot-preservation check. Everything else stays exact: every other field, a
+core document, and a TUI-source stop, where both sides already carry the TUI's
+own values. A genuinely changed ratio, even by one native float, still refuses.
 
 A headless start has no client size, and the pinned TUI rounds every split
 while spending about two cells per split level on borders. A small nested
@@ -755,6 +763,7 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Pending in-place repair to completed receipt | Recovery controller | Exact owned live binding, program, process, version and unique client; no native mutation |
 | Offline TUI start with native shutdown save | Recovery controller | Prove snapshot differs only in allowed metadata or omitted planned identities; back up and regenerate before paced start |
 | Spawn-failed TUI pane at headless start | Launcher, recovery controller | Plan-derived headless grid keeps panes viable; a deferred failed pane keeps exact identity, gets no process-proof query, its session stays absent elsewhere, and live clients are not disturbed |
+| Full-precision plan ratio printed by the TUI with different 6-decimal rounding | Recovery controller, boot | Compare at native precision wherever a reported or saved TUI layout meets a plan; core documents, TUI-source stops and every other field stay exact |
 | Mixed-ownership process during session discovery | Process seam | Skip: a setuid process can never be a session client; PID proofs stay exact |
 | Stopped repair leaf absent after restart | Recovery controller | Reconcile original exit and uncertain live clients, retain closure, continue other repairs |
 | Restart during run/CAS/cleanup or after completion | Recovery controller | Reconcile durable intent against current process/document facts without replay or stale process authority |

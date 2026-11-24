@@ -130,6 +130,20 @@
       "text": "Keep downstream project edits, mandatory Forgejo upgrades, and promotion of Dagger to a required check outside this Initiative.",
       "disposition": "ready",
       "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/README.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]
+    },
+    {
+      "id": "INT-019",
+      "kind": "constraint",
+      "text": "For the Forgejo CI source slice, combine complete native status evidence with a qualified execution receipt reader bound to the repository, required check, definition, current attempt and exact lifecycle candidate.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
+    },
+    {
+      "id": "INT-020",
+      "kind": "risk",
+      "text": "Before protected live Forgejo merge, qualify the selected CI producer and independent custody of its execution receipts on the isolated v15 target.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
     }
   ],
   "contexts": [
@@ -150,7 +164,7 @@
     {
       "id": "delivery-preference",
       "context": "dotfiles_ai_distribution",
-      "state": "ready",
+      "state": "delivered",
       "execution_owner": "build",
       "requirements": ["INT-002", "INT-003", "INT-004", "INT-013", "INT-014", "INT-017"],
       "depends_on": [],
@@ -160,7 +174,7 @@
     {
       "id": "forgejo-pr",
       "context": "dbsctr_v3_lifecycle",
-      "state": "ready",
+      "state": "delivered",
       "execution_owner": "build",
       "requirements": ["INT-001", "INT-002", "INT-004", "INT-013", "INT-014", "INT-017"],
       "depends_on": [],
@@ -170,9 +184,9 @@
     {
       "id": "forgejo-ci",
       "context": "dbsctr_v3_lifecycle",
-      "state": "discovering",
+      "state": "delivered",
       "execution_owner": "build",
-      "requirements": ["INT-001", "INT-007", "INT-008", "INT-009", "INT-013", "INT-018"],
+      "requirements": ["INT-001", "INT-007", "INT-008", "INT-009", "INT-013", "INT-018", "INT-019"],
       "depends_on": ["forgejo-pr"],
       "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
       "release_group": "auto-delivery"
@@ -180,9 +194,9 @@
     {
       "id": "forgejo-merge",
       "context": "dbsctr_v3_lifecycle",
-      "state": "discovering",
+      "state": "ready",
       "execution_owner": "build",
-      "requirements": ["INT-001", "INT-004", "INT-007", "INT-012", "INT-013", "INT-014", "INT-015"],
+      "requirements": ["INT-001", "INT-004", "INT-007", "INT-012", "INT-013", "INT-014", "INT-015", "INT-019", "INT-020"],
       "depends_on": ["forgejo-ci"],
       "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
       "release_group": "auto-delivery"
@@ -212,7 +226,7 @@
       "context": "dbsctr_v3_lifecycle",
       "state": "discovering",
       "execution_owner": "build",
-      "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-005", "INT-006", "INT-007", "INT-008", "INT-009", "INT-010", "INT-011", "INT-012", "INT-013", "INT-014", "INT-015", "INT-016", "INT-017", "INT-018"],
+      "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-005", "INT-006", "INT-007", "INT-008", "INT-009", "INT-010", "INT-011", "INT-012", "INT-013", "INT-014", "INT-015", "INT-016", "INT-017", "INT-018", "INT-019", "INT-020"],
       "depends_on": ["forgejo-merge", "ci-recovery-and-tally"],
       "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/README.md", "docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/specs/dotfiles_ai_distribution/PROFILE.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
       "release_group": "auto-delivery"

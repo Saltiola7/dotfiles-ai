@@ -47,8 +47,19 @@ Initiative digests and approvals retain their original scope.
 ## Slice and dependency plan
 
 The [Initiative manifest](MANIFEST.json) records requirements, ownership and
-dependencies. The preference and Forgejo PR slices have no undelivered slice
-dependencies. Their specification readiness is distinct from launch approval.
+dependencies. The delivery preference, Forgejo PR parity and Forgejo CI source
+slices have landed on `main`. [Delivery preference PR](https://github.com/Saltiola7/dotfiles-ai/pull/347) ·
+[Forgejo PR parity PR](https://github.com/Saltiola7/dotfiles-ai/pull/350) ·
+[Forgejo CI parity PR](https://github.com/Saltiola7/dotfiles-ai/pull/351)
+
+An isolated v15 repository now has verified green and red statuses from a
+separate Mac CI identity. A restarted receipt reader accepted both exact
+results and rejected missing, stale, and misattributed evidence. The
+protected-merge source slice is ready for launch review. The guarded native
+merge demonstration requires approval for the exact fixture roles, branch
+protection, and hook installation. Initiative continuation still needs proof
+that a qualified native writer can open a new slice after the originating
+session closes.
 
 | Slice | Depends on | Acceptance evidence |
 | --- | --- | --- |

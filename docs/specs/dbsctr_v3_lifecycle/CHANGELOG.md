@@ -1,5 +1,35 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Forgejo protected merge adapter (FORGEJO-MERGE-PARITY)
+
+- Require a reserved candidate, qualified guard, native review and fresh CI
+  before submitting one expected-head merge. Verify the landed raw Git object
+  and reconcile uncertain requests through native reads.
+- Validate the source with protected-merge fixtures and provider compatibility
+  tests. Separate qualification governs the live guard and test repository.
+  Source delivery targets a GitHub draft PR to `main`.
+
+## 2026-11-24 — Forgejo CI assessment (FORGEJO-CI-PARITY)
+
+- Assess complete Forgejo v15 commit statuses and require a matching execution
+  receipt for every required check on the exact lifecycle candidate. Return
+  provider-tagged outcomes that distinguish wait, failure, staleness and
+  unavailable evidence.
+- Use synthetic fixtures for the status reader and execution receipt boundary.
+  Source delivery targets a GitHub draft PR to `main`. Live producer
+  qualification, receipt custody and protected integration remain separate.
+
+## 2026-11-24 — Forgejo PR adapter (FORGEJO-PR-PARITY)
+
+- Add source interfaces for exact Forgejo v15 PR lookup, bounded pagination,
+  native draft or ready creation, and identity and readiness readback. Use
+  read-only recovery when a create outcome is uncertain. PR creation is the
+  adapter's write interface.
+- Use synthetic provider fixtures and the existing GitHub and Forgejo local-only
+  compatibility suites for validation. Source delivery targets a GitHub draft
+  PR to `main`. Live credentials, feature push, CI, merge guards and deployment
+  require separate qualification.
+
 ## 2026-11-24 — Host-independent tests (`host-independent-validation` INT-001–008, 010–014)
 
 - Four tests no longer depend on the developer machine. The draft-PR reuse test

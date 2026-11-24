@@ -290,6 +290,62 @@ worktree removal. Managed installation and real consumer qualification require
 the separately approved rollout of a verified merged revision. Full Forgejo
 remote automation remains blocked under its original safety contract.
 
+## Forgejo PR adapter source interface
+
+The [Forgejo parity contract](../../initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md)
+defines the PR adapter in `integration_coordinator/forgejo.py`. The adapter
+checks an explicit, already qualified Forgejo v15 binding for the origin,
+repository, API actor, source ref, target ref and expected head. It uses bounded
+PR pagination and distinguishes an exact open match from terminal history.
+Native readback verifies identity, refs, head and readiness when creating or
+reusing a draft or ready PR.
+
+Draft creation uses the qualified title representation and keeps the intended
+title separate from the provider's draft prefix. PR creation is the adapter's
+write interface. An uncertain create calls for read-only recovery of the exact
+PR. A draft title edit requires a separately qualified conditional operation.
+
+Source acceptance uses synthetic provider fixtures. Live credentials, feature
+push, required CI, protected merge guards and deployment require separate
+qualification. The installed Forgejo CLI route remains local-only.
+
+## Forgejo CI assessment source interface
+
+The [Forgejo CI source contract](../../initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md#forgejo-ci-source-interface)
+pairs complete, bounded v15 commit-status reads in
+`integration_coordinator/forgejo_status.py` with read-only assessment in
+`integration_coordinator/forgejo_ci.py`. The approved plan binds every required
+context to the repository and target, its allowed producer and the definition
+digest. Each required context must have native success and a matching receipt
+from the delivery owner's qualified execution reader. The assessment binds the
+receipt to the native status ID, current run attempt and exact lifecycle
+candidate, including the tested object, raw tree and source projection.
+
+Provider-tagged results distinguish passed, waiting, failed, stale and
+unavailable assessments. Incomplete observations, ambiguous attempts and
+skipped work keep the candidate from advancing. Source fixtures exercise the
+receipt interface. Live producer qualification, verified receipt custody and
+protected integration remain separate.
+
+## Forgejo protected merge source interface
+
+The [guarded integration contract](../../initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md#integrate-through-the-protected-path)
+defines `integration_coordinator/forgejo_merge.py`. The adapter requires a
+persisted reservation for the exact candidate, a qualified guard and dispatcher,
+an exact fixture grant, independent review, and current Forgejo CI receipts.
+It durably claims the submission before requesting an immediate ordinary
+expected-head merge through native branch protection.
+
+Success requires native PR readback, the expected merge actor, the raw merge
+commit with ordered base and head parents and the tested tree, and inclusion on
+the target. The proof records the merge commit separately from its preserved
+source projection. A lost response keeps the reservation fenced while the
+adapter reconciles through read-only observations.
+
+Source acceptance exercises these boundaries with synthetic fixture ports.
+Native fixture qualification and consumer activation each require the
+corresponding guard, identity, branch protection, and operating evidence.
+
 ## Workflow regression source interface
 
 `WORKFLOW-REGRESSION-TELEMETRY` extends the existing CLI/evidence/phase owners;
