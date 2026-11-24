@@ -282,6 +282,25 @@ worktree removal. Managed installation and real consumer qualification require
 the separately approved rollout of a verified merged revision. Full Forgejo
 remote automation remains blocked under its original safety contract.
 
+## Forgejo PR adapter source interface
+
+The [Forgejo parity contract](../../initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md)
+defines the PR adapter in `integration_coordinator/forgejo.py`. The adapter
+checks an explicit, already qualified Forgejo v15 binding for the origin,
+repository, API actor, source ref, target ref and expected head. It uses bounded
+PR pagination and distinguishes an exact open match from terminal history.
+Native readback verifies identity, refs, head and readiness when creating or
+reusing a draft or ready PR.
+
+Draft creation uses the qualified title representation and keeps the intended
+title separate from the provider's draft prefix. PR creation is the adapter's
+write interface. An uncertain create calls for read-only recovery of the exact
+PR. A draft title edit requires a separately qualified conditional operation.
+
+Source acceptance uses synthetic provider fixtures. Live credentials, feature
+push, required CI, protected merge guards and deployment require separate
+qualification. The installed Forgejo CLI route remains local-only.
+
 ## Workflow regression source interface
 
 `WORKFLOW-REGRESSION-TELEMETRY` extends the existing CLI/evidence/phase owners;
