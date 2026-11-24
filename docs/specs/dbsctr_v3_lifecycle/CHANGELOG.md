@@ -1,5 +1,34 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-23 — Require independent process coverage (INT-109)
+
+- A recognized incomplete `lsof` result can clear only the process
+  predicate, and only with a bounded Linux `/proc` census covering same-user
+  threads, checkout handles, working directories, and mappings. Positive
+  holders still block; unavailable visibility or unsupported mounts still
+  retain the checkout. No process or filesystem changes.
+- Cover checkout references held from elsewhere, including deleted and
+  mapped files. Requalify the CLI benchmark digest without changing workloads.
+  Source-only draft PR to `main`; installed qualification remains separate.
+
+## 2026-11-23 — Verify orphan custody before removal (INT-108)
+
+- Keep removal checks read-only. Require disjoint ownership and a retained
+  native registration before skipping a missing checkout's active record.
+  Block when a native prune dry run reports a candidate or cannot be verified.
+- Cover locked, prunable, duplicate, and ambiguous orphan custody. Strict
+  automatic-removal blockers remain unchanged. Refresh the CLI benchmark's
+  source digest; source-only draft PR to `main`, no cleanup or deployment.
+
+## 2026-11-23 — Explain published PR reconciliation (INT-107)
+
+- When `reconcile-target` has no active cycle, point to the existing approved
+  Initiative follow-up for an operator-verified open PR. Do not infer a PR,
+  fetch, or reopen a Cycle Record on this refusal.
+- Cover an advanced default and immutable prior records in the follow-up
+  tests. Refresh the CLI benchmark digest without changing its workloads.
+  Source-only draft PR to `main`; rollout remains separate.
+
 ## 2026-11-23 — Diagnose checkout setup before approval (INT-106)
 
 - Explain dirty checkouts and missing or wrong upstreams before offering a

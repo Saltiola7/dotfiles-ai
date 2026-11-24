@@ -3599,13 +3599,17 @@ def configured_upstream(root):
     return remote, merge.removeprefix("refs/heads/")
 
 
+class NoActiveCycle(RuntimeError):
+    """A checkout has no active cycle pointer."""
+
+
 def load(root, *, bindings=True):
     active = resolved_active_path(root, bindings=bindings)
     records = cycle_dir(root) / "cycles"
     if active == legacy_cycle_dir(root) / "active":
         records = legacy_cycle_dir(root)
     if not active.exists():
-        fail("no active DBSCTR cycle")
+        raise NoActiveCycle("no active DBSCTR cycle")
     cycle_id = active_pointer_id(root, active)
     path = records / f"{cycle_id}.json"
     if not cycle_id or not path.is_file():
@@ -11191,19 +11195,7 @@ def preservation_output(child, *, limit, timeout):
         child.stderr.close()
 
 
-def workspace_processes(root):
-    program = shutil.which("lsof")
-    if program is None:
-        fail("process inventory unavailable")
-    # Linux lsof lists itself and its device-cache helper with the inherited
-    # working directory; scanning from the filesystem root keeps those
-    # self-entries outside every inspected checkout. macOS lsof omits itself.
-    child = subprocess.Popen([program, "-a", "-u", str(os.getuid()), "-F0pn"], stdin=subprocess.DEVNULL,
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=INSPECT_ENV, start_new_session=True, cwd="/")
-    output, errors = preservation_output(child, limit=8 * 1024 * 1024, timeout=30)
-    if child.returncode not in (0, 1) or errors or not output:
-        fail("process inventory unavailable")
-    ignored = {os.getpid(), child.pid}
+def lsof_checkout_holders(root, output, ignored):
     found, process = set(), None
     for field in output.split(b"\0"):
         field = field.lstrip(b"\n")
@@ -11226,6 +11218,201 @@ def workspace_processes(root):
     if process is None:
         fail("process inventory unavailable")
     return sorted(found)
+
+
+def proc_bytes(path: Path, limit: int) -> bytes:
+    with path.open("rb") as stream:
+        data = stream.read(limit + 1)
+    if len(data) > limit:
+        fail("process inventory unavailable")
+    return data
+
+
+def checkout_mount_view(mountinfo: bytes, root: bytes) -> None:
+    rows = []
+    for line in mountinfo.splitlines():
+        left, sep, right = line.partition(b" - ")
+        fields, filesystem = left.split(), right.split()
+        if not sep or len(fields) < 6 or len(filesystem) != 3:
+            fail("process inventory unavailable")
+        point = re.sub(rb"\\(040|011|012|134)", lambda m: bytes([int(m[1], 8)]), fields[4])
+        root_path = re.sub(rb"\\(040|011|012|134)", lambda m: bytes([int(m[1], 8)]), fields[3])
+        rows.append((point, root_path, fields[2], filesystem[0], filesystem[1],
+                     set(fields[5].split(b",") + filesystem[2].split(b","))))
+    proc = [row for row in rows if row[0] == b"/proc"]
+    if (len(proc) != 1 or proc[0][1] != b"/" or proc[0][3] != b"proc"
+            or any(row[0].startswith(b"/proc/") for row in rows)
+            or any(option.startswith((b"hidepid=", b"subset=")) and option != b"hidepid=0"
+                   for option in proc[0][5])):
+        fail("process inventory unavailable")
+    covers = [row for row in rows if root == row[0] or root.startswith(row[0].rstrip(b"/") + b"/")]
+    if not covers:
+        fail("process inventory unavailable")
+    point = max(covers, key=lambda row: len(row[0]))[0]
+    selected = [row for row in covers if row[0] == point]
+    if len(selected) != 1:
+        fail("process inventory unavailable")
+    mount = selected[0]
+    # No network/overlay filesystem, bind aliases or nested mounts in a
+    # clearance proof. Do not traverse other mountpoints to qualify them.
+    if (mount[3] not in {b"ext4", b"xfs", b"btrfs", b"tmpfs"}
+            or any(row != mount and (row[2] == mount[2]
+                                     or mount[3] == b"btrfs" and row[4] == mount[4])
+                   for row in rows)
+            or any(row[0].startswith(root + b"/") for row in rows)):
+        fail("process inventory unavailable")
+
+
+def proc_task_identity(task: Path) -> tuple[bytes, bytes, tuple[int, ...]]:
+    # The comm field is parenthesized and may itself contain spaces or ')'.
+    prefix, sep, tail = proc_bytes(task / "stat", 8192).rpartition(b") ")
+    fields = tail.split()
+    uid = re.findall(rb"(?m)^Uid:\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)[ \t]*$", proc_bytes(task / "status", 65536))
+    if not sep or not prefix.startswith(os.fsencode(task.name) + b" (") or len(fields) < 20 or not fields[19].isdigit() or len(uid) != 1:
+        fail("process inventory unavailable")
+    return fields[19], fields[0], tuple(map(int, uid[0]))
+
+
+def proc_numbered(directory: Path, limit: int) -> list[Path]:
+    # An absent process, task or fd directory is a changed observation,
+    # not an empty directory. Do not filter out filesystem access failures.
+    found = []
+    with os.scandir(directory) as entries:
+        for index, entry in enumerate(entries):
+            if index >= limit:
+                fail("process inventory unavailable")
+            if re.fullmatch(r"[0-9]+", entry.name):
+                found.append(Path(entry.path))
+    return sorted(found)
+
+
+def proc_checkout_path(name: bytes, root: bytes) -> bool:
+    return name in {root, root + b" (deleted)"} or name.startswith(root + b"/")
+
+
+def proc_checkout_task(task, root, namespaces, root_identity):
+    def require_view():
+        if any(os.readlink(task / "ns" / name) != value for name, value in namespaces.items()):
+            fail("process inventory unavailable")
+        if os.readlink(task / "root") != "/":
+            fail("process inventory unavailable")
+        task_root = (task / "root").stat()
+        if (task_root.st_dev, task_root.st_ino) != root_identity:
+            fail("process inventory unavailable")
+
+    def links():
+        paths = [task / name for name in ("cwd", "exe")] + proc_numbered(task / "fd", 8192)
+        return [(path, os.fsencode(os.readlink(path))) for path in paths]
+
+    require_view()
+    observed = links()
+    # Registered files in an io_uring aren't exposed as ordinary fd entries.
+    if any(b"io_uring" in value for _, value in observed if value.startswith(b"anon_inode:")):
+        fail("process inventory unavailable")
+    holder = any(proc_checkout_path(value, root) for _, value in observed)
+    mappings = proc_bytes(task / "maps", 4 * 1024 * 1024)
+    if not mappings:
+        fail("process inventory unavailable")
+    for line in mappings.splitlines():
+        fields = line.split(None, 5)
+        if len(fields) < 5:
+            fail("process inventory unavailable")
+        if len(fields) == 6 and proc_checkout_path(fields[5], root):
+            holder = True
+    if not holder and (observed != links() or mappings != proc_bytes(task / "maps", 4 * 1024 * 1024)):
+        fail("process inventory unavailable")
+    require_view()
+    return holder
+
+
+def proc_checkout_census(proc: Path, root: bytes, namespaces: dict[str, str],
+                         root_identity: tuple[int, int]) -> list[int]:
+    processes = proc_numbered(proc, 8192)
+    known = {}
+    members = {}
+    holders = set()
+    uid = os.getuid()
+    for process in processes:
+        if int(process.name) == os.getpid():
+            continue
+        # Check each thread: fd tables and cwd need not be shared.
+        tasks = proc_numbered(process / "task", 8192)
+        if not tasks or len(known) + len(tasks) > 32768:
+            fail("process inventory unavailable")
+        members[process] = tasks
+        for task in tasks:
+            start, state, owner = proc_task_identity(task)
+            known[task] = (start, state in (b"Z", b"X"), owner)
+            if uid not in owner or state in (b"Z", b"X"):
+                continue
+            if proc_checkout_task(task, root, namespaces, root_identity):
+                holders.add(int(process.name))
+    for process, tasks in members.items():
+        if tasks != proc_numbered(process / "task", 8192):
+            fail("process inventory unavailable")
+    for task, before in known.items():
+        start, state, owner = proc_task_identity(task)
+        if (start, state in (b"Z", b"X"), owner) != before:
+            fail("process inventory unavailable")
+    if processes != proc_numbered(proc, 8192):
+        fail("process inventory unavailable")
+    return sorted(holders)
+
+
+def linux_checkout_processes(root: Path) -> list[int]:
+    """Fail closed unless a bounded native /proc view covers this checkout."""
+    root_bytes = os.fsencode(root)
+    if sys.platform != "linux" or root != root.resolve() or b"\n" in root_bytes or root == Path("/"):
+        fail("process inventory unavailable")
+    observer = Path("/proc/self")
+    namespaces = {name: os.readlink(observer / "ns" / name) for name in ("pid", "user", "mnt")}
+    # Linux's reserved initial namespace inode identities. Do not infer
+    # visibility from PID 1 inside a container or a nested user namespace.
+    if namespaces["pid"] != "pid:[4026531836]" or namespaces["user"] != "user:[4026531837]":
+        fail("process inventory unavailable")
+
+    def target_identity():
+        info = root.stat()
+        if not stat.S_ISDIR(info.st_mode) or root.resolve() != root:
+            fail("process inventory unavailable")
+        return info.st_dev, info.st_ino
+
+    with inventory_budget(5):
+        target = target_identity()
+        mounts = proc_bytes(observer / "mountinfo", 1024 * 1024)
+        checkout_mount_view(mounts, root_bytes)
+        if os.readlink(observer / "root") != "/":
+            fail("process inventory unavailable")
+        system_root = os.stat("/")
+        holders = proc_checkout_census(Path("/proc"), root_bytes, namespaces,
+                                       (system_root.st_dev, system_root.st_ino))
+        if (target_identity() != target
+                or mounts != proc_bytes(observer / "mountinfo", 1024 * 1024)):
+            fail("process inventory unavailable")
+        return holders
+
+
+def workspace_processes(root):
+    program = shutil.which("lsof")
+    if program is None:
+        fail("process inventory unavailable")
+    # Keep lsof's own cwd and helper outside the inspected checkout.
+    child = subprocess.Popen([program, "-a", "-u", str(os.getuid()), "-F0pn"], stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=INSPECT_ENV, start_new_session=True, cwd="/")
+    output, errors = preservation_output(child, limit=8 * 1024 * 1024, timeout=30)
+    if child.returncode not in (0, 1) or not output:
+        fail("process inventory unavailable")
+    holders = lsof_checkout_holders(root, output, {os.getpid(), child.pid})
+    if holders or not errors:
+        return holders
+    # Warnings never establish clearance. Unknown diagnostics still block.
+    warning = b"Output information may be incomplete."
+    lines = [line.strip() for line in errors.splitlines()]
+    if (not lines or lines[-1] != warning or any(
+            line != warning and not re.fullmatch(rb"lsof: WARNING: can't stat .+ file system .+", line)
+            for line in lines)):
+        fail("process inventory unavailable")
+    return linux_checkout_processes(root)
 
 
 def removal_run(root, argv, *, input_text=None, accepted=(0,)):
@@ -11522,6 +11709,94 @@ def workspace_remove_check(root):
     return result
 
 
+def removal_admin_file(path: Path) -> str:
+    """Read one bounded native metadata line without following a link."""
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+        entry = os.fstat(stream.fileno())
+        if not stat.S_ISREG(entry.st_mode) or entry.st_uid != os.getuid() or entry.st_nlink != 1:
+            fail("unsafe worktree metadata")
+        raw = stream.read(4097)
+    value = os.fsdecode(raw).removesuffix("\n")
+    if len(raw) > 4096 or not value or any(c in value for c in "\r\n\0"):
+        fail("invalid worktree metadata")
+    return value
+
+
+def removal_admin_checkout(common: Path, admin: Path) -> Path:
+    if not safe_directory(common, admin) or (admin / removal_admin_file(admin / "commondir")).resolve() != common:
+        fail("unverified worktree administration")
+    link = Path(removal_admin_file(admin / "gitdir"))
+    if not link.is_absolute() or link.name != ".git" or link != link.resolve():
+        fail("invalid worktree checkout path")
+    return link.parent
+
+
+def removal_target_claims_cycle(root: Path, identifier: str) -> bool:
+    pointers = (active_path(root), legacy_active_path(root), legacy_cycle_dir(root) / "active")
+    return any(os.path.lexists(path) and active_pointer_id(root, path) == identifier for path in pointers)
+
+
+def require_no_removal_prune_candidates(root: Path) -> None:
+    # Worktrunk can prune other Git registrations during removal. Git reports
+    # candidates on stderr, which inventory_git rejects. Never perform a prune.
+    if inventory_git(root, "worktree", "prune", "--dry-run", "--verbose", "--expire=all"):
+        fail("worktree prune evidence unavailable")
+
+
+def retained_legacy_orphan(root, record, repository):
+    """Prove one detached legacy orphan by its native pointer and locked registration."""
+    details, baseline = record["worktree"], record["git"]
+    if (record.get("schema_version") not in (4, 5)
+            or details.get("locator") != {"root": "cycle_worktree", "path": "."}
+            or details.get("branch") is not None or baseline.get("branch") is not None
+            or details.get("created_by_dbsctr") is not False
+            or details.get("base_commit") != baseline.get("head")
+            or not external_oid(baseline.get("head"))):
+        return False
+    identifier = record["cycle_id"]
+    if sum(path.stem == identifier for path, _ in repository["files"]) != 1:
+        return False
+    common, members = Path(repository["common"]), repository["members"]
+    owners = []
+    for admin in inventory_children(common / "worktrees", 1024):
+        if not safe_directory(common, admin):
+            fail("unverified worktree administration")
+        pointer = admin / "dbsctr/active"
+        if safe_directory(common, pointer.parent) and os.path.lexists(pointer):
+            if removal_admin_file(pointer) == identifier:
+                owners.append(admin)
+    if len(owners) != 1:
+        return False
+    owner = owners[0]
+    checkout = removal_admin_checkout(common, owner)
+    if path_within(root, checkout) or path_within(checkout, root):
+        return False
+    try:
+        checkout.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        return False
+    if removal_target_claims_cycle(root, identifier):
+        return False
+    rows = [row for row in members if Path(row["worktree"]).resolve() == checkout]
+    if len(rows) != 1:
+        return False
+    row = rows[0]
+    head = baseline["head"]
+    if ("locked" not in row or "prunable" in row or "detached" not in row
+            or row.get("HEAD") != head or removal_admin_file(owner / "HEAD") != head):
+        return False
+    # Legacy detached IDs are repository-wide, not unique per checkout.
+    if sum("detached" in member for member in members) != 1:
+        return False
+    if inventory_git(root, "rev-parse", "--is-shallow-repository").strip() != "false":
+        return False
+    identity = inventory_git(root, "rev-list", "--max-parents=0", head).splitlines()
+    return len(identity) == 1 and details.get("id") == hashlib.sha256(
+        (identity[0] + "\0detached").encode()).hexdigest()[:16]
+
+
 def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
     root = root.resolve()
     reasons, related, commits, candidates, preservation_records = [], [], [], [], []
@@ -11530,12 +11805,49 @@ def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
     if status_paths(root):
         reasons.append("dirty_worktree")
     try:
+        require_no_removal_prune_candidates(root)
+        common, target_admin = common_git_dir(root).resolve(), git_dir(root).resolve()
+        target_branch = branch(root)
+        repository = None
         for index, path in enumerate((cycle_dir(root) / "cycles").glob("*.json")):
             if index >= 10000:
                 fail("cycle inventory bound")
             record = read_cycle_record(root, path, historical=True)
-            matches = (native_git_directory(root, record) == git_dir(root).resolve()
-                       if native_workspace_execution(record) else record_worktree(root, record, bindings=False) == root)
+            if (record.get("cycle_id") != path.stem or not OPAQUE_ID.fullmatch(path.stem)
+                    or record.get("state") not in {"active", "finalizing", "completed", "retired"}):
+                fail("unclassified cycle identity")
+            active = record["state"] in {"active", "finalizing"}
+            if native_workspace_execution(record):
+                admin = native_git_directory(root, record, common=common)
+                matches = admin == target_admin
+                if active and not matches:
+                    other = removal_admin_checkout(common, admin)
+                    if (record["worktree"]["branch"] == target_branch
+                            or path_within(other, root) or path_within(root, other)):
+                        fail("ambiguous native cycle ownership")
+                    if not other.exists():
+                        if repository is None:
+                            repository = inventory_repository(root)
+                        rows = [row for row in repository["members"] if Path(row["worktree"]).resolve() == other]
+                        if (len(rows) != 1 or "locked" not in rows[0] or "prunable" in rows[0]
+                                or rows[0].get("branch") != "refs/heads/" + record["worktree"]["branch"]
+                                or removal_target_claims_cycle(root, path.stem)
+                                or sum(p.stem == path.stem for p, _ in repository["files"]) != 1):
+                            fail("unverified native orphan custody")
+            else:
+                try:
+                    other = record_worktree(root, record, bindings=False)
+                except RuntimeError as error:
+                    if not active or str(error) != "cycle worktree is missing":
+                        raise
+                    other = None
+                matches = other == root
+                if active and not matches and (other is None or not other.exists()
+                        or record["worktree"].get("branch") is None):
+                    if repository is None:
+                        repository = inventory_repository(root)
+                    if not retained_legacy_orphan(root, record, repository):
+                        fail("unverified orphan cycle ownership")
             if not matches:
                 continue
             related.append(record["cycle_id"])
@@ -11566,7 +11878,7 @@ def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
                 for name in (delivery.get("branch"), delivery.get("base_branch")):
                     if name:
                         candidates.append(f"{delivery['remote']}/{name}")
-    except (RuntimeError, OSError, ValueError, TypeError, KeyError):
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
         reasons.append("cycle_evidence_unavailable")
     primary = primary_worktree(root)
     candidates.extend(filter(None, (upstream(root), upstream(primary))))
@@ -11646,6 +11958,11 @@ def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
             reasons.append("running_processes")
     except (RuntimeError, OSError, subprocess.SubprocessError):
         reasons.append("process_inventory_unavailable")
+    if not reasons:
+        try:
+            require_no_removal_prune_candidates(root)
+        except (RuntimeError, OSError, subprocess.SubprocessError):
+            reasons.append("cycle_evidence_unavailable")
     return {"schema_version": 1, "eligible": not reasons, "reasons": sorted(set(reasons))}
 
 
@@ -24200,7 +24517,13 @@ def validate_reconciliation_paths(paths):
 
 def command_reconcile_target(args):
     root = root_dir()
-    _, record = load(root)
+    try:
+        _, record = load(root)
+    except NoActiveCycle:
+        fail("no active DBSCTR cycle. If an open same-repository GitHub PR needs a base update after "
+             "publication, verify its head and target, then use `begin --follow-up-pr NUMBER` in a "
+             "new Initiative cycle. Run preflight, obtain fresh exact approval, and rerun CI after "
+             "updating the same PR. Do not reopen the prior cycle.")
     refuse_local_delivery(record)
     require_active(record)
     require_current_profile(root, record)

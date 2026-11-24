@@ -9,6 +9,7 @@ import sys
 import os
 import fcntl
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -17,14 +18,19 @@ from test_worktrunk_registration import fixture, git, task
 from test_dbsctr_external_completion import cycle, rebased, rebase_arguments
 
 
-@pytest.fixture
-def removal(fixture, monkeypatch):
-    target = task(fixture)
+def load_remove_helper():
     loader = importlib.machinery.SourceFileLoader("workspace_removal", str(harness.SCRIPT))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     assert spec is not None
     core = importlib.util.module_from_spec(spec)
     loader.exec_module(core)
+    return core
+
+
+@pytest.fixture
+def removal(fixture, monkeypatch):
+    target = task(fixture)
+    core = load_remove_helper()
     monkeypatch.setattr(core, "workspace_processes", lambda _root: [])
     return core, fixture.repo, target
 
@@ -35,6 +41,97 @@ def test_clean_code_only_checkout_can_be_removed_without_a_cycle(removal):
     assert core.workspace_remove_check(target)["eligible"] is True
     assert git(primary, "worktree", "list", "--porcelain") == before
     assert target.is_dir()
+
+
+@pytest.mark.parametrize("custody", ["locked", "prunable", "unknown", "reused_path", "reused_identity", "duplicate"])
+def test_legacy_detached_orphan_requires_disjoint_retained_custody(removal, fixture, custody):
+    core, primary, target = removal
+    orphan = primary.parent / "orphan"
+    git(primary, "worktree", "add", "-b", "orphan", str(orphan))
+    harness.run(orphan, "start", "--cycle-id", "orphan-1", "--context", "test", "--risk", "routine",
+                "--delivery-intent", "local", "--plan", str(fixture.plan_path()))
+    common = core.common_git_dir(target)
+    record_path = common / "dbsctr/cycles/orphan-1.json"
+    record = json.loads(record_path.read_text())
+    record.pop("execution")
+    record["schema_version"] = 4
+    record["worktree"].pop("git_dir")
+    git(orphan, "switch", "--detach")
+    record["worktree"].update(branch=None, id=core.worktree_id(orphan))
+    record["git"]["branch"] = None
+    record_path.write_text(json.dumps(record))
+    admin = Path(git(orphan, "rev-parse", "--absolute-git-dir").strip())
+    pointer = admin / "dbsctr/active"
+    if custody != "unknown":
+        pointer.parent.mkdir()
+        pointer.write_text("orphan-1\n")
+        pointer.chmod(0o600)
+    if custody != "prunable":
+        git(primary, "worktree", "lock", str(orphan))
+    orphan.rename(primary.parent / "offline")
+    if custody == "reused_path":
+        # A conflicting native registration must not be used as disjoint proof.
+        (admin / "gitdir").write_text(str(target / ".git") + "\n")
+    if custody == "reused_identity":
+        git(primary, "worktree", "add", "--detach", str(primary.parent / "another"))
+    if custody == "duplicate":
+        duplicate = pointer.parent / "cycles" / record_path.name
+        duplicate.parent.mkdir()
+        duplicate.write_bytes(record_path.read_bytes())
+
+    listing = git(primary, "worktree", "list", "--porcelain", "-z")
+    before = {p: p.read_bytes() for p in (record_path, admin / "HEAD", admin / "gitdir")}
+    result = core.workspace_remove_check(target)
+    assert result["eligible"] is (custody == "locked")
+    if custody == "reused_path":
+        assert "active_cycle" in result["reasons"]
+    elif custody != "locked":
+        assert "cycle_evidence_unavailable" in result["reasons"]
+    assert git(primary, "worktree", "list", "--porcelain", "-z") == listing
+    assert all(path.read_bytes() == raw for path, raw in before.items())
+    assert target.is_dir()
+
+
+def test_native_prune_can_drop_evidence_outside_target(removal):
+    core, primary, target = removal
+    orphan = primary.parent / "orphan"
+    git(primary, "worktree", "add", "-b", "orphan", str(orphan))
+    admin = Path(git(orphan, "rev-parse", "--absolute-git-dir").strip())
+    (admin / "dbsctr").mkdir()
+    evidence = admin / "dbsctr/retained"
+    evidence.write_bytes(b"required evidence\n")
+    orphan.rename(primary.parent / "offline")
+    result = core.workspace_remove_check(target)
+    assert not result["eligible"]
+    assert "cycle_evidence_unavailable" in result["reasons"]
+    assert evidence.read_bytes() == b"required evidence\n"
+
+
+@pytest.mark.parametrize("unlock_before_decision", [False, True])
+def test_locked_native_orphan_does_not_block_disjoint_target(
+        removal, fixture, monkeypatch, unlock_before_decision):
+    core, primary, target = removal
+    orphan = primary.parent / "native-orphan"
+    git(primary, "worktree", "add", "-b", "native-orphan", str(orphan))
+    harness.run(orphan, "start", "--cycle-id", "orphan-1", "--context", "test", "--risk", "routine",
+                "--delivery-intent", "local", "--plan", str(fixture.plan_path()))
+    admin = Path(git(orphan, "rev-parse", "--absolute-git-dir").strip())
+    git(primary, "worktree", "lock", str(orphan))
+    orphan.rename(primary.parent / "offline")
+    before = git(primary, "worktree", "list", "--porcelain", "-z")
+    if unlock_before_decision:
+        def unlock(_root):
+            git(primary, "worktree", "unlock", str(orphan))
+            return []
+
+        monkeypatch.setattr(core, "workspace_processes", unlock)
+    result = core.workspace_remove_check(target)
+    assert result["eligible"] is not unlock_before_decision
+    if unlock_before_decision:
+        assert "cycle_evidence_unavailable" in result["reasons"]
+    else:
+        assert git(primary, "worktree", "list", "--porcelain", "-z") == before
+    assert admin.is_dir() and target.is_dir()
 
 
 @pytest.mark.parametrize("problem", ["primary", "dirty", "ignored", "undelivered", "process"])
@@ -284,6 +381,126 @@ def test_empty_or_malformed_native_inventory_cannot_authorize_removal(fixture, t
     response = harness.run(target, "workspace-remove-check", "--json", ok=False, env=environment)
     assert "process_inventory_unavailable" in json.loads(response.stdout)["reasons"]
     assert target.is_dir()
+
+
+@pytest.mark.parametrize("fallback", ["clear", "holder", "unavailable", "unrecognized", "observed_holder"])
+def test_incomplete_lsof_uses_independent_process_proof(removal, monkeypatch, fallback):
+    _, _, target = removal
+    core = load_remove_helper()
+    child = SimpleNamespace(pid=123, returncode=0)
+    monkeypatch.setattr(core.shutil, "which", lambda _: "/fixture/lsof")
+    monkeypatch.setattr(core.subprocess, "Popen", lambda *a, **kw: child)
+    path = os.fsencode(target / "tracked.txt") if fallback == "observed_holder" else b"/"
+    warning = (b"lsof: WARNING: can't stat fuse file system /unrelated\n"
+               b"      Output information may be incomplete.\n")
+    if fallback == "unrecognized":
+        warning = b"unclassified diagnostic\n" + warning
+    monkeypatch.setattr(core, "preservation_output", lambda *a, **kw: (
+        b"p124\0f3\0n" + path + b"\0\n", warning))
+    observed = []
+
+    def proof(root):
+        observed.append(root)
+        if fallback == "unavailable":
+            raise PermissionError("private process path")
+        return [124] if fallback == "holder" else []
+
+    monkeypatch.setattr(core, "linux_checkout_processes", proof, raising=False)
+    if fallback == "unavailable":
+        with pytest.raises(PermissionError):
+            core.workspace_processes(target)
+    elif fallback == "unrecognized":
+        with pytest.raises(RuntimeError, match="process inventory unavailable"):
+            core.workspace_processes(target)
+    else:
+        assert core.workspace_processes(target) == ([124] if fallback in {"holder", "observed_holder"} else [])
+    assert observed == ([] if fallback in {"unrecognized", "observed_holder"} else [target])
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="native /proc task inspection is Linux-only")
+@pytest.mark.parametrize("holder", ["none", "fd", "deleted", "cwd", "mapping"])
+def test_proc_task_observes_real_checkout_references(removal, holder):
+    core, primary, target = removal
+    sample = target / "sample"
+    sample.write_bytes(b"sample bytes")
+    code = """
+import mmap, os, signal, sys
+path, kind = sys.argv[1:]
+if kind in {'fd', 'deleted', 'mapping'}:
+    f = open(path, 'rb')
+    if kind == 'deleted':
+        os.unlink(path)
+    elif kind == 'mapping':
+        mapping = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        f.close()
+elif kind == 'cwd':
+    os.chdir(os.path.dirname(path))
+print('ready', flush=True)
+signal.pause()
+"""
+    with subprocess.Popen([sys.executable, "-c", code, str(sample), holder], cwd=primary,
+                          stdout=subprocess.PIPE, text=True) as child:
+        try:
+            assert child.stdout is not None
+            assert child.stdout.readline().strip() == "ready"
+            namespaces = {name: os.readlink(f"/proc/self/ns/{name}") for name in ("pid", "user", "mnt")}
+            root = os.stat("/")
+            task_dir = Path(f"/proc/{child.pid}/task/{child.pid}")
+            assert core.proc_checkout_task(task_dir, os.fsencode(target), namespaces,
+                                           (root.st_dev, root.st_ino)) is (holder != "none")
+        finally:
+            child.terminate()
+            child.wait(timeout=5)
+
+
+@pytest.mark.parametrize("mount_change", ["hidden", "alias", "nested", "proc_override", "unsupported"])
+def test_checkout_mount_view_refuses_incomplete_coverage(removal, mount_change):
+    core, _, _ = removal
+    root = b"/repo/task"
+    disk = b"1 0 8:1 / / rw - ext4 /dev/example rw\n"
+    proc = b"2 1 0:42 / /proc rw - proc proc rw\n"
+    core.checkout_mount_view(disk + proc, root)
+    if mount_change == "hidden":
+        proc = proc.replace(b"proc rw", b"proc rw,hidepid=2")
+    elif mount_change == "alias":
+        disk += b"3 1 8:1 /repo /elsewhere rw - ext4 /dev/example rw\n"
+    elif mount_change == "nested":
+        disk += b"3 1 0:43 / /repo/task/nested rw - tmpfs tmpfs rw\n"
+    elif mount_change == "proc_override":
+        proc += b"3 2 0:43 / /proc/123 rw - tmpfs tmpfs rw\n"
+    else:
+        disk = disk.replace(b"ext4", b"overlay")
+    with pytest.raises(RuntimeError, match="process inventory unavailable"):
+        core.checkout_mount_view(disk + proc, root)
+
+
+@pytest.mark.parametrize("problem", ["none", "permission", "namespace", "timeout", "changed_target"])
+def test_proc_clearance_refuses_incomplete_or_changed_observation(removal, monkeypatch, problem):
+    core, _, target = removal
+    monkeypatch.setattr(core.sys, "platform", "linux")
+    monkeypatch.setattr(core.os, "readlink", lambda path: {
+        "pid": "pid:[4026531836]" if problem != "namespace" else "pid:[42]",
+        "user": "user:[4026531837]", "mnt": "mnt:[42]", "root": "/",
+    }[Path(path).name])
+    monkeypatch.setattr(core, "proc_bytes", lambda *_: b"mount fixture")
+    monkeypatch.setattr(core, "checkout_mount_view", lambda *_: None)
+
+    def census(*_):
+        if problem == "permission":
+            raise PermissionError("inspect refused")
+        if problem == "timeout":
+            raise TimeoutError("inspect timed out")
+        if problem == "changed_target":
+            target.rename(target.with_name("old-task"))
+            target.mkdir()
+        return []
+
+    monkeypatch.setattr(core, "proc_checkout_census", census)
+    if problem == "none":
+        assert core.linux_checkout_processes(target) == []
+    else:
+        with pytest.raises((RuntimeError, PermissionError, TimeoutError)):
+            core.linux_checkout_processes(target)
 
 
 def test_native_evidence_overflow_stops_before_child_finishes(removal, tmp_path):
