@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 import re
 from typing import Protocol
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from . import core as c
 
 
 PAGE_SIZE = 50
 MAX_PAGES = 100
-MAX_PULLS = 4096
+MAX_LIST_ROWS = 4096
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -92,8 +92,7 @@ def _branch(ref: str) -> str:
     return branch
 
 
-def _validate(intent: Publication, transport: Transport) -> None:
-    binding = intent.binding
+def _validate_binding(binding: Binding, transport: Transport) -> None:
     c._require(isinstance(binding, Binding), "forgejo_binding_invalid")
     c._repository(binding.repository)
     c._integer(binding.repository_id)
@@ -112,6 +111,10 @@ def _validate(intent: Publication, transport: Transport) -> None:
     for account in (binding.git_account, binding.api_account):
         c._require(isinstance(account, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,126}", account)
                    is not None, "forgejo_account_invalid")
+
+
+def _validate(intent: Publication, transport: Transport) -> None:
+    _validate_binding(intent.binding, transport)
     if _branch(intent.source_ref) == _branch(intent.target_ref):
         raise c.Invalid("forgejo_refs_not_distinct")
     c._oids((intent.head, intent.base), 2, 2)
@@ -188,7 +191,8 @@ def _header(response: Response, name: str) -> str | None:
     return values[0] if values else None
 
 
-def _page_links(link: str | None, origin: str, endpoint: str, page: int) -> dict[str, int]:
+def _page_links(link: str | None, origin: str, endpoint: str, page: int,
+                filters: Mapping[str, str]) -> dict[str, int]:
     relations: dict[str, int] = {}
     if link is None:
         return relations
@@ -200,11 +204,12 @@ def _page_links(link: str | None, origin: str, endpoint: str, page: int) -> dict
         url, relation = match.groups()
         try:
             parsed = urlsplit(url)
-            query = parse_qs(parsed.query, strict_parsing=True, max_num_fields=4)
+            query = parse_qs(parsed.query, strict_parsing=True, max_num_fields=len(filters) + 2)
         except ValueError:
             raise c.Invalid("forgejo_pagination_link_invalid") from None
         if (f"{parsed.scheme}://{parsed.netloc}" != origin or parsed.path != endpoint or parsed.fragment
-                or set(query) != {"state", "page", "limit"} or query["state"] != ["all"]
+                or set(query) != {*filters, "page", "limit"}
+                or any(query[key] != [value] for key, value in filters.items())
                 or len(query["page"]) != 1 or not re.fullmatch(r"[1-9][0-9]{0,2}", query["page"][0])
                 or len(query["limit"]) != 1 or not re.fullmatch(r"[1-9][0-9]?", query["limit"][0])
                 or int(query["limit"][0]) > PAGE_SIZE):
@@ -216,51 +221,59 @@ def _page_links(link: str | None, origin: str, endpoint: str, page: int) -> dict
     return relations
 
 
-def _endpoint(intent: Publication) -> str:
-    return f"/api/v1/repos/{intent.binding.repository}/pulls"
-
-
-def _lookup(intent: Publication, transport: Transport) -> int | None:
-    endpoint = _endpoint(intent)
+def _listing_rows(binding: Binding, transport: Transport, endpoint: str,
+                  filters: Mapping[str, str]) -> Iterator[dict[str, object]]:
+    """Read a bounded population; callers must exhaust the iterator before acting."""
     total = None
     last_page = None
-    seen: set[int] = set()
-    matches: list[int] = []
+    seen = 0
     for page in range(1, MAX_PAGES + 1):
-        path = f"{endpoint}?state=all&page={page}&limit={PAGE_SIZE}"
-        response = _get(transport, path)
+        query = urlencode({**filters, "page": page, "limit": PAGE_SIZE})
+        response = _get(transport, f"{endpoint}?{query}")
         count = _header(response, "x-total-count")
-        if count is None or not re.fullmatch(r"(?:0|[1-9][0-9]{0,3})", count) or int(count) > MAX_PULLS:
+        if count is None or not re.fullmatch(r"(?:0|[1-9][0-9]{0,3})", count) or int(count) > MAX_LIST_ROWS:
             raise c.Invalid("forgejo_page_count_invalid")
         if total is not None and total != int(count):
             raise c.Conflict("forgejo_page_population_changed")
         total = int(count)
         values = response.value
         if (not isinstance(values, list) or len(values) > PAGE_SIZE
-                or len(seen) + len(values) > total or (not values and len(seen) < total)):
+                or seen + len(values) > total or (not values and seen < total)):
             raise c.Invalid("forgejo_page_population_invalid")
         for value in values:
-            row = _object(value)
-            number = _number(row)
-            if number in seen:
-                raise c.Conflict("forgejo_page_repeated_pull")
-            seen.add(number)
-            if _open(row) and _matches(row, intent):
-                matches.append(number)
-        links = _page_links(_header(response, "link"), intent.binding.origin, endpoint, page)
+            yield _object(value)
+        seen += len(values)
+        links = _page_links(_header(response, "link"), binding.origin, endpoint, page, filters)
         has_next = "next" in links
         if "last" in links:
             if last_page is not None and links["last"] != last_page:
                 raise c.Conflict("forgejo_page_population_changed")
             last_page = links["last"]
-        if (has_next != (len(seen) < total)
+        if (has_next != (seen < total)
                 or (last_page is not None and (page > last_page or has_next != (page < last_page)))):
             raise c.Conflict("forgejo_pagination_incomplete")
         if not has_next:
-            if len(matches) > 1:
-                raise c.Conflict("forgejo_open_pull_ambiguous")
-            return matches[0] if matches else None
+            return
     raise c.Conflict("forgejo_pagination_bound_exceeded")
+
+
+def _endpoint(intent: Publication) -> str:
+    return f"/api/v1/repos/{intent.binding.repository}/pulls"
+
+
+def _lookup(intent: Publication, transport: Transport) -> int | None:
+    seen: set[int] = set()
+    matches: list[int] = []
+    for row in _listing_rows(intent.binding, transport, _endpoint(intent), {"state": "all"}):
+        number = _number(row)
+        if number in seen:
+            raise c.Conflict("forgejo_page_repeated_pull")
+        seen.add(number)
+        if _open(row) and _matches(row, intent):
+            matches.append(number)
+    if len(matches) > 1:
+        raise c.Conflict("forgejo_open_pull_ambiguous")
+    return matches[0] if matches else None
 
 
 def _readback(intent: Publication, transport: Transport, number: int) -> PullRequest:

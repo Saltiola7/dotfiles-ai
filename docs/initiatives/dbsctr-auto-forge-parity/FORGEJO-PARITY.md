@@ -89,6 +89,40 @@ proofs are unavailable. [Engineering Profile](../../specs/dbsctr_v3_lifecycle/PR
   meet that contract. It creates no separate queue or permission to satisfy
   native checks through another channel.
 
+### Forgejo CI source interface
+
+The source slice extends the repository-bound Forgejo adapter with a read-only
+assessment. Reuse the existing lifecycle candidate, including its generation,
+source projection, head, base, tested object, tested parents, raw tree, plan
+digest and policy digest. The approved required-check plan binds that exact
+repository and target to each required context, its allowed producer authority
+and the definition digest. The assessment consumes that plan and an execution
+receipt reader supplied by the delivery owner. Fixtures implement the same
+reader at the trust boundary.
+
+| Input | Role in the assessment |
+| --- | --- |
+| Complete v15 commit-status observations | Bind the tested revision, named context, native status ID and observed state. Preserve available timings and diagnostic attribution. Follow the bounded pagination contract even if one page reports aggregate success. |
+| Execution receipt from the qualified reader | Bind the repository, target, candidate and status ID to the allowed producer, definition, run or invocation ID, and current attempt. The receipt confirms that required work executed and finished with its recorded conclusion. |
+| Current approved plan and policy | Identify the complete nonempty required set and its applicable producer/definition bindings. Match the digests on the candidate before assessing success. |
+
+Require both native success and a matching execution receipt for every required
+context. Compare the receipt with the current candidate, including its exact
+tested object, raw tree and source projection. A missing receipt, duplicate or
+uncertain current attempt, stale revision, incomplete pagination, or skipped
+work leaves a typed waiting, stale, failed or unavailable result with a bounded
+reason. The existing coordinator can consume that result for its later recovery
+and tally. Use provider-tagged evidence so a Forgejo creator or status ID cannot
+stand in for a GitHub App identity.
+
+Forgejo v15 status data supplies diagnostics. The live protected merge slice
+still needs independently verified custody for execution receipts from the
+selected project CI producer. For example, a status context and URL alone
+cannot establish that a particular workflow actually ran. The public Actions
+artifact APIs and corrected skipped-job reporting arrived in v16. Source
+fixtures verify the adapter seam while production evidence remains subject to
+that separate qualification. [Forgejo v16 Actions changes](https://forgejo.org/2026-07-release-v16-0/#actions-related-api-additions)
+
 ### Observe and reconcile CI on v15
 
 Required v15 telemetry is the PR and observed head/base, named required
@@ -272,7 +306,7 @@ candidate or record protected delivery?
 | Current situation | Guard or observation | Result |
 | --- | --- | --- |
 | PR selection pending | Exactly one open match or a verified create | Bind the selected native PR and continue. |
-| CI pending | Complete evidence for current candidate and all applicable checks successful | Candidate may proceed through the remaining integration guards. |
+| CI pending | Complete native statuses and matching proof of execution for every required current-candidate check | Candidate may proceed through the remaining integration guards. |
 | CI red or incomplete | Known failure, new candidate, pending check or missing authority | Provide precise state to the coordinator for repair, wait or a scoped blocker. Keep the candidate unmerged. |
 | Candidate ready | Ordinary actor and exact authority available | Reserve and submit through the qualified protected path. |
 | Merge submitted | Definitive conflict, stale head or changed base | Preserve work and require fresh native candidate evaluation. |
@@ -280,7 +314,8 @@ candidate or record protected delivery?
 | Merge submitted or reconciled | Exact landed object and source correspondence proved | Accept verified delivery through the existing receipt path. |
 
 **Text Equivalent.** Verify an open PR before candidate evaluation. Complete
-exact CI can advance the candidate, while failure, pending or missing
+exact CI combines native statuses with verified execution receipts before it
+can advance the candidate, while failure, pending or missing
 authority yields a distinct coordinator observation and keeps work unmerged.
 Only the reserved, approved ordinary path can submit a merge. A stale or
 conflicting result returns to candidate evaluation. An uncertain result is
