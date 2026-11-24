@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "id": "dbsctr-auto-forge-parity",
+  "title": "DBSCTR Initiative Auto and forge delivery parity",
+  "state": "discovering",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "Offer the same Draft PR and Auto delivery outcomes on qualified GitHub and Forgejo repositories.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/README.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
+    },
+    {
+      "id": "INT-002",
+      "kind": "requirement",
+      "text": "Use Draft PR as the shared default for new operator-facing Initiative delivery and accept an explicit task override.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md"]
+    },
+    {
+      "id": "INT-003",
+      "kind": "requirement",
+      "text": "Allow a private chezmoi.toml preference to select Auto without changing the shared default.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md"]
+    },
+    {
+      "id": "INT-004",
+      "kind": "requirement",
+      "text": "In Auto, publish ready PRs and merge through the ordinary protected path when qualified required CI and native protections pass.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]
+    },
+    {
+      "id": "INT-005",
+      "kind": "decision",
+      "text": "Collect one explicit approval bound to the reviewed Initiative, selected slices, dependency closure, exact target and operation and repair limits.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]
+    },
+    {
+      "id": "INT-006",
+      "kind": "requirement",
+      "text": "Continue launching eligible slices after the originating chat closes using a qualified native implementation writer and durable controller.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]
+    },
+    {
+      "id": "INT-007",
+      "kind": "constraint",
+      "text": "Bind checked delivery to the exact current candidate and qualified CI producer, preserving native branch protection and independently verifying inclusion.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]
+    },
+    {
+      "id": "INT-008",
+      "kind": "requirement",
+      "text": "Reconcile red CI through bounded recovery for code, stale candidate and infrastructure failures, followed by fresh required CI.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
+    },
+    {
+      "id": "INT-009",
+      "kind": "requirement",
+      "text": "Report actionable CI and queue telemetry for stalled work and automatically resume safe recovery when authoritative progress returns.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
+    },
+    {
+      "id": "INT-010",
+      "kind": "requirement",
+      "text": "Expose a durable tally and reason and next action for each selected slice, with progress records outside the approved normative digest.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]
+    },
+    {
+      "id": "INT-011",
+      "kind": "requirement",
+      "text": "Reopen Discovery on material ambiguity or drift for affected work and continue independently eligible slices within their original scope.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]
+    },
+    {
+      "id": "INT-012",
+      "kind": "decision",
+      "text": "Qualify the protected Forgejo path in an isolated test repository with exact runtime, version, roles and guard evidence before any consumer enrollment.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
+    },
+    {
+      "id": "INT-013",
+      "kind": "constraint",
+      "text": "Preserve legacy CLI modes, registered cycles, historical approvals and Forgejo local-only delivery.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
+    },
+    {
+      "id": "INT-014",
+      "kind": "constraint",
+      "text": "Keep personal preference, runtime and native capability, and operation approval distinct. Reevaluate material changes before a further external mutation.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
+    },
+    {
+      "id": "INT-015",
+      "kind": "risk",
+      "text": "Forgejo v15 expects the PR head but exposes no expected-base merge field. Consumer Auto is blocked until the server-side exact-base guard, its coverage and ownership are qualified.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
+    },
+    {
+      "id": "INT-016",
+      "kind": "risk",
+      "text": "Existing PR reconciliation does not qualify a native writer or the launch of a new slice after session closure. That capability must pass a separate installed-runtime demonstration.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]
+    },
+    {
+      "id": "INT-017",
+      "kind": "decision",
+      "text": "Keep preference distribution in Dotfiles AI Distribution and own provider delivery, continuation and custody in DBSCTR Lifecycle.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/README.md", "docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md"]
+    },
+    {
+      "id": "INT-018",
+      "kind": "non-goal",
+      "text": "Keep downstream project edits, mandatory Forgejo upgrades, and promotion of Dagger to a required check outside this Initiative.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/README.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]
+    }
+  ],
+  "contexts": [
+    {
+      "id": "dbsctr_v3_lifecycle",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "approved",
+      "depends_on": []
+    },
+    {
+      "id": "dotfiles_ai_distribution",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "approved",
+      "depends_on": []
+    }
+  ],
+  "slices": [
+    {
+      "id": "delivery-preference",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": ["INT-002", "INT-003", "INT-004", "INT-013", "INT-014", "INT-017"],
+      "depends_on": [],
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md", "docs/specs/dotfiles_ai_distribution/PROFILE.md"],
+      "release_group": "auto-delivery"
+    },
+    {
+      "id": "forgejo-pr",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": ["INT-001", "INT-002", "INT-004", "INT-013", "INT-014", "INT-017"],
+      "depends_on": [],
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
+      "release_group": "auto-delivery"
+    },
+    {
+      "id": "forgejo-ci",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "discovering",
+      "execution_owner": "build",
+      "requirements": ["INT-001", "INT-007", "INT-008", "INT-009", "INT-013", "INT-018"],
+      "depends_on": ["forgejo-pr"],
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
+      "release_group": "auto-delivery"
+    },
+    {
+      "id": "forgejo-merge",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "discovering",
+      "execution_owner": "build",
+      "requirements": ["INT-001", "INT-004", "INT-007", "INT-012", "INT-013", "INT-014", "INT-015"],
+      "depends_on": ["forgejo-ci"],
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
+      "release_group": "auto-delivery"
+    },
+    {
+      "id": "initiative-continuation",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "discovering",
+      "execution_owner": "build",
+      "requirements": ["INT-004", "INT-005", "INT-006", "INT-007", "INT-011", "INT-013", "INT-014", "INT-016", "INT-017"],
+      "depends_on": ["delivery-preference"],
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
+      "release_group": "auto-delivery"
+    },
+    {
+      "id": "ci-recovery-and-tally",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "discovering",
+      "execution_owner": "build",
+      "requirements": ["INT-006", "INT-007", "INT-008", "INT-009", "INT-010", "INT-011", "INT-014"],
+      "depends_on": ["initiative-continuation", "forgejo-ci"],
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
+      "release_group": "auto-delivery"
+    },
+    {
+      "id": "auto-qualification",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "discovering",
+      "execution_owner": "build",
+      "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-005", "INT-006", "INT-007", "INT-008", "INT-009", "INT-010", "INT-011", "INT-012", "INT-013", "INT-014", "INT-015", "INT-016", "INT-017", "INT-018"],
+      "depends_on": ["forgejo-merge", "ci-recovery-and-tally"],
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/README.md", "docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/specs/dotfiles_ai_distribution/PROFILE.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
+      "release_group": "auto-delivery"
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "auto-delivery",
+      "members": ["delivery-preference", "forgejo-pr", "forgejo-ci", "forgejo-merge", "initiative-continuation", "ci-recovery-and-tally", "auto-qualification"],
+      "state": "planning"
+    }
+  ]
+}

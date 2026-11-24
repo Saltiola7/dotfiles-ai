@@ -7475,6 +7475,8 @@ def initiative_launch_plan(source, authority, receipt, plan, target, args, follo
     result = initiative_import_plan(source, authority, receipt, plan, target, args)
     if getattr(args, "integration_mode", "inherit") != "inherit":
         result["integration_mode"] = args.integration_mode
+    if getattr(args, "resolved_delivery_preference", None) is not None:
+        result["delivery_preference"] = args.resolved_delivery_preference
     result["checkout"] = {
         "identity_digest": continuation_digest([str(common_git_dir(source).resolve()),
                                                 str(git_dir(source).resolve()), str(source.resolve())]),
@@ -7537,6 +7539,9 @@ def begin_registration(args):
         fail("context must be a simple bounded-context name")
     initiative_values = (args.initiative_manifest, args.initiative_slice, args.initiative_digest)
     follow_up_number = getattr(args, "follow_up_pr", None)
+    if args.delivery_intent is None and (
+            not all(initiative_values) or follow_up_number is not None or args.resume_existing):
+        fail("--delivery-intent is required outside a new Initiative launch")
     if getattr(args, "integration_authorization", None) is not None and (
             not all(initiative_values) or follow_up_number is None or forge is not None
             or args.delivery_intent != "draft_pr"):
@@ -7586,6 +7591,17 @@ def begin_registration(args):
         if initiative["context"] != args.context:
             fail("Initiative receipt context does not match the cycle context")
         check_initiative_cycle_occupancy(source, args.cycle_id, initiative)
+    requested_integration_mode = getattr(args, "integration_mode", None)
+    if args.delivery_intent is None:
+        args.delivery_intent = "draft_pr"
+        if requested_integration_mode is None:
+            preference = initiative_delivery_preference(source)
+            if preference == "auto":
+                fail("Initiative Auto unavailable; unattended slice continuation is unqualified. "
+                     "Select --integration-mode draft_pr for this launch.")
+            args.resolved_delivery_preference = preference
+            requested_integration_mode = "draft_pr"
+    args.integration_mode = requested_integration_mode or "inherit"
     if args.resume_existing and initiative is None:
         fail("resume-existing is limited to approved Initiative begin")
     plan = read_plan(args.plan, args.expected_plan_digest)
@@ -7714,6 +7730,8 @@ def begin_registration(args):
             "launch_digest": launch_digest, "base_head": launch_plan["base_head"],
             **({"forge": forge} if forge is not None else {"github_account": args.github_account}),
             "import_paths": [entry["path"] for entry in launch_plan["artifacts"]]}
+        if "delivery_preference" in launch_plan:
+            approval_view["delivery_preference"] = launch_plan["delivery_preference"]
         confirmation = f"BEGIN {args.cycle_id} {launch_digest}"
         if inherited_approval is not None:
             print(json.dumps(approval_view, sort_keys=True)
@@ -7756,6 +7774,9 @@ def begin_registration(args):
             if git(source, "rev-parse", f"refs/remotes/{remote}/{args.base_branch}").stdout.strip() != fresh_follow_up["observed_base"]:
                 fail("follow-up default changed during confirmation")
         fresh_launch = initiative_launch_plan(source, initiative_source, current, fresh_plan, target, args, fresh_follow_up)
+        if ("delivery_preference" in launch_plan
+                and initiative_delivery_preference(source) != launch_plan["delivery_preference"]):
+            fail("Initiative delivery preference changed during confirmation; request fresh preflight")
         if continuation_digest(fresh_launch) != launch_digest:
             fail("Initiative launch plan changed during confirmation; request fresh preflight")
         if inherited_approval is not None:
@@ -8559,11 +8580,11 @@ def inventory_policy_sources():
     if (not isinstance(policy, dict) or type(policy.get("schema_version")) is not int
             or policy["schema_version"] != 1 or set(policy) - {
                 "schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming",
-                "activation_binding"}
+                "activation_binding", "delivery_preference"}
             or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", policy.get("source_commit", ""))
-            or policy.get("policy_digest") != continuation_digest({
-                k: v for k, v in policy.items() if k != "policy_digest"})):
+            or policy.get("policy_digest") != workflow_policy_authority_digest(policy)):
         fail("inventory_policy_invalid")
+    workflow_policy_delivery_preference(policy)
     def local_path(value):
         if not isinstance(value, str) or not value or any(c in value for c in ("$", "\0", "\\")):
             fail("inventory_policy_invalid")
@@ -19767,7 +19788,37 @@ def preservation_policy_snapshot(root):
         fail("preservation_policy_unavailable")
 
 
-def _preservation_policy_snapshot(root, section="preservation", validator_timeout=None):
+def workflow_policy_authority_digest(policy):
+    # Keep the identity used by existing release, preservation and delivery
+    # approvals stable when only the operator's launch preference changes.
+    return pr_review_digest({key: value for key, value in policy.items()
+                             if key not in {"policy_digest", "delivery_preference"}})
+
+
+def workflow_policy_delivery_preference(policy) -> str | None:
+    if "delivery_preference" not in policy:
+        return None
+    binding = policy["delivery_preference"]
+    if (not isinstance(binding, dict) or set(binding) != {"schema_version", "value", "digest"}
+            or type(binding["schema_version"]) is not int or binding["schema_version"] != 1
+            or binding["value"] not in ("draft_pr", "auto")
+            or binding["digest"] != pr_review_digest({
+                "schema_version": 1, "value": binding["value"], "policy_digest": policy.get("policy_digest")})):
+        fail("invalid workflow delivery preference binding")
+    return binding["value"]
+
+
+def initiative_delivery_preference(root: Path) -> str:
+    try:
+        policy = activated_workflow_policy(root)
+        if policy is None:
+            return "draft_pr"
+        return workflow_policy_delivery_preference(policy) or "draft_pr"
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+        raise RuntimeError("Initiative delivery preference unavailable; check the activated workflow policy and retry") from None
+
+
+def activated_workflow_policy(root, validator_timeout=None):
     config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
     source = config / "dotfiles-ai/workflow-policy.json"
     if not os.path.lexists(source):
@@ -19802,10 +19853,17 @@ def _preservation_policy_snapshot(root, section="preservation", validator_timeou
     if after != raw:
         fail("preservation_policy_changed_during_validation")
     policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
-    digest = hashlib.sha256(json.dumps({k: v for k, v in policy.items() if k != "policy_digest"},
-        sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
-    if policy.get("policy_digest") != digest:
+    if not isinstance(policy, dict) or policy.get("policy_digest") != workflow_policy_authority_digest(policy):
         fail("preservation_policy_invalid")
+    workflow_policy_delivery_preference(policy)
+    return policy
+
+
+def _preservation_policy_snapshot(root, section="preservation", validator_timeout=None):
+    policy = activated_workflow_policy(root, validator_timeout)
+    if policy is None:
+        return None
+    digest = policy["policy_digest"]
     common = common_git_dir(root).resolve()
     entries = [entry for entry in policy["repositories"]
                if (Path(entry["repository"]) / ".git").resolve() == common]
@@ -20764,11 +20822,12 @@ def pr_review_policy_snapshot(root):
         policy = json.loads(raw, object_pairs_hook=no_duplicate_keys)
         # The selected helper has validated optional activation metadata above;
         # it is not delivery authority and remains covered by the full digest.
-        if (not isinstance(policy, dict) or set(policy) - {"activation_binding"} != {"schema_version", "source_commit", "policy_digest",
+        if (not isinstance(policy, dict) or set(policy) - {"activation_binding", "delivery_preference"} != {"schema_version", "source_commit", "policy_digest",
                 "root", "cache_root", "repositories", "naming"}
                 or type(policy["schema_version"]) is not int or policy["schema_version"] != 1
-                or policy["policy_digest"] != pr_review_digest({k: v for k, v in policy.items() if k != "policy_digest"})):
+                or policy["policy_digest"] != workflow_policy_authority_digest(policy)):
             fail("pr_review_policy_invalid")
+        workflow_policy_delivery_preference(policy)
         common = common_git_dir(root).resolve()
         entries = [e for e in policy["repositories"] if (Path(e["repository"]) / ".git").resolve() == common]
         if len(entries) > 1:
@@ -25637,7 +25696,8 @@ def parser():
     begin.add_argument("--cycle-id", required=True)
     begin.add_argument("--context", required=True)
     begin.add_argument("--risk", required=True, choices=("routine", "elevated", "critical"))
-    begin.add_argument("--delivery-intent", required=True, choices=DELIVERY_INTENTS)
+    begin.add_argument("--delivery-intent", choices=DELIVERY_INTENTS,
+                       help="required except for new Initiative launches, which can use the active preference")
     begin.add_argument("--plan", required=True, help="applicability-plan JSON path or - for stdin")
     begin.add_argument("--validation-feedback-target", help="private qualified exact-session target JSON")
     begin.add_argument("--github-account")
@@ -25670,7 +25730,7 @@ def parser():
                        help="Initiative confirmation mode; agent-confirmed reports explicit chat approval, not verified identity")
     approval_mode.add_argument("--integration-authorization",
                        help="private inherited authorization digest; requires fresh Initiative follow-up preflight")
-    begin.add_argument("--integration-mode", default="inherit",
+    begin.add_argument("--integration-mode", default=argparse.SUPPRESS,
         choices=("inherit", "off", "draft_pr", "pr", "ordinary", "admin"),
         help="exact task delivery override; inheritance never enables an unenrolled repository")
     begin.add_argument("--resume-existing", action="store_true")

@@ -123,6 +123,21 @@ def test_pr_review_uses_actual_disposable_validator_without_requiring_activation
     git(fixture.repo, "worktree", "add", "-b", "linked", str(linked))
     assert core.pr_review_policy_snapshot(linked) == selected
     original = path.read_bytes()
+    assert core.initiative_delivery_preference(linked) == "draft_pr"
+    existing_authority = core._preservation_policy_snapshot(linked, section=None)
+    path.write_text(render_generation(generation_source, home,
+        (ROOT / "private_dot_config/dotfiles-ai/private_workflow-policy.json.tmpl").read_text(),
+        {**options, "delivery_preference": "auto"}))
+    assert core.initiative_delivery_preference(linked) == "auto"
+    assert core._preservation_policy_snapshot(linked, section=None) == existing_authority
+    assert core.pr_review_policy_snapshot(linked) == selected
+    assert core.inventory_policy_sources()[:2] == (repositories, roots)
+    invalid = json.loads(path.read_text())
+    invalid["delivery_preference"]["value"] = "draft_pr"
+    path.write_text(json.dumps(invalid))
+    with pytest.raises(RuntimeError, match="delivery preference unavailable"):
+        core.initiative_delivery_preference(linked)
+    path.write_bytes(original)
     changed = json.loads(original)
     changed["repositories"] = []
     changed["activation_binding"] = {"schema_version": 1, "semantic_digest": policy.semantic_digest(changed)}
@@ -388,20 +403,23 @@ def test_render_cli_uses_one_private_config_context(policy, generation_source, s
     assert json.loads(capsys.readouterr().out) == result
 
 
-def test_independent_template_includes_have_deployment_fixed_point(generation_source, storage_home):
+@pytest.mark.parametrize('preference', [None, 'auto'])
+def test_independent_template_includes_have_deployment_fixed_point(generation_source, storage_home, preference):
     home = storage_home
+    options = {'schema_version': 1, 'delivery_preference': preference} if preference else None
     document_template = (ROOT / 'private_dot_config/dotfiles-ai/private_workflow-policy.json.tmpl').read_text()
     combined = '{{ includeTemplate "workflow-policy.tmpl" . }}'
-    first = json.loads(render_generation(generation_source, home, combined))
-    assert json.loads(render_generation(generation_source, home, document_template)) == first['policy']
-    assert tomllib.loads(render_generation(generation_source, home, CONFIG.read_text())) == first['worktrunk']
+    first = json.loads(render_generation(generation_source, home, combined, options))
+    assert first['policy'].get('delivery_preference', {}).get('value') == preference
+    assert json.loads(render_generation(generation_source, home, document_template, options)) == first['policy']
+    assert tomllib.loads(render_generation(generation_source, home, CONFIG.read_text(), options)) == first['worktrunk']
     directory = home / '.config/dotfiles-ai'
     directory.mkdir(parents=True)
     path = directory / 'workflow-policy.json'
     path.write_text(json.dumps(first['policy']))
     path.chmod(0o600)
-    assert tomllib.loads(render_generation(generation_source, home, CONFIG.read_text())) == first['worktrunk']
-    assert json.loads(render_generation(generation_source, home, combined)) == first
+    assert tomllib.loads(render_generation(generation_source, home, CONFIG.read_text(), options)) == first['worktrunk']
+    assert json.loads(render_generation(generation_source, home, combined, options)) == first
 
 
 def test_clean_source_bumps_and_rollback_preserve_legacy_file(policy, generation_source, storage_home, monkeypatch):
