@@ -11526,6 +11526,94 @@ def workspace_remove_check(root):
     return result
 
 
+def removal_admin_file(path: Path) -> str:
+    """Read one bounded native metadata line without following a link."""
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+        entry = os.fstat(stream.fileno())
+        if not stat.S_ISREG(entry.st_mode) or entry.st_uid != os.getuid() or entry.st_nlink != 1:
+            fail("unsafe worktree metadata")
+        raw = stream.read(4097)
+    value = os.fsdecode(raw).removesuffix("\n")
+    if len(raw) > 4096 or not value or any(c in value for c in "\r\n\0"):
+        fail("invalid worktree metadata")
+    return value
+
+
+def removal_admin_checkout(common: Path, admin: Path) -> Path:
+    if not safe_directory(common, admin) or (admin / removal_admin_file(admin / "commondir")).resolve() != common:
+        fail("unverified worktree administration")
+    link = Path(removal_admin_file(admin / "gitdir"))
+    if not link.is_absolute() or link.name != ".git" or link != link.resolve():
+        fail("invalid worktree checkout path")
+    return link.parent
+
+
+def removal_target_claims_cycle(root: Path, identifier: str) -> bool:
+    pointers = (active_path(root), legacy_active_path(root), legacy_cycle_dir(root) / "active")
+    return any(os.path.lexists(path) and active_pointer_id(root, path) == identifier for path in pointers)
+
+
+def require_no_removal_prune_candidates(root: Path) -> None:
+    # Worktrunk can prune other Git registrations during removal. Git reports
+    # candidates on stderr, which inventory_git rejects. Never perform a prune.
+    if inventory_git(root, "worktree", "prune", "--dry-run", "--verbose", "--expire=all"):
+        fail("worktree prune evidence unavailable")
+
+
+def retained_legacy_orphan(root, record, repository):
+    """Prove one detached legacy orphan by its native pointer and locked registration."""
+    details, baseline = record["worktree"], record["git"]
+    if (record.get("schema_version") not in (4, 5)
+            or details.get("locator") != {"root": "cycle_worktree", "path": "."}
+            or details.get("branch") is not None or baseline.get("branch") is not None
+            or details.get("created_by_dbsctr") is not False
+            or details.get("base_commit") != baseline.get("head")
+            or not external_oid(baseline.get("head"))):
+        return False
+    identifier = record["cycle_id"]
+    if sum(path.stem == identifier for path, _ in repository["files"]) != 1:
+        return False
+    common, members = Path(repository["common"]), repository["members"]
+    owners = []
+    for admin in inventory_children(common / "worktrees", 1024):
+        if not safe_directory(common, admin):
+            fail("unverified worktree administration")
+        pointer = admin / "dbsctr/active"
+        if safe_directory(common, pointer.parent) and os.path.lexists(pointer):
+            if removal_admin_file(pointer) == identifier:
+                owners.append(admin)
+    if len(owners) != 1:
+        return False
+    owner = owners[0]
+    checkout = removal_admin_checkout(common, owner)
+    if path_within(root, checkout) or path_within(checkout, root):
+        return False
+    try:
+        checkout.lstat()
+    except FileNotFoundError:
+        pass
+    else:
+        return False
+    if removal_target_claims_cycle(root, identifier):
+        return False
+    rows = [row for row in members if Path(row["worktree"]).resolve() == checkout]
+    if len(rows) != 1:
+        return False
+    row = rows[0]
+    head = baseline["head"]
+    if ("locked" not in row or "prunable" in row or "detached" not in row
+            or row.get("HEAD") != head or removal_admin_file(owner / "HEAD") != head):
+        return False
+    # Legacy detached IDs are repository-wide, not unique per checkout.
+    if sum("detached" in member for member in members) != 1:
+        return False
+    if inventory_git(root, "rev-parse", "--is-shallow-repository").strip() != "false":
+        return False
+    identity = inventory_git(root, "rev-list", "--max-parents=0", head).splitlines()
+    return len(identity) == 1 and details.get("id") == hashlib.sha256(
+        (identity[0] + "\0detached").encode()).hexdigest()[:16]
+
+
 def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
     root = root.resolve()
     reasons, related, commits, candidates, preservation_records = [], [], [], [], []
@@ -11534,12 +11622,49 @@ def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
     if status_paths(root):
         reasons.append("dirty_worktree")
     try:
+        require_no_removal_prune_candidates(root)
+        common, target_admin = common_git_dir(root).resolve(), git_dir(root).resolve()
+        target_branch = branch(root)
+        repository = None
         for index, path in enumerate((cycle_dir(root) / "cycles").glob("*.json")):
             if index >= 10000:
                 fail("cycle inventory bound")
             record = read_cycle_record(root, path, historical=True)
-            matches = (native_git_directory(root, record) == git_dir(root).resolve()
-                       if native_workspace_execution(record) else record_worktree(root, record, bindings=False) == root)
+            if (record.get("cycle_id") != path.stem or not OPAQUE_ID.fullmatch(path.stem)
+                    or record.get("state") not in {"active", "finalizing", "completed", "retired"}):
+                fail("unclassified cycle identity")
+            active = record["state"] in {"active", "finalizing"}
+            if native_workspace_execution(record):
+                admin = native_git_directory(root, record, common=common)
+                matches = admin == target_admin
+                if active and not matches:
+                    other = removal_admin_checkout(common, admin)
+                    if (record["worktree"]["branch"] == target_branch
+                            or path_within(other, root) or path_within(root, other)):
+                        fail("ambiguous native cycle ownership")
+                    if not other.exists():
+                        if repository is None:
+                            repository = inventory_repository(root)
+                        rows = [row for row in repository["members"] if Path(row["worktree"]).resolve() == other]
+                        if (len(rows) != 1 or "locked" not in rows[0] or "prunable" in rows[0]
+                                or rows[0].get("branch") != "refs/heads/" + record["worktree"]["branch"]
+                                or removal_target_claims_cycle(root, path.stem)
+                                or sum(p.stem == path.stem for p, _ in repository["files"]) != 1):
+                            fail("unverified native orphan custody")
+            else:
+                try:
+                    other = record_worktree(root, record, bindings=False)
+                except RuntimeError as error:
+                    if not active or str(error) != "cycle worktree is missing":
+                        raise
+                    other = None
+                matches = other == root
+                if active and not matches and (other is None or not other.exists()
+                        or record["worktree"].get("branch") is None):
+                    if repository is None:
+                        repository = inventory_repository(root)
+                    if not retained_legacy_orphan(root, record, repository):
+                        fail("unverified orphan cycle ownership")
             if not matches:
                 continue
             related.append(record["cycle_id"])
@@ -11570,7 +11695,7 @@ def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
                 for name in (delivery.get("branch"), delivery.get("base_branch")):
                     if name:
                         candidates.append(f"{delivery['remote']}/{name}")
-    except (RuntimeError, OSError, ValueError, TypeError, KeyError):
+    except (RuntimeError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
         reasons.append("cycle_evidence_unavailable")
     primary = primary_worktree(root)
     candidates.extend(filter(None, (upstream(root), upstream(primary))))
@@ -11650,6 +11775,11 @@ def legacy_workspace_remove_check(root, *, strict=False, immediate=False):
             reasons.append("running_processes")
     except (RuntimeError, OSError, subprocess.SubprocessError):
         reasons.append("process_inventory_unavailable")
+    if not reasons:
+        try:
+            require_no_removal_prune_candidates(root)
+        except (RuntimeError, OSError, subprocess.SubprocessError):
+            reasons.append("cycle_evidence_unavailable")
     return {"schema_version": 1, "eligible": not reasons, "reasons": sorted(set(reasons))}
 
 
