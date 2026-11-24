@@ -18,14 +18,19 @@ from test_worktrunk_registration import fixture, git, task
 from test_dbsctr_external_completion import cycle, rebased, rebase_arguments
 
 
-@pytest.fixture
-def removal(fixture, monkeypatch):
-    target = task(fixture)
+def load_remove_helper():
     loader = importlib.machinery.SourceFileLoader("workspace_removal", str(harness.SCRIPT))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     assert spec is not None
     core = importlib.util.module_from_spec(spec)
     loader.exec_module(core)
+    return core
+
+
+@pytest.fixture
+def removal(fixture, monkeypatch):
+    target = task(fixture)
+    core = load_remove_helper()
     monkeypatch.setattr(core, "workspace_processes", lambda _root: [])
     return core, fixture.repo, target
 
@@ -376,6 +381,126 @@ def test_empty_or_malformed_native_inventory_cannot_authorize_removal(fixture, t
     response = harness.run(target, "workspace-remove-check", "--json", ok=False, env=environment)
     assert "process_inventory_unavailable" in json.loads(response.stdout)["reasons"]
     assert target.is_dir()
+
+
+@pytest.mark.parametrize("fallback", ["clear", "holder", "unavailable", "unrecognized", "observed_holder"])
+def test_incomplete_lsof_uses_independent_process_proof(removal, monkeypatch, fallback):
+    _, _, target = removal
+    core = load_remove_helper()
+    child = SimpleNamespace(pid=123, returncode=0)
+    monkeypatch.setattr(core.shutil, "which", lambda _: "/fixture/lsof")
+    monkeypatch.setattr(core.subprocess, "Popen", lambda *a, **kw: child)
+    path = os.fsencode(target / "tracked.txt") if fallback == "observed_holder" else b"/"
+    warning = (b"lsof: WARNING: can't stat fuse file system /unrelated\n"
+               b"      Output information may be incomplete.\n")
+    if fallback == "unrecognized":
+        warning = b"unclassified diagnostic\n" + warning
+    monkeypatch.setattr(core, "preservation_output", lambda *a, **kw: (
+        b"p124\0f3\0n" + path + b"\0\n", warning))
+    observed = []
+
+    def proof(root):
+        observed.append(root)
+        if fallback == "unavailable":
+            raise PermissionError("private process path")
+        return [124] if fallback == "holder" else []
+
+    monkeypatch.setattr(core, "linux_checkout_processes", proof, raising=False)
+    if fallback == "unavailable":
+        with pytest.raises(PermissionError):
+            core.workspace_processes(target)
+    elif fallback == "unrecognized":
+        with pytest.raises(RuntimeError, match="process inventory unavailable"):
+            core.workspace_processes(target)
+    else:
+        assert core.workspace_processes(target) == ([124] if fallback in {"holder", "observed_holder"} else [])
+    assert observed == ([] if fallback in {"unrecognized", "observed_holder"} else [target])
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="native /proc task inspection is Linux-only")
+@pytest.mark.parametrize("holder", ["none", "fd", "deleted", "cwd", "mapping"])
+def test_proc_task_observes_real_checkout_references(removal, holder):
+    core, primary, target = removal
+    sample = target / "sample"
+    sample.write_bytes(b"sample bytes")
+    code = """
+import mmap, os, signal, sys
+path, kind = sys.argv[1:]
+if kind in {'fd', 'deleted', 'mapping'}:
+    f = open(path, 'rb')
+    if kind == 'deleted':
+        os.unlink(path)
+    elif kind == 'mapping':
+        mapping = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+        f.close()
+elif kind == 'cwd':
+    os.chdir(os.path.dirname(path))
+print('ready', flush=True)
+signal.pause()
+"""
+    with subprocess.Popen([sys.executable, "-c", code, str(sample), holder], cwd=primary,
+                          stdout=subprocess.PIPE, text=True) as child:
+        try:
+            assert child.stdout is not None
+            assert child.stdout.readline().strip() == "ready"
+            namespaces = {name: os.readlink(f"/proc/self/ns/{name}") for name in ("pid", "user", "mnt")}
+            root = os.stat("/")
+            task_dir = Path(f"/proc/{child.pid}/task/{child.pid}")
+            assert core.proc_checkout_task(task_dir, os.fsencode(target), namespaces,
+                                           (root.st_dev, root.st_ino)) is (holder != "none")
+        finally:
+            child.terminate()
+            child.wait(timeout=5)
+
+
+@pytest.mark.parametrize("mount_change", ["hidden", "alias", "nested", "proc_override", "unsupported"])
+def test_checkout_mount_view_refuses_incomplete_coverage(removal, mount_change):
+    core, _, _ = removal
+    root = b"/repo/task"
+    disk = b"1 0 8:1 / / rw - ext4 /dev/example rw\n"
+    proc = b"2 1 0:42 / /proc rw - proc proc rw\n"
+    core.checkout_mount_view(disk + proc, root)
+    if mount_change == "hidden":
+        proc = proc.replace(b"proc rw", b"proc rw,hidepid=2")
+    elif mount_change == "alias":
+        disk += b"3 1 8:1 /repo /elsewhere rw - ext4 /dev/example rw\n"
+    elif mount_change == "nested":
+        disk += b"3 1 0:43 / /repo/task/nested rw - tmpfs tmpfs rw\n"
+    elif mount_change == "proc_override":
+        proc += b"3 2 0:43 / /proc/123 rw - tmpfs tmpfs rw\n"
+    else:
+        disk = disk.replace(b"ext4", b"overlay")
+    with pytest.raises(RuntimeError, match="process inventory unavailable"):
+        core.checkout_mount_view(disk + proc, root)
+
+
+@pytest.mark.parametrize("problem", ["none", "permission", "namespace", "timeout", "changed_target"])
+def test_proc_clearance_refuses_incomplete_or_changed_observation(removal, monkeypatch, problem):
+    core, _, target = removal
+    monkeypatch.setattr(core.sys, "platform", "linux")
+    monkeypatch.setattr(core.os, "readlink", lambda path: {
+        "pid": "pid:[4026531836]" if problem != "namespace" else "pid:[42]",
+        "user": "user:[4026531837]", "mnt": "mnt:[42]", "root": "/",
+    }[Path(path).name])
+    monkeypatch.setattr(core, "proc_bytes", lambda *_: b"mount fixture")
+    monkeypatch.setattr(core, "checkout_mount_view", lambda *_: None)
+
+    def census(*_):
+        if problem == "permission":
+            raise PermissionError("inspect refused")
+        if problem == "timeout":
+            raise TimeoutError("inspect timed out")
+        if problem == "changed_target":
+            target.rename(target.with_name("old-task"))
+            target.mkdir()
+        return []
+
+    monkeypatch.setattr(core, "proc_checkout_census", census)
+    if problem == "none":
+        assert core.linux_checkout_processes(target) == []
+    else:
+        with pytest.raises((RuntimeError, PermissionError, TimeoutError)):
+            core.linux_checkout_processes(target)
 
 
 def test_native_evidence_overflow_stops_before_child_finishes(removal, tmp_path):
