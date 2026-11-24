@@ -1,5 +1,27 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-24 — Discovery decisions: Mac support level, RHEL lane image, Worktrunk upgrade
+
+- Discovery only: no implementation, deployment or activation. Outcome: the
+  `linux-ci-cutover`, `macos-workstation-retirement` and
+  `fedora-parallels-workstation` Initiatives record delivered slices with
+  their merge SHAs and the owner decisions of 2026-11-24, and the new
+  `worktrunk-upgrade` Initiative carries its own contract.
+- Mac: the machine keeps applying this source, is no longer a development
+  host, is not tested in CI (accepted risk), loses no files in bulk, and may
+  have merged worktrees removed from an owner-approved list. The retirement's
+  teardown step is rejected.
+- RHEL-family surface lane: UBI 10 is the only image; an aarch64 parity lane
+  runs on the hosted arm64 runner and reports without blocking.
+- Worktrunk: v0.83.0 for the workstation and CI, the remote-user foundation
+  stays on v0.80.0, the version guards keep v0.81.0 for the Mac, and worktree
+  policy becomes reachable for a Linux workstation without the remote-user
+  flag.
+- Evidence: PR #331 `0824bbe1` (matrix cutover and folded fixes), PR #328
+  `5d8681b0` (retirement source), upstream's published v0.83.0 checksums, and
+  `dbsctrctl initiative-check` on the four manifests. No Gate Exceptions.
+- Intended Final Push target: a documentation-only pull request to `main`.
+
 ## 2026-11-24 — Compare TUI-reported and saved layouts at native precision (RRW-007G-R11)
 
 - R10 live result: after a reboot, recover started the TUI on the plan-sized
