@@ -3,8 +3,12 @@
 INT-110. Owner: distribution maintainer. [Engineering Profile](../PROFILE.md);
 [existing Product Intent](../PRODUCT.md). The operator uses Omarchy desktops and
 RHEL-family servers. Qualify the [six source contracts](../../dbsctr_v3_lifecycle/features/operator-cli-fixes.md)
-on these two native target classes. macOS is not a development or deployment
-target for this work. A hosted Linux test result is source evidence only.
+on these two native target classes. macOS is not a development or qualified
+deployment target for this work. Since the owner decision of 2026-11-24 the
+Mac keeps applying this source: it receives the reviewed files through the
+owner's direct apply only, without CI or installed qualification
+([decisions](../../../initiatives/macos-workstation-retirement/README.md)).
+A hosted Linux test result is source evidence only.
 
 | Stage | Admission | Evidence / stop condition |
 |---|---|---|

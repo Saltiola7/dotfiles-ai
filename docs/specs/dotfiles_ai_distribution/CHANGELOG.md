@@ -1,5 +1,16 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-24 — Rollout scope: the Mac applies by direct apply only
+
+- Clarifies INT-110 of `dbsctr-workflow-convergence` and
+  [`features/operator-cli-rollout.md`](features/operator-cli-rollout.md).
+  macOS is outside the qualified development and deployment scope; since the
+  owner decision of 2026-11-24 the Mac keeps applying this source and receives
+  the reviewed files through the owner's direct apply only, without CI or
+  installed qualification.
+- Documentation only: no rollout stage, admission or behavior changes.
+
+
 ## 2026-11-24 — Discovery decisions: Mac support level, RHEL lane image, Worktrunk upgrade
 
 - Discovery only: no implementation, deployment or activation. Outcome: the
