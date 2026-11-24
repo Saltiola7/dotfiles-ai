@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Forgejo protected merge adapter (FORGEJO-MERGE-PARITY)
+
+- Require a reserved candidate, qualified guard, native review and fresh CI
+  before submitting one expected-head merge. Verify the landed raw Git object
+  and reconcile uncertain requests through native reads.
+- Validate the source with protected-merge fixtures and provider compatibility
+  tests. Separate qualification governs the live guard and test repository.
+  Source delivery targets a GitHub draft PR to `main`.
+
 ## 2026-11-24 — Forgejo CI assessment (FORGEJO-CI-PARITY)
 
 - Assess complete Forgejo v15 commit statuses and require a matching execution
