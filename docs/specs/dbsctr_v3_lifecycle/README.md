@@ -1,11 +1,11 @@
 # DBSCTR V3 Lifecycle
 
 [Completion at verified merge](features/draft-merge-completion.md) specifies
-the next `draft_pr` contract: publication freezes the source and frees the
-checkout; a verified native merge can be recorded while delivery proof is
-pending. The coordinator consumes frozen publication rather than waiting for
-completion. This is Discovery for future source, distinct from v1 receipts
-already available in source for historical records.
+the plan-bound `draft_pr` contract, implemented in source: publication freezes
+the source and frees the checkout; a verified native merge can be recorded
+while delivery proof is pending. The coordinator consumes frozen publication
+rather than waiting for completion. A cycle uses it only when its approved plan
+binds the contract; v1 receipts remain the route for historical records.
 
 The same [Initiative handoff](../../initiatives/dbsctr-workflow-convergence/BUILD-HANDOFF.md#publication-and-evidence)
 sequences [isolated evidence commands](features/evidence-checkout-isolation.md),

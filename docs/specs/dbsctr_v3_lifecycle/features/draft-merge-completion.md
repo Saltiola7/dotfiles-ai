@@ -1,8 +1,11 @@
 # Complete a published source cycle at verified merge
 
-**Discovery contract; not yet implemented.** Owner: lifecycle maintainer.
-Critical risk; Python and Security; [Engineering Profile](../PROFILE.md).
-For new GitHub `draft_pr` cycles, publication releases the checkout. Successful
+The interface below is implemented in source. It records neither installed
+qualification nor activation. Owner: lifecycle maintainer. Critical risk;
+Python and Security; [Engineering Profile](../PROFILE.md).
+A cycle uses this contract only when its approved applicability plan binds it
+at registration. Every other GitHub `draft_pr` cycle keeps completion at
+publication. For a bound cycle, publication releases the checkout. Successful
 completion means the cycle's work is proven to have landed. This applies both
 to ordinary draft publication and to explicitly enrolled coordinated PRs.
 
@@ -31,7 +34,11 @@ is unavailable. Report the missing proof and the next verification action.
 | Legacy Final Push already completed | Observe its matching PR by cycle ID | Append separately from the historical record. Keep the original record bytes, open/draft publication snapshot, `completed_at`, evidence and any pointer unchanged. |
 | Any state | Identical retry, stale pins, changed input, or interrupted write | Replay the exact stored outcome once, or refuse with the changed binding. Never republish, recreate a pointer, remove a foreign pointer or assign another cycle credit. |
 
-Bind the prospective lifecycle contract/version at registration. An older active
+Bind the prospective lifecycle contract/version at registration. The plan's
+`completion` object is exactly `{"schema_version": 1, "contract": "verified_merge"}`
+and is covered by the approved plan digest. It is valid only for GitHub
+`draft_pr` delivery, is refused for every other intent and provider, and
+`update-plan` cannot change it. An older active
 cycle still uses its original delivery contract. Older writers must refuse new
 state they cannot preserve. Preserve schemas 3/4/5 and existing external and
 post-delivery receipt versions; Forgejo/local-only and branch delivery keep
@@ -50,20 +57,47 @@ and target locks. An exact retry after interruption between append and state
 save finishes only that transition. A later observation appends; it cannot
 rewrite an earlier one.
 
+The snapshot freezes section digests, not copies. Every reader of a published
+record recomputes them, so a changed commit, gate, evidence item, review or
+Initiative binding makes the record unreadable instead of silently newer.
+Publication also retains the published source under the private evidence ref;
+deleting the feature branch cannot remove the inputs of a later proof.
+
+An observation is one schema 2 `merge_observation` entry in the cycle's existing
+private receipt sequence.
+
+| Field | Content |
+|---|---|
+| `binding` | The publication digest and recorded source, or the exact bytes of a historical completed record |
+| `native` | The merged pull request, its head, merge and first parent, and the independently fetched target that contains it |
+| `delivery` | `verified` with proof `unchanged_head`, `base_refresh` or `follow_up_extension`; otherwise `unverified` with a reason, or `unavailable` when the retained source is gone |
+| `gates`, `conditions` | Frozen evidence identities and the deferred review conditions, under their original meaning |
+| `completion` | `ready`, `pending` with a reason, or `already_completed` with its route |
+
+`follow_up_extension` holds only when every commit between the published tip
+and the merged head is the recorded source of a linked follow-up cycle on the
+same pull request. A closed-unmerged pull request, wrong pins, repository or
+target, an unavailable provider, and a merge absent from the fetched target are
+refused and leave no entry.
+
 ## Operator and coordinator interfaces
 
 - `final-push` reports the selected PR, published head and pending merge. Once
   frozen, ordinary gate, amendment and publication writers cannot change it.
-  Resolve an uncertain publish by reading the exact remote ref and PR first.
+  An identical retry after an interrupted release frees only that cycle's own
+  pointer and publishes nothing. Resolve an uncertain publish by reading the
+  exact remote ref and PR first.
 - `complete-external --cycle-id ID --pr-number N --expected-head HEAD
   --expected-merge MERGE --preview` selects the exact publication without an
-  active pointer. An append uses the same pins, `--expected-receipt-digest`
-  and existing exact approval. Do not rerun work or infer the selected record
-  from the current branch. Explicit retries of existing `external_completion`
+  active pointer, from any checkout of the repository. An append uses the same
+  pins, `--expected-receipt-digest` and existing exact approval. Do not rerun
+  work or infer the selected record from the current branch. A historical
+  completed Final Push record is observed the same way and never changes.
+  Explicit retries of existing `external_completion`
   receipts and the existing active-cycle route keep their original contracts.
-- `status --cycle-id ID --json` reads the stored publication, latest native
-  observation, delivery disposition/reason and dates **offline**, even with a
-  different active cycle. Plain `status` retains its active-checkout meaning.
+- `status --cycle-id ID --json` reads the stored publication, observations,
+  latest delivery disposition and dates **offline**, even with a different
+  active cycle. Plain `status` retains its active-checkout meaning.
   Preserve [post-delivery v1](post-delivery-receipts.md) and its explicit
   `--post-delivery` read/append interface. Route compatible requests to the
   same custody owner; never create competing histories. Preview changes no
@@ -96,7 +130,8 @@ Use disposable Git histories and the existing synthetic GitHub boundary:
    replaced or absent pointer. Verify original evidence/approvals, source
    retention, checkout and existing retirement guards survive every path.
 
-Start with `tests/test_dbsctr_external_completion.py`,
+Start with `tests/test_draft_merge_completion.py`, which carries the acceptance
+below, then `tests/test_dbsctr_external_completion.py`,
 `tests/test_post_delivery_receipts.py`, `tests/test_completion_reconciliation.py`
 and `tests/test_integration_lifecycle.py`. Include existing registration,
 follow-up, status/inventory, preservation and negative local-only consumers

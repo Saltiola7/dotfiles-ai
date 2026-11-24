@@ -1,5 +1,24 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Completion at verified merge (PR-MERGE-001)
+
+- Add the plan-bound `verified_merge` contract for GitHub draft PR cycles. Final
+  Push freezes a publication snapshot, retains the published source and releases
+  only its own checkout pointer; the cycle waits in `awaiting_merge` instead of
+  completing at publication. A cycle uses it only when its approved plan selects
+  it. Other deliveries, historical records and v1 receipts keep their contracts.
+- Record native PR merges by exact cycle ID from any checkout as versioned merge
+  observations in the existing receipt sequence. Complete only on an exact-tree,
+  base-refresh or linked-follow-up proof, and read the stored state offline with
+  `status --cycle-id`. The integration coordinator binds its ticket to the frozen
+  publication and completes the cycle once from its verified outcome.
+- Validate with real Git and the synthetic GitHub boundary: 16 tests in
+  `tests/test_draft_merge_completion.py`, the affected lifecycle suites and the
+  full Python suite. On the development machine only four failures remain, each
+  reproduced on the base commit (installed OpenCode, local configuration data and
+  one `deliver_draft_pr` unit test). Refresh the helper benchmark pin. Installed
+  qualification and live consumer recovery remain separate.
+
 ## 2026-11-24 — Forgejo CI assessment (FORGEJO-CI-PARITY)
 
 - Assess complete Forgejo v15 commit statuses and require a matching execution
