@@ -1,9 +1,16 @@
 # Fedora Parallels Workstation
 
-This Initiative delivers one managed Fedora ARM64 desktop in Parallels while
-keeping personal workstation configuration and AI runtime configuration in their
-existing authoritative repositories. The canonical material-statement ledger is
-[`MANIFEST.json`](MANIFEST.json).
+Status: rejected on 2026-11-24 (INT-027). Nothing below is planned or
+authorized; the text stays as the record of what was considered. The Try
+Omarchy VM is the workstation and RHEL 10 the remote platform, the lima path
+is not revived, and the RHEL configuration in this repository is retained
+unchanged. Work that had started under this Initiative is left in place and
+is not continued.
+
+This Initiative set out to deliver one managed Fedora ARM64 desktop in
+Parallels while keeping personal workstation configuration and AI runtime
+configuration in their existing authoritative repositories. The canonical
+material-statement ledger is [`MANIFEST.json`](MANIFEST.json).
 
 ## Success
 

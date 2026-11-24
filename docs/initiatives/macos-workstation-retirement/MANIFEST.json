@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "macos-workstation-retirement",
-  "title": "Retire the macOS AI workstation: lima sandbox, darwin agent stack, and mini as thin host",
+  "title": "Retire the macOS AI workstation role: lima sandbox and darwin agent stack",
   "state": "ready",
   "coordinator_repository": "Saltiola7/dotfiles-ai",
   "statements": [
@@ -9,7 +9,7 @@
       "id": "INT-001",
       "kind": "requirement",
       "text": "The lima sandbox subsystem is permanently removed from dotfiles-ai: sandbox-vm, sandbox.json, the lima/ instance templates, the atuin-workspace LaunchAgent and loader, sandbox data keys (atuin_workspace, lima_home, build_workspace, workspaces), sandbox shell aliases, and LIMA_SANDBOX.md.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": [
         "docs/initiatives/macos-workstation-retirement/README.md"
       ]
@@ -18,7 +18,7 @@
       "id": "INT-002",
       "kind": "requirement",
       "text": "The mac-mini stops applying the dotfiles-ai workstation stack: all darwin LaunchAgents (dbsctr-embedding, dbsctr-code-embedding, dbsctr-knowledge-reconcile, dbsctr-reranker, dbsctr-spawner, dbsctr-watchdog, pm-postgres-backup, history-projection-refresh, herdr-server, atuin-workspace) and their loaders are deleted from the source, and the mini's dotfiles-ai config is retired so nothing re-renders them.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": [
         "docs/initiatives/macos-workstation-retirement/README.md"
       ]
@@ -55,7 +55,7 @@
       "id": "INT-006",
       "kind": "decision",
       "text": "The DBSCTR knowledge store (DKS) is dialed down to documented-dormant: experimental, not developed further; its spec documents current state and the darwin delivery retirement. DKS plan artifacts remain as historical record. Future work refactors rather than resumes the darwin design.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": [
         "docs/specs/dbsctr_knowledge_store/README.md",
         "docs/specs/dbsctr_knowledge_store/OPERATION.md"
@@ -65,7 +65,7 @@
       "id": "INT-007",
       "kind": "decision",
       "text": "On the VM, knowledge services (embedding, reranker, reconcile) run on demand inside DBSCTR cycles against pm-postgres; the darwin daemons were the macOS workaround, so deleting them is behavior-neutral on the VM.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": [
         "docs/specs/dbsctr_knowledge_store/README.md"
       ]
@@ -74,7 +74,7 @@
       "id": "INT-008",
       "kind": "decision",
       "text": "Continuous validation is a new experimental feature still to be developed \u2014 not retired here. Only the obsolete lima-backed execution path from its prototype (local_engine.py + engine/lima.yaml) is removed with the lima subsystem; the feature's VM-native development (dagger backend against the local podman socket) proceeds as the operator's separate follow-on effort.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": [
         "docs/initiatives/continuous-validation-shadow/README.md",
         "docs/specs/continuous_validation/README.md"
@@ -102,7 +102,7 @@
       "id": "INT-011",
       "kind": "requirement",
       "text": "The mini teardown is this initiative's deployment step: boot out and remove all dotfiles-ai LaunchAgents including the drift obsidian agents (never repo-managed), remove the plists from disk, retire ~/.config/dotfiles-ai/chezmoi.toml, and leave the machine applying only the personal dotfiles.",
-      "disposition": "ready",
+      "disposition": "rejected",
       "artifacts": [
         "docs/initiatives/macos-workstation-retirement/README.md"
       ]
@@ -110,7 +110,7 @@
     {
       "id": "INT-012",
       "kind": "requirement",
-      "text": "Post-merge convergence: the shared ext working tree fast-forwards to main, the VM applies clean (no removed targets remain managed), and the mini has no loaded dotfiles-ai agents.",
+      "text": "Post-merge convergence: the shared ext working tree fast-forwards to main, the VM applies clean (no removed targets remain managed), and the mini no longer loads the retired dotfiles-ai agents after the owner's apply.",
       "disposition": "ready",
       "artifacts": [
         "docs/initiatives/macos-workstation-retirement/README.md"
@@ -147,7 +147,7 @@
       "id": "INT-016",
       "kind": "decision",
       "text": "The obsidian LaunchAgents found running on the mini (server, watcher, source-pulls) are drift: they exist on disk but are not managed by the current source, so no repo apply can remove them; teardown removes them explicitly.",
-      "disposition": "ready",
+      "disposition": "rejected",
       "artifacts": [
         "docs/initiatives/macos-workstation-retirement/README.md"
       ]
@@ -157,6 +157,51 @@
       "kind": "constraint",
       "text": "The lima instance data, LIMA_HOME state root, and LaunchAgent were already torn down on the mini during discovery (instance deleted, /Volumes/ext/state/lima removed, agent booted out and disabled, plist removed); the source changes make that state permanent instead of re-creatable at next apply.",
       "disposition": "delivered",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-018",
+      "kind": "decision",
+      "text": "Owner decision 2026-11-24: the Mac is not excluded from dotfiles-ai. It keeps applying it and keeps its dotfiles-ai configuration. This replaces the end state of INT-011: no teardown retires that configuration. The owner applies the merged source once, and that apply removes the retired agents and lima files through normal chezmoi removal.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-019",
+      "kind": "decision",
+      "text": "Owner decision 2026-11-24: dotfiles-ai is no longer developed on the Mac, because macOS cannot be tested in CI. Cycles, worktrees and commits for it happen on the Linux workstation. Work that exists only on the Mac is recovered to the workstation read-only first.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-020",
+      "kind": "risk",
+      "text": "Accepted by the owner 2026-11-24: macOS is not tested in CI, so a change can break the Mac's apply unnoticed. Defects are found through the owner's direct apply and fixed afterwards. Mitigation: the owner previews the apply delta read-only before applying.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-021",
+      "kind": "constraint",
+      "text": "No bulk deletion on the Mac. Its dotfiles-ai checkouts, uncommitted work and conversation history stay; nothing is removed there beyond what a normal apply removes.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
+      ]
+    },
+    {
+      "id": "INT-022",
+      "kind": "requirement",
+      "text": "dotfiles-ai worktrees on the Mac whose branch is already merged into main are redundant and may be removed. Removal follows a read-only inventory that lists, per worktree, its merge state, uncommitted changes, unpushed commits and whether conversation sessions reference its directory. Only worktrees on a list the owner approves are removed, never one with uncommitted changes, unpushed commits or sessions the owner wants to keep, and always through the kernel's removal check. Personal dotfiles worktrees are out of scope.",
+      "disposition": "ready",
       "artifacts": [
         "docs/initiatives/macos-workstation-retirement/README.md"
       ]
@@ -192,7 +237,7 @@
     {
       "id": "retire-workstation-source",
       "context": "dotfiles_ai_distribution",
-      "state": "ready",
+      "state": "delivered",
       "execution_owner": "build",
       "requirements": [
         "INT-001",
@@ -245,7 +290,7 @@
     {
       "id": "mini-teardown-deployment",
       "context": "dotfiles_ai_distribution",
-      "state": "ready",
+      "state": "rejected",
       "execution_owner": "build",
       "requirements": [
         "INT-011",
@@ -267,10 +312,43 @@
         "INT-003",
         "INT-012"
       ],
-      "depends_on": [],
+      "depends_on": ["retire-workstation-source"],
       "release_group": "retirement",
       "artifacts": [
         "docs/specs/dotfiles_ai_distribution/CHANGELOG.md"
+      ]
+    },
+    {
+      "id": "mini-apply-by-owner",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-018",
+        "INT-019",
+        "INT-020",
+        "INT-012"
+      ],
+      "depends_on": ["retire-workstation-source"],
+      "release_group": "retirement",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md",
+        "docs/specs/dotfiles_ai_distribution/CHANGELOG.md"
+      ]
+    },
+    {
+      "id": "mac-worktree-pruning",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-021",
+        "INT-022"
+      ],
+      "depends_on": ["retire-workstation-source"],
+      "release_group": "retirement",
+      "artifacts": [
+        "docs/initiatives/macos-workstation-retirement/README.md"
       ]
     }
   ],
@@ -281,7 +359,9 @@
         "retire-workstation-source",
         "personal-dotfiles-residue",
         "mini-teardown-deployment",
-        "vm-convergence-verification"
+        "vm-convergence-verification",
+        "mini-apply-by-owner",
+        "mac-worktree-pruning"
       ],
       "state": "ready"
     }

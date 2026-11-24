@@ -1,0 +1,290 @@
+{
+  "schema_version": 1,
+  "id": "worktrunk-upgrade",
+  "title": "Upgrade Worktrunk on the Linux workstation and make worktree policy reachable there",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "decision",
+      "text": "Owner decision 2026-11-24: Worktrunk v0.83.0, the latest stable release, is the upgrade target for the Linux workstation and for CI. The remote-user foundation keeps v0.80.0 until the shared remote workspace follows through the cross-repository RHEL remote-workspace Initiative.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "kind": "requirement",
+      "text": "The workstation pins move together in one change: the Worktrunk installer's version and both architecture checksums, the two version guards, the CI Worktrunk axis and the README statement. No single site is bumped on its own.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "kind": "requirement",
+      "text": "Both architecture pins are the checksums upstream published for the v0.83.0 Linux musl assets, recorded in the feature contract. The installer keeps its checksum-first download and its exact version assertion.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/worktrunk-upgrade.md"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "kind": "decision",
+      "text": "The version guards accept exactly `wt v0.83.0`, `wt v0.81.0` and `wt v0.80.0`. v0.83.0 is the workstation pin. v0.80.0 stays because the remote-user foundation requires it and the same guards run there. v0.81.0 stays because it is the version already activated on the Mac, which keeps applying this source without CI.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-005",
+      "kind": "requirement",
+      "text": "The installer's ownership rule refuses to replace a Worktrunk whose version differs from the pin. The upgrade is therefore an owner-run procedure: move the installed v0.80.0 aside, apply to install v0.83.0, re-activate, verify. The moved binary and the previous activation file are the rollback set.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "kind": "requirement",
+      "text": "An activation snapshot records the Worktrunk version. After the upgrade new worktrees are refused until the owner re-activates once: remove the private activation file and run `workflow-policy initialize-default-home`. Existing worktrees stay reachable throughout.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-007",
+      "kind": "constraint",
+      "text": "The upgrade runs when no other session on the workstation is registering a cycle or creating a worktree, and re-activation follows at once. The Cycle Record notes both.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-008",
+      "kind": "requirement",
+      "text": "Owner decision 2026-11-24: given a Linux workstation with `linux_workstation.enabled` and `remote_user_environment.enabled` unset, an explicit apply renders the worktree policy document and runs the same default-home activation a remote user environment gets. No new configuration key is introduced.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-009",
+      "kind": "requirement",
+      "text": "The default-home rule itself is unchanged: Linux, root exactly `HOME/.local/state/worktrees` on the home filesystem, no existing activation. A workstation with another root, or with that path on another mount, renders the document and activates separately as today.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-010",
+      "kind": "requirement",
+      "text": "The workstation example configurations declare the worktree root as `~/.local/state/worktrees`, so the shipped workstation configuration can allocate worktrees.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-011",
+      "kind": "constraint",
+      "text": "Nothing here changes the shared remote workspace, its Worktrunk pin or its activation. It stays a read-only reference coordinated through the cross-repository RHEL remote-workspace Initiative.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-012",
+      "kind": "risk",
+      "text": "Worktrunk 0.81.0 and later compute a custom destination after the pre-switch hook, so the storage hook cannot validate that destination before creation. The CI Worktrunk axis at v0.83.0 is the evidence that the policy tests still hold, and the README sentence is corrected to what v0.83.0 does.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-013",
+      "kind": "risk",
+      "text": "During the upgrade window the workstation refuses new worktrees. Mitigation: INT-007.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-014",
+      "kind": "decision",
+      "text": "This source installs no Worktrunk agent plugin for Codex or Claude Code, so the v0.82.0 move of Codex activity hooks into a separate `worktrunk-markers` plugin needs no step here.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-015",
+      "kind": "non-goal",
+      "text": "Not in scope: macOS qualification, a second CI Worktrunk axis, any change to the worktree layout, naming policy or repository overrides.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-016",
+      "kind": "idea",
+      "text": "An installer rule that replaces the previous qualified pin with the next one without a manual step.",
+      "disposition": "deferred",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-017",
+      "kind": "idea",
+      "text": "Report a half-configured worktree policy (config rendered, policy document or activation missing) loudly before allocation instead of failing silently.",
+      "disposition": "deferred",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-018",
+      "kind": "requirement",
+      "text": "The remote-user foundation pin moves to v0.83.0 only with a reviewed rollout through the cross-repository RHEL remote-workspace Initiative, because that change invalidates the workspace's existing activation.",
+      "disposition": "blocked",
+      "artifacts": [
+        "dot_local/bin/executable_remote-user-foundation",
+        "run_onchange_after_install-guest-development-tools.sh.tmpl",
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    },
+    {
+      "id": "INT-019",
+      "kind": "requirement",
+      "text": "The lifecycle context's record of the full-suite matrix is updated in the same change, because the CI Worktrunk axis belongs to that matrix.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/CHANGELOG.md"
+      ]
+    },
+    {
+      "id": "INT-020",
+      "kind": "risk",
+      "text": "The Mac is not tested in CI and runs Worktrunk 0.81.0 with a live activation. The guards keep accepting that version so the owner's next apply does not refuse worktrees there; any remaining defect is found through the owner's direct apply.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
+    }
+  ],
+  "contexts": [
+    {
+      "id": "dotfiles_ai_distribution",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "dbsctr_v3_lifecycle",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    }
+  ],
+  "slices": [
+    {
+      "id": "workstation-upgrade",
+      "context": "dotfiles_ai_distribution",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-001",
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-009",
+        "INT-010",
+        "INT-012",
+        "INT-013",
+        "INT-014",
+        "INT-015",
+        "INT-019",
+        "INT-020"
+      ],
+      "depends_on": [],
+      "release_group": "workstation",
+      "artifacts": [
+        ".chezmoiignore",
+        ".github/workflows/test.yml",
+        "README.md",
+        "config.omarchy-try.example.toml",
+        "config.omarchy.example.toml",
+        "docs/initiatives/worktrunk-upgrade/MANIFEST.json",
+        "docs/initiatives/worktrunk-upgrade/README.md",
+        "docs/specs/dbsctr_v3_lifecycle/CHANGELOG.md",
+        "docs/specs/dotfiles_ai_distribution/CHANGELOG.md",
+        "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+        "docs/specs/dotfiles_ai_distribution/features/worktrunk-upgrade.md",
+        "dot_local/bin/executable_agent-worktree",
+        "dot_local/bin/executable_workflow-policy",
+        "run_after_zz-remote-worktree-activation.sh.tmpl",
+        "run_onchange_after_install-00-workstation-tools.sh.tmpl",
+        "tests/test_agent_worktree.py",
+        "tests/test_ci_shard.py",
+        "tests/test_worktrunk_native_policy.py",
+        "tests/test_worktrunk_registration.py"
+      ]
+    },
+    {
+      "id": "remote-foundation-pin",
+      "context": "dotfiles_ai_distribution",
+      "state": "blocked",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-018",
+        "INT-011"
+      ],
+      "depends_on": [
+        "workstation-upgrade"
+      ],
+      "release_group": "remote",
+      "artifacts": [
+        "README.md",
+        "docs/initiatives/worktrunk-upgrade/README.md",
+        "dot_local/bin/executable_remote-user-foundation",
+        "run_onchange_after_install-guest-development-tools.sh.tmpl"
+      ]
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "workstation",
+      "members": [
+        "workstation-upgrade"
+      ],
+      "state": "ready"
+    },
+    {
+      "id": "remote",
+      "members": [
+        "remote-foundation-pin"
+      ],
+      "state": "blocked"
+    }
+  ]
+}
