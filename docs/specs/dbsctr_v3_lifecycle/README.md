@@ -12,6 +12,14 @@ already-published PR, and safe removal-check scope and process evidence.
 The six fixes have separate source cycles; their installed qualification is
 owned by distribution.
 
+[Host-independent tests](features/host-independent-tests.md) specifies that a
+test reads no operator-private state from the real home, and that a
+version-sensitive capability of an installed tool is asserted only under an
+opt-in naming a qualified executable, which configured CI always sets. It also
+records the R&D worker's V1-only session discovery as a gap owned by the
+OpenCode V2 migration. It is implemented in source and changes no installed
+behavior.
+
 [Completion reconciliation](features/workflow-completion-reconciliation.md)
 specifies the new Discovery-defined successful-completion route: multi-PR and
 amendment provenance, affected evidence reuse, early structural preflight and

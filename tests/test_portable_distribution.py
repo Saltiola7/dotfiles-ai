@@ -685,10 +685,16 @@ def test_global_git_ignore_keeps_local_workflows_out_of_repositories() -> None:
     ]
 
 
-def test_local_data_renders_complete_configs() -> None:
+def test_local_data_renders_complete_configs(tmp_path: Path) -> None:
+    # The modify script merges the target's existing state. Supply that state in a
+    # disposable home instead of reading the developer's real OpenCode configuration.
+    home = tmp_path
+    (home / ".config/opencode").mkdir(parents=True)
+    (home / ".config/opencode/opencode.json").write_text('{"localOption": {"kept": true}}')
     config = json.loads(
-        chezmoi("cat", str(Path.home() / ".config/opencode/opencode.json")).stdout
+        chezmoi("-D", str(home), "cat", str(home / ".config/opencode/opencode.json")).stdout
     )
+    assert config["localOption"] == {"kept": True}
     assert config["provider"]["google-vertex-anthropic"]["options"] == {
         "project": "example-project",
         "location": "global",
@@ -701,16 +707,16 @@ def test_local_data_renders_complete_configs() -> None:
     assert "theme" not in config
 
     tui = json.loads(
-        chezmoi("cat", str(Path.home() / ".config/opencode/tui.json")).stdout
+        chezmoi("-D", str(home), "cat", str(home / ".config/opencode/tui.json")).stdout
     )
     assert tui == {
         "$schema": "https://opencode.ai/tui.json",
         "theme": "catppuccin",
     }
 
-    herdr = chezmoi("cat", str(Path.home() / ".config/herdr/config.toml")).stdout
+    herdr = chezmoi("-D", str(home), "cat", str(home / ".config/herdr/config.toml")).stdout
     # herdr-server LaunchAgent retired 2026-11-18
-    wrapper = chezmoi("cat", str(Path.home() / ".local/bin/herdr-server-owner")).stdout
+    wrapper = chezmoi("-D", str(home), "cat", str(home / ".local/bin/herdr-server-owner")).stdout
     assert '/usr/local/bin/herdr' in wrapper
 
     # sandbox registry retired with the lima subsystem (2026-11-18)
