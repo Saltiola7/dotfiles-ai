@@ -22,6 +22,7 @@ from typing import NoReturn
 
 LAYOUT = "/{{ repo }}-{{ repo_path | hash }}/{{ branch | sanitize }}"
 PREFIXES = dict(task="dbsctr", discovery="discovery", integration="integration")
+DELIVERY_PREFERENCES = ("draft_pr", "auto")
 ENV = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "WORKTRUNK_"))}
 ENV.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_REPLACE_OBJECTS="1",
            WORKTRUNK_CONFIG_PATH="/dev/null", WORKTRUNK_SYSTEM_CONFIG_PATH="/dev/null")
@@ -58,19 +59,28 @@ def unique(pairs):
     return value
 
 
-def digest(value):
-    payload = {k: v for k, v in value.items() if k != "policy_digest"}
+def canonical_digest(payload):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"),
                                       ensure_ascii=False).encode()).hexdigest()
 
 
+def digest(value):
+    # Preserve existing authority digests. Preference has its own binding below.
+    return canonical_digest({k: v for k, v in value.items() if k not in {"policy_digest", "delivery_preference"}})
+
+
 def semantic(value):
     return {k: v for k, v in value.items()
-            if k not in {"source_commit", "policy_digest", "activation_binding"}}
+            if k not in {"source_commit", "policy_digest", "activation_binding", "delivery_preference"}}
 
 
 def semantic_digest(value):
     return digest(semantic(value))
+
+
+def delivery_preference_binding(preference, policy_digest):
+    fields = {"schema_version": 1, "value": preference}
+    return {**fields, "digest": canonical_digest({**fields, "policy_digest": policy_digest})}
 
 
 def sha256(value):
@@ -266,8 +276,10 @@ def resolve(options, home):
     home = Path(home).resolve()
     if options is None:
         options = {"schema_version": 1}
-    fields(options, {"schema_version", "root", "cache_root", "repositories", "naming"})
+    fields(options, {"schema_version", "root", "cache_root", "repositories", "naming", "delivery_preference"})
     if type(options.get("schema_version")) is not int or options["schema_version"] != 1:
+        refuse()
+    if "delivery_preference" in options and options["delivery_preference"] not in DELIVERY_PREFERENCES:
         refuse()
     value = {"schema_version": 1,
              "root": str(path_value(options.get("root", "~/Worktrees"), home, missing="root" not in options)),
@@ -431,11 +443,17 @@ def mount_identity(path, *, owned_home=False):
 
 def validate_document(value, home):
     fields(value, {"schema_version", "source_commit", "policy_digest", "root", "cache_root", "repositories", "naming",
-                   "activation_binding"})
+                   "activation_binding", "delivery_preference"})
     if not isinstance(value.get("source_commit"), str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value["source_commit"]):
         refuse()
     if value.get("policy_digest") != digest(value):
         refuse()
+    if "delivery_preference" in value:
+        preference = value["delivery_preference"]
+        fields(preference, {"schema_version", "value", "digest"})
+        if (type(preference.get("schema_version")) is not int or preference.get("value") not in DELIVERY_PREFERENCES
+                or preference != delivery_preference_binding(preference["value"], value["policy_digest"])):
+            refuse()
     normalized = resolve(semantic(value), home)
     if any(normalized[k] != value.get(k) for k in normalized):
         refuse()
@@ -618,6 +636,8 @@ def render(source, home, options, previous, *, previous_policy=None):
                 binding["legacy_policy_digest"] = anchor
     value["activation_binding"] = binding
     value["policy_digest"] = digest(value)
+    if options is not None and "delivery_preference" in options:
+        value["delivery_preference"] = delivery_preference_binding(options["delivery_preference"], value["policy_digest"])
     return {"policy": value, "worktrunk": native_config(value, home, previous)}
 
 

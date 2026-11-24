@@ -16,6 +16,8 @@ persistentState = "/Users/you/.config/dotfiles-ai/chezmoi.boltdb"
 # activate the coherent policy/native-config generation separately before use.
 # [data.dotfiles_ai.workspaces]
 # schema_version = 1
+# New Initiative launches default to Draft PR. Auto requires qualified delivery and approval.
+# delivery_preference = "auto"
 # root = "~/Worktrees"
 # cache_root = "~/.cache/dotfiles-ai/dvc"
 # [data.dotfiles_ai.workspaces.naming]
