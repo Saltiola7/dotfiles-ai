@@ -17,7 +17,8 @@ test reads no operator-private state from the real home, and that a
 version-sensitive capability of an installed tool is asserted only under an
 opt-in naming a qualified executable, which configured CI always sets. It also
 records the R&D worker's V1-only session discovery as a gap owned by the
-OpenCode V2 migration. It is normative Discovery, not implemented behavior.
+OpenCode V2 migration. It is implemented in source and changes no installed
+behavior.
 
 [Completion reconciliation](features/workflow-completion-reconciliation.md)
 specifies the new Discovery-defined successful-completion route: multi-PR and

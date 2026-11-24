@@ -4,8 +4,7 @@ Owner: lifecycle maintainer. [Engineering Profile](../PROFILE.md). Routine risk;
 Python. This is the source contract for the `host-independent-tests` slice of
 [host-independent validation](../../../initiatives/host-independent-validation/README.md)
 and covers its INT-001 to INT-008 and INT-010 to INT-014. The interface below is
-a specification: nothing here is implemented yet, and the lifecycle helper does
-not change.
+implemented in source. The lifecycle helper does not change.
 
 ## Problem
 
@@ -109,6 +108,15 @@ partition step sets the variable to the absolute path of that install.
   directory, so no developer session is read.
 - Given the variable names a 2.x executable, when either test runs, then it
   fails at the version check and names the version found.
+- Given the variable is set to any value, when either test runs, then it never
+  skips. A test with a synthetic executable holds each row of the interface
+  table without a real OpenCode.
+
+The writing test reads the resolved configuration from a file rather than a
+pipe. The 1.19.4 arm64 builds delivered only the first 16 KiB of `debug config`
+output through a pipe, and the resolved configuration is about 16.6 kB. A file
+received all of it. Build observed this on 2026-11-24. CI's x86_64 partitions
+passed with the pipe before this change.
 
 ## The recorded V2 gap
 

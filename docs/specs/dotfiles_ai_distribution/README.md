@@ -1275,7 +1275,7 @@ and live guest qualification remain separate.
 - OpenCode parser validation remains required in configured CI, which installs a
   pinned OpenCode version. Missing OpenCode or any nonzero parser result fails
   that separate integration test.
-- Specified, not yet implemented: the [host-independent tests
+- The [host-independent tests
   contract](../dbsctr_v3_lifecycle/features/host-independent-tests.md) makes the
   installed-OpenCode checks opt-in. Configured CI opts in by naming its pinned
   executable. A developer machine without the opt-in gets an explicit skip

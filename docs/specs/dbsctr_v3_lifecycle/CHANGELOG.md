@@ -1,5 +1,22 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Host-independent tests (`host-independent-validation` INT-001–008, 010–014)
+
+- Four tests no longer depend on the developer machine. The draft-PR reuse test
+  supplies an empty configuration root. The rendering test supplies the existing
+  target state in a disposable home and checks that an unrelated local key is
+  preserved.
+- The installed-OpenCode capability tests run only when
+  `DBSCTR_OPENCODE_NATIVE_TEST_EXECUTABLE` names a qualified 1.19.4 executable.
+  Unset skips with a named reason; another version or a missing path fails. The
+  full-suite partition step always opts in to the OpenCode it installed, and a
+  test with a synthetic executable holds each row of that contract.
+- The writing test reads `debug config` output from a file, because the 1.19.4
+  arm64 builds delivered only its first 16 KiB through a pipe.
+- Record the R&D worker's V1-only session discovery as a gap owned by the
+  OpenCode V2 migration. The worker, the CI pin and the lifecycle helper are
+  unchanged. Source-only draft PR to `main`.
+
 ## 2026-11-23 — Post-delivery receipts for completed draft deliveries (INT-111–116)
 
 - Add `complete-external --post-delivery` and `status --post-delivery`. A
