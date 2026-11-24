@@ -2774,6 +2774,164 @@ def test_r10_launcher_refuses_a_managed_config_that_defines_its_own_server_table
     assert not (backend.home / '.local/state/dotfiles-ai/herdr-runtime/headless-config.toml').exists()
 
 
+
+
+# RRW-007G-R11: the pinned TUI keeps split ratios as 32-bit floats and prints the
+# shortest decimal that reads back as that float. Recorded from TUI 0.9.5 in an
+# isolated HOME; layout.export and the saved session.json print the same text.
+RECORDED_TUI_RATIO_TOKENS = [
+    (0.5869565, '0.5869565'), (0.58695651, '0.5869565'), (0.5869565010070801, '0.5869565'),
+    (0.58695649, '0.5869565'), (0.1234565, '0.1234565'), (0.12345651, '0.12345651'),
+    (0.16666667, '0.16666667'), (0.33333334, '0.33333334'), (0.66666667, '0.6666667'),
+    (0.90000001, '0.90000004'), (0.1000001, '0.1000001'), (0.49999999, '0.5'),
+    (0.5000001, '0.5000001'), (0.25000001, '0.25'), (0.7500001, '0.7500001'),
+    (0.586957, '0.586957'), (0.586956, '0.586956'), (0.5361, '0.5361'), (0.9, '0.9'), (0.5, '0.5'),
+]
+R11_RATIO = 0.58695651  # printed by the native TUI as 0.5869565
+R11_RECEIPT = {'runtime': 'tui', 'txid': 'r11tx', 'document': None, 'pending': None}
+
+
+def tui_ratio_report(value):
+    """The value the adapter receives for a plan ratio: shortest decimal of its f32."""
+    wide = _f32(value)
+    for digits in range(1, 10):
+        text = '%.*g' % (digits, wide)
+        if _f32(float(text)) == wide:
+            return float(text)
+    raise AssertionError('no short decimal reads back as the native float')
+
+
+def previous_native_float(value):
+    """The adjacent lower 32-bit float: the smallest ratio change the TUI can hold."""
+    order = struct.unpack('I', struct.pack('f', _f32(value)))[0]
+    return struct.unpack('f', struct.pack('I', order - 1))[0]
+
+
+def misread_ratio(value):
+    """6-decimal rounding differs between a plan ratio and its native printed form."""
+    return round(value, 6) != round(tui_ratio_report(value), 6)
+
+
+@pytest.mark.parametrize(('planned', 'token'), RECORDED_TUI_RATIO_TOKENS)
+def test_r11_ratio_report_reproduces_recorded_native_tokens(planned, token):
+    assert repr(tui_ratio_report(planned)) == token
+
+
+def test_r11_only_full_precision_ratios_near_a_rounding_boundary_are_misread():
+    assert misread_ratio(R11_RATIO) and misread_ratio(0.5869565010070801)
+    # A plain 6-decimal ratio and the exact midpoint double are read back unchanged.
+    assert not misread_ratio(0.5869565) and not misread_ratio(0.586957)
+    assert not any(misread_ratio(index / 1000000) for index in range(100001, 900000))
+
+
+def split_tui(backend, planned, reported=None):
+    """Agent pane plus shell pane; the fake TUI reports the split like the native one."""
+    value = plan()
+    tab = value['spaces'][0]['tabs'][0]
+    tab['panes'].append({'key': 's0-t0-p1', 'cwd': '/work', 'session_id': None})
+    tab['root'] = {'axis': 'row', 'ratio': planned,
+                   'children': [{'pane': 's0-t0-p0'}, {'pane': 's0-t0-p1'}]}
+    tui = FakeTui(backend)
+    snapshot = tui.snapshot()
+    snapshot['workspaces'][0]['pane_count'] = 2
+    snapshot['tabs'][0]['pane_count'] = 2
+    snapshot['panes'].append({'workspace_id': 'wid', 'tab_id': 'tid', 'pane_id': 'pid2',
+                              'terminal_id': 'term2', 'focused': False, 'cwd': '/work',
+                              'agent_status': 'unknown', 'revision': 1})
+    tui.snapshot_override = snapshot
+    synthetic_process(backend, 40, ['/bin/bash', '-l'])
+    rpc = tui.rpc
+
+    def split_rpc(method, params):
+        if method == 'layout.export':
+            result = rpc(method, params)
+            result['layout']['root'] = {
+                'type': 'split', 'direction': 'right',
+                'ratio': tui_ratio_report(planned) if reported is None else reported,
+                'first': {'type': 'pane', 'pane_id': 'pid', 'cwd': '/work'},
+                'second': {'type': 'pane', 'pane_id': 'pid2', 'cwd': '/work'}}
+            return result
+        if method == 'pane.process_info' and params['pane_id'] == 'pid2':
+            return {'type': 'pane_process_info', 'process_info': {
+                'pane_id': 'pid2', 'shell_pid': 40, 'foreground_process_group_id': 40,
+                'tty': '/dev/pts/2', 'foreground_processes': [{'pid': 40, 'name': 'bash'}]}}
+        return rpc(method, params)
+
+    backend.tui = split_rpc
+    return value, tui
+
+
+def test_r11_verify_accepts_the_native_form_of_a_full_precision_plan_ratio(backend):
+    value, _ = split_tui(backend, R11_RATIO)
+    live = backend._tui_live()[0]
+    # The only difference is the native 32-bit form of one split ratio.
+    assert backend._semantic(live) != backend._semantic(value)
+    assert (backend._semantic(live, native_ratios=True)
+            == backend._semantic(value, native_ratios=True))
+    backend.verify('tui', value, R11_RECEIPT)
+
+
+def test_r11_verify_readiness_wait_converges_for_the_same_layout(backend):
+    value, _ = split_tui(backend, R11_RATIO)
+    backend.poll_seconds = 0
+    backend._wait_ready('tui', value, R11_RECEIPT)
+
+
+@pytest.mark.parametrize('change', ['ratio', 'adjacent-native-float', 'axis'])
+def test_r11_verify_keeps_every_real_layout_difference_exact(backend, change):
+    reported = {'ratio': 0.45,
+                'adjacent-native-float': previous_native_float(tui_ratio_report(R11_RATIO)),
+                'axis': tui_ratio_report(R11_RATIO)}[change]
+    if change == 'adjacent-native-float':
+        # Invisible to 6-decimal rounding, yet a different native ratio.
+        assert round(reported, 6) == round(tui_ratio_report(R11_RATIO), 6)
+    value, _ = split_tui(backend, R11_RATIO, reported=reported)
+    if change == 'axis':
+        rpc = backend.tui
+
+        def column(method, params):
+            result = rpc(method, params)
+            if method == 'layout.export':
+                result['layout']['root']['direction'] = 'down'
+            return result
+        backend.tui = column
+    with pytest.raises(native.NativeError, match='^TUI restored layout differs$'):
+        backend.verify('tui', value, R11_RECEIPT)
+
+
+def test_r11_tui_source_stop_compares_the_tui_own_ratio_form_on_both_sides(backend):
+    # A plan captured from the live TUI already carries the native printed form,
+    # and so does the native save: this comparison is sound while it stays exact.
+    value, tui = split_tui(backend, R11_RATIO)
+    tui.saved = native.layout.to_tui_snapshot(value)
+    split = tui.saved['workspaces'][0]['tabs'][0]['layout']['Split']
+    assert split['ratio'] == R11_RATIO
+    split['ratio'] = tui_ratio_report(R11_RATIO)
+    captured = backend.capture('tui')
+    assert captured['plan']['spaces'][0]['tabs'][0]['root']['ratio'] == 0.5869565
+    stop_command = tui.command
+
+    def command(argv, timeout=30):
+        result = stop_command(argv, timeout)
+        if argv == ['herdr', 'session', 'stop', 'default', '--json']:
+            for name in ('stat', 'cmdline', 'cwd', 'status'):
+                (backend.proc_root / '40' / name).unlink()
+            (backend.proc_root / '40').rmdir()
+        return result
+    backend.command = command
+    final = backend.stop('tui', captured)
+    assert final['spaces'][0]['tabs'][0]['root']['ratio'] == 0.5869565
+    assert backend._semantic(final) == backend._semantic(captured['plan'])
+    # The exact default is unchanged: the native printed form differs from the
+    # plan at 6 decimals and only the native comparison calls them equal. The
+    # widened float rounds like the plan, which is why a fake built on it could
+    # never expose this.
+    assert backend._semantic(captured['plan']) != backend._semantic(value)
+    assert (backend._semantic(captured['plan'], native_ratios=True)
+            == backend._semantic(value, native_ratios=True))
+    widened = copy.deepcopy(value)
+    widened['spaces'][0]['tabs'][0]['root']['ratio'] = _f32(R11_RATIO)
+    assert backend._semantic(widened) == backend._semantic(value)
 def test_tui_capture_observational_api_never_written_as_native_file(backend):
     tui = FakeTui(backend)
     before = backend.snapshot_path.read_bytes()

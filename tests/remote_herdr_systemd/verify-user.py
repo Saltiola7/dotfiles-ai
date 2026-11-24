@@ -881,7 +881,9 @@ def observe(target, plan):
         STEP = 'observe-' + target + '-capture'
         capture = backend.capture(target)
         STEP = 'observe-' + target + '-capture-fidelity'
-        require(backend._semantic(capture['plan']) == backend._semantic(plan))
+        # A live TUI reports 32-bit split ratios; the expected plan may carry more.
+        semantic = native_semantic(backend) if target == 'tui' else backend._semantic
+        require(semantic(capture['plan']) == semantic(plan))
         STEP = 'observe-' + target + '-client-coverage'
         clients = backend._coverage(plan)
         expected_sessions = {p['session_id'] for s in plan['spaces'] for t in s['tabs']
@@ -2947,7 +2949,9 @@ def boot(target):
 
 def r8_fixture_plan(cwd, sessions):
     """51-pane plan: the reported live geometry plus uneven nested splits."""
-    ratios = [0.41237114108714884, 0.509433999938786, 0.375,
+    # 0.58695651 is reported and saved by the pinned TUI as 0.5869565: the
+    # two round to different 6-decimal values (RRW-007G-R11).
+    ratios = [0.58695651, 0.509433999938786, 0.375,
               0.12345678901234568, 0.7777777777011148, 0.5000001, 0.234567891]
     panes = [{'key': f's0-t0-p{pane_index}', 'cwd': cwd, 'session_id': sessions[pane_index]}
              for pane_index in range(5)]
@@ -3047,6 +3051,11 @@ def arm_r8():
     require(backend_pid() == pid)
 
 
+def native_semantic(backend):
+    """Semantic layout comparison at the pinned TUI's 32-bit split-ratio precision."""
+    return lambda value: backend._semantic(value, native_ratios=True)
+
+
 def r8_boot_ready(boot, prior_txid, plan, semantic):
     if not (isinstance(boot, dict) and boot.get('schema_version') == 1
             and boot.get('runtime') == 'tui' and boot.get('status') == 'complete'):
@@ -3079,7 +3088,8 @@ def verify_r8(*, recover):
         def ready():
             with Store(ROOT) as store:
                 backend = Native(HOME, store)
-                return r8_boot_ready(store.read('boot.json'), prior_txid, plan, backend._semantic)
+                return r8_boot_ready(store.read('boot.json'), prior_txid, plan,
+                                     native_semantic(backend))
 
         wait(ready, seconds=760)
     observe('tui', plan)

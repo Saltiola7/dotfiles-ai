@@ -1558,7 +1558,10 @@ class Native:
             receipt.update({'document': document, 'doc_version': version})
         else:
             live, _, _, deferred = self._tui_live()
-            if self._semantic(live) != self._semantic(plan):
+            # The pinned TUI reports and saves split ratios as 32-bit floats
+            # (RRW-007G-R11). Every other field stays exact.
+            if (self._semantic(live, native_ratios=True)
+                    != self._semantic(plan, native_ratios=True)):
                 raise NativeError('TUI restored layout differs')
         self._coverage(plan, deferred=deferred)
         self._db_sessions(plan)

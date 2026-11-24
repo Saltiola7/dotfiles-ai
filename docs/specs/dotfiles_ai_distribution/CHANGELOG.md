@@ -1,5 +1,39 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-24 — Compare TUI-reported and saved layouts at native precision (RRW-007G-R11)
+
+- R10 live result: after a reboot, recover started the TUI on the plan-sized
+  grid with all fifty exact clients and then refused at verification
+  (`TUI restored layout differs`) after the readiness budget. Verification
+  compared the live layout with the plan at 6-decimal rounding. The pinned TUI
+  keeps ratios as 32-bit floats and prints the shortest decimal that reads
+  back as that float, so a plan ratio of 0.58695651 is reported as 0.5869565:
+  0.586957 against 0.586956 at six decimals, the same native float.
+- Compare at 32-bit precision wherever a reported or saved TUI layout meets a
+  canonical plan: verification, an ordinary boot's saved snapshot against the
+  owned plan, the shutdown-save match and the boot snapshot-preservation check.
+  R9 covered only the last two. The boot comparison matters for this rollout:
+  with verification fixed alone, recovery completes and the next boot then
+  refuses (`TUI boot snapshot differs from owned layout`) and leaves no TUI.
+- Everything else stays exact: core documents, the TUI-source stop
+  comparisons (both sides already carry the TUI's own values) and every
+  non-ratio field. A ratio that differs by a single native float still refuses.
+- Why tests missed it: no comparison had a test with a reproducing ratio, the
+  fakes modelled the native value as the widened float (which rounds like the
+  plan), and the boot comparison had no manifest in any test. New tests use the
+  TUI's printed form, locked against tokens recorded from TUI 0.9.5.
+- Qualification: the fixture plan carries 0.58695651 on three tabs. The
+  suggested 0.5869565 does not reproduce the refusal because the TUI reports it
+  unchanged, so a plan built on it would pass without this change. The fixture
+  checks that meet the native form (capture fidelity for a TUI target and
+  second-boot readiness) compare at native precision; core checks stay exact.
+- Validated against the real TUI 0.9.5 with synthetic clients before
+  publication: merged R10 refuses from the retained state; this change deployed
+  in place completes recovery with the same fifty client processes and the same
+  TUI process; two reboots bring back all fifty each time. No bootstrap, pin or
+  input changes.
+
+
 ## 2026-11-24 — Initiative delivery preference
 
 - Resolve new Initiative launches to Draft PR by default, with a private Auto
