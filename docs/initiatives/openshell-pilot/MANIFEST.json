@@ -8,7 +8,7 @@
     {
       "id": "INT-001",
       "kind": "requirement",
-      "text": "Contain autonomous coding on the current Apple Silicon Mac.",
+      "text": "Contain autonomous coding on the selected Linux workstation. Until 2026-11-24 this named the current Apple Silicon Mac; the owner then ended dotfiles-ai development on the Mac.",
       "disposition": "ready",
       "artifacts": [
         "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
@@ -64,7 +64,7 @@
     {
       "id": "INT-007",
       "kind": "decision",
-      "text": "Use an explicitly selected minimal Fedora Lima worker with rootless Podman for the initial OpenShell experiment; backend changes require requalification.",
+      "text": "Use rootless Podman on the Linux workstation for the initial OpenShell experiment; backend changes require requalification. Until 2026-11-24 this selected a minimal Fedora Lima worker; Lima was retired from this source on 2026-11-18 and is not revived.",
       "disposition": "ready",
       "artifacts": [
         "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
@@ -111,7 +111,7 @@
     {
       "id": "INT-012",
       "kind": "non-goal",
-      "text": "Defer Lima retirement, broader platform rollout, Desktop integration, DVC materialization and unrestricted Git authority.",
+      "text": "Defer broader platform rollout, Desktop integration, DVC materialization and unrestricted Git authority.",
       "disposition": "deferred",
       "artifacts": [
         "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
@@ -198,7 +198,7 @@
     {
       "id": "INT-021",
       "kind": "requirement",
-      "text": "Qualify exact OpenShell v0.1.6 components, immutable images and the selected Fedora Lima Podman generation before execution.",
+      "text": "Qualify exact OpenShell v0.1.10 components, immutable images and the rootless Podman generation of the Linux workstation before execution. The release is re-read from upstream at launch.",
       "disposition": "ready",
       "artifacts": [
         "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
@@ -303,7 +303,7 @@
     {
       "id": "INT-032",
       "kind": "risk",
-      "text": "Native MicroVM experimental maturity and shared-directory behavior under guest-kernel compromise prevent treating it as a qualified Lima replacement.",
+      "text": "Native MicroVM experimental maturity and shared-directory behavior under guest-kernel compromise prevent treating it as a qualified replacement for rootless Podman.",
       "disposition": "ready",
       "artifacts": [
         "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
@@ -388,6 +388,26 @@
       "disposition": "ready",
       "artifacts": [
         "docs/specs/dbsctr_v3_lifecycle/features/openshell-host-boundary.md"
+      ]
+    },
+    {
+      "id": "INT-042",
+      "kind": "decision",
+      "text": "Owner decision 2026-11-24: the pilot's substrate is rootless Podman on the Linux workstation with a pinned current OpenShell release, v0.1.10 at this amendment. The Mac-specific statements and the `mac-pilot` slice are preserved as a deferred overlay, not deleted. Statements amended on that date say so in their text.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/openshell-pilot/README.md",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
+      ]
+    },
+    {
+      "id": "INT-043",
+      "kind": "constraint",
+      "text": "The Linux substrate follows the substrate policy of `linux-ci-cutover`: rootless Podman with user namespaces and seccomp as the portable baseline, SELinux volume labeling as the RHEL enhancement layer, floating tooling pinned, and nothing core depending on rolling-release-only behavior.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/openshell-pilot/README.md",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md"
       ]
     }
   ],
@@ -611,7 +631,7 @@
     {
       "id": "mac-pilot",
       "context": "dotfiles_ai_distribution",
-      "state": "discovering",
+      "state": "deferred",
       "execution_owner": "discovery",
       "requirements": [
         "INT-001",
@@ -667,6 +687,68 @@
         "docs/specs/dotfiles_ai_distribution/features/openshell-pilot-activation.md"
       ],
       "release_group": "pilot"
+    },
+    {
+      "id": "linux-pilot",
+      "context": "dotfiles_ai_distribution",
+      "state": "discovering",
+      "execution_owner": "discovery",
+      "requirements": [
+        "INT-001",
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-009",
+        "INT-010",
+        "INT-011",
+        "INT-012",
+        "INT-013",
+        "INT-014",
+        "INT-015",
+        "INT-016",
+        "INT-017",
+        "INT-018",
+        "INT-019",
+        "INT-020",
+        "INT-021",
+        "INT-022",
+        "INT-023",
+        "INT-024",
+        "INT-025",
+        "INT-026",
+        "INT-027",
+        "INT-028",
+        "INT-029",
+        "INT-030",
+        "INT-031",
+        "INT-032",
+        "INT-033",
+        "INT-034",
+        "INT-035",
+        "INT-036",
+        "INT-037",
+        "INT-038",
+        "INT-039",
+        "INT-040",
+        "INT-041",
+        "INT-042",
+        "INT-043"
+      ],
+      "depends_on": [
+        "codex-adapter",
+        "opencode-adapter"
+      ],
+      "artifacts": [
+        "docs/initiatives/openshell-pilot/README.md",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot.md",
+        "docs/initiatives/openshell-pilot/ACTIVATION.plan.json",
+        "docs/specs/dotfiles_ai_distribution/features/openshell-pilot-activation.md"
+      ],
+      "release_group": "pilot"
     }
   ],
   "release_groups": [
@@ -678,7 +760,8 @@
         "host-git-boundary",
         "codex-adapter",
         "opencode-adapter",
-        "mac-pilot"
+        "mac-pilot",
+        "linux-pilot"
       ],
       "state": "planning"
     }

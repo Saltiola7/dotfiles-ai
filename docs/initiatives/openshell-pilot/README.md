@@ -1,11 +1,36 @@
 # OpenShell autonomous coding pilot
 
-Status: Initiative Discovery. The five-context map is approved. The first bounded
-outcome is credential-free runtime qualification; the completed pilot requires
-both authenticated agents, full supported Git workflow and real Mac activation.
-Specification readiness, launch feasibility, implementation and deployment are
-separate proofs. No runtime or credential action has run during Discovery. Scope interview is
+Status: Initiative Discovery, amended 2026-11-24. The five-context map is
+approved. The first bounded outcome is credential-free runtime qualification;
+the completed pilot requires both authenticated agents, full supported Git
+workflow and real activation on the Linux workstation. Specification readiness,
+launch feasibility, implementation and deployment are separate proofs. No
+runtime or credential action has run during Discovery. Scope interview is
 resolved; downstream technical qualification remains outstanding.
+
+## Amendment of 2026-11-24
+
+The owner moved the pilot to the Linux workstation and ended dotfiles-ai
+development on the Mac. This section governs where the text below still
+describes the earlier plan.
+
+- **Substrate.** The initial experiment uses rootless Podman on the Linux
+  workstation (INT-007), following the substrate policy of `linux-ci-cutover`
+  (INT-043). It no longer uses a Fedora Lima worker. Lima was retired from
+  this source on 2026-11-18 and is not revived, so its retirement is no longer
+  a deferred item (INT-012).
+- **OpenShell release.** The pilot qualifies v0.1.10, the current release,
+  re-read from upstream at launch (INT-021). The v0.1.6 reference below is
+  the earlier research pin.
+- **Containment host.** The current Apple Silicon Mac is no longer the host
+  (INT-001). The Mac-specific statements and the `mac-pilot` slice stay as a
+  deferred overlay; they are not deleted.
+- **Slices.** `linux-pilot` takes over the pilot's requirements from
+  `mac-pilot` and continues in Discovery. Where the text below says "real Mac
+  activation", read "real activation on the Linux workstation".
+- **Cycle.** The in-flight runtime qualification cycle was registered on the
+  Mac and has a failed deploy gate there. It is registered again on the
+  workstation from its recovered commits.
 
 ## Product intent and decisions
 
@@ -80,7 +105,8 @@ kernel, grant, nested-client, live-mount or host-interface compatibility.
 | host-git-boundary | Lifecycle | Runtime | Closed authenticated operations, existing gates/approvals, full capability and recovery matrix |
 | codex-adapter | Codex | Provider and host boundary | Native subscription CLI and complete qualified workflow |
 | opencode-adapter | OpenCode | Provider and host boundary | Native Vertex Claude client and complete qualified workflow |
-| mac-pilot | Distribution | Both adapters | Real selected checkout activation, rollback and operation proof |
+| linux-pilot | Distribution, in Discovery | Both adapters | Real selected checkout activation, rollback and operation proof on the Linux workstation |
+| mac-pilot | Distribution, deferred | Both adapters | Preserved overlay: the earlier Mac pilot, recorded and not continued |
 
 The first slice is an isolated evidence cycle, not a production prototype to merge
 as an activated service. Its source delivers bounded fixtures, reviewed recipes
