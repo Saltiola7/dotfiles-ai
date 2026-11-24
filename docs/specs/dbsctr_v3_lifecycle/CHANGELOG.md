@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-23 — Require independent process coverage (INT-109)
+
+- A recognized incomplete `lsof` result can clear only the process
+  predicate, and only with a bounded Linux `/proc` census covering same-user
+  threads, checkout handles, working directories, and mappings. Positive
+  holders still block; unavailable visibility or unsupported mounts still
+  retain the checkout. No process or filesystem changes.
+- Cover checkout references held from elsewhere, including deleted and
+  mapped files. Requalify the CLI benchmark digest without changing workloads.
+  Source-only draft PR to `main`; installed qualification remains separate.
+
 ## 2026-11-23 — Verify orphan custody before removal (INT-108)
 
 - Keep removal checks read-only. Require disjoint ownership and a retained
