@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Forgejo CI assessment (FORGEJO-CI-PARITY)
+
+- Assess complete Forgejo v15 commit statuses and require a matching execution
+  receipt for every required check on the exact lifecycle candidate. Return
+  provider-tagged outcomes that distinguish wait, failure, staleness and
+  unavailable evidence.
+- Use synthetic fixtures for the status reader and execution receipt boundary.
+  Source delivery targets a GitHub draft PR to `main`. Live producer
+  qualification, receipt custody and protected integration remain separate.
+
 ## 2026-11-24 — Forgejo PR adapter (FORGEJO-PR-PARITY)
 
 - Add source interfaces for exact Forgejo v15 PR lookup, bounded pagination,

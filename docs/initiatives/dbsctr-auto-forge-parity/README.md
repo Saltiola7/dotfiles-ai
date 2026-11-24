@@ -47,8 +47,10 @@ Initiative digests and approvals retain their original scope.
 ## Slice and dependency plan
 
 The [Initiative manifest](MANIFEST.json) records requirements, ownership and
-dependencies. The preference and Forgejo PR slices have no undelivered slice
-dependencies. Their specification readiness is distinct from launch approval.
+dependencies. Delivery preference and Forgejo PR parity have landed on
+`main`. The Forgejo CI source slice is the next candidate for launch approval.
+[Delivery preference PR](https://github.com/Saltiola7/dotfiles-ai/pull/347) ·
+[Forgejo PR parity PR](https://github.com/Saltiola7/dotfiles-ai/pull/350)
 
 | Slice | Depends on | Acceptance evidence |
 | --- | --- | --- |
