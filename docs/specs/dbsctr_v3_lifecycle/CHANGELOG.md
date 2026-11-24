@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-23 — Verify orphan custody before removal (INT-108)
+
+- Keep removal checks read-only. Require disjoint ownership and a retained
+  native registration before skipping a missing checkout's active record.
+  Block when a native prune dry run reports a candidate or cannot be verified.
+- Cover locked, prunable, duplicate, and ambiguous orphan custody. Strict
+  automatic-removal blockers remain unchanged. Refresh the CLI benchmark's
+  source digest; source-only draft PR to `main`, no cleanup or deployment.
+
 ## 2026-11-23 — Explain published PR reconciliation (INT-107)
 
 - When `reconcile-target` has no active cycle, point to the existing approved

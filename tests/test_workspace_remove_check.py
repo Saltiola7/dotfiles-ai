@@ -9,6 +9,7 @@ import sys
 import os
 import fcntl
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -35,6 +36,97 @@ def test_clean_code_only_checkout_can_be_removed_without_a_cycle(removal):
     assert core.workspace_remove_check(target)["eligible"] is True
     assert git(primary, "worktree", "list", "--porcelain") == before
     assert target.is_dir()
+
+
+@pytest.mark.parametrize("custody", ["locked", "prunable", "unknown", "reused_path", "reused_identity", "duplicate"])
+def test_legacy_detached_orphan_requires_disjoint_retained_custody(removal, fixture, custody):
+    core, primary, target = removal
+    orphan = primary.parent / "orphan"
+    git(primary, "worktree", "add", "-b", "orphan", str(orphan))
+    harness.run(orphan, "start", "--cycle-id", "orphan-1", "--context", "test", "--risk", "routine",
+                "--delivery-intent", "local", "--plan", str(fixture.plan_path()))
+    common = core.common_git_dir(target)
+    record_path = common / "dbsctr/cycles/orphan-1.json"
+    record = json.loads(record_path.read_text())
+    record.pop("execution")
+    record["schema_version"] = 4
+    record["worktree"].pop("git_dir")
+    git(orphan, "switch", "--detach")
+    record["worktree"].update(branch=None, id=core.worktree_id(orphan))
+    record["git"]["branch"] = None
+    record_path.write_text(json.dumps(record))
+    admin = Path(git(orphan, "rev-parse", "--absolute-git-dir").strip())
+    pointer = admin / "dbsctr/active"
+    if custody != "unknown":
+        pointer.parent.mkdir()
+        pointer.write_text("orphan-1\n")
+        pointer.chmod(0o600)
+    if custody != "prunable":
+        git(primary, "worktree", "lock", str(orphan))
+    orphan.rename(primary.parent / "offline")
+    if custody == "reused_path":
+        # A conflicting native registration must not be used as disjoint proof.
+        (admin / "gitdir").write_text(str(target / ".git") + "\n")
+    if custody == "reused_identity":
+        git(primary, "worktree", "add", "--detach", str(primary.parent / "another"))
+    if custody == "duplicate":
+        duplicate = pointer.parent / "cycles" / record_path.name
+        duplicate.parent.mkdir()
+        duplicate.write_bytes(record_path.read_bytes())
+
+    listing = git(primary, "worktree", "list", "--porcelain", "-z")
+    before = {p: p.read_bytes() for p in (record_path, admin / "HEAD", admin / "gitdir")}
+    result = core.workspace_remove_check(target)
+    assert result["eligible"] is (custody == "locked")
+    if custody == "reused_path":
+        assert "active_cycle" in result["reasons"]
+    elif custody != "locked":
+        assert "cycle_evidence_unavailable" in result["reasons"]
+    assert git(primary, "worktree", "list", "--porcelain", "-z") == listing
+    assert all(path.read_bytes() == raw for path, raw in before.items())
+    assert target.is_dir()
+
+
+def test_native_prune_can_drop_evidence_outside_target(removal):
+    core, primary, target = removal
+    orphan = primary.parent / "orphan"
+    git(primary, "worktree", "add", "-b", "orphan", str(orphan))
+    admin = Path(git(orphan, "rev-parse", "--absolute-git-dir").strip())
+    (admin / "dbsctr").mkdir()
+    evidence = admin / "dbsctr/retained"
+    evidence.write_bytes(b"required evidence\n")
+    orphan.rename(primary.parent / "offline")
+    result = core.workspace_remove_check(target)
+    assert not result["eligible"]
+    assert "cycle_evidence_unavailable" in result["reasons"]
+    assert evidence.read_bytes() == b"required evidence\n"
+
+
+@pytest.mark.parametrize("unlock_before_decision", [False, True])
+def test_locked_native_orphan_does_not_block_disjoint_target(
+        removal, fixture, monkeypatch, unlock_before_decision):
+    core, primary, target = removal
+    orphan = primary.parent / "native-orphan"
+    git(primary, "worktree", "add", "-b", "native-orphan", str(orphan))
+    harness.run(orphan, "start", "--cycle-id", "orphan-1", "--context", "test", "--risk", "routine",
+                "--delivery-intent", "local", "--plan", str(fixture.plan_path()))
+    admin = Path(git(orphan, "rev-parse", "--absolute-git-dir").strip())
+    git(primary, "worktree", "lock", str(orphan))
+    orphan.rename(primary.parent / "offline")
+    before = git(primary, "worktree", "list", "--porcelain", "-z")
+    if unlock_before_decision:
+        def unlock(_root):
+            git(primary, "worktree", "unlock", str(orphan))
+            return []
+
+        monkeypatch.setattr(core, "workspace_processes", unlock)
+    result = core.workspace_remove_check(target)
+    assert result["eligible"] is not unlock_before_decision
+    if unlock_before_decision:
+        assert "cycle_evidence_unavailable" in result["reasons"]
+    else:
+        assert git(primary, "worktree", "list", "--porcelain", "-z") == before
+    assert admin.is_dir() and target.is_dir()
 
 
 @pytest.mark.parametrize("problem", ["primary", "dirty", "ignored", "undelivered", "process"])
