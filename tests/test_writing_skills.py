@@ -1,9 +1,9 @@
 import json
-import os
 import re
 import subprocess
 from pathlib import Path
 
+from test_dbsctr_rnd import isolated_home_environment, native_opencode  # noqa: F401
 from test_opencode_control_plane import DATA, OC, ROOT, rendered_config
 
 
@@ -165,8 +165,7 @@ def render_writing_targets(tmp_path):
         check=False,
     )
     assert render.returncode == 0, render.stderr
-    env = {key: value for key, value in os.environ.items() if key != "HERDR_ENV"}
-    return {**env, "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / ".config")}
+    return {**isolated_home_environment(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / ".config")}
 
 
 def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):
@@ -176,11 +175,15 @@ def test_isolated_render_exposes_writing_skills_and_commands(tmp_path):
     assert (tmp_path / ".agents/skills/pyramid/SKILL.md").is_file()
 
 
-def test_isolated_render_resolves_writing_commands(tmp_path):
+def test_isolated_render_resolves_writing_commands(tmp_path, native_opencode):
+    executable, _ = native_opencode
     env = render_writing_targets(tmp_path)
-    result = subprocess.run(
-        ["opencode", "debug", "config", "--pure"], cwd=tmp_path, env=env,
-        text=True, capture_output=True, check=True,
-    )
-    resolved = json.loads(result.stdout)
-    assert {"jira-ticket", "jira-completion", "pyramid"} <= resolved["command"].keys()
+    # The 1.19.4 arm64 builds deliver only the first 16 KiB through a pipe; a file receives all of it.
+    resolved = tmp_path / "resolved-config.json"
+    with resolved.open("wb") as output:
+        subprocess.run(
+            [str(executable), "debug", "config", "--pure"], cwd=tmp_path, env=env,
+            stdout=output, stderr=subprocess.PIPE, check=True,
+        )
+    config = json.loads(resolved.read_text())
+    assert {"jira-ticket", "jira-completion", "pyramid"} <= config["command"].keys()

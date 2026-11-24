@@ -25,6 +25,14 @@ already-published PR, and safe removal-check scope and process evidence.
 The six fixes have separate source cycles; their installed qualification is
 owned by distribution.
 
+[Host-independent tests](features/host-independent-tests.md) specifies that a
+test reads no operator-private state from the real home, and that a
+version-sensitive capability of an installed tool is asserted only under an
+opt-in naming a qualified executable, which configured CI always sets. It also
+records the R&D worker's V1-only session discovery as a gap owned by the
+OpenCode V2 migration. It is implemented in source and changes no installed
+behavior.
+
 [Completion reconciliation](features/workflow-completion-reconciliation.md)
 specifies the new Discovery-defined successful-completion route: multi-PR and
 amendment provenance, affected evidence reuse, early structural preflight and
@@ -331,6 +339,25 @@ unavailable assessments. Incomplete observations, ambiguous attempts and
 skipped work keep the candidate from advancing. Source fixtures exercise the
 receipt interface. Live producer qualification, verified receipt custody and
 protected integration remain separate.
+
+## Forgejo protected merge source interface
+
+The [guarded integration contract](../../initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md#integrate-through-the-protected-path)
+defines `integration_coordinator/forgejo_merge.py`. The adapter requires a
+persisted reservation for the exact candidate, a qualified guard and dispatcher,
+an exact fixture grant, independent review, and current Forgejo CI receipts.
+It durably claims the submission before requesting an immediate ordinary
+expected-head merge through native branch protection.
+
+Success requires native PR readback, the expected merge actor, the raw merge
+commit with ordered base and head parents and the tested tree, and inclusion on
+the target. The proof records the merge commit separately from its preserved
+source projection. A lost response keeps the reservation fenced while the
+adapter reconciles through read-only observations.
+
+Source acceptance exercises these boundaries with synthetic fixture ports.
+Native fixture qualification and consumer activation each require the
+corresponding guard, identity, branch protection, and operating evidence.
 
 ## Workflow regression source interface
 
