@@ -301,6 +301,24 @@ Source acceptance uses synthetic provider fixtures. Live credentials, feature
 push, required CI, protected merge guards and deployment require separate
 qualification. The installed Forgejo CLI route remains local-only.
 
+## Forgejo CI assessment source interface
+
+The [Forgejo CI source contract](../../initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md#forgejo-ci-source-interface)
+pairs complete, bounded v15 commit-status reads in
+`integration_coordinator/forgejo_status.py` with read-only assessment in
+`integration_coordinator/forgejo_ci.py`. The approved plan binds every required
+context to the repository and target, its allowed producer and the definition
+digest. Each required context must have native success and a matching receipt
+from the delivery owner's qualified execution reader. The assessment binds the
+receipt to the native status ID, current run attempt and exact lifecycle
+candidate, including the tested object, raw tree and source projection.
+
+Provider-tagged results distinguish passed, waiting, failed, stale and
+unavailable assessments. Incomplete observations, ambiguous attempts and
+skipped work keep the candidate from advancing. Source fixtures exercise the
+receipt interface. Live producer qualification, verified receipt custody and
+protected integration remain separate.
+
 ## Workflow regression source interface
 
 `WORKFLOW-REGRESSION-TELEMETRY` extends the existing CLI/evidence/phase owners;
