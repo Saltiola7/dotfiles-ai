@@ -5879,7 +5879,8 @@ def lineage_document_blobs(root, blobs):
         fail("historical lineage documentation blobs are unavailable")
 
 
-def lineage_merge_tree(root, first, second, *, base=None):
+def lineage_alternate(root, bare):
+    """Link a fresh bare repository to this checkout's object store."""
     objects = Path(lineage_git(root, "rev-parse", "--git-path", "objects").strip())
     objects = objects if objects.is_absolute() else root / objects
     objects = objects.resolve(strict=True)
@@ -5888,12 +5889,16 @@ def lineage_merge_tree(root, first, second, *, base=None):
     object_format = lineage_git(root, "rev-parse", "--show-object-format").strip()
     if object_format not in {"sha1", "sha256"}:
         fail("unsupported lineage object format")
+    lineage_git(bare.parent, "init", "--bare", "--template=", "--initial-branch=control",
+                "--object-format=" + object_format, str(bare))
+    (bare / "objects/info/alternates").write_text(str(objects) + "\n")
+
+
+def lineage_merge_tree(root, first, second, *, base=None):
     with tempfile.TemporaryDirectory(prefix="dbsctr-lineage-merge-") as directory:
         temporary = Path(directory)
         bare = temporary / "control.git"
-        lineage_git(temporary, "init", "--bare", "--template=", "--initial-branch=control",
-                    "--object-format=" + object_format, str(bare))
-        (bare / "objects/info/alternates").write_text(str(objects) + "\n")
+        lineage_alternate(root, bare)
         options = ["--merge-base=" + lineage_oid(base)] if base is not None else []
         result = lineage_git(bare, "merge-tree", "--write-tree", *options, first, second).splitlines()
         if len(result) != 1:
@@ -9329,6 +9334,10 @@ def command_inspect(args):
 
 def command_status(args):
     root = root_dir()
+    if args.cycle_id is not None and not args.post_delivery:
+        fail("status --cycle-id requires --post-delivery")
+    if args.post_delivery:
+        return post_delivery_status(root, args)
     active = resolved_active_path(root)
     if not active.exists() and args.json:
         print("null")
@@ -10934,7 +10943,9 @@ def continuation_guard(args):
     if args.command.startswith("continuation-") or args.command in {
             "attach-runtime", "cleanup", "cycle-retire", "cycle-retire-worktree", "cycle-portabilize"}:
         fail("workspace continuation commands are retired; use workspace-adopt and the native checkout")
-    if args.command in {"workspace-adopt", "workspace-recover-orphan"} or args.command in CONTINUATION_READ_COMMANDS:
+    if (args.command in {"workspace-adopt", "workspace-recover-orphan"} or args.command in CONTINUATION_READ_COMMANDS
+            or args.command == "complete-external" and args.post_delivery):
+        # A post-delivery observation writes no cycle state and owns its admission.
         return
     found = subprocess.run(["git", "rev-parse", "--show-toplevel"], env=INSPECT_ENV,
                            text=True, capture_output=True)
@@ -10967,7 +10978,7 @@ def continuation_guard(args):
 
 def local_dispatch_selection(args):
     """Find an existing new-mode binding using local Git metadata only."""
-    if args.command == "complete-local":
+    if args.command == "complete-local" or (args.command == "complete-external" and args.post_delivery):
         return None  # The completion handler owns admission, including explicit retries.
     found = subprocess.run(["git", "rev-parse", "--show-toplevel"], env=INSPECT_ENV,
                            text=True, capture_output=True)
@@ -23047,7 +23058,10 @@ def external_github(root, env, endpoint):
         fail("external merge native GitHub verification unavailable")
 
 
-def external_merge_proof(root, record, args, env, head, tree, commits, *, observed_target=None, composed_segment=False):
+def external_merge_proof(root, record, args, env, head, tree, commits, *, observed_target=None, composed_segment=False,
+                         objects=None):
+    """Prove the landing natively; `objects` selects where local Git objects are read."""
+    objects = root if objects is None else objects
     delivery, github = record["delivery"], record["delivery"]["github"]
     repository = github["repository"]
     actor = external_github(root, env, "user")
@@ -23091,7 +23105,7 @@ def external_merge_proof(root, record, args, env, head, tree, commits, *, observ
             or not isinstance(old_pull.get("url"), str) or old_pull["url"].casefold() != url.casefold()):
         fail("external completion conflicts with recorded pull request")
     remote = delivery["remote"]
-    remote_url = github_remote_url(root, remote, repository)
+    remote_url = github_remote_url(objects, remote, repository)
     if observed_target is None:
         fetch_github_branch(root, remote, remote_url, delivery["base_branch"], env)
         target = git(root, "rev-parse", f"refs/remotes/{remote}/{delivery['base_branch']}").stdout.strip()
@@ -23099,8 +23113,8 @@ def external_merge_proof(root, record, args, env, head, tree, commits, *, observ
         target = observed_target
     merge = args.expected_merge
     native = external_github(root, env, f"repos/{repository}/git/commits/{merge}")
-    parents = git(root, "show", "-s", "--format=%P", merge).stdout.split()
-    merge_tree = git(root, "rev-parse", f"{merge}^{{tree}}").stdout.strip()
+    parents = git(objects, "show", "-s", "--format=%P", merge).stdout.split()
+    merge_tree = git(objects, "rev-parse", f"{merge}^{{tree}}").stdout.strip()
     native_tree = native.get("tree") if isinstance(native, dict) else None
     native_parents = native.get("parents") if isinstance(native, dict) else None
     if (not isinstance(native, dict) or native.get("sha") != merge
@@ -23116,16 +23130,16 @@ def external_merge_proof(root, record, args, env, head, tree, commits, *, observ
         # the pre-merge base tip was already contained in it, so the merge
         # contributed no content and rewrote no history.
         if (parents[1] != head
-                or git(root, "merge-base", "--is-ancestor", parents[0], head, check=False).returncode):
+                or git(objects, "merge-base", "--is-ancestor", parents[0], head, check=False).returncode):
             fail("external two-parent merge is not an exact-tree merge of the retained head")
     parent = parents[0]
-    if (git(root, "merge-base", "--is-ancestor", merge, target, check=False).returncode
-            or git(root, "merge-base", "--is-ancestor", record["git"]["head"], parent, check=False).returncode):
+    if (git(objects, "merge-base", "--is-ancestor", merge, target, check=False).returncode
+            or git(objects, "merge-base", "--is-ancestor", record["git"]["head"], parent, check=False).returncode):
         fail("external merge is outside the protected base lineage")
     correspondence = {}
     if rebased:
         with local_completion_git_context():
-            correspondence = rebased_mapping(root, record, merge)
+            correspondence = rebased_mapping(objects, record, merge)
         deadline = time.monotonic() + 60
         for pair in correspondence["commit_mapping"]:
             if time.monotonic() >= deadline:
@@ -23140,8 +23154,8 @@ def external_merge_proof(root, record, args, env, head, tree, commits, *, observ
             rebased_source_retention(root, record, head)
     imported_anchor = merge if len(parents) == 2 else parent
     for commit in commits:
-        imported = git(root, "show", "-s", "--format=%P", commit).stdout.split()[1:]
-        if any(git(root, "merge-base", "--is-ancestor", item, imported_anchor, check=False).returncode for item in imported):
+        imported = git(objects, "show", "-s", "--format=%P", commit).stdout.split()[1:]
+        if any(git(objects, "merge-base", "--is-ancestor", item, imported_anchor, check=False).returncode for item in imported):
             fail("recorded source imports history outside the historical merged base")
     current = external_github(root, env, f"repos/{repository}/git/ref/heads/{quote(delivery['base_branch'], safe='')}")
     if (not isinstance(current, dict) or current.get("ref") != f"refs/heads/{delivery['base_branch']}"
@@ -23902,7 +23916,462 @@ def _complete_external_segments(root, path, record, pointer, args, explicit, rep
         print(json.dumps(receipt, sort_keys=True))
 
 
+POST_DELIVERY_CORE = ("cycle_id", "previous", "original", "landing", "conditions")
+POST_DELIVERY_FIELDS = {"schema_version", "kind", "sequence", "digest", "approval", "observed_at", "recorded_at",
+                        *POST_DELIVERY_CORE}
+POST_DELIVERY_APPROVAL = {"method": "agent_confirmed", "attribution": "caller_assertion"}
+
+
+def post_delivery_select(args):
+    """Admit one completed Final Push delivery by exact ID in this Git common directory."""
+    if not isinstance(args.cycle_id, str) or not OPAQUE_ID.fullmatch(args.cycle_id):
+        fail("post-delivery observation requires one cycle ID")
+    root = root_dir()
+    path = cycle_dir(root) / "cycles" / f"{args.cycle_id}.json"
+    if not path.is_file() or path.is_symlink():
+        fail("post-delivery cycle record is unavailable")
+    continuation_private(path)
+    raw = path.read_bytes()
+    record = read_cycle_record(root, path, historical=True)
+    delivery = record.get("delivery") if isinstance(record.get("delivery"), dict) else {}
+    git_state = record.get("git") if isinstance(record.get("git"), dict) else {}
+    remote = delivery.get("remote")
+    github, pull, commits = delivery.get("github"), delivery.get("pull_request"), record.get("commits")
+    if (record.get("schema_version") not in (3, 4, 5) or record.get("delivery_intent") != "draft_pr"
+            or record.get("cycle_id") != args.cycle_id
+            or not isinstance(github, dict) or set(github) != {"host", "repository", "account"}
+            or github["host"] != "github.com" or not isinstance(github["repository"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", github["repository"])):
+        fail("post-delivery receipts require a supported GitHub draft_pr cycle")
+    if record.get("state") != "completed":
+        fail("post-delivery receipts require a completed cycle")
+    if "external_completion" in record:
+        fail("cycle holds an external completion receipt; use complete-external --cycle-id")
+    pushed = git_state.get("remote").get("push_url") if isinstance(git_state.get("remote"), dict) else None
+    if (type(args.pr_number) is not int or not 1 <= args.pr_number < 2**53
+            or not external_oid(args.expected_head) or not external_oid(args.expected_merge)
+            or getattr(args, "proof", "exact_tree") != "exact_tree"
+            or not isinstance(pull, dict) or type(pull.get("number")) is not int or pull["number"] != args.pr_number
+            or not isinstance(pull.get("url"), str)
+            or not isinstance(remote, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", remote)
+            or not all(isinstance(delivery.get(key), str) and delivery[key] for key in ("base_branch", "branch"))
+            or not isinstance(pushed, str) or not pushed
+            or not external_timestamp(record.get("completed_at")) or not external_oid(git_state.get("head"))
+            or not isinstance(commits, list) or not commits
+            or not all(isinstance(entry, dict) and external_oid(entry.get("id")) for entry in commits)):
+        fail("post-delivery pull request or delivery record does not match the request")
+    return root, path, raw, record
+
+
+def post_delivery_original(record, raw):
+    """State the delivery exactly as the completed record records it."""
+    delivery, pull = record["delivery"], record["delivery"]["pull_request"]
+    gates = {}
+    for name in GATES:
+        gate = record["gates"][name]
+        if gate["applicability"] != "required":
+            continue
+        exception = gate.get("exception")
+        stated = isinstance(exception, dict) and all(key in exception for key in ("kind", "owner", "approved_at"))
+        gates[name] = {"result": gate["result"], **({"exception": {
+            key: exception[key] for key in ("kind", "owner", "approved_at")}} if stated else {})}
+    return {"record_sha256": hashlib.sha256(raw).hexdigest(), "completed_at": record["completed_at"],
+            "cycle_base": record["git"]["head"], "recorded_commits": [entry["id"] for entry in record["commits"]],
+            "pull_request": {"number": pull["number"], "url": pull["url"]},
+            "base_branch": delivery["base_branch"], "feature_branch": delivery["branch"], "gates": gates}
+
+
+@contextlib.contextmanager
+def post_delivery_store(root, url, remote):
+    """A disposable object store that reads retained local objects; enter it in the offline context."""
+    with tempfile.TemporaryDirectory(prefix="dbsctr-post-delivery-") as directory:
+        store = Path(directory) / "remote.git"
+        lineage_alternate(root, store)
+        for key, value in (("core.hooksPath", os.devnull), ("gc.auto", "0"), ("maintenance.auto", "false")):
+            lineage_git(store, "config", key, value)
+        # The shared proof looks the remote up by the name the delivery recorded.
+        lineage_git(store, "remote", "add", remote, url)
+        yield store
+
+
+def post_delivery_source(store, original):
+    """The delivered tip is the last recorded commit, when its retained chain is intact."""
+    commits = original["recorded_commits"]
+    present = all(not git(store, "cat-file", "-e", f"{oid}^{{commit}}", check=False).returncode
+                  for oid in (original["cycle_base"], *commits))
+    listed = git(store, "rev-list", "--reverse", "--first-parent", f"{original['cycle_base']}..{commits[-1]}",
+                 check=False).stdout.split()
+    return present and listed == commits
+
+
+def post_delivery_correspondence(store, args, tip):
+    """Classify how the merged pull request head relates to the delivered tip."""
+    head, merge = args.expected_head, args.expected_merge
+    if head == tip:
+        return "unchanged_head", None, None
+
+    def inside(older, newer):
+        return not git(store, "merge-base", "--is-ancestor", older, newer, check=False).returncode
+
+    if not inside(tip, head):
+        retained = not git(store, "cat-file", "-e", f"{head}^{{commit}}", check=False).returncode
+        return None, "pull_head_not_retained" if not retained else "delivered_tip_outside_pull_head", None
+    parents = git(store, "show", "-s", "--format=%P", head).stdout.split()
+    if len(parents) != 2 or parents[0] != tip:
+        return None, "head_changed_beyond_base_refresh", None
+    base_parent = parents[1]
+    # A two-parent landing must contain the pull request head. A squash cannot and is
+    # judged by its tree and by the native proof.
+    landing_parents = git(store, "show", "-s", "--format=%P", merge, check=False).stdout.split()
+    if git(store, "cat-file", "-e", f"{merge}^{{commit}}", check=False).returncode or (
+            len(landing_parents) == 2 and not inside(head, merge)):
+        return None, "landing_commit_does_not_land_pull_head", None
+    # The merged base must predate the landing itself; reaching it only through the
+    # landing would let the pull request vouch for its own second parent.
+    landed_base = git(store, "rev-parse", "--verify", "--quiet", f"{merge}^1", check=False).stdout.strip()
+    if not landed_base or not inside(base_parent, landed_base) or inside(tip, base_parent):
+        return None, "refresh_base_is_not_pre_landing_target", None
+    try:
+        # Git's own recursive merge base: forcing one candidate can look clean in a
+        # criss-cross history where the real merge conflicts.
+        tree = lineage_merge_tree(store, base_parent, tip)
+    except RuntimeError:
+        return None, "refresh_is_not_a_clean_merge", None
+    if tree != git(store, "rev-parse", f"{head}^{{tree}}").stdout.strip():
+        return None, "refresh_changed_content", None
+    return "base_refresh", None, {"base_parent": base_parent}
+
+
+def post_delivery_landing(root, record, args, original):
+    """Observe the landing natively and in Git without touching this checkout or its refs."""
+    delivery, github = record["delivery"], record["delivery"]["github"]
+    repository, branch = github["repository"], delivery["base_branch"]
+    env = {key: value for key, value in {**GIT_REPOSITORY_ENV, **github_environment(github["account"])}.items()
+           if key not in GIT_REPOSITORY_REDIRECTS}
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1")
+    token = LOCAL_COMPLETION_GIT.set(env)
+    try:
+        pull = external_github(root, env, f"repos/{repository}/pulls/{args.pr_number}")
+        head = pull.get("head", {}).get("sha") if isinstance(pull, dict) and isinstance(pull.get("head"), dict) else None
+        if head != args.expected_head:
+            fail("post-delivery expected head is not the current pull request head")
+        facts = {"state": pull.get("state"), "merged": pull.get("merged"), "merged_at": pull.get("merged_at"), "head": head}
+        url = f"https://github.com/{repository}.git"
+        with contextlib.ExitStack() as stack:
+            with local_completion_git_context():
+                store = stack.enter_context(post_delivery_store(root, url, delivery["remote"]))
+            # The authenticated context reads the protected base into the disposable
+            # store only; this checkout and its refs stay exactly as they are. Retained
+            # objects let the server omit the history before the cycle base, and a
+            # stalled transfer gives up instead of holding the target lock indefinitely.
+            require_canonical_github_url(store, url, env)
+            # Git refuses a negotiation tip it cannot resolve, so name one only when retained.
+            retained = not git(store, "cat-file", "-e", f"{original['cycle_base']}^{{commit}}", check=False).returncode
+            try:
+                git(store, "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=60", "fetch", "--no-tags",
+                    "--no-write-fetch-head", "--no-recurse-submodules",
+                    *([f"--negotiation-tip={original['cycle_base']}"] if retained else []),
+                    url, f"+refs/heads/{branch}:refs/heads/{branch}")
+            except RuntimeError:
+                fail("post-delivery protected base could not be read")
+            with local_completion_git_context():
+                target = git(store, "rev-parse", f"refs/heads/{branch}").stdout.strip()
+                if not post_delivery_source(store, original):
+                    landing = {"status": "unavailable", "proof": None, "reason": "retained_source_unavailable"}
+                else:
+                    tip = original["recorded_commits"][-1]
+                    proof, reason, refresh = post_delivery_correspondence(store, args, tip)
+                    if proof is None:
+                        landing = {"status": "unverified", "proof": None, "reason": reason, "pull_request": facts}
+                    else:
+                        landed, commits = tip, original["recorded_commits"]
+                        if refresh is not None:
+                            landed, commits = args.expected_head, [*commits, args.expected_head]
+                        tree = git(store, "rev-parse", f"{landed}^{{tree}}").stdout.strip()
+                        receipt = external_merge_proof(root, record, args, env, landed, tree, commits,
+                                                       observed_target=target, objects=store)
+                        require_completion_target_pin(root, record, env, target)
+                        landing = {"status": "verified", "proof": proof, "head": args.expected_head,
+                                   "merge": receipt["merge"], "merge_parent": receipt["merge_parent"],
+                                   "target_branch": receipt["target_branch"], "target_head": receipt["target_head"],
+                                   "merged_at": receipt["merged_at"], **({"refresh": refresh} if refresh else {})}
+    finally:
+        LOCAL_COMPLETION_GIT.reset(token)
+    return landing, now()
+
+
+def post_delivery_conditions(record):
+    """Every deferred review condition of the completed record, in gate order."""
+    conditions = []
+    for name in GATES:
+        gate = record["gates"][name]
+        if gate["applicability"] != "required" or gate["result"] == "passed":
+            continue
+        exception = gate.get("exception")
+        # Leaving out an unpassed gate would hide an outstanding obligation.
+        if not isinstance(exception, dict) or not valid_gate_exception(gate):
+            fail("post-delivery record has an unpassed gate without a valid approved exception")
+        if exception["kind"] != "deferred":
+            continue
+        review, predicate = exception.get("review"), None
+        if review is not None:
+            # A measurable predicate is declared in approved authority, never inferred from prose.
+            predicate = review.get("predicate") if isinstance(review, dict) else None
+            if not (isinstance(review, dict) and set(review) == {"schema_version", "id", "predicate"}
+                    and type(review["schema_version"]) is int and review["schema_version"] == 1
+                    and isinstance(review["id"], str) and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", review["id"])
+                    and isinstance(predicate, dict)
+                    and set(predicate) in ({"gate", "authority", "result"},
+                                           {"gate", "authority", "result", "requirement"})
+                    and predicate["gate"] == name and predicate["result"] in ("passed", "failed", "unavailable")
+                    and isinstance(predicate["authority"], str) and 1 <= len(predicate["authority"]) <= 128
+                    and ("requirement" not in predicate or isinstance(predicate["requirement"], str)
+                         and OPAQUE_ID.fullmatch(predicate["requirement"]))):
+                fail("unsupported deferred review declaration")
+        conditions.append({"gate": name, "owner": exception["owner"], "review_condition": exception["review_condition"],
+                           "condition": review["id"] if review is not None else hashlib.sha256(
+                               exception["review_condition"].encode("utf-8")).hexdigest(),
+                           "kind": "measurable" if review is not None else "judgment", "predicate": predicate})
+    return conditions
+
+
+def post_delivery_evidence(root, record, reference, gate_name, predicate):
+    """One linked later receipt, checked for custody, origin, timing and binding."""
+    entry = {"source_cycle": reference[0], "evidence_id": reference[1], "gate": gate_name, "authority": None,
+             "result": None, "commit": None, "started_at": None, "binding": None, "coverage": [],
+             "applicable": False, "reason": None}
+    path = cycle_dir(root) / "cycles" / f"{reference[0]}.json"
+    if not path.is_file() or path.is_symlink():
+        return {**entry, "reason": "source_cycle_not_found"}
+    try:
+        continuation_private(path)
+        source = read_cycle_record(root, path, historical=True)
+    except (RuntimeError, OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {**entry, "reason": "source_cycle_unreadable"}
+
+    def pushed(stated):
+        remote = stated.get("git").get("remote") if isinstance(stated.get("git"), dict) else None
+        return remote.get("push_url") if isinstance(remote, dict) else None
+
+    # The same repository reached through another remote name is still that repository.
+    if not pushed(source) or pushed(source) != pushed(record):
+        return {**entry, "reason": "source_repository_differs"}
+    if source.get("state") != "completed":
+        return {**entry, "reason": "source_cycle_not_completed"}
+    gate = source.get("gates", {}).get(gate_name)
+    if not isinstance(gate, dict) or gate.get("evidence") != reference[1]:
+        return {**entry, "reason": "evidence_is_not_current_for_gate"}
+    untrusted = lambda reason: {**entry, "reason": reason}
+    try:
+        item = verify_envelope(root, source, gate_name, require_bound=False, require_head=False)
+        entry.update(authority=item.get("authority"), result=item["result"], commit=item.get("commit"),
+                     started_at=item["started_at"])
+        commits = source["commits"]
+        final = commits[-1].get("id") if commits and isinstance(commits[-1], dict) else None
+        committed = any(isinstance(link, dict) and link.get("id") == item.get("commit")
+                        and gate_name in link.get("gates", []) for link in commits)
+        # Failing evidence for a deferred gate is head-bound; that cycle's own Final
+        # Push verified it sat at the head it pushed.
+        if not committed and (item.get("commit") or item["head"] != final):
+            return untrusted("evidence_not_bound_to_source_delivery")
+        if (datetime.fromisoformat(item["started_at"].replace("Z", "+00:00"))
+                < datetime.fromisoformat(record["completed_at"].replace("Z", "+00:00"))):
+            return untrusted("evidence_predates_delivery")
+        policy = effective_evidence_policy(source)
+        if reference[1] in source.get("evidence", {}).get("bindings", {}):
+            payload = load_evidence_binding(root, source, reference[1])
+            entry.update(binding="bound", coverage=[covered["id"] for covered in payload["coverage"]])
+            if payload["runtime"] is not None:
+                age = (datetime.now(timezone.utc) - datetime.fromisoformat(
+                    payload["runtime"]["validated_at"].replace("Z", "+00:00"))).total_seconds()
+                if not 0 <= age <= policy["gates"][gate_name]["runtime"]["max_age_seconds"]:
+                    return untrusted("runtime_acceptance_stale")
+        elif policy is not None and gate_name in policy["gates"]:
+            return untrusted("binding_unavailable")
+        else:
+            entry["binding"] = "legacy"
+        if predicate is not None and "requirement" in predicate and predicate["requirement"] not in entry["coverage"]:
+            return untrusted("requirement_not_covered")
+        if predicate is not None and item["authority"] != predicate["authority"]:
+            return untrusted("authority_mismatch")
+    except (RuntimeError, OSError, ValueError, KeyError, TypeError):
+        return untrusted("evidence_or_binding_unavailable")
+    return {**entry, "applicable": True}
+
+
+def post_delivery_condition(base, links, owner_review):
+    """One disposition per deferred condition; acceptance is never a passing execution."""
+    trusted = [link for link in links if link["applicable"]]
+    disposition, reason = "unverified", "evidence_required"
+    if base["kind"] == "measurable" and trusted:
+        matched = base["predicate"]["result"] in {link["result"] for link in trusted}
+        disposition, reason = ("verified", None) if matched else ("not_met", "predicate_contradicted")
+    elif trusted:
+        reason = "prose_condition_has_no_predicate"
+    elif links:
+        reason = links[0]["reason"]
+    decision = {"method": "agent_reported", "attribution": "caller_assertion"} if owner_review else None
+    if owner_review and disposition == "unverified":
+        disposition, reason = "owner_accepted", None
+    return {**base, "disposition": disposition, "reason": reason, "evidence": links, "owner_decision": decision}
+
+
+def post_delivery_selectors(args, conditions):
+    """Resolve review selectors against every deferred condition, so none can be hidden."""
+    known = {f"{item['gate']}:{item['condition']}": [[], False] for item in conditions}
+    for value in args.review_evidence:
+        fields = value.split(":") if isinstance(value, str) else []
+        if (len(fields) != 4 or not all(OPAQUE_ID.fullmatch(field) for field in fields)
+                or ":".join(fields[:2]) not in known):
+            fail("post-delivery review selector does not match a deferred condition")
+        known[":".join(fields[:2])][0].append((fields[2], fields[3]))
+    for value in args.owner_review:
+        if not isinstance(value, str) or value not in known:
+            fail("post-delivery review selector does not match a deferred condition")
+        known[value][1] = True
+    return known
+
+
+def post_delivery_chain(root, cycle_id):
+    """Read and verify the immutable receipt chain; this is never a fresh native observation."""
+    directory = cycle_dir(root) / "evidence" / cycle_id / "post-delivery"
+    chain = []
+    if not safe_directory(cycle_dir(root), directory):
+        return chain
+    for path in sorted(directory.iterdir()):
+        # A writer killed before its link leaves only an inert temporary file beside the receipts.
+        if re.fullmatch(r"tmp[a-z0-9_]{8}", path.name):
+            continue
+        invalid = True
+        try:
+            raw = amendment_read(root, path)
+            value = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+            invalid = (not isinstance(value, dict) or amendment_bytes(value) != raw
+                       or set(value) != POST_DELIVERY_FIELDS or type(value["schema_version"]) is not int
+                       or value["schema_version"] != 1 or value["kind"] != "post_delivery_receipt"
+                       or value["cycle_id"] != cycle_id or type(value["sequence"]) is not int
+                       or value["sequence"] != len(chain) + 1
+                       or value["previous"] != (chain[-1]["digest"] if chain else None)
+                       or value["approval"] != POST_DELIVERY_APPROVAL
+                       or not isinstance(value["original"], dict) or not isinstance(value["landing"], dict)
+                       or not isinstance(value["conditions"], list)
+                       or not all(isinstance(stated, dict) for stated in value["conditions"])
+                       or value["digest"] != continuation_digest({key: value[key] for key in POST_DELIVERY_CORE})
+                       or not external_timestamp(value["observed_at"]) or not external_timestamp(value["recorded_at"])
+                       or path.name != f"{value['sequence']:04d}-{value['digest']}.json")
+        except (RuntimeError, OSError, ValueError, TypeError, KeyError):
+            pass
+        if invalid:
+            fail("post-delivery receipt custody is invalid")
+        chain.append(value)
+    return chain
+
+
+def post_delivery_receipt(args):
+    """Preview, or append after exact approval, one observation of a completed delivery."""
+    root, path, admitted, record = post_delivery_select(args)
+    if args.delivery_segment:
+        fail("--delivery-segment cannot be combined with --post-delivery")
+    if args.preview and (args.expected_receipt_digest is not None or args.approval is not None):
+        fail("--expected-receipt-digest and --approval apply to an append, not to a preview")
+    with evidence_lock(root, args.cycle_id, timeout=1), target_lock(root, record):
+        chain = post_delivery_chain(root, args.cycle_id)
+        if not args.preview:
+            digest, approval = args.expected_receipt_digest, args.approval
+            if (not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+                    or approval != "agent-confirmed"):
+                fail("post-delivery append requires an exact receipt digest and agent-confirmed approval")
+            for stored in chain:
+                if stored["digest"] == digest:
+                    # An acknowledged or interrupted identical append is never duplicated.
+                    print(json.dumps({**stored, "mode": "already_recorded"}, sort_keys=True))
+                    return
+        raw = path.read_bytes()
+        if raw != admitted:
+            fail("cycle record changed during admission; retry")
+        # The admitted record only chose the lock; evaluate the bytes read under it.
+        record = read_cycle_record(root, path, historical=True)
+        original = post_delivery_original(record, raw)
+        bases = post_delivery_conditions(record)
+        selectors = post_delivery_selectors(args, bases)
+        landing, observed = post_delivery_landing(root, record, args, original)
+        conditions = []
+        for base in bases:
+            references, owner_review = selectors[f"{base['gate']}:{base['condition']}"]
+            conditions.append(post_delivery_condition(base, [
+                post_delivery_evidence(root, record, reference, base["gate"], base["predicate"])
+                for reference in references], owner_review))
+        core = {"cycle_id": args.cycle_id, "previous": chain[-1]["digest"] if chain else None,
+                "original": original, "landing": landing, "conditions": conditions}
+        digest = continuation_digest(core)
+        if args.preview:
+            print(json.dumps({"schema_version": 1, "mode": "preview", **core, "receipt_digest": digest,
+                              "recordable": landing["status"] == "verified", "observed_at": observed}, sort_keys=True))
+            return
+        if landing["status"] != "verified":
+            fail("post-delivery landing is unverified; nothing to record")
+        if digest != args.expected_receipt_digest:
+            fail("post-delivery plan changed; preview again before approval")
+        if path.read_bytes() != raw:
+            fail("cycle record changed during verification")
+        receipt = {"schema_version": 1, "kind": "post_delivery_receipt", "sequence": len(chain) + 1, **core,
+                   "digest": digest, "approval": dict(POST_DELIVERY_APPROVAL), "observed_at": observed,
+                   "recorded_at": now()}
+        try:
+            amendment_write_once(root, cycle_dir(root) / "evidence" / args.cycle_id / "post-delivery"
+                                 / f"{receipt['sequence']:04d}-{digest}.json", amendment_bytes(receipt))
+        except RuntimeError:
+            fail("post-delivery receipt could not be recorded; its custody is conflicting or unavailable")
+        print(json.dumps({**receipt, "mode": "recorded"}, sort_keys=True))
+
+
+def post_delivery_status(root, args):
+    """Report stored receipts offline; no observation is repeated and no timestamp is refreshed."""
+    if not isinstance(args.cycle_id, str) or not OPAQUE_ID.fullmatch(args.cycle_id):
+        fail("post-delivery status requires one cycle ID")
+    path = cycle_dir(root) / "cycles" / f"{args.cycle_id}.json"
+    if not path.is_file() or path.is_symlink():
+        fail("post-delivery cycle record is unavailable")
+    continuation_private(path)
+    raw = path.read_bytes()
+    record = read_cycle_record(root, path, historical=True)
+    if record.get("cycle_id") != args.cycle_id:
+        fail("post-delivery cycle record identity changed")
+    chain = post_delivery_chain(root, args.cycle_id)
+    current = hashlib.sha256(raw).hexdigest()
+    landing_keys, condition_keys = ("status", "proof", "reason", "head", "merge", "target_head", "merged_at"), (
+        "gate", "condition", "kind", "disposition", "reason")
+    try:
+        receipts = [{"sequence": item["sequence"], "digest": item["digest"], "previous": item["previous"],
+                     "observed_at": item["observed_at"], "recorded_at": item["recorded_at"], "approval": item["approval"],
+                     "record_matches": item["original"]["record_sha256"] == current,
+                     "landing": {key: item["landing"].get(key) for key in landing_keys},
+                     "conditions": [{key: stated[key] for key in condition_keys} for stated in item["conditions"]]}
+                    for item in chain]
+    except (KeyError, TypeError, AttributeError):
+        # The digest binds content, not shape: a receipt edited by someone who also
+        # recomputed it still gets a bounded refusal.
+        fail("post-delivery receipt custody is invalid")
+    if not args.json:
+        print(f"{args.cycle_id} post-delivery receipts={len(receipts)}"
+              + (f" latest={receipts[-1]['digest']}" if receipts else ""))
+        return
+    latest = receipts[-1] if receipts else None
+    print(json.dumps({"schema_version": 1, "mode": "stored_receipts", "cycle_id": args.cycle_id,
+                      "record_sha256": current, "receipts": receipts, "latest": latest,
+                      "previous": latest["previous"] if latest else None,
+                      "record_matches_latest": latest["record_matches"] if latest else None,
+                      "outstanding": [{key: stated[key] for key in condition_keys} for stated in latest["conditions"]
+                                      if stated["disposition"] not in ("verified", "owner_accepted")] if latest else []},
+                     sort_keys=True))
+
+
 def command_complete_external(args):
+    if not args.post_delivery and (args.review_evidence or args.owner_review
+                                   or args.expected_receipt_digest is not None or args.approval is not None):
+        fail("--review-evidence, --owner-review, --expected-receipt-digest and --approval require --post-delivery")
+    if args.post_delivery:
+        return post_delivery_receipt(args)
     root = root_dir()
     pointer = resolved_active_path(root, bindings=False)
     explicit = args.cycle_id is not None
@@ -24914,6 +25383,9 @@ def parser():
     validation.set_defaults(func=command_validation_opt_out)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
+    status.add_argument("--post-delivery", action="store_true",
+                        help="read stored post-delivery receipts of one completed cycle, offline")
+    status.add_argument("--cycle-id")
     status.set_defaults(func=command_status)
     attach = commands.add_parser("attach-runtime")
     attach.add_argument("--opencode-session-id", required=True)
@@ -25366,6 +25838,14 @@ def parser():
     complete_external.add_argument("--delivery-segment", action="append", default=[],
                                    help="preceding merged PR segment as PR:HEAD:MERGE; repeat in delivery order")
     complete_external.add_argument("--preview", action="store_true")
+    complete_external.add_argument("--post-delivery", action="store_true",
+                                   help="observe a completed Final Push delivery instead of completing a cycle")
+    complete_external.add_argument("--review-evidence", action="append", default=[],
+                                   help="GATE:CONDITION:SOURCE_CYCLE:EVIDENCE_ID of a later evidence item; repeatable")
+    complete_external.add_argument("--owner-review", action="append", default=[], metavar="GATE:CONDITION",
+                                   help="report the named owner's explicit acceptance of one condition; repeatable")
+    complete_external.add_argument("--expected-receipt-digest")
+    complete_external.add_argument("--approval", choices=("agent-confirmed",))
     complete_external.set_defaults(func=command_complete_external)
     final = commands.add_parser("final-push")
     final.set_defaults(func=command_final_push)
