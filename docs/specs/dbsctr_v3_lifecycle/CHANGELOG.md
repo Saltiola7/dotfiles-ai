@@ -1,5 +1,24 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-23 — Post-delivery receipts for completed draft deliveries (INT-111–116)
+
+- Add `complete-external --post-delivery` and `status --post-delivery`. A
+  completed Final Push delivery can be linked, by exact ID and from any
+  checkout, to its verified later merge and to one disposition per deferred
+  review condition. The original Cycle Record stays byte-identical.
+- Accept an unchanged delivered head or one clean base-only refresh. Any other
+  change is reported unverified with a bounded reason and has no write
+  authority. The existing exact-tree proof runs against a disposable object
+  store, so a preview changes no ref.
+- Record each approved observation once as a private, chained receipt; an
+  identical retry returns that receipt. Machine evidence verifies only a
+  declared predicate. Legacy prose needs the named owner's explicit acceptance
+  and is never `verified`.
+- Cover ordinary and Initiative deliveries through the public CLI, with the
+  GitHub transport synthetic. Refresh the benchmark helper digest without
+  changing its workloads. Source-only draft PR to `main`; installed
+  qualification and operator guidance are separate.
+
 ## 2026-11-23 — Require independent process coverage (INT-109)
 
 - A recognized incomplete `lsof` result can clear only the process

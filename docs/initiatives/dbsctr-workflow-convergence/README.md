@@ -1,5 +1,21 @@
 # DBSCTR Workflow Convergence
 
+## Post-delivery evidence
+
+The [receipt contract](../../specs/dbsctr_v3_lifecycle/features/post-delivery-receipts.md)
+extends the existing completion work. First deliver `post-delivery-receipts`:
+show original delivery, verified landing and per-condition later evidence
+separately. Accept an unchanged published head or a provable base-only refresh.
+Predeclared measurable conditions admit trusted machine proof; judgment requires
+the named owner's explicit decision. The original record stays byte-identical.
+
+Next, `post-publication-deferrals` will specify how an active cycle records a
+check that first becomes possible after publication. Standalone follow-ups on an
+open PR and retained-checkout diagnostics have independent scope. See the
+[handoff](BUILD-HANDOFF.md#post-delivery-receipts) for ownership and acceptance.
+Only the receipt core is ready in this amendment; the manifest distinguishes
+captured work from a Build launch.
+
 ## Operator CLI fixes and Linux rollout
 
 [Lifecycle contracts](../../specs/dbsctr_v3_lifecycle/features/operator-cli-fixes.md)

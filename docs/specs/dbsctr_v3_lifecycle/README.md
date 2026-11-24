@@ -1,5 +1,11 @@
 # DBSCTR V3 Lifecycle
 
+[Post-delivery receipts](features/post-delivery-receipts.md) specifies how a
+completed draft delivery can be linked to a later verified merge and individual
+review outcomes without changing the original Cycle Record. It distinguishes
+machine proof from the named owner's judgment. The source contract is
+implemented in source; installed qualification is separate.
+
 [Operator CLI fixes](features/operator-cli-fixes.md) specifies tracked-path
 staging, actionable amendment and registration refusals, the handoff for an
 already-published PR, and safe removal-check scope and process evidence.
