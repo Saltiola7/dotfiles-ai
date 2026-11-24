@@ -532,6 +532,42 @@ def matches_tui_shutdown(snapshot, plan):
     return plans_match_at_native_precision(observed, plan)
 
 
+# Headless grid for a server start without a client (RRW-007G-R10). The pinned
+# TUI rounds every split and spends about two cells per split level on borders,
+# so a small nested share can round a pane to zero columns and fail to spawn.
+MIN_HEADLESS = (240, 80)
+MAX_HEADLESS = (1600, 200)
+_HEADLESS_CHROME = (30, 2)  # sidebar and frame kept outside the tab area
+_HEADLESS_CELLS = 2         # usable cells every pane keeps at headless start
+_HEADLESS_MARGIN = 4        # rounding slack beyond the per-level border cost
+
+
+def _headless_need(node, width, height, levels_w, levels_h, grid):
+    if 'pane' in node:
+        grid[0] = max(grid[0], math.ceil(_HEADLESS_CHROME[0] + (
+            _HEADLESS_CELLS + 2 * levels_w + _HEADLESS_MARGIN) / width))
+        grid[1] = max(grid[1], math.ceil(_HEADLESS_CHROME[1] + (
+            _HEADLESS_CELLS + levels_h + _HEADLESS_MARGIN) / height))
+        return
+    ratio = node['ratio']
+    first, second = node['children']
+    if node['axis'] == 'row':
+        _headless_need(first, width * ratio, height, levels_w + 1, levels_h, grid)
+        _headless_need(second, width * (1 - ratio), height, levels_w + 1, levels_h, grid)
+    else:
+        _headless_need(first, width, height * ratio, levels_w, levels_h + 1, grid)
+        _headless_need(second, width, height * (1 - ratio), levels_w, levels_h + 1, grid)
+
+
+def headless_grid(plan):
+    """Smallest bounded grid that keeps every pane spawnable at headless start."""
+    grid = list(MIN_HEADLESS)
+    for space in validate_plan(plan)['spaces']:
+        for tab in space['tabs']:
+            _headless_need(tab['root'], 1.0, 1.0, 0, 0, grid)
+    return min(grid[0], MAX_HEADLESS[0]), min(grid[1], MAX_HEADLESS[1])
+
+
 def to_app_document(plan, terminal_map):
     """Generate selected machine-local layout only, not private UI view state.
 

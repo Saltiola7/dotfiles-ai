@@ -3,9 +3,11 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sqlite3
 import struct
+import subprocess
 import sys
 
 import pytest
@@ -962,7 +964,7 @@ def test_recover_retained_repairs_then_switch_50_exact_clients_to_tui(backend, s
 
     backend.command = command
     backend.endpoint_present = lambda target: core.active if target == 'herdr-core' else tui_plan is not None
-    backend._tui_live = lambda: (tui_plan, {}, [])
+    backend._tui_live = lambda: (tui_plan, {}, [], set())
     backend.select('herdr-core')
     before = len(core.calls)
     ctl = runtime_controller.Controller(backend.store, backend)
@@ -1801,6 +1803,21 @@ def test_readiness_timeouts_identify_the_failed_boundary(backend):
     assert sum(method == 'terminal.run' for method, _ in core.calls) == 1
 
 
+@pytest.mark.parametrize('target,session,expected', [
+    ('tui', 'ses_abc', 700.0), ('herdr-core', 'ses_abc', None), ('tui', None, None)])
+def test_r10_readiness_budget_covers_paced_multi_session_tui_only(backend, target, session, expected):
+    # The plan must carry more than one session for the paced-restore budget.
+    value = plan(session)
+    if session:
+        value['spaces'][0]['tabs'][0]['panes'].append(
+            {'key': 's0-t0-p1', 'cwd': '/work', 'session_id': 'ses_second'})
+    seen = []
+    backend._wait = lambda check, *, seconds=None: seen.append(seconds)
+    backend.verify = lambda *args: None
+    backend._wait_ready(target, value, {})
+    assert seen == [expected]
+
+
 @pytest.mark.parametrize('recovers', [True, False])
 def test_kept_spawn_wait_covers_native_backoff_cap_and_remains_bounded(backend, monkeypatch, recovers):
     core = FakeCore(backend)
@@ -2570,6 +2587,193 @@ class FakeTui:
         return {}
 
 
+def degraded_tui(backend):
+    """One agent pane whose terminal failed to spawn (restore_error)."""
+    tui = FakeTui(backend)
+    directory = backend.proc_root / '31'
+    for name in ('stat', 'cmdline', 'cwd', 'status'):
+        (directory / name).unlink()
+    directory.rmdir()
+    base = tui.snapshot()
+    pane = base['panes'][0]
+    pane['restore_error'] = 'synthetic spawn failure'
+    pane.pop('foreground_cwd', None)
+    base['agents'] = []
+    tui.snapshot_override = base
+    return tui
+
+
+def test_r10_failed_pane_tolerates_exact_identity_view(backend):
+    tui = FakeTui(backend)
+    directory = backend.proc_root / '31'
+    for name in ('stat', 'cmdline', 'cwd', 'status'):
+        (directory / name).unlink()
+    directory.rmdir()
+    base = tui.snapshot()
+    base['panes'][0]['restore_error'] = 'synthetic spawn failure'
+    base['panes'][0].pop('foreground_cwd', None)
+    # Spawn-failed pane still exposes its exact agent view.
+    base['agents'][0]['launch_pending'] = True
+    tui.snapshot_override = base
+    receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
+    backend.verify('tui', plan(), receipt)
+
+
+def test_r10_failed_pane_view_with_other_identity_refuses(backend):
+    tui = FakeTui(backend)
+    directory = backend.proc_root / '31'
+    for name in ('stat', 'cmdline', 'cwd', 'status'):
+        (directory / name).unlink()
+    directory.rmdir()
+    base = tui.snapshot()
+    base['panes'][0]['restore_error'] = 'synthetic spawn failure'
+    base['panes'][0].pop('foreground_cwd', None)
+    base['agents'][0]['agent_session'] = {'source': 'herdr:opencode', 'agent': 'opencode',
+                                          'kind': 'id', 'value': 'ses_other'}
+    tui.snapshot_override = base
+    receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
+    with pytest.raises(native.NativeError, match='^TUI inconsistent agent view$'):
+        backend.verify('tui', plan(), receipt)
+
+
+def test_r10_failed_agent_pane_is_deferred_and_verify_tolerates(backend):
+    degraded_tui(backend)
+    receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
+    backend.verify('tui', plan(), receipt)
+    assert backend._coverage(plan(), deferred={'ses_abc'}) == []
+    capture = backend.capture('tui')
+    assert capture['clients'] == [] and capture['pids'] == []
+    assert native.sessions(capture['plan']) == {'ses_abc'}
+    backend.store.write('owned-tui.json', {'document': backend._optional_snapshot()})
+
+
+def test_r10_deferred_session_running_elsewhere_refuses(backend):
+    degraded_tui(backend)
+    synthetic_process(backend, 88, wrapper_argv(backend))
+    receipt = {'runtime': 'tui', 'txid': 'r10tx', 'document': None, 'pending': None}
+    with pytest.raises(native.NativeError, match='^session client coverage incomplete or duplicate$'):
+        backend.verify('tui', plan(), receipt)
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason='root has no distinct setuid identity')
+def test_r10_scan_skips_mixed_ownership_processes(backend):
+    user = native.os.getuid()
+    synthetic_process(backend, 4100, ['sudo', 'opencode', '--session', 'ses_abc'], uid=user)
+    (backend.proc_root / '4100' / 'status').write_text(
+        'Uid:\t' + '\t'.join([str(user), '0', '0', str(user)]) + '\n')
+    synthetic_process(backend, 4101, wrapper_argv(backend))
+    found = native.processes.scan_sessions({'ses_abc'}, backend.proc_root)
+    assert [item['pid'] for item in found] == [4101]
+    with pytest.raises(native.processes.ProcessProofError, match='^process ownership ambiguous$'):
+        native.processes.task_uid(backend.proc_root / '4100')
+
+
+def test_r10_failed_pane_in_early_tab_stays_deferred_across_later_tabs(backend):
+    # Native 0.9.5 keeps an interactive_ready agent view on a spawn-failed pane.
+    snap = FakeTui(backend).snapshot()
+    pane = snap['panes'][0]
+    pane['restore_error'] = 'Could not start the saved shell: ghostty error -2.'
+    pane.pop('foreground_cwd', None)
+    snap['agents'][0].update(launch_pending=None, interactive_ready=True)
+    snap['workspaces'][0]['tab_count'] = 2
+    snap['tabs'].append({'workspace_id': 'wid', 'tab_id': 'tid2', 'number': 2, 'label': '2',
+                         'focused': False, 'pane_count': 1, 'agent_status': 'idle'})
+    snap['panes'].append({'workspace_id': 'wid', 'tab_id': 'tid2', 'pane_id': 'later',
+                          'terminal_id': 'term2', 'focused': False, 'cwd': '/work',
+                          'foreground_cwd': '/work', 'agent': None, 'agent_status': None,
+                          'agent_session': None, 'revision': 1})
+    inventory, deferred_pids, deferred_sessions = backend._api_inventory(snap)
+    assert deferred_pids == {'pid'} and deferred_sessions == {'ses_abc'}
+    assert inventory[0]['tabs'][1]['panes'] == {'later': {'cwd': '/work', 'session_id': None}}
+
+
+def reported_geometry_plan():
+    panes = [{'key': 's0-t0-p%d' % index, 'cwd': '/work', 'session_id': 'ses_g%d' % index}
+             for index in range(5)]
+    return {'schema_version': 1, 'spaces': [{'name': 'Reported', 'directory': '/work', 'tabs': [
+        {'name': 'Tab', 'panes': panes, 'root': {
+            'axis': 'column', 'ratio': 0.5361, 'children': [
+                {'pane': 's0-t0-p0'},
+                {'axis': 'row', 'ratio': 0.9, 'children': [
+                    {'pane': 's0-t0-p1'},
+                    {'axis': 'column', 'ratio': 0.6444, 'children': [
+                        {'pane': 's0-t0-p2'},
+                        {'axis': 'row', 'ratio': 0.1, 'children': [
+                            {'pane': 's0-t0-p3'}, {'pane': 's0-t0-p4'}]}]}]}]}}]}]}
+
+
+def test_r10_headless_grid_scales_with_the_smallest_nested_share():
+    assert native.layout.headless_grid(plan()) == (240, 80)
+    assert native.layout.headless_grid(split_plan()) == (240, 80)
+    # The live geometry: a 10% share of a 10% share rounded to zero columns at
+    # the 120-column default and still failed at a fixed 240. Real TUI 0.9.5
+    # spawns every pane from 480 columns; this leaves rounding room.
+    assert native.layout.headless_grid(reported_geometry_plan()) == (1030, 80)
+    deep = reported_geometry_plan()
+    root = deep['spaces'][0]['tabs'][0]['root']
+    root['children'][1]['children'][1]['children'][1]['ratio'] = 0.01
+    assert native.layout.headless_grid(deep)[0] == native.layout.MAX_HEADLESS[0]
+
+
+FAKE_TUI = '''#!__PYEXECUTABLE__
+import json, os, pathlib, sys
+path = pathlib.Path(os.environ["HERDR_CONFIG_PATH"])
+print(json.dumps({"config": str(path), "mode": oct(path.stat().st_mode & 0o777),
+                  "text": path.read_text(), "argv": sys.argv[1:]}))
+'''
+
+
+def launcher_home(backend, plan_value, managed):
+    """Install the launcher, its modules and a reporting fake TUI in the fixture home."""
+    home = backend.home
+    modules = home / '.local/share/dotfiles-ai/remote-herdr'
+    modules.mkdir(parents=True)
+    for name in ('controller', 'native', 'layout', 'protocol', 'processes'):
+        (modules / (name + '.py')).write_bytes((SOURCE / (name + '.py')).read_bytes())
+    fake_tui = home / '.local/bin/herdr'
+    fake_tui.write_text(FAKE_TUI.replace('__PYEXECUTABLE__', sys.executable))
+    fake_tui.chmod(0o755)
+    pins = json.loads((home / '.config/dotfiles-ai/herdr-runtime.json').read_text())
+    pins['tui_sha256'] = hashlib.sha256(fake_tui.read_bytes()).hexdigest()
+    (home / '.config/dotfiles-ai/herdr-runtime.json').write_text(json.dumps(pins))
+    (home / '.config/herdr').mkdir(parents=True, exist_ok=True)
+    (home / '.config/herdr/config.toml').write_text(managed)
+    root = home / '.local/state/dotfiles-ai/herdr-runtime'
+    root.mkdir(parents=True, mode=0o700)
+    root.chmod(0o700)
+    (root / 'transaction.json').write_text(json.dumps({
+        'schema_version': 1, 'txid': 'launch', 'source': 'herdr-core', 'target': 'tui',
+        'phase': 'restore_pending', 'plan': plan_value, 'receipt': None}))
+    launcher = home / '.local/bin/remote-herdr'
+    launcher.write_bytes((SOURCE.parents[2] / 'bin/executable_remote-herdr').read_bytes())
+    launcher.chmod(0o755)
+    return subprocess.run(['/usr/bin/python3', '-I', str(launcher), 'exec-tui'],
+                          text=True, capture_output=True, timeout=30,
+                          env={'HOME': str(home), 'PATH': '/usr/bin:/bin'})
+
+
+live_core = Path('/run/user/%d/herdr-core/default.sock' % os.getuid()).exists()
+
+
+@pytest.mark.skipif(live_core, reason='a live core endpoint on this host makes exec-tui refuse by design')
+def test_r10_launcher_hands_the_tui_a_plan_sized_headless_grid(backend):
+    managed = 'onboarding = false\n\n[session]\nresume_agents_on_restore = true\n'
+    result = launcher_home(backend, reported_geometry_plan(), managed)
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report['argv'] == ['--session', 'default', 'server']
+    assert report['mode'] == '0o600' and report['config'].endswith('/herdr-runtime/headless-config.toml')
+    assert report['text'] == (managed.rstrip('\n') + '\n\n[server]\nheadless_cols = 1030\nheadless_rows = 80\n')
+
+
+@pytest.mark.skipif(live_core, reason='a live core endpoint on this host makes exec-tui refuse by design')
+def test_r10_launcher_refuses_a_managed_config_that_defines_its_own_server_table(backend):
+    managed = 'onboarding = false\n\n[server]\nheadless_cols = 9999\n'
+    result = launcher_home(backend, plan(), managed)
+    assert result.returncode == 75 and not result.stdout
+    assert not (backend.home / '.local/state/dotfiles-ai/herdr-runtime/headless-config.toml').exists()
+
+
 def test_tui_capture_observational_api_never_written_as_native_file(backend):
     tui = FakeTui(backend)
     before = backend.snapshot_path.read_bytes()
@@ -2761,7 +2965,7 @@ def test_tui_public_binding_proves_ordered_topology_and_pane_identity(backend, c
         return result
     backend.tui = split_rpc
     if change is None:
-        value, _, _ = backend._tui_live()
+        value, _, _, _ = backend._tui_live()
         assert value['spaces'][0]['tabs'][0]['root']['axis'] == 'column'
         assert value['spaces'][0]['tabs'][0]['panes'][0]['session_id'] is None
     else:
@@ -2796,7 +3000,7 @@ def test_tui_unnamed_tabs_display_position_not_public_number(backend):
         elif method == 'pane.process_info': result['process_info']['pane_id'] = params['pane_id']
         return result
     backend.tui = tabs_rpc
-    value, _, _ = backend._tui_live()
+    value, _, _, _ = backend._tui_live()
     assert [tab['name'] for tab in value['spaces'][0]['tabs']] == ['', '']
     api['tabs'][1]['label'] = '3'
     with pytest.raises(native.NativeError): backend._tui_live()
@@ -2824,7 +3028,7 @@ def test_tui_stop_rechecks_actual_foreground_after_durable_intent(backend, bound
     facts = [tui.rpc('pane.process_info', {})['process_info'],
              {'pane_id': 'plain', 'shell_pid': 40,
               'foreground_processes': [{'pid': 40, 'name': 'bash', 'cwd': '/work'}]}]
-    backend._tui_live = lambda: (copy.deepcopy(value), {}, copy.deepcopy(facts))
+    backend._tui_live = lambda: (copy.deepcopy(value), {}, copy.deepcopy(facts), set())
     captured = backend.capture('tui')
     def mutate():
         argv = ['/usr/bin/vim'] if change == 'foreign-program' else ['/bin/bash', '-l']

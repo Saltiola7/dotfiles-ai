@@ -176,7 +176,15 @@ def scan_sessions(sessions: set[str], root: Path = Path('/proc')) -> list[dict]:
                     info = entry.stat(follow_symlinks=False)
                     if not stat.S_ISDIR(info.st_mode):
                         raise ProcessProofError('process directory unsafe')
-                    if task_uid(directory) is None:
+                    try:
+                        foreign = task_uid(directory) is None
+                    except ProcessProofError as error:
+                        if str(error) != 'process ownership ambiguous':
+                            raise
+                        # A setuid/mixed-ownership process can never be a
+                        # session client; PID proof paths stay exact.
+                        continue
+                    if foreign:
                         continue
                     before = identity(directory, pid)
                     if before[0] in {'Z', 'X'}:

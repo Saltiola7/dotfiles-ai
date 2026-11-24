@@ -175,6 +175,45 @@ def edited_recovery_cli():
         'core terminal ownership mismatch': 'terminal-ownership',
         'session client coverage incomplete or duplicate': 'client-coverage',
         'native observation or mutation uncertain': 'native-uncertain',
+        'TUI recovery identity mismatch': 'tui-identity-mismatch',
+        'TUI pending mutation unsupported': 'tui-pending-unsupported',
+        'TUI recovery snapshot has unexplained edits': 'tui-snapshot-edits',
+        'TUI recovery snapshot changed before write': 'tui-snapshot-changed',
+        'TUI boot snapshot has unexplained edits': 'tui-boot-edits',
+        'TUI restored layout differs': 'tui-layout-differs',
+        'TUI agent identity not live': 'tui-agent-not-live',
+        'TUI inconsistent agent view': 'tui-inconsistent-view',
+        'TUI unknown foreground process': 'tui-unknown-foreground',
+        'TUI session process coverage incomplete': 'tui-session-coverage',
+        'TUI duplicate pane': 'tui-duplicate-pane',
+        'TUI duplicate agent views': 'tui-duplicate-views',
+        'TUI unauthoritative agent identity': 'tui-unauthoritative-identity',
+        'TUI unsupported or unknown agent': 'tui-unknown-agent',
+        'TUI pane inventory incomplete': 'tui-pane-inventory',
+        'TUI tab inventory incomplete': 'tui-tab-inventory',
+        'TUI workspace directory proof unavailable': 'tui-directory-proof',
+        'TUI workspace directory proof stale': 'tui-directory-stale',
+        'TUI workspace directory proof ambiguous': 'tui-directory-ambiguous',
+        'TUI persisted workspace identity stale': 'tui-workspace-stale',
+        'TUI persisted workspace pane count stale': 'tui-pane-count-stale',
+        'TUI persisted tab inventory stale': 'tui-tab-inventory-stale',
+        'TUI persisted tab name stale': 'tui-tab-name-stale',
+        'TUI persisted public identity stale': 'tui-public-identity-stale',
+        'TUI persisted topology stale': 'tui-topology-stale',
+        'TUI layout export incompatible': 'tui-layout-export',
+        'TUI layout workspace identity stale': 'tui-layout-workspace-stale',
+        'TUI layout pane coverage incomplete': 'tui-layout-coverage',
+        'TUI process proof unavailable': 'tui-process-proof',
+        'TUI process coverage incomplete': 'tui-process-coverage',
+        'TUI orphaned inventory': 'tui-orphaned-inventory',
+        'TUI orphaned agent view': 'tui-orphaned-view',
+        'TUI snapshot response invalid': 'tui-snapshot-response',
+        'TUI API snapshot schema incompatible': 'tui-api-schema',
+        'TUI API inventory invalid': 'tui-api-inventory',
+        'TUI duplicate workspace': 'tui-duplicate-workspace',
+        'TUI duplicate or failed pane': 'tui-failed-pane',
+        'restored runtime layout readiness unavailable': 'readiness-unavailable',
+        'selected runtime readiness unavailable': 'selected-readiness',
     }
     trace_program = """
 import json, runpy, sys
@@ -225,6 +264,8 @@ finally:
 
 
 def cli(*args):
+    if args == ('recover',) and STEP.split('-')[0] == 'r8':
+        return edited_recovery_cli()
     if args == ('recover',) and STEP == 'edited-document-installed-recovery':
         return edited_recovery_cli()
     try:
@@ -2904,6 +2945,31 @@ def boot(target):
             backend._binary('herdr-core')
 
 
+def r8_fixture_plan(cwd, sessions):
+    """51-pane plan: the reported live geometry plus uneven nested splits."""
+    ratios = [0.41237114108714884, 0.509433999938786, 0.375,
+              0.12345678901234568, 0.7777777777011148, 0.5000001, 0.234567891]
+    panes = [{'key': f's0-t0-p{pane_index}', 'cwd': cwd, 'session_id': sessions[pane_index]}
+             for pane_index in range(5)]
+    tabs = [{'name': 'R10 reported', 'panes': panes, 'root': {
+        'axis': 'column', 'ratio': 0.5361, 'children': [
+            {'pane': panes[0]['key']},
+            {'axis': 'row', 'ratio': 0.9, 'children': [
+                {'pane': panes[1]['key']},
+                {'axis': 'column', 'ratio': 0.6444, 'children': [
+                    {'pane': panes[2]['key']},
+                    {'axis': 'row', 'ratio': 0.1, 'children': [
+                        {'pane': panes[3]['key']}, {'pane': panes[4]['key']}]}]}]}]}}]
+    for tab_index in range(1, 24):
+        tab_panes = [{'key': f's0-t{tab_index}-p{pane_index}', 'cwd': cwd,
+                      'session_id': sessions[5 + (tab_index - 1) * 2 + pane_index]}
+                     for pane_index in range(2)]
+        root = {'axis': 'row', 'ratio': ratios[tab_index % len(ratios)],
+                'children': [{'pane': tab_panes[0]['key']}, {'pane': tab_panes[1]['key']}]}
+        tabs.append({'name': f'R10 tab {tab_index}', 'root': root, 'panes': tab_panes})
+    return {'schema_version': 1, 'spaces': [{'name': 'R10 space', 'directory': cwd, 'tabs': tabs}]}
+
+
 def arm_r8():
     """Retain the real controller's start intent with an offline v3 save."""
     global STEP
@@ -2921,26 +2987,10 @@ def arm_r8():
     sessions = [None]
     for index in range(1, 51):
         sessions.append(api('post', '/api/session', {
-            'location': {'directory': cwd}, 'title': f'R9 fixture {index}',
+            'location': {'directory': cwd}, 'title': f'R10 fixture {index}',
             'model': {'id': 'held', 'providerID': 'rrw007f'},
         })['data']['id'])
-    # 17 tabs x 3 panes with nested uneven 64-bit ratios that do not survive
-    # the native writer's 32-bit serialization (0.5 survives; the rest do not).
-    ratios = [0.41237114108714884, 0.509433999938786, 0.375,
-              0.12345678901234568, 0.7777777777011148, 0.5000001, 0.234567891]
-    tabs = []
-    for tab_index in range(17):
-        panes = []
-        for pane_index in range(3):
-            index = tab_index * 3 + pane_index
-            panes.append({'key': f's0-t{tab_index}-p{pane_index}', 'cwd': cwd,
-                          'session_id': sessions[index]})
-        root = {'axis': 'row', 'ratio': ratios[tab_index % len(ratios)], 'children': [
-            {'pane': panes[0]['key']},
-            {'axis': 'column', 'ratio': ratios[(tab_index + 3) % len(ratios)], 'children': [
-                {'pane': panes[1]['key']}, {'pane': panes[2]['key']}]}]}
-        tabs.append({'name': f'R9 tab {tab_index}', 'root': root, 'panes': panes})
-    plan = {'schema_version': 1, 'spaces': [{'name': 'R9 space', 'directory': cwd, 'tabs': tabs}]}
+    plan = r8_fixture_plan(cwd, sessions)
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         STEP = 'r8-offline-import-preflight'
@@ -3031,7 +3081,7 @@ def verify_r8(*, recover):
                 backend = Native(HOME, store)
                 return r8_boot_ready(store.read('boot.json'), prior_txid, plan, backend._semantic)
 
-        wait(ready, seconds=340)
+        wait(ready, seconds=760)
     observe('tui', plan)
     with Store(ROOT) as store:
         backend = Native(HOME, store)
