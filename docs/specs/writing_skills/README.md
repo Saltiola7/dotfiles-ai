@@ -274,6 +274,13 @@ invocation, then the skill asks once and sends no private content in the query.
 | Prompt behavior | Static synthetic scenario-to-instruction contracts | Vague, conflicting, unsafe, unsupported-type, consent, activation, and missing-evidence cases | Required |
 | Public review | Privacy and original expression | Tracked-file scan and manual source comparison | Required |
 
+The `opencode debug config` authority is specified to run through the opt-in
+named in the [host-independent tests
+contract](../dbsctr_v3_lifecycle/features/host-independent-tests.md), which
+configured CI always sets. Without it the test reports an explicit skip instead
+of using whatever `opencode` is first on `PATH`. That contract is normative
+Discovery and not implemented yet.
+
 ## Facts, Assumptions, And Accepted Risks
 
 ### Facts

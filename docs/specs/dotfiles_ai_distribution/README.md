@@ -1275,6 +1275,14 @@ and live guest qualification remain separate.
 - OpenCode parser validation remains required in configured CI, which installs a
   pinned OpenCode version. Missing OpenCode or any nonzero parser result fails
   that separate integration test.
+- Specified, not yet implemented: the [host-independent tests
+  contract](../dbsctr_v3_lifecycle/features/host-independent-tests.md) makes the
+  installed-OpenCode checks opt-in. Configured CI opts in by naming its pinned
+  executable. A developer machine without the opt-in gets an explicit skip
+  instead of a result from whatever `opencode` is first on `PATH`. The same
+  contract requires rendering tests to supply the local state they merge, and
+  records the R&D worker's V1-only session discovery as a gap owned by the
+  OpenCode V2 migration.
 - Pull requests and `main` pushes run the full macOS suite on Python 3.14.
   Weekly and manual runs retain the full Python 3.12/3.13/3.14 compatibility
   matrix. New PR runs cancel only superseded runs for the same PR. The
