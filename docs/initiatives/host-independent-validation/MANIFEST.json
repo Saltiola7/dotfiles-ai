@@ -1,0 +1,209 @@
+{
+  "schema_version": 1,
+  "id": "host-independent-validation",
+  "title": "Host-independent validation: tests that do not depend on the developer machine",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "contexts": [
+    {
+      "id": "dbsctr_v3_lifecycle",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "dotfiles_ai_distribution",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    },
+    {
+      "id": "writing_skills",
+      "repository": "Saltiola7/dotfiles-ai",
+      "status": "ready",
+      "depends_on": []
+    }
+  ],
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "On any developer machine the four identified tests never fail because of that machine's state. The two tests that read operator state pass with state they supply; each installed-OpenCode capability test passes under the opt-in or reports an explicit skip without it.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "kind": "requirement",
+      "text": "A test does not read operator-private state from the real home directory: no configuration, state or data file under the developer's actual home or XDG directories. A test that depends on such state supplies it through a disposable fixture.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md",
+        "tests/test_dbsctrctl.py",
+        "tests/test_portable_distribution.py"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "kind": "requirement",
+      "text": "A test that asserts a version-sensitive command-line capability of an installed tool runs only under an explicit opt-in naming an already-qualified executable as an existing absolute path. Without the opt-in it skips with a reason that names the variable and the qualified version. With it, a missing executable, another version or a failed capability fails the test.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md",
+        "tests/test_writing_skills.py",
+        "tests/test_dbsctr_rnd.py"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "kind": "requirement",
+      "text": "Every CI job that must enforce an installed-tool capability sets the opt-in to the executable it installed from its single pinned version, so a skip can never weaken a required check.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md",
+        ".github/workflows/test.yml"
+      ]
+    },
+    {
+      "id": "INT-005",
+      "kind": "decision",
+      "text": "One variable, DBSCTR_OPENCODE_NATIVE_TEST_EXECUTABLE, serves both installed-OpenCode capability tests. It follows the existing DBSCTR_GRAPHIFY_NATIVE_TEST_EXECUTABLE precedent, and its qualified version is the version CI installs.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "kind": "requirement",
+      "text": "The repaired tests keep what they verify. The draft-PR reuse test isolates its configuration root. The rendering test supplies the existing target state it merges, including a case with an unrelated local key that must be preserved. The two capability tests run the named executable with an isolated home.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md",
+        "tests/test_dbsctrctl.py",
+        "tests/test_portable_distribution.py",
+        "tests/test_writing_skills.py",
+        "tests/test_dbsctr_rnd.py"
+      ]
+    },
+    {
+      "id": "INT-007",
+      "kind": "risk",
+      "text": "The R&D worker's session discovery calls the V1-only --pure flag of opencode session list on its reserve, launch and cleanup paths. Every OpenCode 2.x version observed rejects that flag, the native installer asserts a v2 binary, and CI's V1 pin conceals the gap. The worker is default-disabled in repository data, so the gap is latent until it is enabled on a native-V2 host.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md"
+      ]
+    },
+    {
+      "id": "INT-008",
+      "kind": "decision",
+      "text": "The OpenCode V2 migration owns the disposition of that gap. This initiative records it with impact, safe behavior, owner and review condition, and does not edit that migration's manifest, migrate the worker or change the pin.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md"
+      ]
+    },
+    {
+      "id": "INT-009",
+      "kind": "requirement",
+      "text": "Provide a V2 session-discovery route for the R&D worker and align the installed-OpenCode pin with the migrated line. Deferred to the OpenCode V2 migration.",
+      "disposition": "deferred",
+      "artifacts": []
+    },
+    {
+      "id": "INT-010",
+      "kind": "constraint",
+      "text": "The rule is stated once in the lifecycle feature contract. Each affected context's README points to it, and its existing validation wording is reconciled with it.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md",
+        "docs/specs/dbsctr_v3_lifecycle/README.md",
+        "docs/specs/dotfiles_ai_distribution/README.md",
+        "docs/specs/writing_skills/README.md"
+      ]
+    },
+    {
+      "id": "INT-011",
+      "kind": "non-goal",
+      "text": "No suite-wide HOME or XDG isolation fixture, no census of every test for host-state reads, and no change to how the rendering modify script preserves unrelated local configuration.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md"
+      ]
+    },
+    {
+      "id": "INT-012",
+      "kind": "non-goal",
+      "text": "No change to the lifecycle helper, the R&D worker, the managed or native OpenCode installers, or the worker's enablement.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md"
+      ]
+    },
+    {
+      "id": "INT-013",
+      "kind": "risk",
+      "text": "An opt-in skip can hide a regression on a developer machine whose tool has drifted. CI always opts in, the skip reason is visible, and the known drift is recorded as INT-007.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md"
+      ]
+    },
+    {
+      "id": "INT-014",
+      "kind": "constraint",
+      "text": "Public artifacts name no private adopter identity, machine path, configuration or host inventory; examples are synthetic.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/initiatives/host-independent-validation/README.md",
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md"
+      ]
+    }
+  ],
+  "slices": [
+    {
+      "id": "host-independent-tests",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-001",
+        "INT-002",
+        "INT-003",
+        "INT-004",
+        "INT-005",
+        "INT-006",
+        "INT-007",
+        "INT-008",
+        "INT-010",
+        "INT-011",
+        "INT-012",
+        "INT-013",
+        "INT-014"
+      ],
+      "depends_on": [],
+      "artifacts": [
+        "docs/initiatives/host-independent-validation/MANIFEST.json",
+        "docs/initiatives/host-independent-validation/README.md",
+        "docs/initiatives/host-independent-validation/BUILD-HANDOFF.md",
+        "docs/specs/dbsctr_v3_lifecycle/features/host-independent-tests.md",
+        "docs/specs/dbsctr_v3_lifecycle/README.md",
+        "docs/specs/dotfiles_ai_distribution/README.md",
+        "docs/specs/writing_skills/README.md"
+      ],
+      "release_group": "host-independent-tests"
+    }
+  ],
+  "release_groups": [
+    {
+      "id": "host-independent-tests",
+      "members": [
+        "host-independent-tests"
+      ],
+      "state": "ready"
+    }
+  ]
+}

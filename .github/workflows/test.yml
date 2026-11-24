@@ -149,7 +149,10 @@ jobs:
           CI_SHARD: ${{ matrix.shard }}
           PYTEST_ADDOPTS: ""
           PYTEST_PLUGINS: ""
+        # Installed-tool capability tests skip unless the opt-in names the pinned
+        # OpenCode installed in this job, so a skip can never weaken this check.
         run: >-
+          DBSCTR_OPENCODE_NATIVE_TEST_EXECUTABLE="$(bun pm bin -g)/opencode"
           uv run --frozen --python "${{ matrix.python-version }}" --group test python tests/ci_shard.py run
           --shard "$CI_SHARD" --python-version "$CI_PYTHON_VERSION"
           --worktrunk-version "$CI_WORKTRUNK_VERSION"

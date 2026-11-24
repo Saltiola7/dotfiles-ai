@@ -1378,12 +1378,72 @@ def test_direct_launch_kills_group_after_leader_exits(tmp_path, monkeypatch):
     ]
 
 
-def test_installed_opencode_supports_pure_session_json():
+def isolated_home_environment(home):
+    """HOME is a disposable directory; inherited XDG directories and the Herdr terminal are dropped."""
+    return {**{key: value for key, value in os.environ.items()
+               if not key.startswith("XDG_") and key != "HERDR_ENV"},
+            "HOME": str(home)}
+
+
+def qualified_opencode(home):
+    """The opt-in names an already-qualified executable; PATH is never consulted."""
+    selected = os.environ.get("DBSCTR_OPENCODE_NATIVE_TEST_EXECUTABLE")
+    if not selected:
+        pytest.skip("set DBSCTR_OPENCODE_NATIVE_TEST_EXECUTABLE to an already-qualified OpenCode 1.19.4 executable")
+    executable = Path(selected)
+    assert executable.is_absolute() and executable.is_file(), "native test executable must be an existing absolute path"
+    home.mkdir()
+    env = isolated_home_environment(home)
+    version = subprocess.run([str(executable), "--version"], cwd=home, env=env,
+                             text=True, capture_output=True)
+    found = (version.stdout or version.stderr).strip()
+    assert version.returncode == 0 and found == "1.19.4", f"expected OpenCode 1.19.4, found {found!r}"
+    return executable.resolve(), env
+
+
+@pytest.fixture
+def native_opencode(tmp_path):
+    return qualified_opencode(tmp_path / "opencode-home")
+
+
+def test_installed_opencode_supports_pure_session_json(native_opencode, tmp_path):
+    executable, env = native_opencode
+    workdir = tmp_path / "session-list"
+    workdir.mkdir()
     completed = subprocess.run(
-        ["opencode", "session", "list", "--pure", "--format", "json", "-n", "1"],
-        cwd=ROOT, text=True, capture_output=True, check=True,
+        [str(executable), "session", "list", "--pure", "--format", "json", "-n", "1"],
+        cwd=workdir, env=env, text=True, capture_output=True, check=True,
     )
     assert completed.stdout == "" or isinstance(json.loads(completed.stdout), list)
+
+
+@pytest.mark.parametrize("selected, reported, failure", [
+    (None, None, pytest.skip.Exception),
+    ("opencode", "1.19.4", "existing absolute path"),
+    ("/nonexistent/opencode", "1.19.4", "existing absolute path"),
+    ("fake", "opencode v2.4.1", "expected OpenCode 1.19.4, found 'opencode v2.4.1'"),
+    ("fake", "1.19.4", None),
+])
+def test_opencode_opt_in_skips_only_when_unset(tmp_path, monkeypatch, selected, reported, failure):
+    fake = tmp_path / "opencode"
+    fake.write_text(f"#!/bin/sh\nprintf '%s\\n' '{reported}'\n")
+    fake.chmod(0o755)
+    if selected is None:
+        monkeypatch.delenv("DBSCTR_OPENCODE_NATIVE_TEST_EXECUTABLE", raising=False)
+    else:
+        monkeypatch.setenv("DBSCTR_OPENCODE_NATIVE_TEST_EXECUTABLE",
+                           str(fake) if selected == "fake" else selected)
+    home = tmp_path / "home"
+    if failure is None:
+        executable, env = qualified_opencode(home)
+        assert executable == fake.resolve() and env["HOME"] == str(home)
+        assert not any(key.startswith("XDG_") or key == "HERDR_ENV" for key in env)
+    elif failure is pytest.skip.Exception:
+        with pytest.raises(failure):
+            qualified_opencode(home)
+    else:
+        with pytest.raises(AssertionError, match=failure):
+            qualified_opencode(home)
 
 
 def test_unqualified_launch_preserves_reservation_and_never_starts_process(tmp_path):
