@@ -462,6 +462,15 @@ The pinned Worktrunk pre-switch hook performs the check before creation; native
 Worktrunk still owns paths, collision refusal and allocation. This cooperative
 guard does not prevent an operator from disabling native hooks.
 
+New Initiative launches can omit `--delivery-intent` to use the active
+[delivery preference](../../initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md).
+The shared default is Draft PR. The private workspace setting
+`delivery_preference = "auto"` selects Auto and reports a qualification blocker
+until unattended continuation is available. Use `--integration-mode draft_pr`
+to select Draft PR for a specific launch. Generated preference metadata carries
+its own digest bound to the existing policy digest. Within a managed generation,
+changing the preference leaves the authority digest and activation snapshot stable.
+
 macOS qualification resolves a nested root's containing mount with native POSIX
 `df -P` before asking `diskutil info -plist` for its UUID and mount point. Mounts
 with spaces and APFS firmlinks are supported; disagreeing native mount/device

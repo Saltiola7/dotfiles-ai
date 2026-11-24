@@ -47,6 +47,41 @@ def initiative(fixture, monkeypatch, capsys):
     return core, target, fixture.record_path(), argv, prepared, plan
 
 
+def test_legacy_explicit_intent_keeps_launch_plan_and_digest(initiative, monkeypatch, capsys):
+    core, _, path, argv, legacy, _ = initiative
+
+    def unexpected_preference(_root):
+        pytest.fail("Legacy explicit delivery consulted the new preference")
+
+    monkeypatch.setattr(core, "initiative_delivery_preference", unexpected_preference, raising=False)
+    core.command_begin(core.parser().parse_args([*argv[:-2], "--preflight"]))
+    current = json.loads(capsys.readouterr().out)
+    assert current == legacy
+    assert set(current["plan"]) == {
+        "artifacts", "base_branch", "base_head", "checkout", "context", "cycle_id",
+        "delivery_digest", "delivery_intent", "plan_digest", "receipt", "repository",
+        "risk", "source_commit",
+    }
+    assert current["plan"]["delivery_intent"] == "local"
+    assert not path.exists()
+
+
+def test_non_initiative_begin_requires_explicit_intent(initiative, monkeypatch):
+    core, _, path, _, _, plan = initiative
+
+    def unexpected_remote(*_args, **_kwargs):
+        pytest.fail("Omitted non-Initiative intent reached GitHub credentials")
+
+    monkeypatch.setattr(core, "github_environment", unexpected_remote)
+    args = core.parser().parse_args([
+        "begin", "--cycle-id", "cycle-1", "--context", "test", "--risk", "routine",
+        "--base-branch", "protected", "--plan", str(plan),
+    ])
+    with pytest.raises(RuntimeError, match=r"--delivery-intent"):
+        core.command_begin(args)
+    assert not path.exists()
+
+
 @pytest.mark.parametrize("input_kind", ["noninteractive", "wrong", "eof", "resume_missing"])
 def test_unconfirmed_initiative_refuses_without_mutation(initiative, monkeypatch, input_kind):
     core, target, path, argv, prepared, _ = initiative

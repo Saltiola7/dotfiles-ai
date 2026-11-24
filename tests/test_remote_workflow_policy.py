@@ -1,6 +1,7 @@
 """Remote policy rendering and original F03 storage identity constraints."""
 import json
 import copy
+import hashlib
 import os
 import subprocess
 import tomllib
@@ -23,6 +24,53 @@ def render_policy(policy, home, monkeypatch, previous, *, options=None, commit='
         return helper
     monkeypatch.setattr(policy, 'run', run)
     return policy.render(home, home, options, {}, previous_policy=previous)['policy']
+
+
+def test_delivery_preference_keeps_activated_authority(policy, storage_home, monkeypatch):
+    monkeypatch.setattr(policy, 'worktrunk_version', lambda: 'wt v0.80.0')
+    original = render_policy(policy, storage_home, monkeypatch, None)
+    saved = policy.snapshot(original, storage_home)
+    previous = original
+    for preference in ('draft_pr', 'auto', None):
+        options = {'schema_version': 1, 'delivery_preference': preference} if preference else None
+        fresh = render_policy(policy, storage_home, monkeypatch, previous, options=options)
+        assert {key: value for key, value in fresh.items() if key != 'delivery_preference'} == original
+        if preference is not None:
+            fields = {'schema_version': 1, 'value': preference}
+            payload = {**fields, 'policy_digest': original['policy_digest']}
+            digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            assert fresh['delivery_preference'] == {**fields, 'digest': digest}
+        policy.verify_snapshot(fresh, saved, storage_home)
+        previous = fresh
+    assert previous == original
+
+
+@pytest.mark.parametrize('value', [None, True, 1, [], {}, '', 'Auto', 'ordinary'])
+def test_render_rejects_invalid_delivery_preference(policy, storage_home, monkeypatch, value):
+    options = {'schema_version': 1, 'delivery_preference': value}
+    with pytest.raises(ValueError):
+        render_policy(policy, storage_home, monkeypatch, None, options=options)
+
+
+@pytest.mark.parametrize('change', [
+    {'schema_version': True}, {'schema_version': 2}, {'value': 'draft_pr'},
+    {'value': 'ordinary'}, {'digest': 'a' * 64}, {'extra': True},
+])
+def test_document_rejects_invalid_delivery_preference_binding(policy, storage_home, monkeypatch, change):
+    options = {'schema_version': 1, 'delivery_preference': 'auto'}
+    document = render_policy(policy, storage_home, monkeypatch, None, options=options)
+    document['delivery_preference'].update(change)
+    with pytest.raises(ValueError):
+        policy.validate_document(document, storage_home)
+
+
+def test_document_rejects_preference_binding_from_another_policy(policy, storage_home, monkeypatch):
+    options = {'schema_version': 1, 'delivery_preference': 'auto'}
+    original = render_policy(policy, storage_home, monkeypatch, None, options=options)
+    fresh = render_policy(policy, storage_home, monkeypatch, original, options=options, commit='c' * 40)
+    fresh['delivery_preference'] = original['delivery_preference']
+    with pytest.raises(ValueError):
+        policy.validate_document(fresh, storage_home)
 
 
 def test_legacy_bridge_is_bounded_transitive_and_fixed_point(policy, storage_home, monkeypatch):

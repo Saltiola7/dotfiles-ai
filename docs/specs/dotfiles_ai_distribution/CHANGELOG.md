@@ -1,5 +1,18 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-24 — Initiative delivery preference
+
+- Resolve new Initiative launches to Draft PR by default, with a private Auto
+  preference and an explicit Draft PR override. Auto availability depends on
+  qualified unattended continuation.
+- Validate preference metadata separately from existing activation, release and
+  enrollment identities. Recheck the selected mode before importing approved
+  artifacts. Cover rendering, policy compatibility and exact launch in fixtures.
+- Deliver the source through a draft feature PR to `main`. Managed activation
+  belongs to a subsequent rollout.
+- Refresh the benchmark fixture's helper checksum after partition 2 rejected
+  the stale pin. The recorded help output still matches Python 3.12–3.15.
+
 ## 2026-11-23 — Repairable failed panes and plan-sized headless grid (RRW-007G-R10)
 
 - Derive the headless TUI grid from the plan in the launcher (every pane keeps

@@ -74,6 +74,109 @@ def launch(tmp_path, monkeypatch, request):
     yield helper, fixture, args
 
 
+@pytest.fixture
+def preference_launch(launch, monkeypatch, tmp_path):
+    helper, fixture, _ = launch
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    argv = list(fixture.launch_argv)
+    intent = argv.index("--delivery-intent")
+    del argv[intent:intent + 2]
+    return helper, fixture, argv
+
+
+@pytest.mark.parametrize("private_preference", [None, "draft_pr"])
+def test_new_initiative_preflight_defaults_to_digest_bound_draft(
+        preference_launch, capsys, monkeypatch, private_preference):
+    helper, fixture, argv = preference_launch
+    if private_preference is not None:
+        monkeypatch.setattr(helper, "initiative_delivery_preference", lambda _root: private_preference, raising=False)
+
+    helper.command_begin(helper.parser().parse_args([*fixture.launch_argv, "--preflight"]))
+    legacy = json.loads(capsys.readouterr().out)
+    helper.command_begin(helper.parser().parse_args([*argv, "--preflight"]))
+    selected = json.loads(capsys.readouterr().out)
+
+    assert selected["plan"] == {
+        **legacy["plan"], "delivery_preference": "draft_pr", "integration_mode": "draft_pr",
+    }
+    assert selected["launch_digest"] != legacy["launch_digest"]
+    assert selected["launch_digest"] == helper.continuation_digest(selected["plan"])
+    assert not (helper.cycle_dir(fixture.native_task) / "cycles/local-1.json").exists()
+
+
+def test_unqualified_auto_preflight_and_registration_refuse_before_remote(
+        preference_launch, capsys, monkeypatch):
+    helper, fixture, argv = preference_launch
+    helper.command_begin(helper.parser().parse_args([*argv, "--preflight"]))
+    approved_draft = json.loads(capsys.readouterr().out)["launch_digest"]
+    before_head = helper.git(fixture.native_task, "rev-parse", "HEAD").stdout
+    monkeypatch.setattr(helper, "initiative_delivery_preference", lambda _root: "auto", raising=False)
+
+    def unexpected_remote(*_args):
+        pytest.fail("Unqualified Auto reached GitHub credentials or transport")
+
+    monkeypatch.setattr(helper, "github_environment", unexpected_remote)
+    monkeypatch.setattr(helper, "fetch_github_branch", unexpected_remote)
+    for options in (["--preflight"], ["--approval", "agent-confirmed", "--expected-launch-digest", approved_draft]):
+        with pytest.raises(RuntimeError, match=r"(?i)auto.*qualif"):
+            helper.command_begin(helper.parser().parse_args([*argv, *options]))
+    assert capsys.readouterr() == ("", "")
+    assert helper.git(fixture.native_task, "rev-parse", "HEAD").stdout == before_head
+    assert not (helper.cycle_dir(fixture.native_task) / "cycles/local-1.json").exists()
+
+
+def test_changed_preference_during_confirmation_refuses_before_import(
+        preference_launch, capsys, monkeypatch):
+    helper, fixture, argv = preference_launch
+    preference = "draft_pr"
+    monkeypatch.setattr(helper, "initiative_delivery_preference", lambda _root: preference)
+    helper.command_begin(helper.parser().parse_args([*argv, "--preflight"]))
+    approved_draft = json.loads(capsys.readouterr().out)["launch_digest"]
+    before_head = helper.git(fixture.native_task, "rev-parse", "HEAD").stdout
+
+    class ChangedPreference(Operator):
+        def readline(self, *_):
+            nonlocal preference
+            preference = "auto"
+            return f"BEGIN local-1 {approved_draft}\n"
+
+    monkeypatch.setattr(helper.sys, "stdin", ChangedPreference())
+    args = helper.parser().parse_args([*argv, "--expected-launch-digest", approved_draft])
+    with pytest.raises(RuntimeError, match="delivery preference changed during confirmation"):
+        helper.command_begin(args)
+    assert helper.git(fixture.native_task, "rev-parse", "HEAD").stdout == before_head
+    assert not (fixture.native_task / args.initiative_manifest).exists()
+    assert not (helper.cycle_dir(fixture.native_task) / "cycles/local-1.json").exists()
+
+
+def test_explicit_draft_override_keeps_legacy_digest_in_auto_policy(preference_launch, capsys, monkeypatch):
+    helper, fixture, argv = preference_launch
+    override = ["--integration-mode", "draft_pr"]
+    helper.command_begin(helper.parser().parse_args([*fixture.launch_argv, *override, "--preflight"]))
+    legacy = json.loads(capsys.readouterr().out)
+    monkeypatch.setattr(helper, "initiative_delivery_preference", lambda _root: "auto", raising=False)
+
+    helper.command_begin(helper.parser().parse_args([*argv, *override, "--preflight"]))
+    assert json.loads(capsys.readouterr().out) == legacy
+    assert legacy["plan"]["integration_mode"] == "draft_pr"
+    assert "delivery_preference" not in legacy["plan"]
+
+    helper.command_begin(helper.parser().parse_args([
+        *argv, *override, "--expected-launch-digest", legacy["launch_digest"], "--approval", "agent-confirmed",
+    ]))
+    _, record = helper.load(fixture.native_task)
+    assert record["delivery_intent"] == "draft_pr"
+    assert record["initiative_approval"]["launch_digest"] == legacy["launch_digest"]
+
+
+def test_resume_still_requires_explicit_delivery_intent(preference_launch, capsys):
+    helper, fixture, argv = preference_launch
+    with pytest.raises(RuntimeError, match=r"--delivery-intent"):
+        helper.command_begin(helper.parser().parse_args([*argv, "--resume-existing", "--preflight"]))
+    assert capsys.readouterr() == ("", "")
+    assert not (helper.cycle_dir(fixture.native_task) / "cycles/local-1.json").exists()
+
+
 @pytest.mark.parametrize("problem", ["dirty", "missing", "wrong"])
 def test_begin_preflight_diagnoses_checkout_before_fetch(launch, capsys, monkeypatch, problem):
     helper, fixture, args = launch
