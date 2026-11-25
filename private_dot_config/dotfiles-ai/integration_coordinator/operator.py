@@ -6,7 +6,7 @@ used as human authentication. Credentials remain owned by the supplied LocalClie
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import errno
@@ -210,18 +210,72 @@ def resume(client: OperatorClient, store: l.Custody, binding: TaskBinding,
         raise c.Conflict("operator_slot_changed")
     if store.revoked(status.obligation.grant_digest):
         raise c.Unavailable("operator_grant_revoked")
+    authority = _invocation(store, binding, enrollment, actor, status, obligation_digest,
+                            head, expected_generation)
+    current = Status(head, ticket, view.obligation(binding.obligation_handle))
+    return h.advance(config, authority, OperationCustody(client, store, binding, config, current), native,
+                     (expected_handle, binding.obligation_handle))
+
+
+def _invocation(store: l.Custody, binding: TaskBinding, enrollment: g.Enrollment, actor: int,
+                status: Status, obligation_digest: str, head: str, generation: int) -> h.OperatorAuthority:
+    ticket = status.ticket
     record: dict[str, object] = {"obligation_digest": obligation_digest, "grant_digest": status.obligation.grant_digest,
         "original_task_digest": binding.original_task_digest, "task_custody_digest": _task_custody(binding),
         "repository": enrollment.repository, "root_oid": enrollment.root_oid, "policy_digest": enrollment.policy_digest,
-        "obligation_handle": binding.obligation_handle, "ticket_handle": expected_handle, "generation": expected_generation,
+        "obligation_handle": binding.obligation_handle, "ticket_handle": ticket.handle, "generation": generation,
         "source_digest": c.identity(ticket.source), "requester_id": actor, "invocation_id": secrets.token_hex(16),
         "pid": os.getpid(), "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
     record["scope_digest"] = _scope(record)
     custody_digest = store.write("operator", record)
     invocation = r.OperatorInvocation(actor, l.hex_value(record["invocation_id"], tuple(range(16, 65))),
                                       custody_digest, l.hex_value(record["scope_digest"]))
-    authority = h.OperatorAuthority(invocation, _hash({"custody": custody_digest, "ledger_head": head}),
-                                    expected_handle, expected_generation)
-    current = Status(head, ticket, view.obligation(binding.obligation_handle))
-    return h.advance(config, authority, OperationCustody(client, store, binding, config, current), native,
-                     (expected_handle, binding.obligation_handle))
+    return h.OperatorAuthority(invocation, _hash({"custody": custody_digest, "ledger_head": head}),
+                               ticket.handle, generation)
+
+
+def initiative_tick(client: OperatorClient, store: l.Custody, binding: TaskBinding,
+                    requested: r.Ticket, obligation: r.Obligation,
+                    before_admission: Callable[[], None]) -> h.Report:
+    """Bind one privately qualified activation to an enrolled local coordinator."""
+    config, native = client.configuration()
+    enrollment = config.enrollment
+    if (not config.enabled or not config.initiative_local or enrollment is None
+            or client.repository != enrollment.repository or native.enrollment != enrollment
+            or native.plan != config.check_plan or h.policy_identity(config) != enrollment.policy_digest):
+        raise c.Unavailable("initiative_local_coordinator_unavailable")
+    actor = _human(client, config)
+    if (requested.source.repository != enrollment.repository
+            or requested.requester_digest != r.requester_digest(enrollment.repository, actor)
+            or requested.obligation_handle != binding.obligation_handle
+            or requested.obligation_handle != obligation.handle or obligation.current_ticket != requested.handle):
+        raise c.Conflict("initiative_local_request_changed")
+    head, files = native.read_control((requested.handle, obligation.handle))
+    view = r.load_snapshot(files)
+    target = view.target
+    if ((target.repository, target.default_branch, target.root_oid, target.policy_digest)
+            != (enrollment.repository, enrollment.default_branch, enrollment.root_oid, enrollment.policy_digest)):
+        raise c.Conflict("initiative_local_target_changed")
+    observed = client.status(requested.handle, obligation.handle)
+    if observed is not None and (observed.ledger_head != head or observed.ticket.handle != requested.handle
+            or observed.ticket.source != requested.source or observed.obligation != obligation):
+        raise c.Conflict("initiative_local_admission_changed")
+    status = observed or Status(head, requested, obligation)
+    digest, _ = _private_scope(store, binding, status)
+    if observed is None:
+        authority = _invocation(store, binding, enrollment, actor, status, digest, head, target.generation + 1)
+        before_admission()
+        return h.admit_initiative(config, authority, native, requested, obligation)
+    if status.ticket.state in r.TERMINAL:
+        return h.Report(status.ticket.state.value, status.ticket.handle, head)
+    if status.ticket.state == r.State.QUEUED:
+        if target.active is not None or not target.queue or target.queue[0] != requested.handle:
+            return h.Report("waiting", requested.handle, head, "initiative_local_target_busy")
+        generation = target.generation + 1
+    elif target.active == requested.handle:
+        generation = target.generation
+    else:
+        return h.Report("waiting", requested.handle, head, "initiative_local_ticket_parked")
+    authority = _invocation(store, binding, enrollment, actor, status, digest, head, generation)
+    return h.advance_initiative(config, authority, OperationCustody(client, store, binding, config, status),
+                                native, obligation.handle)

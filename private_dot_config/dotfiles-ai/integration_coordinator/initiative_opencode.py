@@ -12,15 +12,18 @@ from typing import Protocol
 from urllib.parse import urlsplit
 
 from . import core
-from .initiative_controller import Activation, NativeDispatch, NativeSession
+from .initiative_controller import Activation, NativeDispatch, NativeRelease, NativeSession
 
 
 _MAX_RESPONSE = 2 * 1024 * 1024
 _MAX_RECORDS = 4096
 _SECONDS = 5.0
 _SESSION_ID = r"ses_[A-Za-z0-9]{1,80}"
+_MESSAGE_ID = r"msg_[A-Za-z0-9]{1,80}"
 _SESSION_ROUTE = rf"/api/session/{_SESSION_ID}"
 _LOG_ROUTE = rf"/api/experimental/session/{_SESSION_ID}/log\?follow=false"
+_ACTIVE_ROUTE = "/api/session/active"
+_INBOX_ROUTE = _SESSION_ROUTE + "/inbox"
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,8 +122,13 @@ class LoopbackTransport:
     def request(self, method: str, path: str, payload: dict[str, object] | None = None) -> Response:
         is_log = re.fullmatch(_LOG_ROUTE, path) is not None
         if method == "GET":
-            core._require(payload is None and (path == "/api/info" or is_log
-                          or re.fullmatch(_SESSION_ROUTE, path) is not None), "opencode_writer_route")
+            core._require(payload is None and (path in {"/api/info", _ACTIVE_ROUTE} or is_log
+                          or re.fullmatch(_SESSION_ROUTE, path) is not None
+                          or re.fullmatch(_INBOX_ROUTE, path) is not None), "opencode_writer_route")
+        elif method == "PATCH":
+            core._require(payload == {"delivery": "steer"}
+                          and re.fullmatch(_INBOX_ROUTE + "/" + _MESSAGE_ID, path) is not None,
+                          "opencode_writer_route")
         else:
             core._require(method == "POST" and isinstance(payload, dict) and (path == "/api/session"
                           or re.fullmatch(_SESSION_ROUTE + "/prompt", path) is not None), "opencode_writer_route")
@@ -178,6 +186,9 @@ def _session(data: dict[str, object], activation: Activation) -> NativeSession:
             or data.get("parentID") is not None or location.get("subpath") not in (None, "")
             or data.get("subpath") not in (None, "")):
         raise core.Ambiguous("opencode_session_identity_unconfirmed")
+    lifetime = data.get("time")
+    if isinstance(lifetime, dict) and lifetime.get("archived") is not None:
+        raise core.Ambiguous("opencode_session_archived")
     return NativeSession(activation.session_id, checkout, agent)
 
 
@@ -196,12 +207,19 @@ def _matches_prompt(item: object, activation: Activation) -> bool:
             and all(payload.get(key) in (None, []) for key in ("files", "agents", "skills")))
 
 
-def _log_dispatch(response: Response, activation: Activation) -> NativeDispatch | None:
+@dataclass(frozen=True, slots=True)
+class _PromptTrace:
+    enqueued: bool
+    released: bool
+    delivered: bool
+
+
+def _log_trace(response: Response, activation: Activation) -> _PromptTrace:
     records = response.value
     if response.status != 200 or not isinstance(records, list) or not 1 <= len(records) <= _MAX_RECORDS:
         raise core.Unavailable("opencode_dispatch_log_unavailable")
     last_seq = None
-    enqueued = delivered = False
+    enqueued = released = delivered = False
     for record in records[:-1]:
         if not isinstance(record, dict) or not isinstance(record.get("type"), str):
             raise core.Ambiguous("opencode_dispatch_log_unconfirmed")
@@ -214,15 +232,22 @@ def _log_dispatch(response: Response, activation: Activation) -> NativeDispatch 
                 or not isinstance(data, dict) or data.get("sessionID") != activation.session_id):
             raise core.Ambiguous("opencode_dispatch_log_unconfirmed")
         last_seq = durable["seq"]
+        if activation.managed and not released and kind == "session.execution.started":
+            raise core.Ambiguous("opencode_dispatch_executed_before_release")
         if not kind.startswith("session.inbox."):
             continue
         if durable["version"] != 1 or not isinstance(data.get("inboxID"), str):
             raise core.Ambiguous("opencode_dispatch_log_unconfirmed")
         if data["inboxID"] != activation.message_id:
+            if activation.managed and not released:
+                raise core.Ambiguous("opencode_dispatch_session_not_exclusive")
             continue
         if kind == "session.inbox.enqueued" and not enqueued and _matches_prompt(data.get("item"), activation):
             enqueued = True
-        elif kind == "session.inbox.delivered" and enqueued and not delivered:
+        elif (activation.managed and kind == "session.inbox.delivery.changed"
+                and enqueued and not released and not delivered and data.get("delivery") == "steer"):
+            released = True
+        elif kind == "session.inbox.delivered" and enqueued and not delivered and (released or not activation.managed):
             delivered = True
         else:
             raise core.Ambiguous("opencode_dispatch_log_unconfirmed")
@@ -235,22 +260,22 @@ def _log_dispatch(response: Response, activation: Activation) -> NativeDispatch 
     if ("seq" in watermark and (type(limit) is not int or limit < 0)
             or last_seq is not None and (limit is None or limit < last_seq)):
         raise core.Ambiguous("opencode_dispatch_log_unconfirmed")
-    if enqueued:
-        return NativeDispatch(activation.session_id, activation.message_id, activation.activation_id)
-    return None
+    return _PromptTrace(enqueued, released, delivered)
 
 
 class OpenCodeWriter:
     """Verify native identity and queue evidence for the controller's exact activation."""
 
-    def __init__(self, approved: Qualification, transport: Transport) -> None:
-        core._require(type(approved) is Qualification, "opencode_writer_version_unqualified")
+    def __init__(self, approved: Qualification, transport: Transport, *, managed: bool = False) -> None:
+        core._require(type(approved) is Qualification and type(managed) is bool
+                      and (not managed or approved.version == "2.3.2"), "opencode_writer_version_unqualified")
         self._approved = approved
         self._transport = transport
+        self._managed = managed
 
     def _check(self, activation: Activation) -> None:
         core._require(type(activation) is Activation, "opencode_writer_activation_unqualified")
-        if activation.writer_digest != self._approved.writer_digest:
+        if activation.writer_digest != self._approved.writer_digest or activation.managed != self._managed:
             raise core.Conflict("opencode_writer_activation_drift")
         try:
             witness = self._transport.qualification()
@@ -293,11 +318,34 @@ class OpenCodeWriter:
         except (core.Ambiguous, core.Conflict, core.Invalid, core.Unavailable):
             raise core.Ambiguous("opencode_session_create_unconfirmed") from None
 
-    def observe_dispatch(self, activation: Activation) -> NativeDispatch | None:
+    def _observe_log(self, activation: Activation) -> _PromptTrace:
         if self.observe_session(activation) is None:
             raise core.Unavailable("opencode_dispatch_session_unavailable")
         path = f"/api/experimental/session/{activation.session_id}/log?follow=false"
-        return _log_dispatch(self._request("GET", path), activation)
+        return _log_trace(self._request("GET", path), activation)
+
+    def _require_parked(self, activation: Activation) -> None:
+        queue = self._request("GET", f"/api/session/{activation.session_id}/inbox")
+        data = queue.value.get("data") if queue.status == 200 and isinstance(queue.value, dict) else None
+        if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
+            raise core.Ambiguous("opencode_dispatch_inbox_unproved")
+        item = data[0]
+        if (item.get("id") != activation.message_id or item.get("sessionID") != activation.session_id
+                or not _matches_prompt(item, activation)):
+            raise core.Ambiguous("opencode_dispatch_inbox_unproved")
+        active = _data(self._request("GET", _ACTIVE_ROUTE))
+        if activation.session_id in active:
+            raise core.Ambiguous("opencode_dispatch_executed_before_release")
+
+    def observe_dispatch(self, activation: Activation) -> NativeDispatch | None:
+        trace = self._observe_log(activation)
+        if not trace.enqueued:
+            return None
+        if self._managed:
+            if trace.released or trace.delivered:
+                raise core.Ambiguous("opencode_dispatch_executed_before_release")
+            self._require_parked(activation)
+        return NativeDispatch(activation.session_id, activation.message_id, activation.activation_id)
 
     def dispatch(self, activation: Activation) -> NativeDispatch:
         if self.observe_session(activation) is None:
@@ -308,7 +356,7 @@ class OpenCodeWriter:
             "text": text,
             "metadata": metadata,
             "delivery": "queue",
-            "resume": True,
+            "resume": not self._managed,
         }
         path = f"/api/session/{activation.session_id}/prompt"
         try:
@@ -316,6 +364,34 @@ class OpenCodeWriter:
             if (admission.get("id") != activation.message_id or admission.get("sessionID") != activation.session_id
                     or not _matches_prompt(admission, activation)):
                 raise core.Ambiguous("opencode_dispatch_identity_unconfirmed")
+            if self._managed:
+                parked = self.observe_dispatch(activation)
+                if parked is None:
+                    raise core.Ambiguous("opencode_dispatch_inbox_unproved")
+                return parked
             return NativeDispatch(activation.session_id, activation.message_id, activation.activation_id)
         except (core.Ambiguous, core.Conflict, core.Invalid, core.Unavailable):
             raise core.Ambiguous("opencode_dispatch_unconfirmed") from None
+
+    def observe_release(self, activation: Activation) -> NativeRelease | None:
+        if not self._managed:
+            raise core.Unavailable("opencode_managed_release_unavailable")
+        trace = self._observe_log(activation)
+        if not trace.released:
+            return None
+        return NativeRelease(activation.session_id, activation.message_id, activation.activation_id, trace.delivered)
+
+    def release(self, activation: Activation) -> NativeRelease:
+        if not self._managed or self.observe_dispatch(activation) is None:
+            raise core.Unavailable("opencode_managed_release_unavailable")
+        path = f"/api/session/{activation.session_id}/inbox/{activation.message_id}"
+        try:
+            response = self._request("PATCH", path, {"delivery": "steer"})
+            if response.status != 204 or response.value is not None:
+                raise core.Ambiguous("opencode_release_response_unconfirmed")
+            observed = self.observe_release(activation)
+            if observed is None:
+                raise core.Ambiguous("opencode_release_response_unconfirmed")
+            return observed
+        except (core.Ambiguous, core.Conflict, core.Invalid, core.Unavailable):
+            raise core.Ambiguous("opencode_release_unconfirmed") from None

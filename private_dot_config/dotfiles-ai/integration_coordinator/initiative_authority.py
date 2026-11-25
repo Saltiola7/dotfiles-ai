@@ -5,8 +5,13 @@ Review confirmation and live capability observation belong to those callers.
 """
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Generator, Mapping
+from contextlib import contextmanager
+import fcntl
 from functools import cache
+import os
+import stat
+import time
 
 from . import core, initiative_controller as controller, lifecycle as l
 
@@ -173,13 +178,47 @@ def require_grant(custody: l.Custody, identity: str, *, binding: dict, current: 
     return proposal
 
 
+@contextmanager
+def initiative_effect_lock(custody: l.Custody, grant_id: str, *, timeout: float = 2.0) -> Generator[None]:
+    """Serialize the final bounded native effect and local revocation."""
+    identity = l.hex_value(grant_id)
+    if not 0 <= timeout <= 2.0:
+        raise core.Invalid("initiative_effect_lock_timeout_invalid")
+    directory = custody.directory / "initiative-locks"
+    custody._directory(directory, True)
+    name = l.digest({"kind": "initiative-effect-lock", "grant_digest": identity})
+    path = directory / name
+    descriptor = os.open(path, os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_RDWR, 0o600)
+    try:
+        opened = os.fstat(descriptor)
+        if (not stat.S_ISREG(opened.st_mode) or opened.st_uid != os.getuid() or opened.st_nlink != 1
+                or stat.S_IMODE(opened.st_mode) != 0o600):
+            raise core.Unavailable("initiative_effect_lock_invalid")
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise core.Unavailable("initiative_effect_lock_busy") from None
+                time.sleep(0.01)
+        current = path.lstat()
+        if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+            raise core.Unavailable("initiative_effect_lock_changed")
+        yield
+    finally:
+        os.close(descriptor)
+
+
 def revoke_grant(custody: l.Custody, identity: str, *, reason_digest: str, revoked_at: str) -> None:
-    proposal, _ = read_grant(custody, identity)
-    if l.initiative_time(revoked_at) < l.initiative_time(proposal["approved_at"]):
-        raise ValueError("initiative_revocation_time_invalid")
-    record = custody.write("initiative_revocation", {"grant_digest": identity, "reason_digest": reason_digest,
-                                                       "revoked_at": revoked_at})
-    custody.link("initiative_revocation", identity, record)
+    with initiative_effect_lock(custody, identity):
+        proposal, _ = read_grant(custody, identity)
+        if l.initiative_time(revoked_at) < l.initiative_time(proposal["approved_at"]):
+            raise ValueError("initiative_revocation_time_invalid")
+        record = custody.write("initiative_revocation", {"grant_digest": identity, "reason_digest": reason_digest,
+                                                           "revoked_at": revoked_at})
+        custody.link("initiative_revocation", identity, record)
 
 
 class CustodyAuthority:

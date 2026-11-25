@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from contextlib import closing, contextmanager
+from contextlib import AbstractContextManager, closing, contextmanager
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 import json
@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import sqlite3
 import stat
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 from urllib.parse import urlsplit
 
 from . import core
@@ -103,11 +103,12 @@ class Launch:
 
 
 def _activation_id(grant_id: str, controller_digest: str, writer_digest: str, slice_id: str,
-                   target: Target, launch: Launch) -> str:
+                   target: Target, launch: Launch, managed: bool) -> str:
     return sha256(canonical({
         "kind": "initiative_activation", "schema_version": 1, "grant": grant_id,
         "controller": controller_digest, "writer": writer_digest, "slice": slice_id,
         "target": asdict(target), "launch": asdict(launch),
+        **({"managed_registration": True} if managed else {}),
     })).hexdigest()
 
 
@@ -126,24 +127,26 @@ class Activation:
     launch: Launch
     session_id: str
     message_id: str
+    managed: bool = False
 
     def __post_init__(self) -> None:
         for value in (self.grant_id, self.controller_digest, self.writer_digest):
             core._digest(value)
         _identifier(self.slice_id)
-        core._require(type(self.target) is Target and type(self.launch) is Launch, "initiative_execution_subject")
+        core._require(type(self.target) is Target and type(self.launch) is Launch and type(self.managed) is bool,
+                      "initiative_execution_subject")
         identifier = _activation_id(self.grant_id, self.controller_digest, self.writer_digest,
-                                    self.slice_id, self.target, self.launch)
+                                    self.slice_id, self.target, self.launch, self.managed)
         core._require((self.activation_id, self.session_id, self.message_id)
                       == (identifier, _native_id("ses_", identifier), _native_id("msg_", identifier)),
                       "initiative_execution_identity")
 
     @classmethod
-    def from_launch(cls, approval: Approval, slice_id: str, launch: Launch) -> Activation:
+    def from_launch(cls, approval: Approval, slice_id: str, launch: Launch, *, managed: bool = False) -> Activation:
         identifier = _activation_id(approval.grant_id, approval.controller_digest, approval.writer_digest,
-                                    slice_id, approval.target, launch)
+                                    slice_id, approval.target, launch, managed)
         return cls(identifier, approval.grant_id, approval.writer_digest, approval.controller_digest, slice_id,
-                   approval.target, launch, _native_id("ses_", identifier), _native_id("msg_", identifier))
+                   approval.target, launch, _native_id("ses_", identifier), _native_id("msg_", identifier), managed)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +161,27 @@ class NativeDispatch:
     session_id: str
     message_id: str
     activation_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class NativeRelease:
+    session_id: str
+    message_id: str
+    activation_id: str
+    delivered: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RegistrationReceipt:
+    activation_id: str
+    cycle_id: str
+    launch_digest: str
+    receipt_digest: str
+
+    def __post_init__(self) -> None:
+        for value in (self.activation_id, self.launch_digest, self.receipt_digest):
+            core._digest(value)
+        _identifier(self.cycle_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +237,20 @@ class Writer(Protocol):
     def dispatch(self, activation: Activation) -> NativeDispatch: ...
 
 
+@runtime_checkable
+class ManagedWriter(Writer, Protocol):
+    def observe_release(self, activation: Activation) -> NativeRelease | None: ...
+    def release(self, activation: Activation) -> NativeRelease: ...
+
+
+class Registration(Protocol):
+    def register(self, activation: Activation, controller: InitiativeController) -> None: ...
+    def observed(self, activation: Activation) -> RegistrationReceipt | None: ...
+    def require_release(self, activation: Activation) -> AbstractContextManager[RegistrationReceipt]:
+        """Hold live grant and registration authority through one native release."""
+        ...
+
+
 class Provider(Protocol):
     def observe_admission(self, activation: Activation) -> Admission | None: ...
     def observe_delivery(self, activation: Activation, admission: Admission) -> Delivery | None: ...
@@ -246,10 +284,16 @@ _TRANSITIONS = {
     "reserved": ("session_claimed", "stopped", "superseded"),
     "session_claimed": ("session_ready",),
     "session_ready": ("dispatch_claimed", "stopped"),
-    "dispatch_claimed": ("dispatched",),
+    "dispatch_claimed": ("held", "dispatched"),
+    "held": ("registration_claimed",),
+    "registration_claimed": ("registered",),
+    "registered": ("release_claimed",),
+    "release_claimed": ("release_accepted",),
+    "release_accepted": ("dispatched",),
     "dispatched": ("admitted",),
     "admitted": ("delivered",),
 }
+_MANAGED_STATES = frozenset({"held", "registration_claimed", "registered", "release_claimed", "release_accepted"})
 _TERMINAL = ("delivered", "stopped", "superseded")
 _OBSERVATION_ERRORS = (core.Ambiguous, core.Unavailable, core.Conflict, core.Invalid, OSError)
 
@@ -337,6 +381,7 @@ class ExecutionStore:
         core._require((row["id"], row["target"], row["grant_id"], row["slice_id"]) == (
             activation.activation_id, _target_key(activation.target), activation.grant_id, activation.slice_id)
             and state in (*_TRANSITIONS, *_TERMINAL)
+            and (activation.managed or state not in _MANAGED_STATES)
             and (type(reason) is str) == (state in {"stopped", "superseded"})
             and (type(admission) is Admission) == (state in {"admitted", "delivered"})
             and (type(delivery) is Delivery) == (state == "delivered"), "initiative_execution_record")
@@ -358,6 +403,16 @@ class ExecutionStore:
         with self._connect() as database:
             row = database.execute("SELECT * FROM activation WHERE id=?", (activation_id,)).fetchone()
         return self._decode(row)
+
+    def delivered(self, target: Target, slice_id: str) -> tuple[Execution, ...]:
+        """Read a bounded set of recent local delivery receipts for prerequisite verification."""
+        _identifier(slice_id)
+        with self._connect() as database:
+            rows = database.execute("""
+                SELECT * FROM activation WHERE target=? AND slice_id=? AND state='delivered'
+                ORDER BY rowid DESC LIMIT 64
+            """, (_target_key(target), slice_id)).fetchall()
+        return tuple(execution for row in rows if (execution := self._decode(row)) is not None)
 
     def active(self, grant_id: str) -> Execution | None:
         with self._connect() as database:
@@ -392,11 +447,15 @@ class ExecutionStore:
             database.execute("INSERT INTO event (activation_id, state) VALUES (?, 'reserved')", (activation.activation_id,))
         return True
 
-    def _append(self, execution: Execution, state: str, proof: Admission | Delivery | None = None, *,
+    def _append(self, execution: Execution, state: str, proof: Admission | Delivery | RegistrationReceipt | None = None, *,
                 reason: str | None = None) -> bool:
         core._require(state in _TRANSITIONS.get(execution.state, ())
+                      and (execution.activation.managed or state not in _MANAGED_STATES)
+                      and (execution.state != "dispatch_claimed"
+                           or (state == "held") == execution.activation.managed)
                       and (type(proof) is Admission) == (state == "admitted")
                       and (type(proof) is Delivery) == (state == "delivered")
+                      and (type(proof) is RegistrationReceipt) == (state == "registered")
                       and (type(reason) is str) == (state in {"stopped", "superseded"}),
                       "initiative_execution_transition")
         with self._connect(write=True) as database:
@@ -424,6 +483,17 @@ def _dispatch_matches(activation: Activation, dispatch: object) -> bool:
         activation.session_id, activation.message_id, activation.activation_id)
 
 
+def _release_matches(activation: Activation, release: NativeRelease | None) -> bool:
+    return type(release) is NativeRelease and type(release.delivered) is bool and (
+        release.session_id, release.message_id, release.activation_id
+    ) == (activation.session_id, activation.message_id, activation.activation_id)
+
+
+def _registration_matches(activation: Activation, receipt: RegistrationReceipt | None) -> bool:
+    return type(receipt) is RegistrationReceipt and (receipt.activation_id, receipt.cycle_id, receipt.launch_digest) == (
+        activation.activation_id, activation.launch.cycle_id, activation.launch.launch_digest)
+
+
 def _admission_matches(activation: Activation, admission: Admission) -> bool:
     return type(admission) is Admission and (admission.activation_id, admission.target) == (
         activation.activation_id, activation.target)
@@ -440,8 +510,13 @@ def _report(activation: Activation, state: str, reason: str | None = None) -> Re
 
 
 class InitiativeController:
-    def __init__(self, store: ExecutionStore, authority: Authority, writer: Writer, provider: Provider) -> None:
+    def __init__(self, store: ExecutionStore, authority: Authority, writer: Writer, provider: Provider, *,
+                 registration: Registration | None = None) -> None:
         self.store, self.authority, self.writer, self.provider = store, authority, writer, provider
+        self.registration = registration
+        self.managed_writer = writer if registration is not None and isinstance(writer, ManagedWriter) else None
+        if registration is not None and self.managed_writer is None:
+            raise core.Unavailable("initiative_managed_writer_unavailable")
 
     def _approval(self, grant_id: str) -> Approval:
         approval = self.authority.approval(grant_id)
@@ -449,7 +524,7 @@ class InitiativeController:
             raise core.Conflict("initiative_execution_approval_changed")
         return approval
 
-    def _authorize(self, activation: Activation) -> None:
+    def _authorize_dependencies(self, activation: Activation) -> Approval:
         approval = self._approval(activation.grant_id)
         if approval.mutation_stop is not None:
             raise core.Unavailable("initiative_execution_authority_stopped")
@@ -461,6 +536,10 @@ class InitiativeController:
         selected = {item.slice_id for item in approval.slices}
         if not all(self._dependency_delivered(approval, selected, dependency) for dependency in item.depends_on):
             raise core.Unavailable("initiative_execution_dependency_unproved")
+        return approval
+
+    def _authorize(self, activation: Activation) -> None:
+        approval = self._authorize_dependencies(activation)
         launch = self.authority.preflight(approval, activation.slice_id)
         if launch is None:
             raise core.Unavailable("initiative_execution_material_drift")
@@ -470,9 +549,12 @@ class InitiativeController:
     def authorize_begin(self, grant_id: str, activation_id: str, session_id: str, launch_digest: str) -> Activation:
         """Read-only proof that this exact session may begin the reserved slice now."""
         execution = self.store.activation(activation_id)
-        if execution is None or execution.state not in {"dispatch_claimed", "dispatched"}:
+        if execution is None:
             raise core.Conflict("initiative_execution_begin_unreserved")
         activation = execution.activation
+        allowed = {"registration_claimed"} if activation.managed else {"dispatch_claimed", "dispatched"}
+        if execution.state not in allowed or activation.managed != (self.registration is not None):
+            raise core.Conflict("initiative_execution_begin_unreserved")
         if (grant_id, session_id, launch_digest) != (activation.grant_id, activation.session_id, activation.launch.launch_digest):
             raise core.Conflict("initiative_execution_begin_subject_changed")
         if not _session_matches(activation, self.writer.observe_session(activation)) or not _dispatch_matches(
@@ -491,7 +573,7 @@ class InitiativeController:
         return (observed is not None and _delivery_matches(previous.admission, observed)
                 and observed.merge_oid == previous.delivery.merge_oid)
 
-    def _record(self, execution: Execution, state: str, proof: Admission | Delivery | None = None) -> Report:
+    def _record(self, execution: Execution, state: str, proof: Admission | Delivery | RegistrationReceipt | None = None) -> Report:
         if not self.store._append(execution, state, proof):
             return _report(execution.activation, "uncertain", "execution_changed")
         return _report(execution.activation, state)
@@ -531,11 +613,53 @@ class InitiativeController:
             if _session_matches(activation, self.writer.create_session(activation)):
                 return self._record(claimed, "session_ready")
         elif _dispatch_matches(activation, self.writer.dispatch(activation)):
-            return self._record(claimed, "dispatched")
+            return self._record(claimed, "held" if activation.managed else "dispatched")
         return _report(activation, "uncertain", "native_response_unproved")
+
+    def _managed_registration(self, execution: Execution, registrar: Registration) -> Report:
+        activation = execution.activation
+        if not _dispatch_matches(activation, self.writer.observe_dispatch(activation)):
+            raise core.Unavailable("initiative_managed_prompt_not_parked")
+        if execution.state == "held":
+            self._authorize(activation)
+            if not self.store._append(execution, "registration_claimed"):
+                return _report(activation, "uncertain", "execution_changed")
+            execution = Execution(activation, "registration_claimed", None, None)
+            registrar.register(activation, self)
+        receipt = registrar.observed(activation)
+        if not _registration_matches(activation, receipt) or not _dispatch_matches(
+                activation, self.writer.observe_dispatch(activation)):
+            raise core.Unavailable("initiative_managed_registration_unproved")
+        return self._record(execution, "registered", receipt)
+
+    def _managed_release(self, execution: Execution, registrar: Registration, writer: ManagedWriter) -> Report:
+        activation = execution.activation
+        if execution.state == "registered":
+            events = self.store.history(activation.activation_id)
+            with registrar.require_release(activation) as receipt:
+                self._authorize_dependencies(activation)
+                if (not _registration_matches(activation, receipt) or not events
+                        or events[-1] != Event("registered", receipt.receipt_digest)
+                        or not _dispatch_matches(activation, writer.observe_dispatch(activation))):
+                    raise core.Unavailable("initiative_managed_release_unproved")
+                if not self.store._append(execution, "release_claimed"):
+                    return _report(activation, "uncertain", "execution_changed")
+                execution = Execution(activation, "release_claimed", None, None)
+                observed = writer.release(activation)
+        else:
+            observed = writer.observe_release(activation)
+        if observed is None or not _release_matches(activation, observed):
+            raise core.Unavailable("initiative_managed_release_unproved")
+        if execution.state == "release_claimed":
+            return self._record(execution, "release_accepted")
+        if observed.delivered:
+            return self._record(execution, "dispatched")
+        return _report(activation, "release_accepted")
 
     def _advance_active(self, execution: Execution) -> Report:
         activation, state = execution.activation, execution.state
+        if activation.managed != (self.registration is not None):
+            return _report(activation, "uncertain", "initiative_execution_mode_changed")
         try:
             if state in {"reserved", "session_ready"}:
                 return self._mutate(execution)
@@ -544,7 +668,11 @@ class InitiativeController:
                     return self._record(execution, "session_ready")
             elif state == "dispatch_claimed":
                 if _dispatch_matches(activation, self.writer.observe_dispatch(activation)):
-                    return self._record(execution, "dispatched")
+                    return self._record(execution, "held" if activation.managed else "dispatched")
+            elif self.registration is not None and state in {"held", "registration_claimed"}:
+                return self._managed_registration(execution, self.registration)
+            elif self.registration is not None and self.managed_writer is not None and state in _MANAGED_STATES:
+                return self._managed_release(execution, self.registration, self.managed_writer)
             elif state == "dispatched":
                 admission = self.provider.observe_admission(activation)
                 if admission is None:
@@ -593,7 +721,7 @@ class InitiativeController:
                     stopped = stopped or Report("discovery_reopened", item.slice_id,
                                                 reason="initiative_execution_material_drift")
                     continue
-                activation = Activation.from_launch(approval, item.slice_id, launch)
+                activation = Activation.from_launch(approval, item.slice_id, launch, managed=self.registration is not None)
                 if not self.store._reserve(activation):
                     return _report(activation, "target_busy", "execution_slot_owned")
                 return self._advance_active(Execution(activation, "reserved", None, None))

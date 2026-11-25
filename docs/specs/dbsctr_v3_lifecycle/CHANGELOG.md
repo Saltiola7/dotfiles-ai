@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile PR #358 with managed Initiative Auto source
+
+- Keep the managed Initiative publication deadline and pass the existing cycle
+  record to the shared outbox verifier. Refresh the helper benchmark pin.
+  No managed activation.
+
 ## 2026-11-25 — Reconcile verified-merge publication with the protected base
 
 - Preserve the verified-merge and Initiative continuation contracts while
@@ -24,6 +30,24 @@
   documentation-only advances were validated with the document, publication and
   lifecycle suites. Refresh the helper benchmark pin. Installed qualification
   and live consumer recovery remain separate.
+
+## 2026-11-24 — Verify separate Initiative source and control histories
+
+- Verify the local-only GitHub coordinator against its native control ledger
+  before managed launch. Bind the task checkout independently to protected
+  `main` through exact Begin preflight.
+- Cover ordinary registration with an orphan control root and reject ledger
+  repository, branch, root and policy mismatches. Deliver on PR #362.
+
+## 2026-11-24 — Compose managed Initiative Auto
+
+- Add managed Start and Resume over the exact private approval and retained
+  journal. Park the native Build request until the controller registers Begin.
+- Use the existing GitHub coordinator's local-only enrollment to recheck the
+  same Initiative grant at protected admission and merge. Keep uncertain
+  effects eligible for native readback.
+- Validate the controlled composition and existing adapter contracts before
+  protected source delivery. Installed two-slice qualification remains separate.
 
 ## 2026-11-24 — Refresh Initiative continuation on the protected base
 
