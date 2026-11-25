@@ -1,5 +1,19 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Guard dispatch against session identity drift
+
+- Add scripted-transport regressions for a session changing to Plan or a sibling
+  checkout after creation. Dispatch must reject readback before any prompt POST;
+  no runtime source change or real dispatch is involved.
+- Local validation: writer fixture module (35 passed) and repository publication
+  scan (1 passed). Existing runtime already rejects both cases; no red result
+  or independent native session handoff is claimed.
+- Cycle `HERDR-LOCAL-CYCLE-001` retains local gate evidence and its owned Gate
+  Commit. Local checkout and cycle match; independent session handoff readback
+  remains coordinator-owned. No gate exceptions, deployment or activation.
+  Draft publication to `main` is withheld pending coordinator verification;
+  retain checkout, commit and evidence for that handoff.
+
 ## 2026-11-25 — Reconcile Forgejo Auto with evidence isolation
 
 - Reconcile PR #364 with protected main at `b910f609`. Preserve both
