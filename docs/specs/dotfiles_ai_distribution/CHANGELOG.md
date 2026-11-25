@@ -2,7 +2,8 @@
 
 ## 2026-11-25 — Reconcile historical shadow source
 
-- Reconcile PR #371 with the protected base. Preserve the qualified checkout
+- Reconcile PR #371 with the protected base, including the Initiative section
+  authority update. Preserve the qualified checkout
   proof, partial-result reporting, and unchanged required CI.
 
 ## 2026-11-25 — Verify historical shadow source

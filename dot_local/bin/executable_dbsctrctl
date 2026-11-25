@@ -4736,7 +4736,7 @@ def read_initiative_manifest(source, *, raw=None, auto_waiting=False):
                     "release_group"}
     slices = {}
     for item in value["slices"]:
-        optional = {field for field in ("tickets", "execution_owner")
+        optional = {field for field in ("tickets", "execution_owner", "section_artifacts")
                     if isinstance(item, dict) and field in item}
         initiative_fields(item, slice_fields | optional, "slice")
         identifier = item["id"]
@@ -4764,12 +4764,18 @@ def read_initiative_manifest(source, *, raw=None, auto_waiting=False):
                     "approved", "discovering", "ready", "building", "delivered"}:
                 fail(f"ready slice {identifier} context is not promotable: {item['context']}")
             for field in ("requirements", "artifacts"):
+                if field == "artifacts" and item.get("section_artifacts"):
+                    continue
                 if not item[field]:
                     fail(f"ready slice {identifier} requires {field}")
             blocked = [requirement for requirement in item["requirements"]
                        if statements[requirement]["disposition"] in {"open", "blocked"}]
             if blocked:
                 fail(f"ready slice {identifier} has unresolved material statement: {blocked[0]}")
+        if "section_artifacts" in item:
+            if value["schema_version"] != 1:
+                fail("Initiative section selection requires a GitHub manifest")
+            initiative_section_selectors(item["section_artifacts"])
         slices[identifier] = item
 
     slice_dependencies = {}
@@ -4931,6 +4937,108 @@ def command_initiative_cycle_check(args):
     print(json.dumps({"available": True}, sort_keys=True, separators=(",", ":")))
 
 
+INITIATIVE_SECTION_ID = r"[a-z][a-z0-9-]{0,127}"
+INITIATIVE_SECTION_MARKER = re.compile(
+    rb"<!-- dbsctr:(begin|end) (" + INITIATIVE_SECTION_ID.encode("ascii") + rb") -->"
+)
+
+
+def initiative_section_selectors(value):
+    initiative_fields(value, {"schema_version", "documents"}, "section authority")
+    documents = value["documents"]
+    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        fail("invalid Initiative section authority version")
+    if not isinstance(documents, list) or not 1 <= len(documents) <= 64:
+        fail("invalid Initiative section document inventory")
+    paths = []
+    for document in documents:
+        initiative_fields(document, {"path", "sections"}, "section document")
+        name, ids = document["path"], document["sections"]
+        initiative_paths([name], "Initiative section paths")
+        if not name.startswith("docs/") or PurePosixPath(name).suffix != ".md":
+            fail("Initiative section authority requires a Markdown document")
+        initiative_strings(ids, "Initiative section IDs", allow_empty=False)
+        if len(ids) > 256 or any(not re.fullmatch(INITIATIVE_SECTION_ID, item) for item in ids):
+            fail("invalid Initiative section IDs")
+        paths.append(name)
+    initiative_paths(paths, "Initiative section document inventory")
+    return documents
+
+
+def initiative_section_projection(raw: bytes, selected: tuple[str, ...]) -> dict[str, str]:
+    """Hash the exact byte span of each selected complete delimiter pair."""
+    if (not selected or len(selected) > 256 or len(set(selected)) != len(selected)
+            or any(not re.fullmatch(INITIATIVE_SECTION_ID, item) for item in selected)):
+        fail("invalid Initiative section selection")
+    if len(raw) > 4 * 1024 * 1024:
+        fail("Initiative section document exceeds the byte bound")
+    found: dict[str, str] = {}
+    active: str | None = None
+    start = offset = 0
+    for line in raw.split(b"\n"):
+        end = min(offset + len(line) + 1, len(raw))
+        marker = INITIATIVE_SECTION_MARKER.fullmatch(line.removesuffix(b"\r"))
+        if marker is None:
+            if line.lstrip().startswith((b"<!-- dbsctr:begin", b"<!-- dbsctr:end")):
+                fail("invalid Initiative section delimiter")
+        else:
+            kind, encoded = marker.groups()
+            name = encoded.decode("ascii")
+            if kind == b"begin":
+                if active is not None or name in found:
+                    fail("duplicate or nested Initiative section")
+                active, start = name, offset
+            else:
+                if active != name:
+                    fail("unmatched Initiative section delimiter")
+                found[name] = hashlib.sha256(raw[start:end]).hexdigest()
+                active = None
+        offset = end
+    if active is not None or not set(selected) <= found.keys():
+        fail("missing Initiative section")
+    return {name: found[name] for name in sorted(selected)}
+
+
+def initiative_section_blob(root, revision, name):
+    entry = inspect_git_bytes(root, "--literal-pathspecs", "ls-tree", "-z", revision, "--", name)
+    match = re.fullmatch(rb"(100644|100755) blob ([0-9a-f]{40}|[0-9a-f]{64})\t"
+                         + re.escape(name.encode()) + rb"\x00", entry)
+    if match is None:
+        fail(f"Initiative section document is not a regular file: {name}")
+    return match[1].decode(), match[2].decode()
+
+
+def initiative_section_bytes(root, blob):
+    size = inspect_git_bytes(root, "cat-file", "-s", blob)
+    if not size.strip().isdigit() or int(size) > 4 * 1024 * 1024:
+        fail("Initiative section document exceeds the byte bound")
+    return inspect_git_bytes(root, "cat-file", "blob", blob)
+
+
+def require_initiative_section_tree(root, record, revision, *, prior=None, target=None):
+    """Only accept a changed whole blob when it is the exact incoming target blob."""
+    receipt = effective_initiative(record)
+    if not receipt or "section_authority" not in receipt:
+        return
+    amendment_receipt(root, receipt)
+    documents = receipt["section_authority"]["documents"]
+    pending_amendment = (record.get("initiative_amendments") and not any(
+        c["launch_digest"] == record["initiative_amendments"][-1]["launch_digest"]
+        for c in record.get("initiative_authority_checkpoints", [])))
+    for entry in documents:
+        name = entry["path"]
+        mode, blob = initiative_section_blob(root, revision, name)
+        matched = (blob == entry["blob"] if "sections" not in entry else
+                   initiative_section_projection(initiative_section_bytes(root, blob),
+                                                 tuple(entry["sections"])) == entry["sections"])
+        if mode != entry["mode"] or not matched:
+            fail(f"Initiative section authority changed; amend the selected document: {name}")
+        if prior is not None and (mode, blob) != initiative_section_blob(root, prior, name):
+            if (not (pending_amendment and blob == entry["blob"])
+                    and (target is None or (mode, blob) != initiative_section_blob(root, target, name))):
+                fail(f"Initiative section authority does not permit an out-of-scope edit: {name}")
+
+
 def initiative_receipt(source, slice_id, root=None, *, committed=None, auto_waiting=False):
     raw = git(root, "show", f"{committed}:{source}").stdout.encode() if committed is not None else None
     value, statements, contexts, slices, release_groups, digest = read_initiative_manifest(
@@ -4943,8 +5051,13 @@ def initiative_receipt(source, slice_id, root=None, *, committed=None, auto_wait
     if item.get("execution_owner", "build") != "build":
         fail(f"Initiative slice is owned by Discovery and cannot issue a Build receipt: {slice_id}")
     identity = {}
-    artifacts = sorted(set(item["artifacts"]).union(
-        *(statements[requirement]["artifacts"] for requirement in item["requirements"])))
+    whole = set(item["artifacts"]).union(
+        *(statements[requirement]["artifacts"] for requirement in item["requirements"]))
+    selectors = initiative_section_selectors(item["section_artifacts"]) if "section_artifacts" in item else []
+    artifacts = sorted(whole | {entry["path"] for entry in selectors})
+    bindings = []
+    if selectors and root is None:
+        fail("Initiative section authority requires committed Git documents")
     if root is not None:
         try:
             relative = (str(source) if committed is not None else
@@ -4967,6 +5080,14 @@ def initiative_receipt(source, slice_id, root=None, *, committed=None, auto_wait
             if ((committed is None and git(root, "status", "--porcelain=v1", "--", artifact).stdout.strip())
                     or git(root, "cat-file", "-e", f"{revision}:{artifact}", check=False).returncode):
                 fail(f"Initiative artifact must be committed and clean before receipt: {artifact}")
+        for selection in sorted(selectors, key=lambda entry: entry["path"]):
+            name = selection["path"]
+            mode, blob = initiative_section_blob(root, revision, name)
+            hashes = initiative_section_projection(initiative_section_bytes(root, blob), tuple(selection["sections"]))
+            binding = {"path": name, "mode": mode, "blob": blob}
+            if name not in whole:
+                binding["sections"] = hashes
+            bindings.append(binding)
     receipt = {
         "schema_version": value["schema_version"],
         "initiative_id": value["id"],
@@ -4982,6 +5103,8 @@ def initiative_receipt(source, slice_id, root=None, *, committed=None, auto_wait
         "execution_owner": "build",
         **identity,
     }
+    if selectors:
+        receipt["section_authority"] = {"schema_version": 1, "documents": bindings}
     return receipt
 
 
@@ -5059,7 +5182,15 @@ def amendment_tree(root, revision, closure):
         name = entry["path"]
         actual = git(root, "ls-tree", "-z", revision, "--", name).stdout
         if actual != f"{entry['mode']} blob {entry['blob']}\t{name}\0":
-            return False
+            if "sections" not in entry:
+                return False
+            try:
+                mode, blob = initiative_section_blob(root, revision, name)
+                if mode != entry["mode"] or initiative_section_projection(
+                        initiative_section_bytes(root, blob), tuple(entry["sections"])) != entry["sections"]:
+                    return False
+            except (RuntimeError, OSError, ValueError):
+                return False
         if git(root, "cat-file", "-e", entry["blob"], check=False).returncode:
             return False
     return True
@@ -5067,6 +5198,10 @@ def amendment_tree(root, revision, closure):
 
 def amendment_closure(root, receipt, plan):
     paths = sorted(set(receipt["artifacts"]) | {receipt["manifest_path"], plan["profile"]})
+    sections = {entry["path"]: entry["sections"]
+                for entry in receipt.get("section_authority", {}).get("documents", []) if "sections" in entry}
+    if plan["profile"] in sections:
+        fail("the Engineering Profile requires whole-file Initiative authority")
     closure = []
     for name in paths:
         if (not isinstance(name, str) or not name.startswith("docs/")
@@ -5079,7 +5214,10 @@ def amendment_closure(root, receipt, plan):
         if (separator != "\t" or tail != name + "\0" or len(fields) != 3
                 or fields[0] not in {"100644", "100755"} or fields[1] != "blob"):
             fail("invalid Initiative amendment document tree")
-        closure.append({"path": name, "mode": fields[0], "blob": fields[2]})
+        entry = {"path": name, "mode": fields[0], "blob": fields[2]}
+        if name in sections:
+            entry["sections"] = sections[name]
+        closure.append(entry)
     return closure
 
 
@@ -7464,6 +7602,12 @@ def initiative_import_plan(source, authority, receipt, plan, target, args):
               "repository": expected_repository(args, receipt["schema_version"]), "base_branch": args.base_branch,
               "cycle_id": args.cycle_id, "context": args.context, "risk": args.risk,
               "delivery_intent": args.delivery_intent, "artifacts": []}
+    if "section_authority" in receipt:
+        if common_git_dir(source).resolve() != common_git_dir(authority).resolve():
+            fail("Initiative section authority requires same-repository source custody")
+        if any(entry["path"] == plan["profile"] and "sections" in entry
+               for entry in receipt["section_authority"]["documents"]):
+            fail("the Engineering Profile requires whole-file Initiative authority")
     if common_git_dir(source).resolve() != common_git_dir(authority).resolve():
         return result
     commit = receipt["manifest_commit"]
@@ -7569,6 +7713,8 @@ def initiative_committed_snapshot(root, manifest_path, selected):
     manifest_blob = blob(manifest_path)
     raw = git(root, "--no-replace-objects", "show", manifest_blob).stdout.encode()
     manifest, *_ = read_initiative_manifest(manifest_path, raw=raw, auto_waiting=True)
+    if any("section_artifacts" in entry for entry in manifest["slices"]):
+        fail("Initiative Auto section authority is not qualified")
     require_repository_home(root, manifest["coordinator_repository"])
     return material_snapshot(manifest, selected, blob, commit=revision, manifest_path=manifest_path)
 
@@ -20727,8 +20873,21 @@ def command_gate_commit(args):
         fail("staged paths differ from requested paths")
     if not staged or not git(root, "diff", "--cached", "--quiet", check=False).returncode:
         fail("staged diff is empty")
+    section_authority = (effective_initiative(record) or {}).get("section_authority")
+    if section_authority:
+        candidate = git(root, "write-tree").stdout.strip()
+        previous = git(root, "rev-parse", "HEAD").stdout.strip()
+        merge = git(root, "rev-parse", "--verify", "-q", "MERGE_HEAD", check=False).stdout.strip()
+        remote = record["delivery"].get("remote")
+        base = record["delivery"].get("base_branch")
+        tracking = f"refs/remotes/{remote}/{base}" if isinstance(remote, str) and base else None
+        target = merge if merge and tracking and git(
+            root, "rev-parse", "--verify", "-q", tracking, check=False).stdout.strip() == merge else None
+        require_initiative_section_tree(root, record, candidate, prior=previous, target=target)
     git(root, "commit", "-m", args.message)
     commit = git(root, "rev-parse", "HEAD").stdout.strip()
+    if section_authority:
+        require_initiative_section_tree(root, record, commit, prior=previous, target=target)
     if record.get("schema_version") in (3, 4, 5, 6):
         for name, item in schema3_items:
             if evidence_path_blobs(root, args.paths, commit=commit) != item["paths"]:
@@ -24798,6 +24957,7 @@ def command_integration_source(args) -> None:
 def require_completion_source(root, record):
     """Validate local source authority without invoking any delivery operation."""
     verify_discovery_import(root, record)
+    require_initiative_section_tree(root, record, "HEAD")
     require_amendment_completion(root, record)
     require_current_profile(root, record)
     require_graphify_check(root, record)
