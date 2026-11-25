@@ -1,0 +1,384 @@
+name: validation-shadow
+
+on:
+  pull_request:
+  workflow_run:
+    workflows: [test]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: PR number whose merge revision should run affected validation
+        type: string
+      test_run_id:
+        description: Completed PR test run ID to compare (dispatch from the default branch)
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  affected:
+    if: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.pull_request != '') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    concurrency:
+      group: ${{ github.workflow }}-affected-${{ github.event.pull_request.number || inputs.pull_request }}
+      cancel-in-progress: true
+    env:
+      PYTHON_VERSION: "3.14"
+    steps:
+      - name: Select PR merge revision
+        id: target
+        env:
+          PR_NUMBER: ${{ inputs.pull_request }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            ref="$GITHUB_SHA"
+          elif [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]]; then
+            ref="refs/pull/$PR_NUMBER/merge"
+          else
+            echo "A numeric pull request number is required" >&2
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.target.outputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: false
+      - name: Install selected Python
+        run: |
+          set -euo pipefail
+          uv python install "$PYTHON_VERSION"
+          interpreter="$(uv python find --managed-python --no-project "$PYTHON_VERSION")"
+          dirname "$interpreter" >> "$GITHUB_PATH"
+      - name: Plan affected validation
+        id: plan
+        env:
+          EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          read -r tested base head extra <<< "$(git rev-list --parents -n 1 HEAD)"
+          [[ "$tested" =~ ^[0-9a-f]{40}$ && "$base" =~ ^[0-9a-f]{40}$ &&
+             "$head" =~ ^[0-9a-f]{40}$ && -z "$extra" ]]
+          [[ -z "$EVENT_BASE" || "$EVENT_BASE" == "$base" ]]
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          uv run --no-project --python "$PYTHON_VERSION" python .github/continuous_validation.py \
+            plan --base "$base" --json > "$RUNNER_TEMP/validation-plan.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validation-plan
+          path: ${{ runner.temp }}/validation-plan.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Run affected validation
+        id: execute
+        env:
+          BASE: ${{ steps.plan.outputs.base }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/validation-affected"
+          mkdir -m 700 -p "$evidence/result.json.logs"
+          uv run --no-project --python "$PYTHON_VERSION" python -I - "$evidence/runtime.json" <<'PY'
+          import json
+          import platform
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          Path(sys.argv[1]).write_text(json.dumps({
+              "os": platform.system().lower(),
+              "architecture": platform.machine(),
+              "python": platform.python_version(),
+              "tools": {"uv": subprocess.check_output(["uv", "--version"], text=True).strip()},
+          }) + "\n", encoding="utf-8")
+          PY
+          uv run --no-project --python "$PYTHON_VERSION" python .github/continuous_validation.py \
+            run --base "$BASE" --output "$evidence/result.json"
+      - if: ${{ !cancelled() && (steps.execute.outcome == 'success' || steps.execute.outcome == 'failure') }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validation-affected
+          path: |
+            ${{ runner.temp }}/validation-affected/result.json
+            ${{ runner.temp }}/validation-affected/runtime.json
+          if-no-files-found: error
+          retention-days: 7
+
+  compare:
+    if: >-
+      ${{
+        (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request') ||
+        (github.event_name == 'workflow_dispatch' && inputs.test_run_id != '' &&
+         github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+      }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      # workflow_run's own SHA is on the default branch; never check out the
+      # triggering workflow's SHA, a PR ref, or an artifact here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Acquire bounded comparison inputs
+        id: inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id || inputs.test_run_id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+        run: |
+          python3 -I - <<'PY'
+          import base64
+          import io
+          import json
+          import os
+          import re
+          import resource
+          import stat
+          import subprocess
+          import tempfile
+          import zipfile
+          import zlib
+          from http.client import HTTPException
+          from pathlib import Path
+          from urllib.error import HTTPError
+          from urllib.parse import urlencode, urlsplit
+          from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+          MIB = 1024 * 1024
+          token = os.environ.pop("GH_TOKEN")
+          root = Path(os.environ["RUNNER_TEMP"]) / "validation-shadow-input"
+          root.mkdir(mode=0o700)
+          repo = os.environ["GITHUB_REPOSITORY"]
+          api = f'{os.environ["GITHUB_API_URL"]}/repos/{repo}'
+          run_id = os.environ["RUN_ID"]
+          attempt = os.environ["RUN_ATTEMPT"]
+
+          def numeric(value):
+              return re.fullmatch(r"[1-9][0-9]{0,18}", str(value)) is not None
+
+          def oid(value):
+              return value if isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value) else None
+
+          class NoRedirect(HTTPRedirectHandler):
+              def redirect_request(self, *args, **kwargs):
+                  return None
+
+          client = build_opener(NoRedirect())
+
+          def request(path):
+              return Request(api + path, headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              })
+
+          def bounded(response, size):
+              data = response.read(size + 1)
+              if len(data) > size:
+                  raise ValueError("response limit")
+              return data
+
+          def get(path):
+              try:
+                  with client.open(request(path), timeout=10) as response:
+                      value = json.loads(bounded(response, 4 * MIB))
+                  if isinstance(value, dict):
+                      return value
+              except (OSError, HTTPException, ValueError, RecursionError):
+                  pass
+              return {}
+
+          def save(name, value):
+              (root / name).write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+          def records(envelope, key):
+              values = envelope.get(key)
+              return [item for item in values if isinstance(item, dict)] if isinstance(values, list) else []
+
+          def artifacts(run):
+              # Current producers emit at most four PR partitions or two affected
+              # artifacts per run. Treat pagination/truncation as unavailable.
+              envelope = get(f"/actions/runs/{run}/artifacts?per_page=100")
+              items = records(envelope, "artifacts")
+              return items if envelope.get("total_count") == len(items) else []
+
+          def archive(identifier):
+              try:
+                  with client.open(request(f"/actions/artifacts/{identifier}/zip"), timeout=10) as response:
+                      return bounded(response, 32 * MIB)
+              except HTTPError as error:
+                  with error:
+                      if error.code != 302:
+                          raise
+                      location = error.headers.get("Location", "")
+                  target = urlsplit(location)
+                  if target.scheme != "https" or not target.hostname or target.username or target.password:
+                      raise ValueError("invalid download redirect")
+                  # Only this authenticated API redirect is followed, without
+                  # forwarding the token or following further redirects.
+                  with client.open(Request(location), timeout=10) as response:
+                      return bounded(response, 32 * MIB)
+
+          def retain(item, destination, required, optional=()):
+              size = item.get("size_in_bytes")
+              identifier = item.get("id")
+              if (item.get("expired") is not False or not numeric(identifier) or
+                      type(size) is not int or not 0 < size <= 32 * MIB):
+                  return
+              try:
+                  with zipfile.ZipFile(io.BytesIO(archive(identifier))) as zipped:
+                      files = zipped.infolist()
+                      names = {member.orig_filename for member in files}
+                      if len(files) != len(names) or not set(required) <= names <= set(required) | set(optional):
+                          return
+                      contents = {}
+                      for member in files:
+                          limit = 32 * MIB if member.filename in ("manifest.json", "junit.xml") else 4 * MIB
+                          if (stat.S_IFMT(member.external_attr >> 16) not in (0, stat.S_IFREG) or
+                                  member.file_size > limit or
+                                  member.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)):
+                              return
+                          with zipped.open(member) as stream:
+                              contents[member.filename] = bounded(stream, limit)
+              except (OSError, HTTPException, ValueError, RuntimeError, EOFError, zipfile.BadZipFile, zlib.error):
+                  return
+              destination.mkdir(parents=True)
+              for name, data in contents.items():
+                  (destination / name).write_bytes(data)
+
+          def git(cwd, *args, auth=False):
+              env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
+                         GIT_TERMINAL_PROMPT="0")
+              if auth:
+                  value = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+                  env.update(GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="http.extraHeader",
+                             GIT_CONFIG_VALUE_0=f"Authorization: Basic {value}")
+              return subprocess.check_output(
+                  ["git", *args], cwd=cwd, env=env, stderr=subprocess.DEVNULL, timeout=30,
+              )
+
+          def note(head):
+              ref = "refs/notes/dbsctr-validation"
+              remote = f'{os.environ["GITHUB_SERVER_URL"]}/{repo}.git'
+              # Git only sees a fresh bare repository. Limit fetch file size
+              # (pack included); never check out trees or execute their hooks.
+              resource.setrlimit(resource.RLIMIT_FSIZE, (64 * MIB, 64 * MIB))
+              try:
+                  with tempfile.TemporaryDirectory(dir=root.parent) as tmp:
+                      git(tmp, "init", "--bare", "--template=")
+                      git(tmp, "-c", "http.followRedirects=false", "fetch", "--depth=1", "--no-tags",
+                          "--no-recurse-submodules", "--no-auto-maintenance", remote, f"{ref}:{ref}", auth=True)
+                      blob = oid(git(tmp, "notes", f"--ref={ref}", "list", head).decode().strip())
+                      if not blob or git(tmp, "cat-file", "-t", blob) != b"blob\n":
+                          return
+                      size = int(git(tmp, "cat-file", "-s", blob))
+                      # A bounded invalid byte marks an oversized note as malformed.
+                      data = git(tmp, "cat-file", "blob", blob) if size <= 4 * MIB else b"\xff"
+                      (root / "note.json").write_bytes(data)
+              except (OSError, ValueError, subprocess.SubprocessError):
+                  pass
+
+          def is_workflow(run, filename):
+              path = run.get("path")
+              repository = run.get("repository")
+              return (isinstance(path, str) and path.split("@", 1)[0] == f".github/workflows/{filename}"
+                      and isinstance(repository, dict) and repository.get("full_name") == repo)
+
+          def source(run, jobs):
+              prs = records(run, "pull_requests")
+              run_head = oid(run.get("head_sha"))
+              if len(prs) != 1:
+                  # The native PR run head is sufficient for a note lookup,
+                  # but not for claiming the tested base or merge revision.
+                  return dict(head=run_head, base=None, tested_oid=None)
+              pr = prs[0]
+              head_ref, base_ref = pr.get("head"), pr.get("base")
+              head = oid(head_ref.get("sha")) if isinstance(head_ref, dict) else None
+              base = oid(base_ref.get("sha")) if isinstance(base_ref, dict) else None
+              # Never guess the tested revision from a mutable merge ref or
+              # worker artifacts. Both the run and its jobs can expose only
+              # the PR head. If they disagree on a candidate merge, fail closed.
+              revisions = {oid(run.get("head_sha"))}
+              revisions.update(oid(job.get("head_sha")) for job in records(jobs, "jobs"))
+              candidates = revisions - {None, head, base}
+              if head and base and len(candidates) == 1:
+                  tested = candidates.pop()
+                  commit = get(f"/git/commits/{tested}")
+                  parents = [parent.get("sha") for parent in records(commit, "parents")]
+                  if commit.get("sha") == tested and parents == [base, head]:
+                      return dict(head=head, base=base, tested_oid=tested)
+              return dict(head=head, base=None, tested_oid=None)
+
+          if not numeric(run_id) or (attempt and not numeric(attempt)):
+              raise SystemExit("A numeric test run ID and attempt are required")
+          run_path = f"/actions/runs/{run_id}"
+          run = get(f"{run_path}/attempts/{attempt}" if attempt else run_path)
+          if run:
+              # A known non-PR, non-test or unfinished run never produces a report.
+              if (str(run.get("id")) != run_id or run.get("event") != "pull_request" or
+                      run.get("status") != "completed" or not is_workflow(run, "test.yml") or
+                      (attempt and str(run.get("run_attempt")) != attempt)):
+                  raise SystemExit(0)
+              save("run.json", run)
+              attempt = run.get("run_attempt")
+              jobs = {}
+              if numeric(attempt):
+                  envelope = get(f"{run_path}/attempts/{attempt}/jobs?per_page=100")
+                  items = records(envelope, "jobs")
+                  if (isinstance(envelope.get("jobs"), list) and
+                          envelope.get("total_count") == len(envelope["jobs"]) == len(items) and
+                          all(str(item.get("run_id")) == run_id and item.get("run_attempt") == attempt for item in items)):
+                      jobs = envelope
+                      save("jobs.json", jobs)
+              provenance = source(run, jobs)
+              save("source.json", provenance)
+              items = artifacts(run_id)
+              for shard in range(4):
+                  name = f"pytest-3.14-0.81.0-{shard}"
+                  matches = [item for item in items if item.get("name") == name]
+                  if len(matches) == 1:
+                      retain(matches[0], root / "partitions" / name, ("manifest.json", "junit.xml"))
+              head = provenance["head"]
+              if head:
+                  query = urlencode(dict(event="pull_request", status="completed", head_sha=head, per_page=10))
+                  runs = get(f"/actions/workflows/validation-shadow.yml/runs?{query}")
+                  for candidate in records(runs, "workflow_runs")[:10]:
+                      affected_id = candidate.get("id")
+                      if (not numeric(affected_id) or candidate.get("event") != "pull_request" or
+                              candidate.get("head_sha") != head or not is_workflow(candidate, "validation-shadow.yml")):
+                          continue
+                      matches = [item for item in artifacts(affected_id) if item.get("name") == "validation-affected"]
+                      if len(matches) == 1:
+                          retain(matches[0], root / "affected", ("result.json",), ("runtime.json",))
+                          if (root / "affected").exists():
+                              break
+                  note(head)
+          elif not attempt:
+              # Manual dispatch cannot establish even that the run was a PR.
+              raise SystemExit(0)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("report=true\n")
+          PY
+      - name: Compare and summarize
+        if: ${{ steps.inputs.outputs.report == 'true' }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/validation-shadow-report"
+          python3 -I .github/validation_shadow.py compare \
+            --input-dir "$RUNNER_TEMP/validation-shadow-input" --output-dir "$output"
+          cat "$output/validation-shadow.md" >> "$GITHUB_STEP_SUMMARY"
+      - if: ${{ steps.inputs.outputs.report == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validation-shadow
+          path: ${{ runner.temp }}/validation-shadow-report/
+          if-no-files-found: error
+          retention-days: 14
