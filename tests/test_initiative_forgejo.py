@@ -234,9 +234,13 @@ json.dump({"schema_version": 1, "fixture_digest": call["fixture_digest"],
         bridge.request("POST", "/api/v1/repos/another/project/pulls", {})
 
 
-def test_managed_forgejo_begin_and_verified_local_completion_use_schema_six(monkeypatch, request, capsys):
+@pytest.mark.parametrize("credential_source", ["osxkeychain", "systemd"])
+def test_managed_forgejo_begin_and_verified_local_completion_use_schema_six(
+    monkeypatch, request, capsys, credential_source,
+):
     import importlib.machinery
     import importlib.util
+    from dataclasses import replace
     from types import SimpleNamespace
 
     import test_dbsctrctl as harness
@@ -265,15 +269,25 @@ def test_managed_forgejo_begin_and_verified_local_completion_use_schema_six(monk
     helper.git(worktree, "branch", "--set-upstream-to", "origin/main")
     monkeypatch.chdir(worktree)
     monkeypatch.setattr(helper, "root_dir", lambda: worktree)
-    monkeypatch.setattr(helper, "fetch_forgejo_branch", lambda *_args, **_kwargs: base)
+    fetches = []
+
+    def capture_fetch(_root, remote, identity, branch, account, source):
+        assert (remote, identity, branch) == ("origin", IDENTITY, "main")
+        fetches.append((account, source))
+        return base
+
+    monkeypatch.setattr(helper, "fetch_forgejo_branch", capture_fetch)
     monkeypatch.setattr(helper, "initiative_delivery_preference", lambda _: "auto")
 
     runtime = helper.ManagedInitiativeRuntime(worktree)
     doc_fields = fixture_document(Fixture())
     doc_fields["binding"].update({"origin": IDENTITY["origin"], "repository": IDENTITY["repository"]})
     doc_fields["root_oid"] = base
+    recipe_version = {"schema_version": 2} if credential_source == "osxkeychain" else {
+        "schema_version": 3, "credential_source": "systemd",
+    }
     runtime.custody._write(runtime.custody.directory / "initiative-runtime.json", lifecycle.canonical({
-        "schema_version": 2, "authority_checkout": str(root), "manifest_path": doc.relative_to(root).as_posix(),
+        **recipe_version, "authority_checkout": str(root), "manifest_path": doc.relative_to(root).as_posix(),
         "writer_agent": "build", "forgejo": doc_fields, "slices": {"local": {
             "branch": helper.branch(worktree), "cycle_id": "local-managed", "risk": "critical", "context": "test",
             "plan_path": plan.relative_to(root).as_posix(), "plan_digest": sha256(plan.read_bytes()).hexdigest(),
@@ -304,6 +318,13 @@ def test_managed_forgejo_begin_and_verified_local_completion_use_schema_six(monk
     record_path, record = helper.load(worktree)
     assert record["schema_version"] == 6 and record["delivery_intent"] == "local"
     assert record["initiative_approval"]["method"] == "initiative_auto"
+    assert record["delivery"]["forge"]["credential_source"] == credential_source
+    assert fetches == [(recipe.forgejo.binding.git_account, credential_source)] * 4
+    alternative = "systemd" if credential_source == "osxkeychain" else "osxkeychain"
+    with monkeypatch.context() as patch:
+        patch.setattr(runtime, "recipe", lambda: replace(recipe, credential_source=alternative))
+        with pytest.raises(RuntimeError, match="local registration changed"):
+            runtime._forgejo_record(activation, recipe.forgejo)
     assert runtime._forgejo_source(activation, recipe.forgejo) is None
     assert runtime.custody.optional_link("birth", launch.cycle_id) is None
     with runtime.require_release(activation) as registration:

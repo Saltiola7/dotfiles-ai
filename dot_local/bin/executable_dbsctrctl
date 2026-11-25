@@ -127,6 +127,7 @@ BACKLOG_COLUMNS = {
 }
 BACKLOG_ACTIVE_STATUSES = {"pending", "in_progress", "blocked", "cancelled"}
 BACKLOG_COMMIT = re.compile(r"(?<![0-9a-f])[0-9a-f]{7,64}(?![0-9a-f])")
+FORGEJO_CREDENTIAL_SOURCES = ("osxkeychain", "systemd")
 
 
 def fail(message):
@@ -144,6 +145,8 @@ class DVCCommandUnavailable(RuntimeError):
 LOCAL_COMPLETION_GIT: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "local_completion_git", default=None)
 INITIATIVE_PUBLICATION_DEADLINE = contextvars.ContextVar("initiative_publication_deadline", default=None)
+FORGEJO_SYSTEMD_LOCATOR: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "forgejo_systemd_locator", default=None)
 
 
 def initiative_publication_timeout(default=None):
@@ -3323,7 +3326,7 @@ def validate_schema6_record(root, record):
         fail("invalid local-only comparison base")
     forge = delivery["forge"]
     if (not isinstance(forge, dict) or set(forge) != {"provider", "origin", "repository", "account", "credential_source"}
-            or forge["provider"] != "forgejo" or forge["credential_source"] != "osxkeychain"
+            or forge["provider"] != "forgejo" or forge["credential_source"] not in FORGEJO_CREDENTIAL_SOURCES
             or not isinstance(forge["account"], str) or not OPAQUE_ID.fullmatch(forge["account"])):
         fail("invalid local-only credential selection")
     identity = typed_repository_identity({key: forge[key] for key in ("provider", "origin", "repository")})
@@ -4182,7 +4185,83 @@ def _forgejo_valid_password(password):
             and not any(character in password for character in "\r\n\0\ufffd"))
 
 
-def forgejo_credential_helper(operation, identity, account):
+@contextlib.contextmanager
+def _forgejo_systemd_scope():
+    """Keep the service locator private to the controller's explicitly selected fetch."""
+    key = "CREDENTIALS_DIRECTORY"
+    with contextlib.ExitStack() as restore:
+        locator = os.environ.get(key)
+        token = FORGEJO_SYSTEMD_LOCATOR.set(locator)
+        restore.callback(FORGEJO_SYSTEMD_LOCATOR.reset, token)
+        for environment in (os.environ, GIT_REPOSITORY_ENV, INSPECT_ENV):
+            if key in environment:
+                restore.callback(environment.__setitem__, key, environment.pop(key))
+        yield
+
+
+def _forgejo_systemd_directory():
+    """Resolve the credential directory provided by the native Linux user service."""
+    try:
+        if sys.platform != "linux":
+            raise ValueError()
+        uid = os.getuid()
+        runtime = Path(f"/run/user/{uid}")
+        credential_root = runtime / "credentials"
+        raw = FORGEJO_SYSTEMD_LOCATOR.get()
+        if raw is None:
+            raw = os.environ["CREDENTIALS_DIRECTORY"]
+        directory = Path(raw)
+        if (not 0 < len(raw) <= 4096 or directory.as_posix() != raw
+                or directory.parent != credential_root or not directory.name.endswith(".service")
+                or any(ord(character) < 33 for character in directory.name)
+                or directory.resolve(strict=True) != directory):
+            raise ValueError()
+        for ancestor in (runtime, credential_root, directory):
+            details = ancestor.lstat()
+            if not stat.S_ISDIR(details.st_mode) or details.st_uid != uid or details.st_mode & 0o022:
+                raise ValueError()
+        if stat.S_IMODE(directory.lstat().st_mode) != 0o500:
+            raise ValueError()
+        return directory
+    except (KeyError, OSError, RuntimeError, ValueError):
+        raise RuntimeError("Forgejo systemd credential unavailable") from None
+
+
+def _forgejo_systemd_password(identity, account):
+    """Read one fixed, scoped credential without exposing file or parser details."""
+    maximum = 16 * 1024
+    try:
+        directory = _forgejo_systemd_directory()
+        parent = os.open(directory, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC)
+        try:
+            descriptor = os.open("dbsctr-forgejo", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
+                                 dir_fd=parent)
+        finally:
+            os.close(parent)
+        with os.fdopen(descriptor, "rb") as stream:
+            details = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid() or details.st_nlink != 1
+                    or stat.S_IMODE(details.st_mode) != 0o400 or not 0 < details.st_size <= maximum):
+                raise ValueError()
+            raw = stream.read(maximum + 1)
+            if len(raw) != details.st_size:
+                raise ValueError()
+        envelope = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+        if (not isinstance(envelope, dict)
+                or set(envelope) != {"schema_version", "origin", "repository", "account", "role", "expires_at", "token"}
+                or type(envelope["schema_version"]) is not int or envelope["schema_version"] != 1
+                or (envelope["origin"], envelope["repository"], envelope["account"], envelope["role"]) !=
+                   (identity["origin"], identity["repository"], account, "read")
+                or type(envelope["expires_at"]) is not int or envelope["expires_at"] <= time.time()
+                or not _forgejo_valid_password(envelope["token"]) or not envelope["token"].isprintable()):
+            raise ValueError()
+        envelope["token"].encode("utf-8")
+        return envelope["token"]
+    except (KeyError, OSError, RuntimeError, ValueError):
+        raise RuntimeError("Forgejo systemd credential unavailable") from None
+
+
+def forgejo_credential_helper(operation, identity, account, credential_source="osxkeychain"):
     """Implement the get-only Git helper protocol; native storage is never changed."""
     if operation != "get":
         return
@@ -4215,18 +4294,23 @@ def forgejo_credential_helper(operation, identity, account):
                 "path": identity["repository"] + ".git", "username": account}
     if fields != expected:
         fail("Forgejo credential request mismatch")
-    query = {"server": parsed.hostname, "port": parsed.port or 0, "protocol": "https",
-             "account": account, "path": expected["path"], "authentication": "default",
-             "authentication_ui": "fail", "match_limit": "all"}
-    matches = _forgejo_security_lookup(query)
-    if not isinstance(matches, list) or len(matches) != 1 or not isinstance(matches[0], dict):
-        fail("Forgejo native credential selection unavailable")
-    item = matches[0]
-    if any(item.get(key) != query[key] for key in ("server", "port", "protocol", "account", "path")):
-        fail("Forgejo native credential selection mismatch")
-    password = item.get("password")
-    if not _forgejo_valid_password(password):
-        fail("Forgejo native credential unavailable")
+    if credential_source == "systemd":
+        password = _forgejo_systemd_password(identity, account)
+    elif credential_source == "osxkeychain":
+        query = {"server": parsed.hostname, "port": parsed.port or 0, "protocol": "https",
+                 "account": account, "path": expected["path"], "authentication": "default",
+                 "authentication_ui": "fail", "match_limit": "all"}
+        matches = _forgejo_security_lookup(query)
+        if not isinstance(matches, list) or len(matches) != 1 or not isinstance(matches[0], dict):
+            fail("Forgejo native credential selection unavailable")
+        item = matches[0]
+        if any(item.get(key) != query[key] for key in ("server", "port", "protocol", "account", "path")):
+            fail("Forgejo native credential selection mismatch")
+        password = item.get("password")
+        if not _forgejo_valid_password(password):
+            fail("Forgejo native credential unavailable")
+    else:
+        fail("Forgejo credential selection unavailable")
     encoded = base64.b64encode((account + ":" + password).encode("utf-8")).decode("ascii")
     sys.stdout.write(f"capability[]=authtype\nauthtype=basic\ncredential={encoded}\nephemeral=true\n\n")
     sys.stdout.flush()
@@ -4237,9 +4321,15 @@ def forgejo_internal_main(argv):
     if argv[:1] != ["_forgejo-credential"]:
         return False
     try:
-        if len(argv) != 6 or argv[1] != "--identity-json" or argv[3] != "--account":
+        if len(argv) not in (6, 8) or argv[1] != "--identity-json" or argv[3] != "--account":
             raise ValueError()
-        if argv[5] == "get":
+        source = "osxkeychain"
+        if len(argv) == 8:
+            if argv[5] != "--credential-source" or argv[6] not in FORGEJO_CREDENTIAL_SOURCES:
+                raise ValueError()
+            source = argv[6]
+        operation = argv[-1]
+        if operation == "get" and source == "osxkeychain":
             import pwd
             home = pwd.getpwuid(os.getuid()).pw_dir
             if (not isinstance(home, str) or not Path(home).is_absolute()
@@ -4248,27 +4338,30 @@ def forgejo_internal_main(argv):
             # Only this isolated credential child needs the native user's
             # Keychain preferences. Its Git parent keeps the private home.
             os.environ["HOME"] = home
-        forgejo_credential_helper(argv[5], json.loads(argv[2]), argv[4])
+        options = (source,) if len(argv) == 8 else ()
+        forgejo_credential_helper(operation, json.loads(argv[2]), argv[4], *options)
     except Exception:
         sys.stdout.write("quit=true\n\n")
         sys.stdout.flush()
     return True
 
 
-def fetch_forgejo_branch(root, remote, identity, base_branch, account):
+def fetch_forgejo_branch(root, remote, identity, base_branch, account, credential_source="osxkeychain"):
     """Fetch one comparison ref; filesystem failures retain a fixed safe category."""
     try:
-        return _fetch_forgejo_branch(root, remote, identity, base_branch, account)
+        return _fetch_forgejo_branch(root, remote, identity, base_branch, account, credential_source)
     except (OSError, ValueError, subprocess.SubprocessError):
         fail("Forgejo transport unavailable")
 
 
-def _fetch_forgejo_branch(root, remote, identity, base_branch, account):
+def _fetch_forgejo_branch(root, remote, identity, base_branch, account, credential_source):
     """Keep source configuration outside the network transport process."""
     import shlex
     identity = _forgejo_identity(identity)
-    if not isinstance(account, str) or not OPAQUE_ID.fullmatch(account):
+    if (not isinstance(account, str) or not OPAQUE_ID.fullmatch(account)
+            or credential_source not in FORGEJO_CREDENTIAL_SOURCES):
         fail("Forgejo credential selection unavailable")
+    credential_directory = _forgejo_systemd_directory() if credential_source == "systemd" else None
     executable, exec_path = _forgejo_tools()
     environment = _forgejo_environment()
     tracking = f"refs/remotes/{remote}/{base_branch}"
@@ -4309,7 +4402,11 @@ def _fetch_forgejo_branch(root, remote, identity, base_branch, account):
         environment.update({"GIT_DIR": str(control), "GIT_OBJECT_DIRECTORY": str(object_path)})
         helper = "!exec " + shlex.join([_forgejo_trusted_file(sys.executable), "-I", "-B",
             str(Path(__file__).resolve()), "_forgejo-credential", "--identity-json",
-            json.dumps(identity, sort_keys=True, separators=(",", ":")), "--account", account])
+            json.dumps(identity, sort_keys=True, separators=(",", ":")), "--account", account,
+            "--credential-source", credential_source])
+        fetch_environment = environment.copy()
+        if credential_directory is not None:
+            fetch_environment["CREDENTIALS_DIRECTORY"] = str(credential_directory)
         settings = {"core.hooksPath": "/dev/null", "credential.helper": "",
                     "credential.useHttpPath": "true", "credential.username": account,
                     "http.sslVerify": "true", "http.followRedirects": "false", "http.proxy": "",
@@ -4324,7 +4421,7 @@ def _fetch_forgejo_branch(root, remote, identity, base_branch, account):
                           "--no-recurse-submodules", "--no-auto-maintenance", "--no-write-commit-graph",
                           "--no-write-fetch-head", "--", destinations["url"],
                           f"+refs/heads/{base_branch}:refs/dbsctr-fetch/base"])
-        result = _forgejo_run(arguments, cwd=control, env=environment,
+        result = _forgejo_run(arguments, cwd=control, env=fetch_environment,
                               timeout=max(0.001, deadline - time.monotonic()))
         if result.returncode:
             fail("Forgejo comparison fetch unavailable")
@@ -4439,7 +4536,8 @@ def require_repository_home(root, expected, mismatch="Initiative repository iden
 def forgejo_selection(args):
     selected = [getattr(args, "forge_" + field, None)
                 for field in ("provider", "origin", "repository", "account")]
-    if not any(value is not None for value in selected):
+    credential_source = getattr(args, "forge_credential_source", None)
+    if not any(value is not None for value in selected) and credential_source is None:
         return None
     if (not all(isinstance(value, str) and value for value in selected)
             or selected[0] != "forgejo"
@@ -4452,7 +4550,9 @@ def forgejo_selection(args):
                                          "Forgejo selection")
     if not OPAQUE_ID.fullmatch(selected[3]):
         fail("Forgejo account selection is invalid")
-    return {**identity, "account": selected[3], "credential_source": "osxkeychain"}
+    if credential_source is not None and credential_source not in FORGEJO_CREDENTIAL_SOURCES:
+        fail("Forgejo credential source is invalid")
+    return {**identity, "account": selected[3], "credential_source": credential_source or "osxkeychain"}
 
 
 def expected_repository(args, schema):
@@ -7811,7 +7911,8 @@ def begin_registration(args, *, auto_launch=None):
     else:
         remote_url, delivery_env = remote, None
     if forge is not None:
-        fetch_forgejo_branch(source, remote, initiative["repository"], remote_branch, forge["account"])
+        fetch_forgejo_branch(source, remote, initiative["repository"], remote_branch,
+                             forge["account"], forge["credential_source"])
     elif args.delivery_intent == "draft_pr":
         fetch_github_branch(source, remote, remote_url, remote_branch, delivery_env)
     else:
@@ -7948,7 +8049,8 @@ def begin_registration(args, *, auto_launch=None):
         check_initiative_cycle_occupancy(source, args.cycle_id, current)
         require_registration_available(source, args.cycle_id)
         if forge is not None:
-            fetch_forgejo_branch(source, remote, initiative["repository"], remote_branch, forge["account"])
+            fetch_forgejo_branch(source, remote, initiative["repository"], remote_branch,
+                                 forge["account"], forge["credential_source"])
         elif args.delivery_intent == "draft_pr":
             current_url = github_remote_url(source, remote, args.github_repository)
             fetch_github_branch(source, remote, current_url, remote_branch, delivery_env)
@@ -24070,6 +24172,7 @@ class ManagedInitiativeRuntime:
             delivery = ["--delivery-intent", "local", "--forge-provider", "forgejo",
                         "--forge-origin", fixture.binding.origin, "--forge-repository", fixture.binding.repository,
                         "--forge-account", fixture.binding.git_account,
+                        "--forge-credential-source", recipe.credential_source,
                         "--expected-repository-json", json.dumps(fixture.repository, sort_keys=True)]
         args = ["begin", "--cycle-id", selected.cycle_id, "--context", selected.context, "--risk", selected.risk,
                 "--integration-mode", "ordinary", "--plan", str(plan), "--expected-plan-digest", selected.plan_digest,
@@ -24091,7 +24194,8 @@ class ManagedInitiativeRuntime:
             url = github_remote_url(checkout, "origin", args.github_repository)
             fetch_github_branch(checkout, "origin", url, args.base_branch, github_environment(args.github_account))
         else:
-            fetch_forgejo_branch(checkout, "origin", receipt["repository"], args.base_branch, forge["account"])
+            fetch_forgejo_branch(checkout, "origin", receipt["repository"], args.base_branch,
+                                 forge["account"], forge["credential_source"])
         target = git(checkout, "rev-parse", "refs/remotes/origin/" + args.base_branch).stdout.strip()
         head = git(checkout, "rev-parse", "HEAD").stdout.strip()
         if head != target:
@@ -24195,8 +24299,10 @@ class ManagedInitiativeRuntime:
         approval, delivery = record["initiative_approval"], record["delivery"]
         forge = delivery["forge"]
         identity = {key: forge[key] for key in ("provider", "origin", "repository")}
-        selected = self.recipe().slice(activation.slice_id)
-        if (approval["method"] != "initiative_auto" or not record_worktree_matches(root, record, root, bindings=False)
+        recipe = self.recipe()
+        selected = recipe.slice(activation.slice_id)
+        if (approval["method"] != "initiative_auto" or forge["credential_source"] != recipe.credential_source
+                or not record_worktree_matches(root, record, root, bindings=False)
                 or native_git_directory(root, record) != git_dir(root).resolve()
                 or (identity, forge["account"], "refs/heads/" + delivery["base_branch"], delivery["base_head"]) !=
                    (fixture.repository, fixture.binding.git_account, fixture.target_ref, activation.launch.base_head)
@@ -27984,6 +28090,7 @@ def parser():
     begin.add_argument("--forge-origin")
     begin.add_argument("--forge-repository")
     begin.add_argument("--forge-account")
+    begin.add_argument("--forge-credential-source", choices=FORGEJO_CREDENTIAL_SOURCES)
     begin.add_argument("--base-branch", default="main")
     begin.add_argument("--worktree-root")
     begin.add_argument("--opencode-session-id")
@@ -28658,6 +28765,7 @@ def main():
     capture = None
     checkpoint = None
     registration = None
+    credential_scope = contextlib.ExitStack()
     quiet_local = sys.argv[1:2] in (["complete-local"], ["complete-external"])
     try:
         if forgejo_internal_main(sys.argv[1:]):
@@ -28666,6 +28774,9 @@ def main():
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
         args = parser().parse_args()
+        if args.command == "initiative-auto" or (
+                args.command == "begin" and getattr(args, "forge_credential_source", None) == "systemd"):
+            credential_scope.enter_context(_forgejo_systemd_scope())
         if args.command == "validate":
             args.func(args)
             return 0
@@ -28720,6 +28831,8 @@ def main():
             workflow_operation_finish(capture, False)
         print(f"dbsctrctl: {error}", file=sys.stderr)
         return 1
+    finally:
+        credential_scope.close()
     return 0
 
 

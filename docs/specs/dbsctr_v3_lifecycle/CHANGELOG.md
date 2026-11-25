@@ -1,5 +1,12 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Linux Forgejo comparison credentials
+
+- Bind the systemd credential source to an explicit managed recipe and exact
+  read-only Forgejo fetch. Preserve historical GitHub and Keychain identities.
+- Validate the scoped service credential and expiry before releasing it to Git.
+  Keep live enrollment and Build isolation in the native qualification test.
+
 ## 2026-11-25 — Reconcile Forgejo Auto with evidence isolation
 
 - Reconcile PR #364 with protected main at `b910f609`. Preserve both
