@@ -57,6 +57,24 @@ duplication; it does not remove it.
 - Then the result, with the runner's operating system, architecture and tool
   versions, is retained as the `validation-affected` artifact for seven days.
 
+- Given a broad selection that cannot finish within the shadow job's 15-minute
+  limit, as observed on PR #367
+- When the shadow's execution deadline arrives
+- Then the adapter has saved completed check results as checks finished, ends
+  any in-flight check cleanly, and lists unfinished or unstarted native checks
+  as `budget_exhausted` in `not_executed`.
+- And the workflow reserves time before the hard job limit to upload the
+  partial result. The plan and selected checks are unchanged. Non-native
+  checks retain their existing reason.
+
+Budgeted execution is opt-in for the shadow workflow. The ordinary adapter
+invocation and managed runner keep their existing execution contracts. A
+partial result is never a passing check: budget exhaustion alone is unavailable
+(exit 2); any completed failure remains a failure (exit 1). The comparator
+retains the distinction where a matching artifact is available and gives
+unfinished work no execution or reuse credit. An external cancellation that
+prevents upload remains unavailable, not a fabricated partial result.
+
 - Given every selected check passed
 - When the job concludes
 - Then it succeeds.
@@ -210,7 +228,10 @@ identity appears in it.
 
 Writable source: `.github/workflows/validation-shadow.yml`,
 `.github/validation_shadow.py`, `tests/test_validation_shadow.py`, and this
-document with the distribution README and CHANGELOG.
+document with the distribution README and CHANGELOG. The budget follow-up
+also covers the optional standalone `run` path in
+`.github/continuous_validation.py` and its existing adapter tests. It does
+not change the ownership map, required workflow, or managed runner.
 
 ## Visual Evidence
 
@@ -234,7 +255,7 @@ sequenceDiagram
   participant C as compare job
   P->>T: Four partitions and one summary
   P->>A: Plan and run the affected selection
-  A-->>P: Early result, not required
+  A-->>P: Completed results and any budget exhaustion, not required
   T-->>C: Workflow completed
   C->>C: Download artifacts, read the note, read timestamps
   C->>C: Compare and report
@@ -243,7 +264,8 @@ sequenceDiagram
 
 **Text Equivalent:** Opening or updating a pull request starts the required
 test workflow and, in parallel, the affected job. The affected job runs the
-affected selection and returns an early result that is not a required check.
+affected selection and returns completed results and any budget exhaustion.
+This is not a required check.
 When the required workflow completes, the compare job downloads that run's
 artifacts, reads the manifest note and the timestamps, and writes a report. It
 adds nothing to the pull request. Canonical source: the behavior above. Owner:
@@ -329,6 +351,7 @@ Build first adds a failing regression for each contract, then implements.
 | Reuse dispositions | Synthetic partition receipts, affected result and note produce each disposition and each reason |
 | Untrusted note | Oversized, non-JSON and schema-invalid notes are reported as `manifest_malformed`; no claim from the note is used |
 | Missing inputs | No note, no affected artifact and an API error each add an `unavailable` entry; the job succeeds |
+| Shadow budget | Preserve a completed check, stop a check that exhausts the deadline, and label remaining native checks `budget_exhausted` without claiming they executed; retain the artifact before the job limit |
 | Timing | Queue, workers, early step, summary tail and verification are separate; an absent timestamp is `null` |
 | Repetition | Identities executed by every worker and again in a partition are counted with their extra executions |
 | Not a pull request | No report is produced |

@@ -44,6 +44,10 @@ jobs:
             exit 1
           fi
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          # Include setup in the soft budget and leave three minutes for
+          # runner startup, process cleanup, and artifact upload.
+          read -r uptime _ < /proc/uptime
+          echo "deadline=$((${uptime%%.*} + 720))" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.target.outputs.ref }}
@@ -75,6 +79,24 @@ jobs:
           tar -xzf "$RUNNER_TEMP/chezmoi.tar.gz" -C "$install_dir"
           "$install_dir/chezmoi" --version | grep -q "chezmoi version v$version"
           echo "$install_dir" >> "$GITHUB_PATH"
+      - name: Provision evidence isolation on the test runner
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y bubblewrap libseccomp2
+          /usr/bin/bwrap --version
+          probe() {
+            /usr/bin/bwrap --unshare-user --disable-userns --unshare-pid \
+              --unshare-net --unshare-ipc --die-with-parent --cap-drop ALL \
+              --ro-bind / / --proc /proc --dev /dev -- /bin/true
+          }
+          if ! probe; then
+            # Use Ubuntu's confined profile on this ephemeral runner only.
+            sudo apt-get install --no-install-recommends -y apparmor-profiles apparmor-utils
+            profile=/usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+            test -f "$profile"
+            sudo apparmor_parser --add "$profile"
+            probe
+          fi
       - name: Plan affected validation
         id: plan
         env:
@@ -98,6 +120,7 @@ jobs:
         id: execute
         env:
           BASE: ${{ steps.plan.outputs.base }}
+          SHADOW_DEADLINE: ${{ steps.target.outputs.deadline }}
         run: |
           set -euo pipefail
           evidence="$RUNNER_TEMP/validation-affected"
@@ -116,8 +139,14 @@ jobs:
               "tools": {"uv": subprocess.check_output(["uv", "--version"], text=True).strip()},
           }) + "\n", encoding="utf-8")
           PY
+          [[ "$SHADOW_DEADLINE" =~ ^[0-9]{1,12}$ ]]
+          read -r uptime _ < /proc/uptime
+          remaining=$((SHADOW_DEADLINE - ${uptime%%.*}))
+          # Give an already exhausted adapter a bounded opportunity to emit
+          # its initial partial result, rather than silently losing the plan.
+          if (( remaining < 1 )); then remaining=1; fi
           uv run --no-project --python "$PYTHON_VERSION" python .github/continuous_validation.py \
-            run --base "$BASE" --output "$evidence/result.json"
+            run --base "$BASE" --output "$evidence/result.json" --budget-seconds "$remaining"
       - if: ${{ !cancelled() && (steps.execute.outcome == 'success' || steps.execute.outcome == 'failure') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

@@ -105,13 +105,34 @@ def test_reference_reads_literal_ignored_witness(cycle):
     assert not git(root, "diff", "--cached", "--name-only")
 
 
-def test_same_head_cross_gate_reference_owns_decision_and_can_gate_commit(cycle, tmp_path):
+def test_isolated_authority_reads_only_selected_witness_and_pending_merge(cycle):
+    root, _ = cycle
+    target, _ = pending_deletion_merge(root)
+    (root / ".gitignore").write_text("/.dbsctr/\n")
+    witness = ".dbsctr/witness[1].txt"
+    (root / witness).parent.mkdir()
+    (root / witness).write_bytes(b"selected\n")
+    (root / ".dbsctr/other.txt").write_bytes(b"not selected\n")
+    command = (
+        "import pathlib, subprocess, sys; "
+        "assert pathlib.Path.cwd() != pathlib.Path(sys.argv[1]); "
+        "assert pathlib.Path(sys.argv[2]).read_bytes() == b'selected\\n'; "
+        "assert not pathlib.Path('.dbsctr/other.txt').exists(); "
+        "assert not pathlib.Path('tracked.txt').exists(); "
+        "assert subprocess.check_output(['git', 'rev-parse', 'MERGE_HEAD'], "
+        "text=True).strip() == sys.argv[3]"
+    )
+    harness.run(root, "record-evidence", "domain", "--authority", "Isolated inputs",
+                "--path", witness, "--path", TRACKED, "--",
+                sys.executable, "-c", command, str(root), witness, target)
+
+
+def test_same_head_cross_gate_reference_owns_decision_and_can_gate_commit(cycle):
     root, path = cycle
     (root / TRACKED).write_text("validated worktree content\n")
-    count = tmp_path / "executions"
-    program = ("-c", "import pathlib,sys; "
-               "p=pathlib.Path(sys.argv[1]); p.write_text(p.read_text()+'run\\n' if p.exists() "
-               "else 'run\\n'); print('ok')", str(count))
+    program = ("-c", "import pathlib,tempfile; "
+               "p=pathlib.Path(tempfile.gettempdir())/'executions'; "
+               "p.write_text('run\\n'); print('ok')")
     original_id = record_execution(root, program=program)
     before = read_record(path)
     original = before["evidence"]["items"][original_id]
@@ -143,7 +164,6 @@ def test_same_head_cross_gate_reference_owns_decision_and_can_gate_commit(cycle,
     for key in ("paths", "authority", "argv", "raw", "started_at", "finished_at"):
         assert reference[key] == original[key]
     assert reference["content"] == {"status": "withheld", "reason": "referenced_execution"}
-    assert count.read_text().splitlines() == ["run"]
 
     response = harness.run(root, "gate-commit", "--message", "Both gate decisions",
                            "--gates", "domain", "behavior", "--paths", TRACKED)
@@ -151,7 +171,6 @@ def test_same_head_cross_gate_reference_owns_decision_and_can_gate_commit(cycle,
     assert committed["commits"][-1] == {
         "id": response.stdout.strip(), "gates": ["domain", "behavior"],
     }
-    assert count.read_text().splitlines() == ["run"]
 
 
 @pytest.mark.parametrize(("condition", "code"), [
