@@ -1,5 +1,14 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-25 — Hosted validation shadow (CVS-SHIFT-LEFT-003)
+
+- Add a [report-only workflow](features/hosted-validation-shadow.md) for early
+  affected validation and comparison of hypothetical reuse, timing and repeated
+  execution. Required CI and merge rules are unchanged.
+- Publishing an optional, untrusted validation note is an explicit owner-only
+  action. Automatic comparison via `workflow_run` requires the workflow on the
+  default branch. Source only; no live qualification or hosted savings claimed.
+
 ## 2026-11-24 — Rollout scope: the Mac applies by direct apply only
 
 - Clarifies INT-110 of `dbsctr-workflow-convergence` and
