@@ -38,11 +38,16 @@ install-05-remote-herdr-runtime.sh
 install-02-remote-tools.sh
 install-03-remote-mise.sh
 install-04-remote-opencode-service.sh
-zz-remote-worktree-activation.sh
 .config/systemd/user/opencode-shared.service
 .local/bin/remote-mise
 .config/mise/
 .bashrc.d/00-dotfiles-ai-mise.sh
+{{ end }}
+# Worktree policy targets: a remote user environment or a Linux workstation.
+{{ $linux := eq .chezmoi.os "linux" }}
+{{ $workstation := and $linux .dotfiles_ai.linux_workstation.enabled }}
+{{ if not (or .dotfiles_ai.remote_user_environment.enabled $workstation) }}
+zz-remote-worktree-activation.sh
 {{ end }}
 
 {{ if and .dotfiles_ai.remote_user_environment.enabled (or .dotfiles_ai.knowledge_store.enabled .dotfiles_ai.hermes.enabled .dotfiles_ai.rnd.enabled) }}
@@ -197,8 +202,10 @@ install-dbsctr-quality-services.sh
 .local/bin/pm-psql
 .local/bin/pm-jira
 .config/dotfiles-ai/*
-{{ if .dotfiles_ai.remote_user_environment.enabled }}
+{{ if or .dotfiles_ai.remote_user_environment.enabled $workstation }}
 !.config/dotfiles-ai/workflow-policy.json
+{{ end }}
+{{ if .dotfiles_ai.remote_user_environment.enabled }}
 !.config/dotfiles-ai/herdr-core.json
 !.config/dotfiles-ai/herdr-runtime.json
 {{ end }}

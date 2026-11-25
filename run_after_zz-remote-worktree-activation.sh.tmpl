@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
-{{ if not .dotfiles_ai.remote_user_environment.enabled -}}
+{{ $linux := eq .chezmoi.os "linux" -}}
+{{ $workstation := and $linux .dotfiles_ai.linux_workstation.enabled -}}
+{{ $remote := .dotfiles_ai.remote_user_environment.enabled -}}
+{{ if not (or $remote $workstation) -}}
 exit 0
-{{ end -}}
+{{ else if $remote -}}
 exec "$HOME/.local/bin/workflow-policy" initialize-default-home
+{{ else -}}
+# Another root stays with its owner: nothing is attempted or read for it.
+exec "$HOME/.local/bin/workflow-policy" initialize-default-home \
+    --default-home-root-only
+{{ end -}}

@@ -119,12 +119,11 @@ shared remote storage guard's policy. Explicit remote apply initializes absent
 activation at the qualified home-backed default; nondefault roots and stale
 existing bindings still require separate owner review.
 
-Two 2026-11-24 Discovery contracts are recorded and not yet implemented. The
-[Worktrunk upgrade](features/worktrunk-upgrade.md) pins v0.83.0 on the Linux
-workstation and in CI through an owner-run procedure with one re-activation,
-keeps v0.80.0 on the remote-user foundation, and makes the worktree policy
-document and the default-home activation reachable for a Linux workstation
-without the remote-user flag. The
+The [Worktrunk upgrade](features/worktrunk-upgrade.md) pins v0.83.0 in the
+Linux workstation source and CI. The owner-run upgrade backs up the binary,
+policy and activation before one reactivation. Fresh workstation setup
+creates missing default directories; custom roots stay owner-managed.
+The remote-user foundation retains v0.80.0 and the Mac retains v0.81.0. The
 [RHEL-family surface lane and aarch64 parity lane](features/rhel-surface-lanes.md)
 run marked RHEL-surface tests in a UBI 10 container on affected paths and the
 full suite on the hosted arm64 runner, which reports without blocking until

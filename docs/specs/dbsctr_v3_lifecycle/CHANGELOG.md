@@ -1,5 +1,19 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — CI Worktrunk axis at 0.83.0 (`workstation-upgrade`, INT-019)
+
+- Move the full-suite matrix's single Worktrunk axis from 0.81.0 to 0.83.0 in
+  the worker and aggregate jobs, with the checksums upstream published for
+  the x86_64 and aarch64 Linux musl assets. Python selection, partitions,
+  timeouts, cancellation and failure behavior are unchanged; there is still
+  one Worktrunk axis.
+- The portable artifact verifier accepts 0.83.0 as a lane version; 0.80.0
+  and 0.81.0 stay accepted for hosts that still run them. The matrix
+  reconciliation test follows the new lane.
+- Source delivery targets a GitHub draft PR to `main`. Hosted results on the
+  exact head remain the execution evidence; this entry records the matrix
+  only and qualifies no runtime.
+
 ## 2026-11-24 — Record two delivered slices
 
 - Mark `host-independent-tests` (pull request #348) and

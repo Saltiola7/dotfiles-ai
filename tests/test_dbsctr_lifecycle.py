@@ -839,8 +839,8 @@ def test_qa_accepts_v3_capabilities_without_breaking_scoped_mode():
 
 def test_ci_and_specs_cover_lifecycle_sources():
     workflow = text(".github/workflows/test.yml")
-    ordinary_lanes = {("3.14", "0.81.0")}
-    compatibility_lanes = ordinary_lanes | {(version, "0.81.0") for version in ("3.12", "3.13", "3.15")}
+    ordinary_lanes = {("3.14", "0.83.0")}
+    compatibility_lanes = ordinary_lanes | {(version, "0.83.0") for version in ("3.12", "3.13", "3.15")}
     for name in ("test-shard", "test"):
         job = workflow_job(workflow, name)
         selection = re.search(

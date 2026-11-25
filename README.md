@@ -236,10 +236,13 @@ directory change does not retarget an existing conversation.
 
 Native path templates remain the default. Worktrunk `switch --path` is an explicit
 operator exception requiring destination review; managed agents do not select it
-automatically. Worktrunk 0.81.0 computes a new custom destination after pre-switch,
-so the existing storage hook cannot validate that destination before creation.
-macOS source supports exact 0.80.0 and 0.81.0; Linux/guest routes retain 0.80.0.
-Changing native version requires matching policy activation after qualification.
+automatically. Worktrunk 0.81.0 and later compute a new custom destination after
+pre-switch, so the existing storage hook cannot validate that destination before
+creation. This includes the v0.83.0 pinned on the Linux workstation and in CI.
+The source guards accept exactly 0.83.0, 0.81.0 and 0.80.0: the Linux
+workstation pins 0.83.0, macOS keeps 0.81.0 and the remote-user foundation
+retains 0.80.0. Changing native version requires matching policy activation
+after qualification.
 
 For example, an operator can prepare a task against the repository's protected
 upstream base and launch Build there:
@@ -513,6 +516,11 @@ at `/var/lib/dotfiles-ai/<username>` and applies the profile. This avoids placin
 provider credentials under a home directory that may itself be a Git worktree.
 Set the matching `state.root` in the local configuration. Existing user files
 should be backed up before the first apply; authentication remains interactive.
+With the worktree root declared as `~/.local/state/worktrees`, the same command
+also creates that directory and `~/.cache/dotfiles-ai/dvc` when they are
+missing, so make a fresh home's first apply through it. The apply then renders
+the worktree policy and activates that root once; another root stays with its
+owner.
 
 An optional default-off `blackarch.enabled` gate adds the Omarchy attack-surface
 toolchain: a checksum-pinned BlackArch repository bootstrap plus a curated pacman
