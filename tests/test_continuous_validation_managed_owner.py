@@ -1,6 +1,7 @@
 """Managed owner: lifecycle-requested validation stays advisory, enrolled and content-bound."""
 
 import hashlib
+from datetime import datetime
 import importlib
 import importlib.machinery
 import importlib.util
@@ -82,7 +83,7 @@ def routed(status):
 @pytest.mark.parametrize("policy", [None, {"enabled": False}, {"enabled": "true"}])
 def test_inert_policy_disables_every_action_without_state(owner, enrolled, tmp_path, policy):
     path = private_json(tmp_path / "policy.json", policy) if policy is not None else None
-    for name in ("validate", "applicability", "enroll", "checkpoint", "opt-out"):
+    for name in ("validate", "selection", "applicability", "enroll", "checkpoint", "opt-out"):
         assert action(owner, enrolled, name, policy=path, snapshot_id="a" * 64) == {"status": "disabled", "advisory": True}
     assert not enrolled["state"].exists()
 
@@ -130,6 +131,7 @@ def test_validate_refuses_a_closed_task_and_a_changed_adapter(owner, enrolled, m
 def test_named_checks_narrow_validate_and_unknown_names_are_refused(owner, enrolled):
     narrowed = action(owner, enrolled, "validate", check_ids=["slow"])
     assert narrowed["status"] == "completed" and narrowed["selection_complete"] is False
+    assert narrowed["pending_checks"] == []
     assert [item["check_id"] for item in narrowed["observations"]] == ["slow"]
     unknown_check = action(owner, enrolled, "validate", check_ids=["missing"])
     assert {name: value for name, value in unknown_check.items() if name != "request_id"} == unavailable("invalid_selection")
@@ -137,11 +139,172 @@ def test_named_checks_narrow_validate_and_unknown_names_are_refused(owner, enrol
         assert action(owner, enrolled, "validate", check_ids=named) == unavailable("invalid_checks")
 
 
+def test_named_validate_preserves_real_pending_checks(owner, enrolled, monkeypatch):
+    from contextlib import contextmanager
+
+    slot = runner.Budget.slot
+
+    @contextmanager
+    def defer_expensive(budget, kind, *args, **kwargs):
+        if kind == "expensive":
+            raise runner.Deferred("admission_deferred")
+        with slot(budget, kind, *args, **kwargs) as queued:
+            yield queued
+
+    monkeypatch.setattr(runner.Budget, "slot", defer_expensive)
+    narrowed = action(owner, enrolled, "validate", check_ids=["slow"])
+    assert narrowed["status"] == "pending"
+    assert narrowed["pending_checks"] == ["slow"]
+
+
 def test_validate_honours_an_explicit_request_id(owner, enrolled):
     first = action(owner, enrolled, "validate", request_id="retry")
     replay = action(owner, enrolled, "validate", request_id="retry")
     assert replay["new_execution"] is False and replay["status"] == "completed"
     assert [item["id"] for item in replay["observations"]] == [item["id"] for item in first["observations"]]
+
+
+def test_selection_is_read_only_and_pins_the_executed_snapshot(owner, enrolled, monkeypatch):
+    calls = []
+    adapter_call = runner.adapter_call
+
+    def track(enrollment, name, payload, root, state, *args, **kwargs):
+        calls.append((name, Path(root), Path(state)))
+        return adapter_call(enrollment, name, payload, root, state, *args, **kwargs)
+
+    monkeypatch.setattr(runner, "adapter_call", track)
+    preview = action(owner, enrolled, "selection")
+    assert preview["status"] == "completed" and preview["basis"] == "full"
+    assert preview["checks"] == ["quick", "slow"]
+    assert preview["adapter"]["digest"] == enrolled["value"]["adapter_digest"]
+    assert preview["base"] == enrolled["value"]["base"]
+    for name in ("snapshot_id", "content_digest", "selection_digest", "selection_pin"):
+        assert runner.DIGEST.fullmatch(preview[name])
+    assert [name for name, _, _ in calls] == ["describe", "select"]
+    assert all(root != enrolled["worktree"] and not root.exists() and not state.exists()
+               for _, root, state in calls)
+    assert not enrolled["state"].exists()
+    assert not runner.budget_root().exists()
+    assert action(owner, enrolled, "selection") == preview
+    run = action(owner, enrolled, "validate", check_ids=["slow"], selection_pin=preview["selection_pin"])
+    assert run["status"] == "completed" and run["snapshot_id"] == preview["snapshot_id"]
+    assert [item["check_id"] for item in run["observations"]] == ["slow"]
+    assert run["observations"][0]["receipt"]["selection_digest"] == preview["selection_digest"]
+
+
+def test_pin_refuses_stale_content_and_checks_outside_selection(owner, enrolled, monkeypatch):
+    calls = []
+    adapter_call = runner.adapter_call
+
+    def track(enrollment, name, *args, **kwargs):
+        calls.append(name)
+        response = adapter_call(enrollment, name, *args, **kwargs)
+        return {**response, "checks": ["quick"]} if name == "select" else response
+
+    monkeypatch.setattr(runner, "adapter_call", track)
+    preview = action(owner, enrolled, "selection")
+    assert preview["checks"] == ["quick"]
+    denied = action(owner, enrolled, "validate", check_ids=["slow"], selection_pin=preview["selection_pin"])
+    assert denied["error_code"] == "selection_mismatch"
+    (enrolled["worktree"] / "source.py").write_text("value = 2\n")
+    stale = action(owner, enrolled, "validate", selection_pin=preview["selection_pin"])
+    assert stale["error_code"] == "selection_changed"
+    assert "execute" not in calls
+    assert not list(enrolled["state"].glob("current-*.json"))
+
+
+def test_preview_preserves_repository_lane_identity_inputs(owner, enrolled, monkeypatch):
+    root = enrolled["worktree"]
+    (root / "uv.lock").write_text("fixture lock\n")
+    adapter_call = runner.adapter_call
+
+    def required_input(enrollment, name, payload, cwd, state, *args, **kwargs):
+        response = adapter_call(enrollment, name, payload, cwd, state, *args, **kwargs)
+        if name == "describe":
+            assert (Path(cwd) / "uv.lock").read_text() == "fixture lock\n"
+            for check in response["checks"]:
+                check["lane"]["dependencies"] = {"uv.lock": hashlib.sha256((Path(cwd) / "uv.lock").read_bytes()).hexdigest()}
+        return response
+
+    monkeypatch.setattr(runner, "adapter_call", required_input)
+    preview = action(owner, enrolled, "selection")
+    result = action(owner, enrolled, "validate", check_ids=["quick"], selection_pin=preview["selection_pin"])
+    assert result["status"] == "completed"
+    assert result["observations"][0]["receipt"]["lane"]["dependencies"]["uv.lock"]
+
+
+def test_validate_returns_bounded_execution_facts(owner, enrolled):
+    result = action(owner, enrolled, "validate", check_ids=["quick"], request_id="facts")
+    observation, = result["observations"]
+    assert set(observation) == {
+        "id", "check_id", "status", "snapshot_id", "executed", "failed_test_ids", "diagnostic_codes",
+        "cache_reused", "receipt", "request_id", "generation",
+    }
+    assert observation["request_id"] == result["request_id"] == "facts"
+    assert observation["generation"] == result["generation"]
+    receipt = observation["receipt"]
+    assert set(receipt) == {
+        "head", "base", "adapter", "manifest_digest", "selection_digest", "content_digest",
+        "basis", "lane", "test_identity", "started_at", "finished_at", "elapsed_seconds",
+    }
+    assert receipt["head"] == receipt["base"] == git(enrolled["worktree"], "rev-parse", "HEAD")
+    assert observation["cache_reused"] is False
+    assert receipt["adapter"]["digest"] == enrolled["value"]["adapter_digest"]
+    assert receipt["test_identity"] is None
+    for key in ("manifest_digest", "selection_digest", "content_digest"):
+        assert runner.DIGEST.fullmatch(receipt[key])
+    assert datetime.fromisoformat(receipt["started_at"]) <= datetime.fromisoformat(receipt["finished_at"])
+    assert receipt["elapsed_seconds"] >= 0
+    replay = action(owner, enrolled, "validate", check_ids=["quick"], request_id="facts")
+    assert replay["new_execution"] is False and replay["observations"] == [observation]
+
+
+def test_receipt_start_is_measured_after_admission(owner, enrolled, monkeypatch):
+    from contextlib import contextmanager
+
+    clock = ["2026-11-24T08:00:00+00:00"]
+    monkeypatch.setattr(runner, "now", lambda: clock[0])
+    slot = runner.Budget.slot
+    adapter_call = runner.adapter_call
+
+    @contextmanager
+    def admit(budget, *args, **kwargs):
+        with slot(budget, *args, **kwargs) as queued:
+            if args[0] == "expensive":
+                clock[0] = "2026-11-24T08:00:05+00:00"
+            yield queued
+
+    def execute(enrollment, name, *args, **kwargs):
+        if name == "execute":
+            clock[0] = "2026-11-24T08:00:07+00:00"
+        return adapter_call(enrollment, name, *args, **kwargs)
+
+    monkeypatch.setattr(runner.Budget, "slot", admit)
+    monkeypatch.setattr(runner, "adapter_call", execute)
+    observed, = action(owner, enrolled, "validate", check_ids=["slow"])["observations"]
+    assert observed["receipt"]["started_at"] == "2026-11-24T08:00:05+00:00"
+    stored = runner.read_private(enrolled["state"] / "observations" / (observed["id"] + ".json"))
+    assert stored.pop("started_at") == observed["receipt"]["started_at"]
+    # Older observations remain readable but cannot claim a reconstructed start.
+    assert runner.validate_observation(stored) == stored
+    assert "receipt" not in owner._observation(stored, {})
+
+
+def test_validate_preserves_adapter_owned_not_applicable_identity(owner, enrolled, monkeypatch):
+    from continuous_validation.test_identity import not_applicable
+
+    adapter_call = runner.adapter_call
+
+    def no_tests(enrollment, name, *args, **kwargs):
+        response = adapter_call(enrollment, name, *args, **kwargs)
+        if name == "execute":
+            response["test_ids"] = []
+            response["runtime"]["test_identity"] = not_applicable()
+        return response
+
+    monkeypatch.setattr(runner, "adapter_call", no_tests)
+    observed, = action(owner, enrolled, "validate", check_ids=["quick"])["observations"]
+    assert observed["receipt"]["test_identity"] == not_applicable()
 
 
 def test_validate_never_opts_into_feedback(owner, enrolled, monkeypatch):
@@ -181,6 +344,20 @@ def test_applicability_tracks_content_not_the_request(owner, enrolled):
     # The newer receipt described the edited content, so the same restore makes that one stale.
     assert applicability(owner, enrolled, second["snapshot_id"]) == {
         "applicable": False, "reason": "source_changed", "changed_paths": ["source.py"], "changed_paths_complete": True}
+
+
+def test_applicability_checks_captured_membership_not_just_matching_patterns(owner, enrolled):
+    snapshot = action(owner, enrolled, "validate")["snapshot_id"]
+    for path in ("source.py", "never-captured.py", ".git/config", "../source.py", "./source.py"):
+        result = applicability(owner, enrolled, snapshot, paths=[path])
+        assert result["applicable"] is True
+        assert result["paths_in_scope"] is (path == "source.py")
+    unknown = applicability(owner, enrolled, "a" * 64, paths=["source.py"])
+    assert unknown["paths_in_scope"] is False
+    for record in enrolled["state"].glob("snapshot-*.json"):
+        record.unlink()
+    missing = applicability(owner, enrolled, snapshot, paths=["source.py"])
+    assert missing["paths_in_scope"] is False
 
 
 def test_applicability_fails_closed_for_unknown_snapshots_and_inactive_enrollments(owner, enrolled):

@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Reuse validation executions across gates
+
+- Preview affected checks with `dbsctrctl evidence-plan` and run missing or
+  stale checks with `dbsctrctl validate`. The managed owner pins the selection
+  and source snapshot; execution receipts do not change gate state.
+- Give each gate a separate `reference-evidence` decision. Refuse stale,
+  superseded, out-of-scope, or unbound executions without changing gate state.
+  Export matching receipts for a clean committed head to a new private file.
+- Add a focused lifecycle check to the repository ownership table. Source
+  delivery targets a draft PR to `main`; no managed installation, activation,
+  hosted reuse, or change to required CI is included.
+
 ## 2026-11-24 — Refresh Initiative continuation on the protected base
 
 - Reconcile PR #357 with the shift-left validation changes on `main`.

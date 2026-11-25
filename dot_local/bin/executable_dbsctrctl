@@ -3351,7 +3351,7 @@ def validate_schema6_record(root, record):
                 or ("exception" in gate and not valid_gate_exception(gate))):
             fail("invalid local-only gate state")
     if (not isinstance(record["evidence"], dict) or not {"version", "items"} <= set(record["evidence"])
-            or not set(record["evidence"]) <= {"version", "items", "bindings"}
+            or not set(record["evidence"]) <= {"version", "items", "bindings", "receipts", "superseded_receipts"}
             or type(record["evidence"]["version"]) is not int or record["evidence"]["version"] != 1
             or not isinstance(record["evidence"]["items"], dict)
             or not isinstance(record["artifact_reviews"], dict) or set(record["artifact_reviews"]) != set(ARTIFACTS)
@@ -3372,7 +3372,8 @@ def validate_schema6_record(root, record):
     for identifier, item in record["evidence"]["items"].items():
         fields = {"id", "gate", "authority", "argv", "paths", "head", "started_at", "finished_at",
                   "result", "raw", "summary", "urls", "content"}
-        if (not isinstance(item, dict) or not fields <= set(item) or not set(item) <= fields | {"commit", "absences"}
+        if (not isinstance(item, dict) or not fields <= set(item)
+                or not set(item) <= fields | {"commit", "absences", "references", "execution_head"}
                 or not isinstance(identifier, str) or not re.fullmatch(r"ev-[0-9a-f]{32}", identifier)
                 or item["id"] != identifier or item["gate"] not in GATES
                 or item["result"] not in {"passed", "failed", "unavailable"}
@@ -6618,6 +6619,7 @@ def _load_evidence_binding(root, record, evidence_id):
 
 
 def validate_record_evidence_bindings(root, record):
+    validate_reuse_ledger(record)
     policy = record.get("applicability_plan", {}).get("evidence_policy")
     if policy is not None:
         authority = record.get("initiative")
@@ -11025,6 +11027,7 @@ def command_continuation_v2(args):
 
 
 CONTINUATION_READ_COMMANDS = {
+    "evidence-plan", "evidence-export",
     "workspace-remove-check",
     "status", "phase-report", "cycle-performance", "execution-dag", "inference-cost-report",
     "review-scan", "incident-scan", "history-source-validate", "review-history",
@@ -20505,11 +20508,551 @@ def managed_validation_action(action, event):
         return owner.managed_action(action, worktree=event["worktree"], cycle=event["cycle"], policy_path=policy_path,
             feedback_target=event.get("feedback_target"), gate=event.get("gate"), purpose=event.get("purpose"),
             expected_ids=event.get("expected_ids"), head=event.get("head"), checkpoint_id=event.get("checkpoint_id"),
-            lifecycle_path=Path(__file__), automatic=automatic)
+            lifecycle_path=Path(__file__), automatic=automatic,
+            **{name: event[name] for name in ("check_ids", "request_id", "snapshot_id", "selection_pin", "paths")
+               if name in event})
     except Exception:
         raise RuntimeError("continuous_validation_owner_unavailable") from None
     finally:
         sys.path[:] = previous_path
+
+def reuse_owner(root, record, action, **fields):
+    try:
+        result = managed_validation_action(action, {"worktree": root.resolve(), "cycle": record["cycle_id"], **fields})
+        if isinstance(result, dict):
+            return result
+    except RuntimeError:
+        pass
+    return {"status": "unavailable", "error_code": "continuous_validation_owner_unavailable"}
+
+
+def reuse_executions(record):
+    ledger = record["evidence"]
+    return {**{key: item for key, item in ledger["items"].items() if "references" not in item},
+            **ledger.get("receipts", {})}
+
+
+def validate_reuse_ledger(record):
+    ledger = record.get("evidence", {})
+    items = ledger.get("items", {})
+    receipts = ledger.get("receipts", {})
+    if not isinstance(receipts, dict) or set(receipts) & set(items):
+        fail("invalid execution receipt inventory")
+    superseded = ledger.get("superseded_receipts", [])
+    if (not isinstance(superseded, list) or not all(isinstance(key, str) for key in superseded)
+            or sorted(set(superseded)) != superseded or not set(superseded) <= set(receipts)):
+        fail("invalid execution supersession inventory")
+    referenced = set()
+    for item in items.values():
+        if "references" not in item and "execution_head" not in item:
+            continue
+        identifier = item.get("references")
+        if not isinstance(identifier, str):
+            fail("invalid execution reference")
+        source = receipts.get(identifier, items.get(identifier))
+        if (not isinstance(source, dict) or "references" in source or source.get("result") != "passed"
+                or item.get("result") != "passed" or item.get("execution_head") != source.get("head")
+                or item.get("content") != {"status": "withheld", "reason": "referenced_execution"}
+                or any(item.get(key) != source.get(key)
+                       for key in ("authority", "argv", "raw", "started_at", "finished_at"))):
+            fail("invalid execution reference")
+        referenced.add(identifier)
+    if len(set(receipts) - referenced) > 64:
+        fail("invalid execution receipt inventory")
+    for key, receipt in receipts.items():
+        if (not isinstance(receipt, dict) or not re.fullmatch(r"vr-[0-9a-f]{32}", key)
+                or receipt.get("id") != key or receipt.get("result") not in ("passed", "failed")
+                or receipt.get("status") != receipt["result"]
+                or not reuse_identifier(receipt.get("request_id"))
+                or not reuse_identifier(receipt.get("observation_id"))
+                or not reuse_receipt_facts_valid(receipt, receipt, receipt.get("generation"),
+                                                  observation_key="observation_id")):
+            fail("invalid execution receipt")
+
+
+def reuse_admission(root, record, gate, identifier, paths, head, *, owner_cache=None):
+    """Return the first refused rule, or the evidence facts required for admission."""
+    executions = reuse_executions(record)
+    item = executions.get(identifier)
+    if item is None:
+        return "evidence_not_found", None
+    if item["result"] != "passed":
+        return "evidence_not_passed", None
+    receipt = "snapshot_id" in item
+    identity = ("check_id", "adapter", "content_digest") if receipt else ("authority", "argv", "paths")
+    if not external_timestamp(item.get("finished_at")):
+        return "evidence_scope_changed", None
+    if (identifier in record["evidence"].get("superseded_receipts", ())
+            or any(reuse_superseded_by(item, other, identity) for other in executions.values())):
+        return "evidence_superseded", None
+    if receipt:
+        key = (item["snapshot_id"], tuple(paths or ()))
+        if owner_cache is None or key not in owner_cache:
+            scope = reuse_owner(root, record, "applicability", snapshot_id=key[0], paths=list(key[1]))
+            if owner_cache is not None:
+                owner_cache[key] = scope
+        else:
+            scope = owner_cache[key]
+        if scope.get("applicable") is not True or scope.get("reason") != "current":
+            return "evidence_scope_changed", None
+        if (gate is not None and not paths) or (paths and scope.get("paths_in_scope") is not True):
+            return "path_outside_scope", None
+    else:
+        try:
+            if evidence_path_blobs(root, list(item["paths"])) != item["paths"]:
+                return "evidence_scope_changed", None
+            verify_evidence_absences(root, item)
+            content = item["content"]
+            if content.get("status") == "sidecar":
+                digest = content.get("sha256", "")
+                if not re.fullmatch(r"[0-9a-f]{64}", digest) or hashlib.sha256(amendment_read(
+                        root, cycle_dir(root) / "evidence" / record["cycle_id"] / digest)).hexdigest() != digest:
+                    return "evidence_scope_changed", None
+            elif content.get("status") not in {"withheld", "no_content"}:
+                return "evidence_scope_changed", None
+        except (RuntimeError, OSError, ValueError):
+            return "evidence_scope_changed", None
+        if paths is not None and not set(paths) <= set(item["paths"]):
+            return "path_outside_scope", None
+    amendments = record.get("initiative_amendments", [])
+    for entry in reversed(amendments):
+        if external_timestamp(item.get("started_at")) and (
+                datetime.fromisoformat(item["started_at"]) >= datetime.fromisoformat(entry["approved_at"])):
+            break
+        if gate is None or entry.get("schema_version") != 3:
+            return "evidence_predates_authority", None
+        before = amendment_json(root, common_git_dir(root) / entry["preimage_locator"])
+        if gate in evidence_policy_affected_gates(before, entry["evidence_policy_revision"]):
+            return "evidence_predates_authority", None
+    policy = effective_evidence_policy(record)
+    declarations = policy["gates"] if policy else {}
+    binding = None
+    if gate in declarations:
+        try:
+            payload = load_evidence_binding(root, record, identifier)
+        except RuntimeError:
+            return "binding_unavailable", None
+        source_gate = payload["gate"]
+        historical_policies = [record.get("applicability_plan", {}).get("evidence_policy"),
+                               *(a["evidence_policy_revision"]["policy"] for a in amendments
+                                 if a.get("schema_version") == 3)]
+        historical = next((p for p in historical_policies
+                           if p and continuation_digest(p) == payload["policy_digest"]), None)
+        if historical is None or historical["gates"].get(source_gate) != declarations[gate]:
+            return "declaration_mismatch", None
+        source_record = {**record, "gates": {**record["gates"],
+                         source_gate: {**record["gates"][source_gate], "evidence": identifier}}}
+        decision = evidence_binding_applicability(root, source_record, source_gate)
+        if decision["disposition"] != "retained" or "runtime_status" in decision:
+            return "binding_unavailable", None
+        binding = payload
+    if not receipt and item["head"] != head and binding is None:
+        return "evidence_head_advanced", None
+    return None, (item, binding)
+
+
+def reuse_superseded_by(item, later, identity):
+    return (later["result"] != "passed" and external_timestamp(later.get("finished_at"))
+            and datetime.fromisoformat(later["finished_at"]) >= datetime.fromisoformat(item["finished_at"])
+            and all(key in later and later[key] == item[key] for key in identity))
+
+
+def retain_validation_receipts(ledger, captured):
+    receipts = ledger.setdefault("receipts", {})
+    receipts.update({receipt["id"]: receipt for receipt in captured})
+    referenced = {item.get("references") for item in ledger["items"].values()}
+    unreferenced = sorted((r for r in receipts.values() if r["id"] not in referenced),
+                          key=lambda r: (datetime.fromisoformat(r["finished_at"]), r["id"]))
+    evicted = unreferenced[:-64]
+    for item in evicted:
+        del receipts[item["id"]]
+    # Preserve a refusal, not the evicted execution, for passes that remain in custody.
+    superseded = set(ledger.get("superseded_receipts", ())) & receipts.keys()
+    failures = [r for r in evicted if r["result"] != "passed"]
+    for receipt in receipts.values():
+        if receipt["result"] == "passed" and any(reuse_superseded_by(receipt, failure,
+                ("check_id", "adapter", "content_digest")) for failure in failures):
+            superseded.add(receipt["id"])
+    if superseded:
+        ledger["superseded_receipts"] = sorted(superseded)
+    else:
+        ledger.pop("superseded_receipts", None)
+    return [r["id"] for r in captured if r["id"] in receipts]
+
+
+def command_reference_evidence(args):
+    root = root_dir()
+    path, record = load(root)
+    require_active(record)
+    cycle = record["cycle_id"]
+    with evidence_lock(root, cycle):
+        path, record = load(root)
+        require_active(record)
+        if record["cycle_id"] != cycle:
+            fail("active cycle changed")
+        if record.get("schema_version") not in (3, 4, 5, 6):
+            fail("reference-evidence requires a versioned evidence ledger")
+        gate = args.gate
+        if record["gates"][gate]["applicability"] != "required":
+            fail("evidence gate is not required")
+        original = amendment_read(root, path)
+        head = git(root, "rev-parse", "HEAD").stdout.strip()
+        code, facts = reuse_admission(root, record, gate, args.of, args.path, head)
+        if code:
+            fail(code)
+        item, binding = facts
+        paths = list(item.get("paths", {})) if args.path is None else args.path
+        blobs = evidence_path_blobs(root, paths)
+        if "paths" in item and blobs != {name: item["paths"][name] for name in blobs}:
+            fail("evidence_scope_changed")
+        incomplete = [name for name in GATES[:GATES.index(gate)] if not disposed(record["gates"][name])]
+        if incomplete:
+            fail("gate predecessors are incomplete: " + ", ".join(incomplete))
+        identifier = "ev-" + uuid.uuid4().hex
+        envelope = {key: item[key] for key in ("authority", "argv", "started_at", "finished_at", "raw")}
+        envelope.update(id=identifier, gate=gate, paths=blobs, head=head, result="passed", summary="passed",
+                        urls=[], content={"status": "withheld", "reason": "referenced_execution"},
+                        references=args.of, execution_head=item["head"])
+        if absences := evidence_absences(root, blobs):
+            envelope["absences"] = absences
+        code, final_facts = reuse_admission(root, record, gate, args.of, args.path, head)
+        if code:
+            fail(code)
+        if final_facts != facts:
+            fail("evidence_scope_changed")
+        if (amendment_read(root, path) != original or git(root, "rev-parse", "HEAD").stdout.strip() != head
+                or evidence_path_blobs(root, paths) != blobs):
+            fail("evidence_scope_changed")
+        record["evidence"]["items"][identifier] = envelope
+        if binding is not None:
+            record["evidence"].setdefault("bindings", {})[identifier] = store_evidence_binding(
+                root, record, envelope, effective_evidence_policy(record),
+                {key: binding[key] for key in ("inputs", "toolchain", "environment")})
+        apply_gate_result(record, gate, "passed", identifier)
+        if amendment_read(root, path) != original:
+            fail("active cycle changed")
+        save(path, record)
+    print(json.dumps({"id": identifier}) if args.json else identifier)
+
+
+def reuse_identifier(value):
+    return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", value) is not None
+
+
+def reuse_checks(values):
+    if len(values) > 128 or not all(map(reuse_identifier, values)) or len(set(values)) != len(values):
+        fail("invalid_checks")
+    return values
+
+
+def reuse_digest(value):
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def reuse_adapter(value):
+    return (isinstance(value, dict) and set(value) == {"id", "digest"}
+            and reuse_identifier(value["id"]) and reuse_digest(value["digest"]))
+
+
+def reuse_selection(root, record):
+    selected = reuse_owner(root, record, "selection")
+    checks = selected.get("checks")
+    if (selected.get("status") != "completed" or not isinstance(checks, list) or len(checks) > 128
+            or not all(map(reuse_identifier, checks)) or len(set(checks)) != len(checks)
+            or selected.get("basis") not in ("affected", "broad", "full")
+            or not external_oid(selected.get("head")) or not external_oid(selected.get("base"))
+            or not reuse_adapter(selected.get("adapter"))
+            or not all(reuse_digest(selected.get(key))
+                       for key in ("snapshot_id", "content_digest", "selection_digest", "selection_pin"))):
+        return None
+    return selected
+
+
+def reuse_selected_checks(root, record, checks, head, owner_cache, selection):
+    receipts = list(record["evidence"].get("receipts", {}).values())
+    selected = {}
+    for check in checks:
+        candidates = sorted((r for r in receipts if r["check_id"] == check),
+                            key=lambda r: (datetime.fromisoformat(r["finished_at"]), r["id"]), reverse=True)
+        selected[check] = {"status": "missing"}
+        for receipt in candidates:
+            if any(receipt[key] != selection[key]
+                   for key in ("adapter", "base", "content_digest", "selection_digest")):
+                code = "evidence_scope_changed"
+            else:
+                code, _ = reuse_admission(root, record, None, receipt["id"], None, head, owner_cache=owner_cache)
+            if code is None:
+                selected[check] = {"status": "reused", "id": receipt["id"]}
+                break
+            if selected[check]["status"] == "missing":
+                selected[check] = {"status": "stale", "reason": code}
+    return selected
+
+
+def reuse_receipt(observation, request_id, generation):
+    facts = observation.get("receipt")
+    fields = {"head", "base", "adapter", "selection_digest", "manifest_digest", "content_digest",
+              "basis", "lane", "test_identity", "started_at", "finished_at", "elapsed_seconds"}
+    if not isinstance(facts, dict) or not fields <= facts.keys():
+        return None
+    facts = {key: facts[key] for key in fields}
+    if not reuse_receipt_facts_valid(facts, observation, generation):
+        return None
+    return {**facts, "id": "vr-" + uuid.uuid4().hex, "authority": facts["adapter"]["id"],
+            "argv": ["dbsctrctl", "validate", "--check", "[REDACTED]"],
+            "raw": {"byte_count": 0, "lower_bound": False, "truncated": False},
+            "check_id": observation["check_id"], "result": observation["status"], "status": observation["status"],
+            "snapshot_id": observation["snapshot_id"], "generation": generation, "request_id": request_id,
+            "observation_id": observation["id"], "failed_test_ids": reuse_failed_ids(observation)}
+
+
+def reuse_receipt_facts_valid(facts, observation, generation, *, observation_key="id"):
+    duration = facts.get("elapsed_seconds")
+    if (not external_oid(facts.get("head")) or not external_oid(facts.get("base"))
+            or not all(reuse_digest(facts.get(key)) for key in ("selection_digest", "manifest_digest", "content_digest"))
+            or facts.get("basis") not in ("affected", "broad", "full")
+            or not reuse_adapter(facts.get("adapter"))
+            or not valid_reuse_projection(facts.get("lane")) or not valid_reuse_projection(facts.get("test_identity"))
+            or not external_timestamp(facts.get("started_at")) or not external_timestamp(facts.get("finished_at"))
+            or datetime.fromisoformat(facts["started_at"]) > datetime.fromisoformat(facts["finished_at"])
+            or type(duration) not in (int, float)
+            or not 0 <= duration <= 86400 or not reuse_identifier(observation.get(observation_key))
+            or not reuse_identifier(observation.get("check_id")) or not reuse_digest(observation.get("snapshot_id"))
+            or type(generation) is not int or generation < 1):
+        return False
+    return True
+
+
+def valid_reuse_projection(value):
+    # This is the owner's already-projected identity, not arbitrary process output.
+    if not isinstance(value, dict):
+        return False
+    try:
+        text = json.dumps(value, ensure_ascii=True, sort_keys=True, allow_nan=False)
+    except (TypeError, ValueError, RecursionError):
+        return False
+    return len(text) <= 8192 and not SECRET_VALUE.search(text) and "://" not in text
+
+
+def reuse_failed_ids(observation):
+    ids = observation.get("failed_test_ids")
+    if not isinstance(ids, list):
+        return []
+    return [x for x in ids[:200] if isinstance(x, str) and 0 < len(x) <= 256
+            and not x.startswith(("/", "~")) and "://" not in x and not SECRET_VALUE.search(x)
+            and x.isprintable()]
+
+
+def reuse_emit(args, result):
+    if args.json:
+        print(json.dumps(result, sort_keys=True))
+    else:
+        print(result.get("status", "ok"))
+        for name, value in result.items():
+            if name != "status" and value:
+                print(f"{name}: {json.dumps(value, sort_keys=True)}")
+
+
+def command_validate(args):
+    checks = reuse_checks(args.check)
+    if not managed_validation_enabled():
+        reuse_emit(args, {"status": "disabled", "receipts": [], "failed_test_ids": []})
+        raise SystemExit(2)
+    root = root_dir()
+    path, record = load(root)
+    require_active(record)
+    if record.get("schema_version") not in (3, 4, 5, 6):
+        fail("validate requires a versioned evidence ledger")
+    admitted = amendment_read(root, path)
+    reused = {}
+    fields = {}
+    selection = None
+    if not checks:
+        selection = reuse_selection(root, record)
+        head = git(root, "rev-parse", "HEAD").stdout.strip()
+        if selection is None or selection["head"] != head:
+            reuse_emit(args, {"status": "unavailable", "error_code": "continuous_validation_owner_unavailable"})
+            raise SystemExit(2)
+        selected = reuse_selected_checks(root, record, selection["checks"], head, {}, selection)
+        reused = {check: value["id"] for check, value in selected.items() if value["status"] == "reused"}
+        checks = [check for check in selection["checks"] if check not in reused]
+        if not checks:
+            if reused and reuse_selection(root, record) != selection:
+                reuse_emit(args, {"status": "unavailable", "error_code": "selection_changed"})
+                raise SystemExit(2)
+            reuse_emit(args, {"status": "completed", "receipts": [], "reused": reused, "failed_test_ids": []})
+            return
+        fields["selection_pin"] = selection["selection_pin"]
+    request_id = uuid.uuid4().hex
+    result = reuse_owner(root, record, "validate", request_id=request_id, check_ids=checks, **fields)
+    status = result.get("status")
+    observations = result.get("observations", [])
+    pending_checks = result.get("pending_checks", [])
+    pending = (status != "completed" or not isinstance(pending_checks, list)
+               or any(check != "selection_incomplete" for check in pending_checks))
+    if (not isinstance(observations, list) or len(observations) > len(checks)
+            or result.get("request_id") != request_id):
+        observations = []
+        pending = True
+    captured, failures, failed_ids, seen = [], False, set(), set()
+    for observation in observations:
+        if (not isinstance(observation, dict) or observation.get("check_id") not in checks
+                or observation["check_id"] in seen):
+            pending = True
+            continue
+        seen.add(observation["check_id"])
+        observed = observation.get("status")
+        if observed not in ("passed", "failed"):
+            pending = True
+            continue
+        failures |= observed == "failed"
+        failed_ids.update(reuse_failed_ids(observation))
+        if observation.get("executed") is True:
+            if (observation.get("cache_reused") is not False or observation.get("request_id") != request_id
+                    or observation.get("generation") != result.get("generation")
+                    or observation.get("snapshot_id") != result.get("snapshot_id")):
+                pending = True
+                continue
+            receipt = reuse_receipt(observation, request_id, result.get("generation"))
+            if receipt is None or (selection is not None and any(
+                    receipt[key] != selection[key] for key in ("head", "base", "adapter", "snapshot_id",
+                                                               "content_digest", "selection_digest", "basis"))):
+                pending = True
+            else:
+                captured.append(receipt)
+    pending |= seen != set(checks)
+    ids = []
+    try:
+        with local_cli_mutation_guard(args, local_dispatch_selection(args)), evidence_lock(root, record["cycle_id"]):
+            new_path, current = load(root)
+            unchanged = (new_path == path and current["state"] == "active" and amendment_read(root, path) == admitted)
+            if not unchanged:
+                pending = True
+            elif captured:
+                retained = retain_validation_receipts(current["evidence"], captured)
+                save(path, current)
+                ids = retained
+    except (RuntimeError, OSError):
+        pending = True
+    error_code = result.get("error_code")
+    reuse_emit(args, {"status": "unavailable" if pending else "failed" if failures else "completed",
+                      "receipts": ids, "reused": {} if pending else reused, "failed_test_ids": sorted(failed_ids)[:200],
+                      **({"error_code": error_code} if pending and reuse_identifier(error_code) else {})})
+    if pending or failures:
+        raise SystemExit(2 if pending else 1)
+
+
+def command_evidence_plan(args):
+    checks = reuse_checks(args.check)
+    root = root_dir()
+    _, record = load(root)
+    require_active(record)
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    policy = effective_evidence_policy(record)
+    cache = {}
+    gates = {}
+    for name in args.gate or GATES:
+        gate = record["gates"][name]
+        reusable, refused = [], {}
+        if gate["applicability"] == "required":
+            for identifier, item in reuse_executions(record).items():
+                if "snapshot_id" in item and not args.path:
+                    continue
+                code, _ = reuse_admission(root, record, name, identifier, args.path, head, owner_cache=cache)
+                if code is None:
+                    reusable.append(identifier)
+                else:
+                    refused[identifier] = code
+        gates[name] = {"result": gate["result"], "obligation": "declared" if policy and name in policy["gates"]
+                       else "undeclared", "reusable": reusable, "refused": refused}
+    selection = reuse_selection(root, record)
+    if selection is None:
+        selected = {"status": "unavailable", "error_code": "continuous_validation_owner_unavailable"}
+    else:
+        selected = {"status": "completed", "basis": selection["basis"],
+                    "checks": reuse_selected_checks(root, record,
+                        [c for c in selection["checks"] if not checks or c in checks], head, cache, selection)}
+    reuse_emit(args, {"status": "completed", "gates": gates, "selection": selected})
+
+
+def command_evidence_export(args):
+    with local_completion_git_context():
+        export_validation_manifest(args)
+
+
+def write_validation_manifest(output, manifest):
+    parent = output.parent
+    temporary = ".validation-" + uuid.uuid4().hex
+    try:
+        with evidence_input_descriptor(Path(parent.anchor), str(parent.relative_to(parent.anchor)),
+                                       directory=True) as directory:
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                         0o600, dir_fd=directory)
+            try:
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(evidence_binding_bytes(manifest) + b"\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.link(temporary, output.name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+            finally:
+                os.unlink(temporary, dir_fd=directory)
+            os.fsync(directory)
+    except OSError:
+        fail("evidence export output unavailable")
+
+
+def export_validation_manifest(args):
+    checks = reuse_checks(args.check)
+    root = root_dir()
+    path, record = load(root)
+    require_active(record)
+    admitted = amendment_read(root, path)
+    rev = git(root, "rev-parse", "--verify", "--end-of-options", args.head + "^{commit}", check=False)
+    head = git(root, "rev-parse", "HEAD").stdout.strip()
+    if rev.returncode or rev.stdout.strip() != head or status_paths(root, read_only=True):
+        fail("evidence export requires a clean checkout at the selected head")
+    output = Path(args.output).absolute()
+    if (output.resolve().is_relative_to(root.resolve()) or output.resolve().is_relative_to(common_git_dir(root).resolve())
+            or output.parent.resolve() != output.parent or output.parent == Path(output.anchor)
+            or os.path.lexists(output)):
+        fail("evidence export requires a new file outside the checkout")
+    selection = reuse_selection(root, record)
+    if selection is None or selection["head"] != head:
+        fail("continuous_validation_owner_unavailable")
+    selected = set(selection["checks"]) & set(checks) if checks else set(selection["checks"])
+    executions = []
+    adapter = selection.get("adapter")
+    test_ids = {}
+    cache = {}
+    ledger = record["evidence"]
+    for receipt in ledger.get("receipts", {}).values():
+        if receipt["check_id"] not in selected:
+            continue
+        code, _ = reuse_admission(root, record, None, receipt["id"], None, head, owner_cache=cache)
+        if code is not None:
+            continue
+        if receipt["adapter"] != adapter or any(
+                receipt[key] != selection[key]
+                for key in ("base", "content_digest", "selection_digest")):
+            continue
+        test_ids[receipt["check_id"]] = receipt["test_identity"]
+        executions.append({**{key: receipt[key] for key in ("id", "check_id", "result", "snapshot_id", "head",
+                            "lane", "test_identity", "elapsed_seconds")},
+                           "referenced_by": sorted({i["gate"] for i in ledger["items"].values()
+                                                    if i.get("references") == receipt["id"]})})
+    manifest = {"schema_version": 1, "kind": "dbsctr-validation-manifest", "head": head,
+                "base": selection["base"], "exported_at": now(), "adapter": adapter,
+                "selection": {"basis": selection["basis"], "checks": [
+                    {"id": check, "test_identity": test_ids.get(check, {})} for check in sorted(selected)]},
+                "executions": executions}
+    with evidence_lock(root, "local-mutation-" + record["cycle_id"]), evidence_lock(root, record["cycle_id"]):
+        current_path, current = load(root)
+        if (current_path != path or current["state"] != "active" or amendment_read(root, path) != admitted
+                or reuse_selection(root, current) != selection
+                or git(root, "rev-parse", "HEAD").stdout.strip() != head or status_paths(root, read_only=True)):
+            fail("evidence export checkout changed")
+        write_validation_manifest(output, manifest)
+
 
 def optional_validation_registration(event):
     """Publish a genuinely new task only after lifecycle locks have closed."""
@@ -26001,6 +26544,27 @@ def parser():
     validation = commands.add_parser("validation-opt-out")
     validation.add_argument("--on", action="store_true", required=True)
     validation.set_defaults(func=command_validation_opt_out)
+    validation = commands.add_parser("validate")
+    validation.add_argument("--check", action="append", default=[])
+    validation.add_argument("--json", action="store_true")
+    validation.set_defaults(func=command_validate)
+    reference = commands.add_parser("reference-evidence")
+    reference.add_argument("gate", choices=GATES)
+    reference.add_argument("--of", required=True)
+    reference.add_argument("--path", action="append")
+    reference.add_argument("--json", action="store_true")
+    reference.set_defaults(func=command_reference_evidence)
+    evidence_plan = commands.add_parser("evidence-plan")
+    evidence_plan.add_argument("--gate", choices=GATES, action="append")
+    evidence_plan.add_argument("--path", action="append")
+    evidence_plan.add_argument("--check", action="append", default=[])
+    evidence_plan.add_argument("--json", action="store_true")
+    evidence_plan.set_defaults(func=command_evidence_plan)
+    export = commands.add_parser("evidence-export")
+    export.add_argument("--head", required=True)
+    export.add_argument("--output", required=True)
+    export.add_argument("--check", action="append", default=[])
+    export.set_defaults(func=command_evidence_export)
     status = commands.add_parser("status")
     status.add_argument("--json", action="store_true")
     status.add_argument("--post-delivery", action="store_true",
@@ -26594,6 +27158,9 @@ def main():
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
         args = parser().parse_args()
+        if args.command == "validate":
+            args.func(args)
+            return 0
         if args.command in {"validation-checkpoint", "validation-opt-out"}:
             # Advisory queue mutation owns private locks, not formal gate locks.
             args.func(args)

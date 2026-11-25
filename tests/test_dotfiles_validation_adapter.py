@@ -28,6 +28,7 @@ def test_manifest_explicitly_classifies_pytest_and_non_test_checks():
     assert {c["id"]: c["configuration"]["test_identity"] for c in checks} == {
         "dotfiles.syntax": "not_applicable", "dotfiles.instructions": "pytest-junit-v1",
         "dotfiles.adapter": "pytest-junit-v1", "dotfiles.full": "pytest-junit-v1",
+        "dotfiles.lifecycle": "pytest-junit-v1",
         "dotfiles.portable": "pytest-junit-v1"}
 
 
