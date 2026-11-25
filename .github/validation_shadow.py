@@ -494,14 +494,31 @@ def affected_checks(root, base, tested, unavailable):
         unavailable.add("affected")
         return []
     checks = []
+    seen = set()
     for item in result["executed"]:
         if (not isinstance(item, dict) or not isinstance(item.get("check_id"), str)
-                or item["check_id"] not in CHECKS or item["check_id"] in checks
+                or item["check_id"] not in CHECKS or item["check_id"] in seen
                 or item.get("status") not in ("passed", "failed", "unavailable", "interrupted")):
             unavailable.add("affected")
             return []
+        seen.add(item["check_id"])
         if item["status"] in ("passed", "failed"):
             checks.append(item["check_id"])
+    not_executed = result.get("not_executed", [])
+    if not isinstance(not_executed, list) or len(not_executed) > len(CHECKS):
+        unavailable.add("affected")
+        return []
+    budget_exhausted = False
+    for item in not_executed:
+        if (not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                or item["id"] not in CHECKS or item["id"] in seen
+                or item.get("reason") not in ("dagger_lane", "checkpoint_required", "budget_exhausted")):
+            unavailable.add("affected")
+            return []
+        seen.add(item["id"])
+        budget_exhausted |= item["reason"] == "budget_exhausted"
+    if budget_exhausted:
+        unavailable.add("affected_budget_exhausted")
     return checks
 
 

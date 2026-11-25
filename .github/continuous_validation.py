@@ -12,9 +12,11 @@ import platform
 import re
 import selectors
 import shutil
+import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 LIMIT = 1024 * 1024
@@ -463,8 +465,66 @@ def plan(base, trigger="affected", *, root=None):
                        for check in describe()["checks"] if check["id"] in chosen["checks"]]}
 
 
-def run(base, output, trigger="affected", *, root=None):
-    """Execute the selected Linux-native checks in a clean checkout and write one result."""
+def _budgeted_native(check, root, log_path, deadline):
+    if time.monotonic() >= deadline:
+        return None
+    log_path.parent.mkdir(mode=0o700, exist_ok=True)
+    if os.name != "posix":
+        return _native(check, root, log_path)
+    # Keep all native work (including syntax scanning and identity collection)
+    # inside one owned group, without changing the managed execution path.
+    worker = (
+        "import json, runpy, sys; from pathlib import Path; "
+        "check, root, log = json.load(sys.stdin); "
+        "print(json.dumps(runpy.run_path(sys.argv[1])['_native'](check, Path(root), log)))"
+    )
+    process = subprocess.Popen([sys.executable, "-IB", "-c", worker, str(Path(__file__).resolve())],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                               start_new_session=True)
+    try:
+        data, _ = process.communicate(json.dumps([check, str(root), str(log_path)]).encode(),
+                                      timeout=max(0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        return None
+    finally:
+        # Kill the group even if the worker has exited: a check may have left
+        # descendants behind (e.g. after its own per-check timeout).
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        finally:
+            process.stdin.close()
+            process.stdout.close()
+            process.wait(timeout=5)
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, process.args)
+    return json.loads(data)
+
+
+def _write_budget_result(target, value, *, first):
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, temporary = tempfile.mkstemp(dir=target.parent)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(json.dumps(value, sort_keys=True) + "\n")
+        if first:
+            # Publish the first complete file without replacing another writer's result.
+            try:
+                os.link(temporary, target)
+            except FileExistsError as error:
+                raise ValueError("output_exists") from error
+        else:
+            os.replace(temporary, target)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def run(base, output, trigger="affected", *, root=None, budget_seconds=None):
+    """Execute the selected Linux-native checks, optionally checkpointing within a deadline."""
+    if budget_seconds is not None and (type(budget_seconds) is not int or not 1 <= budget_seconds <= 900):
+        raise ValueError("arguments_invalid")
+    deadline = None if budget_seconds is None else time.monotonic() + budget_seconds
     root = ROOT if root is None else root
     resolved, head, changed = _checkout(base, root)
     chosen = selection(trigger, changed)
@@ -476,25 +536,48 @@ def run(base, output, trigger="affected", *, root=None):
     if os.path.lexists(target):
         raise ValueError("output_exists")
     logs = target.parent / (target.name + ".logs")
-    executed, skipped = [], []
+    executed, skipped, native = [], {}, []
     for check in describe()["checks"]:
-        if check["id"] not in chosen["checks"]:
+        identity = check["id"]
+        if identity not in chosen["checks"]:
             continue
         if check["backend"] != "native":
-            skipped.append({"id": check["id"], "reason": "dagger_lane"})
+            skipped[identity] = "dagger_lane"
         elif check["class"] == "expensive" and trigger == "edit":
-            skipped.append({"id": check["id"], "reason": "checkpoint_required"})
+            skipped[identity] = "checkpoint_required"
         else:
-            executed.append(_native(check, root, logs / (check["id"] + ".log")))
+            native.append(check)
     value = {"schema_version": 1, "kind": "dotfiles-validation-run", "adapter_id": "dotfiles.continuous-validation",
              "base": resolved, "head": head, "trigger": trigger, "selection": chosen,
-             "executed": executed, "not_executed": skipped}
-    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    descriptor = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "w") as stream:
-        stream.write(json.dumps(value, sort_keys=True) + "\n")
+             "executed": executed}
+
+    def report_skips():
+        value["not_executed"] = [{"id": identity, "reason": skipped[identity]}
+                                 for identity in chosen["checks"] if identity in skipped]
+
+    exhausted = False
+    report_skips()
+    if deadline is not None:
+        _write_budget_result(target, value, first=True)
+    for index, check in enumerate(native):
+        log = logs / (check["id"] + ".log")
+        result = _native(check, root, log) if deadline is None else _budgeted_native(check, root, log, deadline)
+        if deadline is not None and result is None:
+            exhausted = True
+            skipped.update((item["id"], "budget_exhausted") for item in native[index:])
+            report_skips()
+            _write_budget_result(target, value, first=False)
+            break
+        executed.append(result)
+        if deadline is not None:
+            _write_budget_result(target, value, first=False)
+    if deadline is None:
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(json.dumps(value, sort_keys=True) + "\n")
     statuses = {item["status"] for item in executed}
-    return (1 if "failed" in statuses else 2 if statuses - {"passed"} else 0), value, target
+    return (1 if "failed" in statuses else 2 if exhausted or statuses - {"passed"} else 0), value, target
 
 
 def _command(argv):
@@ -504,10 +587,13 @@ def _command(argv):
     parser.add_argument("--base", required=True)
     parser.add_argument("--trigger", default="affected", choices=TRIGGERS)
     parser.add_argument("--output")
+    parser.add_argument("--budget-seconds", type=int)
     parser.add_argument("--json", action="store_true")
     try:
         args = parser.parse_args(argv)
         if args.action == "plan":
+            if args.budget_seconds is not None:
+                raise ValueError("arguments_invalid")
             value = plan(args.base, args.trigger)
             if args.json:
                 print(json.dumps(value, sort_keys=True))
@@ -519,7 +605,7 @@ def _command(argv):
             return 0
         if not args.output:
             raise ValueError("arguments_invalid")
-        code, value, target = run(args.base, args.output, args.trigger)
+        code, value, target = run(args.base, args.output, args.trigger, budget_seconds=args.budget_seconds)
         print(json.dumps({**{name: value[name] for name in ("schema_version", "kind", "base", "head", "trigger", "selection")},
                           "output": str(target), "executed": [item["check_id"] for item in value["executed"]],
                           "not_executed": value["not_executed"]}, sort_keys=True))
