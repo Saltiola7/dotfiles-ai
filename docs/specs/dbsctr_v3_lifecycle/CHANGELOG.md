@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile Forgejo Auto with validation budget
+
+- Reconcile PR #364 with protected main at `16020b6`, preserving the
+  approved Forgejo source and the hosted shadow budget.
+
 ## 2026-11-25 — Reconcile Forgejo Auto on Linux
 
 - Preserve the managed Forgejo source while reconciling PR #364 with

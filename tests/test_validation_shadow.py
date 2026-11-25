@@ -43,6 +43,19 @@ def test_workflow_keeps_comparison_read_only_and_on_trusted_source():
     assert "timeout-minutes: 15" in affected and "cancel-in-progress: true" in affected
 
 
+def test_workflow_reserves_time_for_partial_result_upload():
+    workflow = SCRIPT.with_name("workflows").joinpath("validation-shadow.yml").read_text()
+    affected, compare = workflow.split("\n  compare:\n", 1)
+    setup, execute = affected.split("      - name: Run affected validation", 1)
+    assert "timeout-minutes: 15" in setup and "+ 720" in setup
+    assert setup.index('echo "deadline=') < setup.index("actions/checkout@")
+    assert "SHADOW_DEADLINE: ${{ steps.target.outputs.deadline }}" in execute
+    assert '--budget-seconds "$remaining"' in execute
+    assert "steps.execute.outcome == 'failure'" in execute
+    assert "validation-affected/result.json" in execute
+    assert "--budget-seconds" not in compare
+
+
 def write(root, name, value):
     path = root / name
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -253,3 +266,46 @@ def test_affected_uses_exact_tested_commit_and_safe_runtime_projection(inputs):
     assert report["checks"][0]["must_run"] == [{"reason": "not_selected_locally", "count": 1}]
     write(inputs, "affected/result.json", {**value, "head": HEAD})
     assert "affected" in shadow.compare(inputs)["unavailable"]
+
+
+@pytest.mark.parametrize("completed_status", [None, "passed", "failed"])
+def test_matching_affected_budget_exhaustion_counts_only_completed_checks(inputs, completed_status):
+    executed = [{"check_id": "dotfiles.syntax", "status": completed_status}] if completed_status else []
+    write(inputs, "affected/result.json", {
+        "schema_version": 1, "kind": "dotfiles-validation-run",
+        "adapter_id": "dotfiles.continuous-validation", "base": BASE, "head": TESTED,
+        "executed": executed,
+        "not_executed": [{"id": "dotfiles.full", "reason": "budget_exhausted"},
+                         {"id": "dotfiles.lifecycle", "reason": "budget_exhausted"},
+                         {"id": "dotfiles.portable", "reason": "dagger_lane"}],
+    })
+    report = shadow.compare(inputs)
+    assert "affected" not in report["unavailable"]
+    assert "affected_budget_exhausted" in report["unavailable"]
+    assert "affected_budget_exhausted" in shadow.markdown(report)
+    assert report["checks"] == ([{
+        "id": "dotfiles.syntax", "selected_locally": False,
+        "would_reuse": 0, "would_reuse_if_lane_equivalent": 0,
+        "must_run": [{"reason": "not_selected_locally", "count": 1}],
+    }] if executed else [])
+
+
+@pytest.mark.parametrize("defect", ["missing", "head", "base", "overlap"])
+def test_unavailable_affected_does_not_claim_budget_exhaustion(inputs, defect):
+    value = {
+        "schema_version": 1, "kind": "dotfiles-validation-run",
+        "adapter_id": "dotfiles.continuous-validation", "base": BASE, "head": TESTED,
+        "executed": [], "not_executed": [{"id": "dotfiles.full", "reason": "budget_exhausted"}],
+    }
+    if defect == "head":
+        value["head"] = HEAD
+    elif defect == "base":
+        value["base"] = HEAD
+    elif defect == "overlap":
+        value["executed"].append({"check_id": "dotfiles.full", "status": "passed"})
+    if defect != "missing":
+        write(inputs, "affected/result.json", value)
+    report = shadow.compare(inputs)
+    assert "affected" in report["unavailable"]
+    assert "affected_budget_exhausted" not in report["unavailable"]
+    assert report["checks"] == []
