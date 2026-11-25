@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Bind named Initiative document sections
+
+- Add optional exact section selection to same-repository GitHub Initiative
+  receipts. Preserve whole-file selection, exact Discovery import and
+  digest-bound amendment custody.
+- Verify the selected bytes and mode at Gate Commit and completion. Permit
+  unchanged sections in an exact incoming protected-base blob without
+  admitting unrelated edits by the cycle. No managed activation.
+
 ## 2026-11-25 — Reconcile hosted shadow result retention
 
 - Refresh PR #365 against the protected base while retaining the runner
