@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile Forgejo Auto with evidence isolation
+
+- Reconcile PR #364 with protected main at `b910f609`. Preserve both
+  lifecycle changes and refresh the CLI benchmark pin for the combined helper.
+
 ## 2026-11-25 — Reconcile hosted shadow result retention
 
 - Refresh PR #365 against the protected base while retaining the runner
@@ -42,6 +47,39 @@
 - Fail successful commands that modified candidate inputs, and refuse passing
   evidence when the original inputs drift. Keep runtime output and evidence
   custody separate. No managed activation.
+
+## 2026-11-25 — Reconcile Forgejo Auto with validation budget
+
+- Reconcile PR #364 with protected main at `16020b6`, preserving the
+  approved Forgejo source and the hosted shadow budget.
+
+## 2026-11-25 — Reconcile Forgejo Auto on Linux
+
+- Preserve the managed Forgejo source while reconciling PR #364 with
+  protected main at `5bd592f`. Refresh the gate evidence in the Linux checkout.
+
+## 2026-11-25 — Verify Forgejo delivery at the protected tip
+
+- Ask the native owner to verify ancestry when the protected tip is the merge
+  itself or the enrolled root. Keep object-format validation and reject negative
+  native proof. Test regular and lost-response merge readback through the bridge.
+
+## 2026-11-25 — Reconcile managed Forgejo delivery with evidence reuse
+
+- Preserve both lifecycle changes and refresh the CLI benchmark byte pin for
+  the source on the new protected base.
+
+## 2026-11-25 — Compose managed Forgejo fixture delivery
+
+- Use the managed Initiative grant and journal with Forgejo schema-6 Begin and
+  local completion. Recheck the exact completed head, tree, gate commits and
+  activation before the controller hands off the owned feature branch.
+- Use the existing ready pull request, required CI and guarded ordinary merge
+  adapters. Retain private submission claims so lost responses resolve through
+  native readback. Enforce the original grant deadline at each write.
+- Add a byte-pinned private fixture interface for native roles, Git, CI receipts,
+  and the existing repository guard. The two-slice installed restart test
+  remains separate from this source delivery.
 
 ## 2026-11-25 — Reconcile evidence reuse with verified merge
 

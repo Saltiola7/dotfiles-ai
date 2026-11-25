@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-25 — Reconcile historical shadow source
+
+- Reconcile PR #371 with the protected base. Preserve the qualified checkout
+  proof, partial-result reporting, and unchanged required CI.
+
 ## 2026-11-25 — Verify historical shadow source
 
 - Recover the tested merge revision from the exact required run's qualified
