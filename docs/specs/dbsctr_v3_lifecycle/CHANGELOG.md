@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Refresh Initiative continuation on the protected base
+
+- Reconcile PR #357 with the shift-left validation changes on `main`.
+- Revalidate Initiative registration, continuation, and affected-check selection
+  on the reconciled branch before requesting fresh native CI.
+
 ## 2026-11-24 — Initiative continuation (INITIATIVE-CONTINUATION)
 
 - Bind an operator-approved material snapshot, selected dependency closure,

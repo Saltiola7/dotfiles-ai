@@ -36,6 +36,8 @@ MAX_RECORDS = 200
 MAX_PRIVATE_RECORD = 8 * 1024 * 1024
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 DIGEST = re.compile(r"[a-f0-9]{64}\Z")
+TRIGGERS = ("edit", "affected", "checkpoint", "manual")
+BASES = ("affected", "broad", "full")
 ENROLLMENT_FIELDS = {
     "schema_version", "enabled", "mode", "worktree", "adapter", "adapter_digest",
     "adapter_python", "adapter_config", "repository_id", "session_id", "cycle_id",
@@ -1021,13 +1023,19 @@ def summarize(observations, pending):
 
 def _validate_request(request):
     closed(request, {"schema_version", "enrollment", "trigger"},
-           {"schema_version", "enrollment", "trigger", "request_id", "checkpoint_head"})
-    if not isinstance(request["trigger"], str) or request["trigger"] not in {"edit", "checkpoint", "manual"}:
+           {"schema_version", "enrollment", "trigger", "request_id", "checkpoint_head", "checks"})
+    if not isinstance(request["trigger"], str) or request["trigger"] not in TRIGGERS:
         raise ValidationError("invalid_trigger")
     if "checkpoint_head" in request and (
             request["trigger"] != "checkpoint" or not isinstance(request["checkpoint_head"], str)
             or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", request["checkpoint_head"]) is None):
         raise ValidationError("invalid_checkpoint_head")
+    # Named checks are an explicit affected request; other triggers keep the adapter's whole selection.
+    if "checks" in request and (request["trigger"] != "affected" or not isinstance(request["checks"], list)
+            or not 1 <= len(request["checks"]) <= 256
+            or any(not isinstance(item, str) or not ID.fullmatch(item) for item in request["checks"])
+            or len(set(request["checks"])) != len(request["checks"])):
+        raise ValidationError("invalid_checks")
 
 
 def request_record_base(request, enrollment_digest, kind):
@@ -1259,14 +1267,22 @@ def _run_request(request):
             return True
     _require_checkpoint_head(request, root, snapshot["head"])
     selection = adapter_call(enrollment, "select", {"schema_version": 1, "snapshot": snapshot["path"], "base": snapshot["base"], "trigger": request["trigger"], "changed_paths": snapshot["changed_paths"]}, Path(snapshot["path"]), state, cancel)
-    closed(selection, {"schema_version", "checks", "reason", "complete"}, {"schema_version", "checks", "reason", "complete"})
+    closed(selection, {"schema_version", "checks", "reason", "complete"},
+           {"schema_version", "checks", "reason", "complete", "basis"})
     checks = {check["id"]: check for check in manifest["checks"]}
     if (not isinstance(selection["checks"], list) or any(not isinstance(item, str) for item in selection["checks"])
             or len(set(selection["checks"])) != len(selection["checks"])
             or any(identifier(item) not in checks for item in selection["checks"])
-            or type(selection["complete"]) is not bool):
+            or type(selection["complete"]) is not bool
+            # An absent basis means the complete obligation for adapters that predate it.
+            or selection.get("basis", "full") not in BASES):
         raise ValidationError("invalid_selection")
     text(selection["reason"], 4096)
+    if "checks" in request:
+        # The caller names what to run; the adapter's execute still decides each check is admissible.
+        if any(item not in checks for item in request["checks"]):
+            raise ValidationError("invalid_selection")
+        selection = {**selection, "checks": list(request["checks"]), "complete": False}
     if enrollment.get("reviews_enabled") is True and request["trigger"] in {"checkpoint", "manual"}:
         from . import pr_agent_review
         check = pr_agent_review.descriptor(enrollment["review_config"])
