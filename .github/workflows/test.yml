@@ -141,9 +141,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y bubblewrap libseccomp2
           /usr/bin/bwrap --version
-          /usr/bin/bwrap --unshare-user --disable-userns --unshare-pid \
-            --unshare-net --unshare-ipc --die-with-parent --cap-drop ALL \
-            --ro-bind / / --proc /proc --dev /dev -- /bin/true
+          probe() {
+            /usr/bin/bwrap --unshare-user --disable-userns --unshare-pid \
+              --unshare-net --unshare-ipc --die-with-parent --cap-drop ALL \
+              --ro-bind / / --proc /proc --dev /dev -- /bin/true
+          }
+          if ! probe; then
+            # Use Ubuntu's confined profile on this ephemeral runner only.
+            sudo apt-get install --no-install-recommends -y apparmor-profiles apparmor-utils
+            profile=/usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+            test -f "$profile"
+            sudo apparmor_parser --add "$profile"
+            probe
+          fi
       - name: Check publication and instruction contracts
         run: >-
           uv run --frozen --python "${{ matrix.python-version }}" --group test pytest

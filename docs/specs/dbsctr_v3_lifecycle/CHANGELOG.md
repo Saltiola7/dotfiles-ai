@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Qualify Ubuntu runner namespace policy
+
+- If the hosted runner denies sandbox setup, load Ubuntu's packaged confined
+  Bubblewrap profile and require the same probe to pass. Do not replace
+  an existing profile or change the global namespace restriction.
+
 ## 2026-11-25 — Qualify hosted evidence isolation
 
 - Provision the Ubuntu sandbox dependencies in the existing test shards.
