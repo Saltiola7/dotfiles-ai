@@ -1,5 +1,23 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Refresh Initiative continuation on the protected base
+
+- Reconcile PR #357 with the shift-left validation changes on `main`.
+- Revalidate Initiative registration, continuation, and affected-check selection
+  on the reconciled branch before requesting fresh native CI.
+
+## 2026-11-24 — Initiative continuation (INITIATIVE-CONTINUATION)
+
+- Bind an operator-approved material snapshot, selected dependency closure,
+  enrolled repository, and qualified writer to one expiring private grant.
+  Recheck affected scope and native prerequisite delivery before each launch.
+- Reserve each target in a private execution journal. Bind the first Build
+  request to an exact native session and message, and reconcile uncertain
+  requests by native readback. Supersede an unclaimed launch if its base moves.
+- Validate controlled two-slice continuation, lost replies, drift, revocation,
+  existing approval compatibility and the protected source PR. Installed writer
+  activation and the live restart demonstration remain separately qualified.
+
 ## 2026-11-24 — Record two delivered slices
 
 - Mark `host-independent-tests` (pull request #348) and

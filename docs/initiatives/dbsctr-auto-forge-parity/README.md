@@ -52,14 +52,20 @@ slices have landed on `main`. [Delivery preference PR](https://github.com/Saltio
 [Forgejo PR parity PR](https://github.com/Saltiola7/dotfiles-ai/pull/350) ·
 [Forgejo CI parity PR](https://github.com/Saltiola7/dotfiles-ai/pull/351)
 
-An isolated v15 repository now has verified green and red statuses from a
-separate Mac CI identity. A restarted receipt reader accepted both exact
-results and rejected missing, stale, and misattributed evidence. The
-protected-merge source slice is ready for launch review. The guarded native
-merge demonstration requires approval for the exact fixture roles, branch
-protection, and hook installation. Initiative continuation still needs proof
-that a qualified native writer can open a new slice after the originating
-session closes.
+An isolated v15 repository has verified green and red statuses from a separate
+Mac CI identity. A restarted receipt reader accepted both exact results and
+rejected missing, stale, and misattributed evidence. The guarded merge source
+has landed with all required GitHub checks passing. The approved guard is
+installed on the private test repository and passed the 31-case harness on
+its native Git runtime. The live merge demonstration awaits one-off CI
+authentication. [Forgejo merge source PR](https://github.com/Saltiola7/dotfiles-ai/pull/352)
+
+Three of seven slices have met their acceptance criteria. The fourth has
+delivered source and awaits the live protected-merge demonstration. Initiative
+continuation is ready for source launch review. Its installed qualification
+must prove that a native writer can open a new slice after the originating
+session closes and the controller restarts. The CI recovery and final Auto
+qualification slices depend on that work.
 
 | Slice | Depends on | Acceptance evidence |
 | --- | --- | --- |
