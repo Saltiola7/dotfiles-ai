@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Compose managed Forgejo fixture delivery
+
+- Use the managed Initiative grant and journal with Forgejo schema-6 Begin and
+  local completion. Recheck the exact completed head, tree, gate commits and
+  activation before the controller hands off the owned feature branch.
+- Use the existing ready pull request, required CI and guarded ordinary merge
+  adapters. Retain private submission claims so lost responses resolve through
+  native readback. Enforce the original grant deadline at each write.
+- Add a byte-pinned private fixture interface for native roles, Git, CI receipts,
+  and the existing repository guard. The two-slice installed restart test
+  remains separate from this source delivery.
+
 ## 2026-11-25 — Reconcile PR #358 with managed Initiative Auto source
 
 - Keep the managed Initiative publication deadline and pass the existing cycle

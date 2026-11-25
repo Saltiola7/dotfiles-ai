@@ -7572,7 +7572,8 @@ class ManagedInitiativeLaunch:
     """Bridge the managed controller's grant and exact native session to Begin."""
 
     def __init__(self, grant_digest, binding, controller=None, *, activation_id=None, session_id=None,
-                 delivery_mode="draft_pr"):
+                 delivery_mode="draft_pr", fixture=None):
+        self.fixture = fixture
         self.grant_digest = grant_digest
         self.binding = binding
         self.controller = controller
@@ -7586,14 +7587,22 @@ class ManagedInitiativeLaunch:
 
         checkout = common_git_dir(source).resolve()
         binding = self.binding()
-        policy = integration_policy_snapshot(source)
-        if (policy is None or initiative_delivery_preference(source) != "auto"
-                or binding["policy_digest"] != policy["policy_digest"]
-                or binding["enrollment_digest"] != policy["enrollment_digest"]
-                or binding["target_ref"] != "refs/heads/" + base_branch
-                or binding["target_ref"] != policy["coordinator"]["target_ref"]
-                or binding["repository"]["repository"] != policy["coordinator"]["remote_repository"]):
+        if initiative_delivery_preference(source) != "auto" or binding["target_ref"] != "refs/heads/" + base_branch:
             fail("Initiative Auto enrollment is unavailable or changed")
+        if self.fixture is None:
+            policy = integration_policy_snapshot(source)
+            if (policy is None or binding["policy_digest"] != policy["policy_digest"]
+                    or binding["enrollment_digest"] != policy["enrollment_digest"]
+                    or binding["target_ref"] != policy["coordinator"]["target_ref"]
+                    or binding["repository"]["repository"] != policy["coordinator"]["remote_repository"]):
+                fail("Initiative Auto enrollment is unavailable or changed")
+        else:
+            fixture = self.fixture
+            if (self.delivery_mode != "ordinary" or
+                    (binding["repository"], binding["root_oid"], binding["target_ref"],
+                     binding["policy_digest"], binding["enrollment_digest"]) !=
+                    (fixture.repository, fixture.root_oid, fixture.target_ref, fixture.plan.policy_digest, fixture.digest)):
+                fail("Initiative Auto Forgejo fixture enrollment changed")
         repository = receipt["repository"]
         if isinstance(repository, str):
             repository = {"provider": "github", "origin": "https://github.com", "repository": repository}
@@ -7612,8 +7621,8 @@ class ManagedInitiativeLaunch:
         require_grant(owner.Custody(checkout), self.grant_digest, binding=binding, current=current,
                       slice_id=receipt["slice_id"], operation="launch", now=now())
         if self.delivery_mode == "ordinary":
-            if (policy["delivery"].get("role") != "operator" or policy["delivery"].get("mode") != "ordinary"
-                    or policy["coordinator"].get("guarded_refresh", False)):
+            if self.fixture is None and (policy["delivery"].get("role") != "operator"
+                    or policy["delivery"].get("mode") != "ordinary" or policy["coordinator"].get("guarded_refresh", False)):
                 fail("Initiative Auto ordinary enrollment is unavailable")
             for operation in ("admit", "merge"):
                 require_grant(owner.Custody(checkout), self.grant_digest, binding=binding, current=current,
@@ -7748,8 +7757,15 @@ def begin_registration(args, *, auto_launch=None):
         selected_mode = getattr(auto_launch, "delivery_mode", "draft_pr")
         if selected_mode not in {"draft_pr", "ordinary"} or requested_integration_mode not in {None, selected_mode}:
             fail("Initiative source registration requires its exact managed delivery mode")
-        if selected_mode == "ordinary" and (forge is not None or not isinstance(auto_launch, ManagedInitiativeLaunch)):
-            fail("Initiative ordinary delivery requires a qualified local GitHub controller")
+        if selected_mode == "ordinary":
+            if not isinstance(auto_launch, ManagedInitiativeLaunch):
+                fail("Initiative ordinary delivery requires a qualified local controller")
+            fixture = auto_launch.fixture
+            if forge is None and fixture is not None or forge is not None and (
+                    fixture is None or fixture.repository != {
+                        key: forge[key] for key in ("provider", "origin", "repository")
+                    } or fixture.binding.git_account != forge["account"]):
+                fail("Initiative ordinary delivery provider enrollment changed")
         requested_integration_mode = selected_mode
     if args.delivery_intent is None:
         args.delivery_intent = "draft_pr"
@@ -23158,7 +23174,9 @@ class ManagedInitiativeRuntime:
     def running_identities(self):
         package = Path(self.owner.__file__).resolve().parent
         names = ("initiative_service.py", "initiative_authority.py", "initiative_controller.py", "lifecycle.py",
-                 "operator.py", "controller.py", "client.py", "github.py", "core.py", "runtime.py", "gitproof.py")
+                 "operator.py", "controller.py", "client.py", "github.py", "core.py", "runtime.py", "gitproof.py",
+                 "initiative_forgejo.py", "initiative_forgejo_bridge.py", "forgejo.py", "forgejo_ci.py",
+                 "forgejo_status.py", "forgejo_merge.py")
         credential_reader = package.parent / "continuous_validation" / "feedback.py"
 
         def digest_file(path):
@@ -23206,8 +23224,22 @@ class ManagedInitiativeRuntime:
             controller._read(native, config)
             return identity, config.enrollment.root_oid, actor, config.enrollment.policy_digest
 
+    def _forgejo_enrollment(self, fixture):
+        from integration_coordinator.initiative_forgejo_bridge import Bridge
+
+        if initiative_delivery_preference(self.root) != "auto":
+            fail("managed Initiative delivery preference is unavailable")
+        require_repository_home(self.root, fixture.repository)
+        Bridge(self.custody, fixture).attest()
+
     def operator_identity(self):
-        _repository, _root, actor, _remote_policy = self._native_enrollment(self.recipe(), self._selected())
+        recipe = self.recipe()
+        fixture = recipe.forgejo
+        if fixture is not None:
+            self._forgejo_enrollment(fixture)
+            self.approving_actor = fixture.operator_id
+            return f"forgejo-actor-{fixture.operator_id}"
+        _repository, _root, actor, _remote_policy = self._native_enrollment(recipe, self._selected())
         self.approving_actor = actor
         return f"github-actor-{actor}"
 
@@ -23220,14 +23252,24 @@ class ManagedInitiativeRuntime:
             raise core.Unavailable("managed_initiative_qualification_unavailable") from None
 
     def _live_binding(self, recipe):
-        selected = self._selected()
-        repository, root_oid, actor, remote_policy = self._native_enrollment(recipe, selected)
+        fixture = recipe.forgejo
+        if fixture is None:
+            selected = self._selected()
+            repository, root_oid, actor, remote_policy = self._native_enrollment(recipe, selected)
+            target_ref = selected["coordinator"]["target_ref"]
+            policy_digest = selected["policy_digest"]
+            enrollment_digest = selected["enrollment_digest"]
+        else:
+            self._forgejo_enrollment(fixture)
+            repository, root_oid, actor = fixture.repository, fixture.root_oid, fixture.operator_id
+            target_ref, policy_digest = fixture.target_ref, fixture.plan.policy_digest
+            enrollment_digest, remote_policy = fixture.digest, fixture.plan.policy_digest
         if self.approving_actor is not None and self.approving_actor != actor:
             fail("managed Initiative approving actor changed")
         witness, qualified = self._witness()
         self._transport(qualified)
-        return {"repository": repository, "root_oid": root_oid, "target_ref": selected["coordinator"]["target_ref"],
-                "policy_digest": selected["policy_digest"], "enrollment_digest": selected["enrollment_digest"],
+        return {"repository": repository, "root_oid": root_oid, "target_ref": target_ref,
+                "policy_digest": policy_digest, "enrollment_digest": enrollment_digest,
                 "controller_digest": witness["controller_digest"], "writer_digest": witness["writer_digest"],
                 "qualification_digest": self.owner.digest({"witness": witness, "native_actor": actor,
                                                            "native_policy": remote_policy})}
@@ -23264,15 +23306,24 @@ class ManagedInitiativeRuntime:
                 or hashlib.sha256(raw).hexdigest() != selected.plan_digest):
             fail("managed Initiative committed applicability plan changed")
         receipt = initiative_receipt(authority / recipe.manifest_path, slice_id, authority, auto_waiting=True)
-        nested = self._selected()["coordinator"]
-        target = nested["target_ref"].removeprefix("refs/heads/")
-        repository = nested["remote_repository"]
+        fixture = recipe.forgejo
+        if fixture is None:
+            nested = self._selected()["coordinator"]
+            target = nested["target_ref"].removeprefix("refs/heads/")
+            repository = nested["remote_repository"]
+            delivery = ["--delivery-intent", "draft_pr", "--github-account", recipe.github_account,
+                        "--github-repository", repository, "--expected-repository", repository]
+        else:
+            target = fixture.target_ref.removeprefix("refs/heads/")
+            delivery = ["--delivery-intent", "local", "--forge-provider", "forgejo",
+                        "--forge-origin", fixture.binding.origin, "--forge-repository", fixture.binding.repository,
+                        "--forge-account", fixture.binding.git_account,
+                        "--expected-repository-json", json.dumps(fixture.repository, sort_keys=True)]
         args = ["begin", "--cycle-id", selected.cycle_id, "--context", selected.context, "--risk", selected.risk,
-                "--delivery-intent", "draft_pr", "--integration-mode", "ordinary", "--plan", str(plan),
-                "--expected-plan-digest", selected.plan_digest, "--github-account", recipe.github_account,
-                "--github-repository", repository, "--expected-repository", repository, "--base-branch", target,
-                "--initiative-manifest", recipe.manifest_path, "--initiative-source", str(authority),
-                "--initiative-slice", slice_id, "--initiative-digest", receipt["manifest_digest"]]
+                "--integration-mode", "ordinary", "--plan", str(plan), "--expected-plan-digest", selected.plan_digest,
+                "--base-branch", target, "--initiative-manifest", recipe.manifest_path, "--initiative-source",
+                str(authority), "--initiative-slice", slice_id, "--initiative-digest", receipt["manifest_digest"],
+                *delivery]
         return checkout, args
 
     def _refresh_task_base(self, checkout, args, launch):
@@ -23283,8 +23334,12 @@ class ManagedInitiativeRuntime:
         require_native_checkout(checkout, args)
         if configured_upstream(checkout) != ("origin", args.base_branch) or resolved_active_path(checkout, bindings=False).exists():
             fail("managed Initiative task upstream or ownership changed")
-        url = github_remote_url(checkout, "origin", args.github_repository)
-        fetch_github_branch(checkout, "origin", url, args.base_branch, github_environment(args.github_account))
+        forge = forgejo_selection(args)
+        if forge is None:
+            url = github_remote_url(checkout, "origin", args.github_repository)
+            fetch_github_branch(checkout, "origin", url, args.base_branch, github_environment(args.github_account))
+        else:
+            fetch_forgejo_branch(checkout, "origin", receipt["repository"], args.base_branch, forge["account"])
         target = git(checkout, "rev-parse", "refs/remotes/origin/" + args.base_branch).stdout.strip()
         head = git(checkout, "rev-parse", "HEAD").stdout.strip()
         if head != target:
@@ -23304,7 +23359,8 @@ class ManagedInitiativeRuntime:
 
         try:
             checkout, argv = self._begin_args(recipe, slice_id)
-            launch = ManagedInitiativeLaunch(grant_id, lambda: self.binding(recipe), delivery_mode="ordinary")
+            launch = ManagedInitiativeLaunch(grant_id, lambda: self.binding(recipe), delivery_mode="ordinary",
+                                             fixture=recipe.forgejo)
             args = parser().parse_args([*argv, "--preflight"])
             self._refresh_task_base(checkout, args, launch)
             with contextlib.chdir(checkout), contextlib.redirect_stdout(io.StringIO()) as output:
@@ -23327,7 +23383,8 @@ class ManagedInitiativeRuntime:
                 if str(checkout) != activation.launch.checkout:
                     fail("managed Initiative registration checkout changed")
                 launch = ManagedInitiativeLaunch(activation.grant_id, lambda: self.binding(recipe), controller,
-                    activation_id=activation.activation_id, session_id=activation.session_id, delivery_mode="ordinary")
+                    activation_id=activation.activation_id, session_id=activation.session_id, delivery_mode="ordinary",
+                    fixture=recipe.forgejo)
                 with contextlib.chdir(checkout), contextlib.redirect_stdout(io.StringIO()):
                     command_begin(parser().parse_args([*argv, "--expected-launch-digest",
                                   activation.launch.launch_digest]), auto_launch=launch)
@@ -23348,6 +23405,12 @@ class ManagedInitiativeRuntime:
         root = Path(activation.launch.checkout)
         if not os.path.lexists(cycle_dir(root) / "cycles" / (activation.launch.cycle_id + ".json")):
             return None
+        fixture = self.recipe().forgejo
+        if fixture is not None:
+            record, _raw = self._forgejo_record(activation, fixture)
+            identity = record["initiative_approval"]["authorization_digest"]
+            return RegistrationReceipt(activation.activation_id, activation.launch.cycle_id,
+                                       activation.launch.launch_digest, identity)
         record, _raw, store = integration_cycle_custody(root, activation.launch.cycle_id)
         approval = record.get("initiative_approval", {})
         if approval.get("method") != "initiative_auto":
@@ -23365,6 +23428,77 @@ class ManagedInitiativeRuntime:
             fail("managed Initiative registered activation changed")
         return RegistrationReceipt(activation.activation_id, activation.launch.cycle_id,
                                    activation.launch.launch_digest, identity)
+
+    def _forgejo_record(self, activation, fixture):
+        root = Path(activation.launch.checkout)
+        path = cycle_dir(root) / "cycles" / (activation.launch.cycle_id + ".json")
+        if common_git_dir(root).resolve() != self.custody.common:
+            fail("managed Forgejo activation checkout changed")
+        managed_directory(root, path.parent)
+        continuation_private(path)
+        raw = pr_review_private_bytes(path, 512 * 1024)
+        record = read_cycle_record(root, path, historical=True, max_bytes=512 * 1024)
+        if raw != pr_review_private_bytes(path, 512 * 1024) or not local_only_cycle(record) or record["schema_version"] != 6:
+            fail("managed Forgejo cycle record changed")
+        approval, delivery = record["initiative_approval"], record["delivery"]
+        forge = delivery["forge"]
+        identity = {key: forge[key] for key in ("provider", "origin", "repository")}
+        selected = self.recipe().slice(activation.slice_id)
+        if (approval["method"] != "initiative_auto" or not record_worktree_matches(root, record, root, bindings=False)
+                or native_git_directory(root, record) != git_dir(root).resolve()
+                or (identity, forge["account"], "refs/heads/" + delivery["base_branch"], delivery["base_head"]) !=
+                   (fixture.repository, fixture.binding.git_account, fixture.target_ref, activation.launch.base_head)
+                or (activation.target.origin, activation.target.repository, activation.target.target_ref) !=
+                   (fixture.binding.origin, fixture.binding.repository, fixture.target_ref)
+                or (record["cycle_id"], record["worktree"]["branch"], record["context"]) !=
+                   (selected.cycle_id, selected.branch, selected.context)
+                or effective_initiative(record)["slice_id"] != activation.slice_id):
+            fail("managed Forgejo local registration changed")
+        auth = self.custody.read("initiative_begin", approval["authorization_digest"])
+        if (auth["cycle_id"], auth["grant_digest"], auth["activation_digest"], auth["session_digest"],
+                auth["launch_digest"]) != (activation.launch.cycle_id, activation.grant_id, activation.activation_id,
+                    continuation_digest(activation.session_id), activation.launch.launch_digest):
+            fail("managed Forgejo activation provenance changed")
+        return record, raw
+
+    def _forgejo_source(self, activation, fixture):
+        from integration_coordinator.initiative_forgejo import Source
+        from integration_coordinator.runtime import SourceEntry
+
+        root = Path(activation.launch.checkout)
+        record, raw = self._forgejo_record(activation, fixture)
+        if record["state"] != "completed":
+            return None
+        if any(gate["applicability"] == "required" and gate["result"] != "passed"
+               for gate in record["gates"].values()):
+            fail("managed Forgejo source requires all applicable gates to pass")
+        cycle = activation.launch.cycle_id
+        with local_completion_git_context(), evidence_lock(root, "local-mutation-" + cycle, timeout=1):
+            head, tree, commits = local_completion_source(root, record)
+            completion = record["local_completion"]
+            if (completion["repository"], completion["base_head"], completion["head"], completion["tree"],
+                    completion["recorded_commits"]) != (fixture.repository, activation.launch.base_head,
+                                                         head, tree, commits):
+                fail("managed Forgejo completed source changed")
+            path = cycle_dir(root) / "cycles" / (cycle + ".json")
+            if raw != pr_review_private_bytes(path, 512 * 1024):
+                fail("managed Forgejo local completion changed during verification")
+        imported = record.get("discovery_import", {}).get("commit")
+        entries = tuple(SourceEntry(item["id"], "discovery_import" if item["id"] == imported else "phase",
+                                    tuple(item["gates"])) for item in record["commits"])
+        return Source("refs/heads/" + record["worktree"]["branch"], completion["base_head"], head, tree, entries,
+                      hashlib.sha256(raw).hexdigest())
+
+    def _forgejo_authorize(self, activation, operation):
+        from integration_coordinator import core
+        from integration_coordinator.initiative_authority import read_grant
+
+        try:
+            self.require_operation(activation, operation)
+            grant, _ = read_grant(self.custody, activation.grant_id)
+            return int(self.owner.initiative_time(grant["expires_at"]).timestamp())
+        except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError):
+            raise core.Unavailable("initiative_forgejo_effect_authority_unavailable") from None
 
     def require_operation(self, activation, operation):
         from integration_coordinator.initiative_authority import require_grant
@@ -23480,10 +23614,29 @@ def initiative_managed_service(root):
     runtime = ManagedInitiativeRuntime(root)
     from integration_coordinator.initiative_service import InitiativeService
 
-    runtime.recipe()
+    recipe = runtime.recipe()
+    tick = runtime.protected_tick
+    fixture = recipe.forgejo
+    if fixture is not None:
+        from integration_coordinator.initiative_forgejo import FixtureDelivery
+        from integration_coordinator.initiative_forgejo_bridge import Bridge
+
+        delivery = FixtureDelivery(runtime.custody, fixture, Bridge(runtime.custody, fixture),
+                                   lambda activation: runtime._forgejo_source(activation, fixture),
+                                   runtime._forgejo_authorize)
+        runtime.provider = delivery
+        def tick(_recipe, activation):
+            from integration_coordinator import core
+
+            try:
+                delivery.advance(activation)
+            except (core.Unavailable, core.Conflict, core.Ambiguous, core.Invalid):
+                raise
+            except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError):
+                raise core.Unavailable("initiative_forgejo_protected_step_unavailable") from None
     return InitiativeService(runtime.custody, committed_scope=runtime.committed_scope, live_binding=runtime.live_binding,
         preflight=runtime.preflight, prior_delivery=runtime.prior_delivery, writer=runtime.writer,
-        provider=runtime.provider, registration=runtime, protected_tick=runtime.protected_tick, clock=now), runtime.operator_identity
+        provider=runtime.provider, registration=runtime, protected_tick=tick, clock=now), runtime.operator_identity
 
 
 def command_initiative_auto(args):

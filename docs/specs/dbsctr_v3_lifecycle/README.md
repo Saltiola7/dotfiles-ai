@@ -386,6 +386,15 @@ Source acceptance exercises these boundaries with synthetic fixture ports.
 Native fixture qualification and consumer activation each require the
 corresponding guard, identity, branch protection, and operating evidence.
 
+## Managed Forgejo fixture source interface
+
+Initiative Auto can use the Forgejo local Build proof with the shared private
+controller and journal. The controller owns the ready pull request and the
+guarded handoff after the exact required checks. Use the explicitly enrolled
+private provider owner and retain approvals and native submission claims in
+repository custody. The installed two-slice restart demonstration is the next
+acceptance step. [Provider contract](features/forgejo-support.md#managed-initiative-fixture-owner)
+
 ## Workflow regression source interface
 
 `WORKFLOW-REGRESSION-TELEMETRY` extends the existing CLI/evidence/phase owners;
