@@ -1,0 +1,41 @@
+{
+  "profile": "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+  "gates": {
+    "domain": {
+      "applicability": "required"
+    },
+    "behavior": {
+      "applicability": "required"
+    },
+    "spec": {
+      "applicability": "required"
+    },
+    "contract": {
+      "applicability": "required"
+    },
+    "test_driven_implementation": {
+      "applicability": "required"
+    },
+    "refactor": {
+      "applicability": "required"
+    },
+    "review_integrate": {
+      "applicability": "required"
+    },
+    "release": {
+      "applicability": "not_applicable",
+      "reason": "A report-only workflow and script create no independently published package or image."
+    },
+    "deploy": {
+      "applicability": "not_applicable",
+      "reason": "No installed runtime, repository protection or permission setting changes."
+    },
+    "operate": {
+      "applicability": "not_applicable",
+      "reason": "The report-only workflow's own run on the delivery pull request is its integration evidence."
+    },
+    "maintain_retire": {
+      "applicability": "required"
+    }
+  }
+}

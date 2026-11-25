@@ -476,12 +476,16 @@ def managed_action(action, **fields):
     if enabled:
         write_policy(home, {"enabled": True, "enrollment": "allowlisted-new-tasks"})
     bootstrap = tmp_path / "owned_home_bootstrap.py"
+    # An installed helper has no source checkout beside it, so it selects the installed owner.
+    installed = home / ".local/bin/dbsctrctl"
+    installed.parent.mkdir(parents=True)
+    installed.write_bytes(SCRIPT.read_bytes())
     bootstrap.write_text(
         "from pathlib import Path\n"
         f"Path.home = classmethod(lambda cls: Path({str(home)!r}))\n"
         "import runpy, sys\n"
-        f"sys.argv = [{str(SCRIPT)!r}, *sys.argv[1:]]\n"
-        f"runpy.run_path({str(SCRIPT)!r}, run_name='__main__')\n"
+        f"sys.argv = [{str(installed)!r}, *sys.argv[1:]]\n"
+        f"runpy.run_path({str(installed)!r}, run_name='__main__')\n"
     )
     environment = lifecycle_harness.isolated_env()
     environment["PATH"] = str(Path(sys.executable).resolve().parent) + os.pathsep + environment["PATH"]
