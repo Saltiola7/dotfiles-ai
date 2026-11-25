@@ -1,5 +1,24 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile Linux credentials with section authority
+
+- Reconcile PR #372 with protected main at `f0c671dd`. Preserve both
+  lifecycle changes and refresh the CLI benchmark pin for the combined helper.
+
+## 2026-11-25 — Reconcile section authority with Forgejo Auto
+
+- Preserve both source changes and refresh the combined helper benchmark pin.
+  No managed activation.
+
+## 2026-11-25 — Bind named Initiative document sections
+
+- Add optional exact section selection to same-repository GitHub Initiative
+  receipts. Preserve whole-file selection, exact Discovery import and
+  digest-bound amendment custody.
+- Verify the selected bytes and mode at Gate Commit and completion. Permit
+  unchanged sections in an exact incoming protected-base blob without
+  admitting unrelated edits by the cycle. No managed activation.
+
 ## 2026-11-25 — Linux Forgejo comparison credentials
 
 - Bind the systemd credential source to an explicit managed recipe and exact

@@ -15,6 +15,26 @@ file, unchanged mode, unique pairs, no nesting and no overlap. Reject invalid,
 missing, duplicated or ambiguous markers. These reserved complete-line tokens
 are delimiters, not Markdown headings or fuzzy text search.
 
+For a same-repository GitHub Initiative, add the optional slice field:
+
+```json
+"section_artifacts": {
+  "schema_version": 1,
+  "documents": [
+    {"path": "docs/specs/example/shared.md", "sections": ["delivery"]}
+  ]
+}
+```
+
+Leave that path out of the slice's whole-file `artifacts` list to select only
+the named sections. An explicit whole-file selection on the slice or one of
+its requirements takes precedence. Receipt `section_authority` records the
+selection version and exact document path, mode, source blob and selected
+SHA-256 digests; a whole-file override uses the blob without section digests.
+Managed Auto and cross-repository selection are not qualified for this source
+slice. Exact Discovery imports still use whole blobs; section selection does
+not authorize a partial import.
+
 | Event | Decision |
 |---|---|
 | New receipt and Gate Commit checkpoint | Bind path, mode, section IDs and exact content digests, the source blob/commit for provenance, and the selector version. Verify the same projection at completion. Retain existing whole-blob history and import checks. |
