@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "validation-adapter",
+      "owned_path_patterns": [
+        ".github/continuous_validation.py",
+        "tests/test_continuous_validation_dotfiles_adapter.py",
+        "tests/test_dotfiles_validation_adapter.py"
+      ],
+      "check_ids": [
+        "dotfiles.adapter"
+      ]
+    }
+  ],
+  "dependencies": [],
+  "broad_check_ids": [
+    "dotfiles.syntax",
+    "dotfiles.instructions",
+    "dotfiles.adapter",
+    "dotfiles.full",
+    "dotfiles.portable"
+  ]
+}
