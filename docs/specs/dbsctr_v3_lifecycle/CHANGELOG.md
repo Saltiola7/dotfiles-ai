@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Refresh the gate-evidence successor
+
+- Reconcile draft #368 with the protected base that provisions the shadow
+  workflow's pinned render tools. Keep the gate-evidence repair and helper
+  checksum unchanged, and retain the earlier failed CI attempt.
+
 ## 2026-11-25 — Reconcile the published gate-evidence repair
 
 - Preserve the gate-evidence repair and the protected Initiative continuation
