@@ -58,6 +58,23 @@ jobs:
           uv python install "$PYTHON_VERSION"
           interpreter="$(uv python find --managed-python --no-project "$PYTHON_VERSION")"
           dirname "$interpreter" >> "$GITHUB_PATH"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - name: Install pinned chezmoi
+        run: |
+          set -euo pipefail
+          version=2.74.1
+          sha256=ae01c66b1a6dbf563667c63fbbd9986b3cfa3c98dd266ddee732f63e8af2e9d1
+          install_dir="$RUNNER_TEMP/chezmoi-$version"
+          mkdir -p "$install_dir"
+          curl --fail --location --silent --show-error --retry 3 --proto '=https' --tlsv1.2 \
+            "https://github.com/twpayne/chezmoi/releases/download/v$version/chezmoi_${version}_linux_amd64.tar.gz" \
+            --output "$RUNNER_TEMP/chezmoi.tar.gz"
+          echo "$sha256  $RUNNER_TEMP/chezmoi.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/chezmoi.tar.gz" -C "$install_dir"
+          "$install_dir/chezmoi" --version | grep -q "chezmoi version v$version"
+          echo "$install_dir" >> "$GITHUB_PATH"
       - name: Plan affected validation
         id: plan
         env:

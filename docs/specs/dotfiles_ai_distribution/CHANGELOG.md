@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-25 — Provision shadow render tools
+
+- Add the existing pinned Bun and checksum-verified chezmoi to the non-gating
+  `affected` job so it can run the render and instruction checks. Required CI
+  and comparison behavior are unchanged. Full hosted lane equivalence is not
+  claimed.
+
 ## 2026-11-25 — Repair hosted shadow CI setup
 
 - Keep the oversized-note fixture but give it a short pytest ID so required

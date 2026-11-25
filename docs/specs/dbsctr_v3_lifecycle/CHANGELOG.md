@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Refresh evidence isolation on the protected base
+
+- Reconcile PR #365 with the hosted shadow render-tool fix. Keep the evidence
+  sandbox and full-suite checks unchanged. No managed activation.
+
 ## 2026-11-25 — Reconcile evidence isolation with hosted validation shadow
 
 - Refresh PR #365 against the protected base. Preserve both the sandbox
