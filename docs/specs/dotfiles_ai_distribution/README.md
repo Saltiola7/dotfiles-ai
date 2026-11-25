@@ -152,6 +152,23 @@ defines opt-in analysis of existing job metadata/logs through the shared evidenc
 contract. It starts no CI jobs and changes no workflow, runtime or required-check
 authority. Its source tooling and evidence collection remain pending Build.
 
+**[Hosted validation shadow](features/hosted-validation-shadow.md):** This is
+report-only. The `affected` job runs the repository's affected selection for a
+pull request on hosted Linux for early feedback. After the required `test`
+workflow completes, `compare` reports hypothetical reuse, timing and repeated
+executions in the `validation-shadow` artifact and job summary. Missing inputs
+are reported as unavailable, not estimated. Required CI and branch protections
+are unchanged: the shadow never skips required work or writes to the pull request.
+
+Automatic comparison via `workflow_run` starts only once the shadow workflow
+is on the default branch; a draft PR adding it cannot demonstrate that trigger.
+Publishing a validation manifest is optional and owner-only. To supply one,
+the repository owner exports it for the exact PR head and explicitly publishes
+it as a Git note under `refs/notes/dbsctr-validation`, following the
+[note transport instructions](features/hosted-validation-shadow.md#transport).
+The workflow treats the note as untrusted input, never as authority to reuse
+results. This source change does not establish live qualification or hosted savings.
+
 The [complete official JFrog skill collection](features/jfrog-skills.md) adds seven
 portable, narrowly routed workflows and an independent optional missing-only CLI
 installer. Native discovery, CLI readiness, MCP connection and live platform

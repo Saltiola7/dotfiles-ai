@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile evidence isolation with hosted validation shadow
+
+- Refresh PR #365 against the protected base. Preserve both the sandbox
+  prerequisite and the independent shadow workflow. No managed activation.
+
 ## 2026-11-25 — Qualify Ubuntu runner namespace policy
 
 - If the hosted runner denies sandbox setup, load Ubuntu's packaged confined
