@@ -136,12 +136,23 @@ jobs:
           test "$("$install_dir/wt" --version)" = "wt v$WORKTRUNK_VERSION"
           echo "$install_dir" >> "$GITHUB_PATH"
       - run: bun install --global opencode-ai@1.19.4
+      - name: Provision evidence isolation on the test runner
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y bubblewrap libseccomp2
+          /usr/bin/bwrap --version
+          /usr/bin/bwrap --unshare-user --disable-userns --unshare-pid \
+            --unshare-net --unshare-ipc --die-with-parent --cap-drop ALL \
+            --ro-bind / / --proc /proc --dev /dev -- /bin/true
       - name: Check publication and instruction contracts
         run: >-
           uv run --frozen --python "${{ matrix.python-version }}" --group test pytest
           tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers
           tests/test_opencode_control_plane.py
-          tests/test_dbsctr_lifecycle.py -q
+          tests/test_dbsctr_lifecycle.py
+          tests/test_dbsctrctl.py::DbsctrctlTest::test_evidence_descendants_cannot_write_original_paths
+          tests/test_dbsctrctl.py::DbsctrctlTest::test_formatter_cannot_pass_by_rewriting_the_validation_candidate
+          -q
       - name: Check full-suite partition
         env:
           CI_PYTHON_VERSION: ${{ matrix.python-version }}

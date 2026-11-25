@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Qualify hosted evidence isolation
+
+- Provision the Ubuntu sandbox dependencies in the existing test shards.
+  Require namespace setup and the real descendant and formatter regressions
+  before the full partitions. No host policy changes or fallback.
+
 ## 2026-11-25 — Isolate evidence checkout writes
 
 - Run `record-evidence` in a private candidate with separately captured index
