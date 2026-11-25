@@ -1,5 +1,17 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Initiative continuation (INITIATIVE-CONTINUATION)
+
+- Bind an operator-approved material snapshot, selected dependency closure,
+  enrolled repository, and qualified writer to one expiring private grant.
+  Recheck affected scope and native prerequisite delivery before each launch.
+- Reserve each target in a private execution journal. Bind the first Build
+  request to an exact native session and message, and reconcile uncertain
+  requests by native readback. Supersede an unclaimed launch if its base moves.
+- Validate controlled two-slice continuation, lost replies, drift, revocation,
+  existing approval compatibility and the protected source PR. Installed writer
+  activation and the live restart demonstration remain separately qualified.
+
 ## 2026-11-24 — Forgejo protected merge adapter (FORGEJO-MERGE-PARITY)
 
 - Require a reserved candidate, qualified guard, native review and fresh CI
