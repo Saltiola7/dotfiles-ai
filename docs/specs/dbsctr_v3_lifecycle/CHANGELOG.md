@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Provision the evidence sandbox in hosted shadow CI
+
+- Give the advisory affected job the same sandbox setup as the required
+  partitions before it runs lifecycle tests. Keep checks and runner policy
+  unchanged; no managed activation.
+
 ## 2026-11-25 — Refresh evidence isolation on the protected base
 
 - Reconcile PR #365 with the hosted shadow render-tool fix. Keep the evidence
