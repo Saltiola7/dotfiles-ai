@@ -1,6 +1,10 @@
 import importlib.util
+import ast
 import json
+import os
 import re
+import textwrap
+from http.client import HTTPException
 from pathlib import Path
 
 import pytest
@@ -14,6 +18,68 @@ SPEC.loader.exec_module(shadow)
 HEAD, BASE, TESTED = (char * 40 for char in "abc")
 NODE = "tests/test_example.py::test_one"
 REPOSITORY = "example/project"
+
+
+@pytest.mark.parametrize("case", ["verified", "missing-job", "different-attempt", "different-revision",
+                                 "changed-workflow", "wrong-parents", "untrusted-base"])
+def test_shadow_source_requires_exact_qualified_checkout(case, monkeypatch):
+    workflow = SCRIPT.with_name("workflows").joinpath("validation-shadow.yml").read_text()
+    inline = workflow.split("          CHECKOUT = ", 1)[1].split("\n          if not numeric(run_id)", 1)[0]
+    source = textwrap.dedent("          CHECKOUT = " + inline)
+    assert {node.name for node in ast.parse(source).body if isinstance(node, ast.FunctionDef)} == {
+        "source", "checkout_evidence"}
+    run = {"id": 17, "run_attempt": 1, "head_sha": HEAD, "head_repository": {"id": 42},
+           "head_branch": "topic", "pull_requests": []}
+    actions = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+    path = "refs/remotes/pull/69/merge"
+    jobs = [{"name": name, "id": index, "run_id": 17, "run_attempt": 1, "head_sha": HEAD,
+             "workflow_name": "test", "status": "completed", "steps": [
+                 {"number": 1, "name": "Set up job"},
+                 {"number": 2, "name": f"Run {actions}", "conclusion": "success",
+                  "started_at": stamp(0), "completed_at": stamp(2)},
+             ]} for index, name in enumerate(
+                 [f"Full suite (3.14, partition {n})" for n in range(4)] + ["test (3.14)"], 1)]
+    if case == "missing-job":
+        jobs.pop()
+    if case == "different-attempt":
+        jobs[0]["run_attempt"] = 2
+    trusted = "d" * 40
+    monkeypatch.setenv("GITHUB_SHA", trusted)
+
+    def download(route, limit, *, prefix):
+        assert limit == 128 * 1024 and prefix
+        revision = trusted if case == "different-revision" and route.endswith("/1/logs") else TESTED
+        lines = [f"##[group]Run {actions}",
+                 f"[command]/usr/bin/git fetch --depth=1 origin +{revision}:{path}",
+                 f"[command]/usr/bin/git checkout --progress --force {path}",
+                 "[command]/usr/bin/git log -1 --format=%H", revision]
+        return "".join(f"{stamp(1)} {line}\n" for line in lines).encode()
+
+    def get(route):
+        if route == "":
+            return {"full_name": REPOSITORY, "default_branch": "main"}
+        if route == "/pulls/69":
+            return {"number": 69, "head": {"repo": {"id": 42}, "ref": "topic"},
+                    "base": {"ref": "main", "repo": {"full_name": REPOSITORY}}}
+        if route == f"/git/commits/{TESTED}":
+            parents = [HEAD, BASE] if case == "wrong-parents" else [BASE, HEAD]
+            return {"sha": TESTED, "parents": [{"sha": parent} for parent in parents]}
+        if route == f"/compare/{BASE}...{trusted}?per_page=1":
+            return {"status": "diverged" if case == "untrusted-base" else "ahead",
+                    "merge_base_commit": {"sha": BASE}}
+        if route.startswith("/contents/.github/workflows/test.yml?ref="):
+            return {"sha": (trusted if case == "changed-workflow" and route.endswith(TESTED)
+                            else min(scope["QUALIFIED_TEST"]))}
+        pytest.fail(f"Unexpected fixture request: {route}")
+
+    scope = {"os": os, "re": re, "HTTPException": HTTPException, "repo": REPOSITORY, "get": get,
+             "oid": shadow.oid, "numeric": lambda value: type(value) is int and value > 0,
+             "records": lambda envelope, key: envelope.get(key, []), "download": download}
+    exec(source, scope)
+    result = scope["source"](run, {"jobs": jobs})
+    expected = {"head": HEAD, "base": BASE, "tested_oid": TESTED} if case == "verified" else {
+        "head": HEAD, "base": None, "tested_oid": None}
+    assert result == expected
 
 def test_shadow_provisions_required_bun_and_chezmoi_pins():
     workflows = SCRIPT.with_name("workflows")
