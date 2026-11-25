@@ -15,6 +15,15 @@ HEAD, BASE, TESTED = (char * 40 for char in "abc")
 NODE = "tests/test_example.py::test_one"
 REPOSITORY = "example/project"
 
+def test_shadow_provisions_required_bun_and_chezmoi_pins():
+    workflows = SCRIPT.with_name("workflows")
+    affected, compare = (workflows / "validation-shadow.yml").read_text().split("\n  compare:\n", 1)
+    required = (workflows / "test.yml").read_text()
+    setup = required[required.index("      - uses: oven-sh/setup-bun@"):
+                     required.index("      - name: Install qualified Worktrunk")]
+    assert setup in affected.split("      - name: Run affected validation", 1)[0]
+    assert setup not in compare
+
 
 def test_workflow_keeps_comparison_read_only_and_on_trusted_source():
     workflow = SCRIPT.with_name("workflows").joinpath("validation-shadow.yml").read_text()
