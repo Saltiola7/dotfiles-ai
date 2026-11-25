@@ -1,5 +1,20 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile the published gate-evidence repair
+
+- Preserve the gate-evidence repair and the protected Initiative continuation
+  in the same draft, with the benchmark fixture pinned to the combined helper.
+
+## 2026-11-24 — Admit evidence from a reconciliation merge
+
+- Bind a deleted path to its provable merge-side or merge-base predecessor
+  when it is already absent at HEAD. Historical absence evidence continues
+  to verify against its original source.
+- Admit regular repository-root `.dbsctr/` artifacts for evidence without
+  adding private files to commits or loosening other ignored-path checks.
+- Scope: the evidence writer and reader, focused regression cases and the
+  matching benchmark helper pin. No CI matrix changes or live deployment.
+
 ## 2026-11-25 — Reconcile evidence reuse with verified merge
 
 - Retain both lifecycle changes on PR #363 and refresh the helper byte pin.

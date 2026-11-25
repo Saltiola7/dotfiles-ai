@@ -3393,7 +3393,8 @@ def validate_schema6_record(root, record):
         fields = {"id", "gate", "authority", "argv", "paths", "head", "started_at", "finished_at",
                   "result", "raw", "summary", "urls", "content"}
         if (not isinstance(item, dict) or not fields <= set(item)
-                or not set(item) <= fields | {"commit", "absences", "references", "execution_head"}
+                or not set(item) <= fields | {"commit", "absences", "absence_sources",
+                                             "absence_merge_head", "references", "execution_head"}
                 or not isinstance(identifier, str) or not re.fullmatch(r"ev-[0-9a-f]{32}", identifier)
                 or item["id"] != identifier or item["gate"] not in GATES
                 or item["result"] not in {"passed", "failed", "unavailable"}
@@ -3412,7 +3413,9 @@ def validate_schema6_record(root, record):
         initiative_paths(list(item["paths"]), "local-only evidence paths")
         if any(value is not None and not oid(value) for value in item["paths"].values()):
             fail("invalid local-only evidence blob")
-        verify_evidence_absences(root, item)
+        # Stored executions remain readable after an abort. Their applicability
+        # is checked when the envelope is used, not when loading the ledger.
+        verify_evidence_absences(root, item, for_credit=False)
         content = item["content"]
         if not isinstance(content, dict):
             fail("invalid local-only evidence content")
@@ -19487,7 +19490,7 @@ def tracked_predecessor(root, name, revision="HEAD"):
         raw = git(root, "--literal-pathspecs", "ls-tree", "-z", revision, "--", name).stdout
     if not raw:
         return None
-    fields = raw.removesuffix("\0").split("\t")
+    fields = raw.removesuffix("\0").split("\t", 1)
     if len(fields) != 2 or fields[1] != name:
         fail("tracked predecessor path is ambiguous")
     mode, kind, blob = fields[0].split()
@@ -19496,36 +19499,189 @@ def tracked_predecessor(root, name, revision="HEAD"):
     return {"mode": mode, "blob": blob}
 
 
-def evidence_absences(root, paths, revision="HEAD"):
-    absent = {}
+def pending_evidence_merge(root):
+    # Use the worktree's actual pseudoref. A branch called MERGE_HEAD is not
+    # evidence of a merge, and reconcile-target merges exactly one commit.
+    with local_completion_git_context():
+        try:
+            with evidence_input_descriptor(git_dir(root), "MERGE_HEAD") as descriptor:
+                if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                    fail("invalid evidence merge head")
+                raw = os.read(descriptor, 66)
+        except FileNotFoundError:
+            return None
+    if not re.fullmatch(rb"(?:[0-9a-f]{40}|[0-9a-f]{64})\n", raw):
+        fail("invalid evidence merge head")
+    return raw[:-1].decode("ascii")
+
+
+def merge_absence_revisions(root, head, target):
+    if target is None:
+        return ()
+    with local_completion_git_context():
+        if git(root, "cat-file", "-t", target, check=False).stdout.strip() != "commit":
+            fail("invalid evidence absence source commit")
+        bases = git(root, "merge-base", "--all", head, target, check=False)
+        if bases.returncode not in (0, 1):
+            fail("evidence merge bases unavailable")
+    # Prefer the target's version; pin a best common ancestor only if necessary.
+    return (target, *sorted(set(bases.stdout.split()) - {target}))
+
+
+def merge_absence_predecessor(root, name, revisions):
+    for revision in revisions:
+        predecessor = tracked_predecessor(root, name, revision)
+        if predecessor is not None:
+            return revision, predecessor
+    return None, None
+
+
+def evidence_absences(root, paths, head, *, recording=False, merge_head=None):
+    absent, sources, revisions = {}, {}, None
     for name, blob in paths.items():
-        if blob is None:
-            predecessor = tracked_predecessor(root, name, revision)
+        if blob is not None:
+            continue
+        predecessor = tracked_predecessor(root, name, head)
+        if predecessor is None:
+            if revisions is None:
+                if recording:
+                    merge_head = pending_evidence_merge(root)
+                revisions = merge_absence_revisions(root, head, merge_head)
+            revision, predecessor = merge_absence_predecessor(root, name, revisions)
             if predecessor is None:
                 fail("absent evidence path has no tracked predecessor")
-            absent[name] = predecessor
-    return absent
+            sources[name] = revision
+        absent[name] = predecessor
+    proof = {"absences": absent}
+    if sources:
+        proof.update(absence_sources=sources, absence_merge_head=merge_head)
+    return proof
 
 
-def verify_evidence_absences(root, item):
-    # Historical envelopes without this additive binding retain their meaning.
-    if "absences" not in item:
+def verify_committed_absence_result(root, item, merge):
+    if (not external_oid(merge, len(item["head"]))
+            or lineage_git(root, "show", "-s", "--format=%P", merge).split() != [item["head"], item["absence_merge_head"]]):
+        fail("evidence merge predecessor changed")
+    for name in item["absences"]:
+        if tracked_predecessor(root, name, merge) is not None:
+            fail("evidence merge result contains the evidenced deletion")
+
+
+def verify_merge_absence_result(root, item):
+    """A source-tree pin alone does not prove that its merge happened here."""
+    head, target = item["head"], item["absence_merge_head"]
+    with local_completion_git_context():
+        tip = lineage_git(root, "rev-parse", "--verify", "HEAD").strip()
+        if tip == head and "commit" not in item:
+            if pending_evidence_merge(root) != target:
+                fail("evidence merge predecessor is no longer pending")
+            # A live merge-only pin requires a resolved deletion. An unresolved
+            # stage, a restored index entry or a working file is not one.
+            for name in item["absence_sources"]:
+                if os.path.lexists(root / name) or stage_zero_blob(root, name) is not None:
+                    fail("evidence merge deletion changed")
+            return
+        # The merge may have been committed natively without binding the
+        # envelope. Find its direct first-parent transition on this lineage;
+        # a merge stranded on another branch or a later deletion is no proof.
+        history = lineage_git(root, "rev-list", "--first-parent", "--reverse", "--max-count=4097",
+                              head + ".." + tip).splitlines()
+        if not history or len(history) > 4096:
+            fail("evidence merge result missing or outside lineage bound")
+        merge = history[0]
+        if "commit" in item and item["commit"] != merge:
+            fail("evidence merge commit outside current lineage")
+        verify_committed_absence_result(root, item, merge)
+
+
+def verify_evidence_absences(root, item, *, for_credit=True):
+    # Legacy unpinned envelopes and HEAD-only absence proofs have no merge
+    # applicability requirement. Neither can supply a missing merge-only pin.
+    merge_fields = {"absence_sources", "absence_merge_head"} & item.keys()
+    if not merge_fields:
+        if "absences" in item and evidence_absences(root, item["paths"], item["head"])["absences"] != item["absences"]:
+            fail("evidence tracked predecessor changed")
+        if for_credit and "absences" not in item:
+            # Early records did not pin a HEAD-tracked deletion's blob. Preserve
+            # that case; their format cannot attest a merge-only predecessor.
+            for name, blob in item.get("paths", {}).items():
+                if blob is None and tracked_predecessor(root, name, item["head"]) is None:
+                    fail("absent evidence path has no tracked predecessor")
         return
-    if item["absences"] != evidence_absences(root, item["paths"], item["head"]):
+    sources = item.get("absence_sources", {})
+    merge_head = item.get("absence_merge_head")
+    if len(merge_fields) != 2:
+        fail("incomplete evidence absence source")
+    if (not isinstance(sources, dict) or not sources or not isinstance(item.get("absences"), dict)
+            or not isinstance(item.get("paths"), dict)
+            or not external_oid(item.get("head")) or not external_oid(merge_head, len(item["head"]))):
+        fail("invalid evidence absence source")
+    # Recompute from immutable parents, including the target when the only
+    # surviving blob came from a merge base. Never substitute today's MERGE_HEAD.
+    expected = evidence_absences(root, item["paths"], item["head"], merge_head=merge_head)
+    if expected != {key: item[key] for key in ("absences", "absence_sources", "absence_merge_head")}:
         fail("evidence tracked predecessor changed")
+    if for_credit:
+        verify_merge_absence_result(root, item)
+    elif "commit" in item:
+        with local_completion_git_context():
+            verify_committed_absence_result(root, item, item["commit"])
 
 
-def evidence_path_blobs(root, paths, index=False, commit=None):
+def require_gate_predecessors(root, record, gate_name):
+    earlier = GATES[:GATES.index(gate_name)]
+    incomplete = [name for name in earlier if not disposed(record["gates"][name])]
+    if incomplete:
+        fail("gate predecessors are incomplete: " + ", ".join(incomplete))
+    if record.get("schema_version") not in (3, 4, 5, 6):
+        return
+    for name in earlier:
+        identifier = record["gates"][name].get("evidence")
+        item = record.get("evidence", {}).get("items", {}).get(identifier, {})
+        if ({"absence_merge_head", "absence_sources"} & item.keys()
+                or ("absences" not in item and None in item.get("paths", {}).values())):
+            verify_evidence_absences(root, item)
+
+
+def stage_zero_blob(root, name):
+    """Return the exact literal index blob; unresolved entries are not absences."""
+    raw = git(root, "--literal-pathspecs", "ls-files", "--stage", "-z", "--", name).stdout
+    if not raw:
+        return None
+    metadata, _, indexed = raw.removesuffix("\0").partition("\t")
+    fields = metadata.split()
+    if indexed != name or len(fields) != 3 or fields[2] != "0" or not external_oid(fields[1]):
+        fail(f"unresolved or ambiguous staged evidence path: {name}")
+    return fields[1]
+
+
+def evidence_path_blobs(root, paths, index=False, commit=None, *, gate_evidence=False):
     if not paths:
         return {}
     result = {}
-    for name in paths if index or commit else safe_paths(root, paths):
+    for name in paths if index or commit else safe_paths(root, paths, gate_evidence=gate_evidence):
         if commit:
             value = git(root, "rev-parse", "--verify", f"{commit}:{name}", check=False)
         elif index:
-            value = git(root, "rev-parse", "--verify", f":{name}", check=False)
+            result[name] = stage_zero_blob(root, name)
+            continue
+        elif gate_evidence and root_evidence_artifact(name):
+            with open_evidence_artifact(root, name) as descriptor:
+                if descriptor is None:
+                    result[name] = None
+                    continue
+                # Hash the opened file rather than re-opening a branch-owned
+                # name. Only tracked files take part in Git's clean conversion.
+                filters = ("--path", name) if tracked_predecessor(root, name) is not None else ("--no-filters",)
+                value = subprocess.run(["git", "hash-object", "--stdin", *filters], cwd=root,
+                                       stdin=descriptor, capture_output=True, text=True,
+                                       env=git_environment(GIT_REPOSITORY_ENV))
+            if value.returncode or not external_oid(value.stdout.strip()):
+                fail("cannot hash evidence artifact")
         elif os.path.lexists(root / name):
             value = git(root, "hash-object", "--path", name, "--", name, check=False)
+            if gate_evidence and value.returncode:
+                fail(f"cannot hash evidence path: {name}")
         else:
             value = None
         result[name] = value.stdout.strip() if value and value.returncode == 0 else None
@@ -19540,8 +19696,9 @@ def command_record_evidence(args):
         path, record = load(root)
         require_active(record)
         admitted_bytes = amendment_read(root, path)
-        path_blobs = evidence_path_blobs(root, args.path or [])
-        absence_proof = evidence_absences(root, path_blobs)
+        path_blobs = evidence_path_blobs(root, args.path or [], gate_evidence=True)
+        evidence_head = git(root, "rev-parse", "HEAD").stdout.strip() if None in path_blobs.values() else None
+        absence_proof = evidence_absences(root, path_blobs, evidence_head, recording=True)
         if record.get("schema_version") not in (3, 4, 5, 6):
             fail("record-evidence requires a schema 3 or 4 Cycle Record")
         gate = record["gates"][args.gate]
@@ -19632,18 +19789,18 @@ def command_record_evidence(args):
             except (RuntimeError, OSError, ValueError, KeyError, UnicodeError):
                 binding_error = "binding_verification_unavailable"
         if result == "passed":
-            incomplete = [name for name in GATES[:GATES.index(args.gate)] if not disposed(record["gates"][name])]
-            if incomplete:
-                fail("gate predecessors are incomplete: " + ", ".join(incomplete))
+            require_gate_predecessors(root, record, args.gate)
         content, retained = ({"status": "withheld", "reason": cutoff or "start_failed"}, None) if (cutoff or start_error) else safe_output(bytes(raw))
         envelope = {"id": "ev-" + uuid.uuid4().hex, "gate": args.gate, "authority": authority,
                     "argv": sanitized, "paths": path_blobs,
-                    "head": git(root, "rev-parse", "HEAD").stdout.strip(),
+                    "head": evidence_head or git(root, "rev-parse", "HEAD").stdout.strip(),
                     "started_at": started, "finished_at": finished, "result": result,
                     "raw": {"byte_count": observed, "lower_bound": bool(cutoff), "truncated": bool(cutoff)},
                     "summary": "passed" if result == "passed" else "failed" if result == "failed" else "unavailable", "urls": []}
-        if absence_proof:
-            envelope["absences"] = absence_proof
+        if absence_proof["absences"]:
+            envelope.update(absence_proof)
+        if "absence_sources" in envelope:
+            verify_merge_absence_result(root, envelope)
         if retained is not None:
             retained, truncated = retained[:EVIDENCE_SIDECAR_CAP], len(retained) > EVIDENCE_SIDECAR_CAP
             digest = write_sidecar(root, record["cycle_id"], retained)
@@ -19682,10 +19839,9 @@ def command_set_gate(args):
             fail("schema 3 evidence must be a matching stored evidence ID")
         if item["head"] != git(root, "rev-parse", "HEAD").stdout.strip():
             fail("schema 3 evidence HEAD is stale")
+        verify_evidence_absences(root, item)
     if is_v32(record) and args.result == "passed":
-        incomplete = [name for name in GATES[:GATES.index(args.gate)] if not disposed(record["gates"][name])]
-        if incomplete:
-            fail("gate predecessors are incomplete: " + ", ".join(incomplete))
+        require_gate_predecessors(root, record, args.gate)
     if gate["applicability"] == "required" and args.result == "not_run":
         fail("required gates cannot use not_run")
     if gate["applicability"] == "not_applicable" and args.result != "not_run":
@@ -20429,10 +20585,37 @@ def path_is_ignored(root: Path, name: str) -> bool:
     return result.returncode == 0
 
 
-def safe_paths(root, paths):
+def root_evidence_artifact(name):
+    parts = PurePosixPath(name).parts
+    return len(parts) > 1 and parts[0] == ".dbsctr"
+
+
+@contextlib.contextmanager
+def open_evidence_artifact(root, name):
+    if name != PurePosixPath(name).as_posix() or ".." in PurePosixPath(name).parts:
+        fail(f"invalid evidence artifact path: {name}")
+    with contextlib.ExitStack() as stack:
+        try:
+            descriptor = stack.enter_context(evidence_input_descriptor(root, name))
+        except FileNotFoundError:
+            # Only a missing component, never a symlink or a special file,
+            # can use the pre-existing HEAD-tracked deletion contract.
+            if tracked_predecessor(root, name) is None:
+                fail(f"evidence artifact does not exist: {name}")
+            yield None
+            return
+        except OSError:
+            fail(f"evidence artifact unavailable or unsafe: {name}")
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            fail(f"evidence artifact must be a regular file: {name}")
+        yield descriptor
+
+
+def safe_paths(root, paths, *, gate_evidence=False):
     if not paths:
         fail("at least one path is required")
     cleaned = []
+    merge_revisions = None
     for name in paths:
         pure = PurePosixPath(name)
         if pure.is_absolute() or ".." in pure.parts or name.startswith(".") and name == ".":
@@ -20441,10 +20624,19 @@ def safe_paths(root, paths):
         if basename == ".env" or basename.startswith(".env.") or basename in SECRET_NAMES or pure.suffix.lower() in (".key", ".pem"):
             if not verified_upstream_template(root, name):
                 fail(f"refusing possible secret path: {name}")
+        if gate_evidence and pure.parts == (".dbsctr",):
+            fail("an evidence artifact must be a file beneath .dbsctr/")
+        if gate_evidence and root_evidence_artifact(name):
+            with open_evidence_artifact(root, name):
+                cleaned.append(name)
+            continue
         tracked = git(root, "--literal-pathspecs", "ls-files", "--error-unmatch", "--", name,
                       check=False).returncode == 0
         if not (root / pure).is_file() and not tracked and tracked_predecessor(root, name) is None:
-            fail(f"path does not exist: {name}")
+            if gate_evidence and merge_revisions is None:
+                merge_revisions = merge_absence_revisions(root, "HEAD", pending_evidence_merge(root))
+            if not merge_revisions or merge_absence_predecessor(root, name, merge_revisions)[1] is None:
+                fail(f"path does not exist: {name}")
         if path_is_ignored(root, name) and tracked_predecessor(root, name) is None:
             fail(f"path is ignored: {name}")
         cleaned.append(name)
@@ -20466,13 +20658,29 @@ def command_gate_commit(args):
             item = verify_envelope(root, record, name)
             if set(item.get("paths", {})) != set(args.paths):
                 fail(f"evidence paths differ from commit paths: {name}")
-            if evidence_path_blobs(root, args.paths) != item["paths"]:
+            if evidence_path_blobs(root, args.paths, gate_evidence=True) != item["paths"]:
                 fail(f"evidence paths changed after validation: {name}")
             schema3_items.append((name, item))
-    paths = safe_paths(root, args.paths)
+    paths = safe_paths(root, args.paths, gate_evidence=True)
     staged = set(git(root, "diff", "--cached", "--no-renames", "--name-only", "-z").stdout.split("\0")[:-1])
     if unrelated := staged - set(paths):
         fail("unrelated staged paths present: " + ", ".join(sorted(unrelated)))
+    local_only = {name for name in paths if root_evidence_artifact(name) and tracked_predecessor(root, name) is None}
+    if local_only - staged:
+        # Do not stage local artifacts or partially stage their neighbors.
+        fail("staged paths differ from requested paths: local evidence artifact")
+    if local_only & staged:
+        fail("force-staged local evidence artifact is not a commit path")
+    # Validate the proposed first-parent diff before staging any neighbor.
+    # Git's diff omits untracked additions; only an existing, absent-at-HEAD
+    # file can be such an addition. A merge-side pin is not a change to HEAD.
+    changed = set(git(root, "--literal-pathspecs", "diff", "--no-ext-diff", "--no-renames", "--name-only", "-z",
+                      "HEAD", "--", *paths).stdout.split("\0")[:-1])
+    for name in paths:
+        if not os.path.lexists(root / name) or name not in changed:
+            tracked_at_head = tracked_predecessor(root, name) is not None
+            if tracked_at_head == os.path.lexists(root / name):
+                fail("staged paths differ from requested paths: no first-parent change")
     if git(root, "diff", "--check", check=False).returncode:
         fail("git diff --check failed")
     to_stage = [name for name in paths if os.path.lexists(root / name)
@@ -20502,9 +20710,12 @@ def command_gate_commit(args):
         fail("staged paths differ from requested paths")
     if not staged or not git(root, "diff", "--cached", "--quiet", check=False).returncode:
         fail("staged diff is empty")
+    staged_tree = git(root, "write-tree").stdout.strip() if schema3_items else None
     git(root, "commit", "-m", args.message)
     commit = git(root, "rev-parse", "HEAD").stdout.strip()
     if record.get("schema_version") in (3, 4, 5, 6):
+        if staged_tree and git(root, "rev-parse", f"{commit}^{{tree}}").stdout.strip() != staged_tree:
+            fail("committed paths differ from evidence: staged tree changed")
         for name, item in schema3_items:
             if evidence_path_blobs(root, args.paths, commit=commit) != item["paths"]:
                 fail(f"committed paths differ from evidence: {name}")
@@ -20663,7 +20874,7 @@ def reuse_admission(root, record, gate, identifier, paths, head, *, owner_cache=
             return "path_outside_scope", None
     else:
         try:
-            if evidence_path_blobs(root, list(item["paths"])) != item["paths"]:
+            if evidence_path_blobs(root, list(item["paths"]), gate_evidence=True) != item["paths"]:
                 return "evidence_scope_changed", None
             verify_evidence_absences(root, item)
             content = item["content"]
@@ -20766,27 +20977,28 @@ def command_reference_evidence(args):
             fail(code)
         item, binding = facts
         paths = list(item.get("paths", {})) if args.path is None else args.path
-        blobs = evidence_path_blobs(root, paths)
+        blobs = evidence_path_blobs(root, paths, gate_evidence=True)
         if "paths" in item and blobs != {name: item["paths"][name] for name in blobs}:
             fail("evidence_scope_changed")
-        incomplete = [name for name in GATES[:GATES.index(gate)] if not disposed(record["gates"][name])]
-        if incomplete:
-            fail("gate predecessors are incomplete: " + ", ".join(incomplete))
+        require_gate_predecessors(root, record, gate)
         identifier = "ev-" + uuid.uuid4().hex
         envelope = {key: item[key] for key in ("authority", "argv", "started_at", "finished_at", "raw")}
         envelope.update(id=identifier, gate=gate, paths=blobs, head=head, result="passed", summary="passed",
                         urls=[], content={"status": "withheld", "reason": "referenced_execution"},
                         references=args.of, execution_head=item["head"])
-        if absences := evidence_absences(root, blobs):
-            envelope["absences"] = absences
+        proof = evidence_absences(root, blobs, head, recording=True)
+        if proof["absences"]:
+            envelope.update(proof)
         code, final_facts = reuse_admission(root, record, gate, args.of, args.path, head)
         if code:
             fail(code)
         if final_facts != facts:
             fail("evidence_scope_changed")
         if (amendment_read(root, path) != original or git(root, "rev-parse", "HEAD").stdout.strip() != head
-                or evidence_path_blobs(root, paths) != blobs):
+                or evidence_path_blobs(root, paths, gate_evidence=True) != blobs):
             fail("evidence_scope_changed")
+        verify_evidence_absences(root, envelope)
+        require_gate_predecessors(root, record, gate)
         record["evidence"]["items"][identifier] = envelope
         if binding is not None:
             record["evidence"].setdefault("bindings", {})[identifier] = store_evidence_binding(
