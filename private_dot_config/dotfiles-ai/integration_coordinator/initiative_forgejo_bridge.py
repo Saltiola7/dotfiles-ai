@@ -93,7 +93,9 @@ class Bridge:
 
     def is_ancestor(self, binding: forgejo.Binding, ancestor: str, descendant: str) -> bool:
         self._binding(binding)
-        core._oids((ancestor, descendant), 2, 2)
+        core._oid(ancestor)
+        core._oid(descendant)
+        core._require(len(ancestor) == len(descendant), "mixed_oid_formats")
         value = self._call("ancestor", ancestor=ancestor, descendant=descendant)
         if type(value) is not bool:
             raise core.Invalid("initiative_forgejo_bridge_ancestry_unproved")

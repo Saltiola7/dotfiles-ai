@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Verify Forgejo delivery at the protected tip
+
+- Ask the native owner to verify ancestry when the protected tip is the merge
+  itself or the enrolled root. Keep object-format validation and reject negative
+  native proof. Test regular and lost-response merge readback through the bridge.
+
 ## 2026-11-25 — Reconcile managed Forgejo delivery with evidence reuse
 
 - Preserve both lifecycle changes and refresh the CLI benchmark byte pin for

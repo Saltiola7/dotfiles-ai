@@ -54,12 +54,22 @@ def test_managed_recipe_accepts_only_explicit_typed_forgejo_fixture(custody, tmp
 
 
 @pytest.mark.parametrize("failure", [None, "lost_merge", "no_ci", "stale_base", "revoked", "lost_pr", "expiry_after_lookup"])
-def test_forgejo_handoff_uses_exact_proof_and_never_repeats_native_writes(custody, failure):
+def test_forgejo_handoff_uses_exact_proof_and_never_repeats_native_writes(custody, failure, monkeypatch):
     from integration_coordinator import initiative_forgejo as auto
+    from integration_coordinator.initiative_forgejo_bridge import Bridge
     from integration_coordinator.runtime import SourceEntry
 
     native = Fixture()
     config = auto.parse_fixture(fixture_document(native))
+    bridge = Bridge(custody, config)
+    ancestry = []
+
+    def observe_ancestry(operation, *, ancestor, descendant):
+        assert operation == "ancestor"
+        ancestry.append((ancestor, descendant))
+        return native.objects.is_ancestor(config.binding, ancestor, descendant)
+
+    monkeypatch.setattr(bridge, "_call", observe_ancestry)
     bound = controller.Target(config.binding.origin, config.binding.repository, TARGET)
     approval = controller.Approval("a" * 64, bound, "b" * 64, "c" * 64, (controller.Slice("slice-a"),))
     launch = controller.Launch("d" * 64, BASE, str(custody.common.parent), "LOCAL-A", "build")
@@ -85,7 +95,7 @@ def test_forgejo_handoff_uses_exact_proof_and_never_repeats_native_writes(custod
             return native.objects.commit(binding, oid)
 
         def is_ancestor(self, binding, older, newer):
-            return native.objects.is_ancestor(binding, older, newer)
+            return bridge.is_ancestor(binding, older, newer)
 
         def current_execution(self, subject, check):
             if failure == "no_ci":
@@ -173,9 +183,31 @@ def test_forgejo_handoff_uses_exact_proof_and_never_repeats_native_writes(custod
     restarted = auto.FixtureDelivery(custody, config, ports, lambda _: pytest.fail("reused checkout"), authorize)
     outcome = restarted.observe_delivery(activation, admission)
     assert outcome is not None and outcome.merge_oid == MERGED
+    assert ancestry[-1] == (MERGED, MERGED)
     assert ports.creates == len(underlying.writes) == 1
     assert underlying.writes[0][2]["force_merge"] is False
     assert underlying.writes[0][2]["delete_branch_after_merge"] is False
+
+
+def test_owner_ancestry_checks_equal_revisions_without_assuming_inclusion(custody, monkeypatch):
+    from integration_coordinator import initiative_forgejo as auto
+    from integration_coordinator.initiative_forgejo_bridge import Bridge
+
+    config = auto.parse_fixture(fixture_document(Fixture()))
+    bridge = Bridge(custody, config)
+    calls = []
+
+    def observe_absence(operation, **facts):
+        calls.append((operation, facts))
+        return False
+
+    monkeypatch.setattr(bridge, "_call", observe_absence)
+    assert bridge.is_ancestor(config.binding, BASE, BASE) is False
+    with pytest.raises(core.Invalid, match="mixed_oid_formats"):
+        bridge.is_ancestor(config.binding, BASE, "a" * 64)
+    with pytest.raises(core.Invalid, match="invalid_oid"):
+        bridge.is_ancestor(config.binding, "0" * 40, BASE)
+    assert calls == [("ancestor", {"ancestor": BASE, "descendant": BASE})]
 
 
 def test_owner_program_is_required_and_byte_bound(custody):
