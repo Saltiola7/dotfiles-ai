@@ -2,7 +2,7 @@
   "schema_version": 1,
   "id": "host-independent-validation",
   "title": "Host-independent validation: tests that do not depend on the developer machine",
-  "state": "ready",
+  "state": "complete",
   "coordinator_repository": "Saltiola7/dotfiles-ai",
   "contexts": [
     {
@@ -167,7 +167,7 @@
     {
       "id": "host-independent-tests",
       "context": "dbsctr_v3_lifecycle",
-      "state": "ready",
+      "state": "delivered",
       "execution_owner": "build",
       "requirements": [
         "INT-001",
@@ -203,7 +203,7 @@
       "members": [
         "host-independent-tests"
       ],
-      "state": "ready"
+      "state": "delivered"
     }
   ]
 }
