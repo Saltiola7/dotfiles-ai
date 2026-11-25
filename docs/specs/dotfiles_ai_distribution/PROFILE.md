@@ -6,7 +6,7 @@
 | Owner | Project maintainers |
 | Languages/frameworks | Go templates, TOML, JSON, Markdown, Python, Bash, and launchd plist |
 | Modules | Python, Security, Cloud |
-| Runtime/platform support | Try Omarchy VM (Arch Linux aarch64 workstation, the sole workstation target since the 2026-11-18 retirement); remote user environments (RHEL 10 x86_64 qualification pending); optional default-off Omarchy security-toolchain profile. Apple Silicon macOS workstation and Fedora Lima guests retired 2026-11-18; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
+| Runtime/platform support | Try Omarchy VM (Arch Linux aarch64 workstation, the sole workstation target since the 2026-11-18 retirement); remote user environments (RHEL 10 x86_64 qualification pending); optional default-off Omarchy security-toolchain profile. Apple macOS remains an apply target but is neither a development host nor tested in CI (owner decision 2026-11-24); Fedora Lima guests retired 2026-11-18; chezmoi; OpenCode; Codex CLI; Herdr; launchd/systemd user services; Python `>=3.12` tests |
 | Compatibility | Stable local TOML keys and managed state boundaries; OpenCode-default automation; sanitized defaults; qualified native platform-local installer ownership with compatibility and recovery checks |
 | Trust/data | Public configuration; credentials and machine identifiers remain local |
 | Delivery | Feature branch and draft pull request; managed local deployment only after affected gates pass |
@@ -78,3 +78,29 @@ new persistent instruction-supply-chain skill enters the shared catalog.
 evidence and exclusion boundaries (pinned runtime scanners are never shadowed).
 No environment changes inside the cycle; host enablement and the validation
 drill are separate operator actions.
+
+## Discovery decisions of 2026-11-24
+
+These overrides record decisions only. They authorize no implementation,
+deployment or activation.
+
+- **Mac support level.** The Mac keeps applying this source and keeps its
+  configuration, is no longer a development host, and is not tested in CI.
+  Defects there are found through the owner's direct apply; the owner previews
+  each apply delta read-only first. This is an accepted risk of the
+  [macOS workstation retirement](../../initiatives/macos-workstation-retirement/README.md),
+  whose teardown step is withdrawn.
+- **RHEL-family surface lane** (`rhel-surface-lanes`, elevated, delivery
+  intent merge). UBI 10 is the only lane image. An aarch64 parity lane runs on
+  the hosted arm64 runner and reports without blocking until the owner
+  promotes it. Kernel, Review/Integrate and Maintain/Retire are required;
+  Release, Deploy and Operate are not applicable because the slice changes
+  CI only and activates nothing. The contract is
+  [`features/rhel-surface-lanes.md`](features/rhel-surface-lanes.md).
+- **Worktrunk upgrade** (`workstation-upgrade`, elevated, delivery intent
+  merge and then an owner-run deployment). Worktrunk v0.83.0 is pinned on the
+  Linux workstation and in CI; the remote-user foundation keeps v0.80.0. The
+  worktree policy becomes reachable for a Linux workstation without the
+  remote-user flag. Kernel, Review/Integrate, Deploy, Operate and
+  Maintain/Retire are required; Release is not applicable. The contract is
+  [`features/worktrunk-upgrade.md`](features/worktrunk-upgrade.md).

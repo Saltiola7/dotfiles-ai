@@ -9,13 +9,15 @@ after verified source delivery.
 The mac-mini workstation stack retired
 ([macos-workstation-retirement](../../initiatives/macos-workstation-retirement/README.md)):
 the lima sandbox subsystem (sandbox-vm, instance templates, sandbox.json,
-atuin-workspace agent) and every darwin LaunchAgent were deleted from source,
-and the machine now applies only the personal dotfiles. The Try Omarchy VM is
-the sole workstation target: atuin (self-hosted fleet server) and PM/DBSCTR
-PostgreSQL run as podman quadlets, verified live at cutover. The
-`remote_user_environment` fleet paths and linux workstation installers are
-unaffected. Herdr Desktop's installed binary on the mini remains until the
-operator gates its removal.
+atuin-workspace agent) and every darwin LaunchAgent were deleted from source.
+The Try Omarchy VM is the sole development host: atuin (self-hosted fleet
+server) and PM/DBSCTR PostgreSQL run as podman quadlets, verified live at
+cutover. Since 2026-11-24 the Mac is neither excluded from dotfiles-ai nor a
+place where it is developed: the owner keeps applying this source there,
+macOS is not tested in CI, and defects are found through the owner's direct
+apply. The `remote_user_environment` fleet paths and linux workstation
+installers are unaffected. Herdr Desktop's installed binary on the mini
+remains until the operator gates its removal.
 
 [Completion reconciliation rollout](features/workflow-completion-rollout.md)
 specifies compatible managed activation and one privately nominated successful
@@ -116,6 +118,17 @@ The [remote Worktrunk policy](features/remote-worktrunk-policy.md) supplies the
 shared remote storage guard's policy. Explicit remote apply initializes absent
 activation at the qualified home-backed default; nondefault roots and stale
 existing bindings still require separate owner review.
+
+Two 2026-11-24 Discovery contracts are recorded and not yet implemented. The
+[Worktrunk upgrade](features/worktrunk-upgrade.md) pins v0.83.0 on the Linux
+workstation and in CI through an owner-run procedure with one re-activation,
+keeps v0.80.0 on the remote-user foundation, and makes the worktree policy
+document and the default-home activation reachable for a Linux workstation
+without the remote-user flag. The
+[RHEL-family surface lane and aarch64 parity lane](features/rhel-surface-lanes.md)
+run marked RHEL-surface tests in a UBI 10 container on affected paths and the
+full suite on the hosted arm64 runner, which reports without blocking until
+the owner promotes it.
 
 The [remote global mise baseline](features/remote-mise-toolchain.md) owns optional
 pinned Python for the frozen Prefect adapter. Project toolchains keep their own
@@ -1284,6 +1297,14 @@ and live guest qualification remain separate.
 - OpenCode parser validation remains required in configured CI, which installs a
   pinned OpenCode version. Missing OpenCode or any nonzero parser result fails
   that separate integration test.
+- The [host-independent tests
+  contract](../dbsctr_v3_lifecycle/features/host-independent-tests.md) makes the
+  installed-OpenCode checks opt-in. Configured CI opts in by naming its pinned
+  executable. A developer machine without the opt-in gets an explicit skip
+  instead of a result from whatever `opencode` is first on `PATH`. The same
+  contract requires rendering tests to supply the local state they merge, and
+  records the R&D worker's V1-only session discovery as a gap owned by the
+  OpenCode V2 migration.
 - Pull requests and `main` pushes run the full macOS suite on Python 3.14.
   Weekly and manual runs retain the full Python 3.12/3.13/3.14 compatibility
   matrix. New PR runs cancel only superseded runs for the same PR. The

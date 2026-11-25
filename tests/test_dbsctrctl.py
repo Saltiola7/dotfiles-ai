@@ -4706,6 +4706,13 @@ class DbsctrctlTest(unittest.TestCase):
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)
+        # A developer's workflow policy, when present, makes the helper consult Git
+        # before it looks for a pull request. Supply an empty configuration root.
+        config = Path(self.temp.name) / "no-workflow-policy"
+        config.mkdir()
+        policy_free = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)})
+        policy_free.start()
+        self.addCleanup(policy_free.stop)
         record = {"cycle_id": "cycle-1", "context": "test", "delivery": {
             "base_branch": "main", "branch": "dbsctr/test/cycle-1",
             "github": {"account": "example-user", "repository": "example-org/dotfiles-ai"},
