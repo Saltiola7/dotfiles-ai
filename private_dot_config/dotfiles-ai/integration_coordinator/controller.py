@@ -47,10 +47,13 @@ class HostedConfig:
     job_name: str | None = None
     requester_ids: tuple[int, ...] = ()
     schema_version: int = 2
+    initiative_local: bool = False
 
     def __post_init__(self) -> None:
         c._require(type(self.schema_version) is int and self.schema_version == 2, "hosted_schema")
         c._require(type(self.enabled) is bool, "hosted_enabled")
+        c._require(type(self.initiative_local) is bool and (self.enabled or not self.initiative_local),
+                   "initiative_local_policy")
         if not self.enabled:
             c._require(self.enrollment is None and self.check_plan is None and self.workflow_id is None
                        and self.workflow_path is None and self.workflow_blob_oid is None
@@ -86,7 +89,8 @@ def _config_data(config: HostedConfig) -> dict[str, object]:
             "workflow_id": config.workflow_id, "workflow_path": config.workflow_path,
             "workflow_blob_oid": config.workflow_blob_oid, "shared_source_pin": config.shared_source_pin,
             "shared_source_repository": config.shared_source_repository, "job_name": config.job_name,
-            "requester_ids": config.requester_ids}
+            "requester_ids": config.requester_ids,
+            **({"initiative_local": True} if config.initiative_local else {})}
 
 
 def policy_identity(config: HostedConfig) -> str:
@@ -115,13 +119,17 @@ def parse_config(raw: bytes) -> HostedConfig:
     names = {"schema_version", "enabled", "enrollment", "check_plan", "workflow_id", "workflow_path",
              "workflow_blob_oid", "shared_source_pin", "shared_source_repository", "job_name", "requester_ids",
              }
+    if "initiative_local" in data:
+        if data["initiative_local"] is not True:
+            raise c.Invalid("initiative_local_policy")
+        names.add("initiative_local")
     if set(data) != names or data.get("enabled") is not True:
         raise c.Invalid("hosted_config_fields")
     config = HostedConfig(True, g.parse_enrollment(data["enrollment"]), g.parse_check_plan(data["check_plan"]),
         g._integer(data["workflow_id"]), g._text(data["workflow_path"], 256), g._oid(data["workflow_blob_oid"]),
         g._oid(data["shared_source_pin"]), g._text(data["shared_source_repository"], 201), g._text(data["job_name"], 128),
         tuple(g._integer(value) for value in g._array(data["requester_ids"], 128)),
-        g._integer(data["schema_version"]))
+        g._integer(data["schema_version"]), initiative_local=data.get("initiative_local") is True)
     _policy_identity(config)
     return config
 
@@ -435,6 +443,8 @@ def run(config: HostedConfig, context_loader: Callable[[], HostContext], host_fa
     if not config.enabled:
         return Report("disabled")
     _policy_identity(config)
+    if config.initiative_local:
+        raise c.Unavailable("initiative_private_authority_required")
     context = context_loader()
     host_port = host_factory()
     host = host_port.verify(config, context)
@@ -505,6 +515,54 @@ def run(config: HostedConfig, context_loader: Callable[[], HostContext], host_fa
     return advance(config, host, host_port, adapter, handles)
 
 
+def _initiative_actor(config: HostedConfig, authority: OperatorAuthority) -> None:
+    if not config.initiative_local or not config.enabled or type(authority) is not OperatorAuthority:
+        raise c.Unavailable("initiative_private_authority_required")
+    assert config.enrollment is not None
+    _policy_identity(config)
+    actor = authority.invocation.requester_id
+    if actor not in config.enrollment.mutator_user_ids or actor not in config.requester_ids:
+        raise c.Unavailable("initiative_requester_not_enrolled")
+
+
+def admit_initiative(config: HostedConfig, authority: OperatorAuthority, adapter: Adapter,
+                     ticket: r.Ticket, obligation: r.Obligation) -> Report:
+    """Admit one source from the private lifecycle owner without a hosted handoff."""
+    _initiative_actor(config, authority)
+    assert config.enrollment is not None
+    if (ticket.handle != authority.expected_handle or ticket.obligation_handle != obligation.handle
+            or obligation.current_ticket != ticket.handle or ticket.source.repository != config.enrollment.repository
+            or ticket.requester_digest != r.requester_digest(config.enrollment.repository, authority.invocation.requester_id)
+            or ticket.delivery_mode != "ordinary" or ticket.guarded_refresh or ticket.predecessor is not None
+            or obligation.repair_count != 0 or obligation.revision_count != 1 or obligation.repair_owner is not None):
+        raise c.Conflict("initiative_admission_subject_changed")
+    head, before = _read(adapter, config, (ticket.handle, obligation.handle))
+    proof = c.Admission(c.identity(ticket.source), ticket.requester_digest, config.enrollment.policy_digest,
+                        _hash({"authority": authority.receipt_digest, "source": c.identity(ticket.source),
+                               "obligation": c.identity(obligation)}))
+    after = r.admit_authenticated(before, ticket, obligation, proof)
+    if after == before:
+        return Report("accepted", ticket.handle, head)
+    if before.target.generation + 1 != authority.expected_generation:
+        raise c.Conflict("initiative_admission_generation_changed")
+    pr = adapter.observe_pr(ticket.source.pr_number)
+    if (pr.merged or pr.head != ticket.source.head or pr.base != ticket.source.base
+            or pr.base_ref != config.enrollment.default_branch
+            or pr.head_ref in {config.enrollment.default_branch, "main", "master", config.enrollment.control_branch}):
+        raise c.Conflict("initiative_admission_native_source_changed")
+    head = _persist(adapter, config, authority, head, before, after, "admit", ticket.handle)
+    return Report("accepted", ticket.handle, head)
+
+
+def advance_initiative(config: HostedConfig, authority: OperatorAuthority, host_port: QuiescencePort,
+                       adapter: Adapter, obligation_handle: str) -> Report:
+    """Advance only the controller's one authenticated local ticket."""
+    _initiative_actor(config, authority)
+    c._handle(obligation_handle)
+    return _advance(config, authority, host_port, adapter, (authority.expected_handle, obligation_handle),
+                    initiative_obligation=obligation_handle)
+
+
 def advance(config: HostedConfig, host: Authority, host_port: QuiescencePort, adapter: Adapter,
             handles: tuple[str, ...] = ()) -> Report:
     """Same guarded scheduler for qualified hosted or qualified local authority.
@@ -512,9 +570,16 @@ def advance(config: HostedConfig, host: Authority, host_port: QuiescencePort, ad
     This is an injected-port API, not JSON authentication. Local operator code must
     prove requester/scope/private-process custody before constructing its authority.
     """
+    return _advance(config, host, host_port, adapter, handles)
+
+
+def _advance(config: HostedConfig, host: Authority, host_port: QuiescencePort, adapter: Adapter,
+             handles: tuple[str, ...], *, initiative_obligation: str | None = None) -> Report:
     if not config.enabled:
         return Report("disabled")
     _policy_identity(config)
+    if config.initiative_local != (initiative_obligation is not None):
+        raise c.Unavailable("initiative_private_authority_required")
     if isinstance(host, OperatorAuthority):
         assert config.enrollment is not None
         if (host.invocation.requester_id not in config.enrollment.mutator_user_ids
@@ -543,10 +608,27 @@ def advance(config: HostedConfig, host: Authority, host_port: QuiescencePort, ad
     for _ in range(MAX_STEPS):
         head, state = _read(adapter, config, handles)
         if isinstance(host, OperatorAuthority):
-            if state.target.generation != generation_fence or (first_view and state.target.active != host.expected_handle):
+            if initiative_obligation is None and (state.target.generation != generation_fence
+                    or first_view and state.target.active != host.expected_handle):
                 raise c.Conflict("operator_fence_changed")
             subject = state.lookup_ticket(host.expected_handle)
-            if state.target.active != host.expected_handle and subject.state not in r.TERMINAL:
+            queued_here = False
+            if initiative_obligation is not None:
+                obligation = state.obligation(initiative_obligation)
+                if (subject.obligation_handle != initiative_obligation or obligation.current_ticket != subject.handle
+                        or obligation.repair_count or obligation.repair_owner is not None
+                        or subject.delivery_mode != "ordinary" or subject.guarded_refresh or subject.predecessor is not None
+                        or subject.requester_digest != r.requester_digest(state.target.repository, host.invocation.requester_id)):
+                    raise c.Conflict("initiative_advance_subject_changed")
+                queued_here = first_view and subject.state == r.State.QUEUED
+                if queued_here:
+                    assert generation_fence is not None
+                    generation_fence -= 1
+                if state.target.generation != generation_fence:
+                    raise c.Conflict("operator_fence_changed")
+                if queued_here and (state.target.active is not None or state.target.queue[:1] != (subject.handle,)):
+                    return Report("waiting", subject.handle, head, "initiative_candidate_slot_busy")
+            if state.target.active != host.expected_handle and subject.state not in r.TERMINAL and not queued_here:
                 raise c.Conflict("operator_subject_changed")
             terminal = subject if subject.state in r.TERMINAL else None
         else:
@@ -561,7 +643,7 @@ def advance(config: HostedConfig, host: Authority, host_port: QuiescencePort, ad
                 return Report(terminal.state.value, terminal.handle, head)
             continue
         if state.target.active is None:
-            if isinstance(host, OperatorAuthority):
+            if isinstance(host, OperatorAuthority) and initiative_obligation is None:
                 raise c.Conflict("operator_subject_not_active")
             if not state.target.queue:
                 return Report("idle", control_head=head)
