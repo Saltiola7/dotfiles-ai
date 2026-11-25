@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile hosted shadow result retention
+
+- Refresh PR #365 against the protected base while retaining the runner
+  isolation prerequisite and upstream partial-result handling. No managed
+  activation.
+
 ## 2026-11-25 — Provision the evidence sandbox in hosted shadow CI
 
 - Give the advisory affected job the same sandbox setup as the required
