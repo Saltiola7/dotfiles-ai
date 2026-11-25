@@ -23,35 +23,35 @@
       "id": "INT-001",
       "kind": "requirement",
       "text": "The full-suite workflow runs on GitHub-hosted Linux runners (ubuntu-24.04, x86_64). Partitions retain the complete collection across the shard map; the retired second worktrunk axis is not reintroduced.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": [".github/workflows/test.yml"]
     },
     {
       "id": "INT-002",
       "kind": "constraint",
       "text": "The same-attempt receipt verifier and aggregate lane-coverage checks are preserved unchanged; only full-run reruns can satisfy them.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": ["tests/ci_shard.py"]
     },
     {
       "id": "INT-003",
       "kind": "requirement",
       "text": "The uv setup step uses caching and a retry so a tool fetch cannot fail a partition before any test runs.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": [".github/workflows/test.yml"]
     },
     {
       "id": "INT-004",
       "kind": "decision",
       "text": "Branch-protection required contexts are replaced exactly once at cutover by the owner; strict require-up-to-date and enforce_admins are preserved. The cutover merge, the context replacement and the default-branch Linux-only verification are ordered together.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
     },
     {
       "id": "INT-005",
       "kind": "requirement",
       "text": "The durable qualification fixes land with the cutover so the new matrix starts green: the per-architecture codex wrapper fixture pin, the load-tolerant capture-latest timing bound, the widened smoke-benchmark runaway guard, and the completion-binding input_capture_unavailable triage with a defect fix or reasoned load tolerance.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": [
         "tests/test_portable_distribution.py",
         "tests/test_dbsctrctl.py",
@@ -63,20 +63,20 @@
       "id": "INT-006",
       "kind": "decision",
       "text": "PR #315 closes as superseded once its durable fixes are folded; its macOS-lane qualification is not completed.",
-      "disposition": "ready",
+      "disposition": "delivered",
       "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
     },
     {
       "id": "INT-007",
       "kind": "requirement",
-      "text": "A RHEL-family surface lane runs the RHEL-critical checks in redhat/ubi9 container jobs on hosted Linux runners: quadlet generation, systemd user-unit rendering and install-script behavior on affected changes.",
+      "text": "A RHEL-family surface lane runs the RHEL-critical checks in registry.access.redhat.com/ubi10/ubi container jobs on hosted Linux runners: quadlet generation, systemd user-unit rendering and install-script behavior on affected changes. UBI 10 is the only lane image, matching the container base image decision of the cross-repository RHEL remote-workspace Initiative.",
       "disposition": "ready",
       "artifacts": [".github/workflows/test.yml"]
     },
     {
       "id": "INT-008",
       "kind": "requirement",
-      "text": "An aarch64 parity lane covers ARM64 Linux hosts; the replacement workstation is aarch64 and the codex wrapper already ships linux-aarch64 assets.",
+      "text": "An aarch64 parity lane runs the full suite on GitHub's hosted arm64 Linux runner (ubuntu-24.04-arm, free for public repositories); the replacement workstation is aarch64 and the codex wrapper already ships linux-aarch64 assets.",
       "disposition": "ready",
       "artifacts": [".github/workflows/test.yml"]
     },
@@ -128,13 +128,34 @@
       "text": "Shared Linux runners contend under load; the folded timing bounds and runaway guards carry over and partitions are sized with headroom.",
       "disposition": "ready",
       "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    },
+    {
+      "id": "INT-016",
+      "kind": "decision",
+      "text": "Owner decision 2026-11-24: UBI 10 is the only image for the RHEL-family surface lane. An earlier draft named UBI 9, which disagreed with the container base image decision of the cross-repository RHEL remote-workspace Initiative and with the image the merged remote-user workflow already runs.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    },
+    {
+      "id": "INT-017",
+      "kind": "decision",
+      "text": "Discovery decision 2026-11-24, confirmed when the slice is launched: the aarch64 parity lane reports on every pull request but does not fail it, until the owner replaces the required-context set once more to include it. A new lane must not block merges before it has run green.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
+    },
+    {
+      "id": "INT-018",
+      "kind": "decision",
+      "text": "Discovery decision 2026-11-24: the two lanes live in their own workflow files. The full-suite workflow and its five required contexts stay exactly as the cutover left them, because the surface lane runs only on affected paths while the parity lane runs on every pull request.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/linux-ci-cutover/README.md"]
     }
   ],
   "slices": [
     {
       "id": "linux-matrix-rewrite",
       "context": "dbsctr_v3_lifecycle",
-      "state": "ready",
+      "state": "delivered",
       "execution_owner": "build",
       "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-013", "INT-014"],
       "depends_on": [],
@@ -150,7 +171,7 @@
     {
       "id": "qualification-fixes-fold",
       "context": "dbsctr_v3_lifecycle",
-      "state": "captured",
+      "state": "delivered",
       "execution_owner": "build",
       "requirements": ["INT-005", "INT-006", "INT-015"],
       "depends_on": ["linux-matrix-rewrite"],
@@ -165,14 +186,17 @@
     {
       "id": "rhel-surface-lanes",
       "context": "dotfiles_ai_distribution",
-      "state": "captured",
+      "state": "ready",
       "execution_owner": "build",
-      "requirements": ["INT-007", "INT-008", "INT-009", "INT-010", "INT-011"],
+      "requirements": ["INT-007", "INT-008", "INT-009", "INT-010", "INT-011", "INT-016", "INT-017", "INT-018"],
       "depends_on": ["linux-matrix-rewrite"],
       "release_group": "cutover",
       "artifacts": [
-        ".github/workflows/test.yml",
-        "docs/specs/dotfiles_ai_distribution/PROFILE.md"
+        ".github/workflows/rhel-surface.yml",
+        ".github/workflows/arm64-parity.yml",
+        "pyproject.toml",
+        "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+        "docs/specs/dotfiles_ai_distribution/features/rhel-surface-lanes.md"
       ]
     }
   ],
