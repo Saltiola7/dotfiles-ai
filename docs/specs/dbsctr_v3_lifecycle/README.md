@@ -1,5 +1,18 @@
 # DBSCTR V3 Lifecycle
 
+[Completion at verified merge](features/draft-merge-completion.md) specifies
+the plan-bound `draft_pr` contract, implemented in source: publication freezes
+the source and frees the checkout; a verified native merge can be recorded
+while delivery proof is pending. The coordinator consumes frozen publication
+rather than waiting for completion. A cycle uses it only when its approved plan
+binds the contract; v1 receipts remain the route for historical records.
+
+The same [Initiative handoff](../../initiatives/dbsctr-workflow-convergence/BUILD-HANDOFF.md#publication-and-evidence)
+sequences [isolated evidence commands](features/evidence-checkout-isolation.md),
+[section-scoped document authority](features/initiative-section-authority.md),
+[reconciled gate reuse](features/reconciled-gate-reuse.md) and
+[later-slice document declarations](features/deferred-discovery-documents.md).
+
 [Initiative Auto continuation](../../initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md)
 defines the private grant and execution contract. The source owner combines
 committed material and an enrolled target with a controller, native writer, and

@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile evidence reuse with verified merge
+
+- Retain both lifecycle changes on PR #363 and refresh the helper byte pin.
+  Verified that the reconciled CLI help pins are unchanged. No required CI
+  changes or managed activation.
+
 ## 2026-11-24 — Requalify evidence reuse CLI benchmarks
 
 - Reconcile PR #363 with protected `main` and refresh the benchmark's exact
@@ -16,6 +22,37 @@
 - Add a focused lifecycle check to the repository ownership table. Source
   delivery targets a draft PR to `main`; no managed installation, activation,
   hosted reuse, or change to required CI is included.
+
+## 2026-11-25 — Reconcile PR #358 with managed Initiative Auto source
+
+- Keep the managed Initiative publication deadline and pass the existing cycle
+  record to the shared outbox verifier. Refresh the helper benchmark pin.
+  No managed activation.
+
+## 2026-11-25 — Reconcile verified-merge publication with the protected base
+
+- Preserve the verified-merge and Initiative continuation contracts while
+  reconciling PR #358 with `main`. Refresh the helper benchmark pin for the
+  combined source. No managed activation.
+
+## 2026-11-24 — Completion at verified merge (PR-MERGE-001)
+
+- Add the plan-bound `verified_merge` contract for GitHub draft PR cycles. Final
+  Push freezes a publication snapshot, retains the published source and releases
+  only its own checkout pointer; the cycle waits in `awaiting_merge` instead of
+  completing at publication. A cycle uses it only when its approved plan selects
+  it. Other deliveries, historical records and v1 receipts keep their contracts.
+- Record native PR merges by exact cycle ID from any checkout as versioned merge
+  observations in the existing receipt sequence. Complete only on an exact-tree,
+  base-refresh or linked-follow-up proof, and read the stored state offline with
+  `status --cycle-id`. The integration coordinator binds its ticket to the frozen
+  publication and completes the cycle once from its verified outcome.
+- Validate with real Git and the synthetic GitHub boundary: 16 tests in
+  `tests/test_draft_merge_completion.py`, the affected lifecycle suites and the
+  full Python suite on the first tree reconciled with `main`. Later
+  documentation-only advances were validated with the document, publication and
+  lifecycle suites. Refresh the helper benchmark pin. Installed qualification
+  and live consumer recovery remain separate.
 
 ## 2026-11-24 — Verify separate Initiative source and control histories
 
