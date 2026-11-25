@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Admit evidence from a reconciliation merge
+
+- Bind a deleted path to its provable merge-side or merge-base predecessor
+  when it is already absent at HEAD. Historical absence evidence continues
+  to verify against its original source.
+- Admit regular repository-root `.dbsctr/` artifacts for evidence without
+  adding private files to commits or loosening other ignored-path checks.
+- Scope: the evidence writer and reader, focused regression cases and the
+  matching benchmark helper pin. No CI matrix changes or live deployment.
+
 ## 2026-11-24 — Forgejo protected merge adapter (FORGEJO-MERGE-PARITY)
 
 - Require a reserved candidate, qualified guard, native review and fresh CI
