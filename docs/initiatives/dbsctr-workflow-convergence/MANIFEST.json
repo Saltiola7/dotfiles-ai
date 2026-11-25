@@ -132,7 +132,7 @@
   ],
   "slices": [
     {
-      "id":"post-delivery-receipts","context":"dbsctr_v3_lifecycle","state":"ready","execution_owner":"build",
+      "id":"post-delivery-receipts","context":"dbsctr_v3_lifecycle","state":"delivered","execution_owner":"build",
       "requirements":["INT-002","INT-003","INT-085","INT-087","INT-088","INT-089","INT-095","INT-096","INT-097","INT-111","INT-112","INT-113","INT-114","INT-115","INT-116"],
       "depends_on":["completion-reconciliation-core"],
       "artifacts":["docs/initiatives/dbsctr-workflow-convergence/MANIFEST.json","docs/initiatives/dbsctr-workflow-convergence/README.md","docs/initiatives/dbsctr-workflow-convergence/BUILD-HANDOFF.md","docs/initiatives/dbsctr-workflow-convergence/CORE-SOURCE.plan.json","docs/specs/dbsctr_v3_lifecycle/PROFILE.md","docs/specs/dbsctr_v3_lifecycle/README.md","docs/specs/dbsctr_v3_lifecycle/features/post-delivery-receipts.md","docs/specs/dbsctr_v3_lifecycle/features/external-merge-completion.md","docs/specs/dbsctr_v3_lifecycle/features/workflow-completion-reconciliation.md","docs/specs/dbsctr_v3_lifecycle/features/workflow-evidence-bindings.md"],
@@ -292,7 +292,7 @@
     {"id":"cycle-retirement-rollout","context":"dotfiles_ai_distribution","state":"captured","execution_owner":"build","requirements":["INT-061","INT-064","INT-070","INT-071","INT-072","INT-073","INT-074","INT-075","INT-076"],"depends_on":["cycle-record-retirement","cycle-disposition-removal","cycle-retirement-journey"],"artifacts":["docs/specs/dotfiles_ai_distribution/features/cycle-retirement-rollout.md","docs/specs/dotfiles_ai_distribution/PRODUCT.md","docs/specs/opencode_control_plane/features/cycle-retirement-journey.md","docs/specs/dbsctr_v3_lifecycle/features/cycle-retirement-recovery.md","docs/initiatives/dbsctr-workflow-convergence/RETIREMENT-RECOVERY.md","docs/initiatives/dbsctr-workflow-convergence/RETIREMENT-ROLLOUT.plan.json"],"release_group":"retirement-recovery"}
   ],
   "release_groups": [
-    {"id":"post-delivery-receipts","members":["post-delivery-receipts"],"state":"ready"},
+    {"id":"post-delivery-receipts","members":["post-delivery-receipts"],"state":"delivered"},
     {"id":"post-publication-deferrals","members":["post-publication-deferrals"],"state":"planning"},
     {"id":"standalone-published-followup","members":["standalone-published-followup"],"state":"planning"},
     {"id":"retained-checkout-diagnostics","members":["retained-checkout-diagnostics"],"state":"planning"},

@@ -12,6 +12,14 @@
   existing approval compatibility and the protected source PR. Installed writer
   activation and the live restart demonstration remain separately qualified.
 
+## 2026-11-24 — Record two delivered slices
+
+- Mark `host-independent-tests` (pull request #348) and
+  `post-delivery-receipts` (pull request #346) `delivered` in their Initiative
+  manifests, each with its release group. `host-independent-validation` is
+  `complete`; INT-009 stays deferred to the OpenCode V2 migration.
+- Documentation only; no behavior changes. Draft PR to `main`.
+
 ## 2026-11-24 — Forgejo protected merge adapter (FORGEJO-MERGE-PARITY)
 
 - Require a reserved candidate, qualified guard, native review and fresh CI
