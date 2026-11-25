@@ -79,6 +79,39 @@ def test_writer_qualification_binds_native_service_process():
     assert service != replace(service, pid=4101)
 
 
+def test_numeric_loopback_transport_allows_only_the_exact_release_route(monkeypatch):
+    calls = []
+
+    class EmptyResponse:
+        status = 204
+
+        def read1(self, _size):
+            return b""
+
+    class Connection:
+        def __init__(self, host, port, *, timeout):
+            assert (host, port) == ("127.0.0.1", 43822)
+            assert timeout > 0
+
+        def request(self, method, path, *, body, headers):
+            calls.append((method, path, json.loads(body)))
+            assert headers["Authorization"].startswith("Basic ")
+
+        def getresponse(self):
+            return EmptyResponse()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(native.http.client, "HTTPConnection", Connection)
+    transport = native.LoopbackTransport(native.Qualification(SERVICE, 4100, VERSION, DIGEST), "fixture-only")
+    path = f"{SESSION}/inbox/{MID}"
+    assert transport.request("PATCH", path, {"delivery": "steer"}) == native.Response(204, None)
+    with pytest.raises(core.Invalid):
+        transport.request("PATCH", SESSION + "/inbox/invalid", {"delivery": "steer"})
+    assert calls == [("PATCH", path, {"delivery": "steer"})]
+
+
 @pytest.mark.parametrize("change", [{"pid": 4211}, {"version": "2.3.3"}, {"writer_digest": "b" * 64}])
 def test_witness_drift_blocks_all_native_requests(activation, change):
     transport = ScriptedTransport()

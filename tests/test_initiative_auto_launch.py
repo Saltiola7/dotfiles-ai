@@ -76,7 +76,8 @@ def test_auto_scope_failure_precedes_provider_authentication(launch, monkeypatch
                              auto_launch=RevokedScope())
 
 
-def test_managed_registration_records_exact_grant_and_session(launch, monkeypatch, capsys):
+@pytest.mark.parametrize("delivery_mode", ["draft_pr", "ordinary"])
+def test_managed_registration_records_exact_grant_and_session(launch, monkeypatch, capsys, delivery_mode):
     helper, fixture, _ = launch
     lifecycle = helper.integration_lifecycle_owner()
     from integration_coordinator import initiative_authority as authority
@@ -86,6 +87,12 @@ def test_managed_registration_records_exact_grant_and_session(launch, monkeypatc
     manifest = "docs/initiatives/test/MANIFEST.json"
     snapshot = helper.initiative_committed_snapshot(fixture.repo, manifest, ("slice-a",))
     root = helper.git(checkout, "rev-list", "--max-parents=0", "HEAD").stdout.strip()
+    operations = ("launch",)
+    if delivery_mode == "ordinary":
+        tree = helper.git(checkout, "rev-parse", "HEAD^{tree}").stdout.strip()
+        root = helper.git(checkout, "commit-tree", tree, "-m", "Orphan control root").stdout.strip()
+        assert helper.git(checkout, "merge-base", "--is-ancestor", root, "HEAD", check=False).returncode == 1
+        operations = ("launch", "admit", "merge")
     repository = {"provider": "github", "origin": "https://github.com", "repository": "example/test"}
     binding = {"repository": repository, "root_oid": root, "target_ref": "refs/heads/main",
                "policy_digest": "a" * 64, "enrollment_digest": "b" * 64, "controller_digest": "c" * 64,
@@ -93,21 +100,27 @@ def test_managed_registration_records_exact_grant_and_session(launch, monkeypatc
     clock = datetime.now(timezone.utc).replace(microsecond=0)
     proposal = authority.grant_proposal(snapshot, binding=binding, operator_id="owner",
         approved_at=(clock - timedelta(minutes=1)).isoformat(),
-        expires_at=(clock + timedelta(hours=1)).isoformat(), allowed_operations=("launch",), repair_limit=0)
+        expires_at=(clock + timedelta(hours=1)).isoformat(), allowed_operations=operations, repair_limit=0)
     custody = lifecycle.Custody(helper.common_git_dir(checkout).resolve())
     identity = authority.store_grant(custody, snapshot, proposal, expected_approval_digest=lifecycle.digest(proposal))
     policy = {"policy_digest": binding["policy_digest"], "enrollment_digest": binding["enrollment_digest"],
+              "delivery": {"role": "operator", "mode": delivery_mode},
               "coordinator": {"target_ref": binding["target_ref"], "remote_repository": repository["repository"]}}
     monkeypatch.setattr(helper, "integration_policy_snapshot", lambda _: policy)
     monkeypatch.setattr(helper, "initiative_delivery_preference", lambda _: "auto")
     monkeypatch.setattr(helper, "integration_birth_enrollment", lambda *_args, **_kwargs: None)
-    build = helper.ManagedInitiativeLaunch(identity, lambda: binding)
+    build = helper.ManagedInitiativeLaunch(identity, lambda: binding, delivery_mode=delivery_mode)
     policy["coordinator"]["target_ref"] = "refs/heads/unapproved"
     with pytest.raises(RuntimeError, match="enrollment is unavailable or changed"):
         helper.command_begin(helper.parser().parse_args([*fixture.launch_argv, "--preflight"]), auto_launch=build)
     policy["coordinator"]["target_ref"] = binding["target_ref"]
+    if delivery_mode == "ordinary":
+        draft = helper.ManagedInitiativeLaunch(identity, lambda: binding)
+        with pytest.raises(RuntimeError, match="repository binding changed"):
+            helper.command_begin(helper.parser().parse_args([*fixture.launch_argv, "--preflight"]), auto_launch=draft)
     helper.command_begin(helper.parser().parse_args([*fixture.launch_argv, "--preflight"]), auto_launch=build)
     preflight = json.loads(capsys.readouterr().out)
+    assert preflight["plan"]["integration_mode"] == delivery_mode
     target = controller.Target("https://github.com", "example/test", "refs/heads/main")
     approval = controller.Approval(identity, target, binding["controller_digest"], binding["writer_digest"],
                                    (controller.Slice("slice-a"),))
@@ -127,7 +140,7 @@ def test_managed_registration_records_exact_grant_and_session(launch, monkeypatc
         helper.command_begin(helper.parser().parse_args(argv), auto_launch=build)
     assert not record_path.exists()
     build = helper.ManagedInitiativeLaunch(identity, lambda: binding, Controller(),
-        activation_id=activation.activation_id, session_id=activation.session_id)
+        activation_id=activation.activation_id, session_id=activation.session_id, delivery_mode=delivery_mode)
     fetches = []
     fetch = helper.fetch_github_branch
 

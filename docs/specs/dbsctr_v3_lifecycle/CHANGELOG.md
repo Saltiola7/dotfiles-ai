@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Requalify evidence reuse CLI benchmarks
+
+- Reconcile PR #363 with protected `main` and refresh the benchmark's exact
+  helper and CLI help pins. Keep workloads, assertions, and required CI unchanged.
+
 ## 2026-11-24 — Reuse validation executions across gates
 
 - Preview affected checks with `dbsctrctl evidence-plan` and run missing or
@@ -11,6 +16,24 @@
 - Add a focused lifecycle check to the repository ownership table. Source
   delivery targets a draft PR to `main`; no managed installation, activation,
   hosted reuse, or change to required CI is included.
+
+## 2026-11-24 — Verify separate Initiative source and control histories
+
+- Verify the local-only GitHub coordinator against its native control ledger
+  before managed launch. Bind the task checkout independently to protected
+  `main` through exact Begin preflight.
+- Cover ordinary registration with an orphan control root and reject ledger
+  repository, branch, root and policy mismatches. Deliver on PR #362.
+
+## 2026-11-24 — Compose managed Initiative Auto
+
+- Add managed Start and Resume over the exact private approval and retained
+  journal. Park the native Build request until the controller registers Begin.
+- Use the existing GitHub coordinator's local-only enrollment to recheck the
+  same Initiative grant at protected admission and merge. Keep uncertain
+  effects eligible for native readback.
+- Validate the controlled composition and existing adapter contracts before
+  protected source delivery. Installed two-slice qualification remains separate.
 
 ## 2026-11-24 — Refresh Initiative continuation on the protected base
 

@@ -30,6 +30,14 @@ Build the versioned Initiative grant and per-slice activation in the existing co
 
 Exercise restart, replay, dependency inclusion, scope drift, expiry and revocation through controlled writer and forge interfaces. Preserve existing per-slice approval and the separate GitHub follow-up authorization. The source can reach a protected GitHub PR through the existing explicit Draft PR route. Auto activation requires the installed two-slice demonstration with the originating conversation closed and the controller restarted before the second launch.
 
+### Managed controller and writer composition
+
+Connect the merged grant, journal, writer and managed Begin components in one private runtime entry point. Start presents and records the exact approved scope. Resume opens the same private journal and rechecks its current authority before any new effect. Give the writer only an opaque activation reference. Bind it to the exact reserved native session and accepted first Build request before fresh cycle registration. A caller-supplied session ID is insufficient.
+
+Start with the existing GitHub coordinator and OpenCode v2 as the source target. Reuse the feature-branch publication path with explicitly enrolled ordinary protected integration for that target. Admission and merge each verify the current original Initiative grant, operation, target and approved material. Preserve review and required CI. A revoked, expired or drifted grant allows readback of an unresolved effect and blocks any new one. Keep repair disabled in the first fixture. CI recovery and its tally retain their own slice boundaries.
+
+Verify the composition through controlled writer and coordinator boundaries. The installed acceptance step uses one separately approved disposable private repository, two dependent slices, and a controller restart after the first verified landing. Require that the originating conversation is closed before the second slice launches. Activation and installed qualification remain separately scoped from this source delivery.
+
 ## Reconcile CI
 
 | Native evidence | Auto behavior | Operator sees |
@@ -114,14 +122,14 @@ flowchart LR
     G -->|Supplies bounded authority| C[Native durable controller]
     C -->|Authorizes exact slice launch| W[Qualified scoped Build writer]
     W -->|Admits exact obligation| I[Existing integration coordinator]
-    I -->|Submits fenced candidate| F[Forge protections and CI]
+    I -->|Rechecks grant and submits fenced candidate| F[Forge protections and CI]
     F -->|Returns native test and merge facts| I
     I -->|Returns authoritative receipts| C
     C -->|Publishes redacted progress| T[Initiative tally]
     T -->|Shows progress and next actions| O
 ```
 
-**Text Equivalent.** The operator approves a private reviewed snapshot. The grant bounds the durable controller’s authority for each exact launch. The scoped writer owns implementation and submits each exact obligation to the integration coordinator. The integration coordinator owns the fenced candidate and uses native forge protections and CI. It returns authoritative receipts to the controller. The controller projects redacted progress and next actions for the operator, and the private authority remains within its existing boundary.
+**Text Equivalent.** The operator approves a private reviewed snapshot. The grant bounds the durable controller’s authority for each exact launch. The scoped writer owns implementation and submits each exact obligation to the integration coordinator. The integration coordinator owns the fenced candidate, rechecks the grant before each new protected effect, and uses native forge protections and CI. It returns authoritative receipts to the controller. The controller projects redacted progress and next actions for the operator, and the private authority remains within its existing boundary.
 
 Canonical sources are this grant and controller contract and the linked integration coordinator contract. The Initiative execution owner updates the diagram when identity, authority, topology, or evidence moves between components.
 
