@@ -16,6 +16,7 @@ import stat
 import tempfile
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from .client import VerifiedOutcome
@@ -44,7 +45,18 @@ _FIELDS = {
     "outbox": "cycle_id record_digest source_digest obligation_digest ticket_handle requester_digest request",
     "validation_correction": "grant_digest obligation_digest predecessor_ticket expected_generation failure_digest source_digest revision_digest source_custody_digest scope_digest policy_digest remote_policy_digest enrollment_digest ledger_head statement assessed_at",
     "validation_outbox": "correction_digest obligation_digest predecessor_ticket ticket_handle request",
+    "initiative_snapshot": "schema_version initiative_id manifest_path source_commit selected slices",
+    "initiative_grant": "schema_version snapshot_digest binding operator_id approved_at expires_at allowed_operations repair_limit",
+    "initiative_revocation": "grant_digest reason_digest revoked_at",
+    "initiative_begin": "grant_digest activation_digest launch_digest cycle_id session_digest authorized_at",
 }
+
+_LINK_KINDS = frozenset({
+    "birth", "grant", "outbox", "outcome", "authorization", "revocation", "projection", "revision_link",
+    "outcome_check", "alignment_selection", "adoption", "validation_correction", "validation_outbox",
+    "initiative_revocation",
+})
+_INITIATIVE_OPERATIONS = frozenset({"launch", "admit", "merge", "repair"})
 
 
 def canonical(value: object) -> bytes:
@@ -102,9 +114,127 @@ def no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
+def initiative_repository(value: object) -> dict[str, object]:
+    identity = object_value(value)
+    if set(identity) != {"provider", "origin", "repository"}:
+        raise ValueError("initiative_repository_invalid")
+    provider = text(identity["provider"])
+    origin = text(identity["origin"], 270)
+    if provider not in {"github", "forgejo"} or re.fullmatch(r"https://[a-z0-9.-]+(?::[1-9][0-9]{0,4})?", origin) is None:
+        raise ValueError("initiative_repository_invalid")
+    parsed = urlsplit(origin)
+    hostname = parsed.hostname
+    if (not hostname or len(hostname) > 253 or parsed.port == 443
+            or any(re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", part) is None
+                   for part in hostname.split("."))
+            or provider == "github" and origin != "https://github.com"):
+        raise ValueError("initiative_repository_invalid")
+    core._repository(identity["repository"])
+    return identity
+
+
+def initiative_binding(value: object) -> dict[str, object]:
+    binding = object_value(value)
+    digests = {"policy_digest", "enrollment_digest", "controller_digest", "writer_digest", "qualification_digest"}
+    if set(binding) != digests | {"repository", "root_oid", "target_ref"}:
+        raise ValueError("initiative_binding_invalid")
+    for key in digests:
+        hex_value(binding[key])
+    binding["repository"] = initiative_repository(binding["repository"])
+    core._oid(binding["root_oid"])
+    ref = text(binding["target_ref"])
+    if not ref.startswith("refs/heads/"):
+        raise ValueError("initiative_target_invalid")
+    core._branch(ref.removeprefix("refs/heads/"))
+    return binding
+
+
+def initiative_slice_id(value: object) -> str:
+    identifier = text(value, 128)
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,127}", identifier) is None:
+        raise ValueError("initiative_slice_invalid")
+    return identifier
+
+
+def _initiative_slice_ids(value: object, minimum: int = 0) -> tuple[str, ...]:
+    if not isinstance(value, list) or not minimum <= len(value) <= 256:
+        raise ValueError("initiative_population_invalid")
+    result = tuple(initiative_slice_id(item) for item in value)
+    if len(set(result)) != len(result):
+        raise ValueError("initiative_population_invalid")
+    return result
+
+
+def _validate_initiative_snapshot(value: Mapping[str, object]) -> None:
+    initiative_slice_id(value["initiative_id"])
+    if re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]{0,127}/MANIFEST\.json",
+                    text(value["manifest_path"])) is None:
+        raise ValueError("initiative_manifest_path_invalid")
+    core._oid(value["source_commit"])
+    selected = _initiative_slice_ids(value["selected"], minimum=1)
+    slices = object_value(value["slices"])
+    if not 1 <= len(slices) <= 256:
+        raise ValueError("initiative_population_invalid")
+    dependencies: dict[str, tuple[str, ...]] = {}
+    for key, raw in slices.items():
+        item = object_value(raw)
+        if set(item) != {"scope_digest", "depends_on", "repository", "clear"} or type(item["clear"]) is not bool:
+            raise ValueError("initiative_scope_invalid")
+        hex_value(item["scope_digest"])
+        initiative_repository(item["repository"])
+        dependencies[initiative_slice_id(key)] = _initiative_slice_ids(item["depends_on"])
+    reached: set[str] = set()
+    visiting: set[str] = set()
+
+    def visit(key: str) -> None:
+        if key in reached:
+            return
+        if key in visiting:
+            raise ValueError("initiative_dependency_cycle")
+        if key not in dependencies:
+            raise ValueError("initiative_dependency_missing")
+        visiting.add(key)
+        for parent in dependencies[key]:
+            visit(parent)
+        visiting.remove(key)
+        reached.add(key)
+
+    for key in selected:
+        visit(key)
+    if reached != dependencies.keys():
+        raise ValueError("initiative_scope_outside_closure")
+
+
+def initiative_time(value: object) -> datetime:
+    return datetime.fromisoformat(timestamp(value).replace("Z", "+00:00"))
+
+
+def _validate_initiative_grant(value: Mapping[str, object]) -> None:
+    hex_value(value["snapshot_digest"])
+    initiative_binding(value["binding"])
+    text(value["operator_id"])
+    if initiative_time(value["approved_at"]) >= initiative_time(value["expires_at"]):
+        raise ValueError("initiative_grant_expiry_invalid")
+    operations = string_list(value["allowed_operations"])
+    if len(set(operations)) != len(operations) or set(operations) - _INITIATIVE_OPERATIONS:
+        raise ValueError("initiative_grant_operation_invalid")
+    repair_limit = value["repair_limit"]
+    core._integer(repair_limit, minimum=0)
+    if ("repair" in operations) != (repair_limit != 0):
+        raise ValueError("initiative_grant_repair_limit_invalid")
+
+
 def validate(kind: str, value: Mapping[str, object]) -> None:
     if kind not in _FIELDS or set(value) != set(_FIELDS[kind].split()):
         raise ValueError("integration_private_fields_invalid")
+    if kind in {"initiative_snapshot", "initiative_grant"}:
+        if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+            raise ValueError("initiative_schema_invalid")
+        if kind == "initiative_snapshot":
+            _validate_initiative_snapshot(value)
+        else:
+            _validate_initiative_grant(value)
+        return
     for key, item in value.items():
         if kind == "revision" and key in {"prior_revision_digest", "qualified_projection_digest", "authorization_digest", "adoption_digest"} and item is None:
             continue
@@ -306,14 +436,14 @@ class Custody:
         return value
 
     def link(self, kind: str, key: str, identity: str) -> None:
-        if kind not in {"birth", "grant", "outbox", "outcome", "authorization", "revocation", "projection", "revision_link", "outcome_check", "alignment_selection", "adoption", "validation_correction", "validation_outbox"} or re.fullmatch(
+        if kind not in _LINK_KINDS or re.fullmatch(
                 r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", key) is None:
             raise ValueError("integration_private_link_invalid")
         self.read(kind, identity)
         self._write(self.directory / "links" / kind / (key + ".json"), canonical({"digest": identity}))
 
     def linked(self, kind: str, key: str) -> dict[str, object]:
-        if kind not in {"birth", "grant", "outbox", "outcome", "authorization", "revocation", "projection", "revision_link", "outcome_check", "alignment_selection", "adoption", "validation_correction", "validation_outbox"} or re.fullmatch(
+        if kind not in _LINK_KINDS or re.fullmatch(
                 r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", key) is None:
             raise ValueError("integration_private_link_invalid")
         value = object_value(json.loads(self._read(self.directory / "links" / kind / (key + ".json")),
@@ -324,7 +454,7 @@ class Custody:
 
     def optional_link(self, kind: str, key: str) -> dict[str, object] | None:
         """Only genuine link absence is optional; dangling custody is an error."""
-        if kind not in {"birth", "grant", "outbox", "outcome", "authorization", "revocation", "projection", "revision_link", "outcome_check", "alignment_selection", "adoption", "validation_correction", "validation_outbox"} or re.fullmatch(
+        if kind not in _LINK_KINDS or re.fullmatch(
                 r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", key) is None:
             raise ValueError("integration_private_link_invalid")
         path = self.directory / "links" / kind / (key + ".json")
