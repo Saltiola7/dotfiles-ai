@@ -59,15 +59,36 @@ def test_approved_policy_capture_is_immutable_and_private(initiative, capsys, mo
     assert sys.executable not in output
 
 
-def test_input_drift_retains_original_execution_but_no_binding(initiative, capsys):
+def test_candidate_rewrite_retains_failed_evidence_but_no_binding(initiative, capsys):
     program = [sys.executable, "-c", "from pathlib import Path; Path('tracked.txt').write_text('changed'); print('passed')"]
     core, target, path, program = register_policy(initiative, capsys, program=program)
-    with pytest.raises(RuntimeError, match="binding unavailable"):
+    original = (target / "tracked.txt").read_bytes()
+    with pytest.raises(RuntimeError, match="checkout_candidate_modified"):
         capture(core, program)
     record = core.read_cycle_record(target, path)
-    assert record["gates"]["domain"]["result"] == "passed"  # Actual executed child, not applicability credit.
+    gate = record["gates"]["domain"]
+    assert gate["result"] == record["evidence"]["items"][gate["evidence"]]["result"] == "failed"
     assert not record["evidence"].get("bindings")
-    assert (target / "tracked.txt").read_text() == "changed"
+    assert (target / "tracked.txt").read_bytes() == original
+
+
+def test_source_drift_after_validator_start_is_unavailable(initiative, capsys, monkeypatch):
+    core, target, path, program = register_policy(initiative, capsys)
+    original_popen = core.subprocess.Popen
+
+    def change_source_after_start(args, *positional, **kwargs):
+        process = original_popen(args, *positional, **kwargs)
+        if isinstance(args, list) and args[-len(program):] == program and "--seccomp" in args:
+            (target / "tracked.txt").write_text("separate writer\n")
+        return process
+
+    monkeypatch.setattr(core.subprocess, "Popen", change_source_after_start)
+    with pytest.raises(RuntimeError, match="checkout_input_drift"):
+        capture(core, program)
+    record = core.read_cycle_record(target, path)
+    assert record["gates"]["domain"]["result"] == "unavailable"
+    assert not record["evidence"].get("bindings")
+    assert (target / "tracked.txt").read_text() == "separate writer\n"
 
 
 def test_invocation_mismatch_does_not_execute_or_mint_binding(initiative, capsys):

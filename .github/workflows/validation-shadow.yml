@@ -79,6 +79,24 @@ jobs:
           tar -xzf "$RUNNER_TEMP/chezmoi.tar.gz" -C "$install_dir"
           "$install_dir/chezmoi" --version | grep -q "chezmoi version v$version"
           echo "$install_dir" >> "$GITHUB_PATH"
+      - name: Provision evidence isolation on the test runner
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y bubblewrap libseccomp2
+          /usr/bin/bwrap --version
+          probe() {
+            /usr/bin/bwrap --unshare-user --disable-userns --unshare-pid \
+              --unshare-net --unshare-ipc --die-with-parent --cap-drop ALL \
+              --ro-bind / / --proc /proc --dev /dev -- /bin/true
+          }
+          if ! probe; then
+            # Use Ubuntu's confined profile on this ephemeral runner only.
+            sudo apt-get install --no-install-recommends -y apparmor-profiles apparmor-utils
+            profile=/usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+            test -f "$profile"
+            sudo apparmor_parser --add "$profile"
+            probe
+          fi
       - name: Plan affected validation
         id: plan
         env:
