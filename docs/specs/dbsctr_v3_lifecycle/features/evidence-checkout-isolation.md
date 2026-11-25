@@ -25,6 +25,16 @@ Use the existing [evidence bindings](workflow-evidence-bindings.md) and gate
 transitions. No installation or new runner service follows from this source
 contract. Old envelopes retain their historical meaning.
 
+The Linux source implementation requires a non-setuid, system-owned
+`/usr/bin/bwrap`, libseccomp, and host policy that permits the required
+namespaces. It does not change host policy or fall back to the live checkout.
+The validator runs with a read-only host view, an isolated network and PID
+namespace, and writable private scratch. Host Unix sockets are unavailable.
+This is write isolation, not a confidentiality boundary for files the caller
+can already read. Use scratch for generated output and tools that need a
+writable cache. Ignored files are not copied into the candidate. Unsupported
+index or file layouts are refused rather than approximated.
+
 ## Visual Evidence
 
 Boundary, interaction and data/trust: **required**, the table identifies the

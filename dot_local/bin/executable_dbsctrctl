@@ -8,6 +8,8 @@ import concurrent.futures
 import configparser
 import contextlib
 import contextvars
+import ctypes
+import errno
 import fcntl
 import fnmatch
 import functools
@@ -21,6 +23,7 @@ import re
 import selectors
 import signal
 import shutil
+import socket
 import sqlite3
 import stat
 import subprocess
@@ -19548,6 +19551,160 @@ def evidence_path_blobs(root, paths, index=False, commit=None):
     return result
 
 
+def evidence_checkout_snapshot(root, destination=None, *, verified_template=False):
+    """Capture native Git views and the nonignored working overlay without checkout filters."""
+    def read_git(*arguments):
+        return inspect_git_bytes(root, "-c", "core.fsmonitor=false", *arguments)
+
+    common = common_git_dir(root).resolve()
+    work_git = git_dir(root).resolve()
+    if git(root, "rev-parse", "--shared-index-path").stdout.strip():
+        fail("evidence checkout does not support a split index")
+    head = git(root, "rev-parse", "--verify", "HEAD").stdout.strip()
+    refs = read_git("for-each-ref", "--format=%(objectname) %(refname)%00%(symref)")
+    index_entries = read_git("ls-files", "--stage", "-z")
+    if any(not entry.startswith((b"100644 ", b"100755 ")) for entry in index_entries.split(b"\0") if entry):
+        fail("evidence checkout requires regular tracked files")
+    index = work_git / "index"
+    names = set(read_git("ls-files", "--cached", "--others", "--exclude-standard", "-z").split(b"\0"))
+    names.discard(b"")
+    if len(names) > 16384 or len(refs) > 4 * 1024 * 1024:
+        fail("evidence checkout exceeds inventory bounds")
+    metadata = {"HEAD": work_git / "HEAD", "index": index}
+    settings = {}
+    for name in ("core.filemode", "core.ignorecase", "core.symlinks"):
+        result = git(root, "config", "--bool", "--get", name, check=False)
+        if result.returncode not in (0, 1):
+            fail("evidence checkout Git settings unavailable")
+        settings[name] = result.stdout.strip() if result.returncode == 0 else None
+    for name in ("info/exclude", "info/attributes"):
+        if os.path.lexists(common / name):
+            metadata[name] = common / name
+    state = {}
+    total = 0
+
+    def capture(directory, name, target):
+        nonlocal total
+        try:
+            with evidence_input_descriptor(directory, name) as descriptor:
+                before = os.fstat(descriptor)
+                if not stat.S_ISREG(before.st_mode) or before.st_size > 32 * 1024 * 1024:
+                    fail("evidence checkout requires bounded regular files")
+                with os.fdopen(os.dup(descriptor), "rb") as stream:
+                    data = stream.read(32 * 1024 * 1024 + 1)
+                after = os.fstat(descriptor)
+        except FileNotFoundError:
+            return None
+        if (before.st_size != len(data) or before.st_mtime_ns != after.st_mtime_ns
+                or before.st_ctime_ns != after.st_ctime_ns):
+            fail("evidence checkout changed during capture")
+        total += len(data)
+        if total > 256 * 1024 * 1024:
+            fail("evidence checkout exceeds byte bound")
+        mode = stat.S_IMODE(before.st_mode)
+        if mode & 0o7000:
+            fail("evidence checkout does not support privileged file modes")
+        if target is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("xb") as output:
+                output.write(data)
+            target.chmod(mode)
+        return mode, hashlib.sha256(data).hexdigest()
+
+    if destination is not None:
+        destination.mkdir()
+        git(destination, "init", "--quiet", "--template=", "--object-format="
+            + git(root, "rev-parse", "--show-object-format").stdout.strip())
+        if "\n" in str(common):
+            fail("evidence checkout has an unsupported object directory")
+        (destination / ".git/objects/info/alternates").write_text(str(common / "objects") + "\n")
+        direct = []
+        for line in refs.splitlines():
+            entry, symbolic = line.split(b"\0", 1)
+            if symbolic:
+                name = entry.split(b" ", 1)[1]
+                git(destination, "symbolic-ref", os.fsdecode(name), os.fsdecode(symbolic))
+            else:
+                direct.append(entry + b"\n")
+        (destination / ".git/packed-refs").write_bytes(b"".join(direct))
+        for name, value in settings.items():
+            if value is None:
+                git(destination, "config", "--local", "--unset-all", name, check=False)
+            else:
+                git(destination, "config", "--local", name, value)
+        (destination / ".git/HEAD").unlink()
+    for name, source in metadata.items():
+        identity = capture(source.parent, source.name, destination / ".git" / name if destination else None)
+        if identity is None:
+            fail("evidence Git metadata unavailable")
+        state[".git/" + name] = identity
+    for raw in sorted(names):
+        name = raw.decode("utf-8")
+        parts = name.split("/")
+        if (any(part in {"", ".", ".."} or part.lower() in (*SECRET_NAMES, ".git", ".env")
+                or part.lower().startswith(".env.") and not (verified_template and name == ".env.template")
+                for part in parts)
+                or PurePosixPath(name).suffix.lower() in {".key", ".pem"}):
+            fail("evidence checkout contains an unsupported or private path")
+        state[name] = capture(root, name, destination / name if destination else None)
+    return head, refs, state, settings
+
+
+def evidence_sandbox_filter(stream):
+    """Prevent writable host service channels despite read-only filesystem mounts."""
+    class Comparison(ctypes.Structure):
+        _fields_ = [("arg", ctypes.c_uint), ("op", ctypes.c_int),
+                    ("datum_a", ctypes.c_uint64), ("datum_b", ctypes.c_uint64)]
+
+    compiler = ctypes.CDLL("libseccomp.so.2")
+    signatures = {
+        "seccomp_init": (ctypes.c_void_p, [ctypes.c_uint32]),
+        "seccomp_release": (None, [ctypes.c_void_p]),
+        "seccomp_syscall_resolve_name": (ctypes.c_int, [ctypes.c_char_p]),
+        "seccomp_rule_add_array": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int,
+                                                 ctypes.c_uint, ctypes.POINTER(Comparison)]),
+        "seccomp_export_bpf": (ctypes.c_int, [ctypes.c_void_p, ctypes.c_int]),
+    }
+    for name, (result_type, argument_types) in signatures.items():
+        function = getattr(compiler, name)
+        function.restype, function.argtypes = result_type, argument_types
+    handle = compiler.seccomp_init(0x7FFF0000)  # SCMP_ACT_ALLOW
+    if not handle:
+        fail("evidence isolation filter unavailable")
+    try:
+        for syscall, comparison in (
+            (b"socket", Comparison(0, 4, socket.AF_UNIX, 0)),  # SCMP_CMP_EQ
+            (b"io_uring_setup", None),
+        ):
+            number = compiler.seccomp_syscall_resolve_name(syscall)
+            if number == -1 or compiler.seccomp_rule_add_array(
+                handle, 0x00050000 | errno.EPERM, number, int(comparison is not None),
+                ctypes.byref(comparison) if comparison is not None else None,
+            ) != 0:
+                fail("evidence isolation filter unavailable")
+        if compiler.seccomp_export_bpf(handle, stream.fileno()) != 0:
+            fail("evidence isolation filter unavailable")
+    finally:
+        compiler.seccomp_release(handle)
+
+
+def evidence_sandbox_arguments(scratch):
+    # Select a host tool, not a branch/caller-selected PATH entry.
+    backend = Path("/usr/bin/bwrap")
+    try:
+        info = backend.stat()
+    except OSError:
+        fail("evidence checkout isolation backend unavailable")
+    if sys.platform != "linux" or info.st_uid != 0 or info.st_mode & 0o6022:
+        fail("evidence checkout isolation backend unavailable")
+    return [
+        str(backend), "--unshare-user", "--disable-userns", "--unshare-pid",
+        "--unshare-net", "--unshare-ipc", "--die-with-parent", "--cap-drop", "ALL",
+        "--ro-bind", "/", "/", "--proc", "/proc", "--dev", "/dev",
+        "--bind", str(scratch), str(scratch),
+    ]
+
+
 def command_record_evidence(args):
     root = root_dir()
     authority = evidence_text(args.authority, 128, "authority")
@@ -19567,6 +19724,7 @@ def command_record_evidence(args):
         declaration = policy["gates"].get(args.gate) if policy else None
         binding_before, binding_after, runtime_identity, output_path = None, None, None, None
         binding_error, child_environment = None, None
+        runtime_capture = False
         if declaration:
             child_environment = dict(os.environ)
             child_environment.pop("DBSCTR_EVIDENCE_OUTPUT", None)
@@ -19580,21 +19738,59 @@ def command_record_evidence(args):
                     if "runtime" in declaration:
                         if local_only_cycle(record):
                             fail("runtime capture requires an online qualified cycle")
-                        directory = capture.enter_context(tempfile.TemporaryDirectory(
-                            prefix=".binding-capture-", dir=cycle_dir(root) / "evidence" / record["cycle_id"]))
-                        output_path = Path(directory) / "identity.json"
-                        descriptor = os.open(output_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-                        os.close(descriptor)
-                        child_environment["DBSCTR_EVIDENCE_OUTPUT"] = str(output_path)
+                        runtime_capture = True
                 except (RuntimeError, OSError, ValueError, KeyError, UnicodeError):
                     binding_error = "input_capture_unavailable"
+        sandbox_error, missing_authority = None, False
+        if binding_error is None:
+            try:
+                scratch = Path(capture.enter_context(tempfile.TemporaryDirectory(
+                    prefix="dbsctr-evidence-", dir="/tmp")))
+                sandbox = evidence_sandbox_arguments(scratch)
+                candidate = scratch / "checkout"
+                verified_template = verified_upstream_template(root, ".env.template") if os.path.lexists(root / ".env.template") else False
+                original = evidence_checkout_snapshot(root, candidate, verified_template=verified_template)
+                if (evidence_checkout_snapshot(candidate, verified_template=verified_template) != original
+                        or verified_template and not verified_upstream_template(root, ".env.template")
+                        or evidence_path_blobs(root, args.path or []) != path_blobs
+                        or evidence_checkout_snapshot(root, verified_template=verified_template) != original):
+                    fail("evidence checkout was not reproduced")
+                child_environment = dict(os.environ) if child_environment is None else child_environment
+                child_environment = {key: value for key, value in child_environment.items()
+                                     if key not in GIT_REPOSITORY_REDIRECTS and not key.startswith("GIT_CONFIG_")}
+                child_environment.update(GIT_OPTIONAL_LOCKS="0", GIT_NO_LAZY_FETCH="1",
+                                         TMPDIR=str(scratch / "tmp"))
+                (scratch / "tmp").mkdir()
+                child_environment.pop("DBSCTR_EVIDENCE_OUTPUT", None)
+                if runtime_capture:
+                    output_path = scratch / "runtime.json"
+                    output_path.touch(mode=0o600, exist_ok=False)
+                    child_environment["DBSCTR_EVIDENCE_OUTPUT"] = str(output_path)
+                policy_file = capture.enter_context(tempfile.TemporaryFile(dir=scratch))
+                evidence_sandbox_filter(policy_file)
+                policy_fd = policy_file.fileno()
+                policy_file.seek(0)
+                launch = [*sandbox, "--ro-bind", str(candidate / ".git"), str(candidate / ".git"),
+                          "--seccomp", str(policy_fd), "--chdir", str(candidate), "--"]
+                probe = subprocess.run([*launch, sys.executable, "-I", "-B", "-c",
+                                       "import shutil, sys; sys.exit(0 if shutil.which(sys.argv[1]) else 65)",
+                                       argv[0]], cwd=scratch, env=child_environment,
+                                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL, pass_fds=(policy_fd,), timeout=5)
+                missing_authority = probe.returncode == 65
+                if probe.returncode and not missing_authority:
+                    fail("evidence checkout isolation probe failed")
+                policy_file.seek(0)
+            except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired):
+                sandbox_error = "checkout_isolation_unavailable"
         started, observed, cutoff, start_error = now(), 0, None, False
         raw = bytearray()
         try:
-            if binding_error:
+            if binding_error or sandbox_error or missing_authority:
                 raise OSError("evidence binding precondition unavailable")
-            process = subprocess.Popen(argv, cwd=root, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, shell=False, start_new_session=True, env=child_environment)
+            process = subprocess.Popen([*launch, *argv], cwd=scratch, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, shell=False, start_new_session=True,
+                                       env=child_environment, pass_fds=(policy_fd,))
             selector = selectors.DefaultSelector()
             selector.register(process.stdout, selectors.EVENT_READ)
             deadline = datetime.now(timezone.utc).timestamp() + args.timeout
@@ -19637,6 +19833,17 @@ def command_record_evidence(args):
             start_error, process = True, None
         finished = now()
         result = "unavailable" if start_error or cutoff else "passed" if process.returncode == 0 else "failed"
+        if not start_error and not cutoff:
+            try:
+                if (verified_template and not verified_upstream_template(root, ".env.template")
+                        or evidence_checkout_snapshot(root, verified_template=verified_template) != original):
+                    sandbox_error = "checkout_input_drift"
+                elif evidence_checkout_snapshot(candidate, verified_template=verified_template) != original:
+                    sandbox_error = "checkout_candidate_modified"
+            except (RuntimeError, OSError, ValueError):
+                sandbox_error = "checkout_verification_unavailable"
+            if result == "passed" and sandbox_error:
+                result = "failed" if sandbox_error == "checkout_candidate_modified" else "unavailable"
         if declaration and binding_before is not None and result == "passed":
             try:
                 binding_after = evidence_binding_snapshot(root, declaration, comparison_key, cycle_id=record["cycle_id"],
@@ -19654,7 +19861,7 @@ def command_record_evidence(args):
         content, retained = ({"status": "withheld", "reason": cutoff or "start_failed"}, None) if (cutoff or start_error) else safe_output(bytes(raw))
         envelope = {"id": "ev-" + uuid.uuid4().hex, "gate": args.gate, "authority": authority,
                     "argv": sanitized, "paths": path_blobs,
-                    "head": git(root, "rev-parse", "HEAD").stdout.strip(),
+                    "head": original[0] if not start_error else git(root, "rev-parse", "HEAD").stdout.strip(),
                     "started_at": started, "finished_at": finished, "result": result,
                     "raw": {"byte_count": observed, "lower_bound": bool(cutoff), "truncated": bool(cutoff)},
                     "summary": "passed" if result == "passed" else "failed" if result == "failed" else "unavailable", "urls": []}
@@ -19682,6 +19889,8 @@ def command_record_evidence(args):
             fail("record changed during evidence execution; execution retained privately")
         save(path, record)
         print(evidence_id)
+        if sandbox_error:
+            fail("evidence isolation: " + sandbox_error)
         if binding_error:
             fail("evidence binding unavailable: " + binding_error)
 

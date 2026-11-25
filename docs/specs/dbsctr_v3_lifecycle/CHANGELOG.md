@@ -1,5 +1,53 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile Forgejo Auto with evidence isolation
+
+- Reconcile PR #364 with protected main at `b910f609`. Preserve both
+  lifecycle changes and refresh the CLI benchmark pin for the combined helper.
+
+## 2026-11-25 — Reconcile hosted shadow result retention
+
+- Refresh PR #365 against the protected base while retaining the runner
+  isolation prerequisite and upstream partial-result handling. No managed
+  activation.
+
+## 2026-11-25 — Provision the evidence sandbox in hosted shadow CI
+
+- Give the advisory affected job the same sandbox setup as the required
+  partitions before it runs lifecycle tests. Keep checks and runner policy
+  unchanged; no managed activation.
+
+## 2026-11-25 — Refresh evidence isolation on the protected base
+
+- Reconcile PR #365 with the hosted shadow render-tool fix. Keep the evidence
+  sandbox and full-suite checks unchanged. No managed activation.
+
+## 2026-11-25 — Reconcile evidence isolation with hosted validation shadow
+
+- Refresh PR #365 against the protected base. Preserve both the sandbox
+  prerequisite and the independent shadow workflow. No managed activation.
+
+## 2026-11-25 — Qualify Ubuntu runner namespace policy
+
+- If the hosted runner denies sandbox setup, load Ubuntu's packaged confined
+  Bubblewrap profile and require the same probe to pass. Do not replace
+  an existing profile or change the global namespace restriction.
+
+## 2026-11-25 — Qualify hosted evidence isolation
+
+- Provision the Ubuntu sandbox dependencies in the existing test shards.
+  Require namespace setup and the real descendant and formatter regressions
+  before the full partitions. No host policy changes or fallback.
+
+## 2026-11-25 — Isolate evidence checkout writes
+
+- Run `record-evidence` in a private candidate with separately captured index
+  and working overlay. Keep the real checkout and Git state read-only to the
+  validator and its descendants; refuse when capture or isolation is unavailable.
+- Fail successful commands that modified candidate inputs, and refuse passing
+  evidence when the original inputs drift. Keep runtime output and evidence
+  custody separate. No managed activation.
+
 ## 2026-11-25 — Reconcile Forgejo Auto with validation budget
 
 - Reconcile PR #364 with protected main at `16020b6`, preserving the

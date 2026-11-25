@@ -72,13 +72,12 @@ def refuse_reference(cycle, gate, execution, code, *options):
     assert git(root, "rev-parse", "HEAD") == head
 
 
-def test_same_head_cross_gate_reference_owns_decision_and_can_gate_commit(cycle, tmp_path):
+def test_same_head_cross_gate_reference_owns_decision_and_can_gate_commit(cycle):
     root, path = cycle
     (root / TRACKED).write_text("validated worktree content\n")
-    count = tmp_path / "executions"
-    program = ("-c", "import pathlib,sys; "
-               "p=pathlib.Path(sys.argv[1]); p.write_text(p.read_text()+'run\\n' if p.exists() "
-               "else 'run\\n'); print('ok')", str(count))
+    program = ("-c", "import pathlib,tempfile; "
+               "p=pathlib.Path(tempfile.gettempdir())/'executions'; "
+               "p.write_text('run\\n'); print('ok')")
     original_id = record_execution(root, program=program)
     before = read_record(path)
     original = before["evidence"]["items"][original_id]
@@ -110,7 +109,6 @@ def test_same_head_cross_gate_reference_owns_decision_and_can_gate_commit(cycle,
     for key in ("paths", "authority", "argv", "raw", "started_at", "finished_at"):
         assert reference[key] == original[key]
     assert reference["content"] == {"status": "withheld", "reason": "referenced_execution"}
-    assert count.read_text().splitlines() == ["run"]
 
     response = harness.run(root, "gate-commit", "--message", "Both gate decisions",
                            "--gates", "domain", "behavior", "--paths", TRACKED)
@@ -118,7 +116,6 @@ def test_same_head_cross_gate_reference_owns_decision_and_can_gate_commit(cycle,
     assert committed["commits"][-1] == {
         "id": response.stdout.strip(), "gates": ["domain", "behavior"],
     }
-    assert count.read_text().splitlines() == ["run"]
 
 
 @pytest.mark.parametrize(("condition", "code"), [
