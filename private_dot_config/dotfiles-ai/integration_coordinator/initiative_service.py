@@ -8,7 +8,8 @@ import json
 from pathlib import Path, PurePosixPath
 import re
 
-from . import core, initiative_authority as authority, initiative_controller as controller, lifecycle as l
+from . import core, initiative_authority as authority, initiative_controller as controller, initiative_forgejo as forgejo_fixture
+from . import lifecycle as l
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,9 +27,10 @@ class SliceRecipe:
 class RuntimeRecipe:
     authority_checkout: Path
     manifest_path: str
-    github_account: str
+    github_account: str | None
     writer_agent: str
     slices: tuple[SliceRecipe, ...]
+    forgejo: forgejo_fixture.Fixture | None = None
 
     def slice(self, identifier: str) -> SliceRecipe:
         for item in self.slices:
@@ -38,9 +40,11 @@ class RuntimeRecipe:
 
     @property
     def digest(self) -> str:
-        return l.digest({"schema_version": 1, "authority_checkout": str(self.authority_checkout),
-                         "manifest_path": self.manifest_path, "github_account": self.github_account,
-                         "writer_agent": self.writer_agent, "slices": [asdict(item) for item in self.slices]})
+        provider = ({"schema_version": 1, "github_account": self.github_account} if self.forgejo is None
+                    else {"schema_version": 2, "forgejo": self.forgejo.digest})
+        return l.digest({**provider, "authority_checkout": str(self.authority_checkout),
+                         "manifest_path": self.manifest_path, "writer_agent": self.writer_agent,
+                         "slices": [asdict(item) for item in self.slices]})
 
 
 def _portable_path(value: object) -> str:
@@ -63,8 +67,10 @@ def read_recipe(custody: l.Custody) -> RuntimeRecipe:
     """Read only the repository's fixed owner-only runtime recipe."""
     raw = custody._read(custody.directory / "initiative-runtime.json")
     value = l.object_value(json.loads(raw, object_pairs_hook=l.no_duplicates))
-    if (set(value) != {"schema_version", "authority_checkout", "manifest_path", "github_account", "writer_agent", "slices"}
-            or type(value["schema_version"]) is not int or value["schema_version"] != 1):
+    version = value.get("schema_version")
+    common = {"schema_version", "authority_checkout", "manifest_path", "writer_agent", "slices"}
+    if type(version) is not int or version not in {1, 2} or set(value) != common | {
+            "github_account" if version == 1 else "forgejo"}:
         raise ValueError("initiative_recipe_invalid")
     checkout = Path(l.text(value["authority_checkout"], 4096))
     if (not checkout.is_absolute() or checkout != checkout.resolve() or checkout.as_posix() != value["authority_checkout"]):
@@ -72,9 +78,17 @@ def read_recipe(custody: l.Custody) -> RuntimeRecipe:
     manifest = _portable_path(value["manifest_path"])
     if re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]{0,127}/MANIFEST\.json", manifest) is None:
         raise ValueError("initiative_recipe_manifest_invalid")
-    account = l.text(value["github_account"], 39)
-    if re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", account) is None:
-        raise ValueError("initiative_recipe_account_invalid")
+    account = None
+    fixture = None
+    if version == 1:
+        account = l.text(value["github_account"], 39)
+        if re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", account) is None:
+            raise ValueError("initiative_recipe_account_invalid")
+    else:
+        try:
+            fixture = forgejo_fixture.parse_fixture(value["forgejo"])
+        except (TypeError, ValueError, core.Invalid, core.Conflict):
+            raise ValueError("initiative_recipe_forgejo_invalid") from None
     agent = l.text(value["writer_agent"], 64)
     if agent not in {"build", "build-gpt", "build-claude"}:
         raise ValueError("initiative_recipe_writer_invalid")
@@ -96,7 +110,7 @@ def read_recipe(custody: l.Custody) -> RuntimeRecipe:
                                   _portable_path(item["plan_path"]), l.hex_value(item["plan_digest"])))
     if len({item.branch for item in slices}) != len(slices) or len({item.cycle_id for item in slices}) != len(slices):
         raise ValueError("initiative_recipe_slice_duplicate")
-    return RuntimeRecipe(checkout, manifest, account, agent, tuple(slices))
+    return RuntimeRecipe(checkout, manifest, account, agent, tuple(slices), fixture)
 
 
 def bind_recipe(recipe: RuntimeRecipe, native_binding: dict) -> dict:
@@ -125,7 +139,9 @@ class StartPreview:
         return {"schema_version": 1, "approval_digest": self.approval_digest, "grant_digest": self.grant_digest,
                 "confirmation": self.confirmation, "scope": self.snapshot, "proposal": self.proposal,
                 "recipe_digest": self.recipe.digest, "authority_checkout": str(self.recipe.authority_checkout),
-                "github_account": self.recipe.github_account, "writer_agent": self.recipe.writer_agent,
+                **({"github_account": self.recipe.github_account} if self.recipe.forgejo is None else
+                   {"forgejo_fixture_digest": self.recipe.forgejo.digest}),
+                "writer_agent": self.recipe.writer_agent,
                 "slice_plans": [asdict(self.recipe.slice(identifier)) for identifier in self.snapshot["selected"]]}
 
 
@@ -173,8 +189,14 @@ class InitiativeService:
         if snapshot["manifest_path"] != recipe.manifest_path or snapshot["selected"] != list(selected):
             raise ValueError("initiative_recipe_scope_changed")
         binding = bind_recipe(recipe, self.live_binding(recipe))
-        if (binding["repository"]["provider"] != "github"
-                or any("refs/heads/" + item.branch == binding["target_ref"] for item in chosen)):
+        fixture = recipe.forgejo
+        repository = binding["repository"]
+        target_matches = (repository["provider"] == "github" if fixture is None else
+                          (repository, binding["target_ref"], binding["root_oid"], binding["policy_digest"],
+                           binding["enrollment_digest"]) ==
+                          (fixture.repository, fixture.target_ref, fixture.root_oid, fixture.plan.policy_digest,
+                           fixture.digest))
+        if not target_matches or any("refs/heads/" + item.branch == binding["target_ref"] for item in chosen):
             raise ValueError("initiative_recipe_target_invalid")
         proposal = authority.grant_proposal(snapshot, binding=binding, operator_id=operator_id,
                                             approved_at=approved_at, expires_at=expires_at,
@@ -227,7 +249,7 @@ class InitiativeService:
             if active is not None and (active.state, active.activation.activation_id) == (report.state, report.activation_id):
                 try:
                     self.protected_tick(recipe, active.activation)
-                except (core.Unavailable, core.Conflict, core.Ambiguous, OSError):
+                except (core.Unavailable, core.Conflict, core.Ambiguous, core.Invalid, OSError):
                     return controller.Report("uncertain", report.slice_id, report.activation_id,
                                              "initiative_protected_step_unverified")
         return report
