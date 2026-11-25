@@ -26,10 +26,11 @@ INSTRUCTIONS = [
 ]
 PORTABLE = ["uv", "run", "--frozen", "--no-sync", "pytest", "tests/test_continuous_validation.py", "tests/test_continuous_validation_feedback.py", "tests/test_continuous_validation_dagger.py", "tests/test_continuous_validation_identity.py", "tests/test_continuous_validation_activation.py", "tests/test_dotfiles_validation_adapter.py", "-q"]
 ADAPTER_TESTS = [*UV, "pytest", "tests/test_continuous_validation_dotfiles_adapter.py", "tests/test_dotfiles_validation_adapter.py", "-q"]
+LIFECYCLE_TESTS = [*UV, "pytest", "tests/test_dbsctrctl.py", "tests/test_evidence_reuse.py", "-q"]
 TRIGGERS = ("edit", "affected", "checkpoint", "manual")
 BASES = ("affected", "broad", "full")
 OWNERSHIP = "validation-ownership.json"
-OWNERSHIP_DIGEST = "be04ff568b52acb1b4b4961ea856dc8dab75671bc411ea9372ad5f876ed251ab"
+OWNERSHIP_DIGEST = "63c40ce2111c918b873dfde1f8edd2f8fcfa3cc92f440e310fa35e19268d8e07"
 OWNERSHIP_FIELDS = {"schema_version", "components", "dependencies", "broad_check_ids"}
 # Changed paths that select the broad set even when a later table maps them.
 ALWAYS_BROAD = (".github/workflows/**", ".github/actions/**", "uv.lock", "pyproject.toml",
@@ -132,6 +133,7 @@ def describe(config=None):
         ("dotfiles.syntax", "cheap", "native", {**native, "python": platform.python_version()}, 60, {"kind": "syntax"}),
         ("dotfiles.instructions", "cheap", "native", native, 180, {"argv": INSTRUCTIONS}),
         ("dotfiles.adapter", "cheap", "native", native, 600, {"argv": ADAPTER_TESTS}),
+        ("dotfiles.lifecycle", "cheap", "native", native, 600, {"argv": LIFECYCLE_TESTS}),
         ("dotfiles.full", "expensive", "native", native, 2700, {"argv": [*UV, "pytest", "--maxfail=1"]}),
         ("dotfiles.portable", "expensive", "dagger", _lane(pins.get("python_version", "3.14"), config), 600, {"argv": PORTABLE}),
     ]

@@ -72,8 +72,9 @@ lands.
 
 - Given an active cycle in a worktree with an enabled validation enrollment
 - When `dbsctrctl validate [--check ID ...] [--json]` runs
-- Then the lifecycle delegates one `validate` request to the managed owner for
-  the repository's `affected` selection, or only for the named checks
+- Then the lifecycle uses the managed owner's affected preview when no checks
+  are named and delegates at most one `validate` request for the remaining
+  affected checks, or only for the named checks
 - And stores one receipt per observation that executed to `passed` or `failed`
 - And prints the status, the failed test identities and the receipt identifiers
 - And exits `0` when every executed check passed, `1` when one failed and `2`
@@ -209,10 +210,21 @@ names the transport.
 | `evidence-plan [--gate ...] [--path ...] [--check ...] [--json]` | Read-only reconciliation of reusable, missing and stale work |
 | `evidence-export --head REV --output FILE [--check ...]` | Writes the validation manifest for one committed head |
 
-`validate` reaches execution only through the existing managed-owner selection
-and its delegation boundary. `validate` and `applicability` are new actions on
-that boundary; the existing enrollment and checkpoint actions are unchanged,
-and an owner that cannot perform an action never changes a lifecycle result.
+The lifecycle uses only the [managed-owner boundary](../../continuous_validation/features/shift-left-affected-validation.md#managed-owner-extension-for-evidence-reuse)
+for preview, execution and snapshot applicability. Preview does not run checks
+or persist runner state. When `validate` uses preview to omit reusable checks,
+the owner must verify the preview's content and selection pin before executing
+the remainder. If the pin changed, return a classified unavailable result;
+never count omitted checks as reused against different content. An empty
+remainder executes nothing. Explicitly named checks still use the existing
+affected request semantics.
+
+The lifecycle admits only complete receipt metadata returned for an observation
+from its own request. It never fills missing fields from the current worktree or
+reads the runner's private store. For receipt references it asks applicability
+to verify the requested paths' membership in the captured inventory. An older
+owner that cannot provide the new information does not grant reuse credit;
+existing enrollment and checkpoint actions remain unchanged.
 
 | Record location | Addition | Compatibility |
 |---|---|---|
@@ -265,25 +277,34 @@ sequenceDiagram
   participant A as Agent
   participant L as Lifecycle
   participant O as Managed owner
-  A->>L: validate
-  L->>O: validate (affected selection)
-  O-->>L: Observations
+  A->>L: validate (no named checks)
+  L->>O: Preview affected selection
+  O-->>L: Selected checks and content/selection pin
+  opt Missing or stale checks
+    L->>O: validate (remaining checks and preview pin)
+    O-->>L: Request-bound observations and receipt metadata
+  end
   L->>L: Store receipts
   L-->>A: Status, failed test identities, receipt identifiers
   A->>A: Repair and repeat until passed
   A->>L: evidence-plan --gate G
   L-->>A: Reusable executions and missing work
   A->>L: reference-evidence G --of RECEIPT --path ...
+  L->>O: Verify snapshot applicability and path membership
+  O-->>L: Current scope and path membership
   L->>L: Write reference item, apply the gate transition
   A->>L: gate-commit --gates G --paths ...
 ```
 
-**Text Equivalent:** The agent asks the lifecycle to validate. The lifecycle
-delegates to the managed owner, stores receipts and returns the status with
-failed test identities. The agent repairs and repeats until the checks pass.
+**Text Equivalent:** The agent asks the lifecycle to validate without naming
+checks. The owner previews selection and pins its content and selection. The
+lifecycle requests only missing or stale checks, with that pin, and stores
+receipts from the request-bound observations. It returns the status with failed
+test identities. The agent repairs and repeats until the checks pass.
 Before a gate the agent asks for the plan, sees which executions are reusable
 and which work is missing, references the passing receipt for that gate, and
-then commits the gate. The check is executed once. Canonical source: the
+then commits the gate. The owner verifies snapshot applicability and path
+membership before the lifecycle admits the reference. Canonical source: the
 behavior sections above. Owner: lifecycle maintainer. Update trigger: a change
 to command order or to who stores receipts.
 
@@ -383,6 +404,8 @@ Build first adds a failing regression for each row, then implements.
 |---|---|
 | `validate` on an enrolled task | One receipt per executed observation; no gate, counter or commit changes |
 | `validate` with an admissible receipt | The check is not executed again and is reported `reused` |
+| Source changes after preview | A differing pin refuses the partial request; omitted checks are not reported as reused for the changed content |
+| Older or incomplete managed owner | No receipt or reuse credit is inferred from missing facts; direct evidence keeps working |
 | One execution, several gates | One reference item per gate and one execution; each gate decision is separate |
 | Reference after an earlier Gate Commit | A receipt whose content is unchanged stays referenceable and passes Gate Commit at the new head; an evidence item from another head is refused with `evidence_head_advanced` unless a retained binding is inherited |
 | Each refusal rule | The classified code; the record is unchanged |
@@ -400,7 +423,11 @@ reference, then record only missing work), `tests/test_dbsctrctl.py`, a new
 `tests/test_evidence_reuse.py`, this document, the lifecycle README and
 CHANGELOG. The delivery also adds the repository ownership-table entry for the
 lifecycle helper and the tests that own it, with a selection fixture, so that a
-helper change selects those tests instead of the broad obligation.
+helper change selects those tests instead of the broad obligation. The managed
+boundary extension is limited to `private_dot_config/dotfiles-ai/continuous_validation/cli.py`,
+its shared selection and execution support in `runner.py`,
+`tests/test_continuous_validation_managed_owner.py`, and the affected-validation
+feature specification. It changes no installation, enrollment, or hosted CI.
 
 Use the existing affected pytest modules, Python compilation of the helper and
 the configured publication and instruction checks. Full-suite CI remains the

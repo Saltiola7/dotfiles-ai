@@ -416,7 +416,7 @@ def selected_name(name, patterns):
             and matches(name, patterns))
 
 
-def inventory(worktree, patterns, *, content=True):
+def inventory(worktree, patterns, *, content=True, omit_unsupported=False):
     paths = git(worktree, "ls-files", "--cached", "--others", "--exclude-standard", "-z").split(b"\0")
     entries = {}
     total = 0
@@ -435,8 +435,12 @@ def inventory(worktree, patterns, *, content=True):
             continue
         item = source.lstat()
         if source.is_symlink():
+            if omit_unsupported:
+                continue
             raise ValidationError("source_symlink_unsupported")
         if not stat.S_ISREG(item.st_mode) or not source.resolve().is_relative_to(worktree.resolve()):
+            if omit_unsupported:
+                continue
             raise ValidationError("source_kind_unsupported")
         total += item.st_size
         if len(entries) >= MAX_FILES or total > MAX_SOURCE:
@@ -1023,7 +1027,7 @@ def summarize(observations, pending):
 
 def _validate_request(request):
     closed(request, {"schema_version", "enrollment", "trigger"},
-           {"schema_version", "enrollment", "trigger", "request_id", "checkpoint_head", "checks"})
+           {"schema_version", "enrollment", "trigger", "request_id", "checkpoint_head", "checks", "selection_pin"})
     if not isinstance(request["trigger"], str) or request["trigger"] not in TRIGGERS:
         raise ValidationError("invalid_trigger")
     if "checkpoint_head" in request and (
@@ -1036,6 +1040,9 @@ def _validate_request(request):
             or any(not isinstance(item, str) or not ID.fullmatch(item) for item in request["checks"])
             or len(set(request["checks"])) != len(request["checks"])):
         raise ValidationError("invalid_checks")
+    if "selection_pin" in request and (request["trigger"] != "affected"
+            or not isinstance(request["selection_pin"], str) or not DIGEST.fullmatch(request["selection_pin"])):
+        raise ValidationError("invalid_selection_pin")
 
 
 def request_record_base(request, enrollment_digest, kind):
@@ -1053,7 +1060,7 @@ def validate_request_result(value, request_id, observations, *, completed):
     required = {"schema_version", "request_id", "status", "pending_checks", "advisory", "new_execution"}
     timing = {"preparation_seconds", "preparation_queue_seconds", "elapsed_seconds"}
     source = {"snapshot_id", "generation", "selection_complete", *timing}
-    allowed = required | (source if completed else {"selection_complete"}) | {"error_code"}
+    allowed = required | (source | {"receipt_context"} if completed else {"selection_complete"}) | {"error_code"}
     if (not isinstance(value, dict) or not required <= value.keys() or value.keys() - allowed
             or type(value["schema_version"]) is not int or value["schema_version"] != 1
             or value["request_id"] != request_id or value["advisory"] is not True
@@ -1076,6 +1083,18 @@ def validate_request_result(value, request_id, observations, *, completed):
             if (type(value[name]) not in {int, float} or value[name] < 0
                     or value[name] > sys.float_info.max
                     or type(value[name]) is float and not math.isfinite(value[name])):
+                raise ValidationError("request_journal_invalid")
+        if "receipt_context" in value:
+            context = value["receipt_context"]
+            fields = {"head", "base", "adapter", "basis", "content_digest", "selection_digest"}
+            closed(context, fields, fields)
+            closed(context["adapter"], {"id", "digest"}, {"id", "digest"})
+            identifier(context["adapter"]["id"])
+            if (context["basis"] not in BASES
+                    or any(not isinstance(context[name], str)
+                           or not re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", context[name]) for name in ("head", "base"))
+                    or any(not isinstance(item, str) or not DIGEST.fullmatch(item)
+                           for item in (context["adapter"]["digest"], context["content_digest"], context["selection_digest"]))):
                 raise ValidationError("request_journal_invalid")
     elif (observations or value["status"] not in {"unavailable", "interrupted", "pending"}
           or value.get("selection_complete", False) is not False or "error_code" not in value):
@@ -1177,6 +1196,13 @@ def replay_request_record(state, request, enrollment, record):
     if digest([item["id"] for item in refs]) != record["observation_order_digest"]:
         raise ValidationError("request_journal_invalid")
     result = validate_request_result(record["result"], request["request_id"], observations, completed=True)
+    context = result.get("receipt_context")
+    if context is not None and (context["head"] != record["head"] or context["content_digest"] != record["files_digest"]
+            or context["adapter"]["digest"] != enrollment["adapter_digest"]):
+        raise ValidationError("request_journal_invalid")
+    if "selection_pin" in request and (context is None
+            or git(root, "rev-parse", "--verify", enrollment["base"] + "^{commit}").decode().strip() != context["base"]):
+        raise ValidationError("request_source_changed")
     return {**result, "coalesced_with": request["request_id"], "new_execution": False}
 
 
@@ -1206,6 +1232,104 @@ def minimal_observation(identity, check, state, *, executed=False):
             "resource_metrics": "unavailable", "dagger_cache_metrics": "unavailable"}
 
 
+def generation_path(enrollment):
+    return Path(enrollment["state_dir"]) / ("current-" + digest({
+        "repository": enrollment["repository_id"], "worktree": enrollment["worktree"]}) + ".json")
+
+
+def prepare_selection(enrollment, state, *, detached_describe=False):
+    root = Path(enrollment["worktree"])
+    description_files = None
+    if detached_describe:
+        # Before the manifest declares the capture scope, describe may read
+        # repository inputs (for example lockfiles for a lane descriptor).
+        # Supply bounded regular source files in a disposable cwd, not live Git.
+        with tempfile.TemporaryDirectory(prefix="validation-describe-", dir=state) as folder:
+            describe_root = Path(folder)
+            description_files = inventory(root, ["**"], omit_unsupported=True)
+            adapter = description_files.get(enrollment["adapter"], {})
+            if adapter.get("sha256") != enrollment["adapter_digest"]:
+                raise ValidationError("adapter_identity_changed")
+            for name, metadata in description_files.items():
+                target = describe_root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with no_alias(root / name).open("rb") as stream:
+                    data = stream.read(metadata["size"] + 1)
+                if hashlib.sha256(data).hexdigest() != metadata["sha256"]:
+                    raise Interrupted("source_changed")
+                target.write_bytes(data)
+                target.chmod(0o555 if metadata["executable"] else 0o444)
+            manifest = validate_manifest(adapter_call(enrollment, "describe", {"schema_version": 1}, describe_root, state))
+    else:
+        manifest = validate_manifest(adapter_call(enrollment, "describe", {"schema_version": 1}, root, state))
+    patterns = list(dict.fromkeys([*manifest["input_patterns"], enrollment["adapter"]]))
+    snapshot = capture_snapshot(root, patterns, state, enrollment["base"])
+    adapter = snapshot["files"].get(enrollment["adapter"], {})
+    if adapter.get("sha256") != enrollment["adapter_digest"]:
+        raise ValidationError("adapter_identity_changed")
+    if (description_files is not None
+            and {name: item for name, item in description_files.items() if selected_name(name, patterns)} != snapshot["files"]):
+        raise Interrupted("source_changed")
+    return manifest, patterns, snapshot
+
+
+def adapter_selection(enrollment, trigger, manifest, snapshot, state, cancel=lambda: False):
+    selection = adapter_call(enrollment, "select", {
+        "schema_version": 1, "snapshot": snapshot["path"], "base": snapshot["base"],
+        "trigger": trigger, "changed_paths": snapshot["changed_paths"],
+    }, Path(snapshot["path"]), state, cancel)
+    closed(selection, {"schema_version", "checks", "reason", "complete"},
+           {"schema_version", "checks", "reason", "complete", "basis"})
+    checks = {check["id"] for check in manifest["checks"]}
+    if (not isinstance(selection["checks"], list) or len(selection["checks"]) > len(checks)
+            or any(not isinstance(item, str) or item not in checks for item in selection["checks"])
+            or len(set(selection["checks"])) != len(selection["checks"])
+            or type(selection["complete"]) is not bool
+            or selection.get("basis", "full") not in BASES):
+        raise ValidationError("invalid_selection")
+    text(selection["reason"])
+    return selection
+
+
+def selection_pin(enrollment_digest, snapshot, manifest, selection):
+    return digest({"enrollment": enrollment_digest, "snapshot": snapshot["id"],
+                   "trigger": "affected", "manifest": manifest, "selection": selection})
+
+
+def receipt_context(enrollment, snapshot, manifest, selection):
+    return {"head": snapshot["head"], "base": snapshot["original_base"],
+            "adapter": {"id": manifest["adapter_id"], "digest": enrollment["adapter_digest"]},
+            "basis": selection.get("basis", "full"), "content_digest": digest(snapshot["files"]),
+            "selection_digest": digest(selection)}
+
+
+def preview_selection(enrollment_path, stored):
+    """Select against a disposable snapshot; do not claim admission or publish records."""
+    enrollment_digest = digest(stored)
+    enrollment = validate_enrollment(stored)
+    if not enrollment["enabled"]:
+        raise ValidationError("enrollment_inactive")
+    if not cycle_open(enrollment):
+        raise ValidationError("enrolled_task_closed")
+    current = generation_path(enrollment)
+    generation_token(current)
+    root = Path(enrollment["worktree"])
+    with tempfile.TemporaryDirectory(prefix="validation-selection-") as folder:
+        state = Path(folder).resolve()
+        manifest, patterns, snapshot = prepare_selection(enrollment, state, detached_describe=True)
+        selection = adapter_selection(enrollment, "affected", manifest, snapshot, state)
+        if (digest(read_private(Path(enrollment_path))) != enrollment_digest or not cycle_open(enrollment)
+                or inventory(root, patterns) != snapshot["files"]
+                or inventory(Path(snapshot["path"]), patterns) != snapshot["files"]
+                or git(root, "rev-parse", "HEAD").decode().strip() != snapshot["head"]
+                or git(root, "rev-parse", "--verify", enrollment["base"] + "^{commit}").decode().strip() != snapshot["original_base"]):
+            raise Interrupted("superseded")
+        generation_token(current)
+        return {**receipt_context(enrollment, snapshot, manifest, selection), "checks": selection["checks"],
+                "snapshot_id": snapshot["id"],
+                "selection_pin": selection_pin(enrollment_digest, snapshot, manifest, selection)}
+
+
 def _run_request(request):
     _validate_request(request)
     request_id = identifier(request.get("request_id", uuid.uuid4().hex))
@@ -1223,7 +1347,7 @@ def _run_request(request):
             raise ValidationError("observation_retention_limit")
     started = time.monotonic()
     root = Path(enrollment["worktree"])
-    current = state / ("current-" + digest({"repository": enrollment["repository_id"], "worktree": str(root)}) + ".json")
+    current = generation_path(enrollment)
     expected_generation = generation_token(current)
     generation = 1 if expected_generation is None else expected_generation["generation"] + 1
     admitted = False
@@ -1234,9 +1358,7 @@ def _run_request(request):
                 or generation_token(current) != expected_generation)
     with budget.slot("cheap", preparation_canceled, enrollment["admission_timeout_seconds"]) as preparation_queue_seconds:
         preparation_started = time.monotonic()
-        manifest = validate_manifest(adapter_call(enrollment, "describe", {"schema_version": 1}, root, state))
-        patterns = list(dict.fromkeys([*manifest["input_patterns"], enrollment["adapter"]]))
-        snapshot = capture_snapshot(root, patterns, state, enrollment["base"])
+        manifest, patterns, snapshot = prepare_selection(enrollment, state, detached_describe="selection_pin" in request)
         _require_checkpoint_head(request, root, snapshot["head"])
         if inventory(root, patterns) != snapshot["files"]:
             raise Interrupted("superseded")
@@ -1266,18 +1388,14 @@ def _run_request(request):
             cancel_state["canceled"] = True
             return True
     _require_checkpoint_head(request, root, snapshot["head"])
-    selection = adapter_call(enrollment, "select", {"schema_version": 1, "snapshot": snapshot["path"], "base": snapshot["base"], "trigger": request["trigger"], "changed_paths": snapshot["changed_paths"]}, Path(snapshot["path"]), state, cancel)
-    closed(selection, {"schema_version", "checks", "reason", "complete"},
-           {"schema_version", "checks", "reason", "complete", "basis"})
+    selection = adapter_selection(enrollment, request["trigger"], manifest, snapshot, state, cancel)
+    repository_selection = selection
     checks = {check["id"]: check for check in manifest["checks"]}
-    if (not isinstance(selection["checks"], list) or any(not isinstance(item, str) for item in selection["checks"])
-            or len(set(selection["checks"])) != len(selection["checks"])
-            or any(identifier(item) not in checks for item in selection["checks"])
-            or type(selection["complete"]) is not bool
-            # An absent basis means the complete obligation for adapters that predate it.
-            or selection.get("basis", "full") not in BASES):
-        raise ValidationError("invalid_selection")
-    text(selection["reason"], 4096)
+    if "selection_pin" in request:
+        if request["selection_pin"] != selection_pin(enrollment_source_digest, snapshot, manifest, selection):
+            raise ValidationError("selection_changed")
+        if not set(request.get("checks", ())) <= set(selection["checks"]):
+            raise ValidationError("selection_mismatch")
     if "checks" in request:
         # The caller names what to run; the adapter's execute still decides each check is admissible.
         if any(item not in checks for item in request["checks"]):
@@ -1308,9 +1426,15 @@ def _run_request(request):
                         execution_seconds=sys.float_info.max)
         validate_observation(fallback)
         identities[check_id] = identity
-    if (preparation_canceled() or not cycle_open(enrollment) or inventory(root, patterns) != snapshot["files"]
-            or git(root, "rev-parse", "HEAD").decode().strip() != snapshot["head"]):
+    if preparation_canceled() or not cycle_open(enrollment):
         raise Interrupted("superseded")
+    if (inventory(root, patterns) != snapshot["files"]
+            or git(root, "rev-parse", "HEAD").decode().strip() != snapshot["head"]):
+        raise Interrupted("selection_changed" if "selection_pin" in request else "superseded")
+    if "selection_pin" in request and (
+            inventory(Path(snapshot["path"]), patterns) != snapshot["files"]
+            or git(root, "rev-parse", "--verify", enrollment["base"] + "^{commit}").decode().strip() != snapshot["original_base"]):
+        raise Interrupted("selection_changed")
     reserve_observations(state, current, expected_generation, list(identities.values()), request_id, snapshot["id"])
     admitted = True
     observations = []
@@ -1331,6 +1455,7 @@ def _run_request(request):
         result = None
         queued = 0.0
         executed = False
+        started_at = None
         execution_seconds = 0.0
         check_started = time.monotonic()
         start_observation(state, identity)
@@ -1347,9 +1472,12 @@ def _run_request(request):
                 result["reused_from"] = result["id"]
                 result["original_elapsed_seconds"] = result["elapsed_seconds"]
                 result["original_at"] = result["at"]
+                result.pop("started_at", None)
             else:
                 with budget.slot(check["class"], cancel, enrollment["admission_timeout_seconds"], lambda: pressure(enrollment)) as queued:
                     executed = True
+                    if request["trigger"] == "affected":
+                        started_at = now()
                     execution_started = time.monotonic()
                     try:
                         if check_id == "pr-agent-review":
@@ -1402,6 +1530,8 @@ def _run_request(request):
                   "elapsed_seconds": time.monotonic() - check_started, "execution_seconds": execution_seconds,
                   "at": now(), "log_path": str(log_path),
                   "advisory": True, "resource_metrics": "unavailable", "dagger_cache_metrics": "unavailable"}
+        if started_at is not None:
+            result["started_at"] = started_at
         try:
             validate_observation(result)
         except (ValidationError, ValueError, TypeError):
@@ -1442,6 +1572,10 @@ def _run_request(request):
               "selection_complete": selection["complete"], "preparation_seconds": preparation_seconds,
               "preparation_queue_seconds": preparation_queue_seconds,
               "elapsed_seconds": time.monotonic() - started, "advisory": True, "new_execution": True}
+    if request["trigger"] == "affected":
+        # The wire identity describes the repository obligation. The private
+        # observation digest still records the actual requested subset.
+        result["receipt_context"] = receipt_context(enrollment, snapshot, manifest, repository_selection)
     write_private(state / "requests" / (request_id + ".json"),
                   completed_request_record(state, request, enrollment_source_digest, patterns, snapshot, result))
     best_effort_event(state, {"type": "finished", "request_id": request_id, "snapshot_id": snapshot["id"], "status": result["status"]})
@@ -1645,7 +1779,7 @@ def validate_observation(value, *, legacy=False):
                 "diagnostic_codes", "executed", "cache_reused", "queue_seconds", "elapsed_seconds",
                 "execution_seconds", "at", "log_path", "advisory", "resource_metrics", "dagger_cache_metrics"}
     reuse_fields = {"reused_from", "original_elapsed_seconds", "original_at"}
-    closed(value, required, required | reuse_fields | {"feedback"})
+    closed(value, required, required | reuse_fields | {"feedback", "started_at"})
     for name in ("id", "request_id", "check_id"):
         identifier(value[name])
     for name in ("snapshot_id", "manifest_digest", "selection_digest", "cache_key"):
@@ -1696,13 +1830,16 @@ def validate_observation(value, *, legacy=False):
         if name in value and (type(value[name]) not in {int, float} or value[name] < 0
                               or type(value[name]) is float and not math.isfinite(value[name])):
             raise ValidationError("invalid_observation_timing")
-    for name in ("at", "original_at"):
+    for name in ("at", "original_at", "started_at"):
         if name in value:
             try:
                 if datetime.fromisoformat(text(value[name], 128)).tzinfo is None:
                     raise ValueError()
             except ValueError:
                 raise ValidationError("invalid_observation_timestamp") from None
+    if "started_at" in value and (not value["executed"]
+            or datetime.fromisoformat(value["started_at"]) > datetime.fromisoformat(value["at"])):
+        raise ValidationError("invalid_observation_timestamp")
     if not Path(text(value["log_path"])).is_absolute():
         raise ValidationError("invalid_observation_log")
     for name in ("resource_metrics", "dagger_cache_metrics"):
