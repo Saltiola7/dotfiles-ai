@@ -160,6 +160,30 @@ def test_only_exact_tagged_native_session_absence_is_observed(activation):
         assert len(transport.calls) == 1
 
 
+@pytest.mark.parametrize("changed", [
+    pytest.param({"agent": "plan"}, id="plan"),
+    pytest.param({"location": {"directory": "/fixture/qualified/sibling"}}, id="wrong-worktree"),
+])
+def test_dispatch_rechecks_session_identity_before_sending_prompt(activation, changed):
+    transport = ScriptedTransport(
+        ("POST", "/api/session", session()),
+        ("GET", SESSION, session()),
+        ("GET", SESSION, session(**changed)),
+    )
+    adapter = writer(transport)
+    assert adapter.create_session(activation).checkout == CHECKOUT
+
+    with pytest.raises(core.Ambiguous, match="opencode_session_identity_unconfirmed"):
+        adapter.dispatch(activation)
+
+    assert transport.calls == [
+        ("POST", "/api/session", {"id": SID, "agent": AGENT, "location": {"directory": CHECKOUT}}),
+        ("GET", SESSION, None),
+        ("GET", SESSION, None),
+    ]
+    assert transport.steps == []
+
+
 def test_dispatch_admits_one_fixed_native_queue_prompt(activation):
     transport = ScriptedTransport(("GET", SESSION, session()), ("POST", SESSION + "/prompt",
         native.Response(200, {"data": {"id": MID, "sessionID": SID, **inbox()}})))
