@@ -3,7 +3,7 @@
 ## Authority and behavior
 
 Initiative `worktrunk-upgrade`, slice `workstation-upgrade`, statements INT-001
-to INT-015, INT-019 and INT-020
+to INT-015 and INT-019 to INT-021
 ([ledger](../../../initiatives/worktrunk-upgrade/MANIFEST.json)). Risk is
 elevated: it changes installer ownership, activation identity and the CI
 matrix. Delivery intent is merge, followed by an owner-run deployment on the
@@ -48,24 +48,20 @@ overwrite. The upgrade is therefore an owner-run procedure on the workstation
 (INT-005), in a window when no other session is registering a cycle or
 creating a worktree (INT-007):
 
-1. Record the starting state: `wt --version` prints `wt v0.80.0`, and the
-   private activation file exists and binds that version.
-2. Move the installed `wt` aside without deleting it. This is the rollback
-   binary.
-3. Copy the activation file aside. This is the rollback activation.
-4. Apply dotfiles-ai. The installer downloads, checks the checksum, asserts
-   `wt v0.83.0` exactly, and the guards change in the same apply.
-5. Remove the private activation file and run
-   `workflow-policy initialize-default-home`. The new snapshot binds
-   `wt v0.83.0` (INT-006).
-6. Verify as listed under Validation.
-
-Given any failed step, restore the rollback binary and the rollback
-activation. The workstation is then exactly as before.
-
-Between steps 4 and 5 new worktrees are refused, because the activation
-records `wt v0.80.0` (INT-013). Existing worktrees stay reachable throughout;
-only allocation pauses.
+1. Verify the starting binary and its activation both identify v0.80.0.
+   Review the configured root and repository overrides.
+2. Preserve and verify the rollback set before switching: the exact binary,
+   private activation and policy document (including modes). Identify the
+   previous managed source revision; retain any locally owned settings.
+3. Set the old binary and activation aside. Do not substitute a different
+   provider on PATH. New allocations pause; existing checkouts remain.
+4. Apply the reviewed source in a terminal. The installer verifies the
+   v0.83.0 archive and executable. On an eligible default-home workstation
+   the activation step now sees no old activation and binds the new version
+   once. A hand-made policy document needs its owner's reviewed replacement.
+5. Verify as listed below. If a step refuses, stop. Restore the three
+   preimages and the previous managed configuration as applicable; verify
+   the original version, activation and working allocation before resuming.
 
 ### Worktree policy on a Linux workstation
 
@@ -77,16 +73,24 @@ script exits. The result is a Worktrunk setup that can never allocate.
 - Given a Linux workstation with `linux_workstation.enabled`, an explicit
   apply renders the worktree policy document (INT-008). `.chezmoiignore`
   un-ignores it for either flag; no configuration key is added.
-- Given the same workstation, the apply runs
-  `workflow-policy initialize-default-home`, exactly as a remote user
-  environment does (INT-008).
+- On a fresh workstation the explicit setup provisions only missing
+  `HOME/.local/state/worktrees` and `HOME/.cache/dotfiles-ai/dvc` for the
+  shipped default before applying. Preserve existing directories; refuse
+  unsafe ownership or link traversal rather than writing through it.
+  Do not provision a custom root. Route the first apply through setup
+  (INT-021).
+- Given the same workstation with the exact default-home root and no
+  repository override outside it, apply runs default-home initialization,
+  as the remote user environment does (INT-008).
 - Given the default-home conditions, a missing activation is created once:
   Linux, the configured root resolves to `HOME/.local/state/worktrees`, that
   path is on the home filesystem, and no activation exists. These conditions
   are not changed (INT-009).
-- Given any other root, or that path on another mount, the document renders
-  and nothing is activated. Such a workstation activates separately as today.
-- Given an existing activation, it is verified and never replaced or
+- Given a custom root or an outside override, render the policy and leave
+  activation entirely to its owner. Applying must succeed without reading
+  or changing that activation. A default-home path on an unexpected mount
+  still refuses initialization. Malformed policy remains an error.
+- Given an existing default-home activation, it is verified and never replaced or
   refreshed, whatever its version.
 - The workstation example configurations declare the worktree root so that it
   resolves to `HOME/.local/state/worktrees` (INT-010).
@@ -109,10 +113,11 @@ worktree layout, naming policy or repository overrides. No step for the
   check passes; `wt remove` still runs the kernel's removal check.
 - Gating, on a disposable home: with the shipped workstation configuration,
   apply renders the policy document and creates one activation, and a second
-  apply changes neither. With another root the document renders and no
-  activation appears.
-- Rollback, on the same disposable home: restoring the two moved files returns
-  to the starting state.
+  apply changes neither. With another root, apply succeeds without changing
+  an existing activation or creating one. With the default on another mount,
+  the refusal preserves all existing state.
+- Restore all three preimages on the same disposable home and verify the
+  original tool and policy can allocate again.
 - Record the quiet-window check, both verification lists and the rollback set
   locations in the Cycle Record. The Cycle Record is private; this contract
   names no machine path.
@@ -141,14 +146,14 @@ worktree layout, naming policy or repository overrides. No step for the
 |---|---|---|
 | Activation binds the installed version | Policy helper verifies and preserves the file | allowed |
 | Installed version differs from the activation | Policy helper refuses and preserves the file | refused until reviewed |
-| Quiet window, old binary moved aside | Owner applies; installer installs v0.83.0 | refused until re-activation |
-| Old activation removed, `initialize-default-home` run | Policy helper writes a snapshot for v0.83.0 | allowed |
-| Any step failed | Owner restores the rollback binary and activation | as before the upgrade |
+| Quiet window, old binary and activation set aside | Owner applies; installer installs v0.83.0 | refused until re-activation |
+| Default-home apply step | Policy helper writes the missing snapshot for v0.83.0 once | allowed |
+| Any step failed | Owner restores binary, policy and activation, then verifies allocation | as before the upgrade |
 
 ```mermaid
 sequenceDiagram
     accTitle: Worktrunk upgrade on the Linux workstation
-    accDescr: The owner confirms a quiet window, moves the old binary and activation aside, applies to install v0.83.0, re-activates once and verifies. Any failed step restores the two moved files.
+    accDescr: The owner verifies three rollback files, sets the binary and activation aside, and applies. The default-home hook activates once. On failure the owner restores the three preimages and verifies allocation.
 
     actor O as Owner
     participant A as dotfiles-ai apply
@@ -156,30 +161,28 @@ sequenceDiagram
     participant W as wt binary
     participant P as Policy helper
     O->>O: Confirm no session is creating worktrees
-    O->>W: Move v0.80.0 aside
-    O->>P: Copy activation aside
+    O->>O: Back up binary, policy and activation
+    O->>W: Set v0.80.0 aside
+    O->>P: Set old activation aside
     O->>A: Apply
     A->>I: Run the Worktrunk installer
     I->>W: Install v0.83.0, checksum and exact version checked
     A->>P: Install the new version guards
-    O->>P: Remove activation, run initialize-default-home
+    A->>P: Initialize missing default-home activation
     P->>W: Read wt v0.83.0
     P->>P: Write activation bound to v0.83.0
     O->>W: Create one worktree to verify
     alt any step fails
         O->>W: Restore v0.80.0
-        O->>P: Restore previous activation
+        O->>P: Restore previous policy and activation
     end
 ```
 
-**Text Equivalent:** The owner confirms a quiet window, moves the v0.80.0
-binary and the activation file aside, and applies dotfiles-ai. The installer
-installs v0.83.0 after its checksum and exact version pass, and the new
-version guards are installed in the same apply. Until the owner removes the
-old activation and runs `initialize-default-home`, new worktrees are refused
-and existing ones stay reachable. The helper then writes an activation bound
-to v0.83.0 and the owner creates one worktree to verify. If any step fails,
-restoring the two moved files returns the workstation to its starting state.
+**Text Equivalent:** The owner verifies the binary, policy and activation
+backup in a quiet window, then sets aside the old binary and activation.
+The installer checks v0.83.0 and the apply hook activates it once. Existing
+worktrees stay reachable. The owner verifies allocation, or restores the
+three preimages and verifies the original tool and policy.
 
 Canonical sources: this contract, the installer template, both guards and the
 activation script. Owner: the distribution maintainers. Change trigger: a

@@ -1,5 +1,65 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-24 — Worktrunk v0.83.0 on the workstation (`workstation-upgrade`)
+
+- Initiative `worktrunk-upgrade`, slice `workstation-upgrade`, statements
+  INT-001 to INT-015 and INT-019 to INT-021. Risk is elevated: installer
+  ownership, activation identity and the CI matrix change together.
+- The workstation installer pins v0.83.0 for aarch64 and x86_64 with the
+  checksums upstream published for the Linux musl assets (INT-001, INT-003).
+  The checksum-first download, the exact version assertion and the ownership
+  rule are unchanged: an installed `wt` of another version is refused and
+  never replaced (INT-005).
+- Both version guards accept exactly `wt v0.83.0`, `wt v0.81.0` and
+  `wt v0.80.0`. The remote-user foundation still requires v0.80.0 and the Mac
+  runs v0.81.0, so neither older version is dropped (INT-004, INT-020).
+- The CI Worktrunk axis moves from 0.81.0 to 0.83.0 and stays one axis, with
+  the same published checksums per architecture. The portable verifier
+  accepts the 0.83.0 lane; 0.80.0 and 0.81.0 stay accepted for hosts that
+  still run them (INT-002, INT-012).
+- A Linux workstation reaches the worktree policy without the remote-user
+  flag. `.chezmoiignore` selects the policy document and the activation hook
+  for either flag. With the default-home root the hook runs
+  `workflow-policy initialize-default-home` as on a remote user environment,
+  and the rule itself is unchanged: Linux, root exactly
+  `HOME/.local/state/worktrees` on the home filesystem, no existing
+  activation, never refreshed (INT-008, INT-009).
+- Another root stays with its owner. The hook passes
+  `--default-home-root-only`, a read-only classification of the validated
+  policy: for another root, or a repository override outside it, the apply
+  reads and changes no activation and is otherwise unaffected. The default
+  path on another mount still refuses, and a failed verification on the
+  default root is still reported with the activation kept. The hook text is
+  byte-identical for a remote user environment.
+- Both workstation example configurations declare `~/.local/state/worktrees`
+  as the worktree root (INT-010). A declared root must exist to render and
+  `~/.cache/dotfiles-ai/dvc` to activate, so `dotfiles-ai-omarchy-setup` now
+  creates both when they are missing. It creates only missing directories and
+  never another root, refuses a symbolic link or a foreign owner anywhere in
+  either path before creating anything, and leaves an existing directory's
+  mode alone.
+- On a disposable home, a real explicit apply of the shipped configuration
+  renders the document, creates one activation and changes neither on a
+  second apply. With another root the apply succeeds and leaves a planted
+  activation untouched; with the default path on another mount it refuses.
+- The README platform statement now says what v0.83.0 does: 0.81.0 and later
+  compute a custom destination after the pre-switch hook (INT-012).
+- The upgrade is an owner-run procedure in a quiet window, ordered so that
+  every step succeeds: verify all three rollback copies, set the old binary
+  and activation aside, then apply once. The
+  installer checks the checksum and the exact version, the guards change in
+  the same apply, and its activation stage re-activates for v0.83.0
+  (INT-005, INT-006, INT-007, INT-013). Any failed step restores the rollback
+  set. New worktrees are refused from the removal to the end of the apply;
+  existing ones stay reachable.
+- Not in scope: macOS qualification, a second CI axis, the worktree layout,
+  the naming policy, repository overrides and any Worktrunk agent plugin
+  (INT-014, INT-015). The shared remote workspace and its pin are unchanged
+  (INT-011).
+- Source delivery: draft PR to `main`, then an owner-run deployment on the
+  workstation. The hosted full suite on the exact head with the CI Worktrunk
+  axis at v0.83.0 is the qualification evidence (INT-012).
+
 ## 2026-11-24 — Rollout scope: the Mac applies by direct apply only
 
 - Clarifies INT-110 of `dbsctr-workflow-convergence` and

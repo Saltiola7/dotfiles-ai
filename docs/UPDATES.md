@@ -243,7 +243,7 @@ Worktrunk need the reviewed pin/qualification procedure below, not a generic
 | Native OpenCode | [Bootstrap](../dot_local/bin/executable_opencode-install.tmpl) is missing-only on supported macOS ARM64 and Linux ARM64/AMD64 source routes; reapply is not an upgrade and must not downgrade a healthy newer binary. The [contract](specs/dotfiles_ai_distribution/features/native-platform-updates.md) selects native notify/manual `/update`, no automatic installation or implicit shared-service restart. Use only after that environment's native ownership is qualified/activated. Do not invoke legacy `opencode-update-all` on selected native routes. Legacy Linux pins in TOML are not native update authority. |
 | Native Codex | macOS ARM64 [bootstrap](../dot_local/bin/executable_codex-install.tmpl) owns the separate native install directory and preserves `CODEX_HOME`. On the qualified native route, use explicit `codex update` through the managed environment exporting `CODEX_INSTALL_DIR`; no legacy `codex-update-all`. The explicit [headless Linux ARM64 profile](../config.headless-server.example.toml) has its own native missing-only route; ordinary Linux routing remains distinct in [the apply hook](../run_after_update-codex.sh.tmpl). The contract requires native daemon automatic installation disabled independently of notifications; its settings interface was qualified for 0.160.1 and needs requalification on later releases. |
 | Herdr | Chezmoi owns the version/protocol/asset URL/SHA-256 tuple in [defaults](../.chezmoidata.toml), with selected local TOML overrides. Review/update the coherent tuple for each supported architecture, installers and matching skill; this is not a `herdr update` command. The [macOS installer](../run_onchange_before_install-herdr.sh.tmpl) checks the asset, version and server protocol, then uses supported live handoff without killing/restarting panes. It refuses incompatible clients, missing handoff support or more than 64 panes. The [Linux installer](../run_onchange_after_install-00-remote-herdr.sh.tmpl) refuses an executable upgrade while its server is active; defer to a separately approved maintenance plan, not an automatic stop. See the operational hold below. |
-| Worktrunk | Homebrew owns the Mac executable. The source validator supports exact **0.80.0 and 0.81.0 on macOS**, and only **0.80.0 on Linux**; activation binds the actual version. The macOS bundle hook requires and pins 0.81.0 before non-upgrading reapply. [Linux workstation](../run_onchange_after_install-00-workstation-tools.sh.tmpl) and [guest/remote](../run_onchange_after_install-guest-development-tools.sh.tmpl) remain on checksum-pinned 0.80.0. [CI](../.github/workflows/test.yml) exercises both Mac versions. Follow [Worktrunk on macOS](#worktrunk-on-macos); source support does not activate a host. |
+| Worktrunk | Homebrew owns the Mac executable. The source validator supports exact **0.83.0, 0.81.0 and 0.80.0** on every host; activation binds the actual version. The macOS bundle hook requires and pins 0.81.0 before non-upgrading reapply. [Linux workstation](../run_onchange_after_install-00-workstation-tools.sh.tmpl) pins 0.83.0 and refuses to replace another installed version; [guest/remote](../run_onchange_after_install-guest-development-tools.sh.tmpl) stays on checksum-pinned 0.80.0. [CI](../.github/workflows/test.yml) exercises 0.83.0. Follow [Worktrunk on macOS](#worktrunk-on-macos) and [Worktrunk on the Linux workstation](#worktrunk-on-the-linux-workstation); source support does not activate a host. |
 | Homebrew and host prerequisites | Brewfile contains only the Anomaly tap, `mise` and `worktrunk`; it is not a complete host inventory. Chezmoi, Git, Python, uv, Bun, Lima and other preinstalled host prerequisites retain their actual native installation owner unless a source installer explicitly owns them. Review each owner's supported update procedure separately; no blanket Brew/OS upgrade or second competing installer. |
 | Python / uv / Bun / CI | [pyproject.toml](../pyproject.toml) requires Python >=3.12 and a pytest test group; [uv.lock](../uv.lock) owns its resolved transitive test dependencies. Review constraints and regenerate/review the lock together when changing that family; updating uv itself is separate from updating this lock. [CI](../.github/workflows/test.yml) selects Python 3.14 for PR/main and 3.12–3.15 for weekly/manual compatibility, with frozen explicit interpreter selection. It retains Node 26.12.1, Node-24-based setup actions, Bun 1.4.4 and the separate `opencode-ai@1.19.4` test fixture. Those are not live OpenCode pins or permission for a global Bun upgrade. Review the [RHEL userland workflow](../.github/workflows/rhel-remote-user.yml) independently. |
 | Optional Hermes | Disabled by default. [Installer](../run_onchange_before_install-hermes.sh.tmpl) pins Hermes 0.19.0 wheel/SHA and Python 3.13.16 and rejects unsupported existing versions. README documents manual `hermes update --backup` followed by profile health verification, but a newer version can conflict with that installer guard. Reconcile/requalify the source pin before approved maintenance; do not promise any latest release works on reapply. Preserve the backup and authenticate only interactively in that environment. |
@@ -463,6 +463,34 @@ bootstrap only. Select it consistently for native Worktrunk and its unchanged
 hooks; never fake version output or bypass hooks. Keep the Homebrew installation
 and saved activation unchanged while preparing the repair. Later activation
 requires its own compatible generation and approval.
+
+## Worktrunk on the Linux workstation
+
+The installer pins one exact version and refuses to replace an installed `wt`
+of another version, so an upgrade is an owner-run procedure. The normative
+order and verification list are in the [Worktrunk upgrade
+contract](specs/dotfiles_ai_distribution/features/worktrunk-upgrade.md);
+never delete the old binary, the activation or the policy document.
+
+1. Record `wt --version` and confirm the private activation binds it. Declare
+   the worktree root in the local configuration as the examples do.
+2. Back up the binary, activation and policy document. Verify each backup's
+   content and mode before setting aside the old binary and activation.
+3. Apply in a terminal and confirm the reviewed document
+   replacement. The installer checks the checksum and the exact version, the
+   guards change in the same apply, and the activation stage finds no
+   activation and creates one for the new version.
+4. Verify: `wt --version`, the activation's version, one `wt switch --create`
+   in the policy root, the pre-switch check and one `wt remove`.
+5. After a failed step, restore the three verified preimages and the prior
+   configuration. Check the original version, activation and allocation.
+
+New worktrees are refused from the removal to the end of the apply; existing
+ones stay reachable. A workstation whose worktree root is not
+`~/.local/state/worktrees` keeps its activation to itself: an apply renders
+the policy and attempts nothing there. `dotfiles-ai-omarchy-setup` creates
+`~/.local/state/worktrees` and `~/.cache/dotfiles-ai/dvc` when that root is
+declared and they are missing.
 
 ## Managed DVC owner and update boundary
 

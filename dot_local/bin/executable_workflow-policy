@@ -37,7 +37,7 @@ class UnsupportedWorktrunk(ValueError):
 
 
 def worktrunk_version():
-    supported = ("wt v0.80.0", "wt v0.81.0")
+    supported = ("wt v0.80.0", "wt v0.81.0", "wt v0.83.0")
     observed = run("wt", "--version").decode(errors="replace").strip()
     if observed not in supported:
         safe = observed if re.fullmatch(r"wt v[0-9]{1,4}\.[0-9]{1,4}\.[0-9]{1,4}", observed) else "unrecognized"
@@ -531,6 +531,13 @@ def verify_snapshot(value, saved, home):
         refuse()
 
 
+def default_home_root(value, home):
+    """Exactly the default-home root, with no repository override outside it."""
+    root = home / '.local/state/worktrees'
+    roots, _ = roots_of(value)
+    return value['root'] == str(root) and roots == {root}
+
+
 def initialize_default_home(value, home, config):
     """Apply-only, owner-approved initial default-home activation; never refresh."""
     print('workflow-policy: activation stage validate-document', file=sys.stderr)
@@ -680,7 +687,9 @@ def main():
     build.add_argument("--config-home", help="absolute XDG configuration directory; defaults to XDG_CONFIG_HOME or HOME/.config")
     build.add_argument("--options", required=True, help="resolved local workspace table JSON or null")
     sub.add_parser("snapshot", help="print private qualification proposal; never install or activate it")
-    sub.add_parser("initialize-default-home", help="explicit apply: initialize missing approved remote-home activation only")
+    initialize = sub.add_parser("initialize-default-home", help="explicit apply: initialize missing approved remote-home activation only")
+    initialize.add_argument("--default-home-root-only", action="store_true",
+                            help="attempt nothing for another root: the policy must use exactly the default-home root")
     guard = sub.add_parser("check", help="verify separately activated policy before native allocation")
     guard.add_argument("--target", help="native pre-switch destination; registered existing work stays reachable")
     args = parser.parse_args()
@@ -701,6 +710,13 @@ def main():
         if args.command == "snapshot":
             print(json.dumps(snapshot(value, home), sort_keys=True))
         else:
+            if args.default_home_root_only:
+                # Another root is its owner's to activate: nothing is read or written.
+                validate_document(value, home)
+                if not default_home_root(value, home):
+                    print('workflow-policy: another root; default-home activation not attempted', file=sys.stderr)
+                    print('{"status":"activation_not_attempted"}')
+                    return
             initialize_default_home(value, home, config)
             print('{"status":"activation_valid"}')
     else:

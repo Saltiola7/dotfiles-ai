@@ -1,5 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+# Owned default-home roots of the worktree policy, as the remote-user
+# foundation provisions them. Another root is its owner's and is never
+# created. Every component of both paths is checked before anything is
+# created, so nothing is written through a symbolic link or into a path a
+# foreign user owns; an existing directory keeps its mode.
+provision_worktree_policy_roots() {
+    local declared cache directory component rest path owner
+    local -a directories=() paths=()
+    declared=$(chezmoi -c "$config" execute-template \
+        '{{ dig "workspaces" "root" "" .dotfiles_ai }}')
+    case "$declared" in
+        '~/.local/state/worktrees'|"$HOME/.local/state/worktrees")
+            directories+=("$HOME/.local/state/worktrees") ;;
+        *) return ;;
+    esac
+    cache=$(chezmoi -c "$config" execute-template \
+        '{{ dig "workspaces" "cache_root" "" .dotfiles_ai }}')
+    case "$cache" in
+        ''|'~/.cache/dotfiles-ai/dvc'|"$HOME/.cache/dotfiles-ai/dvc")
+            directories+=("$HOME/.cache/dotfiles-ai/dvc") ;;
+    esac
+    for directory in "${directories[@]}"; do
+        paths+=("$HOME")
+        rest=${directory#"$HOME"/}
+        while [[ -n $rest ]]; do
+            component=${rest%%/*}
+            rest=${rest#"$component"}
+            rest=${rest#/}
+            paths+=("${paths[-1]}/$component")
+        done
+    done
+    owner=$(id -u)
+    for path in "${paths[@]}"; do
+        if [[ -L $path ]]; then
+            echo "Worktree policy directory path contains a symbolic link:" \
+                "$path" >&2
+            exit 1
+        fi
+        [[ ! -e $path || ( -d $path && "$(stat -c %u "$path")" == "$owner" ) ]] || {
+            echo "Worktree policy directory path must contain only" \
+                "directories owned by $(id -un): $path" >&2
+            exit 1
+        }
+    done
+    for path in "${paths[@]}"; do
+        [[ -e $path ]] || mkdir -m 0700 "$path"
+    done
+}
+
 [[ -t 0 ]] || { echo "Run in a terminal for sudo prompts." >&2; exit 1; }
 config="${DOTFILES_AI_CHEZMOI_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/dotfiles-ai/chezmoi.toml}"
 root=$(chezmoi -c "$config" execute-template '{{ .dotfiles_ai.state.root }}')
@@ -10,6 +60,7 @@ sudo install -d -m 0700 -o "$(id -un)" -g "$(id -gn)" "$root"
 export DOTFILES_AI_STATE_ROOT="$root"
 export XDG_DATA_HOME="$root/xdg/data"
 export XDG_STATE_HOME="$root/xdg/state"
+provision_worktree_policy_roots
 chezmoi -c "$config" apply
 herdr --version
 opencode --version

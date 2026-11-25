@@ -42,6 +42,7 @@ today only because its policy document and activation were created by hand.
 | INT-018 | requirement | Blocked: the remote-user foundation pin follows only through the cross-repository Initiative |
 | INT-019 | requirement | The lifecycle context's record of the matrix is updated in the same change |
 | INT-020 | risk | The Mac runs 0.81.0 with a live activation and is not tested in CI |
+| INT-021 | requirement | Explicit fresh workstation setup provisions the two missing private default directories; custom roots stay owner-managed |
 
 ## Slices
 
@@ -60,9 +61,10 @@ today only because its policy document and activation were created by hand.
    still runs the kernel's removal check.
 3. Gating, on a disposable home with the shipped workstation configuration:
    an explicit apply renders the policy document and creates the activation.
-   With another root the document renders and nothing is activated.
-4. Rollback: the moved v0.80.0 binary and the previous activation file restore
-   a working state.
+   A custom root leaves activation alone and the apply succeeds. The default
+   on an unexpected filesystem still refuses.
+4. Rollback: verify and retain the binary, policy document and activation
+   before the switch. Restore them and verify allocation on failure.
 
 ## Engineering Profile overrides
 

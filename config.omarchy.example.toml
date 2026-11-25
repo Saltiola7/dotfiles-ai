@@ -8,6 +8,14 @@ root = "/var/lib/dotfiles-ai/you"
 [data.dotfiles_ai.linux_workstation]
 enabled = true
 
+# New worktrees use this home-filesystem root. The setup command creates it
+# and ~/.cache/dotfiles-ai/dvc when they are missing. Any other first apply
+# needs both to exist: a declared root must exist to render. An explicit apply
+# then initializes the activation once and never replaces an existing one.
+[data.dotfiles_ai.workspaces]
+schema_version = 1
+root = "~/.local/state/worktrees"
+
 # Optional security toolchain: pinned BlackArch strap + curated packages.
 # Keep disabled until you want pacman to own the attack-surface toolchain.
 [data.dotfiles_ai.blackarch]

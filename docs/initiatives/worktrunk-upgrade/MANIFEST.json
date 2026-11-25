@@ -44,7 +44,7 @@
     {
       "id": "INT-005",
       "kind": "requirement",
-      "text": "The installer's ownership rule refuses to replace a Worktrunk whose version differs from the pin. The upgrade is therefore an owner-run procedure: move the installed v0.80.0 aside, apply to install v0.83.0, re-activate, verify. The moved binary and the previous activation file are the rollback set.",
+      "text": "The installer refuses to replace a different installed Worktrunk. In a quiet window the owner verifies backups of the binary, policy document and activation before setting aside the old binary and activation, applying v0.83.0, verifying the single new activation and testing rollback.",
       "disposition": "ready",
       "artifacts": [
         "docs/initiatives/worktrunk-upgrade/README.md"
@@ -53,7 +53,7 @@
     {
       "id": "INT-006",
       "kind": "requirement",
-      "text": "An activation snapshot records the Worktrunk version. After the upgrade new worktrees are refused until the owner re-activates once: remove the private activation file and run `workflow-policy initialize-default-home`. Existing worktrees stay reachable throughout.",
+      "text": "An activation snapshot records the Worktrunk version. The owner sets aside the old activation before the upgrade apply. The hook then initializes the new default-home activation once; existing worktrees remain reachable throughout.",
       "disposition": "ready",
       "artifacts": [
         "docs/initiatives/worktrunk-upgrade/README.md"
@@ -71,7 +71,7 @@
     {
       "id": "INT-008",
       "kind": "requirement",
-      "text": "Owner decision 2026-11-24: given a Linux workstation with `linux_workstation.enabled` and `remote_user_environment.enabled` unset, an explicit apply renders the worktree policy document and runs the same default-home activation a remote user environment gets. No new configuration key is introduced.",
+      "text": "A Linux workstation with linux_workstation.enabled and no remote flag renders the worktree policy document. When its root is the exact default-home root with no outside override, apply runs default-home activation. Do not add a configuration key or change the remote user's route.",
       "disposition": "ready",
       "artifacts": [
         "docs/initiatives/worktrunk-upgrade/README.md"
@@ -80,7 +80,7 @@
     {
       "id": "INT-009",
       "kind": "requirement",
-      "text": "The default-home rule itself is unchanged: Linux, root exactly `HOME/.local/state/worktrees` on the home filesystem, no existing activation. A workstation with another root, or with that path on another mount, renders the document and activates separately as today.",
+      "text": "The default-home rule requires Linux, HOME/.local/state/worktrees on the home filesystem and no preexisting activation to create one. A custom root or outside override skips initialization and leaves activation under the owner's control. A default path on an unexpected filesystem refuses activation.",
       "disposition": "ready",
       "artifacts": [
         "docs/initiatives/worktrunk-upgrade/README.md"
@@ -186,6 +186,16 @@
       "artifacts": [
         "docs/initiatives/worktrunk-upgrade/README.md"
       ]
+    },
+    {
+      "id": "INT-021",
+      "kind": "requirement",
+      "text": "Explicit fresh workstation setup provisions only the two missing default worktree and DVC cache directories. Keep existing modes and ownership; refuse unsafe paths. A custom root remains the owner’s responsibility.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/dotfiles_ai_distribution/features/worktrunk-upgrade.md",
+        "docs/initiatives/worktrunk-upgrade/README.md"
+      ]
     }
   ],
   "contexts": [
@@ -224,7 +234,8 @@
         "INT-014",
         "INT-015",
         "INT-019",
-        "INT-020"
+        "INT-020",
+        "INT-021"
       ],
       "depends_on": [],
       "release_group": "workstation",
@@ -234,6 +245,8 @@
         "README.md",
         "config.omarchy-try.example.toml",
         "config.omarchy.example.toml",
+        "docs/OMARCHY_TRY.md",
+        "docs/UPDATES.md",
         "docs/initiatives/worktrunk-upgrade/MANIFEST.json",
         "docs/initiatives/worktrunk-upgrade/README.md",
         "docs/specs/dbsctr_v3_lifecycle/CHANGELOG.md",
@@ -241,11 +254,16 @@
         "docs/specs/dotfiles_ai_distribution/PROFILE.md",
         "docs/specs/dotfiles_ai_distribution/features/worktrunk-upgrade.md",
         "dot_local/bin/executable_agent-worktree",
+        "dot_local/bin/executable_dotfiles-ai-omarchy-setup",
         "dot_local/bin/executable_workflow-policy",
         "run_after_zz-remote-worktree-activation.sh.tmpl",
         "run_onchange_after_install-00-workstation-tools.sh.tmpl",
+        "tests/ci_shard.py",
         "tests/test_agent_worktree.py",
         "tests/test_ci_shard.py",
+        "tests/test_dbsctr_lifecycle.py",
+        "tests/test_omarchy_try_distribution.py",
+        "tests/test_remote_worktree_activation.py",
         "tests/test_worktrunk_native_policy.py",
         "tests/test_worktrunk_registration.py"
       ]

@@ -30,7 +30,7 @@ jobs:
       matrix:
         # Every lane retains the complete collection across four partitions.
         python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14", "3.15"]' || '["3.14"]') }}
-        worktrunk-version: ["0.81.0"]
+        worktrunk-version: ["0.83.0"]
         shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -115,13 +115,13 @@ jobs:
         run: |
           set -euo pipefail
           case "$WORKTRUNK_VERSION:$(uname -m)" in
-            0.81.0:x86_64)
+            0.83.0:x86_64)
               target=x86_64-unknown-linux-musl
-              sha256=0c253f216985ce9cd7b202a11606b5ce6aa934b1019fd1fbb9b7ce2b47b1c74a
+              sha256=e0dd5e5eb365890ddc7b255183c227e441fbb7da04cab5b72e54fa80fd21818b
               ;;
-            0.81.0:aarch64)
+            0.83.0:aarch64)
               target=aarch64-unknown-linux-musl
-              sha256=7a334d2e64c577afd0247e2411eff673360ab1f18897564f2d2e5d5374fbd74b
+              sha256=92c68827a18b037c608b7728bcf7ce1d594771ac814bec7412a35129f276d4ae
               ;;
             *) echo "Unsupported Worktrunk CI architecture" >&2; exit 1 ;;
           esac
@@ -179,7 +179,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["3.12", "3.13", "3.14", "3.15"]' || '["3.14"]') }}
-        worktrunk-version: ["0.81.0"]
+        worktrunk-version: ["0.83.0"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2

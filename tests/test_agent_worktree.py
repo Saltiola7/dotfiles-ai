@@ -217,7 +217,7 @@ def test_git_location_override_is_not_silently_accepted(workspace, tmp_path):
 @pytest.mark.skipif(not shutil.which("wt"), reason="pinned native Worktrunk unavailable")
 def test_native_remove_hook_retains_parent_reservation_descriptor(workspace, tmp_path):
     main, trees, _, env = workspace
-    supported = ("wt v0.80.0", "wt v0.81.0")
+    supported = ("wt v0.80.0", "wt v0.81.0", "wt v0.83.0")
     assert subprocess.check_output(["wt", "--version"], text=True).strip() in supported
     target = trees[1]
     admin = Path(subprocess.check_output(["git", "rev-parse", "--absolute-git-dir"], cwd=target, text=True).strip()).resolve()
@@ -444,3 +444,65 @@ def test_malformed_strict_decision_never_dispatches_worktrunk(workspace, tmp_pat
     result = invoke(workspace, main, tmp_path / "removal", "--remove", str(trees[1]))
     assert result.wait(timeout=10) == 75
     assert trees[1].exists() and not counter.exists()
+
+
+def synthetic_removal(workspace, tmp_path, version):
+    """A passing checker and a scripted Worktrunk: only the version guard is real.
+
+    The scripted Worktrunk records a dispatched removal and performs it with
+    Git, so an accepted version completes exactly like the native binary.
+    """
+    main, trees, _, env = workspace
+    helper = Path(env["HOME"]) / ".local/bin/dbsctrctl"
+    helper.parent.mkdir(parents=True, mode=0o700)
+    helper.write_text(f"#!{sys.executable}\n" + '''import fcntl, json, os
+fd = int(os.environ["DBSCTR_REMOVAL_FD"])
+attempt = json.loads(os.pread(fd, 8193, 0))
+fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+print(json.dumps({"schema_version": 2, "eligible": True, "reasons": [],
+    "state_digest": "a" * 64, "reservation_id": attempt["attempt_id"]}))
+''')
+    helper.chmod(0o700)
+    native = Path(env["PATH"].split(":")[0]) / "wt"
+    native.write_text(f"#!{sys.executable}\n" + '''import os, subprocess, sys
+from pathlib import Path
+if sys.argv[1:] == ["--version"]:
+    print(os.environ["FIXTURE_WT_VERSION"])
+    raise SystemExit(0)
+Path(os.environ["FIXTURE_WT_REMOVAL"]).write_text(sys.argv[-1])
+subprocess.run(["git", "worktree", "remove", "--force", sys.argv[-1]], check=True)
+''')
+    native.chmod(0o700)
+    env.update(FIXTURE_WT_VERSION=version, FIXTURE_WT_REMOVAL=str(tmp_path / "native-removal"))
+    return main, trees[1]
+
+
+def removal_outcomes(main):
+    evidence = main / ".git/dbsctr/evidence/removal"
+    return [json.loads(path.read_text())["outcome"] for path in sorted(evidence.glob("*.json"))]
+
+
+@pytest.mark.parametrize("version", ["wt v0.80.0", "wt v0.81.0", "wt v0.83.0"])
+def test_remove_accepts_each_qualified_worktrunk_version(workspace, tmp_path, version):
+    main, target = synthetic_removal(workspace, tmp_path, version)
+    result = invoke(workspace, main, tmp_path / "removal", "--remove", str(target))
+    _, errors = result.communicate(timeout=30)
+    assert result.returncode == 0, errors
+    assert (tmp_path / "native-removal").read_text() == str(target)
+    assert not target.exists()
+    assert subprocess.run(["git", "show-ref", "--verify", "refs/heads/b"], cwd=main, capture_output=True).returncode == 0
+    assert removal_outcomes(main) == ["removed_branch_retained"]
+
+
+@pytest.mark.parametrize("version", ["wt v0.82.0", "wt v0.84.0", "wt v0.83", "worktrunk 0.83.0",
+                                     "wt v0.80.0\nwt v0.83.0", ""])
+def test_remove_never_dispatches_an_unqualified_worktrunk(workspace, tmp_path, version):
+    main, target = synthetic_removal(workspace, tmp_path, version)
+    result = invoke(workspace, main, tmp_path / "removal", "--remove", str(target))
+    _, errors = result.communicate(timeout=30)
+    assert result.returncode == 75
+    assert b"removal blocked or outcome unverified" in errors
+    # Same fixture as the accepted versions; only the reported version differs.
+    assert target.exists() and not (tmp_path / "native-removal").exists()
+    assert subprocess.run(["git", "show-ref", "--verify", "refs/heads/b"], cwd=main, capture_output=True).returncode == 0
+    assert removal_outcomes(main) == ["blocked"]

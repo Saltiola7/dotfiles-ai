@@ -1,10 +1,12 @@
 """Managed user hooks guard native Worktrunk; no custom allocator participates."""
+import ast
 import os
 import importlib.machinery
 import importlib.util
 import hashlib
 import json
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
@@ -17,6 +19,8 @@ from test_worktrunk_registration import fixture, git
 
 ROOT = Path(__file__).parents[1]
 CONFIG = ROOT / "private_dot_config/worktrunk/config.toml.tmpl"
+# Exactly the versions both guards accept; each one is pinned on some host.
+QUALIFIED_VERSIONS = ("wt v0.80.0", "wt v0.81.0", "wt v0.83.0")
 
 
 @pytest.fixture
@@ -260,7 +264,11 @@ def test_mount_replacement_and_partial_generation_refuse(policy, storage_home, m
 @pytest.mark.parametrize("system,version,accepted", [
     ("Darwin", "wt v0.80.0", True), ("Darwin", "wt v0.81.0", True),
     ("Linux", "wt v0.80.0", True), ("Linux", "wt v0.81.0", True),
+    # v0.83.0 is the workstation pin; it is not qualified on macOS here.
+    ("Linux", "wt v0.83.0", True),
     ("Darwin", "wt v0.82.0", False), ("Darwin", "private-output\nsecret", False),
+    ("Linux", "wt v0.82.0", False), ("Linux", "wt v0.84.0", False),
+    ("Linux", "wt v0.83", False), ("Linux", "wt v0.83.0-dev", False),
 ])
 def test_qualified_snapshot_binds_actual_platform_version(policy, storage_home, monkeypatch,
                                                          system, version, accepted):
@@ -281,6 +289,31 @@ def test_qualified_snapshot_binds_actual_platform_version(policy, storage_home, 
     snapshot["worktrunk_version"] = "wt v0.79.0"
     with pytest.raises(ValueError):
         policy.verify_snapshot(value, snapshot, storage_home)
+
+
+def test_guards_enumerate_exactly_the_qualified_worktrunk_versions():
+    for guard in ("executable_workflow-policy", "executable_agent-worktree"):
+        tree = ast.parse((ROOT / "dot_local/bin" / guard).read_text())
+        enumerated = [ast.literal_eval(node.value) for node in ast.walk(tree)
+                      if isinstance(node, ast.Assign)
+                      and any(isinstance(target, ast.Name) and target.id == "supported"
+                              for target in node.targets)]
+        assert enumerated == [QUALIFIED_VERSIONS], guard
+
+
+def test_every_qualified_worktrunk_version_is_pinned_on_a_host():
+    # The guards accept exactly what the installer, CI, the remote-user
+    # foundation and the macOS bundle hook require, so no host loses its version.
+    installer = (ROOT / "run_onchange_after_install-00-workstation-tools.sh.tmpl").read_text()
+    workflow = (ROOT / ".github/workflows/test.yml").read_text()
+    foundation = (ROOT / "dot_local/bin/executable_remote-user-foundation").read_text()
+    bundle = (ROOT / "run_onchange_before_install-opencode.sh.tmpl").read_text()
+    pinned = {"wt v" + re.search(r"(?m)^version=(\S+)$", installer).group(1)}
+    pinned.update("wt v" + json.loads(axis)[0] for axis in
+                  re.findall(r"(?m)^        worktrunk-version: (\[[^\n]*\])\s*$", workflow))
+    pinned.add(re.search(r'"wt": "(wt v[0-9.]+)"', foundation).group(1))
+    pinned.add(re.search(r"(?m)^expected='(wt v[0-9.]+)'$", bundle).group(1))
+    assert pinned == set(QUALIFIED_VERSIONS)
 
 
 def test_native_selector_conflict_refuses_whole_generation(policy, storage_home, fixture):

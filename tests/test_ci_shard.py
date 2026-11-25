@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -66,7 +67,7 @@ def receipts(tmp_path, core):
     identity = {
         "repository": "example/project", "commit": "a" * 40, "tree": "b" * 40,
         "run_id": "123456", "attempt": "1", "python_version": "3.14",
-        "worktrunk_version": "0.81.0",
+        "worktrunk_version": "0.83.0",
         "authority": {"tests/ci_shard.py": "c" * 64, ".github/workflows/test.yml": "d" * 64},
     }
     nodes = [
@@ -172,6 +173,20 @@ def test_stale_or_wrong_lane_identity_refuses(core, receipts, field, value):
         core.verify(root, expected, "success")
 
 
+@pytest.mark.parametrize("version,accepted", [
+    ("0.80.0", True), ("0.81.0", True), ("0.83.0", True),
+    ("0.82.0", False), ("0.84.0", False), ("0.83", False), ("0.83.0.0", False),
+])
+def test_verifier_accepts_only_the_qualified_worktrunk_lane_versions(core, receipts, version, accepted):
+    _, identity, _, _ = receipts
+    selected = {**identity, "worktrunk_version": version}
+    if accepted:
+        core.check_identity(selected)
+        return
+    with pytest.raises(ValueError, match="invalid execution identity"):
+        core.check_identity(selected)
+
+
 @pytest.mark.parametrize("change", ["missing_worker", "extra_worker", "extra_file", "malformed_json", "duplicate_json_key", "manifest_link", "junit_link"])
 def test_incomplete_or_unsafe_artifact_set_refuses(core, receipts, tmp_path, change):
     root, expected, _, _ = receipts
@@ -179,7 +194,7 @@ def test_incomplete_or_unsafe_artifact_set_refuses(core, receipts, tmp_path, cha
     if change == "missing_worker":
         (directory / "manifest.json").unlink()
     elif change == "extra_worker":
-        (root / "pytest-3.14-0.81.0-4").mkdir()
+        (root / "pytest-3.14-0.83.0-4").mkdir()
     elif change == "extra_file":
         (directory / "unexplained.json").write_text("{}")
     elif change == "malformed_json":
@@ -362,7 +377,7 @@ def native_checkout(tmp_path):
     environment.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
     version = subprocess.run([binary, "--version"], env=environment, capture_output=True,
                              text=True, check=True, timeout=30).stdout.strip()
-    assert version in {"wt v0.80.0", "wt v0.81.0"}, "Installed Worktrunk must match a declared CI lane"
+    assert version in {"wt v0.80.0", "wt v0.81.0", "wt v0.83.0"}, "Installed Worktrunk must match a lane the verifier accepts"
     repository = tmp_path / "source"
     (repository / "tests").mkdir(parents=True)
     (repository / ".github/workflows").mkdir(parents=True)
@@ -787,3 +802,45 @@ def test_summary_qualifies_portable_verifier_with_linux_native_workers():
     assert "CI_WORKERS_RESULT: ${{ needs.test-shard.result }}" in verification
     assert '--workers-result "$CI_WORKERS_RESULT"' in verification
     assert "test (" in summary
+
+
+def ci_worktrunk_step(workflow):
+    return workflow.split("      - name: Install qualified Worktrunk\n", 1)[1].split("\n      - ", 1)[0]
+
+
+def ci_asset_selection(step, version, machine, shim):
+    """Run the workflow's own asset selection for one lane version and machine."""
+    lines = step.splitlines(keepends=True)
+    start = next(i for i, line in enumerate(lines) if line.startswith('          case "$WORKTRUNK_VERSION'))
+    end = next(i for i, line in enumerate(lines) if line.rstrip() == "          esac")
+    (shim / "uname").write_text(f"#!/bin/sh\necho {machine}\n")
+    (shim / "uname").chmod(0o755)
+    return subprocess.run(
+        ["bash", "-c", "".join(lines[start:end + 1]) + 'printf "%s %s\\n" "$target" "$sha256"\n'],
+        env={"PATH": f"{shim}:/usr/bin:/bin", "WORKTRUNK_VERSION": version},
+        text=True, capture_output=True, timeout=10)
+
+
+def test_workflow_installs_the_pinned_worktrunk_lane_for_each_architecture(tmp_path):
+    workflow = (ROOT / ".github/workflows/test.yml").read_text()
+    installer = (ROOT / "run_onchange_after_install-00-workstation-tools.sh.tmpl").read_text()
+    # One axis per job, and the release the workstation installer pins.
+    version = re.search(r"(?m)^version=([0-9.]+)$", installer).group(1)
+    axes = re.findall(r"(?m)^        worktrunk-version: (\[[^\n]*\])\s*$", workflow)
+    assert len(axes) == 2 and all(json.loads(axis) == [version] for axis in axes)
+    pins = dict(re.findall(
+        r"asset=worktrunk-([a-z0-9_]+)-unknown-linux-musl\n\s+sha256=([0-9a-f]{64})", installer))
+    assert set(pins) == {"x86_64", "aarch64"}
+    step = ci_worktrunk_step(workflow)
+    for machine, digest in pins.items():
+        selected = ci_asset_selection(step, version, machine, tmp_path)
+        assert selected.returncode == 0, selected.stderr
+        assert selected.stdout.split() == [f"{machine}-unknown-linux-musl", digest]
+        # The retired lane is no longer selectable: one axis, not two.
+        refused = ci_asset_selection(step, "0.81.0", machine, tmp_path)
+        assert refused.returncode == 1, refused.stdout + refused.stderr
+        assert "Unsupported Worktrunk CI architecture" in refused.stderr
+    assert "releases/download/v$WORKTRUNK_VERSION/worktrunk-$target.tar.xz" in step
+    ordered = [step.index(needle) for needle in
+               ("| sha256sum --check", "tar -xJf", '= "wt v$WORKTRUNK_VERSION"')]
+    assert ordered == sorted(ordered)
