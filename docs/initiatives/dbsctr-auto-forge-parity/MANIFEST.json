@@ -194,7 +194,7 @@
     {
       "id": "forgejo-merge",
       "context": "dbsctr_v3_lifecycle",
-      "state": "ready",
+      "state": "blocked",
       "execution_owner": "build",
       "requirements": ["INT-001", "INT-004", "INT-007", "INT-012", "INT-013", "INT-014", "INT-015", "INT-019", "INT-020"],
       "depends_on": ["forgejo-ci"],
@@ -204,7 +204,7 @@
     {
       "id": "initiative-continuation",
       "context": "dbsctr_v3_lifecycle",
-      "state": "discovering",
+      "state": "ready",
       "execution_owner": "build",
       "requirements": ["INT-004", "INT-005", "INT-006", "INT-007", "INT-011", "INT-013", "INT-014", "INT-016", "INT-017"],
       "depends_on": ["delivery-preference"],

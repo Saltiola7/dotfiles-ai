@@ -24,6 +24,12 @@ Run verified source implementation through a separately qualified native writer 
 
 Reuse the existing [integration coordinator](../../specs/dbsctr_v3_lifecycle/features/integration-coordinator.md) for integration admission, ticket ordering, the fenced candidate slot, and verified protected merge. Persist the admission receipt and exact obligation before treating a slice as handed off. Confirm trusted required CI for the current candidate against the current target and confirm that the forge applied its native protection and included the resulting change. A repeated event must resolve to the same slice, activation, and obligation. On uncertain admission or merge outcome, recover authoritative evidence before retrying or advancing a dependent.
 
+### Continuation source delivery
+
+Build the versioned Initiative grant and per-slice activation in the existing coordinator's private custody. Keep the approved material snapshot immutable and store progress separately. The fresh-slice launch verifies the authorized writer, repository, target, dependency delivery and current material scope. Its launch reservation survives restart and binds the native session identity before the first Build request when the writer exposes separate allocation and dispatch. An uncertain allocation or dispatch remains reserved until authoritative observations prove a unique binding or establish that the request had no effect.
+
+Exercise restart, replay, dependency inclusion, scope drift, expiry and revocation through controlled writer and forge interfaces. Preserve existing per-slice approval and the separate GitHub follow-up authorization. The source can reach a protected GitHub PR through the existing explicit Draft PR route. Auto activation requires the installed two-slice demonstration with the originating conversation closed and the controller restarted before the second launch.
+
 ## Reconcile CI
 
 | Native evidence | Auto behavior | Operator sees |

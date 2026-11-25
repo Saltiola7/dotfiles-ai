@@ -27,7 +27,7 @@ def test_manifest_explicitly_classifies_pytest_and_non_test_checks():
     checks = adapter.describe()["checks"]
     assert {c["id"]: c["configuration"]["test_identity"] for c in checks} == {
         "dotfiles.syntax": "not_applicable", "dotfiles.instructions": "pytest-junit-v1",
-        "dotfiles.full": "pytest-junit-v1", "dotfiles.swift": "pytest-junit-v1",
+        "dotfiles.adapter": "pytest-junit-v1", "dotfiles.full": "pytest-junit-v1",
         "dotfiles.portable": "pytest-junit-v1"}
 
 
@@ -56,8 +56,9 @@ def test_missing_junit_is_not_a_complete_passing_result(snapshot, tmp_path):
 
 
 def test_native_pytest_command_collects_private_junit(snapshot, tmp_path, monkeypatch):
-    monkeypatch.setattr(adapter.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(adapter.platform, "system", lambda: "Linux")
     monkeypatch.setattr(adapter, "_snapshot", lambda _: snapshot)
+    monkeypatch.setattr(adapter, "_changed", lambda root, base: ["tests/test_core.py"])
     monkeypatch.setattr(adapter.shutil, "which", lambda _: "/fixture/tool")
     captured = []
     def run(argv, root, log, timeout):
@@ -76,8 +77,9 @@ def test_native_pytest_command_collects_private_junit(snapshot, tmp_path, monkey
 
 
 def test_syntax_failure_retains_file_locator_in_private_log(snapshot, tmp_path, monkeypatch):
-    monkeypatch.setattr(adapter.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(adapter.platform, "system", lambda: "Linux")
     monkeypatch.setattr(adapter, "_snapshot", lambda _: snapshot)
+    monkeypatch.setattr(adapter, "_changed", lambda root, base: ["tests/test_core.py"])
     monkeypatch.setattr(adapter, "_syntax", lambda _: ["broken.py"])
     path = tmp_path / "syntax.log"
     check = next(item for item in adapter.describe()["checks"] if item["id"] == "dotfiles.syntax")

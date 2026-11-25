@@ -3131,6 +3131,23 @@ def native_workspace_execution(record):
 
 
 def validate_initiative_approval(value, *, root: Path | None = None, cycle_id: str | None = None):
+    if isinstance(value, dict) and type(value.get("schema_version")) is int and value["schema_version"] == 3:
+        if (root is None or cycle_id is None
+                or set(value) != {"schema_version", "method", "launch_digest", "authorization_digest"}
+                or value["method"] != "initiative_auto"):
+            fail("Initiative Auto approval requires controlled private custody")
+        try:
+            owner = integration_lifecycle_owner()
+            from integration_coordinator.initiative_authority import read_grant
+
+            store = owner.Custody(common_git_dir(root).resolve())
+            auth = store.read("initiative_begin", owner.hex_value(value["authorization_digest"]))
+            if (auth["cycle_id"] != cycle_id or auth["launch_digest"] != value["launch_digest"]):
+                fail("Initiative Auto approval binding changed")
+            read_grant(store, auth["grant_digest"])
+        except (OSError, ValueError, KeyError, TypeError):
+            fail("Initiative Auto approval custody unavailable")
+        return
     if isinstance(value, dict) and type(value.get("schema_version")) is int and value["schema_version"] == 2:
         if root is None or cycle_id is None:
             fail("integration approval requires controlled private custody")
@@ -4623,7 +4640,7 @@ def initiative_acyclic(dependencies, label):
         visit(node)
 
 
-def read_initiative_manifest(source, *, raw=None):
+def read_initiative_manifest(source, *, raw=None, auto_waiting=False):
     try:
         raw = Path(source).read_bytes() if raw is None else raw
         if len(raw) > 1024 * 1024:
@@ -4749,7 +4766,7 @@ def read_initiative_manifest(source, *, raw=None):
         if item["state"] != "ready":
             continue
         for dependency in item["depends_on"]:
-            if slices[dependency]["state"] != "delivered":
+            if slices[dependency]["state"] != "delivered" and not auto_waiting:
                 fail(f"ready slice {identifier} dependency is not delivered: {dependency}")
         for dependency in contexts[item["context"]]["depends_on"]:
             if contexts[dependency]["status"] not in {"ready", "building", "delivered"}:
@@ -4897,9 +4914,10 @@ def command_initiative_cycle_check(args):
     print(json.dumps({"available": True}, sort_keys=True, separators=(",", ":")))
 
 
-def initiative_receipt(source, slice_id, root=None, *, committed=None):
+def initiative_receipt(source, slice_id, root=None, *, committed=None, auto_waiting=False):
     raw = git(root, "show", f"{committed}:{source}").stdout.encode() if committed is not None else None
-    value, statements, contexts, slices, release_groups, digest = read_initiative_manifest(source, raw=raw)
+    value, statements, contexts, slices, release_groups, digest = read_initiative_manifest(
+        source, raw=raw, auto_waiting=auto_waiting)
     item = slices.get(slice_id)
     if item is None:
         fail(f"unknown Initiative slice: {slice_id}")
@@ -7222,7 +7240,7 @@ def registration_lock(root, args):
 
 
 def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiative=None, initiative_approval=None,
-                follow_up=None):
+                follow_up=None, auto_base=None):
     require_native_checkout(root, args)
     forge = forgejo_selection(args)
     if forge is not None:
@@ -7285,13 +7303,15 @@ def start_cycle(root, args, plan, git_env=None, discovery_import=None, initiativ
             fail("draft_pr delivery requires a feature branch distinct from its base")
         if not delivery_remote:
             fail("draft_pr delivery requires a configured remote")
-        if git_env is None:
-            delivery_url = delivery_remote
-            git(root, "fetch", delivery_remote, protected_base_branch)
-        else:
-            delivery_url = github_remote_url(root, delivery_remote, repository)
-            fetch_github_branch(root, delivery_remote, delivery_url, protected_base_branch, git_env)
+        delivery_url = delivery_remote if git_env is None else github_remote_url(root, delivery_remote, repository)
+        if auto_base is None:
+            if git_env is None:
+                git(root, "fetch", delivery_remote, protected_base_branch)
+            else:
+                fetch_github_branch(root, delivery_remote, delivery_url, protected_base_branch, git_env)
         base_head = git(root, "rev-parse", f"refs/remotes/{delivery_remote}/{protected_base_branch}").stdout.strip()
+        if auto_base is not None and base_head != auto_base:
+            fail("protected base changed after Initiative Auto launch verification")
         if discovery_import is not None and follow_up is None and base_head != discovery_import["base_head"]:
             fail("protected base advanced during Discovery import; prepare a fresh launch")
         if git_env is None:
@@ -7512,11 +7532,92 @@ def initiative_launch_plan(source, authority, receipt, plan, target, args, follo
     return result
 
 
-def command_begin(args):
+def initiative_committed_snapshot(root, manifest_path, selected):
+    """Read private approval material from immutable raw Git objects."""
+    integration_lifecycle_owner()
+    from integration_coordinator.initiative_authority import material_snapshot
+
+    if not re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]*/MANIFEST\.json", manifest_path):
+        fail("Initiative Auto requires a canonical committed manifest path")
+    revision = git(root, "--no-replace-objects", "rev-parse", "HEAD").stdout.strip()
+
+    def blob(path):
+        raw = git(root, "--no-replace-objects", "--literal-pathspecs", "ls-tree", "-z", revision, "--", path).stdout
+        match = re.fullmatch(r"100644 blob ([0-9a-f]{40}|[0-9a-f]{64})\t" + re.escape(path) + "\x00", raw)
+        if match is None or git_read(root, "status", "--porcelain=v1", "--", path).stdout:
+            raise FileNotFoundError("Initiative Auto authority requires a clean committed artifact")
+        return match[1]
+
+    manifest_blob = blob(manifest_path)
+    raw = git(root, "--no-replace-objects", "show", manifest_blob).stdout.encode()
+    manifest, *_ = read_initiative_manifest(manifest_path, raw=raw, auto_waiting=True)
+    require_repository_home(root, manifest["coordinator_repository"])
+    return material_snapshot(manifest, selected, blob, commit=revision, manifest_path=manifest_path)
+
+
+class ManagedInitiativeLaunch:
+    """Bridge the managed controller's grant and exact native session to Begin."""
+
+    def __init__(self, grant_digest, binding, controller=None, *, activation_id=None, session_id=None):
+        self.grant_digest = grant_digest
+        self.binding = binding
+        self.controller = controller
+        self.activation_id = activation_id
+        self.session_id = session_id
+
+    def verify_scope(self, source, authority, manifest, receipt, base_branch):
+        owner = integration_lifecycle_owner()
+        from integration_coordinator.initiative_authority import require_grant
+
+        checkout = common_git_dir(source).resolve()
+        binding = self.binding()
+        policy = integration_policy_snapshot(source)
+        if (policy is None or initiative_delivery_preference(source) != "auto"
+                or binding["policy_digest"] != policy["policy_digest"]
+                or binding["enrollment_digest"] != policy["enrollment_digest"]
+                or binding["target_ref"] != "refs/heads/" + base_branch
+                or binding["target_ref"] != policy["coordinator"]["target_ref"]
+                or binding["repository"]["repository"] != policy["coordinator"]["remote_repository"]):
+            fail("Initiative Auto enrollment is unavailable or changed")
+        repository = receipt["repository"]
+        if isinstance(repository, str):
+            repository = {"provider": "github", "origin": "https://github.com", "repository": repository}
+        if (not repository_equal(repository, binding["repository"])
+                or git(source, "--no-replace-objects", "merge-base", "--is-ancestor",
+                       owner.hex_value(binding["root_oid"], (40, 64)), "HEAD", check=False).returncode):
+            fail("Initiative Auto repository binding changed")
+        current = initiative_committed_snapshot(authority, manifest, (receipt["slice_id"],))
+        if current["source_commit"] != receipt["manifest_commit"]:
+            fail("Initiative Auto committed authority changed during preflight")
+        require_grant(owner.Custody(checkout), self.grant_digest, binding=binding, current=current,
+                      slice_id=receipt["slice_id"], operation="launch", now=now())
+
+    def verify_registration(self, source, plan, launch_digest):
+        if self.controller is None or self.activation_id is None or self.session_id is None:
+            fail("Initiative Auto registration requires a proven native writer dispatch")
+        activation = self.controller.authorize_begin(self.grant_digest, self.activation_id, self.session_id, launch_digest)
+        binding = self.binding()
+        repository = binding["repository"]
+        if (activation.activation_id != self.activation_id or activation.slice_id != plan["receipt"]["slice_id"]
+                or activation.grant_id != self.grant_digest or activation.session_id != self.session_id
+                or activation.controller_digest != binding["controller_digest"]
+                or activation.writer_digest != binding["writer_digest"]
+                or activation.target.origin != repository["origin"]
+                or activation.target.repository != repository["repository"]
+                or activation.target.target_ref != binding["target_ref"]
+                or activation.launch.checkout != str(source.resolve()) or activation.launch.cycle_id != plan["cycle_id"]
+                or activation.launch.base_head != plan["base_head"]
+                or activation.target.target_ref != "refs/heads/" + plan["base_branch"]):
+            fail("Initiative Auto activation does not own this launch")
+        return activation.activation_id, continuation_digest(self.session_id)
+
+
+def command_begin(args, *, auto_launch=None):
+    """Auto authority is supplied by the managed controller, never a CLI option."""
     if args.preflight:
-        return begin_registration(args)
+        return begin_registration(args, auto_launch=auto_launch)
     with registration_lock(root_dir(), args):
-        return begin_registration(args)
+        return begin_registration(args, auto_launch=auto_launch)
 
 
 def begin_upstream(root, args, *, comparison_remote=None):
@@ -7539,7 +7640,7 @@ def begin_upstream(root, args, *, comparison_remote=None):
     return target, remote, remote_branch
 
 
-def begin_registration(args):
+def begin_registration(args, *, auto_launch=None):
     source = root_dir()
     forge = forgejo_selection(args)
     require_native_checkout(source, args, clean=not args.resume_existing)
@@ -7551,6 +7652,15 @@ def begin_registration(args):
         fail("context must be a simple bounded-context name")
     initiative_values = (args.initiative_manifest, args.initiative_slice, args.initiative_digest)
     follow_up_number = getattr(args, "follow_up_pr", None)
+    if auto_launch is not None and (not all(initiative_values) or follow_up_number is not None
+            or args.resume_existing or getattr(args, "integration_authorization", None) is not None
+            or getattr(args, "approval", "interactive") != "interactive"):
+        fail("Initiative Auto authority applies only to an exact fresh slice launch")
+    if auto_launch is not None:
+        expected_intent = "local" if forge is not None else "draft_pr"
+        if args.delivery_intent not in {None, expected_intent}:
+            fail("Initiative Auto requires the approved source delivery intent")
+        args.delivery_intent = expected_intent
     if args.delivery_intent is None and (
             not all(initiative_values) or follow_up_number is not None or args.resume_existing):
         fail("--delivery-intent is required outside a new Initiative launch")
@@ -7582,7 +7692,8 @@ def begin_registration(args):
             fail("Initiative manifest must be a repository-relative docs/initiatives path")
         initiative_source = repo_root(args.initiative_source) if args.initiative_source else source
         initiative = initiative_receipt(
-            initiative_source / args.initiative_manifest, args.initiative_slice, initiative_source)
+            initiative_source / args.initiative_manifest, args.initiative_slice, initiative_source,
+            auto_waiting=auto_launch is not None)
         initiative["manifest_path"] = args.initiative_manifest
         if initiative["manifest_digest"] != args.initiative_digest:
             fail("Initiative manifest changed after approval")
@@ -7599,14 +7710,20 @@ def begin_registration(args):
             "Initiative context home does not match the target Git repository")
         if not repository_equal(initiative["repository"], expected):
             fail("Initiative target repository changed after approval")
+        if auto_launch is not None:
+            auto_launch.verify_scope(source, initiative_source, args.initiative_manifest, initiative, args.base_branch)
     if initiative is not None:
         if initiative["context"] != args.context:
             fail("Initiative receipt context does not match the cycle context")
         check_initiative_cycle_occupancy(source, args.cycle_id, initiative)
     requested_integration_mode = getattr(args, "integration_mode", None)
+    if auto_launch is not None:
+        if requested_integration_mode not in {None, "draft_pr"}:
+            fail("Initiative source registration uses the existing Draft PR route")
+        requested_integration_mode = "draft_pr"
     if args.delivery_intent is None:
         args.delivery_intent = "draft_pr"
-        if requested_integration_mode is None:
+        if requested_integration_mode is None and auto_launch is None:
             preference = initiative_delivery_preference(source)
             if preference == "auto":
                 fail("Initiative Auto unavailable; unattended slice continuation is unqualified. "
@@ -7658,8 +7775,11 @@ def begin_registration(args):
             fail("follow-up default changed during observation")
     launch_plan = None
     inherited_approval = None
+    auto_proof = None
     if initiative is not None:
         launch_plan = initiative_launch_plan(source, initiative_source, initiative, plan, target, args, follow_up)
+        if auto_launch is not None:
+            launch_plan["initiative_grant_digest"] = integration_lifecycle_owner().hex_value(auto_launch.grant_digest)
         if not args.resume_existing and launch_plan["checkout"]["head"] != launch_plan["base_head"]:
             fail("registration requires a clean task checkout at the approved base")
         launch_digest = continuation_digest(launch_plan)
@@ -7670,6 +7790,8 @@ def begin_registration(args):
             fail("Initiative launch plan changed or is missing; run preflight before approval")
         if getattr(args, "integration_authorization", None) is not None:
             inherited_approval = integration_authorized_begin(source, args, launch_plan, launch_digest)
+        if auto_launch is not None:
+            auto_proof = auto_launch.verify_registration(source, launch_plan, launch_digest)
     elif getattr(args, "preflight", False):
         fail("launch preflight requires an Initiative")
     elif ahead(source, target):
@@ -7734,7 +7856,7 @@ def begin_registration(args):
     initiative_approval = None
     if initiative is not None:
         agent_confirmed = getattr(args, "approval", "interactive") == "agent-confirmed"
-        if inherited_approval is None and not agent_confirmed and not sys.stdin.isatty():
+        if inherited_approval is None and auto_launch is None and not agent_confirmed and not sys.stdin.isatty():
             fail("Initiative registration requires interactive operator confirmation")
         approval_view = {"initiative": initiative["initiative_id"], "slice": initiative["slice_id"],
             "cycle_id": args.cycle_id, "risk": args.risk, "delivery_intent": args.delivery_intent,
@@ -7746,7 +7868,10 @@ def begin_registration(args):
         if "delivery_preference" in launch_plan:
             approval_view["delivery_preference"] = launch_plan["delivery_preference"]
         confirmation = f"BEGIN {args.cycle_id} {launch_digest}"
-        if inherited_approval is not None:
+        if auto_launch is not None:
+            print(json.dumps(approval_view, sort_keys=True)
+                  + "\nAuthorization: Initiative Auto grant", file=sys.stderr)
+        elif inherited_approval is not None:
             print(json.dumps(approval_view, sort_keys=True)
                   + "\nAuthorization: integration grant (derived; not fresh human confirmation)", file=sys.stderr)
         elif agent_confirmed:
@@ -7762,7 +7887,7 @@ def begin_registration(args):
         fresh_plan = read_plan(args.plan, args.expected_plan_digest)
         require_native_checkout(source, args)
         current = initiative_receipt(initiative_source / args.initiative_manifest,
-                                     args.initiative_slice, initiative_source)
+                                     args.initiative_slice, initiative_source, auto_waiting=auto_launch is not None)
         current["manifest_path"] = args.initiative_manifest
         require_repository_home(source, initiative["repository"])
         require_repository_home(initiative_source, initiative["coordinator_repository"])
@@ -7787,6 +7912,9 @@ def begin_registration(args):
             if git(source, "rev-parse", f"refs/remotes/{remote}/{args.base_branch}").stdout.strip() != fresh_follow_up["observed_base"]:
                 fail("follow-up default changed during confirmation")
         fresh_launch = initiative_launch_plan(source, initiative_source, current, fresh_plan, target, args, fresh_follow_up)
+        if auto_launch is not None:
+            auto_launch.verify_scope(source, initiative_source, args.initiative_manifest, current, args.base_branch)
+            fresh_launch["initiative_grant_digest"] = integration_lifecycle_owner().hex_value(auto_launch.grant_digest)
         if ("delivery_preference" in launch_plan
                 and initiative_delivery_preference(source) != launch_plan["delivery_preference"]):
             fail("Initiative delivery preference changed during confirmation; request fresh preflight")
@@ -7795,9 +7923,25 @@ def begin_registration(args):
         if inherited_approval is not None:
             if integration_authorized_begin(source, args, fresh_launch, launch_digest) != inherited_approval:
                 fail("integration authorization changed during fresh launch")
-        initiative_approval = inherited_approval if inherited_approval is not None else {
-            "schema_version": 1, "method": "agent_confirmed" if agent_confirmed else "interactive_cli",
-            "launch_digest": launch_digest, "confirmed_at": confirmed_at}
+        if auto_launch is not None:
+            if auto_launch.verify_registration(source, fresh_launch, launch_digest) != auto_proof:
+                fail("Initiative Auto reservation changed during fresh launch")
+            activation_digest, session_digest = auto_proof
+            owner = integration_lifecycle_owner()
+            store = owner.Custody(common_git_dir(source).resolve())
+            grant_digest = fresh_launch["initiative_grant_digest"]
+            store.read("initiative_grant", grant_digest)
+            authorization = store.write("initiative_begin", {
+                "grant_digest": grant_digest, "activation_digest": activation_digest,
+                "session_digest": session_digest, "launch_digest": launch_digest,
+                "cycle_id": args.cycle_id, "authorized_at": confirmed_at,
+            })
+            initiative_approval = {"schema_version": 3, "method": "initiative_auto",
+                                   "launch_digest": launch_digest, "authorization_digest": authorization}
+        else:
+            initiative_approval = inherited_approval if inherited_approval is not None else {
+                "schema_version": 1, "method": "agent_confirmed" if agent_confirmed else "interactive_cli",
+                "launch_digest": launch_digest, "confirmed_at": confirmed_at}
     discovery_import = None
     if launch_plan and launch_plan["artifacts"]:
         paths = [entry["path"] for entry in launch_plan["artifacts"]]
@@ -7807,7 +7951,8 @@ def begin_registration(args):
         discovery_import["commit"] = git(worktree, "rev-parse", "HEAD").stdout.strip()
     record = start_cycle(worktree, args, plan, git_env=delivery_env,
                           discovery_import=discovery_import, initiative=initiative,
-                          initiative_approval=initiative_approval, follow_up=follow_up)
+                          initiative_approval=initiative_approval, follow_up=follow_up,
+                          auto_base=launch_plan["base_head"] if auto_launch is not None else None)
     print(json.dumps({
         "cycle_id": record["cycle_id"], "branch": branch_name,
         "worktree": str(worktree), "upstream": target,
@@ -22786,6 +22931,98 @@ def integration_outbox(root: Path, cycle_id: str, store: "IntegrationLifecycle.C
         raise RuntimeError("integration_private_publication_record_changed")
     request = owner.object_value(packet["request"])
     return {**packet, "request": request}
+
+
+class GitHubInitiativeEvidence:
+    """Verify an activation through its registered Build and the enrolled native ledger."""
+
+    def _subject(self, activation):
+        if activation.target.origin != "https://github.com":
+            fail("Initiative GitHub evidence requires the enrolled GitHub target")
+        root = Path(activation.launch.checkout)
+        path = cycle_dir(root) / "cycles" / (activation.launch.cycle_id + ".json")
+        if not os.path.lexists(path):
+            return None
+        record, raw, store = integration_cycle_custody(root, activation.launch.cycle_id)
+        approval = record.get("initiative_approval", {})
+        if approval.get("method") != "initiative_auto":
+            fail("Initiative native outcome has no Auto registration")
+        auth = store.read("initiative_begin", approval["authorization_digest"])
+        if (auth["grant_digest"] != activation.grant_id or auth["activation_digest"] != activation.activation_id
+                or auth["launch_digest"] != activation.launch.launch_digest
+                or auth["session_digest"] != continuation_digest(activation.session_id)
+                or effective_initiative(record)["slice_id"] != activation.slice_id):
+            fail("Initiative native outcome belongs to a different launch")
+        if store.optional_link("outbox", record["cycle_id"]) is None:
+            return None
+        packet = integration_outbox(root, record["cycle_id"], store, record, raw)
+        binding = store.read("initiative_grant", activation.grant_id)["binding"]
+        selected = integration_policy_snapshot(root)
+        if (selected is None or selected["policy_digest"] != binding["policy_digest"]
+                or selected["enrollment_digest"] != binding["enrollment_digest"]
+                or selected["coordinator"]["target_ref"] != activation.target.target_ref
+                or selected["coordinator"]["remote_repository"] != activation.target.repository):
+            fail("Initiative native outcome enrollment changed")
+        return root, record, packet, selected, binding["root_oid"]
+
+    def _read(self, activation, admission=None):
+        owner = integration_lifecycle_owner()
+        from integration_coordinator import runtime
+        from integration_coordinator.initiative_controller import Admission, Delivery
+
+        subject = self._subject(activation)
+        if subject is None:
+            return None
+        root, record, packet, selected, root_oid = subject
+        obligation = runtime.decode("obligation", owner.canonical(packet["request"]["obligation"]))
+        original = runtime.decode("ticket", owner.canonical(packet["request"]["ticket"]))
+        if not isinstance(obligation, runtime.Obligation) or not isinstance(original, runtime.Ticket):
+            fail("Initiative native outcome lacks an exact source ticket")
+        ticket = packet["ticket_handle"]
+        with integration_native_client(root, selected, record) as client:
+            _, forge = client.configuration()
+            if forge.enrollment.root_oid != root_oid:
+                fail("Initiative native outcome repository root changed")
+            status = client.status(ticket, obligation.handle)
+            if status is None or status.ticket.admission_digest is None:
+                return None
+            if (status.obligation.handle != obligation.handle or status.obligation.grant_digest != obligation.grant_digest
+                    or status.ticket.handle != ticket or original.handle != ticket
+                    or status.ticket.obligation_handle != obligation.handle
+                    or status.ticket.source != original.source or status.ticket.source.repository != activation.target.repository
+                    or status.ticket.requester_digest != original.requester_digest
+                    or status.ticket.delivery_mode != original.delivery_mode):
+                fail("Initiative native outcome no longer matches the admitted source")
+            observed = Admission(activation.activation_id, activation.target, ticket, obligation.handle,
+                                 status.ticket.admission_digest)
+            if admission is None:
+                return observed
+            if admission != observed:
+                fail("Initiative native admission changed before delivery")
+            if status.ticket.state is not runtime.State.DELIVERED:
+                return None
+            verified = client.verify_delivered(ticket, obligation.handle)
+            if verified.ticket != status.ticket or verified.obligation != status.obligation:
+                fail("Initiative native delivery changed during verification")
+            return Delivery(activation.activation_id, activation.target, ticket, obligation.handle,
+                            verified.merge_oid, verified.verification_digest)
+
+    def observe_admission(self, activation):
+        return self._observe(activation)
+
+    def observe_delivery(self, activation, admission):
+        return self._observe(activation, admission)
+
+    def _observe(self, activation, admission=None):
+        integration_lifecycle_owner()
+        from integration_coordinator import core
+
+        try:
+            return self._read(activation, admission)
+        except (core.Conflict, core.Unavailable, core.Invalid):
+            raise
+        except (OSError, RuntimeError, ValueError, KeyError):
+            raise core.Unavailable("initiative_native_outcome_unverified") from None
 
 
 def integration_validation_repair_snapshot(root: Path, status: "IntegrationClient.Status",

@@ -13,6 +13,16 @@ sequences [isolated evidence commands](features/evidence-checkout-isolation.md),
 [reconciled gate reuse](features/reconciled-gate-reuse.md) and
 [later-slice document declarations](features/deferred-discovery-documents.md).
 
+[Initiative Auto continuation](../../initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md)
+defines the private grant and execution contract. The source owner combines
+committed material and an enrolled target with a controller, native writer, and
+provider proof. The controller reserves the target and verifies native session
+and dispatch identity before the managed Begin path can register a fresh slice.
+The private execution journal keeps uncertain requests reserved for readback.
+Normal Draft PR and follow-up registration preserve their existing approval
+paths. A live two-slice demonstration after the originating session closes is
+required to qualify the installed controller and writer for Auto.
+
 [Post-delivery receipts](features/post-delivery-receipts.md) specifies how a
 completed draft delivery can be linked to a later verified merge and individual
 review outcomes without changing the original Cycle Record. It distinguishes
