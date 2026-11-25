@@ -14,9 +14,10 @@
   publication and completes the cycle once from its verified outcome.
 - Validate with real Git and the synthetic GitHub boundary: 16 tests in
   `tests/test_draft_merge_completion.py`, the affected lifecycle suites and the
-  full Python suite on the tree reconciled with `main`. Refresh the helper
-  benchmark pin. Installed qualification and live consumer recovery remain
-  separate.
+  full Python suite on the first tree reconciled with `main`. Later
+  documentation-only advances were validated with the document, publication and
+  lifecycle suites. Refresh the helper benchmark pin. Installed qualification
+  and live consumer recovery remain separate.
 
 ## 2026-11-24 — Forgejo protected merge adapter (FORGEJO-MERGE-PARITY)
 
