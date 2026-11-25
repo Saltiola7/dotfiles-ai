@@ -11,6 +11,17 @@
       "check_ids": [
         "dotfiles.adapter"
       ]
+    },
+    {
+      "id": "lifecycle-helper",
+      "owned_path_patterns": [
+        "dot_local/bin/executable_dbsctrctl",
+        "tests/test_dbsctrctl.py",
+        "tests/test_evidence_reuse.py"
+      ],
+      "check_ids": [
+        "dotfiles.lifecycle"
+      ]
     }
   ],
   "dependencies": [],

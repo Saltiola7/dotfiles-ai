@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile managed Forgejo delivery with evidence reuse
+
+- Preserve both lifecycle changes and refresh the CLI benchmark byte pin for
+  the source on the new protected base.
+
 ## 2026-11-25 — Compose managed Forgejo fixture delivery
 
 - Use the managed Initiative grant and journal with Forgejo schema-6 Begin and
@@ -11,6 +16,29 @@
 - Add a byte-pinned private fixture interface for native roles, Git, CI receipts,
   and the existing repository guard. The two-slice installed restart test
   remains separate from this source delivery.
+
+## 2026-11-25 — Reconcile evidence reuse with verified merge
+
+- Retain both lifecycle changes on PR #363 and refresh the helper byte pin.
+  Verified that the reconciled CLI help pins are unchanged. No required CI
+  changes or managed activation.
+
+## 2026-11-24 — Requalify evidence reuse CLI benchmarks
+
+- Reconcile PR #363 with protected `main` and refresh the benchmark's exact
+  helper and CLI help pins. Keep workloads, assertions, and required CI unchanged.
+
+## 2026-11-24 — Reuse validation executions across gates
+
+- Preview affected checks with `dbsctrctl evidence-plan` and run missing or
+  stale checks with `dbsctrctl validate`. The managed owner pins the selection
+  and source snapshot; execution receipts do not change gate state.
+- Give each gate a separate `reference-evidence` decision. Refuse stale,
+  superseded, out-of-scope, or unbound executions without changing gate state.
+  Export matching receipts for a clean committed head to a new private file.
+- Add a focused lifecycle check to the repository ownership table. Source
+  delivery targets a draft PR to `main`; no managed installation, activation,
+  hosted reuse, or change to required CI is included.
 
 ## 2026-11-25 — Reconcile PR #358 with managed Initiative Auto source
 
