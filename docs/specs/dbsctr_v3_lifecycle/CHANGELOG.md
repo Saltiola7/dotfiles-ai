@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Isolate evidence checkout writes
+
+- Run `record-evidence` in a private candidate with separately captured index
+  and working overlay. Keep the real checkout and Git state read-only to the
+  validator and its descendants; refuse when capture or isolation is unavailable.
+- Fail successful commands that modified candidate inputs, and refuse passing
+  evidence when the original inputs drift. Keep runtime output and evidence
+  custody separate. No managed activation.
+
 ## 2026-11-25 — Reconcile PR #358 with managed Initiative Auto source
 
 - Keep the managed Initiative publication deadline and pass the existing cycle
