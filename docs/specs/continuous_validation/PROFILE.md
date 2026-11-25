@@ -117,3 +117,60 @@ dependency pins and feedback authority remain unchanged. The private format chan
 requires old writers to stop and makes enabled in-place downgrade unsupported.
 Private deployment, operation and rollback qualification remain required before
 delivery; Discovery documents do not establish those results.
+
+## Bounded remote CI bridge extension
+
+[remote-ci-bridge.md](features/remote-ci-bridge.md) defines an elevated-risk,
+source-only extension using Python, Security and Cloud/platform guidance. Shared
+code reuses the current runner, explicit default-off worktree enrollment,
+repository adapter, checkpoint, observation, feedback and storage contracts. It
+does not require the larger unmerged worker implementation or introduce a second
+scheduler, policy service or gate ledger.
+
+Use native Dagger `0.21.10` synchronization and execution/export RPC through a
+private Unix socket forwarded over consumer-owned IAP SSH to an ephemeral
+nonlogin CI-user relay. Python/SDK orchestration, snapshots, adapters and feedback
+remain local; Linux containers run remotely. The selected operator explicitly
+receives temporary full engine API capability for trusted jobs, not fixed-check
+RBAC or hostile-code isolation. No engine-group membership, general Podman
+permission, public TCP endpoint, new job codec, broker or remote SDK client is
+introduced. Rootless engine operation is not assumed for this pin.
+
+Keep the existing `dagger` backend, adapter/result schemas and private
+`adapter_config.dagger.engine` Unix URI. A small `remote_engine` carrier pins one
+prepared consumer control helper and an activation receipt for the repository,
+route, runtime, resources and original budget, not a per-edit check allowlist.
+One outer shared-runner guard owns the lease/forward around the ordinary local
+adapter execute process; child SDK code opens neither another guard nor a lease.
+The parent binds source/check/request identities to that lease as local evidence,
+not native server attestation or a new child environment API. Descriptor
+configuration is fixed before selection and excludes control/ephemeral metadata;
+the verified per-pilot Unix URI is never rewritten at execution. Ordinary local checks
+retain their 3,600-second ceiling; only an exact qualified remote-engine check
+may use up to 7,500 seconds total, including at most 7,200 work and 300 cleanup,
+within its original pilot window. Full-graph lane/partition receipts remain
+external declared artifacts rather than a flattened single pytest identity.
+
+The consumer owns installed controls, verified hard aggregate CPU/memory and
+existing-disk quota, one initial admitted execution lease, original host
+boot/monotonic budget and idle-stop. Quota is checked before allocation; no quota
+enablement, new disk, remount, restart or VM autostart occurs implicitly. Host
+expiry survives SSH loss. Each check stops its exact engine/relay and proves
+unit/container/cgroup termination before releasing admission; unknown completion
+retains it. Quota-bounded cache may persist across engine stops. No sample or
+reconnect renews the original budget. Native RPC is not source/clock attestation.
+Stable runtime endpoint/installation/runtime/profile/owner pins remain comparison
+inputs; only per-execution remote metadata joins the existing measurement
+projection. The bridge reuses legacy Gate Commit/manual events. Purpose-aware CLI
+presence is not qualification of its absent managed owner or authority to import
+the larger worker stack; narrow purpose projection is a separate consumer concern.
+
+No concrete endpoint, cloud resource, account, resource size or runtime receipt
+is published here. Consumer profile and actual enforcement evidence are required
+before activation. Deployment and operation are outside the source-only slice,
+not passed or waived; a separate approved activation must qualify them, including
+rollback, bounded cleanup, disablement and recovery. Maintain/Retire remains
+applicable to the shared source and its compatibility/retirement contract.
+Existing local behavior and formal gate authority remain unchanged. Feedback
+still requires its independent exact-session qualification; compute readiness
+cannot establish delivery or consumption.

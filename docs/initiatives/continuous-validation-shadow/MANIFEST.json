@@ -405,6 +405,87 @@
       "artifacts": [
         "docs/specs/continuous_validation/STORAGE.md"
       ]
+    },
+    {
+      "id": "INT-075",
+      "kind": "requirement",
+      "text": "Use native Dagger directory synchronization, execution, logs and artifact RPC through one consumer-owned private IAP SSH Unix relay, reusing the existing local Python runner and adapter.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/features/remote-ci-bridge.md"
+      ]
+    },
+    {
+      "id": "INT-076",
+      "kind": "constraint",
+      "text": "Separate the admitted human, non-login CI relay account and administrator-owned privileged engine; grant only temporary native Dagger API capability through the bounded relay, not general Podman or check-only RBAC.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/features/remote-ci-bridge.md"
+      ]
+    },
+    {
+      "id": "INT-077",
+      "kind": "requirement",
+      "text": "Enforce aggregate CPU, memory, swap, process, artifact, existing-disk quota and nonextendable lifetime bounds before admitting trusted opted-in work.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/features/remote-ci-bridge.md"
+      ]
+    },
+    {
+      "id": "INT-078",
+      "kind": "requirement",
+      "text": "Bind native engine use to captured source, original pilot budget and exclusive execution lease; independently stop exact owned engine and relay state after connection loss and retain unknown-completion admission.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/features/remote-ci-bridge.md"
+      ]
+    },
+    {
+      "id": "INT-079",
+      "kind": "requirement",
+      "text": "Preserve default-off explicit worktree enrollment, local DBSCTR checkpoint/snapshot ownership, qualified exact-session feedback, stale suppression and advisory-only gate semantics.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/features/remote-ci-bridge.md"
+      ]
+    },
+    {
+      "id": "INT-080",
+      "kind": "constraint",
+      "text": "Keep concrete cloud, socket, account, resource, quota and idle-lifecycle configuration in consumer authority; publish generic reusable contracts only.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/features/remote-ci-bridge.md"
+      ]
+    },
+    {
+      "id": "INT-081",
+      "kind": "decision",
+      "text": "Deliver reviewed source before separately approved runtime setup and correctness/performance qualification; earlier unmerged worker code is candidate reuse, not required platform or activation authority.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/features/remote-ci-bridge.md"
+      ]
+    },
+    {
+      "id": "INT-082",
+      "kind": "non-goal",
+      "text": "Exclude hosted triggers, other submitters/workers/clusters, inference, VM autostart, authoritative evidence reuse, custom bulk transfer, a remote SDK client and a second scheduler/job broker.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/features/remote-ci-bridge.md"
+      ]
+    },
+    {
+      "id": "INT-083",
+      "kind": "decision",
+      "text": "Select native Dagger transport with lightweight local Python control and a dedicated remote CI relay; the trusted client receives temporary engine API authority rather than predefined-check-only submission.",
+      "disposition": "ready",
+      "artifacts": [
+        "docs/specs/continuous_validation/features/remote-ci-bridge.md"
+      ]
     }
   ],
   "contexts": [
@@ -580,6 +661,34 @@
         "docs/specs/continuous_validation/CHANGELOG.md"
       ],
       "release_group": "bounded-storage"
+    },
+    {
+      "id": "remote-ci-bridge",
+      "context": "continuous_validation",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": [
+        "INT-075",
+        "INT-076",
+        "INT-077",
+        "INT-078",
+        "INT-079",
+        "INT-080",
+        "INT-081",
+        "INT-082",
+        "INT-083"
+      ],
+      "depends_on": [
+        "local-shadow"
+      ],
+      "artifacts": [
+        "docs/initiatives/continuous-validation-shadow/README.md",
+        "docs/initiatives/continuous-validation-shadow/REMOTE-BRIDGE.plan.json",
+        "docs/specs/continuous_validation/features/remote-ci-bridge.md",
+        "docs/specs/continuous_validation/README.md",
+        "docs/specs/continuous_validation/PROFILE.md"
+      ],
+      "release_group": "remote-ci-bridge"
     }
   ],
   "release_groups": [
@@ -608,6 +717,13 @@
       "id": "bounded-storage",
       "members": [
         "bounded-storage"
+      ],
+      "state": "ready"
+    },
+    {
+      "id": "remote-ci-bridge",
+      "members": [
+        "remote-ci-bridge"
       ],
       "state": "ready"
     }
