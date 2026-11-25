@@ -419,6 +419,12 @@ Preserve Build-Claude's Vertex-only and Build-GPT's OpenAI-only helper routes;
 native controls use model-inheriting helpers. No automatic cross-provider fallback.
 Do not infer authority from skill name, model, tab label or unavailable tool.
 
+Consume Discovery's [delegation handoff](references/delegation-handoff.md)
+by default. Recheck runnable tasks against the actual checkout, permissions
+and cycle bounds. Give each helper its owned paths, inputs, test authority
+and return condition. Use the existing dependency and CI evidence rather
+than asking the operator to distribute the work or repeating a qualified test.
+
 Plan is read-only and ends with a Build Handoff. Build verifies source and
 artifact freshness before writing. Request the mode change in the same conversation,
 not another checkout/session as a workaround. Todos hold current state; specs and

@@ -1,5 +1,13 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Plan native delegation at the Discovery handoff
+
+- Discovery proposes runnable groups, exclusive write ownership, and when a
+  separate session is useful. Build consumes the same installed reference.
+- Distinguish test receipts, CI, and the evidence needed to release a
+  dependent. Existing permissions and protected delivery still apply.
+  Validate the managed handoff on a disposable home. Target: draft PR.
+
 ## 2026-11-24 — Record two delivered slices
 
 - Mark `host-independent-tests` (pull request #348) and

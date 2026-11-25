@@ -37,6 +37,12 @@ user approval for the complete context map before starting Context Discovery
 lanes. No material statement may remain uncovered unless explicitly deferred or
 rejected.
 
+Include a [delegation handoff](../dbsctr/references/delegation-handoff.md)
+by default. Show which tasks can run now, which must wait, and the reason
+for each dependency. Recommend bounded helpers or separate sessions when
+ownership and capabilities permit them. For one writer, explain briefly
+why the work stays together. The operator need not request delegation.
+
 Within an Initiative, each slice's `execution_owner` is `discovery` or `build`;
 only Build-owned slices issue launch receipts. Discovery owns approved normative
 contracts, acceptance criteria, dependencies and scope. A material implementation

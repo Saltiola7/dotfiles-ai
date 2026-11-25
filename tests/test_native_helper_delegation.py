@@ -12,7 +12,7 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from test_opencode_control_plane import OC, ROOT, rendered_config
+from test_opencode_control_plane import DATA, OC, ROOT, rendered_config
 from test_opencode_v2_control_plane import Provider
 
 
@@ -67,6 +67,33 @@ def test_discovery_delegates_docs_not_implementation():
             assert boundary in body
     ignored = (ROOT / ".chezmoiignore").read_text().split('{{ if not .dotfiles_ai.opencode.vertex_project }}', 1)[1].split('{{ end }}', 1)[0]
     assert '.config/opencode/agents/discovery-writer-vertex.md' in ignored
+
+
+def test_delegation_handoff_is_available_in_both_managed_roles(tmp_path):
+    """An operator with only the installed skills can plan and route the work."""
+    # Use real managed selection; a copied fixture would miss an ignored guide.
+    target = tmp_path / ".agents" / "skills"
+    reference = Path("references/delegation-handoff.md")
+    files = [target / role / "SKILL.md" for role in ("discovery", "dbsctr")]
+    applied = subprocess.run(
+        ["chezmoi", "-S", ROOT, "-D", tmp_path, "--config", "/dev/null",
+         "--config-format", "toml", "--override-data", json.dumps(DATA),
+         "--cache", tmp_path / "cache", "--persistent-state", tmp_path / "state",
+         "apply", "--parent-dirs", "--exclude", "scripts", *files, target / "dbsctr" / reference],
+        text=True, capture_output=True, timeout=30,
+    )
+    assert applied.returncode == 0, applied.stderr
+    for role in ("discovery", "dbsctr"):
+        entry = target / role / "SKILL.md"
+        [link] = re.findall(r"\[[^\]]+\]\(([^)]+delegation-handoff\.md)\)", entry.read_text())
+        guide = (entry.parent / link).resolve()
+        assert guide == (target / "dbsctr" / reference).resolve()
+    body = guide.read_text()
+    for expected in ("prerequisite", "shared resource", "one writer", "separate sessions",
+                     "draft PR", "required CI", "blocked", "qualified", "receipt"):
+        assert expected in body
+    # Planning must not widen the effective grant to make an example runnable.
+    assert rendered_config()["agent"]["general"]["permission"]["bash"]["*dbsctrctl*"] == "deny"
 
 
 def test_shared_instructions_allow_helpers_but_keep_primary_cycle_ownership():
