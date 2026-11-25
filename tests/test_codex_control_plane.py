@@ -10,6 +10,8 @@ import time
 import tomllib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 import pytest
 
@@ -434,6 +436,175 @@ def test_hook_refuses_symlinked_private_state_roots(tmp_path: Path, nested: bool
     assert result.returncode == 0
     assert not (real / "codex-hooks").exists()
     assert not (real / "nested/codex-hooks").exists()
+
+
+@pytest.fixture
+def bounded_cleanup(monkeypatch):
+    module = runpy.run_path(str(CONTROL))
+    process = mock.Mock(pid=123456789, returncode=None, stdin=None)
+    process.stdout.fileno.return_value = 11
+    process.stderr.fileno.return_value = 12
+    process.poll.return_value = None
+
+    def reaped(**kwargs):
+        process.returncode = 0
+        return 0
+
+    process.wait.side_effect = reaped
+    selector = mock.Mock()
+    selector.get_map.return_value = {11: object()}
+    selector.select.return_value = [(SimpleNamespace(fileobj=process.stdout), 0)]
+    group_signal = mock.Mock(side_effect=ProcessLookupError)
+    monkeypatch.setattr(module["subprocess"], "Popen", mock.Mock(return_value=process))
+    monkeypatch.setattr(module["selectors"], "DefaultSelector", mock.Mock(return_value=selector))
+    monkeypatch.setattr(module["os"], "read", mock.Mock(return_value=b"x" * 17))
+    monkeypatch.setattr(module["os"], "killpg", group_signal)
+    return module, process, selector, group_signal
+
+
+def assert_bounded_cleanup(process, selector, timeout=2):
+    selector.close.assert_called_once_with()
+    process.stdout.close.assert_called_once_with()
+    process.stderr.close.assert_called_once_with()
+    assert process.wait.called
+    for call in process.wait.call_args_list:
+        assert 0 <= call.kwargs["timeout"] <= timeout
+    assert process.wait.call_args_list[-1].kwargs["timeout"] <= 1
+
+
+@pytest.mark.parametrize("exit_race", [False, True])
+def test_bounded_command_reaps_before_group_signal_and_retries_exit_race(bounded_cleanup, exit_race):
+    module, process, selector, group_signal = bounded_cleanup
+    polls = 0
+
+    def poll():
+        nonlocal polls
+        polls += 1
+        process.returncode = None if exit_race and polls == 1 else 0
+        return process.returncode
+
+    def signal_group(*args):
+        assert polls, "reap the leader before signaling its group"
+        if process.returncode is None:
+            raise PermissionError("PRIVATE_CLEANUP_SENTINEL")
+        raise ProcessLookupError()
+
+    process.poll.side_effect = poll
+    group_signal.side_effect = signal_group
+    with pytest.raises(module["CommandFailure"]) as failure:
+        module["run_bounded"](["synthetic-command"], 2, 16)
+    assert failure.value.reason == "output_too_large"
+    assert group_signal.call_count == (2 if exit_race else 1)
+    process.kill.assert_not_called()
+    assert_bounded_cleanup(process, selector)
+
+
+@pytest.mark.parametrize("reason", ["output_too_large", "timeout"])
+def test_bounded_command_cleanup_consumes_the_original_deadline(bounded_cleanup, monkeypatch, reason):
+    module, process, selector, _ = bounded_cleanup
+    clock = [0.0]
+    monkeypatch.setitem(module["run_bounded"].__globals__, "time",
+                        SimpleNamespace(monotonic=lambda: clock[0]))
+
+    def selected(_):
+        clock[0] = 1.0
+        return [(SimpleNamespace(fileobj=process.stdout), 0)] if reason == "output_too_large" else []
+
+    def reaped(*, timeout):
+        assert 0 <= timeout <= 2.0 - clock[0]
+        clock[0] += timeout
+        process.returncode = 0
+        return 0
+
+    selector.select.side_effect = selected
+    process.wait.side_effect = reaped
+    with pytest.raises(module["CommandFailure"]) as failure:
+        module["run_bounded"](["synthetic-command"], 2, 16)
+    assert failure.value.reason == reason
+    assert clock[0] <= 2.0
+    assert_bounded_cleanup(process, selector)
+
+
+def test_bounded_command_reaps_real_overflow_producer(monkeypatch):
+    module = runpy.run_path(str(CONTROL))
+    children = []
+    popen = subprocess.Popen
+
+    def start(*args, **kwargs):
+        child = popen(*args, **kwargs)
+        children.append(child)
+        return child
+
+    monkeypatch.setattr(module["subprocess"], "Popen", start)
+    try:
+        with pytest.raises(module["CommandFailure"]) as failure:
+            module["run_bounded"]([sys.executable, "-I", "-B", "-c",
+                                   "import sys; sys.stdout.buffer.write(b'x' * 131072)"], 2, 16)
+        assert failure.value.reason == "output_too_large"
+        assert len(children) == 1
+        assert children[0].returncode is not None
+        assert children[0].stdout.closed and children[0].stderr.closed
+    finally:
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=2)
+            child.stdout.close()
+            child.stderr.close()
+
+
+@pytest.mark.parametrize("leader_exited", [False, True])
+def test_bounded_command_denied_group_cleanup_fails_closed(bounded_cleanup, leader_exited):
+    module, process, selector, group_signal = bounded_cleanup
+    process.returncode = process.poll.return_value = 0 if leader_exited else None
+    group_signal.side_effect = PermissionError("PRIVATE_CLEANUP_SENTINEL")
+    with pytest.raises(module["CommandFailure"]) as failure:
+        module["run_bounded"](["synthetic-command"], 2, 16)
+    assert failure.value.reason == "cleanup_failed"
+    assert "PRIVATE_CLEANUP_SENTINEL" not in str(failure.value)
+    assert group_signal.call_count == 2
+    assert process.kill.call_count == (0 if leader_exited else 1)
+    assert_bounded_cleanup(process, selector)
+
+
+def test_bounded_command_cleanup_wait_failure_still_closes_handles(bounded_cleanup):
+    module, process, selector, _ = bounded_cleanup
+    process.wait.side_effect = subprocess.TimeoutExpired("PRIVATE_CLEANUP_SENTINEL", 1)
+    with pytest.raises(module["CommandFailure"]) as failure:
+        module["run_bounded"](["synthetic-command"], 2, 16)
+    assert failure.value.reason == "cleanup_failed"
+    assert_bounded_cleanup(process, selector)
+
+
+def test_bounded_command_selector_setup_failure_still_cleans_child(bounded_cleanup):
+    module, process, selector, _ = bounded_cleanup
+    selector.register.side_effect = OSError("PRIVATE_CLEANUP_SENTINEL")
+    with pytest.raises(module["CommandFailure"]) as failure:
+        module["run_bounded"](["synthetic-command"], 2, 16)
+    assert failure.value.reason == "command_failed"
+    assert_bounded_cleanup(process, selector)
+
+
+def test_bounded_command_close_failure_still_closes_remaining_handles(bounded_cleanup):
+    module, process, selector, _ = bounded_cleanup
+    process.stdout.close.side_effect = OSError("PRIVATE_CLEANUP_SENTINEL")
+    with pytest.raises(module["CommandFailure"]) as failure:
+        module["run_bounded"](["synthetic-command"], 2, 16)
+    assert failure.value.reason == "cleanup_failed"
+    assert_bounded_cleanup(process, selector)
+
+
+def test_probe_denied_cleanup_returns_structured_failure(bounded_cleanup, monkeypatch, capsys):
+    module, process, selector, group_signal = bounded_cleanup
+    selector.get_map.return_value = {}
+    group_signal.side_effect = PermissionError("PRIVATE_CLEANUP_SENTINEL")
+    monkeypatch.setattr(module["shutil"], "which", lambda _: "/synthetic/codex")
+    assert module["command_probe"]() == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["runtime"]["reason"] == "runtime_probe_failed"
+    assert captured.err == ""
+    assert "PRIVATE_CLEANUP_SENTINEL" not in captured.out
+    assert_bounded_cleanup(process, selector, timeout=30)
 
 
 def test_bounded_command_kills_descendants_after_leader_exits(tmp_path: Path) -> None:
