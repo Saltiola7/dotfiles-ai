@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-25 — Retain partial shadow validation
+
+- Keep the 15-minute shadow job limit. Reserve time for artifact upload and
+  retain completed checks when the selected native checks exceed the execution
+  budget. Report remaining native checks as `budget_exhausted`, not as passes.
+- Required CI, selection, and Git-note publication are unchanged.
+
 ## 2026-11-25 — Provision shadow render tools
 
 - Add the existing pinned Bun and checksum-verified chezmoi to the non-gating
