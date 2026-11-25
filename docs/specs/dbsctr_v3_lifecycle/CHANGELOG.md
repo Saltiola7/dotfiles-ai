@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile the published gate-evidence repair
+
+- Preserve the gate-evidence repair and the protected Initiative continuation
+  in the same draft, with the benchmark fixture pinned to the combined helper.
+
 ## 2026-11-24 — Admit evidence from a reconciliation merge
 
 - Bind a deleted path to its provable merge-side or merge-base predecessor
@@ -9,6 +14,24 @@
   adding private files to commits or loosening other ignored-path checks.
 - Scope: the evidence writer and reader, focused regression cases and the
   matching benchmark helper pin. No CI matrix changes or live deployment.
+
+## 2026-11-24 — Refresh Initiative continuation on the protected base
+
+- Reconcile PR #357 with the shift-left validation changes on `main`.
+- Revalidate Initiative registration, continuation, and affected-check selection
+  on the reconciled branch before requesting fresh native CI.
+
+## 2026-11-24 — Initiative continuation (INITIATIVE-CONTINUATION)
+
+- Bind an operator-approved material snapshot, selected dependency closure,
+  enrolled repository, and qualified writer to one expiring private grant.
+  Recheck affected scope and native prerequisite delivery before each launch.
+- Reserve each target in a private execution journal. Bind the first Build
+  request to an exact native session and message, and reconcile uncertain
+  requests by native readback. Supersede an unclaimed launch if its base moves.
+- Validate controlled two-slice continuation, lost replies, drift, revocation,
+  existing approval compatibility and the protected source PR. Installed writer
+  activation and the live restart demonstration remain separately qualified.
 
 ## 2026-11-24 — Record two delivered slices
 
