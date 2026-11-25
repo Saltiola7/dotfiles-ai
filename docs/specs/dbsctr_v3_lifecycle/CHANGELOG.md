@@ -1,5 +1,12 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reuse proven evidence after reconciliation
+
+- Preview affected gates in enrolled draft cycles. Retain equivalent bound
+  executions at Final Push without changing their original timestamps.
+- Keep fresh review of the actual merge, runtime acceptance, and legacy
+  freshness requirements. Apply the same rules to published follow-ups.
+
 ## 2026-11-25 — Reconcile section authority with Forgejo Auto
 
 - Preserve both source changes and refresh the combined helper benchmark pin.

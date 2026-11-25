@@ -7090,7 +7090,8 @@ def evidence_binding_applicability(root, record, gate_name, *, allow_runtime=Fal
         return {"disposition": "unavailable", "reason_code": "binding_prerequisite_unavailable"}
 
 
-def completion_evidence_dispositions(root, record, *, strict_source=False, allow_runtime=False, probe_cache=None, source_head=None):
+def completion_evidence_dispositions(root, record, *, strict_source=False, allow_runtime=False, probe_cache=None,
+                                     source_head=None, include_dependency_scope=True):
     head = git(root, "rev-parse", "HEAD").stdout.strip()
     policy = effective_evidence_policy(record)
     decisions = {}
@@ -7121,6 +7122,12 @@ def completion_evidence_dispositions(root, record, *, strict_source=False, allow
             decisions[name] = decision
         except (RuntimeError, OSError, ValueError, TypeError, KeyError):
             decisions[name] = {"disposition": "unavailable", "reason_code": "gate_evidence_unavailable"}
+    if include_dependency_scope:
+        apply_evidence_dependency_scope(policy, decisions)
+    return decisions
+
+
+def apply_evidence_dependency_scope(policy, decisions):
     if policy is not None:
         changed = {name for name, item in policy["requirements"].items()
                    if any(decisions.get(gate, {}).get("disposition") != "retained" for gate in item["gates"])}
@@ -7133,7 +7140,6 @@ def completion_evidence_dispositions(root, record, *, strict_source=False, allow
             for gate in policy["requirements"][name]["gates"]:
                 if decisions.get(gate, {}).get("disposition") == "retained":
                     decisions[gate] = {"disposition": "rerun_required", "reason_code": "requirement_dependency_changed"}
-    return decisions
 
 
 def require_completion_bindings(root, record, *, strict_source=False, allow_runtime=False, probe_cache=None, source_head=None):
@@ -22320,8 +22326,71 @@ def sync_source_checkout(record, remote, remote_branch, root=None):
         return {"status": "skipped", "reason": "sync_failed"}
 
 
+def reconciliation_gate_evidence(root, record, *, target=None, predicting=False, reconciliation=None):
+    """Reuse only positively bound evidence; keep existing freshness for all other gates."""
+    policy = effective_evidence_policy(record)
+    decisions = (completion_evidence_dispositions(root, record, include_dependency_scope=False)
+                 if policy is not None else {})
+    if predicting and policy is not None:
+        ancestor = git(root, "merge-base", "HEAD", target).stdout.strip()
+        incoming = set(filter(None, git(root, "diff", "--no-renames", "--name-only", "-z",
+                                       ancestor, target).stdout.split("\0")))
+        for name, declaration in policy["gates"].items():
+            executable = declaration["argv"][0]
+            resolved = (root / executable if "/" in executable else
+                        Path(shutil.which(executable) or "/nonexistent")).resolve()
+            local_executable = resolved.relative_to(root).as_posix() if resolved.is_relative_to(root) else None
+            selected = (*declaration["inputs"], *declaration["toolchain_paths"],
+                        record["engineering_profile"]["path"],
+                        *((local_executable,) if local_executable else ()))
+            if any(PurePosixPath(path).name in {".gitignore", ".gitattributes"} or any(
+                    path == item or path.startswith(item + "/") or item.startswith(path + "/")
+                    for item in selected) for path in incoming):
+                decisions[name] = {"disposition": "rerun_required", "reason_code": "target_inputs_changed"}
+    points, review, report = [], None, {}
+    gate_points = {}
+    for name, gate in record["gates"].items():
+        if gate["applicability"] != "required":
+            continue
+        item = record["evidence"]["items"].get(gate.get("evidence"), {})
+        point = item.get("commit") or item.get("head")
+        gate_points[name] = point
+        if name == "review_integrate":
+            review = point
+            if predicting or point != reconciliation:
+                decisions[name] = {"disposition": "rerun_required", "reason_code": "reconciliation_review_required"}
+        elif (policy is None or name not in policy["gates"] or gate["result"] != "passed"):
+            decisions[name] = {"disposition": "rerun_required", "reason_code": "post_merge_evidence_required"}
+        elif decisions.get(name, {}).get("disposition") == "retained":
+            if not point or git(root, "merge-base", "--is-ancestor", point, "HEAD", check=False).returncode:
+                decisions[name] = {"disposition": "rerun_required", "reason_code": "execution_ancestry_unavailable"}
+    if reconciliation is not None and policy is not None:
+        # A fresh prerequisite can no longer show whether its old inputs were
+        # unchanged. Conservatively require fresh evidence for its dependants.
+        after = {name for name, point in gate_points.items() if point and not git(
+            root, "merge-base", "--is-ancestor", reconciliation, point, check=False).returncode}
+        requirements = policy["requirements"]
+        refreshed = {name for name, item in requirements.items() if after.intersection(item["gates"])}
+        dependants = set()
+        while additional := {name for name, item in requirements.items()
+                             if set(item["depends_on"]) & (refreshed | dependants)} - dependants:
+            dependants.update(additional)
+        for name in dependants:
+            for gate in set(requirements[name]["gates"]) - after:
+                decisions[gate] = {"disposition": "rerun_required", "reason_code": "requirement_dependency_changed"}
+    apply_evidence_dependency_scope(policy, decisions)
+    for name, point in gate_points.items():
+        decision = decisions.get(name, {"disposition": "unavailable", "reason_code": "gate_evidence_unavailable"})
+        if predicting and decision.get("runtime_status") == "not_evaluated":
+            decision = {**decision, "disposition": "runtime_probe_required"}
+        report[name] = decision
+        if point and (name == "review_integrate" or decision["disposition"] != "retained"):
+            points.append(point)
+    return points, review, report
+
+
 def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commits,
-                                  evidence_points, review_point=None):
+                                  evidence_points, review_point=None, *, record=None):
     if git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode:
         fail("protected base advanced without reconciliation")
     merges = git(root, "rev-list", "--first-parent", "--merges", f"{cycle_base}..HEAD").stdout.splitlines()
@@ -22330,6 +22399,18 @@ def validate_draft_reconciliation(root, cycle_base, target_head, recorded_commit
     if len(matches) != 1:
         fail("protected base reconciliation merge is missing or ambiguous")
     reconciliation = matches[0]
+    if record is not None and effective_evidence_policy(record) is not None:
+        evidence_points, review_point, _ = reconciliation_gate_evidence(root, record, reconciliation=reconciliation)
+        review_item = verify_envelope(root, record, "review_integrate", require_head=False)
+        reviewed_parent = git(root, "rev-parse", reconciliation + "^1").stdout.strip()
+        changed = set(filter(None, git(root, "diff", "--no-renames", "--name-only", "-z",
+                                       reviewed_parent, reconciliation).stdout.split("\0")))
+        if (review_item.get("commit") != reconciliation or reconciliation not in recorded_commits
+                or review_item.get("result") != "passed"
+                or "references" in review_item or review_item.get("head") != reviewed_parent
+                or not changed <= review_item["paths"].keys()
+                or evidence_path_blobs(root, review_item["paths"], commit=reconciliation) != review_item["paths"]):
+            fail("actual reconciliation requires fresh Review/Integrate evidence")
     first_parent = git(
         root, "rev-list", "--reverse", "--first-parent", f"{cycle_base}..HEAD"
     ).stdout.splitlines()
@@ -22378,7 +22459,7 @@ def validate_follow_up_lineage(root, record, target_head):
             points.append(point)
             if name == "review_integrate":
                 review = point
-    return validate_draft_reconciliation(root, base, target_head, recorded, points, review)
+    return validate_draft_reconciliation(root, base, target_head, recorded, points, review, record=record)
 
 
 def github_environment(account):
@@ -27378,7 +27459,7 @@ def finish_push(root, path, record):
                 if name == "review_integrate":
                     review_point = point
         current_ahead = validate_draft_reconciliation(
-            root, cycle_base, target_head, recorded_commits, evidence_points, review_point
+            root, cycle_base, target_head, recorded_commits, evidence_points, review_point, record=record
         )
         reconciled = True
     else:
@@ -27549,6 +27630,9 @@ def command_reconcile_target(args):
             result = {"status": "integrated", "staged_paths": [], "conflict_paths": []}
         elif args.mode == "preview":
             result = {"status": "diverged", "staged_paths": [], "conflict_paths": []}
+            if record["delivery_intent"] == "draft_pr" and effective_evidence_policy(record) is not None:
+                _, _, decisions = reconciliation_gate_evidence(root, record, target=target, predicting=True)
+                result["gate_evidence"] = decisions
         else:
             merge_base = git(root, "merge-base", "HEAD", target).stdout.strip()
             anticipated = set()
