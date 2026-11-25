@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile Forgejo Auto on Linux
+
+- Preserve the managed Forgejo source while reconciling PR #364 with
+  protected main at `5bd592f`. Refresh the gate evidence in the Linux checkout.
+
 ## 2026-11-25 — Verify Forgejo delivery at the protected tip
 
 - Ask the native owner to verify ancestry when the protected tip is the merge
