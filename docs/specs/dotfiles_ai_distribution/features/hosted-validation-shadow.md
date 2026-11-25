@@ -89,21 +89,32 @@ duplication; it does not remove it.
 
 | Disposition | Condition |
 |---|---|
-| `would_reuse` | Head and base match the manifest, the test identity was selected locally, a passing local receipt covers it and the lane identity matches on retained values |
-| `would_reuse_if_lane_equivalent` | As above except lane identity, which differs or is not retained |
+| `would_reuse` | The note names the exact PR head and tested base, source equivalence is established, a passing local receipt proves coverage of the whole selected hosted test group, and the complete lane identity matches |
+| `would_reuse_if_lane_equivalent` | Every non-lane condition above holds; the only remaining gap is `lane_mismatch` or `lane_unverified` |
 | `must_run` | Any other case, with exactly one reason |
+
+Evaluate the non-lane conditions in the order below and report the first
+unmet condition. Match only whole test groups: require the same identity
+encoding and verified count and digest for the group; do not infer per-test
+membership or subset coverage from a receipt summary. The PR head, base, and
+tested merge revision are distinct, and an opaque snapshot ID is not a Git
+object. These classifications are report-only even when evidence matches.
 
 | Reason for `must_run` | Meaning |
 |---|---|
-| `not_selected_locally` | The local selection did not include this test identity |
-| `no_receipt` | Selected locally, but no local execution exists |
-| `receipt_failed` | The only local execution of the check did not pass |
-| `source_changed` | The manifest head or the receipt's snapshot differs from the head under review |
-| `base_advanced` | The pull request base moved after the local validation |
-| `head_mismatch` | The note names another head |
-| `lane_mismatch` | Both lanes are retained and differ |
-| `lane_unverified` | A lane value is not retained |
 | `manifest_unavailable`, `manifest_malformed` | No note for the head, or a note that fails bounded parsing |
+| `head_mismatch` | The note names another head |
+| `base_advanced` | The tested base differs from the note's base |
+| `not_selected_locally` | The local selection omits the check for the test group |
+| `no_receipt` | The export contains no receipt for the selected check; this does not distinguish failed, stale, and never executed |
+| `receipt_failed` | A retained execution explicitly reports a non-pass; the v1 exporter emits only passing receipts, so this reason is not inferred from a v1 export |
+| `source_changed`, `source_unverified` | Retained evidence shows a source difference, or cannot establish source equivalence for the receipt and tested revision |
+| `test_identity_unverified` | Evidence cannot prove an exact whole-group match |
+
+Lane diagnostics belong to the conditional disposition only, after those
+checks pass. Missing source, test identity, or lane fields cannot yield
+strict reuse. The current producers do not retain enough evidence to prove
+strict reuse.
 
 - Given the job and step timestamps
 - When timing is reported
@@ -117,6 +128,9 @@ duplication; it does not remove it.
 - When repetition is counted
 - Then the report states how many identical test identities executed more than
   once on the same source and runtime, and how many executions that added.
+- If exact early-step execution identities are not retained, report both counts
+  as `null` and name the missing input under `unavailable`. Timestamps and
+  command selectors cannot substitute for execution identities.
 
 - Given a missing note, a malformed note, a missing artifact or an API error
 - When the job concludes
@@ -166,7 +180,7 @@ is verified by the first real run; where it is unavailable the shadow reports
 | `compare` job | Runs `python .github/validation_shadow.py compare`; artifact `validation-shadow`; succeeds on every handled outcome |
 | Comparison script | `.github/validation_shadow.py`, owned by distribution; reads the partition manifests and JUnit files, the affected result, the note and the API timestamps |
 | Report | Version 1 JSON as specified below, with a Markdown rendering |
-| Dispositions and reasons | The closed vocabularies above; an unknown case is `must_run` with `lane_unverified` or is named under `unavailable`, never a reuse claim |
+| Dispositions and reasons | The closed vocabularies above; unverified source or test identity is `must_run` with the corresponding reason, and missing measurement inputs are named under `unavailable` |
 
 The report is version 1:
 
