@@ -84,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           evidence="$RUNNER_TEMP/validation-affected"
-          mkdir "$evidence"
+          mkdir -m 700 -p "$evidence/result.json.logs"
           uv run --no-project --python "$PYTHON_VERSION" python -I - "$evidence/runtime.json" <<'PY'
           import json
           import platform

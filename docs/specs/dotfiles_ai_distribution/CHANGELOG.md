@@ -1,5 +1,11 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-25 — Repair hosted shadow CI setup
+
+- Keep the oversized-note fixture but give it a short pytest ID so required
+  CI can collect it. Create the affected adapter's log directory before
+  execution. No changes to required CI or note publication.
+
 ## 2026-11-25 — Hosted validation shadow (CVS-SHIFT-LEFT-003)
 
 - Add a [report-only workflow](features/hosted-validation-shadow.md) for early

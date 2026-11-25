@@ -136,7 +136,7 @@ def test_non_pr_produces_no_report(inputs):
 
 @pytest.mark.parametrize("raw", [
     b"\xff", b"[]", b'{"schema_version": 1, "schema_version": 1}', b"{" * 3000,
-    b" " * (4 * 1024 * 1024 + 1),
+    pytest.param(b" " * (4 * 1024 * 1024 + 1), id="oversized-note"),
 ])
 def test_bad_note_has_no_admitted_claims(inputs, raw):
     (inputs / "note.json").write_bytes(raw)
