@@ -698,6 +698,22 @@ check. Hosted lanes run on Linux runners with one qualified Worktrunk tool
 version per lane; test outcomes, worker bounds and native merge protections
 remain. Exact approval and provenance requirements remain unchanged.
 
+[Execution evidence reuse](features/execution-evidence-reuse.md) defines the
+local workflow: `dbsctrctl validate` can capture receipts on settled edits in
+an enrolled active cycle without changing gates. At a checkpoint, use the
+read-only `dbsctrctl evidence-plan --gate GATE`, then
+`dbsctrctl reference-evidence GATE --of ID` for an admissible passing
+execution that covers the gate's obligation (with `--path` for a receipt).
+Use `dbsctrctl record-evidence` for remaining required work, including stale
+work that must be rerun. A plan is not a gate decision; each gate retains its
+own evidence and predecessor rules. If reuse is unavailable, use the existing
+direct authority when permitted or report the capability gap.
+
+Reuse does not change required advanced-base union validation, final-source
+validation, or native hosted CI and merge protections. A private evidence export
+is not forge proof; publication requires separate operator approval. This
+contract does not establish installed qualification, live adoption, or savings.
+
 Checkout-independent continuation and explicit unfinished-cycle release have
 [approved corrective Discovery](../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md).
 Its exact identity/protocol contract and approved repair-first ordering settle
