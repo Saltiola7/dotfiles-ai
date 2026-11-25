@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "native-slice-builders",
+  "title": "Deliver approved DBSCTR slices with native Build writers",
+  "state": "discovering",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id":"INT-001","kind":"requirement","text":"Discovery recommends delegation and forked sessions by default from dependencies, owned paths and shared resources; serialize overlap and retain one writer per slice.","disposition":"ready","artifacts":["docs/initiatives/native-slice-builders/README.md"]},
+    {"id":"INT-002","kind":"decision","text":"Use a separately qualified native writer for the full authorized DBSCTR cycle of one slice, through draft PR or explicitly selected delivery, while preserving independent review and ordinary helper restrictions.","disposition":"ready","artifacts":["docs/initiatives/native-slice-builders/README.md"]},
+    {"id":"INT-003","kind":"requirement","text":"Accept attributable worker test receipts for matching gates without duplicate execution. Wrong producer, checkout, tree or inputs and incomplete evidence cannot satisfy gates. Protected CI remains separate.","disposition":"ready","artifacts":["docs/initiatives/native-slice-builders/README.md"]},
+    {"id":"INT-004","kind":"requirement","text":"Use one bounded Discovery acceptance, the existing Initiative controller, native CI feedback and repair, and its tally. Draft-only multi-slice grants require agreement with the existing grant owner.","disposition":"blocked","artifacts":["docs/initiatives/native-slice-builders/README.md","docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]},
+    {"id":"INT-005","kind":"constraint","text":"Keep qualified serial-per-target and protected integration constraints until their owner qualifies more concurrency. A fork does not clone authorization; replay cannot duplicate a writer or delivery.","disposition":"ready","artifacts":["docs/initiatives/native-slice-builders/README.md"]},
+    {"id":"INT-006","kind":"decision","text":"Deliver via durable managed source only. Keep Linux-only CI and direct macOS use of DBSCTR without developing dotfiles-ai on macOS or interrupting active sessions.","disposition":"ready","artifacts":["docs/initiatives/native-slice-builders/README.md"]},
+    {"id":"INT-007","kind":"non-goal","text":"Do not implement a parallel Auto controller, global shell permission override, unbounded GitHub mutation or a second merge path.","disposition":"ready","artifacts":["docs/initiatives/native-slice-builders/README.md"]}
+  ],
+  "contexts": [
+    {"id":"dbsctr_v3_lifecycle","repository":"Saltiola7/dotfiles-ai","status":"discovering","depends_on":[]},
+    {"id":"opencode_control_plane","repository":"Saltiola7/dotfiles-ai","status":"discovering","depends_on":[]}
+  ],
+  "slices": [
+    {"id":"discovery-delegation-plan","context":"dbsctr_v3_lifecycle","state":"ready","execution_owner":"build","requirements":["INT-001","INT-005","INT-007"],"depends_on":[],"artifacts":["docs/initiatives/native-slice-builders/README.md","docs/initiatives/native-slice-builders/BUILDER-HANDOFF.md","docs/initiatives/native-slice-builders/PLANNING.plan.json","docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],"release_group":"native-writers"},
+    {"id":"slice-writer-and-evidence","context":"dbsctr_v3_lifecycle","state":"discovering","execution_owner":"build","requirements":["INT-002","INT-003","INT-004","INT-005","INT-007"],"depends_on":["discovery-delegation-plan"],"artifacts":["docs/initiatives/native-slice-builders/README.md","docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],"release_group":"native-writers"},
+    {"id":"native-builder-qualification","context":"opencode_control_plane","state":"discovering","execution_owner":"build","requirements":["INT-001","INT-002","INT-003","INT-004","INT-005","INT-006","INT-007"],"depends_on":["slice-writer-and-evidence"],"artifacts":["docs/initiatives/native-slice-builders/README.md","docs/specs/opencode_control_plane/PROFILE.md","docs/specs/opencode_control_plane/features/native-helper-delegation.md"],"release_group":"native-writers"}
+  ],
+  "release_groups": [
+    {"id":"native-writers","members":["discovery-delegation-plan","slice-writer-and-evidence","native-builder-qualification"],"state":"planning"}
+  ]
+}
