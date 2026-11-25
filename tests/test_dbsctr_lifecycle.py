@@ -788,6 +788,7 @@ def test_v3_module_registry_is_extensible_and_normalized():
         "specialist-selection.md",
             "semantic-audit.md",
             "integration-coordinator.md",
+            "delegation-handoff.md",
             "spec-visuals.md",
             "web.md",
             "openai.md",
