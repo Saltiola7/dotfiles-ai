@@ -14,6 +14,7 @@ import sys
 import pytest
 import test_dbsctrctl as harness
 from test_completion_binding_cli import amend_policy
+from test_completion_reconciliation import pending_deletion_merge
 from test_initiative_cli_approval import initiative
 from test_worktrunk_registration import fixture, git, task
 
@@ -70,6 +71,38 @@ def refuse_reference(cycle, gate, execution, code, *options):
     assert code in response.stderr + response.stdout
     assert path.read_bytes() == before
     assert git(root, "rev-parse", "HEAD") == head
+
+
+def test_reference_preserves_merge_absence_proof(cycle):
+    root, path = cycle
+    pending_deletion_merge(root)
+    source_id = record_execution(root)
+    reference_id = harness.run(root, "reference-evidence", "behavior", "--of", source_id).stdout.strip()
+    items = read_record(path)["evidence"]["items"]
+    for key in ("absences", "absence_sources", "absence_merge_head"):
+        assert items[reference_id][key] == items[source_id][key]
+
+
+def test_reference_rejects_aborted_merge_predecessor(cycle):
+    root, _ = cycle
+    pending_deletion_merge(root)
+    record_execution(root)
+    source_id = record_execution(root, "behavior", path=SECOND_TRACKED, authority="independent")
+    git(root, "merge", "--abort")
+    refuse_reference(cycle, "spec", source_id, "evidence merge predecessor is no longer pending")
+
+
+def test_reference_reads_literal_ignored_witness(cycle):
+    root, path = cycle
+    (root / ".gitignore").write_text("/.dbsctr/\n")
+    witness = ".dbsctr/witness[1].txt"
+    (root / witness).parent.mkdir()
+    (root / witness).write_text("literal evidence\n")
+    source_id = record_execution(root, path=witness)
+    reference_id = harness.run(root, "reference-evidence", "behavior", "--of", source_id).stdout.strip()
+    items = read_record(path)["evidence"]["items"]
+    assert items[reference_id]["paths"] == items[source_id]["paths"]
+    assert not git(root, "diff", "--cached", "--name-only")
 
 
 def test_same_head_cross_gate_reference_owns_decision_and_can_gate_commit(cycle, tmp_path):
