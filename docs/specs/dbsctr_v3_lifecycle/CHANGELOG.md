@@ -1,5 +1,15 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Compose managed Initiative Auto
+
+- Add managed Start and Resume over the exact private approval and retained
+  journal. Park the native Build request until the controller registers Begin.
+- Use the existing GitHub coordinator's local-only enrollment to recheck the
+  same Initiative grant at protected admission and merge. Keep uncertain
+  effects eligible for native readback.
+- Validate the controlled composition and existing adapter contracts before
+  protected source delivery. Installed two-slice qualification remains separate.
+
 ## 2026-11-24 — Refresh Initiative continuation on the protected base
 
 - Reconcile PR #357 with the shift-left validation changes on `main`.
