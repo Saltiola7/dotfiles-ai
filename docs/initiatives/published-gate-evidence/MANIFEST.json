@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "published-gate-evidence",
+  "title": "Integrate the published gate-evidence fix with the current lifecycle CLI",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id": "INT-001", "kind": "requirement", "text": "Reconcile the current protected default into the exact published feature, preserve both CLI behaviors and their documentation, and bind the benchmark to the resulting helper bytes.", "disposition": "ready", "artifacts": ["docs/initiatives/published-gate-evidence/README.md"]},
+    {"id": "INT-002", "kind": "constraint", "text": "Use the existing GitHub follow-up and its required gate evidence; update the same draft. Source delivery, exact-head protected merge approval and managed Mac activation remain distinct.", "disposition": "ready", "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/published-feature-followup.md", "docs/initiatives/published-gate-evidence/README.md"]}
+  ],
+  "contexts": [
+    {"id": "dbsctr_v3_lifecycle", "repository": "Saltiola7/dotfiles-ai", "status": "ready", "depends_on": []}
+  ],
+  "slices": [
+    {"id": "refresh-published-evidence", "context": "dbsctr_v3_lifecycle", "state": "ready", "execution_owner": "build", "requirements": ["INT-001", "INT-002"], "depends_on": [], "release_group": "cli", "artifacts": ["docs/initiatives/published-gate-evidence/README.md", "docs/initiatives/published-gate-evidence/REFRESH.plan.json", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md", "docs/specs/dbsctr_v3_lifecycle/features/published-feature-followup.md"]}
+  ],
+  "release_groups": [
+    {"id": "cli", "members": ["refresh-published-evidence"], "state": "ready"}
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "No independent package. Reconcile the gate-evidence repair in published draft #360 with the accepted default, retaining both changelog histories, recording this follow-up, and binding the benchmark checksum to the combined helper. Qualify both evidence admission and the incoming Initiative continuation, including the deployed CLI in a disposable home. Live Mac apply requires the merged revision."},
+    "deploy": {"applicability": "required"},
+    "operate": {"applicability": "required"},
+    "maintain_retire": {"applicability": "required"}
+  }
+}
