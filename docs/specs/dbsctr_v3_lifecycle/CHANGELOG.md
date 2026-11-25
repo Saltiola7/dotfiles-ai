@@ -1,5 +1,12 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## Repair the delegation handoff fixture (NATIVE-SLICE-PLAN-001-CI-01)
+
+The platform-specialist bundle test now includes the handoff referenced by
+DBSCTR. The closed-bundle test and a disposable install of both managed
+roles pass. The repair updates the existing draft; writer permissions and
+merge authority are unchanged.
+
 ## 2026-11-24 — Plan native delegation at the Discovery handoff
 
 - Discovery proposes runnable groups, exclusive write ownership, and when a
