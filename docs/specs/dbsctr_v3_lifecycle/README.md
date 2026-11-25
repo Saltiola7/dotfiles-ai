@@ -1,5 +1,18 @@
 # DBSCTR V3 Lifecycle
 
+[Completion at verified merge](features/draft-merge-completion.md) specifies
+the plan-bound `draft_pr` contract, implemented in source: publication freezes
+the source and frees the checkout; a verified native merge can be recorded
+while delivery proof is pending. The coordinator consumes frozen publication
+rather than waiting for completion. A cycle uses it only when its approved plan
+binds the contract; v1 receipts remain the route for historical records.
+
+The same [Initiative handoff](../../initiatives/dbsctr-workflow-convergence/BUILD-HANDOFF.md#publication-and-evidence)
+sequences [isolated evidence commands](features/evidence-checkout-isolation.md),
+[section-scoped document authority](features/initiative-section-authority.md),
+[reconciled gate reuse](features/reconciled-gate-reuse.md) and
+[later-slice document declarations](features/deferred-discovery-documents.md).
+
 [Initiative Auto continuation](../../initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md)
 defines the private grant and execution contract. The source owner combines
 committed material and an enrolled target with a controller, native writer, and
@@ -9,6 +22,23 @@ The private execution journal keeps uncertain requests reserved for readback.
 Normal Draft PR and follow-up registration preserve their existing approval
 paths. A live two-slice demonstration after the originating session closes is
 required to qualify the installed controller and writer for Auto.
+
+Managed Start reviews and confirms one exact scope through
+`dbsctrctl initiative-auto start`. Resume uses the retained grant and journal
+through `dbsctrctl initiative-auto resume`. Its watch option runs the same
+controller in an independent process. The repository owner supplies the
+private runtime recipe and installed qualification under common-Git custody.
+The recipe binds the authority checkout, manifest, named operator account,
+writer agent and committed applicability plan for each prepared Worktrunk
+checkout. The qualifier binds the running controller and writer source to
+the exact OpenCode v2 service.
+
+The controller parks the exact first Build request in a fresh primary native
+session, registers Begin, and releases that request from the native inbox.
+The local-only GitHub enrollment rechecks the original grant immediately
+before coordinator admission and protected merge. Previously issued effects
+can still be observed after mutation authority stops. Use a separately
+qualified exclusive writer service for the installed two-slice restart test.
 
 [Post-delivery receipts](features/post-delivery-receipts.md) specifies how a
 completed draft delivery can be linked to a later verified merge and individual

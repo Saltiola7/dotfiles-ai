@@ -57,15 +57,17 @@ Mac CI identity. A restarted receipt reader accepted both exact results and
 rejected missing, stale, and misattributed evidence. The guarded merge source
 has landed with all required GitHub checks passing. The approved guard is
 installed on the private test repository and passed the 31-case harness on
-its native Git runtime. The live merge demonstration awaits one-off CI
-authentication. [Forgejo merge source PR](https://github.com/Saltiola7/dotfiles-ai/pull/352)
+its native Git runtime. The live fixture passed eight cases, including a stale
+competing merge and lost-response reconciliation.
+[Forgejo merge source PR](https://github.com/Saltiola7/dotfiles-ai/pull/352)
 
-Three of seven slices have met their acceptance criteria. The fourth has
-delivered source and awaits the live protected-merge demonstration. Initiative
-continuation is ready for source launch review. Its installed qualification
-must prove that a native writer can open a new slice after the originating
-session closes and the controller restarts. The CI recovery and final Auto
-qualification slices depend on that work.
+Four of seven slices have met their acceptance criteria. The Initiative grant,
+execution journal, writer and registration interfaces have landed. Managed
+composition must connect those interfaces and preserve the original grant at
+protected handoffs. The installed test then verifies that the native writer
+opens the next slice after the originating session closes and the controller
+restarts. CI recovery and final Auto qualification depend on that work.
+[Initiative continuation source PR](https://github.com/Saltiola7/dotfiles-ai/pull/357)
 
 | Slice | Depends on | Acceptance evidence |
 | --- | --- | --- |

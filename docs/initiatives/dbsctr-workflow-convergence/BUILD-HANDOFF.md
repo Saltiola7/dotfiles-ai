@@ -1,5 +1,49 @@
 # Build handoff — workflow convergence
 
+## Publication and evidence
+
+The lifecycle maintainer owns these five serial source slices. There is one
+shared CLI and one writer at a time. Receipt v1 landed in PR #346, merge
+`0286b2f38a3315bdb7c7bc1bc964c796e6c3422f` on `main`; that reconciles the
+source prerequisite in the manifest, without establishing installed behavior.
+Use the existing [CORE-SOURCE plan](CORE-SOURCE.plan.json) and
+[lifecycle Profile](../../specs/dbsctr_v3_lifecycle/PROFILE.md).
+
+| Order / first eligible launch | Contract and acceptance |
+|---|---|
+| 1. `draft-merge-completion` (ready) | [INT-120–123](../../specs/dbsctr_v3_lifecycle/features/draft-merge-completion.md). Freeze & free the slot at publication; persist native merge independently of delivery proof; complete only on verified delivery. Cover ordinary and coordinated PRs, amendments, follow-ups and legacy completed records. |
+| 2. `evidence-checkout-isolation` | [INT-124–125](../../specs/dbsctr_v3_lifecycle/features/evidence-checkout-isolation.md). Protect the original checkout, index and shared Git state before any child runs; verify the actual candidate or refuse. |
+| 3. `initiative-section-authority` | [INT-126](../../specs/dbsctr_v3_lifecycle/features/initiative-section-authority.md). Add explicit, unique section IDs to the approved projection; preserve whole-file defaults and historical approvals. |
+| 4. `reconciled-gate-reuse` | [INT-127](../../specs/dbsctr_v3_lifecycle/features/reconciled-gate-reuse.md). Retain only proven unaffected gates across target merges; require review of the actual reconciliation. |
+| 5. `deferred-discovery-documents` | [INT-128](../../specs/dbsctr_v3_lifecycle/features/deferred-discovery-documents.md). Preflight shows exact imported and deferred paths; no current-slice authority over a later owner's document. |
+
+**Text Equivalent:** Start with publication and verified merge. Each subsequent
+slice has its own receipt, preflight and approval after the preceding source
+delivery. The first import carries all changed Discovery documents; carrying a
+contract is not authority to implement its slice. The lifecycle maintainer
+updates this order when dependencies or ownership change.
+
+First Build scope: the existing `dbsctrctl` publication, completion, state
+reader and coordinator boundaries; affected `integration_coordinator` lifecycle
+and private custody consumers; their fixtures, characterization tests and
+source-bound benchmark/CLI contracts where changed. Read the existing
+external completion, post-delivery, published-feature and integration runtime
+contracts before changing any reader. Add a failing public-CLI journey for an
+amended cycle with a foreign active pointer first. Also verify old writer
+refusal, crash/retry, no implicit retirement, and non-GitHub compatibility.
+Record actual results in the Cycle Record and completion CHANGELOG only after
+execution. Critical-risk review covers the authority and recovery boundaries.
+
+All slices target a source-only draft PR to `main`, with Python and Security
+modules. Domain, Behavior, Spec, Contract, Test-driven Implementation, Refactor,
+Review/Integrate and Maintain/Retire are required, initially pending. Release
+(no package), Deploy (no host apply) and Operate (no running service changed)
+are N/A; no exceptions. Before receipt/preflight, stage the exact candidate
+and run the repository's tracked-tree publication test and lifecycle/control
+plane instruction tests. Build and native CI use the existing runtime, typing
+and affected regression authorities. No installation or consumer repair is
+part of this group's acceptance (INT-129).
+
 ## Post-delivery receipts
 
 First Build slice: `post-delivery-receipts`, after delivered

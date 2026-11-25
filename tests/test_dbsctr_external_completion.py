@@ -100,7 +100,8 @@ def cycle(monkeypatch, request, capsys):
     core = importlib.util.module_from_spec(spec)
     loader.exec_module(core)
     core.git(fixture.repo, "branch", "-m", "main")
-    initiative = getattr(request, "param", None) == "initiative"
+    selection = getattr(request, "param", None)
+    initiative = selection in {"initiative", "merge"}
     if initiative:
         manifest = harness.initiative_manifest()
         manifest["coordinator_repository"] = REPOSITORY
@@ -132,11 +133,15 @@ def cycle(monkeypatch, request, capsys):
 
     monkeypatch.setattr(core, "git", git_at_transport)
     plan_path = fixture.plan_path("draft_pr")
-    if getattr(request, "param", None) == "source-only":
+    if selection == "source-only":
         plan = json.loads(plan_path.read_text())
         for gate in ("deploy", "operate"):
             plan["gates"][gate] = {"applicability": "not_applicable", "reason": "Source-only synthetic delivery."}
         plan_path.write_text(json.dumps(plan))
+    elif selection == "merge":
+        # The approved plan binds completion at verified merge; nothing else differs.
+        plan_path.write_text(json.dumps({**json.loads(plan_path.read_text()),
+            "completion": {"schema_version": 1, "contract": "verified_merge"}}))
     argv = [
         "begin" if initiative else "start", "--cycle-id", "cycle-1", "--context", "test", "--risk", "routine",
         "--delivery-intent", "draft_pr", "--plan", str(plan_path),
