@@ -1,5 +1,13 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-24 — Verify separate Initiative source and control histories
+
+- Verify the local-only GitHub coordinator against its native control ledger
+  before managed launch. Bind the task checkout independently to protected
+  `main` through exact Begin preflight.
+- Cover ordinary registration with an orphan control root and reject ledger
+  repository, branch, root and policy mismatches. Deliver on PR #362.
+
 ## 2026-11-24 — Compose managed Initiative Auto
 
 - Add managed Start and Resume over the exact private approval and retained

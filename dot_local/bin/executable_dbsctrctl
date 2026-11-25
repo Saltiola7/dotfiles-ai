@@ -7585,9 +7585,14 @@ class ManagedInitiativeLaunch:
         repository = receipt["repository"]
         if isinstance(repository, str):
             repository = {"provider": "github", "origin": "https://github.com", "repository": repository}
-        if (not repository_equal(repository, binding["repository"])
-                or git(source, "--no-replace-objects", "merge-base", "--is-ancestor",
-                       owner.hex_value(binding["root_oid"], (40, 64)), "HEAD", check=False).returncode):
+        if not repository_equal(repository, binding["repository"]):
+            fail("Initiative Auto repository binding changed")
+        root_oid = owner.hex_value(binding["root_oid"], (40, 64))
+        # Ordinary binding comes from the protected control ledger, whose root
+        # must be disjoint from main. Begin separately pins the source to main.
+        if self.delivery_mode != "ordinary" and git(
+                source, "--no-replace-objects", "merge-base", "--is-ancestor",
+                root_oid, "HEAD", check=False).returncode:
             fail("Initiative Auto repository binding changed")
         current = initiative_committed_snapshot(authority, manifest, (receipt["slice_id"],))
         if current["source_commit"] != receipt["manifest_commit"]:
@@ -23141,7 +23146,7 @@ class ManagedInitiativeRuntime:
         return ManagedInitiativeWriter(self)
 
     def _native_enrollment(self, recipe, selected):
-        from integration_coordinator import operator
+        from integration_coordinator import controller, operator
 
         nested = selected["coordinator"]
         identity = {"provider": "github", "origin": "https://github.com", "repository": nested["remote_repository"]}
@@ -23150,10 +23155,10 @@ class ManagedInitiativeRuntime:
         with integration_native_client(self.root, selected, record) as client:
             config, native = client.configuration()
             actor = operator._human(client, config)
-            if (not config.initiative_local or config.enrollment is None or native.enrollment != config.enrollment
-                    or client.target_ref != nested["target_ref"]
-                    or native.observe_policy().digest != config.enrollment.native_guard_digest):
+            if (not config.initiative_local or config.enrollment is None
+                    or client.target_ref != nested["target_ref"]):
                 fail("managed Initiative local-only native policy is unavailable")
+            controller._read(native, config)
             return identity, config.enrollment.root_oid, actor, config.enrollment.policy_digest
 
     def operator_identity(self):

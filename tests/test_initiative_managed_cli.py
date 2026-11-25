@@ -1,4 +1,6 @@
 """The CLI composes only owner-managed Initiative operations."""
+from contextlib import nullcontext
+from dataclasses import replace
 import json
 from types import SimpleNamespace
 
@@ -133,3 +135,45 @@ def test_refresh_prepared_dependent_to_verified_new_base(launch):
     with pytest.raises(RuntimeError, match="unique local history"):
         managed._refresh_task_base(target, args, scope)
     assert helper.git(target, "rev-parse", "HEAD").stdout.strip() == retained
+
+
+@pytest.mark.parametrize("changed", [None, "root_oid", "policy_digest", "default_branch", "repository"])
+def test_managed_enrollment_reads_native_control_before_launch(launch, monkeypatch, changed):
+    helper, fixture, _ = launch
+    managed = helper.ManagedInitiativeRuntime(fixture.native_task)
+    from integration_coordinator import core, runtime
+    from test_initiative_protected_delivery import local_config
+
+    config = local_config()
+    enrollment = config.enrollment
+    assert enrollment is not None
+    values = {"root_oid": "9" * 40, "policy_digest": "9" * 64,
+              "default_branch": "unapproved", "repository": "elsewhere/project"}
+    ledger = runtime.Target(enrollment.repository, enrollment.default_branch, enrollment.root_oid,
+                            enrollment.policy_digest)
+    if changed is not None:
+        ledger = replace(ledger, **{changed: values[changed]})
+    observations = []
+
+    def read_control(handles):
+        observations.append(handles)
+        return "f" * 40, {"integration/v2/target.json": runtime.encode(ledger)}
+
+    native = SimpleNamespace(enrollment=enrollment, plan=config.check_plan, read_control=read_control,
+        observe_policy=lambda: SimpleNamespace(digest=enrollment.native_guard_digest))
+    actor = config.requester_ids[0]
+    transport = SimpleNamespace(request=lambda method, path: {"id": actor, "type": "User"})
+    target_ref = "refs/heads/" + enrollment.default_branch
+    client = SimpleNamespace(configuration=lambda: (config, native), transport=transport, target_ref=target_ref)
+    monkeypatch.setattr(helper, "require_repository_home", lambda *_args: None)
+    monkeypatch.setattr(helper, "integration_native_client", lambda *_args: nullcontext(client))
+    selected = {"coordinator": {"remote_repository": enrollment.repository, "target_ref": target_ref}}
+    recipe = SimpleNamespace(github_account="fixture")
+    if changed is None:
+        identity, root, requester, policy = managed._native_enrollment(recipe, selected)
+        assert (identity["repository"], root, requester, policy) == (
+            enrollment.repository, enrollment.root_oid, actor, enrollment.policy_digest)
+    else:
+        with pytest.raises(core.Unavailable, match="native_ledger_authority_changed"):
+            managed._native_enrollment(recipe, selected)
+    assert observations == [()]
