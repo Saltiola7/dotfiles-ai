@@ -1,8 +1,8 @@
 # Host-independent validation
 
-Status: ready for Build as one routine, test-only slice,
-`host-independent-tests`. Discovery was completed on 2026-11-24 from measured
-causes. Nothing is implemented. INT-009 is deferred to the OpenCode V2
+Status: complete. The one slice, `host-independent-tests`, was delivered and
+merged on 2026-11-24 as pull request #348. Discovery was completed on
+2026-11-24 from measured causes. INT-009 stays deferred to the OpenCode V2
 migration.
 
 ## Why now
