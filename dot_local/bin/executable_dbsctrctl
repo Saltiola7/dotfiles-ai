@@ -139,6 +139,17 @@ class DVCCommandUnavailable(RuntimeError):
 
 
 LOCAL_COMPLETION_GIT = contextvars.ContextVar("local_completion_git", default=None)
+INITIATIVE_PUBLICATION_DEADLINE = contextvars.ContextVar("initiative_publication_deadline", default=None)
+
+
+def initiative_publication_timeout(default=None):
+    deadline = INITIATIVE_PUBLICATION_DEADLINE.get()
+    if deadline is None:
+        return default
+    left = deadline - time.monotonic()
+    if left <= 0:
+        fail("managed Initiative publication deadline elapsed")
+    return left if default is None else min(left, default)
 
 
 def git_environment(environment):
@@ -193,9 +204,11 @@ def require_local_read_filters(root, seen=None):
 
 
 def git(root, *args, check=True, env=None):
+    timeout = initiative_publication_timeout()
+    bounds = {} if timeout is None else {"timeout": timeout}
     result = subprocess.run(
         ["git", *args], cwd=root, text=True, capture_output=True,
-        env=git_environment(GIT_REPOSITORY_ENV if env is None else env),
+        env=git_environment(GIT_REPOSITORY_ENV if env is None else env), **bounds,
     )
     if check and result.returncode:
         fail(result.stderr.strip() or f"git {' '.join(args)} failed")
@@ -7546,12 +7559,14 @@ def initiative_committed_snapshot(root, manifest_path, selected):
 class ManagedInitiativeLaunch:
     """Bridge the managed controller's grant and exact native session to Begin."""
 
-    def __init__(self, grant_digest, binding, controller=None, *, activation_id=None, session_id=None):
+    def __init__(self, grant_digest, binding, controller=None, *, activation_id=None, session_id=None,
+                 delivery_mode="draft_pr"):
         self.grant_digest = grant_digest
         self.binding = binding
         self.controller = controller
         self.activation_id = activation_id
         self.session_id = session_id
+        self.delivery_mode = delivery_mode
 
     def verify_scope(self, source, authority, manifest, receipt, base_branch):
         owner = integration_lifecycle_owner()
@@ -7570,15 +7585,27 @@ class ManagedInitiativeLaunch:
         repository = receipt["repository"]
         if isinstance(repository, str):
             repository = {"provider": "github", "origin": "https://github.com", "repository": repository}
-        if (not repository_equal(repository, binding["repository"])
-                or git(source, "--no-replace-objects", "merge-base", "--is-ancestor",
-                       owner.hex_value(binding["root_oid"], (40, 64)), "HEAD", check=False).returncode):
+        if not repository_equal(repository, binding["repository"]):
+            fail("Initiative Auto repository binding changed")
+        root_oid = owner.hex_value(binding["root_oid"], (40, 64))
+        # Ordinary binding comes from the protected control ledger, whose root
+        # must be disjoint from main. Begin separately pins the source to main.
+        if self.delivery_mode != "ordinary" and git(
+                source, "--no-replace-objects", "merge-base", "--is-ancestor",
+                root_oid, "HEAD", check=False).returncode:
             fail("Initiative Auto repository binding changed")
         current = initiative_committed_snapshot(authority, manifest, (receipt["slice_id"],))
         if current["source_commit"] != receipt["manifest_commit"]:
             fail("Initiative Auto committed authority changed during preflight")
         require_grant(owner.Custody(checkout), self.grant_digest, binding=binding, current=current,
                       slice_id=receipt["slice_id"], operation="launch", now=now())
+        if self.delivery_mode == "ordinary":
+            if (policy["delivery"].get("role") != "operator" or policy["delivery"].get("mode") != "ordinary"
+                    or policy["coordinator"].get("guarded_refresh", False)):
+                fail("Initiative Auto ordinary enrollment is unavailable")
+            for operation in ("admit", "merge"):
+                require_grant(owner.Custody(checkout), self.grant_digest, binding=binding, current=current,
+                              slice_id=receipt["slice_id"], operation=operation, now=now())
 
     def verify_registration(self, source, plan, launch_digest):
         if self.controller is None or self.activation_id is None or self.session_id is None:
@@ -7706,9 +7733,12 @@ def begin_registration(args, *, auto_launch=None):
         check_initiative_cycle_occupancy(source, args.cycle_id, initiative)
     requested_integration_mode = getattr(args, "integration_mode", None)
     if auto_launch is not None:
-        if requested_integration_mode not in {None, "draft_pr"}:
-            fail("Initiative source registration uses the existing Draft PR route")
-        requested_integration_mode = "draft_pr"
+        selected_mode = getattr(auto_launch, "delivery_mode", "draft_pr")
+        if selected_mode not in {"draft_pr", "ordinary"} or requested_integration_mode not in {None, selected_mode}:
+            fail("Initiative source registration requires its exact managed delivery mode")
+        if selected_mode == "ordinary" and (forge is not None or not isinstance(auto_launch, ManagedInitiativeLaunch)):
+            fail("Initiative ordinary delivery requires a qualified local GitHub controller")
+        requested_integration_mode = selected_mode
     if args.delivery_intent is None:
         args.delivery_intent = "draft_pr"
         if requested_integration_mode is None and auto_launch is None:
@@ -21422,7 +21452,8 @@ def github_environment(account):
 
 
 def github_json(root, env, *args):
-    bounds = {"timeout": 30} if args[:3] == ("api", "--hostname", "github.com") else {}
+    timeout = initiative_publication_timeout(30 if args[:3] == ("api", "--hostname", "github.com") else None)
+    bounds = {} if timeout is None else {"timeout": timeout}
     result = subprocess.run(["gh", *args], cwd=root, env=env, text=True, capture_output=True,
                             **bounds)
     if result.returncode:
@@ -21472,7 +21503,8 @@ def deliver_draft_pr(root, record, env=None):
             "--base", delivery["base_branch"], "--head", head, "--title", title, "--body", body]
         if not ready:
             command.append("--draft")
-        result = subprocess.run(command, cwd=root, env=env, text=True, capture_output=True, timeout=30)
+        result = subprocess.run(command, cwd=root, env=env, text=True, capture_output=True,
+                                timeout=initiative_publication_timeout(30))
         if result.returncode or not result.stdout.strip():
             fail(result.stderr.strip() or "GitHub draft pull request creation failed")
         pull_request = github_json(
@@ -22544,7 +22576,7 @@ def integration_adopt_projection(root: Path, record: dict, source: "IntegrationR
 
 
 def integration_source_snapshot(root: Path, cycle_id: str, pr_number: int, expected_head: str,
-                                *, adopt: bool = False, mode: str = "inherit") -> dict[str, object]:
+                                *, adopt: bool = False, mode: str = "inherit", managed_initiative: bool = False) -> dict[str, object]:
     """Derive initial source and private pending outbox from the actual lifecycle.
 
     Refreshed-parent repair needs the separately verified Projection chain; this
@@ -22575,6 +22607,9 @@ def integration_source_snapshot(root: Path, cycle_id: str, pr_number: int, expec
             or not record_worktree_matches(root, record, root, bindings=False)):
         raise RuntimeError("integration_source_requires_exact_completed_publication")
     repaired = record["initiative_approval"].get("schema_version") == 2
+    auto = record["initiative_approval"].get("method") == "initiative_auto"
+    if auto and (not managed_initiative or adopt):
+        raise RuntimeError("Initiative Auto admission belongs to its qualified local controller")
     if not adopt:
         birth = store.linked("birth", cycle_id)
         if (birth["cycle_id"] != cycle_id or birth["launch_digest"] != record["initiative_approval"]["launch_digest"]
@@ -22639,7 +22674,7 @@ def integration_source_snapshot(root: Path, cycle_id: str, pr_number: int, expec
             "plan_digest": continuation_digest(record["applicability_plan"]),
             "policy_digest": selected["policy_digest"], "enrollment_digest": selected["enrollment_digest"],
             "approval_digest": continuation_digest(record["initiative_approval"]),
-            "allowed_operations": ["submit", "repair", "accept_outcome"]
+            "allowed_operations": ["submit"] + ([] if auto else ["repair"]) + ["accept_outcome"]
                 + (["operator_resume"] if owner.object_value(selected.get("delivery", {})).get("role") == "operator" else []),
             "authorized_at": now()}
         try:
@@ -22680,7 +22715,6 @@ def integration_source_snapshot(root: Path, cycle_id: str, pr_number: int, expec
                   "obligation_digest": obligation_digest, "ticket_handle": ticket, "requester_digest": requester,
                   "request": request}
         outbox_digest = store.write("outbox", outbox); store.link("outbox", ticket, outbox_digest)
-        store.link("outbox", cycle_id, outbox_digest)
         revision = {"grant_digest": grant_digest, "obligation_digest": obligation_digest,
             "prior_revision_digest": None, "prior_source_custody_digest": original_source_object,
             "qualified_projection_digest": None, "child_cycle_id": cycle_id,
@@ -22689,6 +22723,7 @@ def integration_source_snapshot(root: Path, cycle_id: str, pr_number: int, expec
         revision_link = store.write("revision_link", {"revision_digest": revision_digest,
             "source_custody_digest": source_object, "ticket_handle": ticket})
         store.link("revision_link", ticket, revision_link)
+        store.link("outbox", cycle_id, outbox_digest)
     return {"status": "unadmitted", "source": descriptor, "source_digest": source_digest,
             "source_custody_digest": source_object, "obligation_handle": handle,
             "obligation_digest": obligation_digest, "grant_digest": grant_digest,
@@ -22862,7 +22897,7 @@ def integration_cycle_custody(root: Path, cycle_id: str) -> "tuple[dict, bytes, 
 
 
 @contextlib.contextmanager
-def integration_native_client(root: Path, selected: dict, record: dict):
+def integration_native_client(root: Path, selected: dict, record: dict, *, initiative_guard=None):
     """The existing lifecycle owner alone selects a credential, only in memory."""
     integration_lifecycle_owner()
     from integration_coordinator.client import LocalClient
@@ -22876,7 +22911,8 @@ def integration_native_client(root: Path, selected: dict, record: dict):
     if not isinstance(token, str) or not token:
         raise RuntimeError("integration_native_credential_unavailable")
     with GitMirror(github["repository"], token) as mirror:
-        yield LocalClient(HttpTransport(token), selected["coordinator"], ProofPort(mirror.supply))
+        yield LocalClient(HttpTransport(token), selected["coordinator"], ProofPort(mirror.supply),
+                          initiative_guard=initiative_guard)
 
 
 def integration_outbox(root: Path, cycle_id: str, store: "IntegrationLifecycle.Custody", raw: bytes) -> dict:
@@ -22978,6 +23014,493 @@ class GitHubInitiativeEvidence:
             raise
         except (OSError, RuntimeError, ValueError, KeyError):
             raise core.Unavailable("initiative_native_outcome_unverified") from None
+
+
+class ManagedInitiativeWriter:
+    """Defer native writer access so provider-only reconciliation can resume."""
+
+    def __init__(self, runtime):
+        self.runtime = runtime
+
+    @functools.cached_property
+    def native(self):
+        from integration_coordinator import core
+        from integration_coordinator.initiative_opencode import OpenCodeWriter
+
+        try:
+            _, qualified = self.runtime._witness()
+            return OpenCodeWriter(qualified, self.runtime._transport(qualified), managed=True)
+        except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError):
+            raise core.Unavailable("managed_initiative_writer_unavailable") from None
+
+    def observe_session(self, activation):
+        return self.native.observe_session(activation)
+
+    def create_session(self, activation):
+        return self.native.create_session(activation)
+
+    def observe_dispatch(self, activation):
+        return self.native.observe_dispatch(activation)
+
+    def dispatch(self, activation):
+        return self.native.dispatch(activation)
+
+    def observe_release(self, activation):
+        return self.native.observe_release(activation)
+
+    def release(self, activation):
+        return self.native.release(activation)
+
+
+class ManagedInitiativeRuntime:
+    """Own private qualification, checkout, and provider effects for Initiative Auto."""
+
+    def __init__(self, root):
+        self.root = primary_worktree(root).resolve()
+        self.owner = integration_lifecycle_owner()
+        self.custody = self.owner.Custody(common_git_dir(root).resolve())
+        self.provider = GitHubInitiativeEvidence()
+        self.approving_actor = None
+
+    def recipe(self):
+        from integration_coordinator.initiative_service import read_recipe
+
+        try:
+            return read_recipe(self.custody)
+        except (OSError, ValueError):
+            fail("managed Initiative runtime is unavailable; an enrolled owner recipe is required")
+
+    def _authority_checkout(self, recipe):
+        authority = repo_root(recipe.authority_checkout)
+        if authority != Path(recipe.authority_checkout) or common_git_dir(authority).resolve() != self.custody.common:
+            fail("managed Initiative authority checkout changed")
+        return authority
+
+    def committed_scope(self, recipe, selection):
+        from integration_coordinator import core
+
+        try:
+            return initiative_committed_snapshot(self._authority_checkout(recipe), recipe.manifest_path, selection)
+        except (OSError, RuntimeError, KeyError, subprocess.SubprocessError):
+            raise core.Unavailable("managed_initiative_material_unavailable") from None
+
+    def _selected(self):
+        selected = integration_policy_snapshot(self.root)
+        if (selected is None or initiative_delivery_preference(self.root) != "auto"
+                or selected["delivery"].get("role") != "operator" or selected["delivery"].get("mode") != "ordinary"
+                or selected["coordinator"].get("guarded_refresh", False)):
+            fail("managed Initiative ordinary operator enrollment is unavailable")
+        return selected
+
+    def _witness(self):
+        from integration_coordinator.initiative_opencode import Qualification
+
+        raw = self.custody._read(self.custody.directory / "initiative-native-qualification.json")
+        value = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+        if (not isinstance(value, dict)
+                or set(value) != {"schema_version", "origin", "pid", "version", "writer_digest",
+                                  "controller_digest", "evidence_digest"}
+                or type(value["schema_version"]) is not int or value["schema_version"] != 1
+                or value["version"] != "2.3.2"):
+            fail("managed Initiative native qualification is unavailable")
+        self.owner.hex_value(value["controller_digest"])
+        self.owner.hex_value(value["evidence_digest"])
+        if self.running_identities() != (value["controller_digest"], value["writer_digest"]):
+            fail("managed Initiative installed source differs from qualification")
+        return value, Qualification(origin=value["origin"], pid=value["pid"],
+                                    version=value["version"], writer_digest=value["writer_digest"])
+
+    def running_identities(self):
+        package = Path(self.owner.__file__).resolve().parent
+        names = ("initiative_service.py", "initiative_authority.py", "initiative_controller.py", "lifecycle.py",
+                 "operator.py", "controller.py", "client.py", "github.py", "core.py", "runtime.py", "gitproof.py")
+        credential_reader = package.parent / "continuous_validation" / "feedback.py"
+
+        def digest_file(path):
+            if path.resolve(strict=True) != path or not stat.S_ISREG(path.lstat().st_mode):
+                fail("managed Initiative qualification source is unavailable")
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        controller = {name: digest_file(package / name) for name in names}
+        controller["dbsctrctl"] = digest_file(Path(__file__).absolute())
+        writer = {"writer": digest_file(package / "initiative_opencode.py"),
+                  "credential_reader": digest_file(credential_reader)}
+        return self.owner.digest(controller), self.owner.digest(writer)
+
+    def _transport(self, qualified):
+        from integration_coordinator.initiative_opencode import LoopbackTransport
+        import runpy
+
+        source = Path(self.owner.__file__).resolve().parents[1] / "continuous_validation" / "feedback.py"
+        if source.resolve(strict=True) != source or not stat.S_ISREG(source.lstat().st_mode):
+            fail("managed Initiative native credential owner is unavailable")
+        connection = runpy.run_path(str(source))["_opencode_connection"](self.root, qualified.version)
+        if connection["endpoint"] != qualified.origin:
+            fail("managed Initiative native service identity changed")
+        transport = LoopbackTransport(qualified, connection["environment"]["OPENCODE_PASSWORD"])
+        if transport.qualification() != qualified:
+            fail("managed Initiative native service identity changed")
+        return transport
+
+    def writer(self, _state):
+        return ManagedInitiativeWriter(self)
+
+    def _native_enrollment(self, recipe, selected):
+        from integration_coordinator import controller, operator
+
+        nested = selected["coordinator"]
+        identity = {"provider": "github", "origin": "https://github.com", "repository": nested["remote_repository"]}
+        require_repository_home(self.root, identity)
+        record = {"delivery": {"github": {"account": recipe.github_account, "repository": identity["repository"]}}}
+        with integration_native_client(self.root, selected, record) as client:
+            config, native = client.configuration()
+            actor = operator._human(client, config)
+            if (not config.initiative_local or config.enrollment is None
+                    or client.target_ref != nested["target_ref"]):
+                fail("managed Initiative local-only native policy is unavailable")
+            controller._read(native, config)
+            return identity, config.enrollment.root_oid, actor, config.enrollment.policy_digest
+
+    def operator_identity(self):
+        _repository, _root, actor, _remote_policy = self._native_enrollment(self.recipe(), self._selected())
+        self.approving_actor = actor
+        return f"github-actor-{actor}"
+
+    def live_binding(self, recipe):
+        from integration_coordinator import core
+
+        try:
+            return self._live_binding(recipe)
+        except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError):
+            raise core.Unavailable("managed_initiative_qualification_unavailable") from None
+
+    def _live_binding(self, recipe):
+        selected = self._selected()
+        repository, root_oid, actor, remote_policy = self._native_enrollment(recipe, selected)
+        if self.approving_actor is not None and self.approving_actor != actor:
+            fail("managed Initiative approving actor changed")
+        witness, qualified = self._witness()
+        self._transport(qualified)
+        return {"repository": repository, "root_oid": root_oid, "target_ref": selected["coordinator"]["target_ref"],
+                "policy_digest": selected["policy_digest"], "enrollment_digest": selected["enrollment_digest"],
+                "controller_digest": witness["controller_digest"], "writer_digest": witness["writer_digest"],
+                "qualification_digest": self.owner.digest({"witness": witness, "native_actor": actor,
+                                                           "native_policy": remote_policy})}
+
+    def binding(self, recipe):
+        from integration_coordinator.initiative_service import bind_recipe
+
+        return bind_recipe(recipe, self.live_binding(recipe))
+
+    def _task(self, recipe, slice_id):
+        selected = recipe.slice(slice_id)
+        matches = [Path(item["worktree"]).resolve() for item in git_worktrees(self.root)
+                   if item.get("branch") == "refs/heads/" + selected.branch]
+        if len(matches) != 1 or matches[0] == self.root:
+            fail("managed Initiative requires exactly one prepared Worktrunk checkout for the slice")
+        checkout = matches[0]
+        if git_dir(checkout).resolve().parent != self.custody.common / "worktrees":
+            fail("managed Initiative task checkout identity changed")
+        return selected, checkout
+
+    def _begin_args(self, recipe, slice_id):
+        authority = self._authority_checkout(recipe)
+        selected, checkout = self._task(recipe, slice_id)
+        plan = authority / selected.plan_path
+        entry = git(authority, "--no-replace-objects", "--literal-pathspecs", "ls-tree", "-z",
+                    "HEAD", "--", selected.plan_path).stdout
+        match = re.fullmatch(r"100644 blob ([0-9a-f]{40,64})\t" + re.escape(selected.plan_path) + "\x00", entry)
+        if (match is None or plan.is_symlink() or not plan.is_file() or plan.stat().st_size > 256 * 1024
+                or int(git(authority, "--no-replace-objects", "cat-file", "-s", match[1]).stdout) > 256 * 1024):
+            fail("managed Initiative requires a bounded committed applicability plan")
+        raw = subprocess.check_output(["git", "--no-replace-objects", "cat-file", "blob", match[1]],
+                                      cwd=authority, env=git_environment(GIT_REPOSITORY_ENV), timeout=15)
+        if (plan.resolve(strict=True) != plan or plan.read_bytes() != raw
+                or hashlib.sha256(raw).hexdigest() != selected.plan_digest):
+            fail("managed Initiative committed applicability plan changed")
+        receipt = initiative_receipt(authority / recipe.manifest_path, slice_id, authority, auto_waiting=True)
+        nested = self._selected()["coordinator"]
+        target = nested["target_ref"].removeprefix("refs/heads/")
+        repository = nested["remote_repository"]
+        args = ["begin", "--cycle-id", selected.cycle_id, "--context", selected.context, "--risk", selected.risk,
+                "--delivery-intent", "draft_pr", "--integration-mode", "ordinary", "--plan", str(plan),
+                "--expected-plan-digest", selected.plan_digest, "--github-account", recipe.github_account,
+                "--github-repository", repository, "--expected-repository", repository, "--base-branch", target,
+                "--initiative-manifest", recipe.manifest_path, "--initiative-source", str(authority),
+                "--initiative-slice", slice_id, "--initiative-digest", receipt["manifest_digest"]]
+        return checkout, args
+
+    def _refresh_task_base(self, checkout, args, launch):
+        authority = repo_root(args.initiative_source)
+        receipt = initiative_receipt(authority / args.initiative_manifest, args.initiative_slice,
+                                     authority, auto_waiting=True)
+        launch.verify_scope(checkout, authority, args.initiative_manifest, receipt, args.base_branch)
+        require_native_checkout(checkout, args)
+        if configured_upstream(checkout) != ("origin", args.base_branch) or resolved_active_path(checkout, bindings=False).exists():
+            fail("managed Initiative task upstream or ownership changed")
+        url = github_remote_url(checkout, "origin", args.github_repository)
+        fetch_github_branch(checkout, "origin", url, args.base_branch, github_environment(args.github_account))
+        target = git(checkout, "rev-parse", "refs/remotes/origin/" + args.base_branch).stdout.strip()
+        head = git(checkout, "rev-parse", "HEAD").stdout.strip()
+        if head != target:
+            with registration_lock(checkout, args):
+                if (git(checkout, "rev-parse", "HEAD").stdout.strip() != head
+                        or resolved_active_path(checkout, bindings=False).exists()):
+                    fail("managed Initiative checkout changed during refresh")
+                require_native_checkout(checkout, args)
+                if git(checkout, "--no-replace-objects", "merge-base", "--is-ancestor", head, target, check=False).returncode:
+                    fail("managed Initiative task has unique local history")
+                launch.verify_scope(checkout, authority, args.initiative_manifest, receipt, args.base_branch)
+                git(checkout, "merge", "--ff-only", target)
+
+    def preflight(self, recipe, grant_id, slice_id):
+        from integration_coordinator import core
+        from integration_coordinator.initiative_controller import Launch
+
+        try:
+            checkout, argv = self._begin_args(recipe, slice_id)
+            launch = ManagedInitiativeLaunch(grant_id, lambda: self.binding(recipe), delivery_mode="ordinary")
+            args = parser().parse_args([*argv, "--preflight"])
+            self._refresh_task_base(checkout, args, launch)
+            with contextlib.chdir(checkout), contextlib.redirect_stdout(io.StringIO()) as output:
+                command_begin(args, auto_launch=launch)
+            preflight = json.loads(output.getvalue())
+            selected = preflight["plan"]
+            return Launch(preflight["launch_digest"], selected["base_head"], str(checkout),
+                          selected["cycle_id"], recipe.writer_agent)
+        except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError):
+            raise core.Unavailable("managed_initiative_launch_unavailable") from None
+
+    def register(self, activation, controller):
+        from integration_coordinator import core
+        from integration_coordinator.initiative_authority import initiative_effect_lock
+
+        recipe = self.recipe()
+        try:
+            with initiative_effect_lock(self.custody, activation.grant_id):
+                checkout, argv = self._begin_args(recipe, activation.slice_id)
+                if str(checkout) != activation.launch.checkout:
+                    fail("managed Initiative registration checkout changed")
+                launch = ManagedInitiativeLaunch(activation.grant_id, lambda: self.binding(recipe), controller,
+                    activation_id=activation.activation_id, session_id=activation.session_id, delivery_mode="ordinary")
+                with contextlib.chdir(checkout), contextlib.redirect_stdout(io.StringIO()):
+                    command_begin(parser().parse_args([*argv, "--expected-launch-digest",
+                                  activation.launch.launch_digest]), auto_launch=launch)
+        except (OSError, ValueError, RuntimeError):
+            raise core.Unavailable("initiative_managed_registration_unverified") from None
+
+    def observed(self, activation):
+        from integration_coordinator import core
+
+        try:
+            return self._observed(activation)
+        except (OSError, ValueError, RuntimeError, KeyError):
+            raise core.Unavailable("initiative_managed_registration_unverified") from None
+
+    def _observed(self, activation):
+        from integration_coordinator.initiative_controller import RegistrationReceipt
+
+        root = Path(activation.launch.checkout)
+        if not os.path.lexists(cycle_dir(root) / "cycles" / (activation.launch.cycle_id + ".json")):
+            return None
+        record, _raw, store = integration_cycle_custody(root, activation.launch.cycle_id)
+        approval = record.get("initiative_approval", {})
+        if approval.get("method") != "initiative_auto":
+            fail("managed Initiative cycle lacks native activation provenance")
+        identity = approval["authorization_digest"]
+        auth = store.read("initiative_begin", identity)
+        birth = store.linked("birth", activation.launch.cycle_id)
+        if (auth["grant_digest"], auth["activation_digest"], auth["session_digest"], auth["launch_digest"]) != (
+                activation.grant_id, activation.activation_id, continuation_digest(activation.session_id),
+                activation.launch.launch_digest) or effective_initiative(record)["slice_id"] != activation.slice_id or (
+                birth["cycle_id"], birth["delivery_mode"], birth["launch_digest"],
+                birth["remote_repository"], birth["target_ref"], birth["guarded_refresh"]) != (
+                activation.launch.cycle_id, "ordinary", activation.launch.launch_digest,
+                activation.target.repository, activation.target.target_ref, False):
+            fail("managed Initiative registered activation changed")
+        return RegistrationReceipt(activation.activation_id, activation.launch.cycle_id,
+                                   activation.launch.launch_digest, identity)
+
+    def require_operation(self, activation, operation):
+        from integration_coordinator.initiative_authority import require_grant
+
+        recipe = self.recipe()
+        binding = self.binding(recipe)
+        snapshot = self.committed_scope(recipe, (activation.slice_id,))
+        repository = binding["repository"]
+        if (repository["origin"], repository["repository"], binding["target_ref"],
+                binding["controller_digest"], binding["writer_digest"]) != (
+                activation.target.origin, activation.target.repository, activation.target.target_ref,
+                activation.controller_digest, activation.writer_digest):
+            fail("managed Initiative effect belongs to a different target or writer")
+        receipt = self.observed(activation)
+        if receipt is None:
+            fail("managed Initiative effect requires the registered activation")
+        require_grant(self.custody, activation.grant_id, binding=binding, current=snapshot,
+                      slice_id=activation.slice_id, operation=operation, now=now())
+        return receipt
+
+    @contextlib.contextmanager
+    def require_release(self, activation):
+        from integration_coordinator import core
+        from integration_coordinator.initiative_authority import initiative_effect_lock
+
+        try:
+            with initiative_effect_lock(self.custody, activation.grant_id):
+                receipt = self.require_operation(activation, "launch")
+                root = Path(activation.launch.checkout)
+                _, record = load(root)
+                commit = record.get("discovery_import", {}).get("commit", activation.launch.base_head)
+                if (record["cycle_id"] != activation.launch.cycle_id or record["state"] != "active"
+                        or not record_worktree_matches(root, record, root)
+                        or git(root, "rev-parse", "HEAD").stdout.strip() != commit
+                        or status_paths(root, read_only=True)):
+                    fail("managed Initiative checkout changed before writer release")
+                yield receipt
+        except (OSError, ValueError, RuntimeError, KeyError):
+            raise core.Unavailable("initiative_managed_release_authority_unavailable") from None
+
+    def prior_delivery(self, _recipe, approval, slice_id, scope):
+        from integration_coordinator.initiative_authority import read_grant
+        from integration_coordinator.initiative_service import open_execution
+
+        state = open_execution(self.custody)
+        for result in state.delivered(approval.target, slice_id):
+            _, prior_scope = read_grant(self.custody, result.activation.grant_id)
+            if prior_scope["slices"].get(slice_id) != scope or result.admission is None or result.delivery is None:
+                continue
+            observed = self.provider.observe_delivery(result.activation, result.admission)
+            if observed is not None and observed.merge_oid == result.delivery.merge_oid:
+                return True
+        return False
+
+    def protected_tick(self, recipe, activation):
+        from integration_coordinator import core
+
+        try:
+            self._protected_tick(recipe, activation)
+        except (core.Unavailable, core.Conflict, core.Ambiguous):
+            raise
+        except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError):
+            raise core.Unavailable("initiative_protected_tick_unavailable") from None
+
+    def _protected_tick(self, recipe, activation):
+        from integration_coordinator import core, operator, runtime
+        from integration_coordinator.initiative_authority import initiative_effect_lock
+
+        root = Path(activation.launch.checkout)
+        if self.observed(activation) is None:
+            return
+        cycle = activation.launch.cycle_id
+        record, raw, store = integration_cycle_custody(root, cycle)
+        if record["state"] != "completed":
+            return
+        selected = self._selected()
+        if store.optional_link("outbox", cycle) is None:
+            with initiative_effect_lock(store, activation.grant_id):
+                self.require_operation(activation, "admit")
+                integration_source_snapshot(root, cycle, record["delivery"]["pull_request"]["number"],
+                                            record["commits"][-1]["id"], managed_initiative=True)
+        packet = integration_outbox(root, cycle, store, raw)
+        expected_ticket = runtime.decode("ticket", self.owner.canonical(packet["request"]["ticket"]))
+        obligation = runtime.decode("obligation", self.owner.canonical(packet["request"]["obligation"]))
+        if (not isinstance(expected_ticket, runtime.Ticket) or not isinstance(obligation, runtime.Obligation)):
+            fail("managed Initiative requires an exact completed outbox")
+
+        @contextlib.contextmanager
+        def fence(operation, ticket, current_obligation, reservation):
+            if (operation not in {"admit", "merge"} or ticket.handle != expected_ticket.handle
+                    or ticket.source != expected_ticket.source or ticket.requester_digest != expected_ticket.requester_digest
+                    or current_obligation != obligation or ticket.delivery_mode != "ordinary" or ticket.guarded_refresh
+                    or (operation == "merge" and (reservation is None or ticket.reservation != reservation))):
+                raise core.Conflict("initiative_protected_effect_subject_changed")
+            with initiative_effect_lock(store, activation.grant_id):
+                try:
+                    self.require_operation(activation, operation)
+                except (OSError, ValueError, RuntimeError):
+                    raise core.Unavailable("initiative_protected_effect_authority_unavailable") from None
+                yield
+
+        def ready():
+            with fence("admit", expected_ticket, obligation, None):
+                env = github_environment(recipe.github_account)
+                integration_ready_pull(root, record, env, expected_ticket.source.pr_number, expected_ticket.source.head)
+
+        binding = integration_operator_binding(root, selected, record, raw, store, packet)
+        with integration_native_client(root, selected, record, initiative_guard=fence) as client:
+            operator.initiative_tick(client, store, binding, expected_ticket, obligation, ready)
+
+
+def initiative_managed_service(root):
+    runtime = ManagedInitiativeRuntime(root)
+    from integration_coordinator.initiative_service import InitiativeService
+
+    runtime.recipe()
+    return InitiativeService(runtime.custody, committed_scope=runtime.committed_scope, live_binding=runtime.live_binding,
+        preflight=runtime.preflight, prior_delivery=runtime.prior_delivery, writer=runtime.writer,
+        provider=runtime.provider, registration=runtime, protected_tick=runtime.protected_tick, clock=now), runtime.operator_identity
+
+
+def command_initiative_auto(args):
+    service, operator_identity = initiative_managed_service(root_dir())
+    if args.initiative_action == "start":
+        preview = service.preview(tuple(args.slice), operator_id=operator_identity(), expires_at=args.expires_at)
+        if args.preview:
+            print(json.dumps(preview.review, sort_keys=True))
+            return
+        if not sys.stdin.isatty():
+            fail("managed Initiative Start requires interactive exact approval")
+        print(json.dumps(preview.review, sort_keys=True) + "\nType " + preview.confirmation,
+              file=sys.stderr, flush=True)
+        grant = service.confirm(preview, sys.stdin.readline(512).strip())
+        print(json.dumps({"grant_digest": grant, "status": "authorized"}))
+        return
+    previous = None
+    while True:
+        result = service.resume(args.grant)
+        value = {"state": result.state, "slice_id": result.slice_id,
+                 "activation_id": result.activation_id, "reason": result.reason}
+        if value != previous:
+            print(json.dumps(value, sort_keys=True), flush=True)
+        if not args.watch or result.state in {"complete", "blocked", "discovery_reopened"}:
+            return
+        previous = value
+        time.sleep(5)
+
+
+@contextlib.contextmanager
+def initiative_publication_fence(root, record, mode):
+    approval = record.get("initiative_approval", {})
+    if approval.get("method") != "initiative_auto":
+        yield
+        return
+    if mode != "ordinary":
+        fail("managed Initiative publication requires its ordinary birth enrollment")
+    managed = ManagedInitiativeRuntime(root)
+    from integration_coordinator.initiative_authority import initiative_effect_lock
+    from integration_coordinator.initiative_service import open_execution
+
+    auth = managed.custody.read("initiative_begin", approval["authorization_digest"])
+    state = open_execution(managed.custody)
+    execution = state.activation(auth["activation_digest"])
+    if (execution is None or not execution.activation.managed
+            or execution.state not in {"release_claimed", "release_accepted", "dispatched", "admitted"}
+            or execution.activation.launch.cycle_id != record["cycle_id"]
+            or execution.activation.launch.checkout != str(root.resolve())):
+        fail("managed Initiative publication lacks a retained activation")
+    activation = execution.activation
+    with initiative_effect_lock(managed.custody, activation.grant_id):
+        release = managed.writer(state).observe_release(activation)
+        if release is None or not release.delivered:
+            fail("managed Initiative publication lacks native writer release")
+        managed.require_operation(activation, "admit")
+        token = INITIATIVE_PUBLICATION_DEADLINE.set(time.monotonic() + 30)
+        try:
+            yield
+        except subprocess.TimeoutExpired:
+            fail("managed Initiative publication outcome is uncertain; reconcile the exact feature ref and PR")
+        finally:
+            INITIATIVE_PUBLICATION_DEADLINE.reset(token)
 
 
 def integration_validation_repair_snapshot(root: Path, status: "IntegrationClient.Status",
@@ -23178,6 +23701,9 @@ def command_integration_gateway(args) -> None:
     from integration_coordinator import runtime
     record, raw, store = integration_cycle_custody(root, args.cycle_id)
     action = args.command.removeprefix("integration-")
+    if record.get("initiative_approval", {}).get("method") == "initiative_auto" and (
+            action in {"adopt", "submit", "operator-resume"} or getattr(args, "validation_repair", None) is not None):
+        fail("Initiative Auto mutations belong to its qualified local controller")
     if action == "adopt":
         if args.pr != record.get("delivery", {}).get("pull_request", {}).get("number"):
             raise RuntimeError("integration_adoption_pr_changed")
@@ -25235,7 +25761,8 @@ def finish_push(root, path, record):
                 fail("feature branch changed remotely; normal push would not be safe")
         if record["delivery_intent"] == "draft_pr":
             if not already_pushed:
-                push_github_branch(root, remote_url, remote_branch, delivery_env)
+                with initiative_publication_fence(root, record, publication_mode):
+                    push_github_branch(root, remote_url, remote_branch, delivery_env)
         else:
             git(root, "push", remote_url, f"HEAD:{remote_branch}")
     if record["delivery_intent"] == "draft_pr":
@@ -25244,7 +25771,8 @@ def finish_push(root, path, record):
         )
         if not remote_head or git(root, "rev-parse", "HEAD").stdout.strip() != remote_head[0]:
             fail("push did not synchronize feature branch")
-        record["delivery"]["pull_request"] = deliver_draft_pr(root, record, delivery_env)
+        with initiative_publication_fence(root, record, publication_mode):
+            record["delivery"]["pull_request"] = deliver_draft_pr(root, record, delivery_env)
         link_improvement_pull_request(record, record["delivery"]["pull_request"], root, target_head)
     elif git(root, "rev-parse", "HEAD").stdout.strip() != git(root, "rev-parse", current_upstream).stdout.strip():
         fail("push did not synchronize upstream")
@@ -26344,6 +26872,16 @@ def parser():
     batch_publish.add_argument("--batch-id", required=True)
     batch_publish.add_argument("--confirm", required=True)
     batch_publish.set_defaults(func=command_batch_publish)
+    initiative_auto = commands.add_parser("initiative-auto", help="operate the enrolled private Initiative runtime")
+    auto_actions = initiative_auto.add_subparsers(dest="initiative_action", required=True)
+    auto_start = auto_actions.add_parser("start", help="review and authorize one closed Initiative scope")
+    auto_start.add_argument("--slice", action="append", required=True)
+    auto_start.add_argument("--expires-at", required=True)
+    auto_start.add_argument("--preview", action="store_true")
+    auto_resume = auto_actions.add_parser("resume", help="continue the exact retained approval")
+    auto_resume.add_argument("grant")
+    auto_resume.add_argument("--watch", action="store_true", help="continue from this independent controller process")
+    initiative_auto.set_defaults(func=command_initiative_auto)
     initiative_check = commands.add_parser("initiative-check")
     initiative_check.add_argument("--manifest", required=True)
     initiative_check.add_argument("--json", action="store_true", required=True)
@@ -26598,7 +27136,7 @@ def main():
             # Advisory queue mutation owns private locks, not formal gate locks.
             args.func(args)
             return 0
-        if args.command in {"initiative-amend", "lineage-recover"}:
+        if args.command in {"initiative-amend", "lineage-recover", "initiative-auto"}:
             # This command owns offline admission, locks and bounded error output.
             # No generic telemetry, continuation transport or credential discovery.
             args.func(args)
