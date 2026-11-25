@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "published-evidence-reconciliation",
+  "title": "Recover publication of the gate-evidence repair",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id":"INT-001","kind":"requirement","text":"Carry the bounded gate-evidence repair into a newly qualified successor draft while preserving the original publication and its records.","disposition":"ready","artifacts":["docs/initiatives/published-evidence-reconciliation/SUCCESSOR.md"]},
+    {"id":"INT-002","kind":"constraint","text":"Preserve both evidence contracts and revalidate the actual combined candidate; do not change deployment or the original draft.","disposition":"ready","artifacts":["docs/initiatives/published-evidence-reconciliation/SUCCESSOR.md","docs/initiatives/published-evidence-reconciliation/REFERENCE-COMPATIBILITY-REVIEW.md"]}
+  ],
+  "contexts": [
+    {"id":"dbsctr_v3_lifecycle","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":[]}
+  ],
+  "slices": [
+    {"id":"publish-evidence-successor","context":"dbsctr_v3_lifecycle","state":"ready","execution_owner":"build","requirements":["INT-001","INT-002"],"depends_on":[],"release_group":"cli","artifacts":["docs/initiatives/published-evidence-reconciliation/SUCCESSOR.md","docs/initiatives/published-evidence-reconciliation/REFERENCE-COMPATIBILITY-REVIEW.md","docs/initiatives/published-evidence-reconciliation/SUCCESSOR.plan.json","docs/specs/dbsctr_v3_lifecycle/PROFILE.md"]}
+  ],
+  "release_groups": [
+    {"id":"cli","members":["publish-evidence-successor"],"state":"ready"}
+  ]
+}
