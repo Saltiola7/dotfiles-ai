@@ -130,6 +130,28 @@ def test_long_cases_module_skip_and_all_outcomes_are_complete(tmp_path):
     identity_module().validate_receipt(evidence, ids)
 
 
+def test_completed_junit_identity_digest_is_independent_of_case_order(tmp_path):
+    cases = [({"classname": "tests.test_core", "name": name}, None)
+             for name in ["test_z", "test_a", "test_m"]]
+    first_dir = tmp_path / "first"
+    second_dir = tmp_path / "second"
+    first_dir.mkdir()
+    second_dir.mkdir()
+    first_ids, first = identity_module().collect_junit(
+        artifact(first_dir, cases), ["tests/test_core.py"])
+    second_ids, second = identity_module().collect_junit(
+        artifact(second_dir, list(reversed(cases))), ["tests/test_core.py"])
+
+    assert first["scope"] == second["scope"] == "completed"
+    assert first["complete"] is second["complete"] is True
+    assert first_ids == second_ids == [
+        "tests/test_core.py::test_a",
+        "tests/test_core.py::test_m",
+        "tests/test_core.py::test_z",
+    ]
+    assert first["ids_digest"] == second["ids_digest"]
+
+
 @pytest.mark.parametrize("name", ["test_λ", "test_bad\ncase"])
 def test_nonprintable_case_uses_stable_opaque_identity(tmp_path, name):
     path = artifact(tmp_path, [({"classname": "tests.test_core", "name": name, "time": "1"}, None)])
