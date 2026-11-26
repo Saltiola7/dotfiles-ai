@@ -1,5 +1,11 @@
 # PM Kernel Changelog
 
+## 2026-11-25 - HERDR-QUAD-PM-001 Quoted List Regression
+
+- Added regression coverage for quoted list members `"true"`, `"01"`, and
+  `"x: y"` remaining strings while frontmatter stays separate from the body.
+  Test-only scope; no runtime, Jira, or ticket writes.
+
 ## 2026-11-01 - PY-07 PM Policy Boundaries
 
 - Added typed pure frontmatter, safety, and selected-source approval results
