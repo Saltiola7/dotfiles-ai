@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Recover already-published draft finalization
+
+- Close an interrupted draft follow-up after a default advance only when
+  native draft identity and retained reconciliation evidence match. Do not
+  push again, mutate the PR, or grant merge credit.
+
 ## 2026-11-25 — Refresh gate reuse against protected main
 
 - Reconcile PR #374 with the continuous-validation identity regression.

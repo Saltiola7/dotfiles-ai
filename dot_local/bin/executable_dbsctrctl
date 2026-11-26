@@ -27486,6 +27486,21 @@ def command_complete_external(args):
         print(json.dumps(receipt, sort_keys=True))
 
 
+def observe_published_draft(root, record, binding, remote_url, env, head, target):
+    delivery = record["delivery"]
+    ref = "refs/heads/" + delivery["branch"]
+    remote_head = github_remote_head(root, remote_url, ref, env)
+    if not remote_head or remote_head[0] != head:
+        fail("published draft feature ref changed")
+    observation, pull = observe_follow_up(
+        root, env, delivery["github"]["account"], delivery["github"]["repository"],
+        binding["number"], delivery["branch"], delivery["base_branch"], head)
+    if not pull["draft"] or observation["observed_base"] != target:
+        fail("published draft state or default changed")
+    return {"number": pull["number"], "url": pull["html_url"], "draft": True,
+            "state": "OPEN", "verified_at": now()}
+
+
 def finish_push(root, path, record):
     refuse_local_delivery(record)
     if "external_completion" in record:
@@ -27543,6 +27558,29 @@ def finish_push(root, path, record):
         for commit in recorded_commits
     )
     publication_mode = integration_publication_mode(root, record) if record["delivery_intent"] == "draft_pr" else None
+    recovered_head = None
+    qualified_base = target_head
+    if (follow_up is not None and record["state"] == "finalizing" and publication_mode is None
+            and not merge_completion(record) and recorded_commits
+            and git(root, "merge-base", "--is-ancestor", target_head, "HEAD", check=False).returncode == 1):
+        tip = git(root, "rev-parse", "HEAD").stdout.strip()
+        ref = "refs/heads/" + remote_branch
+        published = github_remote_head(root, remote_url, ref, delivery_env)
+        if published and published[0] == tip:
+            if tip != recorded_commits[-1] or not record_worktree_matches(root, record, root):
+                fail("published draft does not match the owned checkout and tip")
+            observe_published_draft(root, record, follow_up, remote_url, delivery_env, tip, target_head)
+            final_merge = git(root, "rev-list", "--first-parent", "--merges", "-n", "1",
+                              f"{cycle_base}..HEAD").stdout.strip()
+            if final_merge not in recorded_commits:
+                fail("published draft has no recorded final reconciliation")
+            parents = git(root, "show", "-s", "--format=%P", final_merge).stdout.split()
+            if (len(parents) != 2
+                    or git(root, "merge-base", "--is-ancestor", parents[1], target_head,
+                           check=False).returncode):
+                fail("current default does not descend from the published reconciliation")
+            qualified_base = parents[1]
+            recovered_head = tip
     if publication_mode in {"ordinary", "admin"}:
         if git(root, "merge-base", "--is-ancestor", base_head, target_head, check=False).returncode:
             fail("integration publication default is not a descendant of the recorded default")
@@ -27552,7 +27590,7 @@ def finish_push(root, path, record):
                                         for oid in current_ahead)):
             fail("integration publication requires the exact owned linear interval")
     elif follow_up is not None:
-        current_ahead = validate_follow_up_lineage(root, record, target_head)
+        current_ahead = validate_follow_up_lineage(root, record, qualified_base)
         reconciled = target_head != base_head
     elif (record["delivery_intent"] == "draft_pr"
             and (target_head != base_head or recorded_reconciliation)):
@@ -27596,7 +27634,7 @@ def finish_push(root, path, record):
     record["phase_profile"] = (validate_phase_profile(record["phase_profile"], record["cycle_id"])
                                if "phase_profile" in record
                                else unavailable_phase_report(record["cycle_id"]))
-    if current_ahead:
+    if current_ahead and recovered_head is None:
         record["state"] = "finalizing"
         save(path, record)
         already_pushed = False
@@ -27621,7 +27659,14 @@ def finish_push(root, path, record):
                     push_github_branch(root, remote_url, remote_branch, delivery_env)
         else:
             git(root, "push", remote_url, f"HEAD:{remote_branch}")
-    if record["delivery_intent"] == "draft_pr":
+    if recovered_head is not None:
+        if (status_paths(root) or git(root, "rev-parse", "HEAD").stdout.strip() != recovered_head
+                or not record_worktree_matches(root, record, root)):
+            fail("published draft checkout changed during recovery")
+        record["delivery"]["pull_request"] = observe_published_draft(
+            root, record, follow_up, remote_url, delivery_env, recovered_head, target_head)
+        link_improvement_pull_request(record, record["delivery"]["pull_request"], root, qualified_base)
+    elif record["delivery_intent"] == "draft_pr":
         remote_head = github_remote_head(
             root, remote_url, f"refs/heads/{remote_branch}", delivery_env
         )
@@ -27649,7 +27694,8 @@ def finish_push(root, path, record):
     pointer.unlink()
     prefix = "draft_pr " + record["delivery"]["pull_request"]["url"] + " " if record["delivery_intent"] == "draft_pr" else ""
     profile = json.dumps(record["phase_profile"], sort_keys=True, separators=(",", ":"))
-    print(prefix + "pushed " + " ".join(recorded_commits) + " source_sync=" + source_sync["status"]
+    result = "recovered " if recovered_head is not None else "pushed "
+    print(prefix + result + " ".join(recorded_commits) + " source_sync=" + source_sync["status"]
           + " profile=" + profile)
 
 
