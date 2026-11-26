@@ -65,7 +65,17 @@ container=(docker run --rm --pull=never --cap-drop=all --security-opt=no-new-pri
         cp -as "$sysroot/." /work/rust-sysroot/
         bash /work/std/install.sh --prefix=/work/musl-stdlib --disable-ldconfig
         ln -s "/work/musl-stdlib/lib/rustlib/$1" "/work/rust-sysroot/lib/rustlib/$1"
-        export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="--remap-path-prefix=/work=/ --sysroot=/work/rust-sysroot -C linker=$sysroot/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld -C linker-flavor=gnu-lld"
+        export HERDR_PROOF_RUST_LLD="$sysroot/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld"
+        test -x "$HERDR_PROOF_RUST_LLD"
+        printf "%s\n" "#!/bin/sh" "exec \"\$HERDR_PROOF_RUST_LLD\" -flavor gnu \"\$@\"" > /work/musl-linker
+        chmod 0700 /work/musl-linker
+        flags=(--remap-path-prefix=/work=/ --sysroot=/work/rust-sysroot -C linker=/work/musl-linker -C linker-flavor=ld)
+        printf "%s\n" "fn main() {}" > /work/link-probe.rs
+        rustc --target "$1" "${flags[@]}" /work/link-probe.rs -o /work/link-probe
+        readelf -l /work/link-probe > /work/link-probe-segments.txt
+        if grep -q INTERP /work/link-probe-segments.txt; then exit 1; fi
+        /work/link-probe
+        export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="${flags[*]}"
         cargo build --release --locked --offline -j 4 --target "$1" --bin herdr
         install -m 0755 "/work/target/$1/release/herdr" /work/out/herdr
         [[ $(/work/out/herdr --version) == "herdr $2" ]]

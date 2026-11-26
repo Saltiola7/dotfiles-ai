@@ -34,6 +34,8 @@ build = (recipe / "build.sh").read_text()
 patch_digest = hashlib.sha256((recipe / "native-proof.patch").read_bytes()).hexdigest()
 assert build.count(patch_digest) == 2
 assert "--network=none" in build and "--release --locked --offline" in build
+assert "-C linker-flavor=ld" in build and "linker-flavor=gnu-lld" not in build
+assert build.index("        /work/link-probe\n") < build.index("cargo build --release")
 subprocess.run(["bash", "-n", recipe / "build.sh"], check=True)
 for path in recipe.glob("*.py"):
     compile(path.read_bytes(), str(path), "exec")

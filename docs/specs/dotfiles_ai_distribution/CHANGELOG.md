@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-26 — Check stable musl linkage before the Herdr build
+
+- Invoke the pinned linker through a stable Rust option. Link and run a
+  minimal static musl executable before either full build.
+
 ## 2026-11-26 — Resume pinned Zig downloads in Herdr proof CI
 
 - Resume interrupted downloads within a fixed budget. Require exact size
