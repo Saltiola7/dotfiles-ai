@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-26 — Refresh the Herdr build proof against main
+
+- Reconcile the build-only draft with the Forgejo lifecycle baseline.
+  Keep the pinned build inputs, binary comparison and smoke unchanged.
+
 ## 2026-11-26 — Check stable musl linkage before the Herdr build
 
 - Invoke the pinned linker through a stable Rust option. Link and run a
