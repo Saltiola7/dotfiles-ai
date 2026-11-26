@@ -51,6 +51,23 @@ Source acceptance exercises both the controlled writer and Forgejo handoff. Veri
 
 The installed acceptance step first lands synthetic slice A through required CI and ordinary protected merge and retains verified inclusion. Close the originating conversation and restart the independent controller with the same grant and journal, while the qualified OpenCode process remains available. Confirm that the previously unstarted dependent slice B launches exactly once in its own checkout on a base containing A. Verify B’s protected landing and both receipts from a fresh session. Source delivery, this installed fixture qualification, and consumer activation have separate preflights and evidence. Slice 6 owns CI recovery and the tally. Slice 7 owns cross-provider Auto qualification.
 
+### Linux Forgejo comparison credentials
+
+The managed Forgejo recipe can explicitly select a systemd service credential
+for comparison reads on Linux. The credential binds the enrolled HTTPS origin,
+repository, account, read role and expiry. The existing Git credential helper
+returns it only for the authorized `get` request. Ambiguous, missing, expired or
+misbound credentials produce redacted refusal. Exact reference validation stays
+in the transport. Historical Keychain records and recipe digests remain valid.
+
+The controller owns credential access. OpenCode and the Build process receive
+only their existing scoped activation. Live qualification must prove that the
+worker has no access to the credential through its filesystem, environment,
+inherited descriptors or host process view. Run source evidence in a
+credential-free environment with inert envelopes. Qualify the actual read-only
+service role and worker isolation on the selected Linux host before protected
+restart testing.
+
 ## Reconcile CI
 
 | Native evidence | Auto behavior | Operator sees |
