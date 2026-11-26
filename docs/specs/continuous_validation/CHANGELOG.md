@@ -1,5 +1,11 @@
 # Continuous Validation Changelog
 
+## 2026-11-25 — HERDR-QUAD-CV-001: JUnit case-order identity regression
+
+Add a regression for two completed JUnit fixtures containing the same cases in
+different orders yielding the same test-identity digest. Test-only scope; no
+runtime, outcome or reuse-authority changes.
+
 ## 2026-11-24 — Shift-left affected validation: selection by changed path
 
 Make the repository's affected selection real. The adapter now selects checks
