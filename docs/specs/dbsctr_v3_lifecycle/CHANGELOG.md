@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Refresh gate reuse against protected main
+
+- Reconcile PR #374 with the continuous-validation identity regression.
+  Preserve the existing gate-reuse contract. No managed activation.
+
 ## 2026-11-25 — Reconcile evidence reuse with Linux credential support
 
 - Refresh PR #374 against protected `main`, retaining both lifecycle changes
