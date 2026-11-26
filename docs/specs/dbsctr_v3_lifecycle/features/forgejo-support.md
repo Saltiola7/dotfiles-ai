@@ -682,6 +682,11 @@ Keep credential resolution in the fixture owner. Task source and native
 provider output carry no program selectors or secret values. The fixture
 owner verifies its own authenticated roles and live native evidence.
 
+Guarded merge preconditions allow up to 182 seconds for the owner broker
+and relay. The controller caps that wait at the original approval expiry
+and checks expiry again before accepting the result. Other operations
+keep the 25-second process budget, including the ordinary merge request.
+
 | Operation | Qualified fixture owner result |
 | --- | --- |
 | `attest` | Current private repository ID and version, ordinary actor and approving operator, source root, independent CI plan and effective guard, dispatcher and protection digests. The controller also verifies current target ancestry. |

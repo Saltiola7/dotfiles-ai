@@ -234,6 +234,119 @@ json.dump({"schema_version": 1, "fixture_digest": call["fixture_digest"],
         bridge.request("POST", "/api/v1/repos/another/project/pulls", {})
 
 
+@pytest.fixture
+def bridge_deadline(custody, monkeypatch):
+    from dataclasses import replace
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from integration_coordinator import initiative_forgejo as auto, initiative_forgejo_bridge as module
+
+    native = Fixture()
+    program = b"# Inert fixture owner for a mocked subprocess.\n"
+    config = replace(auto.parse_fixture(fixture_document(native)), bridge_digest=sha256(program).hexdigest())
+    custody._write(custody.directory / "forgejo-fixture-provider.py", program)
+    bridge = module.Bridge(custody, config)
+    activation = SimpleNamespace(activation_id="b" * 64, grant_id="c" * 64)
+    clock = SimpleNamespace(now=1000.25, read_seconds=0, response_seconds=0, calls=[], failure=None)
+    original_read = custody._read
+
+    def read(path):
+        raw = original_read(path)
+        clock.now += clock.read_seconds
+        return raw
+
+    def run(argv, *, input, timeout, stdout, **kwargs):
+        clock.calls.append((json.loads(input), timeout))
+        assert argv[1:3] == ["-I", "-B"]
+        assert kwargs["cwd"] == custody.directory
+        if clock.failure:
+            raise clock.failure
+        clock.now += clock.response_seconds
+        stdout.write(lifecycle.canonical({"schema_version": 1, "fixture_digest": config.digest, "result": None}))
+        return SimpleNamespace(returncode=0)
+
+    def preconditions(expiry):
+        return bridge.preconditions(native.intent, native.reservation, activation, expiry)
+
+    monkeypatch.setattr(custody, "_read", read)
+    monkeypatch.setattr(module, "datetime", SimpleNamespace(now=lambda zone: datetime.fromtimestamp(clock.now, zone)))
+    monkeypatch.setattr(module.subprocess, "run", run)
+    return clock, bridge, preconditions
+
+
+def test_guard_preconditions_get_bounded_owner_headroom(bridge_deadline):
+    clock, _, preconditions = bridge_deadline
+
+    assert preconditions(2000) is None
+    (request, timeout), = clock.calls
+    assert timeout == 182
+    assert request["operation"] == "merge_preconditions"
+    assert request["request"]["expires_at"] == 2000
+    assert set(request["request"]) == {"intent", "reservation", "activation_id", "grant_id", "expires_at"}
+
+
+def test_guard_preconditions_budget_includes_local_setup(bridge_deadline):
+    clock, _, preconditions = bridge_deadline
+    clock.read_seconds = 1.5
+
+    assert preconditions(1004) is None
+    assert [timeout for _, timeout in clock.calls] == [2.25]
+
+
+@pytest.mark.parametrize(("expiry", "setup_seconds"), [(1000, 0), (1002, 1.75)])
+def test_guard_preconditions_do_not_spawn_after_approval_expiry(bridge_deadline, expiry, setup_seconds):
+    clock, _, preconditions = bridge_deadline
+    clock.read_seconds = setup_seconds
+
+    with pytest.raises(core.Unavailable, match="bridge_approval_expired"):
+        preconditions(expiry)
+    assert clock.calls == []
+
+
+def test_guard_preconditions_reject_a_reply_at_approval_expiry(bridge_deadline):
+    clock, _, preconditions = bridge_deadline
+    clock.response_seconds = 1.75
+
+    with pytest.raises(core.Unavailable, match="bridge_approval_expired"):
+        preconditions(1002)
+    assert [timeout for _, timeout in clock.calls] == [1.75]
+
+
+def test_other_bridge_operations_keep_the_regular_timeout(bridge_deadline):
+    clock, bridge, _ = bridge_deadline
+
+    operations = ("attest", "ref", "commit", "ancestor", "http", "push_feature", "ci_execution")
+    for operation in operations:
+        bridge._call(operation, expires_at=2000)
+
+    assert [(request["operation"], timeout) for request, timeout in clock.calls] == [
+        (operation, 25) for operation in operations
+    ]
+
+
+def test_invalid_guard_preconditions_expiry_does_not_spawn(bridge_deadline):
+    clock, bridge, preconditions = bridge_deadline
+
+    with pytest.raises(core.Invalid):
+        preconditions(True)
+    with pytest.raises(core.Unavailable, match="bridge_unavailable"):
+        bridge._call("merge_preconditions")
+    assert clock.calls == []
+
+
+def test_guard_preconditions_timeout_is_redacted_and_has_one_attempt(bridge_deadline):
+    from subprocess import TimeoutExpired
+
+    clock, _, preconditions = bridge_deadline
+    clock.failure = TimeoutExpired(["private fixture command"], 182)
+
+    with pytest.raises(core.Unavailable, match=r"^initiative_forgejo_bridge_unavailable$"):
+        preconditions(2000)
+    assert len(clock.calls) == 1
+
+
+
 @pytest.mark.parametrize("credential_source", ["osxkeychain", "systemd"])
 def test_managed_forgejo_begin_and_verified_local_completion_use_schema_six(
     monkeypatch, request, capsys, credential_source,
