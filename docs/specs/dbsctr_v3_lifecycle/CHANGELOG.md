@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Reconcile evidence reuse with hosted shadow validation
+
+- Refresh PR #374 on the protected base. Preserve evidence reuse and the
+  upstream historical shadow-source checks. No managed activation.
+
 ## 2026-11-25 — Reuse proven evidence after reconciliation
 
 - Preview affected gates in enrolled draft cycles. Retain equivalent bound

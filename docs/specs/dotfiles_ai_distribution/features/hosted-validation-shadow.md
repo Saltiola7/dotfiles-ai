@@ -86,6 +86,29 @@ prevents upload remains unavailable, not a fabricated partial result.
 
 ### The compare job
 
+- Given a completed required PR run whose metadata identifies only the head
+- When the comparator needs the historical tested base and merge revision
+- Then it may recover them from the authenticated, bounded logs of the pinned
+  checkout step for the exact run and attempt. Require the expected worker
+  and summary jobs to agree, and admit only the checkout that precedes
+  execution of source from the pull request.
+- And it verifies the candidate's ordered parents against the native Git
+  object, binds the second parent to the run head, and verifies that the first
+  parent belongs to the protected target history and that the candidate's
+  required workflow matches the qualified checkout definition on that base.
+  Bind the checkout's PR number to the same repository and protected target.
+- And it leaves source unavailable if the checkout, native metadata, or
+  workflow proof is missing, ambiguous, or contradictory. It does not infer
+  a historical tested revision from a current PR merge ref, an affected
+  artifact, a partition artifact, or a note alone.
+
+Check native test-run and job identities before requesting logs. Read bounded
+checkout evidence only; neither logs nor artifact claims are executed or
+published. This is a report join, not a new gate or a reuse entitlement.
+A matching partial affected artifact contributes only completed checks, and
+`budget_exhausted` remains explicit. Required CI, branch protection, Git-note
+publication, and full shadow coverage are outside this follow-up.
+
 - Given completion of the required test workflow for a pull request, or a
   manual dispatch
 - When the `compare` job runs
@@ -352,6 +375,7 @@ Build first adds a failing regression for each contract, then implements.
 | Untrusted note | Oversized, non-JSON and schema-invalid notes are reported as `manifest_malformed`; no claim from the note is used |
 | Missing inputs | No note, no affected artifact and an API error each add an `unavailable` entry; the job succeeds |
 | Shadow budget | Preserve a completed check, stop a check that exhausts the deadline, and label remaining native checks `budget_exhausted` without claiming they executed; retain the artifact before the job limit |
+| Historical source | Workers and summary with matching checkout evidence bind one exact attempt and native merge object; changed workflow, incomplete or conflicting evidence, and stale artifact identities never establish a match |
 | Timing | Queue, workers, early step, summary tail and verification are separate; an absent timestamp is `null` |
 | Repetition | Identities executed by every worker and again in a partition are counted with their extra executions |
 | Not a pull request | No report is produced |
