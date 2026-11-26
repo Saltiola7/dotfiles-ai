@@ -123,6 +123,17 @@ def test_block_list_preserves_quoted_members(items: list[str]) -> None:
     assert parsed == {"items": items} and body == ""
 
 
+def test_frontmatter_preserves_quoted_list_strings_and_separate_body() -> None:
+    document = (
+        '---\nitems:\n  - "true"\n  - "01"\n  - "x: y"\n---\n\n'
+        'Body stays separate.\nitems:\n  - "false"\n'
+    )
+    parsed, body = pm.frontmatter(document)
+    assert parsed == {"items": ["true", "01", "x: y"]}
+    assert all(type(item) is str for item in parsed["items"])
+    assert body == 'Body stays separate.\nitems:\n  - "false"'
+
+
 def test_frontmatter_preserves_nested_empty_list() -> None:
     assert pm.frontmatter("---\nitems:\n  - []\n---\n") == ({"items": [[]]}, "")
 
