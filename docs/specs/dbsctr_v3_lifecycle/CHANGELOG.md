@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## DRAFT-WORKER-BATCH-CI-001 — Refresh CLI help expectations
+
+Update the benchmark's expected help output for the draft-worker-batch command.
+
+## DRAFT-WORKER-BATCH-001 — One approval for draft workers
+
+Add batch preview, chat acceptance, registration and recovery for disjoint
+workers. Verify route readback and publish drafts under a shared target lock.
+Fixture coverage includes three sessions and projected documents. Installed
+operator-host acceptance is pending.
+
 ## 2026-11-26 — Bound guarded Forgejo preconditions by approval expiry
 
 - Allow the private fixture owner time to verify guarded merge preconditions

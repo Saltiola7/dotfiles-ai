@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-26 — Requalify the Herdr build proof on current main
+
+- Reconcile the build-only draft with the draft-worker batch baseline.
+  Preserve the producer source, pinned inputs and native smoke.
+
 ## 2026-11-26 — Refresh the Herdr build proof against main
 
 - Reconcile the build-only draft with the Forgejo lifecycle baseline.

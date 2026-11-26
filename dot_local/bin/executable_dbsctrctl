@@ -7810,6 +7810,14 @@ def initiative_import_plan(source, authority, receipt, plan, target, args):
             allowed.add(plan_relative)
     except ValueError:
         pass
+    if hasattr(args, "draft_batch_forbidden"):
+        from integration_coordinator.draft_slice_projection import project_artifacts
+
+        if args.delivery_intent != "draft_pr" or args.integration_mode != "draft_pr":
+            fail("draft batch requires exact draft intent")
+        result["artifacts"] = project_artifacts(source, base_head=base, source_commit=commit, declared=allowed,
+                                                forbidden=args.draft_batch_forbidden)
+        return result
     changed = set(filter(None, git(source, "diff", *(["--no-renames"] if deferred else []), "--name-only", "-z",
                                    ancestor, commit).stdout.split("\0")))
     omitted = {entry["path"] for entry in deferred}
@@ -11638,7 +11646,7 @@ def local_cli_mutation_guard(args, selected):
             local_only_cycle(before) and args.command in {"final-push", "reconcile-target"}):
         yield
         return
-    with evidence_lock(root, "local-mutation-" + before["cycle_id"], timeout=1):
+    with evidence_lock(root, "local-mutation-" + before["cycle_id"], timeout=1), contextlib.ExitStack() as guards:
         record = read_cycle_record(root, path, historical=True)
         if (not native_workspace_execution(record) or record["delivery"] != before["delivery"]
                 or record["worktree"] != before["worktree"]
@@ -11647,6 +11655,36 @@ def local_cli_mutation_guard(args, selected):
                 or not record_worktree_matches(root, record, root, bindings=False)):
             fail("local-only mutation binding changed")
         lineage_pending_guard(root, record)
+        approval = record.get("initiative_approval", {})
+        if approval.get("method") == "initiative_auto":
+            owner = integration_lifecycle_owner()
+            custody = owner.Custody(common_git_dir(root).resolve())
+            auth = custody.read("initiative_begin", approval["authorization_digest"])
+            grant = custody.read("initiative_grant", auth["grant_digest"])
+            if grant["allowed_operations"] == ["launch"]:
+                from integration_coordinator import draft_worker_batch as batch
+                runtime = DraftWorkerRuntime(root)
+                # Final Push takes the grant lock at each external effect. All
+                # other worker mutations retain it through the command itself.
+                if args.command != "final-push":
+                    guards.enter_context(batch.authority.initiative_effect_lock(custody, auth["grant_digest"]))
+                key = effective_initiative(record)["slice_id"]
+                graph = batch.read_graph(runtime, auth["grant_digest"])
+                worker = graph["workers"][key]
+                execution = batch.journal(custody, auth["grant_digest"], key).activation(auth["activation_digest"])
+                if (not execution or execution.state not in {"release_claimed", "release_accepted", "dispatched"}
+                        or execution.activation.launch.checkout != str(root.resolve())):
+                    fail("draft batch writer mutation lacks registered checkout")
+                runtime.require_operation(execution.activation, "launch")
+                release = runtime.worker_writer(worker).observe_release(execution.activation)
+                if not release or not release.delivered:
+                    fail("draft batch writer mutation lacks observed release")
+                changed = git(root, "ls-files", "--others", "--exclude-standard", "-z").stdout.split("\0")
+                for args_ in ((), ("--cached",)):
+                    changed.extend(git(root, "diff", *args_, "--no-renames", "--name-only", "-z").stdout.split("\0"))
+                if any(path and not any(path == p or path.startswith(p + "/") for p in worker["write_set"])
+                       for path in changed):
+                    fail("draft batch writer mutation exceeds approved paths")
         if args.command == "final-push" and record["state"] == "awaiting_merge":
             pass  # Final Push only releases this published cycle's own pointer; nothing is pushed again.
         elif args.command in {"final-push", "reconcile-target"}:
@@ -24393,7 +24431,7 @@ class ManagedInitiativeRuntime:
         names = ("initiative_service.py", "initiative_authority.py", "initiative_controller.py", "lifecycle.py",
                  "operator.py", "controller.py", "client.py", "github.py", "core.py", "runtime.py", "gitproof.py",
                  "initiative_forgejo.py", "initiative_forgejo_bridge.py", "forgejo.py", "forgejo_ci.py",
-                 "forgejo_status.py", "forgejo_merge.py")
+                 "forgejo_status.py", "forgejo_merge.py", "draft_worker_batch.py", "draft_slice_projection.py")
         credential_reader = package.parent / "continuous_validation" / "feedback.py"
 
         def digest_file(path):
@@ -24831,6 +24869,186 @@ class ManagedInitiativeRuntime:
             operator.initiative_tick(client, store, binding, expected_ticket, obligation, ready)
 
 
+class DraftWorkerRuntime(ManagedInitiativeRuntime):
+    def arguments(self, recipe, key):
+        checkout, argv = self._begin_args(recipe, key)
+        args = parser().parse_args(argv)
+        args.integration_mode = "draft_pr"
+        authority = self._authority_checkout(recipe)
+        if checkout == authority:
+            fail("draft batch worker cannot own Discovery checkout")
+        manifest, *_ = read_initiative_manifest(authority / recipe.manifest_path, auto_waiting=True)
+        statements = {row["id"]: row for row in manifest["statements"]}
+        owned = {}
+        for row in manifest["slices"]:
+            owned[row["id"]] = set(row["artifacts"])
+            for req in row["requirements"]:
+                owned[row["id"]].update(statements[req]["artifacts"])
+        shared = {recipe.manifest_path, read_plan(args.plan, args.expected_plan_digest)["profile"]}
+        allowed = owned[key] | shared | {recipe.slice(key).plan_path}
+        forbidden = set().union(*(v for k, v in owned.items() if k != key))
+        forbidden.update(s.plan_path for s in recipe.slices if s.slice_id != key)
+        args.draft_batch_forbidden = forbidden - allowed
+        return checkout, authority, args
+
+    def preview_slice(self, recipe, key):
+        checkout, authority, args = self.arguments(recipe, key)
+        require_native_checkout(checkout, args)
+        require_registration_available(checkout, args.cycle_id)
+        receipt = initiative_receipt(authority / recipe.manifest_path, key, authority, auto_waiting=True)
+        receipt["manifest_path"] = recipe.manifest_path
+        check_initiative_cycle_occupancy(checkout, args.cycle_id, receipt)
+        target, _, _ = begin_upstream(checkout, args, comparison_remote="origin")
+        plan = read_plan(args.plan, args.expected_plan_digest)
+        if plan.get("completion") is not None:
+            fail("draft batch requires publication-only completion")
+        validate_plan(authority, args.context, args.delivery_intent, plan)
+        result = initiative_launch_plan(checkout, authority, receipt, plan, target, args)
+        target_ref = "refs/heads/" + args.base_branch
+        url = github_remote_url(checkout, "origin", args.github_repository)
+        env = github_environment(args.github_account)
+        observed = github_remote_head(checkout, url, target_ref, env)
+        if github_remote_head(checkout, url, "refs/heads/" + result["checkout"]["branch"], env):
+            fail("draft batch feature branch already published")
+        if result["base_head"] != result["checkout"]["head"] or observed != [result["base_head"], target_ref]:
+            fail("draft batch worker must be at the selected target")
+        return checkout, result
+
+    def launch(self, grant, graph, key):
+        from integration_coordinator.initiative_controller import Launch
+        checkout, plan = self.preview_slice(self.recipe(), key)
+        worker = graph["workers"][key]
+        if plan != worker["plan"] or str(checkout) != worker["checkout"]:
+            fail("draft batch reviewed launch changed")
+        digest = continuation_digest({**plan, "initiative_grant_digest": grant})
+        return Launch(digest, plan["base_head"], str(checkout), plan["cycle_id"], worker["agent"])
+
+    def terminal_delivery(self, activation, worker):
+        """Re-observe exact completed draft before releasing shared resource/path claims."""
+        root = Path(activation.launch.checkout)
+        if self.observed(activation) is None or str(root) != worker["checkout"]:
+            return False
+        record = read_cycle_record(root, cycle_dir(root) / "cycles" / (activation.launch.cycle_id + ".json"),
+                                   historical=True)
+        delivery = record["delivery"]
+        pr = delivery.get("pull_request", {})
+        if (record["state"] != "completed" or pr.get("draft") is not True
+                or record.get("completion_contract") is not None or not record["commits"]
+                or effective_initiative(record) != worker["plan"]["receipt"]
+                or (delivery["branch"], delivery["base_branch"], delivery["github"]["repository"]) !=
+                   (worker["plan"]["checkout"]["branch"], worker["plan"]["base_branch"], worker["plan"]["repository"])):
+            return False
+        account = delivery["github"]["account"]
+        head = record["commits"][-1]["id"]
+        _, pull = observe_follow_up(root, github_environment(account), account, delivery["github"]["repository"],
+                                    pr["number"], delivery["branch"], delivery["base_branch"], head)
+        return pull["draft"] is True and pull["html_url"] == pr["url"]
+
+    def worker_writer(self, worker):
+        from integration_coordinator.draft_worker_batch import RoutedTransport
+        from integration_coordinator.initiative_opencode import OpenCodeWriter
+        _, qualified = self._witness()
+        return OpenCodeWriter(qualified, RoutedTransport(self._transport(qualified), worker["agent"],
+                                                         worker["model"], worker["variant"]), managed=True)
+
+    def register(self, activation, controller):
+        from integration_coordinator import draft_worker_batch as batch
+        from integration_coordinator.initiative_authority import initiative_effect_lock
+        grant, key = activation.grant_id, activation.slice_id
+        with initiative_effect_lock(self.custody, grant):
+            graph = batch.read_graph(self, grant)
+            def check(*unused):
+                batch.authorize(self, grant, graph, key, now)
+            launch = ManagedInitiativeLaunch(grant, lambda: batch.binding(self, self.recipe(), graph), controller,
+                activation_id=activation.activation_id, session_id=activation.session_id)
+            launch.verify_scope = check
+            checkout, _, args = self.arguments(self.recipe(), key)
+            args.expected_launch_digest = activation.launch.launch_digest
+            with contextlib.chdir(checkout), contextlib.redirect_stdout(io.StringIO()):
+                command_begin(args, auto_launch=launch)
+
+    def _observed(self, activation):
+        from integration_coordinator.initiative_controller import RegistrationReceipt
+        root = Path(activation.launch.checkout)
+        path = cycle_dir(root) / "cycles" / (activation.launch.cycle_id + ".json")
+        if not os.path.lexists(path):
+            return None
+        record = read_cycle_record(root, path, historical=True)
+        approval = record["initiative_approval"]
+        auth = self.custody.read("initiative_begin", approval["authorization_digest"])
+        if (approval["method"] != "initiative_auto" or record["delivery_intent"] != "draft_pr"
+                or effective_initiative(record)["slice_id"] != activation.slice_id
+                or not record_worktree_matches(root, record, root, bindings=False)
+                or (auth["grant_digest"], auth["activation_digest"], auth["session_digest"],
+                    auth["launch_digest"], auth["cycle_id"]) != (activation.grant_id, activation.activation_id,
+                    continuation_digest(activation.session_id), activation.launch.launch_digest, activation.launch.cycle_id)):
+            fail("draft batch registration identity changed")
+        return RegistrationReceipt(activation.activation_id, activation.launch.cycle_id,
+                                   activation.launch.launch_digest, approval["authorization_digest"])
+
+    def require_operation(self, activation, operation):
+        from integration_coordinator import draft_worker_batch as batch
+        if operation != "launch":
+            fail("draft batch has no protected delivery authority")
+        graph = batch.read_graph(self, activation.grant_id)
+        proposal = batch.authorize(self, activation.grant_id, graph, activation.slice_id, now)
+        _, scope = batch.authority.read_grant(self.custody, activation.grant_id)
+        approved = batch.authority.CustodyAuthority._review(activation.grant_id, proposal, scope, None)
+        for dep in graph["workers"][activation.slice_id]["depends_on"]:
+            if not self.prior_delivery(self.recipe(), approved, dep, scope["slices"][dep]):
+                fail("draft batch dependency delivery no longer verified")
+        plan = graph["workers"][activation.slice_id]["plan"]
+        root = Path(activation.launch.checkout)
+        record = read_cycle_record(root, cycle_dir(root) / "cycles" / (activation.launch.cycle_id + ".json"),
+                                   historical=True)
+        if (effective_initiative(record) != plan["receipt"] or record.get("completion_contract") is not None
+                or record.get("discovery_import", {}).get("artifacts", []) != plan["artifacts"]
+                or (record["delivery"]["github"]["repository"], record["delivery"]["base_branch"],
+                    record["delivery"]["branch"]) != (plan["repository"], plan["base_branch"], plan["checkout"]["branch"])):
+            fail("draft batch registered authority changed")
+        receipt = self.observed(activation)
+        if not receipt:
+            fail("draft batch registration unproved")
+        return receipt
+
+
+def command_draft_worker_batch(args):
+    runtime = DraftWorkerRuntime(root_dir())
+    from integration_coordinator import draft_worker_batch as batch
+    if args.action == "build":
+        result = batch.build(runtime, args.grant, now)
+    elif args.action == "scope":
+        _, record = load(root_dir())
+        auth = runtime.custody.read("initiative_begin", record["initiative_approval"]["authorization_digest"])
+        key, grant = effective_initiative(record)["slice_id"], auth["grant_digest"]
+        graph = batch.read_graph(runtime, grant)
+        activation = batch.journal(runtime.custody, grant, key).activation(auth["activation_digest"]).activation
+        runtime.require_operation(activation, "launch")
+        if root_dir().resolve() != Path(activation.launch.checkout):
+            fail("draft scope requires registered worker checkout")
+        result = graph["workers"][key]
+    else:
+        with Path(args.claims).open("rb") as stream:
+            raw = stream.read(256 * 1024 + 1)
+        if len(raw) > 256 * 1024:
+            fail("draft batch claims too large")
+        selection = json.loads(raw, object_pairs_hook=no_duplicate_keys)
+        approved_at = args.approved_at or now()
+        if args.action == "preview":
+            result = batch.prepare(runtime, selection, approved_at, args.expires_at)
+        else:
+            if args.approval == "interactive":
+                if not sys.stdin.isatty():
+                    fail("draft batch acceptance requires interactive exact approval")
+                print(f"Type ACCEPT {args.approval_digest}", file=sys.stderr, flush=True)
+                if sys.stdin.readline(512).rstrip("\n") != "ACCEPT " + args.approval_digest:
+                    fail("draft batch confirmation declined")
+            result = {"grant_digest": batch.accept(runtime, selection, approved_at, args.expires_at,
+                                                   args.approval_digest, now, approval=args.approval),
+                      "approval_method": args.approval}
+    print(json.dumps(result, sort_keys=True))
+
+
 def initiative_managed_service(root):
     runtime = ManagedInitiativeRuntime(root)
     from integration_coordinator.initiative_service import InitiativeService
@@ -24892,6 +25110,37 @@ def initiative_publication_fence(root, record, mode):
     approval = record.get("initiative_approval", {})
     if approval.get("method") != "initiative_auto":
         yield
+        return
+    if mode == "draft_pr" and approval.get("authorization_digest"):
+        runtime = DraftWorkerRuntime(root)
+        from integration_coordinator import draft_worker_batch as batch
+        auth = runtime.custody.read("initiative_begin", approval["authorization_digest"])
+        grant, key = auth["grant_digest"], effective_initiative(record)["slice_id"]
+        with batch.authority.initiative_effect_lock(runtime.custody, grant):
+            graph = batch.read_graph(runtime, grant)
+            worker = graph["workers"][key]
+            state = batch.journal(runtime.custody, grant, key).activation(auth["activation_digest"])
+            if (not state or state.state not in {"release_claimed", "release_accepted", "dispatched"}
+                    or state.activation.launch.checkout != str(root.resolve())):
+                fail("draft batch lacks a retained released activation")
+            runtime.require_operation(state.activation, "launch")
+            release = runtime.worker_writer(worker).observe_release(state.activation)
+            if release is None or not release.delivered:
+                fail("draft batch release unverified")
+            verify_discovery_import(root, record)
+            base = record.get("discovery_import", {}).get("commit", state.activation.launch.base_head)
+            if (branch(root) != worker["plan"]["checkout"]["branch"]
+                    or git(root, "merge-base", "--is-ancestor", base, "HEAD", check=False).returncode):
+                fail("draft batch feature lineage changed")
+            for commit in git(root, "rev-list", base + "..HEAD").stdout.split():
+                parents = git(root, "rev-list", "--parents", "-n1", commit).stdout.split()
+                if len(parents) != 2:
+                    fail("draft batch publication requires linear worker commits")
+                names = git(root, "diff", "--no-renames", "--name-only", "-z", parents[1], commit).stdout.split("\0")
+                if any(name and not any(name == path or name.startswith(path + "/") for path in worker["write_set"])
+                       for name in names):
+                    fail("draft batch publication exceeds approved write set")
+            yield
         return
     if mode != "ordinary":
         fail("managed Initiative publication requires its ordinary birth enrollment")
@@ -27780,7 +28029,16 @@ def command_final_push(args):
     root = root_dir()
     path, record = load(root)
     refuse_local_delivery(record)
-    with target_lock(root, record):
+    with target_lock(root, record), contextlib.ExitStack() as guards:
+        if (record.get("initiative_approval", {}).get("method") == "initiative_auto"
+                and integration_publication_mode(root, record) == "draft_pr"):
+            # The kernel target lock covers a feature ref; serialize sibling
+            # draft publication through PR readback and local completion too.
+            from integration_coordinator.initiative_authority import initiative_effect_lock
+            owner = integration_lifecycle_owner()
+            custody = owner.Custody(common_git_dir(root).resolve())
+            guards.enter_context(initiative_effect_lock(custody, owner.digest({"draft-publication":
+                [record["delivery"]["github"]["repository"], record["delivery"]["base_branch"]]})))
         finish_push(root, path, record)
 
 
@@ -28878,6 +29136,20 @@ def parser():
     batch_publish.add_argument("--batch-id", required=True)
     batch_publish.add_argument("--confirm", required=True)
     batch_publish.set_defaults(func=command_batch_publish)
+    draft = commands.add_parser("draft-worker-batch", help="review and launch disjoint draft-only workers")
+    draft_actions = draft.add_subparsers(dest="action", required=True)
+    for action in ("preview", "accept"):
+        cmd = draft_actions.add_parser(action)
+        cmd.add_argument("--claims", required=True, help="JSON mapping slice IDs to write_set, shared_resources, agent, model, variant")
+        cmd.add_argument("--approved-at", required=action == "accept")
+        cmd.add_argument("--expires-at", required=True)
+        if action == "accept":
+            cmd.add_argument("--approval", choices=("interactive", "agent-confirmed"), default="interactive",
+                             help="agent-confirmed asserts explicit operator chat approval of this exact preview")
+            cmd.add_argument("--approval-digest", required=True)
+    draft_actions.add_parser("build").add_argument("--grant", required=True)
+    draft_actions.add_parser("scope")
+    draft.set_defaults(func=command_draft_worker_batch)
     initiative_auto = commands.add_parser("initiative-auto", help="operate the enrolled private Initiative runtime")
     auto_actions = initiative_auto.add_subparsers(dest="initiative_action", required=True)
     auto_start = auto_actions.add_parser("start", help="review and authorize one closed Initiative scope")
@@ -29151,7 +29423,7 @@ def main():
             # Advisory queue mutation owns private locks, not formal gate locks.
             args.func(args)
             return 0
-        if args.command in {"initiative-amend", "lineage-recover", "initiative-auto"}:
+        if args.command in {"initiative-amend", "lineage-recover", "initiative-auto", "draft-worker-batch"}:
             # This command owns offline admission, locks and bounded error output.
             # No generic telemetry, continuation transport or credential discovery.
             args.func(args)
