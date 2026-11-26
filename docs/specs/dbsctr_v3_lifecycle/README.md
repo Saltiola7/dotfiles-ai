@@ -888,7 +888,7 @@ Adjacent contexts:
 | Phase Span | Private metadata describing one lifecycle phase or operation's timing, dependencies, ownership, and result without retaining its payload. |
 | Autonomous Interval | Complete helper-timestamped work or internal-wait time included in autonomous runtime. |
 | Excluded Pause | Complete helper-timestamped `operator_wait` or `external_wait` time excluded from autonomous runtime. |
-| Execution DAG | A primary-derived dependency graph whose independently owned ready nodes may execute concurrently after deterministic validation. |
+| Execution DAG | A primary-derived dependency graph whose independently owned ready nodes may execute concurrently after deterministic validation. Discovery's [delegation handoff](../../initiatives/native-slice-builders/BUILDER-HANDOFF.md) recommends owners and runnable groups; actual dispatch uses current native permissions and the existing admission policy. |
 | Backlog Integrity Finding | A report-only fixed-commit finding that a lifecycle backlog violates the canonical Active or Completed table contract. |
 | Operational Follow-up | Dated, owned work that remains Active until external time or evidence makes truthful completion possible. |
 | Worktree Inventory | Read-only local report of DBSCTR-owned cycle worktrees, allocated bytes, lifecycle state, and cleanup blockers. |

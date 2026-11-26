@@ -34,7 +34,7 @@ SHARED = (
     "dbsctr/SKILL.md", "dbsctr/modules/python.md", "dbsctr/modules/cloud.md",
     "dbsctr/modules/shell.md", "dbsctr/modules/mojo.md",
     "dbsctr/references/python-specialists.md", "dbsctr/references/platform-specialists.md",
-    "dbsctr/references/specialist-selection.md",
+    "dbsctr/references/specialist-selection.md", "dbsctr/references/delegation-handoff.md",
     "dbsctr/scripts/resolve_specialist.py",
 )
 

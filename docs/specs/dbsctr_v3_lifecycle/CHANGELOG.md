@@ -1,5 +1,27 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## NATIVE-SLICE-PLAN-REFRESH-001 — Plan and Build handoff
+
+Describe one review of the selected plan, explicit checkout verification
+and recovery of top-level workers. Build checks batch authorization before
+dispatch. Verify the instructions through both installed skill entry points
+in a disposable home.
+
+## Repair the delegation handoff fixture (NATIVE-SLICE-PLAN-001-CI-01)
+
+The platform-specialist bundle test now includes the handoff referenced by
+DBSCTR. The closed-bundle test and a disposable install of both managed
+roles pass. The repair updates the existing draft; writer permissions and
+merge authority are unchanged.
+
+## 2026-11-24 — Plan native delegation at the Discovery handoff
+
+- Discovery proposes runnable groups, exclusive write ownership, and when a
+  separate session is useful. Build consumes the same installed reference.
+- Distinguish test receipts, CI, and the evidence needed to release a
+  dependent. Existing permissions and protected delivery still apply.
+  Validate the managed handoff on a disposable home. Target: draft PR.
+
 ## 2026-11-26 — Refresh deferred Discovery against protected main
 
 - Reconcile PR #380 with upstream OpenCode instruction coverage. Preserve
