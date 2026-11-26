@@ -1,5 +1,11 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-26 — Bound guarded Forgejo preconditions by approval expiry
+
+- Allow the private fixture owner time to verify guarded merge preconditions
+  within the original approval. Keep ordinary provider timeouts and protected
+  merge authorization intact. No managed activation.
+
 ## NATIVE-SLICE-PLAN-REFRESH-001 — Plan and Build handoff
 
 Describe one review of the selected plan, explicit checkout verification
