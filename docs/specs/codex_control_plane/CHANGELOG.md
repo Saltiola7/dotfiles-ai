@@ -1,5 +1,10 @@
 # Codex Control Plane Changelog
 
+## 2026-11-25 — HERDR-QUAD-CODEX-001 status-line regression
+
+- Added regression coverage for native TUI status-line order and Unicode values
+  across a later managed model update. Scope is test-only; no runtime change.
+
 ## 2026-10-24 — Desktop and CLI explicit lifecycle checkout
 
 - Clarified Desktop and CLI consumption of the existing shared lifecycle through

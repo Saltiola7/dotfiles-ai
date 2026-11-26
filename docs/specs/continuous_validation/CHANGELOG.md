@@ -1,5 +1,11 @@
 # Continuous Validation Changelog
 
+## 2026-11-25 — HERDR-QUAD-CV-REFRESH-001: Refresh the worker draft
+
+Reconcile draft #377 with the protected base containing #375 and #376.
+Revalidate the existing identity regression alongside the incoming worker
+tests. No runtime change or deployment is part of this refresh.
+
 ## 2026-11-25 — HERDR-QUAD-CV-001: JUnit case-order identity regression
 
 Add a regression for two completed JUnit fixtures containing the same cases in
