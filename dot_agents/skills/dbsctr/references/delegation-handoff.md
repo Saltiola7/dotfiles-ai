@@ -38,7 +38,21 @@ that needs both merged waits for both revisions even if both drafts exist.
 If two proposed writers instead need the same fixture, draw an ordering
 edge or give it to a single owner before dispatch.
 
-The existing primary retains restricted lifecycle and forge operations.
-Use end-to-end child writers and a single inherited approval only after the
-native writer and Initiative grant are qualified for the selected mode and
-target. Discovery recommendations do not make that qualification true.
+## Same-repository workers in ordinary Plan and Build
+
+In Plan, Discovery presents the whole selected plan for one review, including
+blocked slices. In Build, DBSCTR reads that durable plan. For batch dispatch,
+verify that the installed grant covers the exact plan and draft delivery.
+If batch authorization is unavailable, report that limitation before launch.
+An approved planning document alone cannot register cycles.
+
+For each authorized independent slice, start a top-level Build session in a
+named Herdr tab at its Worktrunk checkout. Announce the slice, tab and branch
+even when opening tabs without focus. Confirm Build mode, native session ID,
+workdir, branch and base before registration. Give shell calls the explicit
+workdir. Timing is optional. Each worker owns one Cycle Record.
+
+After interruption, reopen the original session by session ID and read its
+checkout and Cycle Record before continuing. Verify gate evidence and the
+published head before accepting delivery. Publish drafts serially; if main
+advances, reconcile and verify fresh exact-candidate CI before protected merge.

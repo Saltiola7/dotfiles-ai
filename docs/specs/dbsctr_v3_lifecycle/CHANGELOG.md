@@ -1,5 +1,12 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## NATIVE-SLICE-PLAN-REFRESH-001 — Plan and Build handoff
+
+Describe one review of the selected plan, explicit checkout verification
+and recovery of top-level workers. Build checks batch authorization before
+dispatch. Verify the instructions through both installed skill entry points
+in a disposable home.
+
 ## Repair the delegation handoff fixture (NATIVE-SLICE-PLAN-001-CI-01)
 
 The platform-specialist bundle test now includes the handoff referenced by
@@ -14,6 +21,242 @@ merge authority are unchanged.
 - Distinguish test receipts, CI, and the evidence needed to release a
   dependent. Existing permissions and protected delivery still apply.
   Validate the managed handoff on a disposable home. Target: draft PR.
+
+## 2026-11-26 — Refresh deferred Discovery against protected main
+
+- Reconcile PR #380 with upstream OpenCode instruction coverage. Preserve
+  the deferred-document contract. No managed activation.
+
+## 2026-11-26 — Bind deferred Discovery documents
+
+- Let explicit same-repository launches bind a later owner's Markdown path,
+  mode, and blob without importing the document or crediting it to current
+  gates. Check the full committed source against the existing publication
+  identifier policy. No managed activation.
+
+## 2026-11-25 — Refresh gate reuse against protected main
+
+- Reconcile PR #374 with the continuous-validation identity regression.
+  Preserve the existing gate-reuse contract. No managed activation.
+
+## 2026-11-25 — Reconcile evidence reuse with Linux credential support
+
+- Refresh PR #374 against protected `main`, retaining both lifecycle changes
+  and refreshing the combined CLI benchmark pin. No managed activation.
+
+## 2026-11-25 — Reconcile evidence reuse with hosted shadow validation
+
+- Refresh PR #374 on the protected base. Preserve evidence reuse and the
+  upstream historical shadow-source checks. No managed activation.
+
+## 2026-11-25 — Reuse proven evidence after reconciliation
+
+- Preview affected gates in enrolled draft cycles. Retain equivalent bound
+  executions at Final Push without changing their original timestamps.
+- Keep fresh review of the actual merge, runtime acceptance, and legacy
+  freshness requirements. Apply the same rules to published follow-ups.
+
+## 2026-11-25 — Refresh Linux credential CI base
+
+- Reconcile PR #372 with protected main at `120b3b73` and retain the
+  approved credential source and hosted validation reporting.
+
+## 2026-11-25 — Reconcile Linux credentials with section authority
+
+- Reconcile PR #372 with protected main at `f0c671dd`. Preserve both
+  lifecycle changes and refresh the CLI benchmark pin for the combined helper.
+
+## 2026-11-25 — Reconcile section authority with Forgejo Auto
+
+- Preserve both source changes and refresh the combined helper benchmark pin.
+  No managed activation.
+
+## 2026-11-25 — Bind named Initiative document sections
+
+- Add optional exact section selection to same-repository GitHub Initiative
+  receipts. Preserve whole-file selection, exact Discovery import and
+  digest-bound amendment custody.
+- Verify the selected bytes and mode at Gate Commit and completion. Permit
+  unchanged sections in an exact incoming protected-base blob without
+  admitting unrelated edits by the cycle. No managed activation.
+
+## 2026-11-25 — Linux Forgejo comparison credentials
+
+- Bind the systemd credential source to an explicit managed recipe and exact
+  read-only Forgejo fetch. Preserve historical GitHub and Keychain identities.
+- Validate the scoped service credential and expiry before releasing it to Git.
+  Keep live enrollment and Build isolation in the native qualification test.
+
+## 2026-11-25 — Reconcile Forgejo Auto with evidence isolation
+
+- Reconcile PR #364 with protected main at `b910f609`. Preserve both
+  lifecycle changes and refresh the CLI benchmark pin for the combined helper.
+
+## 2026-11-25 — Reconcile hosted shadow result retention
+
+- Refresh PR #365 against the protected base while retaining the runner
+  isolation prerequisite and upstream partial-result handling. No managed
+  activation.
+
+## 2026-11-25 — Provision the evidence sandbox in hosted shadow CI
+
+- Give the advisory affected job the same sandbox setup as the required
+  partitions before it runs lifecycle tests. Keep checks and runner policy
+  unchanged; no managed activation.
+
+## 2026-11-25 — Refresh evidence isolation on the protected base
+
+- Reconcile PR #365 with the hosted shadow render-tool fix. Keep the evidence
+  sandbox and full-suite checks unchanged. No managed activation.
+
+## 2026-11-25 — Reconcile evidence isolation with hosted validation shadow
+
+- Refresh PR #365 against the protected base. Preserve both the sandbox
+  prerequisite and the independent shadow workflow. No managed activation.
+
+## 2026-11-25 — Qualify Ubuntu runner namespace policy
+
+- If the hosted runner denies sandbox setup, load Ubuntu's packaged confined
+  Bubblewrap profile and require the same probe to pass. Do not replace
+  an existing profile or change the global namespace restriction.
+
+## 2026-11-25 — Qualify hosted evidence isolation
+
+- Provision the Ubuntu sandbox dependencies in the existing test shards.
+  Require namespace setup and the real descendant and formatter regressions
+  before the full partitions. No host policy changes or fallback.
+
+## 2026-11-25 — Isolate evidence checkout writes
+
+- Run `record-evidence` in a private candidate with separately captured index
+  and working overlay. Keep the real checkout and Git state read-only to the
+  validator and its descendants; refuse when capture or isolation is unavailable.
+- Fail successful commands that modified candidate inputs, and refuse passing
+  evidence when the original inputs drift. Keep runtime output and evidence
+  custody separate. No managed activation.
+
+## 2026-11-25 — Reconcile Forgejo Auto with validation budget
+
+- Reconcile PR #364 with protected main at `16020b6`, preserving the
+  approved Forgejo source and the hosted shadow budget.
+
+## 2026-11-25 — Reconcile Forgejo Auto on Linux
+
+- Preserve the managed Forgejo source while reconciling PR #364 with
+  protected main at `5bd592f`. Refresh the gate evidence in the Linux checkout.
+
+## 2026-11-25 — Verify Forgejo delivery at the protected tip
+
+- Ask the native owner to verify ancestry when the protected tip is the merge
+  itself or the enrolled root. Keep object-format validation and reject negative
+  native proof. Test regular and lost-response merge readback through the bridge.
+
+## 2026-11-25 — Reconcile managed Forgejo delivery with evidence reuse
+
+- Preserve both lifecycle changes and refresh the CLI benchmark byte pin for
+  the source on the new protected base.
+
+## 2026-11-25 — Compose managed Forgejo fixture delivery
+
+- Use the managed Initiative grant and journal with Forgejo schema-6 Begin and
+  local completion. Recheck the exact completed head, tree, gate commits and
+  activation before the controller hands off the owned feature branch.
+- Use the existing ready pull request, required CI and guarded ordinary merge
+  adapters. Retain private submission claims so lost responses resolve through
+  native readback. Enforce the original grant deadline at each write.
+- Add a byte-pinned private fixture interface for native roles, Git, CI receipts,
+  and the existing repository guard. The two-slice installed restart test
+  remains separate from this source delivery.
+
+## 2026-11-25 — Reconcile evidence reuse with verified merge
+
+- Retain both lifecycle changes on PR #363 and refresh the helper byte pin.
+  Verified that the reconciled CLI help pins are unchanged. No required CI
+  changes or managed activation.
+
+## 2026-11-24 — Requalify evidence reuse CLI benchmarks
+
+- Reconcile PR #363 with protected `main` and refresh the benchmark's exact
+  helper and CLI help pins. Keep workloads, assertions, and required CI unchanged.
+
+## 2026-11-24 — Reuse validation executions across gates
+
+- Preview affected checks with `dbsctrctl evidence-plan` and run missing or
+  stale checks with `dbsctrctl validate`. The managed owner pins the selection
+  and source snapshot; execution receipts do not change gate state.
+- Give each gate a separate `reference-evidence` decision. Refuse stale,
+  superseded, out-of-scope, or unbound executions without changing gate state.
+  Export matching receipts for a clean committed head to a new private file.
+- Add a focused lifecycle check to the repository ownership table. Source
+  delivery targets a draft PR to `main`; no managed installation, activation,
+  hosted reuse, or change to required CI is included.
+
+## 2026-11-25 — Reconcile PR #358 with managed Initiative Auto source
+
+- Keep the managed Initiative publication deadline and pass the existing cycle
+  record to the shared outbox verifier. Refresh the helper benchmark pin.
+  No managed activation.
+
+## 2026-11-25 — Reconcile verified-merge publication with the protected base
+
+- Preserve the verified-merge and Initiative continuation contracts while
+  reconciling PR #358 with `main`. Refresh the helper benchmark pin for the
+  combined source. No managed activation.
+
+## 2026-11-24 — Completion at verified merge (PR-MERGE-001)
+
+- Add the plan-bound `verified_merge` contract for GitHub draft PR cycles. Final
+  Push freezes a publication snapshot, retains the published source and releases
+  only its own checkout pointer; the cycle waits in `awaiting_merge` instead of
+  completing at publication. A cycle uses it only when its approved plan selects
+  it. Other deliveries, historical records and v1 receipts keep their contracts.
+- Record native PR merges by exact cycle ID from any checkout as versioned merge
+  observations in the existing receipt sequence. Complete only on an exact-tree,
+  base-refresh or linked-follow-up proof, and read the stored state offline with
+  `status --cycle-id`. The integration coordinator binds its ticket to the frozen
+  publication and completes the cycle once from its verified outcome.
+- Validate with real Git and the synthetic GitHub boundary: 16 tests in
+  `tests/test_draft_merge_completion.py`, the affected lifecycle suites and the
+  full Python suite on the first tree reconciled with `main`. Later
+  documentation-only advances were validated with the document, publication and
+  lifecycle suites. Refresh the helper benchmark pin. Installed qualification
+  and live consumer recovery remain separate.
+
+## 2026-11-24 — Verify separate Initiative source and control histories
+
+- Verify the local-only GitHub coordinator against its native control ledger
+  before managed launch. Bind the task checkout independently to protected
+  `main` through exact Begin preflight.
+- Cover ordinary registration with an orphan control root and reject ledger
+  repository, branch, root and policy mismatches. Deliver on PR #362.
+
+## 2026-11-24 — Compose managed Initiative Auto
+
+- Add managed Start and Resume over the exact private approval and retained
+  journal. Park the native Build request until the controller registers Begin.
+- Use the existing GitHub coordinator's local-only enrollment to recheck the
+  same Initiative grant at protected admission and merge. Keep uncertain
+  effects eligible for native readback.
+- Validate the controlled composition and existing adapter contracts before
+  protected source delivery. Installed two-slice qualification remains separate.
+
+## 2026-11-24 — Refresh Initiative continuation on the protected base
+
+- Reconcile PR #357 with the shift-left validation changes on `main`.
+- Revalidate Initiative registration, continuation, and affected-check selection
+  on the reconciled branch before requesting fresh native CI.
+
+## 2026-11-24 — Initiative continuation (INITIATIVE-CONTINUATION)
+
+- Bind an operator-approved material snapshot, selected dependency closure,
+  enrolled repository, and qualified writer to one expiring private grant.
+  Recheck affected scope and native prerequisite delivery before each launch.
+- Reserve each target in a private execution journal. Bind the first Build
+  request to an exact native session and message, and reconcile uncertain
+  requests by native readback. Supersede an unclaimed launch if its base moves.
+- Validate controlled two-slice continuation, lost replies, drift, revocation,
+  existing approval compatibility and the protected source PR. Installed writer
+  activation and the live restart demonstration remain separately qualified.
 
 ## 2026-11-24 — Record two delivered slices
 

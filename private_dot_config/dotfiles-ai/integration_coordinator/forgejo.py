@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 import re
 from typing import Protocol
@@ -92,11 +92,11 @@ def _branch(ref: str) -> str:
     return branch
 
 
-def _validate_binding(binding: Binding, transport: Transport) -> None:
+def _validate_binding(binding: Binding, transport: Transport | None = None) -> None:
     c._require(isinstance(binding, Binding), "forgejo_binding_invalid")
     c._repository(binding.repository)
     c._integer(binding.repository_id)
-    if binding.version != "15.0.10" or binding != transport.binding:
+    if binding.version != "15.0.10" or (transport is not None and binding != transport.binding):
         raise c.Conflict("forgejo_binding_mismatch")
     c._require(isinstance(binding.origin, str) and re.fullmatch(
         r"https://[a-z0-9.-]+(?::[1-9][0-9]{0,4})?", binding.origin) is not None, "forgejo_origin_invalid")
@@ -278,6 +278,10 @@ def _lookup(intent: Publication, transport: Transport) -> int | None:
 
 def _readback(intent: Publication, transport: Transport, number: int) -> PullRequest:
     row = _object(_get(transport, f"{_endpoint(intent)}/{number}").value)
+    return _readback_row(intent, row, number)
+
+
+def _readback_row(intent: Publication, row: dict[str, object], number: int) -> PullRequest:
     url = f"{intent.binding.origin}/{intent.binding.repository}/pulls/{number}"
     if _number(row) != number or not _open(row) or row.get("html_url") != url or not _matches(row, intent):
         raise c.Conflict("forgejo_pull_identity_mismatch")
@@ -308,7 +312,8 @@ def recover_pull_request(intent: Publication, transport: Transport) -> PullReque
     raise UncertainPublication("forgejo_publication_unresolved") from None
 
 
-def publish_pull_request(intent: Publication, transport: Transport) -> PullRequest:
+def publish_pull_request(intent: Publication, transport: Transport,
+                         *, before_create: Callable[[], None] | None = None) -> PullRequest:
     """Publish once or adopt an exact candidate. The caller owns the qualified feature ref."""
     _validate(intent, transport)
     number = _lookup(intent, transport)
@@ -316,6 +321,8 @@ def publish_pull_request(intent: Publication, transport: Transport) -> PullReque
         return _readback(intent, transport, number)
     title = f"{intent.draft_prefixes[0]} {intent.title}" if intent.draft else intent.title
     body = {"head": _branch(intent.source_ref), "base": _branch(intent.target_ref), "title": title, "body": intent.body}
+    if before_create is not None:
+        before_create()
     try:
         response = transport.request("POST", _endpoint(intent), body)
         if not isinstance(response, Response) or type(response.status) is not int or response.status != 201:

@@ -1,5 +1,21 @@
 # DBSCTR Workflow Convergence
 
+## Publication and evidence
+
+Five source slices address the gap between PR publication and verified delivery,
+and the cost and side effects of collecting fresh evidence. Start with
+[completion at verified merge](../../specs/dbsctr_v3_lifecycle/features/draft-merge-completion.md).
+It builds on the source from PR #346, which already supports post-delivery
+receipts on completed records. New source cycles freeze at publication and
+release their checkout; ordinary and coordinated delivery complete on qualified
+merge proof. Historical source records remain readable under their original terms.
+
+The [Build handoff](BUILD-HANDOFF.md#publication-and-evidence) lists four
+subsequent slices: evidence isolation, section-scoped approval, affected-gate
+revalidation and later-slice Discovery documents. The existing lifecycle context
+owns all five. The endpoint is verified owner source; a managed installation or
+live consumer operation is a separate decision.
+
 ## Post-delivery evidence
 
 The [receipt contract](../../specs/dbsctr_v3_lifecycle/features/post-delivery-receipts.md)

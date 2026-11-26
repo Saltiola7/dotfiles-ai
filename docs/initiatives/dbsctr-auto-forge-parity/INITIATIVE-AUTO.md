@@ -24,6 +24,50 @@ Run verified source implementation through a separately qualified native writer 
 
 Reuse the existing [integration coordinator](../../specs/dbsctr_v3_lifecycle/features/integration-coordinator.md) for integration admission, ticket ordering, the fenced candidate slot, and verified protected merge. Persist the admission receipt and exact obligation before treating a slice as handed off. Confirm trusted required CI for the current candidate against the current target and confirm that the forge applied its native protection and included the resulting change. A repeated event must resolve to the same slice, activation, and obligation. On uncertain admission or merge outcome, recover authoritative evidence before retrying or advancing a dependent.
 
+### Continuation source delivery
+
+Build the versioned Initiative grant and per-slice activation in the existing coordinator's private custody. Keep the approved material snapshot immutable and store progress separately. The fresh-slice launch verifies the authorized writer, repository, target, dependency delivery and current material scope. Its launch reservation survives restart and binds the native session identity before the first Build request when the writer exposes separate allocation and dispatch. An uncertain allocation or dispatch remains reserved until authoritative observations prove a unique binding or establish that the request had no effect.
+
+Exercise restart, replay, dependency inclusion, scope drift, expiry and revocation through controlled writer and forge interfaces. GitHub continues to use its existing exact per-slice and follow-up approval routes, including explicit Draft PR. Auto activation requires an installed two-slice demonstration with the originating conversation closed and the controller restarted before the second launch.
+
+### Managed controller and writer composition
+
+Connect the merged grant, journal, writer and managed Begin components in one private runtime entry point. Start presents and records the exact approved scope. Resume opens the same private journal and rechecks its current authority before any new effect. Give the writer only an opaque activation reference. Bind it to the exact reserved native session and accepted first Build request before fresh cycle registration. A caller-supplied session ID is insufficient.
+
+Use the shared Initiative controller and qualified OpenCode v2 writer for the first installed demonstration on one separately approved, disposable, private Forgejo repository. Bind the original grant to the exact provider, origin, repository, target ref, enrolled actor, effective protections, CI producer and definition, controller, writer, selected slices, and expiry. Grant only launch, admission and protected merge, with a repair limit of zero. GitHub uses its existing managed launch, ordinary protected rebase delivery, and delivery receipt format. Its installed qualification follows the same acceptance contract on a separately enrolled GitHub target.
+
+The Forgejo writer uses the typed Initiative receipt and native local-only Cycle Record. It completes the existing Build gates in its scoped Worktrunk checkout and records the exact completed source head, tree and owned commits through local completion. The durable controller verifies that proof against the registered activation, current grant and completed Build record. The proof identifies the source the controller may hand off through its separate publication and integration boundary under the original grant. The writer receives only its opaque activation reference. The same Initiative journal owns eligibility, order, reservations and restart recovery across both providers.
+
+Use a fixture-scoped ordinary actor for feature publication and merge. Qualify the independent CI producer and any required independent reviewer. Preserve native credentials in their existing authenticated owners and bind their public identities and the loaded guard in the private preflight. Requalify the installed controller and writer fingerprints after source changes.
+
+| Forgejo handoff | Evidence and required behavior |
+| --- | --- |
+| Publish and admit | Recheck the original grant and the approved material before native effects. Push the exact completed head to its owned feature ref with ordinary fast-forward rules. Create or read back one ready pull request through the qualified Forgejo adapter, pinning repository identity, source and target refs, head, observed base and native PR identity. Retain one durable admission tied to the activation, original grant and exact source proof. |
+| Evaluate the candidate | Verify the current base and qualified linear source series, raw head, tree and tested object. The fixture tests that exact head. Require each configured native status and its independent execution receipt for the approved producer, definition and current attempt. Missing, stale or red evidence holds delivery. |
+| Reserve and merge | Recheck the grant, native review, effective protections, exact candidate and loaded repository guard before submitting a merge request. Durably claim one ordinary merge submission. Bind the server grant to repository, target ref, current base, head, tested tree, actor and native PR ID, with expiry within original authority. Require the guard and native Git ref comparison to enforce the tested base across submission. Use one immediate guarded merge, and retain the source ref and repository history. |
+| Confirm delivery or reconcile | A delivery receipt binds the activation and reservation to the independently observed native PR merge commit, ordered parents `[base, head]`, tested tree and verified inclusion on the protected ref. The Forgejo receipt preserves the source commits attached by its merge commit. An uncertain push, PR or merge retains its exact effect fence for native readback. A revoked, expired or drifted grant permits readback of an unresolved effect and blocks new mutations. |
+
+Source acceptance exercises both the controlled writer and Forgejo handoff. Verify private custody, exact identity, repeated wakeups, grant revocation, changed candidate or producer, withheld protection, and lost responses. Assert that ordinary publication and merge retain branches and protections. Keep credential custody with the existing authenticated owners and keep grants, raw observations and runtime paths in the private journal. The controlled tests also exercise existing GitHub delivery and Forgejo local-only registration and completion.
+
+The installed acceptance step first lands synthetic slice A through required CI and ordinary protected merge and retains verified inclusion. Close the originating conversation and restart the independent controller with the same grant and journal, while the qualified OpenCode process remains available. Confirm that the previously unstarted dependent slice B launches exactly once in its own checkout on a base containing A. Verify B’s protected landing and both receipts from a fresh session. Source delivery, this installed fixture qualification, and consumer activation have separate preflights and evidence. Slice 6 owns CI recovery and the tally. Slice 7 owns cross-provider Auto qualification.
+
+### Linux Forgejo comparison credentials
+
+The managed Forgejo recipe can explicitly select a systemd service credential
+for comparison reads on Linux. The credential binds the enrolled HTTPS origin,
+repository, account, read role and expiry. The existing Git credential helper
+returns it only for the authorized `get` request. Ambiguous, missing, expired or
+misbound credentials produce redacted refusal. Exact reference validation stays
+in the transport. Historical Keychain records and recipe digests remain valid.
+
+The controller owns credential access. OpenCode and the Build process receive
+only their existing scoped activation. Live qualification must prove that the
+worker has no access to the credential through its filesystem, environment,
+inherited descriptors or host process view. Run source evidence in a
+credential-free environment with inert envelopes. Qualify the actual read-only
+service role and worker isolation on the selected Linux host before protected
+restart testing.
+
 ## Reconcile CI
 
 | Native evidence | Auto behavior | Operator sees |
@@ -65,8 +109,8 @@ Canonical source is this state contract, with underlying provider facts owned by
 
 ## Existing capability and qualification
 
-- Initiative Discovery already preserves a reviewed artifact, computes an Initiative digest, identifies ready slices, and creates exact launch plans. Build must add persisted Initiative-level authorization and status without weakening the existing launch protections.
-- The existing GitHub integration coordinator can reconcile admitted work beyond the conversation. Demonstrate that its installed instance meets the required admission, repair, runner, and safe merge contracts for the selected repository. Apply the provider qualification separately to Forgejo. Provider admission alone establishes integration capability for an existing PR.
+- Initiative Discovery preserves a reviewed artifact, computes an Initiative digest, identifies ready slices, and creates exact launch plans. The managed controller persists Initiative-level authorization and execution evidence while using those launch protections.
+- The existing GitHub coordinator can reconcile admitted work beyond the conversation. Forgejo supplies publication, CI assessment and guarded merge adapters, with separately qualified native fixture evidence for CI and guarded merge. Demonstrate each installed provider with its own enrolled repository and required controls. The first Forgejo restart demonstration combines those capabilities with native launch of a previously unstarted slice.
 - Native execution of later implementation slices after chat closure is a distinct capability. Qualify the writer and controller together for private artifact access, checkout, scoped source updates, Build and review evidence, protected forge mutations, identity, and recovery. The mechanism is a Build decision. Auto remains unavailable for a repository until both implementation and protected integration are qualified there.
 - Agree the enrolled expiry or revocation policy, stall thresholds, wakeups, and status retention before activation. Validate the selected Dagger-to-native-check path and actual runner capacity where Dagger owns a required CI check.
 
@@ -107,15 +151,16 @@ flowchart LR
     O[Operator] -->|Approves reviewed scope| G[Private approved snapshot and grant]
     G -->|Supplies bounded authority| C[Native durable controller]
     C -->|Authorizes exact slice launch| W[Qualified scoped Build writer]
-    W -->|Admits exact obligation| I[Existing integration coordinator]
-    I -->|Submits fenced candidate| F[Forge protections and CI]
+    W -->|Returns verified source completion| C
+    C -->|Admits exact obligation| I[Existing integration coordinator]
+    I -->|Rechecks grant and submits fenced candidate| F[Forge protections and CI]
     F -->|Returns native test and merge facts| I
     I -->|Returns authoritative receipts| C
     C -->|Publishes redacted progress| T[Initiative tally]
     T -->|Shows progress and next actions| O
 ```
 
-**Text Equivalent.** The operator approves a private reviewed snapshot. The grant bounds the durable controller’s authority for each exact launch. The scoped writer owns implementation and submits each exact obligation to the integration coordinator. The integration coordinator owns the fenced candidate and uses native forge protections and CI. It returns authoritative receipts to the controller. The controller projects redacted progress and next actions for the operator, and the private authority remains within its existing boundary.
+**Text Equivalent.** The operator approves a private reviewed snapshot. The grant bounds the durable controller’s authority for each exact launch. The scoped writer owns implementation and returns verified source completion. The controller admits the exact obligation. The integration coordinator owns the fenced candidate, rechecks the grant before each new protected effect, and uses native forge protections and CI. It returns authoritative receipts to the controller. The controller projects redacted progress and next actions for the operator, and the private authority remains within its existing boundary.
 
 Canonical sources are this grant and controller contract and the linked integration coordinator contract. The Initiative execution owner updates the diagram when identity, authority, topology, or evidence moves between components.
 
@@ -135,7 +180,8 @@ sequenceDiagram
     O->>C: Approve bounded Initiative grant
     Note over C: Workflow persists after the conversation closes
     C->>W: Issue exact receipt and launch eligible slice A
-    W->>I: Admit validated slice A obligation
+    W-->>C: Return verified source completion for slice A
+    C->>I: Admit the exact slice A obligation
     I->>F: Test current fenced candidate
     alt CI pending or stalled
         I-->>C: Report state, evidence age, and next action
@@ -148,10 +194,11 @@ sequenceDiagram
         I->>F: Merge with native protection
         F-->>I: Return verified target inclusion
         I-->>C: Record slice A delivery
-        C->>W: Verify grant and launch dependent slice B
+        Note over O,C: Close the chat and restart the controller during the fixture
+        C->>W: Recheck grant and launch B once on a base containing A
     end
 ```
 
-**Text Equivalent.** One approval authorizes the durable workflow beyond the conversation. The controller issues the exact launch for slice A. The qualified writer validates the slice and admits its obligation to the coordinator. The coordinator obtains current candidate CI. Waiting or stalled CI is reported and rechecked. A confirmed failure uses bounded recovery and fresh checks. Once the current candidate passes its required protections and native inclusion is verified, the delivery is recorded. The controller rechecks the same grant before launching eligible slice B.
+**Text Equivalent.** One approval authorizes the durable workflow beyond the conversation. The controller issues the exact launch for slice A. The qualified writer returns verified source completion, and the controller admits the obligation. The coordinator obtains current candidate CI. Waiting or stalled CI is reported and rechecked, and the later recovery slice covers bounded recovery and fresh checks for confirmed failures. Once current protections pass and native inclusion is verified, the delivery is recorded. The fixture closes the chat and restarts the controller at this point. The restarted controller rechecks the same grant and launches dependent slice B once from a base containing A.
 
 Canonical sources are this slice and CI contract and the linked runtime adapter contract. The Initiative execution owner updates the diagram when launch, recovery, or delivery ordering changes. Review the diagrams on the target forge as part of provider qualification.

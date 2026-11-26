@@ -57,6 +57,24 @@ duplication; it does not remove it.
 - Then the result, with the runner's operating system, architecture and tool
   versions, is retained as the `validation-affected` artifact for seven days.
 
+- Given a broad selection that cannot finish within the shadow job's 15-minute
+  limit, as observed on PR #367
+- When the shadow's execution deadline arrives
+- Then the adapter has saved completed check results as checks finished, ends
+  any in-flight check cleanly, and lists unfinished or unstarted native checks
+  as `budget_exhausted` in `not_executed`.
+- And the workflow reserves time before the hard job limit to upload the
+  partial result. The plan and selected checks are unchanged. Non-native
+  checks retain their existing reason.
+
+Budgeted execution is opt-in for the shadow workflow. The ordinary adapter
+invocation and managed runner keep their existing execution contracts. A
+partial result is never a passing check: budget exhaustion alone is unavailable
+(exit 2); any completed failure remains a failure (exit 1). The comparator
+retains the distinction where a matching artifact is available and gives
+unfinished work no execution or reuse credit. An external cancellation that
+prevents upload remains unavailable, not a fabricated partial result.
+
 - Given every selected check passed
 - When the job concludes
 - Then it succeeds.
@@ -67,6 +85,29 @@ duplication; it does not remove it.
   information and the required workflow still decides.
 
 ### The compare job
+
+- Given a completed required PR run whose metadata identifies only the head
+- When the comparator needs the historical tested base and merge revision
+- Then it may recover them from the authenticated, bounded logs of the pinned
+  checkout step for the exact run and attempt. Require the expected worker
+  and summary jobs to agree, and admit only the checkout that precedes
+  execution of source from the pull request.
+- And it verifies the candidate's ordered parents against the native Git
+  object, binds the second parent to the run head, and verifies that the first
+  parent belongs to the protected target history and that the candidate's
+  required workflow matches the qualified checkout definition on that base.
+  Bind the checkout's PR number to the same repository and protected target.
+- And it leaves source unavailable if the checkout, native metadata, or
+  workflow proof is missing, ambiguous, or contradictory. It does not infer
+  a historical tested revision from a current PR merge ref, an affected
+  artifact, a partition artifact, or a note alone.
+
+Check native test-run and job identities before requesting logs. Read bounded
+checkout evidence only; neither logs nor artifact claims are executed or
+published. This is a report join, not a new gate or a reuse entitlement.
+A matching partial affected artifact contributes only completed checks, and
+`budget_exhausted` remains explicit. Required CI, branch protection, Git-note
+publication, and full shadow coverage are outside this follow-up.
 
 - Given completion of the required test workflow for a pull request, or a
   manual dispatch
@@ -89,21 +130,32 @@ duplication; it does not remove it.
 
 | Disposition | Condition |
 |---|---|
-| `would_reuse` | Head and base match the manifest, the test identity was selected locally, a passing local receipt covers it and the lane identity matches on retained values |
-| `would_reuse_if_lane_equivalent` | As above except lane identity, which differs or is not retained |
+| `would_reuse` | The note names the exact PR head and tested base, source equivalence is established, a passing local receipt proves coverage of the whole selected hosted test group, and the complete lane identity matches |
+| `would_reuse_if_lane_equivalent` | Every non-lane condition above holds; the only remaining gap is `lane_mismatch` or `lane_unverified` |
 | `must_run` | Any other case, with exactly one reason |
+
+Evaluate the non-lane conditions in the order below and report the first
+unmet condition. Match only whole test groups: require the same identity
+encoding and verified count and digest for the group; do not infer per-test
+membership or subset coverage from a receipt summary. The PR head, base, and
+tested merge revision are distinct, and an opaque snapshot ID is not a Git
+object. These classifications are report-only even when evidence matches.
 
 | Reason for `must_run` | Meaning |
 |---|---|
-| `not_selected_locally` | The local selection did not include this test identity |
-| `no_receipt` | Selected locally, but no local execution exists |
-| `receipt_failed` | The only local execution of the check did not pass |
-| `source_changed` | The manifest head or the receipt's snapshot differs from the head under review |
-| `base_advanced` | The pull request base moved after the local validation |
-| `head_mismatch` | The note names another head |
-| `lane_mismatch` | Both lanes are retained and differ |
-| `lane_unverified` | A lane value is not retained |
 | `manifest_unavailable`, `manifest_malformed` | No note for the head, or a note that fails bounded parsing |
+| `head_mismatch` | The note names another head |
+| `base_advanced` | The tested base differs from the note's base |
+| `not_selected_locally` | The local selection omits the check for the test group |
+| `no_receipt` | The export contains no receipt for the selected check; this does not distinguish failed, stale, and never executed |
+| `receipt_failed` | A retained execution explicitly reports a non-pass; the v1 exporter emits only passing receipts, so this reason is not inferred from a v1 export |
+| `source_changed`, `source_unverified` | Retained evidence shows a source difference, or cannot establish source equivalence for the receipt and tested revision |
+| `test_identity_unverified` | Evidence cannot prove an exact whole-group match |
+
+Lane diagnostics belong to the conditional disposition only, after those
+checks pass. Missing source, test identity, or lane fields cannot yield
+strict reuse. The current producers do not retain enough evidence to prove
+strict reuse.
 
 - Given the job and step timestamps
 - When timing is reported
@@ -117,6 +169,9 @@ duplication; it does not remove it.
 - When repetition is counted
 - Then the report states how many identical test identities executed more than
   once on the same source and runtime, and how many executions that added.
+- If exact early-step execution identities are not retained, report both counts
+  as `null` and name the missing input under `unavailable`. Timestamps and
+  command selectors cannot substitute for execution identities.
 
 - Given a missing note, a malformed note, a missing artifact or an API error
 - When the job concludes
@@ -166,7 +221,7 @@ is verified by the first real run; where it is unavailable the shadow reports
 | `compare` job | Runs `python .github/validation_shadow.py compare`; artifact `validation-shadow`; succeeds on every handled outcome |
 | Comparison script | `.github/validation_shadow.py`, owned by distribution; reads the partition manifests and JUnit files, the affected result, the note and the API timestamps |
 | Report | Version 1 JSON as specified below, with a Markdown rendering |
-| Dispositions and reasons | The closed vocabularies above; an unknown case is `must_run` with `lane_unverified` or is named under `unavailable`, never a reuse claim |
+| Dispositions and reasons | The closed vocabularies above; unverified source or test identity is `must_run` with the corresponding reason, and missing measurement inputs are named under `unavailable` |
 
 The report is version 1:
 
@@ -196,7 +251,10 @@ identity appears in it.
 
 Writable source: `.github/workflows/validation-shadow.yml`,
 `.github/validation_shadow.py`, `tests/test_validation_shadow.py`, and this
-document with the distribution README and CHANGELOG.
+document with the distribution README and CHANGELOG. The budget follow-up
+also covers the optional standalone `run` path in
+`.github/continuous_validation.py` and its existing adapter tests. It does
+not change the ownership map, required workflow, or managed runner.
 
 ## Visual Evidence
 
@@ -220,7 +278,7 @@ sequenceDiagram
   participant C as compare job
   P->>T: Four partitions and one summary
   P->>A: Plan and run the affected selection
-  A-->>P: Early result, not required
+  A-->>P: Completed results and any budget exhaustion, not required
   T-->>C: Workflow completed
   C->>C: Download artifacts, read the note, read timestamps
   C->>C: Compare and report
@@ -229,7 +287,8 @@ sequenceDiagram
 
 **Text Equivalent:** Opening or updating a pull request starts the required
 test workflow and, in parallel, the affected job. The affected job runs the
-affected selection and returns an early result that is not a required check.
+affected selection and returns completed results and any budget exhaustion.
+This is not a required check.
 When the required workflow completes, the compare job downloads that run's
 artifacts, reads the manifest note and the timestamps, and writes a report. It
 adds nothing to the pull request. Canonical source: the behavior above. Owner:
@@ -315,6 +374,8 @@ Build first adds a failing regression for each contract, then implements.
 | Reuse dispositions | Synthetic partition receipts, affected result and note produce each disposition and each reason |
 | Untrusted note | Oversized, non-JSON and schema-invalid notes are reported as `manifest_malformed`; no claim from the note is used |
 | Missing inputs | No note, no affected artifact and an API error each add an `unavailable` entry; the job succeeds |
+| Shadow budget | Preserve a completed check, stop a check that exhausts the deadline, and label remaining native checks `budget_exhausted` without claiming they executed; retain the artifact before the job limit |
+| Historical source | Workers and summary with matching checkout evidence bind one exact attempt and native merge object; changed workflow, incomplete or conflicting evidence, and stale artifact identities never establish a match |
 | Timing | Queue, workers, early step, summary tail and verification are separate; an absent timestamp is `null` |
 | Repetition | Identities executed by every worker and again in a partition are counted with their extra executions |
 | Not a pull request | No report is produced |

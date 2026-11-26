@@ -269,6 +269,22 @@ actions), `.github/continuous_validation.py`,
 protocol, the managed actions and the Dagger refusals, and this document with
 the context README and CHANGELOG.
 
+### Managed owner extension for evidence reuse
+
+The `execution-evidence-reuse` slice extends the managed interface for the
+same enabled enrollment and open task. It does not extend enrollment authority.
+
+| Action | Additive contract |
+|---|---|
+| `selection` | Preview affected checks on settled edits using the same pinned adapter, base and content capture as `validate`. Return the basis, selected check identifiers and an opaque pin binding the captured content, adapter and complete selection. Use temporary preparation only; do not execute checks, change generation, publish observations or write retained records |
+| `validate` | Accept an optional preview pin. Compare it before narrowing the full selection to named checks or starting any check. A mismatch returns `selection_changed` without executing checks. Alongside each newly executed passing or failing observation, return request-bound receipt facts from the captured run: head and base, adapter identity and digest, selection digest and basis, snapshot and generation, check identity, lane, test identity, and start, finish and elapsed times. Return only bounded, export-safe facts; never return raw output or private storage locations |
+| `applicability` | Accept optional repository-relative paths and report whether each belongs to the retained snapshot inventory. Incomplete or unavailable inventory cannot prove membership. Preserve the existing content-freshness decision and do not expose the inventory itself |
+
+Named validation without a preview pin and existing checkpoint behavior remain
+unchanged. Preview and pinned execution share selection logic. Test parity on
+uncommitted edits, drift before execution, missing inventory, and absence of
+retained state changes during preview.
+
 ## Visual Evidence
 
 | Concern | Decision and review question |
@@ -277,7 +293,7 @@ the context README and CHANGELOG.
 | Interaction | required: sequence diagram below; who starts a `validate` run and what returns? |
 | State | required: disposition table below; what can a selected check become? |
 | Data/trust | required: flowchart below; which data crosses the enrollment boundary? |
-| Schema | not_applicable: existing closed request, observation and test-identity records are reused unchanged |
+| Schema | required: interface tables above distinguish optional preview and observation fields from existing persisted record identities |
 | Dependency/deployment | required: deployment diagram below; which executors are optional? |
 | Quantitative | not_applicable: no measurement exists for this selection yet |
 
@@ -288,27 +304,37 @@ sequenceDiagram
   participant L as Lifecycle
   participant O as Managed owner
   participant A as Repository adapter
-  L->>O: validate (worktree, cycle)
+  opt Preview before validation
+    L->>O: selection (worktree, cycle)
+    O->>A: select on temporary capture
+    A-->>O: Selected checks
+    O-->>L: Selection and pin, no retained state
+  end
+  L->>O: validate (worktree, cycle, optional preview pin)
   O->>O: Check enrollment, task, adapter digest, generation
   alt Eligible
     O->>O: Capture immutable snapshot
     O->>A: select (snapshot, base, changed paths)
     A-->>O: Selected checks
+    O->>O: Verify preview pin if supplied
     O->>A: execute (admitted checks)
     A-->>O: Observation per check
-    O-->>L: Observation references
+    O-->>L: Observation references and receipt facts
     L->>L: Record execution receipts (lifecycle decision)
   else Not eligible
     O-->>L: Classified unavailable
   end
 ```
 
-**Text Equivalent:** The lifecycle sends one `validate` request to the managed
-owner. The owner checks enrollment, task, adapter digest and generation before
+**Text Equivalent:** The lifecycle may preview selection without executing checks
+or changing retained state. The preview returns a pin. The lifecycle sends one
+`validate` request to the managed owner, optionally with that pin. The owner
+checks enrollment, task, adapter digest and generation before
 doing anything. An ineligible request returns a classified unavailable result
 with no state. An eligible request captures an immutable snapshot, asks the
-repository adapter to select and then execute checks, and returns observation
-references. Only the lifecycle turns observations into execution receipts; this
+repository adapter to select, verifies any preview pin before execution, and
+returns observation references and receipt facts. A mismatched pin refuses
+execution. Only the lifecycle turns observations into execution receipts; this
 context never does. Canonical source: the managed owner actions above. Owner:
 continuous_validation. Update trigger: a change to the delegation boundary or
 the actions.

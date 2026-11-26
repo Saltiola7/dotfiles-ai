@@ -90,7 +90,10 @@ def test_delegation_handoff_is_available_in_both_managed_roles(tmp_path):
         assert guide == (target / "dbsctr" / reference).resolve()
     body = guide.read_text()
     for expected in ("prerequisite", "shared resource", "one writer", "separate sessions",
-                     "draft PR", "required CI", "blocked", "qualified", "receipt"):
+                     "draft PR", "required CI", "blocked", "qualified", "receipt",
+                     "batch authorization is unavailable", "before launch",
+                     "top-level Build session", "named Herdr tab", "explicit\nworkdir",
+                     "original session by session ID", "Cycle Record"):
         assert expected in body
     # Planning must not widen the effective grant to make an example runnable.
     assert rendered_config()["agent"]["general"]["permission"]["bash"]["*dbsctrctl*"] == "deny"

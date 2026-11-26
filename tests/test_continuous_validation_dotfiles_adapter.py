@@ -3,16 +3,22 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
+import time
 
 import pytest
 
 
 SOURCE = Path(__file__).parents[1] / ".github/continuous_validation.py"
-ALL = ["dotfiles.syntax", "dotfiles.instructions", "dotfiles.adapter", "dotfiles.full", "dotfiles.portable"]
+BROAD = ["dotfiles.syntax", "dotfiles.instructions", "dotfiles.adapter", "dotfiles.full", "dotfiles.portable"]
+FULL = [*BROAD[:3], "dotfiles.lifecycle", *BROAD[3:]]
 ADAPTER_PATHS = [".github/continuous_validation.py", "tests/test_continuous_validation_dotfiles_adapter.py",
                  "tests/test_dotfiles_validation_adapter.py"]
+LIFECYCLE_PATHS = ["dot_local/bin/executable_dbsctrctl", "tests/test_dbsctrctl.py",
+                   "tests/test_evidence_reuse.py"]
 DAGGER = {"dagger": {"engine": "unix:///fixture.sock", "image": "fixture-pinned-image",
                      "python_version": "3.14.0", "uv_version": "0.9.2"},
           "dagger_helper_argv": ["/fixture/helper"]}
@@ -37,7 +43,7 @@ def _check(adapter, identity, config=None):
 def _serve(adapter, monkeypatch, components, dependencies=()):
     """Serve a synthetic ownership table; the shipped table stays digest-bound."""
     table = {"schema_version": 1, "components": list(components), "dependencies": list(dependencies),
-             "broad_check_ids": ALL}
+             "broad_check_ids": BROAD}
     monkeypatch.setattr(adapter, "_ownership", lambda: table)
     return table
 
@@ -91,20 +97,23 @@ def test_repository_manifest_is_accepted_by_shared_runner(adapter):
 
 def test_described_lanes_follow_the_hosted_linux_matrix(adapter):
     checks = adapter.describe()["checks"]
-    assert [check["id"] for check in checks] == ALL
+    assert [check["id"] for check in checks] == FULL
     assert all(check["lane"]["os"] == "linux" for check in checks)
     assert {check["id"] for check in checks if check["backend"] == "native"} == {
-        "dotfiles.syntax", "dotfiles.instructions", "dotfiles.adapter", "dotfiles.full"}
+        "dotfiles.syntax", "dotfiles.instructions", "dotfiles.adapter", "dotfiles.lifecycle", "dotfiles.full"}
     assert _check(adapter, "dotfiles.portable")["lane"]["python"] == "3.14"
     assert _check(adapter, "dotfiles.portable", DAGGER)["lane"]["python"] == "3.14.0"
     assert _check(adapter, "dotfiles.instructions", DAGGER)["lane"]["python"] == "3.14"
 
 
-def test_shipped_table_maps_only_the_adapter_and_its_tests(adapter):
+def test_shipped_table_maps_adapter_and_lifecycle_components(adapter):
     table = adapter._ownership()
     assert [(component["id"], component["owned_path_patterns"], component["check_ids"])
-            for component in table["components"]] == [("validation-adapter", ADAPTER_PATHS, ["dotfiles.adapter"])]
-    assert table["dependencies"] == [] and table["broad_check_ids"] == ALL
+            for component in table["components"]] == [
+                ("validation-adapter", ADAPTER_PATHS, ["dotfiles.adapter"]),
+                ("lifecycle-helper", LIFECYCLE_PATHS, ["dotfiles.lifecycle"]),
+            ]
+    assert table["dependencies"] == [] and table["broad_check_ids"] == BROAD
     check = _check(adapter, "dotfiles.adapter")
     assert check["class"] == "cheap" and check["configuration"]["test_identity"] == "pytest-junit-v1"
     assert check["configuration"]["argv"][-4:] == ["pytest", *ADAPTER_PATHS[1:], "-q"]
@@ -133,17 +142,35 @@ def test_repository_keeps_no_second_ownership_table(adapter):
 @pytest.mark.parametrize("path, basis, checks", [
     (".github/continuous_validation.py", "affected", ["dotfiles.adapter"]),
     ("tests/test_dotfiles_validation_adapter.py", "affected", ["dotfiles.adapter"]),
-    ("dot_agents/skills/dbsctr/SKILL.md", "broad", ALL),
-    (".github/workflows/test.yml", "broad", ALL),
-    (".github/actions/integration-coordinator/action.yml", "broad", ALL),
-    ("uv.lock", "broad", ALL),
-    ("pyproject.toml", "broad", ALL),
-    ("tests/ci_shard.py", "broad", ALL),
+    ("dot_agents/skills/dbsctr/SKILL.md", "broad", BROAD),
+    (".github/workflows/test.yml", "broad", BROAD),
+    (".github/actions/integration-coordinator/action.yml", "broad", BROAD),
+    ("uv.lock", "broad", BROAD),
+    ("pyproject.toml", "broad", BROAD),
+    ("tests/ci_shard.py", "broad", BROAD),
 ])
 def test_selection_follows_changed_paths_through_the_ownership_table(adapter, path, basis, checks):
     for trigger in ("edit", "affected"):
         value = _select(adapter, trigger, [path])
         assert (value["basis"], value["checks"], value["complete"]) == (basis, checks, False)
+
+
+@pytest.mark.parametrize("path", LIFECYCLE_PATHS)
+def test_lifecycle_paths_select_the_focused_pytest_check(adapter, path):
+    for trigger in ("edit", "affected"):
+        value = _select(adapter, trigger, [path])
+        assert (value["basis"], value["checks"], value["complete"]) == (
+            "affected", ["dotfiles.lifecycle"], False)
+    check = _check(adapter, "dotfiles.lifecycle")
+    assert check["backend"] == "native"
+    assert check["configuration"]["test_identity"] == "pytest-junit-v1"
+    assert check["configuration"]["argv"][-4:] == ["pytest", *LIFECYCLE_PATHS[1:], "-q"]
+
+
+@pytest.mark.parametrize("path", ["uv.lock", "tests/fixtures/sample.py", "unowned.py"])
+def test_lifecycle_changes_do_not_override_broad_fallback(adapter, path):
+    value = _select(adapter, "affected", [LIFECYCLE_PATHS[0], path])
+    assert (value["basis"], value["checks"], value["complete"]) == ("broad", BROAD, False)
 
 
 def test_selection_without_changed_paths_selects_nothing(adapter):
@@ -166,7 +193,7 @@ def test_checkpoint_includes_native_and_portable_comparators(adapter):
 @pytest.mark.parametrize("trigger", ["checkpoint", "manual"])
 def test_checkpoint_and_manual_select_the_complete_obligation(adapter, trigger):
     value = _select(adapter, trigger, [".github/continuous_validation.py"])
-    assert (value["basis"], value["checks"], value["complete"]) == ("full", ALL, True)
+    assert (value["basis"], value["checks"], value["complete"]) == ("full", FULL, True)
     assert value["reason"] == "full_validation_at_checkpoint"
 
 
@@ -216,7 +243,7 @@ def test_ownership_table_change_requires_a_new_adapter_digest(adapter, monkeypat
     monkeypatch.setattr(adapter, "__file__", str(tmp_path / "continuous_validation.py"))
     with pytest.raises(ValueError, match="ownership_table_changed"):
         adapter._ownership()
-    table.write_text(json.dumps({"schema_version": 1, "components": "none", "dependencies": [], "broad_check_ids": ALL}))
+    table.write_text(json.dumps({"schema_version": 1, "components": "none", "dependencies": [], "broad_check_ids": BROAD}))
     monkeypatch.setattr(adapter, "OWNERSHIP_DIGEST", hashlib.sha256(table.read_bytes()).hexdigest())
     with pytest.raises(ValueError, match="invalid_ownership_table"):
         adapter._ownership()
@@ -350,7 +377,7 @@ def test_plan_reports_basis_and_commands_without_executing(adapter, checkout, mo
     text = capsys.readouterr().out
     assert "basis: affected" in text and "dotfiles.adapter" in text and "uv run" in text
     assert adapter.main(["plan", "--base", base, "--trigger", "checkpoint", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["selection"] == {"basis": "full", "checks": ALL, "complete": True}
+    assert json.loads(capsys.readouterr().out)["selection"] == {"basis": "full", "checks": FULL, "complete": True}
 
 
 def test_run_executes_linux_native_checks_and_writes_one_result(adapter, checkout, tmp_path, monkeypatch, capsys):
@@ -399,6 +426,86 @@ def test_unavailable_result_exits_two(adapter, checkout, tmp_path, monkeypatch):
     assert json.loads(output.read_text())["executed"][0]["diagnostic_codes"] == ["native_lane_unavailable"]
 
 
+@pytest.mark.parametrize("budget", ["0", "-1", "901", "1.5"])
+def test_run_rejects_out_of_range_or_noninteger_budget(adapter, tmp_path, capsys, budget):
+    output = tmp_path / "validation.json"
+    assert adapter.main(["run", "--base", "HEAD", "--output", str(output), "--budget-seconds", budget]) == 2
+    assert json.loads(capsys.readouterr().out)["error"] == "arguments_invalid"
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("completed_status, exit_code", [("passed", 2), ("failed", 1)])
+def test_budget_preserves_completed_results_and_deferral_reasons(adapter, checkout, tmp_path, monkeypatch,
+                                                              completed_status, exit_code):
+    _, base = checkout
+    monkeypatch.setattr(adapter, "ALWAYS_BROAD", (ADAPTER_PATHS[0],))
+    output = tmp_path / "validation.json"
+    calls = []
+
+    def native(check, root, log_path, deadline):
+        calls.append(check["id"])
+        if len(calls) == 1:
+            return adapter._result(check["id"], completed_status)
+        assert [item["check_id"] for item in json.loads(output.read_text())["executed"]] == ["dotfiles.syntax"]
+        assert output.stat().st_mode & 0o777 == 0o600
+        return None
+
+    monkeypatch.setattr(adapter, "_budgeted_native", native)
+    code, value, _ = adapter.run(base, output, "edit", budget_seconds=900)
+    assert code == exit_code
+    assert json.loads(output.read_text()) == value
+    assert value["selection"] == adapter.plan(base, "edit")["selection"]
+    assert calls == ["dotfiles.syntax", "dotfiles.instructions"]
+    assert [item["check_id"] for item in value["executed"]] == ["dotfiles.syntax"]
+    assert value["not_executed"] == [
+        {"id": "dotfiles.instructions", "reason": "budget_exhausted"},
+        {"id": "dotfiles.adapter", "reason": "budget_exhausted"},
+        {"id": "dotfiles.full", "reason": "checkpoint_required"},
+        {"id": "dotfiles.portable", "reason": "dagger_lane"},
+    ]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux native process-group regression")
+def test_budget_terminates_the_inflight_check_and_its_descendant(adapter, checkout, tmp_path, monkeypatch, capsys):
+    _, base = checkout
+    output = tmp_path / "validation.json"
+    pids = tmp_path / "pids"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for executable in ("uv", "python3.14"):
+        (bin_dir / executable).symlink_to(sys.executable)
+    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setattr(adapter, "ALWAYS_BROAD", (ADAPTER_PATHS[0],))
+    script = (
+        "import os, subprocess, sys, time; from pathlib import Path; "
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(10)']); "
+        "Path(sys.argv[1]).write_text(f'{os.getpid()} {child.pid}'); time.sleep(10)"
+    )
+    monkeypatch.setattr(adapter, "INSTRUCTIONS", [sys.executable, "-c", script, str(pids)])
+    assert adapter.main(["run", "--base", base, "--output", str(output), "--budget-seconds", "2"]) == 2
+    assert json.loads(capsys.readouterr().out)["executed"] == ["dotfiles.syntax"]
+    value = json.loads(output.read_text())
+    assert [item["check_id"] for item in value["executed"]] == ["dotfiles.syntax"]
+    assert value["not_executed"] == [
+        *({"id": identity, "reason": "budget_exhausted"} for identity in BROAD[1:-1]),
+        {"id": "dotfiles.portable", "reason": "dagger_lane"},
+    ]
+
+    def running(pid):
+        try:
+            # An orphan can briefly remain as a zombie until the host reaps it.
+            return Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1][0] != "Z"
+        except FileNotFoundError:
+            return False
+
+    group_pids = pids.read_text().split()
+    assert len(group_pids) == 2
+    until = time.monotonic() + 1
+    while any(map(running, group_pids)) and time.monotonic() < until:
+        time.sleep(0.01)
+    assert not any(map(running, group_pids))
+
+
 def test_plan_and_run_refuse_unsafe_checkouts_before_running_a_check(adapter, checkout, tmp_path, monkeypatch, capsys):
     root, base = checkout
     monkeypatch.setattr(adapter, "_native", lambda *args: pytest.fail("check executed"))
@@ -409,6 +516,7 @@ def test_plan_and_run_refuse_unsafe_checkouts_before_running_a_check(adapter, ch
         (["plan", "--base=--output=x", "--json"], "base_unknown"),
         (["plan", "--base", "--output=x", "--json"], "arguments_invalid"),
         (["plan", "--base", foreign, "--json"], "base_not_in_history"),
+        (["plan", "--base", base, "--budget-seconds", "1"], "arguments_invalid"),
         (["run", "--base", base], "arguments_invalid"),
         (["run", "--base", base, "--output", str(root / "result.json")], "output_inside_checkout"),
         (["run", "--base", base, "--output", str(output), "--extra"], "arguments_invalid"),

@@ -1,5 +1,48 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-25 — Reconcile historical shadow source
+
+- Reconcile PR #371 with the protected base, including the Initiative section
+  authority update. Preserve the qualified checkout
+  proof, partial-result reporting, and unchanged required CI.
+
+## 2026-11-25 — Verify historical shadow source
+
+- Recover the tested merge revision from the exact required run's qualified
+  checkout steps and verify it against GitHub's Git objects and protected
+  base. Match partial shadow artifacts on the tested revision and base.
+- Keep missing or conflicting evidence unavailable. Required CI and Git-note
+  publication are unchanged.
+
+## 2026-11-25 — Retain partial shadow validation
+
+- Keep the 15-minute shadow job limit. Reserve time for artifact upload and
+  retain completed checks when the selected native checks exceed the execution
+  budget. Report remaining native checks as `budget_exhausted`, not as passes.
+- Required CI, selection, and Git-note publication are unchanged.
+
+## 2026-11-25 — Provision shadow render tools
+
+- Add the existing pinned Bun and checksum-verified chezmoi to the non-gating
+  `affected` job so it can run the render and instruction checks. Required CI
+  and comparison behavior are unchanged. Full hosted lane equivalence is not
+  claimed.
+
+## 2026-11-25 — Repair hosted shadow CI setup
+
+- Keep the oversized-note fixture but give it a short pytest ID so required
+  CI can collect it. Create the affected adapter's log directory before
+  execution. No changes to required CI or note publication.
+
+## 2026-11-25 — Hosted validation shadow (CVS-SHIFT-LEFT-003)
+
+- Add a [report-only workflow](features/hosted-validation-shadow.md) for early
+  affected validation and comparison of hypothetical reuse, timing and repeated
+  execution. Required CI and merge rules are unchanged.
+- Publishing an optional, untrusted validation note is an explicit owner-only
+  action. Automatic comparison via `workflow_run` requires the workflow on the
+  default branch. Source only; no live qualification or hosted savings claimed.
+
 ## 2026-11-24 — Rollout scope: the Mac applies by direct apply only
 
 - Clarifies INT-110 of `dbsctr-workflow-convergence` and

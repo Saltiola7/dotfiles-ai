@@ -471,12 +471,28 @@ already prepared clean worktree. This baseline defines which commits the cycle
 owns and whether an automatic Final Push can be safe.
 
 Evidence checkpoints and coherent Gate Commits are mandatory when a gate changes
-files. After one gate or a small adjacent gate group passes:
+files. On a qualified helper, `dbsctrctl validate` can run affected checks on
+settled edits in an active cycle with an enabled validation enrollment. It
+records execution receipts without changing gates. A receipt, a plan, or a
+successful exploratory run is not a gate pass.
 
-1. Inspect status, diff, and recent log.
-2. Run affected-scope QA and required gate evidence.
+1. Inspect status, diff, and recent log. Use `dbsctrctl evidence-plan --gate GATE`
+   at the checkpoint to identify reusable executions and missing, stale, or
+   unavailable work. The plan is read-only and does not check predecessor order.
+2. For each required gate, reference only a passing execution that the helper
+   admits for the current scope and authority and that covers the gate's actual
+   obligation: `dbsctrctl reference-evidence GATE --of ID [--path FILE ...]`.
+   Supply `--path` when referencing a receipt. Each gate keeps its own evidence
+   decision; do not pass another gate's evidence ID to `set-gate`. Reconcile
+   affected-scope QA against the required work, and use `dbsctrctl record-evidence`
+   to run and capture only what an admissible reference does not cover, including
+   stale work that needs replacement. If reuse is unavailable, use the existing
+   direct authority when permitted; report unresolved capability gaps without
+   lowering the obligation. Affected evidence does not replace required
+   current-base union validation, final-source validation, or native CI.
 3. Stage only intended files; never stage secrets, unrelated drift, or known
-   failing required work.
+   failing required work. Stage for a Gate Commit only after its gate or small
+   adjacent gate group passes.
 4. Create one atomic Gate Commit with `dbsctrctl gate-commit --gates ...`; the
    helper rejects incomplete associated gates. Use `caveman-commit` for message
    formatting, preserving required repository metadata and trailers. Combine tiny

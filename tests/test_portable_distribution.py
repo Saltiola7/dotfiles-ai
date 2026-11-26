@@ -1152,13 +1152,10 @@ def test_onepassword_helper_supports_noclobber(tmp_path: Path) -> None:
 
 
 def test_public_tree_has_no_maintainer_identifiers() -> None:
-    banned = (
-        "/Users/" + "tis",
-        "302432" + "775606",
-        "KZRNJU45" + "TFHCFMB22WI6VCJVDY",
-        "Bedrock" + "DeveloperAccess",
-        "com" + ".tis",
-    )
+    import runpy
+
+    helper = runpy.run_path(str(ROOT / "dot_local/bin/executable_dbsctrctl"))
+    banned, legacy = helper["publication_identifier_patterns"]()
     tracked = subprocess.run(
         ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True
     ).stdout.split(b"\0")
@@ -1167,13 +1164,5 @@ def test_public_tree_has_no_maintainer_identifiers() -> None:
         body = path.read_text(errors="ignore")
         for value in banned:
             assert value not in body, f"{value} in {path.relative_to(ROOT)}"
-        for value in (
-            "m" + "gm",
-            "personal" + "-sandbox",
-            "personal" + "_instance",
-            "personal" + "_root",
-            "seo" + "_data_science_path",
-            "seo" + "-data-science",
-            "seo" + "-code-analysis",
-        ):
+        for value in legacy:
             assert value not in body.lower(), f"legacy identifier in {path.relative_to(ROOT)}"

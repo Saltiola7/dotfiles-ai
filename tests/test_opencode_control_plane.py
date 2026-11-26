@@ -567,10 +567,15 @@ def test_oauth_incompatible_pro_agents_are_absent():
     assert "claude-opus-4-8" not in text(".chezmoitemplates/opencode.json.tmpl")
 
 
-def test_commands_inherit_current_agent():
-    for name in ("discovery", "dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit"):
-        body = (OC / f"commands/{name}.md").read_text()
-        assert "\nagent:" not in body and "\nsubtask:" not in body
+@pytest.mark.parametrize("name", [
+    "discovery", "dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit",
+])
+def test_commands_inherit_current_agent(name):
+    body = (OC / f"commands/{name}.md").read_text()
+    assert "\nagent:" not in body and "\nsubtask:" not in body
+
+
+def test_provider_specific_commands_select_agent_and_model():
     for name, agent, model in (("dbsctr-gpt", "build-gpt", "openai/gpt-6.1-sol-fast"),
                                ("dbsctr-claude", "build-claude", "google-vertex/claude-opus-5-5@default")):
         body = (OC / f"commands/{name}.md").read_text()
