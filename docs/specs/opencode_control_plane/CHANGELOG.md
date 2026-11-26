@@ -1,5 +1,11 @@
 # OpenCode Control Plane Changelog
 
+## 2026-11-25 — HERDR-QUAD-OPENCODE-REFRESH-002
+
+- Reconcile draft #378 with the base containing #374 and revalidate
+  command routing and the incoming reconciliation-evidence tests. No
+  runtime change or deployment is part of this refresh.
+
 ## 2026-11-25 — HERDR-QUAD-OPENCODE-REFRESH-001
 
 - Reconcile draft #378 with the protected base containing #375–#377 and

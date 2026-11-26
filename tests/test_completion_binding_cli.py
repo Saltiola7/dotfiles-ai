@@ -40,6 +40,83 @@ def capture(core, program):
     return core.command_record_evidence(args)
 
 
+def test_reconciliation_preview_keeps_only_unaffected_bound_execution(initiative, capsys):
+    core, root, path, program = register_policy(initiative, capsys)
+    capture(core, program)
+    record = core.read_cycle_record(root, path)
+    evidence = record["gates"]["domain"]["evidence"]
+    initial = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    current = core.git(root, "symbolic-ref", "--short", "HEAD").stdout.strip()
+    core.git(root, "switch", "-c", "target-preview")
+    (root / "other.txt").write_text("unrelated\n")
+    core.git(root, "add", "other.txt")
+    core.git(root, "commit", "-m", "Advance unrelated input")
+    unaffected = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    (root / "tracked.txt").write_text("changed input\n")
+    core.git(root, "commit", "-am", "Advance declared input")
+    affected = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    core.git(root, "switch", current)
+    before = path.read_bytes()
+    _, _, report = core.reconciliation_gate_evidence(root, record, target=unaffected, predicting=True)
+    assert report["domain"]["disposition"] == "retained"
+    assert report["domain"]["evidence"] == evidence
+    assert report["behavior"]["reason_code"] == "post_merge_evidence_required"
+    assert report["review_integrate"]["reason_code"] == "reconciliation_review_required"
+    _, _, report = core.reconciliation_gate_evidence(root, record, target=affected, predicting=True)
+    assert report["domain"]["reason_code"] == "target_inputs_changed"
+    assert path.read_bytes() == before
+    assert core.git(root, "rev-parse", "HEAD").stdout.strip() == initial
+
+
+def test_reconciliation_requires_review_of_the_actual_merge(initiative, capsys, monkeypatch):
+    core, root, path, program = register_policy(initiative, capsys)
+    capture(core, program)
+    record = core.read_cycle_record(root, path)
+    base = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    feature = core.git(root, "symbolic-ref", "--short", "HEAD").stdout.strip()
+    core.git(root, "switch", "-c", "incoming")
+    (root / "other.txt").write_text("target\n")
+    core.git(root, "add", "other.txt")
+    core.git(root, "commit", "-m", "Advance target")
+    target = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    core.git(root, "switch", feature)
+    core.git(root, "commit", "--allow-empty", "-m", "Feature advance")
+    parent = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    core.git(root, "merge", "--no-ff", target, "-m", "Reconcile")
+    merge = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    record["gates"] = {name: record["gates"][name] for name in ("domain", "review_integrate")}
+    record["commits"] = [{"id": parent, "gates": []}, {"id": merge, "gates": ["review_integrate"]}]
+    review = {"id": "review", "gate": "review_integrate", "result": "passed", "head": parent,
+              "content": {"status": "no_content"}, "commit": merge, "paths": {}}
+    record["gates"]["review_integrate"].update(result="passed", evidence="review")
+    record["evidence"]["items"]["review"] = review
+    with pytest.raises(RuntimeError, match="fresh Review/Integrate"):
+        core.validate_draft_reconciliation(root, base, target, [parent, merge], [], record=record)
+    review["paths"] = core.evidence_path_blobs(root, ["other.txt"], commit=merge)
+    original = json.dumps(record, sort_keys=True)
+    assert core.validate_draft_reconciliation(root, base, target, [parent, merge], [], record=record) == [parent, merge]
+    monkeypatch.setattr(core, "validate_follow_up", lambda *_: {"observed_base": base})
+    assert core.validate_follow_up_lineage(root, record, target) == [parent, merge]
+    assert json.dumps(record, sort_keys=True) == original
+
+
+def test_reconciliation_propagates_changed_prerequisite_scope(initiative):
+    core, *_ = initiative
+    policy = {"requirements": {
+        "prerequisite": {"gates": ["domain"], "depends_on": []},
+        "dependent": {"gates": ["behavior"], "depends_on": ["prerequisite"]},
+        "transitive": {"gates": ["spec"], "depends_on": ["dependent"]},
+        "unrelated": {"gates": ["contract"], "depends_on": []},
+    }}
+    decisions = {gate: {"disposition": "retained"} for gate in ("behavior", "spec", "contract")}
+    decisions["domain"] = {"disposition": "rerun_required", "reason_code": "target_inputs_changed"}
+    core.apply_evidence_dependency_scope(policy, decisions)
+    assert decisions["domain"]["reason_code"] == "target_inputs_changed"
+    assert decisions["behavior"]["reason_code"] == "requirement_dependency_changed"
+    assert decisions["spec"]["reason_code"] == "requirement_dependency_changed"
+    assert decisions["contract"]["disposition"] == "retained"
+
+
 def test_approved_policy_capture_is_immutable_and_private(initiative, capsys, monkeypatch):
     core, target, path, program = register_policy(initiative, capsys)
     monkeypatch.setenv("PROJECT_MODE", "PRIVATE_ENVIRONMENT_SENTINEL")
@@ -429,6 +506,28 @@ def test_runtime_applicability_deduplicates_probe_without_reexecuting_acceptance
         assert result["disposition"] == "retained" and result["runtime_status"] == "passed"
     assert len(calls) == 1
     assert path.read_bytes() == before
+
+
+def test_reconciliation_preview_defers_runtime_and_rejects_expiry(runtime_bound, monkeypatch):
+    from datetime import timedelta
+
+    core, root, path, _ = runtime_bound
+    record = core.read_cycle_record(root, path)
+    monkeypatch.setattr(core, "evidence_runtime_probe", lambda *args: pytest.fail("preview ran a probe"))
+    target = core.git(root, "rev-parse", "HEAD").stdout.strip()
+    _, _, report = core.reconciliation_gate_evidence(root, record, target=target, predicting=True)
+    assert report["domain"]["disposition"] == "runtime_probe_required"
+
+    clock = core.datetime
+
+    class Later(clock):
+        @classmethod
+        def now(cls, tz=None):
+            return clock.now(tz) + timedelta(days=1)
+
+    monkeypatch.setattr(core, "datetime", Later)
+    _, _, report = core.reconciliation_gate_evidence(root, record, target=target, predicting=True)
+    assert report["domain"]["reason_code"] == "runtime_acceptance_stale"
 
 
 def test_runtime_probe_denial_is_unavailable_and_never_retried(runtime_bound, monkeypatch, capsys):
