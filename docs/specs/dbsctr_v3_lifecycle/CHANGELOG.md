@@ -5,6 +5,8 @@
 - Allow the private fixture owner time to verify guarded merge preconditions
   within the original approval. Keep ordinary provider timeouts and protected
   merge authorization intact. No managed activation.
+- Reconcile this fix with the advanced protected base and verify the
+  deadline against the combined source tree.
 
 ## NATIVE-SLICE-PLAN-REFRESH-001 — Plan and Build handoff
 
