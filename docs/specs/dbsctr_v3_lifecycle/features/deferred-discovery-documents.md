@@ -19,6 +19,25 @@ approval. Test undeclared changes, owner missing/unrelated, overlap, a symlink
 and a protected-base conflict when the later owner imports it. Old manifest
 and receipt versions retain the [existing import rules](initiative-discovery.md).
 
+For an explicit same-repository GitHub Initiative launch, set this optional
+field on the current slice:
+
+```json
+"deferred_documents": {
+  "schema_version": 1,
+  "documents": [
+    {"path": "docs/specs/later/pointer.md", "owner": "later-slice"}
+  ]
+}
+```
+
+The later slice must depend on the current one, directly or transitively,
+and list the Markdown path in its whole-file `artifacts`. Receipt and launch
+`deferred_documents` entries include the exact mode and blob. The launch
+`artifacts` array lists only imports. The full committed source, including
+deferred bytes, is checked against the public-tree identifier policy.
+Managed Auto and cross-repository deferral are not qualified.
+
 ## Visual Evidence
 
 Boundary, interaction, state, data/trust and schema: **required**, the table
