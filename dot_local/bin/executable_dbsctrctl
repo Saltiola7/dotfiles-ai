@@ -4836,7 +4836,7 @@ def read_initiative_manifest(source, *, raw=None, auto_waiting=False):
                     "release_group"}
     slices = {}
     for item in value["slices"]:
-        optional = {field for field in ("tickets", "execution_owner", "section_artifacts")
+        optional = {field for field in ("tickets", "execution_owner", "section_artifacts", "deferred_documents")
                     if isinstance(item, dict) and field in item}
         initiative_fields(item, slice_fields | optional, "slice")
         identifier = item["id"]
@@ -4885,6 +4885,11 @@ def read_initiative_manifest(source, *, raw=None, auto_waiting=False):
                 fail(f"unknown slice dependency {dependency}: {identifier}")
         slice_dependencies[identifier] = item["depends_on"]
     initiative_acyclic(slice_dependencies, "slice")
+    for identifier, item in slices.items():
+        if "deferred_documents" in item:
+            if value["schema_version"] != 1:
+                fail("Discovery deferral requires a GitHub manifest")
+            initiative_deferred_selectors(identifier, item, statements, contexts, slices)
     for identifier, item in slices.items():
         if item["state"] != "ready":
             continue
@@ -5139,6 +5144,46 @@ def require_initiative_section_tree(root, record, revision, *, prior=None, targe
                 fail(f"Initiative section authority does not permit an out-of-scope edit: {name}")
 
 
+def initiative_deferred_selectors(identifier, item, statements, contexts, slices):
+    value = item["deferred_documents"]
+    initiative_fields(value, {"schema_version", "documents"}, "Discovery deferral")
+    documents = value["documents"]
+    if (type(value["schema_version"]) is not int or value["schema_version"] != 1
+            or not isinstance(documents, list) or not 1 <= len(documents) <= 64):
+        fail("invalid Discovery deferral version or inventory")
+    current = set(item["artifacts"]).union(*(statements[key]["artifacts"] for key in item["requirements"]))
+    if "section_artifacts" in item:
+        current.update(entry["path"] for entry in item["section_artifacts"]["documents"])
+    paths = []
+    for entry in documents:
+        initiative_fields(entry, {"path", "owner"}, "deferred document")
+        path, owner = entry["path"], entry["owner"]
+        initiative_paths([path], "deferred document paths")
+        if not re.fullmatch(r"docs/(?:[A-Za-z0-9_-][A-Za-z0-9_.-]*/)+[A-Za-z0-9_-][A-Za-z0-9_.-]*\.md", path):
+            fail("Discovery deferral requires a regular Markdown document")
+        if path in current:
+            fail("deferred document overlaps current Initiative authority")
+        if not isinstance(owner, str) or owner not in slices or owner == identifier:
+            fail("deferred document requires a later owning slice")
+        later = slices[owner]
+        pending = list(later["depends_on"])
+        seen = set()
+        while pending:
+            dependency = pending.pop()
+            if dependency not in seen:
+                seen.add(dependency)
+                pending.extend(slices[dependency]["depends_on"])
+        if (identifier not in seen or later["state"] == "rejected"
+                or contexts[later["context"]]["repository"] != contexts[item["context"]]["repository"]
+                or path not in later["artifacts"]):
+            fail("deferred document requires a later owning slice in the same repository")
+        if any(other != owner and path in candidate["artifacts"] for other, candidate in slices.items()):
+            fail("conflicting deferred document ownership")
+        paths.append(path)
+    initiative_paths(paths, "deferred document inventory")
+    return sorted(documents, key=lambda entry: entry["path"])
+
+
 def initiative_receipt(source, slice_id, root=None, *, committed=None, auto_waiting=False):
     raw = git(root, "show", f"{committed}:{source}").stdout.encode() if committed is not None else None
     value, statements, contexts, slices, release_groups, digest = read_initiative_manifest(
@@ -5154,10 +5199,15 @@ def initiative_receipt(source, slice_id, root=None, *, committed=None, auto_wait
     whole = set(item["artifacts"]).union(
         *(statements[requirement]["artifacts"] for requirement in item["requirements"]))
     selectors = initiative_section_selectors(item["section_artifacts"]) if "section_artifacts" in item else []
+    deferred = (initiative_deferred_selectors(slice_id, item, statements, contexts, slices)
+                if "deferred_documents" in item else [])
     artifacts = sorted(whole | {entry["path"] for entry in selectors})
     bindings = []
+    deferred_bindings = []
     if selectors and root is None:
         fail("Initiative section authority requires committed Git documents")
+    if deferred and (root is None or auto_waiting):
+        fail("Discovery deferral requires explicit committed Git authority")
     if root is not None:
         try:
             relative = (str(source) if committed is not None else
@@ -5188,6 +5238,14 @@ def initiative_receipt(source, slice_id, root=None, *, committed=None, auto_wait
             if name not in whole:
                 binding["sections"] = hashes
             bindings.append(binding)
+        for entry in deferred:
+            name = entry["path"]
+            if committed is None and git(root, "--literal-pathspecs", "status", "--porcelain=v1", "--", name).stdout:
+                fail("deferred document must be committed and clean before receipt")
+            mode, blob = initiative_section_blob(root, revision, name)
+            if mode != "100644":
+                fail("deferred document must be a regular non-executable file")
+            deferred_bindings.append({**entry, "mode": mode, "blob": blob})
     receipt = {
         "schema_version": value["schema_version"],
         "initiative_id": value["id"],
@@ -5205,6 +5263,8 @@ def initiative_receipt(source, slice_id, root=None, *, committed=None, auto_wait
     }
     if selectors:
         receipt["section_authority"] = {"schema_version": 1, "documents": bindings}
+    if deferred:
+        receipt["deferred_documents"] = deferred_bindings
     return receipt
 
 
@@ -7701,6 +7761,28 @@ def require_legacy_start_network(root):
                 github_repository_from_url(url, "non-GitHub network registration requires typed Initiative begin")
 
 
+def publication_identifier_patterns():
+    """Shared with the public-tree publication check."""
+    return (
+        ("/Users/" + "tis", "302432" + "775606", "KZRNJU45" + "TFHCFMB22WI6VCJVDY",
+         "Bedrock" + "DeveloperAccess", "com" + ".tis"),
+        ("m" + "gm", "personal" + "-sandbox", "personal" + "_instance", "personal" + "_root",
+         "seo" + "_data_science_path", "seo" + "-data-science", "seo" + "-code-analysis"),
+    )
+
+
+def check_discovery_publication(root, commit):
+    for patterns, flags in zip(publication_identifier_patterns(), ([], ["-i"]), strict=True):
+        lookup = inspect_git(root, "-c", "grep.recurseSubmodules=false", "grep", "-q", "-a",
+                             "--no-textconv", "-F", *flags,
+                             *(arg for pattern in patterns for arg in ("-e", pattern)), commit, "--",
+                             check=False)
+        if lookup.returncode == 0:
+            fail("committed Discovery source failed the publication privacy check")
+        if lookup.returncode != 1:
+            fail("committed Discovery publication privacy check unavailable")
+
+
 def initiative_import_plan(source, authority, receipt, plan, target, args):
     base = git(source, "rev-parse", target).stdout.strip()
     result = {"base_head": base, "source_commit": receipt["manifest_commit"],
@@ -7714,7 +7796,10 @@ def initiative_import_plan(source, authority, receipt, plan, target, args):
         if any(entry["path"] == plan["profile"] and "sections" in entry
                for entry in receipt["section_authority"]["documents"]):
             fail("the Engineering Profile requires whole-file Initiative authority")
+    deferred = receipt.get("deferred_documents", [])
     if common_git_dir(source).resolve() != common_git_dir(authority).resolve():
+        if deferred:
+            fail("Discovery deferral requires same-repository source custody")
         return result
     commit = receipt["manifest_commit"]
     ancestor = git(source, "merge-base", base, commit).stdout.strip()
@@ -7725,13 +7810,31 @@ def initiative_import_plan(source, authority, receipt, plan, target, args):
             allowed.add(plan_relative)
     except ValueError:
         pass
-    changed = set(filter(None, git(source, "diff", "--name-only", "-z", ancestor, commit).stdout.split("\0")))
+    changed = set(filter(None, git(source, "diff", *(["--no-renames"] if deferred else []), "--name-only", "-z",
+                                   ancestor, commit).stdout.split("\0")))
+    omitted = {entry["path"] for entry in deferred}
+    if deferred:
+        if args.delivery_intent not in {"local", "draft_pr"} or getattr(args, "integration_authorization", None):
+            fail("Discovery deferral requires an explicit local or draft launch")
+        amendment_receipt(authority, receipt)
+        if omitted & allowed:
+            fail("deferred document overlaps current import authority")
+        if not omitted <= changed:
+            fail("deferred document must be changed in the exact Discovery source")
+        if plan.get("evidence_policy"):
+            for gate in plan["evidence_policy"]["gates"].values():
+                for name in (*gate["inputs"], *gate["toolchain_paths"], gate["argv"][0].removeprefix("./")):
+                    if any(path == name or path.startswith(name.rstrip("/") + "/") for path in omitted):
+                        fail("deferred document overlaps a declared evidence input")
+        result["deferred_documents"] = deferred
     namespaces = (str(Path(receipt["manifest_path"]).parent) + "/", f"docs/specs/{args.context}/")
     allowed.update(name for name in changed if name.startswith(namespaces)
                    and Path(name).suffix in {".md", ".json"})
-    if not changed <= allowed:
+    if not changed <= allowed | omitted:
         fail("Discovery contains changes outside receipt artifacts; isolate or declare them before launch")
-    for name in sorted(allowed):
+    if deferred:
+        check_discovery_publication(authority, commit)
+    for name in sorted(allowed - omitted):
         before = git(source, "ls-tree", ancestor, "--", name).stdout
         current = git(source, "ls-tree", base, "--", name).stdout
         desired = git(authority, "ls-tree", commit, "--", name).stdout
@@ -7756,6 +7859,13 @@ def initiative_import_plan(source, authority, receipt, plan, target, args):
 
 def verify_discovery_import(root, record):
     item = record.get("discovery_import")
+    receipt = record.get("initiative") or {}
+    deferred = receipt.get("deferred_documents", [])
+    if deferred:
+        amendment_receipt(root, receipt)
+        if item is not None and (item["source_commit"] != receipt["manifest_commit"]
+                or {entry["path"] for entry in deferred} & {entry["path"] for entry in item["artifacts"]}):
+            fail("Discovery deferral provenance disagrees with the import")
     if item is None:
         return
     commit, base = item["commit"], item["base_head"]
@@ -7819,6 +7929,8 @@ def initiative_committed_snapshot(root, manifest_path, selected):
     manifest_blob = blob(manifest_path)
     raw = git(root, "--no-replace-objects", "show", manifest_blob).stdout.encode()
     manifest, *_ = read_initiative_manifest(manifest_path, raw=raw, auto_waiting=True)
+    if any("deferred_documents" in entry for entry in manifest["slices"]):
+        fail("Initiative Auto Discovery deferral is not qualified")
     if any("section_artifacts" in entry for entry in manifest["slices"]):
         fail("Initiative Auto section authority is not qualified")
     require_repository_home(root, manifest["coordinator_repository"])
@@ -8171,6 +8283,8 @@ def begin_registration(args, *, auto_launch=None):
             "import_paths": [entry["path"] for entry in launch_plan["artifacts"]]}
         if "delivery_preference" in launch_plan:
             approval_view["delivery_preference"] = launch_plan["delivery_preference"]
+        if launch_plan is not None and "deferred_documents" in launch_plan:
+            approval_view["deferred_documents"] = launch_plan["deferred_documents"]
         confirmation = f"BEGIN {args.cycle_id} {launch_digest}"
         if auto_launch is not None:
             print(json.dumps(approval_view, sort_keys=True)
@@ -19966,6 +20080,7 @@ def command_record_evidence(args):
     with evidence_lock(root, resolved_active_path(root).read_text(encoding="utf-8").strip()), contextlib.ExitStack() as capture:
         path, record = load(root)
         require_active(record)
+        require_no_deferred_document_credit(record, args.path or [])
         admitted_bytes = amendment_read(root, path)
         path_blobs = evidence_path_blobs(root, args.path or [])
         absence_proof = evidence_absences(root, path_blobs)
@@ -20930,10 +21045,18 @@ def safe_paths(root, paths):
     return cleaned
 
 
+def require_no_deferred_document_credit(record, paths):
+    deferred = (record.get("initiative") or {}).get("deferred_documents", [])
+    selected = {PurePosixPath(path).as_posix() for path in paths}
+    if any(entry["path"] in selected for entry in deferred):
+        fail("deferred document cannot receive current-cycle gate credit")
+
+
 def command_gate_commit(args):
     root = root_dir()
     path, record = load(root)
     require_active(record)
+    require_no_deferred_document_credit(record, args.paths)
     require_current_profile(root, record)
     schema3_items = []
     for name in args.gates:
