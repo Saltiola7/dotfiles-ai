@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-26 — Refresh deferred Discovery against protected main
+
+- Reconcile PR #380 with upstream OpenCode instruction coverage. Preserve
+  the deferred-document contract. No managed activation.
+
 ## 2026-11-26 — Bind deferred Discovery documents
 
 - Let explicit same-repository launches bind a later owner's Markdown path,
