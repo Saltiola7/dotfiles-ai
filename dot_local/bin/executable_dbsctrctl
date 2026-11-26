@@ -20060,11 +20060,21 @@ def command_record_evidence(args):
                 verified_template = verified_upstream_template(root, ".env.template") if os.path.lexists(root / ".env.template") else False
                 snapshot_options = {"verified_template": verified_template, "evidence_paths": args.path or ()}
                 original = evidence_checkout_snapshot(root, candidate, **snapshot_options)
+                # The copy has no cycle or upstream config. Verify the selected
+                # template against the live-proven index blob without filters.
+                candidate_paths = dict(path_blobs)
+                if verified_template and ".env.template" in candidate_paths:
+                    template = ".env.template"
+                    approved_blob = stage_zero_blob(root, template)
+                    if (not approved_blob or stage_zero_blob(candidate, template) != approved_blob
+                            or git(candidate, "hash-object", "--no-filters", "--", template).stdout.strip() != approved_blob):
+                        fail("evidence template was not reproduced")
+                    del candidate_paths[template]
                 if (original[0] != evidence_head
                         or evidence_checkout_snapshot(candidate, **snapshot_options) != original
                         or verified_template and not verified_upstream_template(root, ".env.template")
                         or evidence_path_blobs(root, args.path or [], gate_evidence=True) != path_blobs
-                        or evidence_path_blobs(candidate, args.path or [], gate_evidence=True) != path_blobs
+                        or evidence_path_blobs(candidate, list(candidate_paths), gate_evidence=True) != candidate_paths
                         or evidence_checkout_snapshot(root, **snapshot_options) != original):
                     fail("evidence checkout was not reproduced")
                 if absence_proof["absences"]:

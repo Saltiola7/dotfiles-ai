@@ -4196,7 +4196,14 @@ class DbsctrctlTest(unittest.TestCase):
         result = json.loads(run(self.repo, "reconcile-target", "--mode", "prepare", "--json").stdout)
         self.assertEqual(result["staged_paths"], sorted(names))
         self.assertEqual(result["conflict_paths"], [])
-        self.record_gate("behavior", paths=(".env.template",))
+        run(self.repo, "record-evidence", "behavior", "--authority", "template",
+            "--path", ".env.template", "--", sys.executable, "-c",
+            "from pathlib import Path; import subprocess, sys; "
+            "assert Path.cwd() != Path(sys.argv[1]); "
+            "assert Path('.env.template').read_bytes() == b'PLACEHOLDER=\\n'; "
+            "assert subprocess.check_output(['git', 'remote']) == b''", str(self.repo))
+        record = json.loads(run(self.repo, "status", "--json").stdout)
+        self.assertEqual(record["gates"]["behavior"]["result"], "passed")
         (self.repo / ".env.template").write_text("CHANGED=\n")
         result = run(self.repo, "record-evidence", "spec", "--authority", "template",
                      "--path", ".env.template", "--", sys.executable, "-c", "pass", ok=False)

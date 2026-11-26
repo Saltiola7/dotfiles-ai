@@ -1,5 +1,19 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-25 — Reconcile historical shadow source
+
+- Reconcile PR #371 with the protected base, including the Initiative section
+  authority update. Preserve the qualified checkout
+  proof, partial-result reporting, and unchanged required CI.
+
+## 2026-11-25 — Verify historical shadow source
+
+- Recover the tested merge revision from the exact required run's qualified
+  checkout steps and verify it against GitHub's Git objects and protected
+  base. Match partial shadow artifacts on the tested revision and base.
+- Keep missing or conflicting evidence unavailable. Required CI and Git-note
+  publication are unchanged.
+
 ## 2026-11-25 — Retain partial shadow validation
 
 - Keep the 15-minute shadow job limit. Reserve time for artifact upload and

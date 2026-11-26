@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Preserve approved template evidence in isolation
+
+- Verify the copied `.env.template` against its live-proven index blob
+  without requiring the sandbox to have lifecycle state or remote settings.
+
 ## 2026-11-25 — Reconcile the evidence repair with Forgejo Auto
 
 - Preserve the evidence-isolation repair and incoming Forgejo Auto behavior.
