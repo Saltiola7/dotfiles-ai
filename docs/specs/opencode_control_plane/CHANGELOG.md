@@ -1,5 +1,10 @@
 # OpenCode Control Plane Changelog
 
+## MODEL-ROUTES-001 — Shared planning and worker defaults
+
+Ship native Plan and Build model/variant defaults in the managed config and
+document explicit provider-matched model selection for top-level workers.
+
 ## 2026-11-25 — HERDR-QUAD-OPENCODE-REFRESH-002
 
 - Reconcile draft #378 with the base containing #374 and revalidate

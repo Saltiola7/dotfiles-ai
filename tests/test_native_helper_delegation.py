@@ -32,7 +32,7 @@ def test_native_controls_inherit_models_and_plan_cannot_delegate_writes():
         "*": "deny", "general": "allow", "explore": "allow", "scout": "allow", "discovery-writer": "allow"}
     assert agents["plan"]["permission"]["task"] == {
         "*": "deny", "explore": "allow", "scout": "allow"}
-    assert agents["plan"]["model"] == "openai/gpt-6.1-sol-fast"
+    assert agents["plan"]["model"] == "openai/gpt-6.2-astra"
     for name in ("general", "explore"):
         assert "model" not in agents.get(name, {})
     for name in ("scout", "discovery-writer"):
@@ -125,7 +125,7 @@ def test_deployed_host_helper_configuration_matches_source():
     expected = rendered_config()["agent"]
     for name in ("build", "build-rnd", "plan", "general"):
         assert installed["agent"][name]["permission"]["task"] == expected[name]["permission"]["task"]
-    assert installed["agent"]["plan"]["model"] == "openai/gpt-6.1-sol-fast"
+    assert installed["agent"]["plan"]["model"] == "openai/gpt-6.2-astra"
     assert (home / '.config/opencode/AGENTS.md').read_bytes() == (
         ROOT / '.chezmoitemplates/agent-activation.md').read_bytes()
     sources = [OC / 'agents' / f'{name}.md' for name in (
