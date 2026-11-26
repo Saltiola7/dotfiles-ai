@@ -495,9 +495,11 @@ def test_provider_and_primary_contracts():
     assert {"google-vertex-anthropic", "lmstudio"} <= set(config["provider"])
     assert not {"headroom", "headroom-lmstudio"} & set(config["provider"])
     assert "gpt-5.6-sol-pro" not in config["provider"]["openai"]["models"]
-    assert config["model"] == "openai/gpt-6-astra"  # Native Build remains a model-flexible control.
-    assert config["agent"]["plan"]["model"] == "openai/gpt-6.1-sol-fast"
-    assert config["agent"]["plan"]["variant"] == "medium" and config["small_model"] == "openai/gpt-6-luna"
+    assert config["model"] == "openai/gpt-6-astra"
+    assert config["agent"]["build"]["model"] == "openai/gpt-6.2-sol"
+    assert config["agent"]["build"]["variant"] == "medium"
+    assert config["agent"]["plan"]["model"] == "openai/gpt-6.2-astra"
+    assert config["agent"]["plan"]["variant"] == "max" and config["small_model"] == "openai/gpt-6-luna"
     assert {"effect": "deny", "action": "provider.use", "resource": "anthropic"} in config["experimental"]["policies"]
 
 
