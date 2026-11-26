@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/codex_control_plane/PROFILE.md",
+  "gates": {
+    "domain": {"applicability":"required"},
+    "behavior": {"applicability":"required"},
+    "spec": {"applicability":"required"},
+    "contract": {"applicability":"required"},
+    "test_driven_implementation": {"applicability":"required"},
+    "refactor": {"applicability":"required"},
+    "review_integrate": {"applicability":"required"},
+    "release": {"applicability":"not_applicable","reason":"Test-only draft, no versioned release."},
+    "deploy": {"applicability":"not_applicable","reason":"Test-only draft changes no installed runtime."},
+    "operate": {"applicability":"required"},
+    "maintain_retire": {"applicability":"required"}
+  }
+}
