@@ -659,7 +659,9 @@ state, deploy, publish, or perform external writes.
 ### Provider affinity
 
 Build-Claude and Build-GPT delegate only to their fixed-provider helper allowlists.
-Native controls and Discovery-Coordinator use selected-model inheritance.
+Native Plan defaults to GPT-6.2 Astra Max; native Build and its top-level workers
+default to GPT-6.2 Sol Medium. Build-Claude defaults to Vertex Opus 5.5 High;
+its top-level workers explicitly select Vertex Sonnet 5.5 Medium at launch.
 No fallback crosses providers silently. Defaults do not lock a manually changed
 session model; the operator retains the configured fixed-primary provider.
 
