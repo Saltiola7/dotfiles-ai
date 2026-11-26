@@ -60,7 +60,7 @@ runtime blocker, not permission to start a login or broaden credentials.
 | Repository Identity | Exact provider, canonical HTTPS origin and canonical owner/repository path; account selection is separate. |
 | Local-only Cycle | A native schema 6 cycle whose delivery mode permits local validation and denies remote delivery. |
 | Comparison Base | An explicitly fetched base ref and immutable commit used to bind registration; it is not a push destination. |
-| Credential Selection | Private exact origin/account/repository lookup through native macOS Keychain; it is not independent API principal proof. |
+| Credential Selection | Private exact origin, account and repository lookup through macOS Keychain or an explicitly selected Linux systemd credential. Native role enrollment verifies the API principal. |
 | Controlled transport | Owns its child process group and pipes; bounded failure cleanup does not establish any delivery authority. |
 | Local Completion | Successful required gates plus exact source/evidence validation, retained locally with manual delivery pending. |
 | Manual Delivery | A later, separately authorized and reviewed Git operation outside this cycle's delivery machinery. |
@@ -124,8 +124,9 @@ For example, a synthetic identity may be:
 
 For the new path, `begin` requires `--delivery-intent local` and all four explicit
 selectors: `--forge-provider forgejo`, `--forge-origin HTTPS_ORIGIN`,
-`--forge-repository OWNER/REPOSITORY`, and `--forge-account ACCOUNT`. The fixed
-credential source is `osxkeychain`; there is no arbitrary command or source flag.
+`--forge-repository OWNER/REPOSITORY`, and `--forge-account ACCOUNT`. The
+default credential source remains `osxkeychain`. Select the Linux systemd service
+credential explicitly with `--forge-credential-source systemd`.
 Reject mixing Forgejo and GitHub selector families, incomplete selections,
 unknown providers and all non-local Forgejo delivery intents before authentication
 or network activity. Lower-level `start` cannot bypass these selection and
@@ -165,7 +166,7 @@ ordinary delivery machinery; it never silently delegates to completion.
 Schema 6 `delivery` has exactly `mode`, `forge`, `upstream`, `remote`, `branch`,
 `base_branch`, `base_head` and `lock_id`. `mode` is `local_only`; `forge` has exactly
 `provider`, `origin`, `repository`, `account`, `credential_source`, with provider
-`forgejo` and credential source `osxkeychain`. `branch` identifies the local task
+`forgejo` and credential source `osxkeychain` or `systemd`. `branch` identifies the local task
 branch, not a remote delivery request. `base_branch` and `base_head` identify the
 explicit comparison base. The existing private Git snapshot binds the selected
 remote's fetch and push destinations. `lock_id` binds full typed identity and
@@ -193,8 +194,8 @@ manifest schema 2 or attempting local-only registration.
 
 ## Fetch, approval and completion contracts
 
-The implementation supports macOS and the existing native `osxkeychain`
-credential namespace. A get-only Security.framework reader selects a unique
+On macOS, `osxkeychain` uses the native Keychain credential namespace.
+A get-only Security.framework reader selects a unique
 HTTPS Internet Password item with interaction disabled. This performs no
 credential enrollment. Keychain evaluates the process that reads the secret,
 so trusting the Python script pathname may still leave the lookup unauthorized.
@@ -205,8 +206,7 @@ specific Forgejo Keychain item. Its lookup still binds the exact HTTPS host,
 port, repository path and account. If the reader is absent, the original Python
 bridge remains available to installations where the executable already has
 access. A present reader that cannot be used or cannot obtain the item fails
-closed. The transport does not retry with Python or prompt. Linux behavior and
-CI requirements are unchanged.
+closed. The transport does not retry with Python or prompt.
 
 First enumerate only attributes and item references for the exact selection.
 After one valid match is established, request attributes and password data for
@@ -218,6 +218,44 @@ that query for password items](https://developer.apple.com/documentation/securit
 The existing data/trust visual table represents both reads inside the same
 native lookup boundary. The optional native executable narrows the process that
 the operator can authorize without introducing another credential source.
+
+### Linux systemd service credential
+
+On Linux, a controller running under the systemd user manager can select
+`systemd` for read-only comparison fetches. Configure its unit with
+`LoadCredential=` or `LoadCredentialEncrypted=` using the fixed credential ID
+`dbsctr-forgejo`. The owner enrolls an expiring token for an account with read
+access to the single intended repository. The service manager supplies the
+private file under `$CREDENTIALS_DIRECTORY`. The reader requires the canonical
+runtime location `/run/user/<uid>/credentials/<unit>.service` and a regular,
+owner-read-only, single-link file.
+
+The credential is a JSON envelope with exactly these fields:
+
+| Field | Value |
+| --- | --- |
+| `schema_version` | Integer `1` |
+| `origin` | Exact normalized HTTPS origin, including any nondefault port |
+| `repository` | Exact typed `OWNER/REPOSITORY` |
+| `account` | Exact selected Forgejo account |
+| `role` | `read` |
+| `expires_at` | UTC Unix timestamp in seconds |
+| `token` | Private scoped token provided through the service credential |
+
+The controller removes the locator from ordinary child environments. Its
+isolated Git network fetch receives only the credential directory locator.
+The managed get-only helper resolves the token for the exact protocol, host,
+repository path and account. Missing, malformed, misbound or expired
+credentials fail with a redacted diagnostic. The controller keeps its own file
+and process view. Qualify that the Build worker and OpenCode cannot access the
+credential, directory locator, or controller descriptors. Use inert credentials
+for source validation and verify the actual token's scope separately during
+native enrollment. [systemd service credentials](https://systemd.io/CREDENTIALS/)
+
+Managed Linux Auto selects this source with `schema_version: 3` and
+`credential_source: "systemd"` in its private Forgejo recipe. The source
+selection is part of the approved recipe, native launch and registration
+readback. Existing GitHub and Keychain recipes retain their versioned identities.
 
 ### Opt-in native reader setup
 
@@ -279,11 +317,12 @@ API principal proof remains unresolved under the complete remote feature.
 Controlled Git fetch is restricted to the canonical selected HTTPS endpoint and
 explicit base ref, with normal TLS/hostname verification, no redirect or URL
 rewrite, no unqualified proxy, no ambient authentication/extra headers/credential
-helpers and no inherited tracing/configuration injection. Only the managed exact
-Keychain lookup may supply credentials; credential store/erase, enrollment,
-interactive prompting and fallback account selection are unavailable. Secrets
-stay in private process memory and out of arguments, URLs, Git config, files,
-logs, exceptions, evidence and chat. Use a bounded 30-second fetch deadline and
+helpers and no inherited tracing/configuration injection. The selected get-only
+credential reader supplies the exact credential. Credential store, erase,
+enrollment and interactive prompting are unavailable in the transport. The
+systemd service credential stays in its private runtime file. Neither backend
+adds secret bytes to arguments, URLs, Git config, logs, exceptions, evidence
+or chat. Use a bounded 30-second fetch deadline and
 no automatic authentication retries. Failure reports a fixed safe category and
 preserves existing authority. Qualify effective Git configuration and destination
 binding, not just the command's displayed URL. The transport must not inherit a
@@ -491,7 +530,7 @@ without completing the read or granting publication authority.
 |---|---|
 | Public Discovery to support PR | Sanitized behavior/interfaces and synthetic examples; no private bindings or credentials. |
 | Private manifest to receipt | Typed repository and committed provenance; account/credential bytes are absent from manifest identity. |
-| Private selector to native Keychain lookup | Exact origin/account/repository selection; lookup grants no API principal or mutation claim. |
+| Private selector to native credential reader | Exact origin, account and repository selection. The owner verifies the token's read scope during native enrollment. |
 | Operating-system account record to credential child | Bind the current UID's native home before Keychain discovery; Git's home, XDG and configuration remain isolated. |
 | Operator to exact Keychain item | The operator authorizes the dedicated native reader for that item. The reader has no prompt or write path. |
 | Lookup to controlled Git fetch | Secret stays in private memory and is released only for exact selected HTTPS destination. |
@@ -504,8 +543,8 @@ contracts only. Private identities and credential selections remain local to the
 consumer and runtime record. Only the credential child's native home comes from
 the current operating-system UID; the Git transport remains isolated. An
 operator can grant the optional native reader access to one Keychain item.
-Secret bytes flow only from exact Keychain lookup to controlled Git fetch,
-without prompting or writing to Keychain. Local completion retains source
+Secret bytes flow from the exact selected credential reader to the isolated
+Git fetch through the get-only helper protocol. Local completion retains source
 evidence privately and exports nothing. Cleanup errors cross the caller boundary
 only as fixed safe categories.
 

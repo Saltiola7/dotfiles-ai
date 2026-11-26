@@ -36,6 +36,16 @@
 - Scope: the evidence writer and reader, focused regression cases and the
   matching benchmark helper pin. No CI matrix changes or live deployment.
 
+## 2026-11-25 — Refresh Linux credential CI base
+
+- Reconcile PR #372 with protected main at `120b3b73` and retain the
+  approved credential source and hosted validation reporting.
+
+## 2026-11-25 — Reconcile Linux credentials with section authority
+
+- Reconcile PR #372 with protected main at `f0c671dd`. Preserve both
+  lifecycle changes and refresh the CLI benchmark pin for the combined helper.
+
 ## 2026-11-25 — Reconcile section authority with Forgejo Auto
 
 - Preserve both source changes and refresh the combined helper benchmark pin.
@@ -49,6 +59,13 @@
 - Verify the selected bytes and mode at Gate Commit and completion. Permit
   unchanged sections in an exact incoming protected-base blob without
   admitting unrelated edits by the cycle. No managed activation.
+
+## 2026-11-25 — Linux Forgejo comparison credentials
+
+- Bind the systemd credential source to an explicit managed recipe and exact
+  read-only Forgejo fetch. Preserve historical GitHub and Keychain identities.
+- Validate the scoped service credential and expiry before releasing it to Git.
+  Keep live enrollment and Build isolation in the native qualification test.
 
 ## 2026-11-25 — Reconcile Forgejo Auto with evidence isolation
 
