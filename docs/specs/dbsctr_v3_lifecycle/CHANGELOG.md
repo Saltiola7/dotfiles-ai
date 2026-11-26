@@ -1,5 +1,41 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Preserve approved template evidence in isolation
+
+- Verify the copied `.env.template` against its live-proven index blob
+  without requiring the sandbox to have lifecycle state or remote settings.
+
+## 2026-11-25 — Reconcile the evidence repair with Forgejo Auto
+
+- Preserve the evidence-isolation repair and incoming Forgejo Auto behavior.
+  Pin the benchmark fixture to the combined helper.
+
+## 2026-11-25 — Preserve gate evidence inside isolated validation
+
+- Carry selected literal witnesses and pending merge identity into the
+  isolated candidate; retain the hosted shadow results without gate credit.
+
+## 2026-11-25 — Refresh the gate-evidence successor
+
+- Reconcile draft #368 with the protected base that provisions the shadow
+  workflow's pinned render tools. Keep the gate-evidence repair and helper
+  checksum unchanged, and retain the earlier failed CI attempt.
+
+## 2026-11-25 — Reconcile the published gate-evidence repair
+
+- Preserve the gate-evidence repair and the protected Initiative continuation
+  in the same draft, with the benchmark fixture pinned to the combined helper.
+
+## 2026-11-24 — Admit evidence from a reconciliation merge
+
+- Bind a deleted path to its provable merge-side or merge-base predecessor
+  when it is already absent at HEAD. Historical absence evidence continues
+  to verify against its original source.
+- Admit regular repository-root `.dbsctr/` artifacts for evidence without
+  adding private files to commits or loosening other ignored-path checks.
+- Scope: the evidence writer and reader, focused regression cases and the
+  matching benchmark helper pin. No CI matrix changes or live deployment.
+
 ## 2026-11-25 — Refresh Linux credential CI base
 
 - Reconcile PR #372 with protected main at `120b3b73` and retain the

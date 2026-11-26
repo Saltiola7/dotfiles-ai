@@ -3335,7 +3335,21 @@ user-confirmed `approve-exception`, `record-dvc-push`, `record-evidence`, `raise
 `update-plan` rebinds a committed profile using an equal or stricter plan. It
 may recover unrecorded first-parent commits only when each changes exactly that
 Engineering Profile; every other unrecorded commit fails closed.
-`gate-commit --gates ...` binds each commit to completed gates.
+`gate-commit --gates ...` binds each commit to completed gates. For a
+reconciliation merge, a path absent from the worktree, index and current
+HEAD may still have a tracked predecessor on the merge side or at the merge
+base. Evidence for that deletion must pin both the predecessor and its source
+revision. Until commit, the recorded target must still be the pending merge.
+After commit, its first-parent transition must have the recorded parents and
+the deletion in its actual tree. An aborted merge or an unrelated later
+deletion cannot earn gate credit. Without a provable predecessor the path
+is refused. Historical HEAD-tracked deletion evidence retains its meaning.
+
+`record-evidence --path` may reference an existing regular file under the
+repository-root `.dbsctr/` without staging it. Secret names, symbolic links
+and paths outside that boundary retain their normal refusals. An evidence
+reference does not put a private artifact into a Gate Commit: the staged
+paths must still match the commit's evidence exactly.
 
 New cycles require `start --plan PATH`, where `-` reads JSON from stdin. The plan
 names `docs/specs/<context>/README.md` and defines every gate as `required` or
