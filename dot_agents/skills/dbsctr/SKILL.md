@@ -425,6 +425,13 @@ and cycle bounds. Give each helper its owned paths, inputs, test authority
 and return condition. Use the existing dependency and CI evidence rather
 than asking the operator to distribute the work or repeating a qualified test.
 
+For the managed draft-only batch route, carry the reviewed claims, timestamps
+and exact batch approval from Discovery into `draft-worker-batch accept`.
+Use `draft-worker-batch build --grant GRANT` to advance or resume the same
+batch. Report each session ID next to its slice. Registration is performed by
+the runtime; do not collect another `begin` approval from each worker. If
+the preview has changed, show the material change before collecting consent.
+
 Plan is read-only and ends with a Build Handoff. Build verifies source and
 artifact freshness before writing. Request the mode change in the same conversation,
 not another checkout/session as a workaround. Todos hold current state; specs and

@@ -1,5 +1,10 @@
 # DBSCTR V3 Lifecycle
 
+For a prepared GitHub Initiative, `draft-worker-batch preview` binds the selected
+slices and worker routes to one expiring draft-only approval. Build may accept
+the operator-reviewed digest and resume its durable grant. See the
+[batch contract](../../initiatives/native-slice-builders/DRAFT-WORKER-BATCH.md).
+
 [Completion at verified merge](features/draft-merge-completion.md) specifies
 the plan-bound `draft_pr` contract, implemented in source: publication freezes
 the source and frees the checkout; a verified native merge can be recorded

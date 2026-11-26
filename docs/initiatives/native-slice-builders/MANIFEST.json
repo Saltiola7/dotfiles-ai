@@ -5,6 +5,7 @@
   "state": "discovering",
   "coordinator_repository": "Saltiola7/dotfiles-ai",
   "statements": [
+    {"id":"INT-011","kind":"requirement","text":"One reviewed Discovery approval authorizes independent top-level draft workers and bounded continuation through Build.","disposition":"ready","artifacts":["docs/initiatives/native-slice-builders/DRAFT-WORKER-BATCH.md"]},
     {"id":"INT-010","kind":"requirement","text":"Ship common model routes: native Plan uses GPT-6.2 Astra Max, native Build and its workers use GPT-6.2 Sol Medium, and Build-Claude uses Vertex Opus 5.5 High with Vertex Sonnet 5.5 Medium workers. Verify rendered defaults and explicit worker selection on managed hosts.","disposition":"ready","artifacts":["docs/initiatives/native-slice-builders/MODEL-ROUTES.plan.json"]},
     {"id":"INT-001","kind":"requirement","text":"Discovery recommends delegation and forked sessions by default from dependencies, owned paths and shared resources; serialize overlap and retain one writer per slice.","disposition":"ready","artifacts":["docs/initiatives/native-slice-builders/README.md"]},
     {"id":"INT-002","kind":"decision","text":"Use a separately qualified native writer for the full authorized DBSCTR cycle of one slice, through draft PR or explicitly selected delivery, while preserving independent review and ordinary helper restrictions.","disposition":"ready","artifacts":["docs/initiatives/native-slice-builders/README.md"]},
@@ -24,6 +25,7 @@
     {"id":"continuous_validation","repository":"Saltiola7/dotfiles-ai","status":"approved","depends_on":[]}
   ],
   "slices": [
+    {"id":"draft-worker-batch","context":"dbsctr_v3_lifecycle","state":"ready","execution_owner":"build","requirements":["INT-011"],"depends_on":[],"artifacts":["docs/initiatives/native-slice-builders/DRAFT-WORKER-BATCH.md","docs/initiatives/native-slice-builders/DRAFT-WORKER-BATCH.plan.json","docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],"release_group":"draft-batch"},
     {"id":"managed-model-routes","context":"opencode_control_plane","state":"ready","execution_owner":"build","requirements":["INT-006","INT-010"],"depends_on":[],"artifacts":["docs/initiatives/native-slice-builders/MODEL-ROUTES.plan.json","docs/specs/opencode_control_plane/PROFILE.md"],"release_group":"model-routes"},
     {"id":"discovery-delegation-plan","context":"dbsctr_v3_lifecycle","state":"ready","execution_owner":"build","requirements":["INT-001","INT-005","INT-007"],"depends_on":[],"artifacts":["docs/initiatives/native-slice-builders/README.md","docs/initiatives/native-slice-builders/BUILDER-HANDOFF.md","docs/initiatives/native-slice-builders/PLANNING.plan.json","docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],"release_group":"native-writers"},
     {"id":"slice-writer-and-evidence","context":"dbsctr_v3_lifecycle","state":"discovering","execution_owner":"build","requirements":["INT-002","INT-003","INT-004","INT-005","INT-007"],"depends_on":["discovery-delegation-plan"],"artifacts":["docs/initiatives/native-slice-builders/README.md","docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],"release_group":"native-writers"},
@@ -35,6 +37,7 @@
     {"id":"herdr-quad-opencode","context":"opencode_control_plane","state":"ready","execution_owner":"build","requirements":["INT-005","INT-007","INT-009"],"depends_on":[],"artifacts":["docs/initiatives/native-slice-builders/HERDR-QUAD-OPENCODE.plan.json","docs/specs/opencode_control_plane/PROFILE.md"],"release_group":"four-worker-proof"}
   ],
   "release_groups": [
+    {"id":"draft-batch","members":["draft-worker-batch"],"state":"ready"},
     {"id":"model-routes","members":["managed-model-routes"],"state":"ready"},
     {"id":"native-writers","members":["discovery-delegation-plan","slice-writer-and-evidence","native-builder-qualification"],"state":"planning"},
     {"id":"local-worker-proof","members":["herdr-local-worker-proof"],"state":"ready"},

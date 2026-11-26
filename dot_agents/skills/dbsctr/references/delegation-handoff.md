@@ -46,8 +46,13 @@ verify that the installed grant covers the exact plan and draft delivery.
 If batch authorization is unavailable, report that limitation before launch.
 An approved planning document alone cannot register cycles.
 
-For each authorized independent slice, start a top-level Build session in a
-named Herdr tab at its Worktrunk checkout. Announce the slice, tab and branch
+On an enrolled host, carry the exact claims, approved-at and expiry from
+`draft-worker-batch preview` into `accept --approval agent-confirmed` only
+after the operator approves that digest. Resume with `build --grant` rather
+than creating another session. Inside a registered worker use `dbsctrctl
+draft-worker-batch scope` to read its reviewed inputs. Outside Herdr, report
+the native session ID and checkout for each slice. Inside Herdr, attach a
+named Herdr tab to each reported top-level Build session. Announce the slice, tab and branch
 even when opening tabs without focus. Confirm Build mode, native session ID,
 workdir, branch and base before registration. Give shell calls the explicit
 workdir. Timing is optional. Each worker owns one Cycle Record.
