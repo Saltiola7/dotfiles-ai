@@ -1,5 +1,27 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Refresh gate reuse against protected main
+
+- Reconcile PR #374 with the continuous-validation identity regression.
+  Preserve the existing gate-reuse contract. No managed activation.
+
+## 2026-11-25 — Reconcile evidence reuse with Linux credential support
+
+- Refresh PR #374 against protected `main`, retaining both lifecycle changes
+  and refreshing the combined CLI benchmark pin. No managed activation.
+
+## 2026-11-25 — Reconcile evidence reuse with hosted shadow validation
+
+- Refresh PR #374 on the protected base. Preserve evidence reuse and the
+  upstream historical shadow-source checks. No managed activation.
+
+## 2026-11-25 — Reuse proven evidence after reconciliation
+
+- Preview affected gates in enrolled draft cycles. Retain equivalent bound
+  executions at Final Push without changing their original timestamps.
+- Keep fresh review of the actual merge, runtime acceptance, and legacy
+  freshness requirements. Apply the same rules to published follow-ups.
+
 ## 2026-11-25 — Refresh Linux credential CI base
 
 - Reconcile PR #372 with protected main at `120b3b73` and retain the

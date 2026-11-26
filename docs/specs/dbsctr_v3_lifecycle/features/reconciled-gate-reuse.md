@@ -21,6 +21,13 @@ decision. Preserve failed runs, approved exceptions and ordinary downstream
 reopening. This policy neither weakens native PR CI nor implicitly enrolls an
 old cycle into a new evidence policy.
 
+For an enrolled draft cycle, a `diverged` preview adds `gate_evidence` keyed by
+gate. A retained prediction is provisional: it compares the current binding
+and incoming paths, not the eventual conflict resolution. Final Push checks
+the actual reconciled tree and its Review/Integrate Gate Commit. The review
+must be a fresh execution covering the changed paths, not a reference to an
+earlier run. Runtime-dependent predictions require a probe before delivery.
+
 Use real disposable Git merges with one bound unaffected gate, a changed
 prerequisite and dependent, an unbound gate and an expired runtime observation.
 Verify exactly which reruns remain, reject a stale merge review, then complete
