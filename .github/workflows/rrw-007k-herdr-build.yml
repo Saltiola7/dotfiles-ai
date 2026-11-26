@@ -1,0 +1,60 @@
+name: RRW-007K Herdr build proof
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/rrw-007k-herdr-build.yml"
+      - "tests/rrw_007k_build/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Clean Herdr build (${{ matrix.replica }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      matrix:
+        replica: [one, two]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash tests/rrw_007k_build/build.sh "$RUNNER_TEMP/herdr-build"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: herdr-proof-${{ matrix.replica }}
+          path: ${{ runner.temp }}/herdr-build/out/
+          if-no-files-found: error
+          retention-days: 7
+  qualify:
+    name: Compare and smoke-test exact Herdr bytes
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: herdr-proof-*
+          path: ${{ runner.temp }}/herdr-proof
+      - name: Verify digests and run disposable smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/herdr-proof"
+          first="$evidence/herdr-proof-one"
+          second="$evidence/herdr-proof-two"
+          for build in "$first" "$second"; do
+            (cd "$build" && sha256sum -c herdr.sha256)
+          done
+          for file in build.txt input-sha256.txt zig-pins.tsv herdr; do
+            cmp "$first/$file" "$second/$file"
+          done
+          chmod 0755 "$first/herdr"
+          timeout -k 5s 75s python3 tests/rrw_007k_build/smoke-native.py "$first/herdr" herdr
+          cat "$first/herdr.sha256"

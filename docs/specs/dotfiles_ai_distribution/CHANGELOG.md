@@ -1,5 +1,12 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-25 — Stage the RRW-007K Herdr build proof
+
+- Add an isolated draft CI lane for two clean, pinned Linux x86_64 builds.
+  Compare binary checksums and smoke-test the matched bytes. CI artifacts
+  are temporary test evidence; no runtime pin, installer, or deployment
+  changes.
+
 ## 2026-11-25 — Reconcile historical shadow source
 
 - Reconcile PR #371 with the protected base, including the Initiative section
