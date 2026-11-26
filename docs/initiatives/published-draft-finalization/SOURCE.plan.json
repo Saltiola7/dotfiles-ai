@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dbsctr_v3_lifecycle/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "Source-only draft; no package release."},
+    "deploy": {"applicability": "not_applicable", "reason": "No installation or live activation; validate with disposable fixtures."},
+    "operate": {"applicability": "not_applicable", "reason": "No live service or publication record is operated by this source slice."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}

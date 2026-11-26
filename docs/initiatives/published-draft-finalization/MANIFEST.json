@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "published-draft-finalization",
+  "title": "Recover verified draft publication after default advances",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "statements": [
+    {"id":"INT-001","kind":"requirement","text":"Close an interrupted GitHub draft follow-up only after verifying exact existing publication, owned reconciliation and retained gates; never repush or grant merge credit.","disposition":"ready","artifacts":["docs/initiatives/published-draft-finalization/README.md"]}
+  ],
+  "contexts": [
+    {"id":"dbsctr_v3_lifecycle","repository":"Saltiola7/dotfiles-ai","status":"ready","depends_on":[]}
+  ],
+  "slices": [
+    {"id":"recover-draft-finalization","context":"dbsctr_v3_lifecycle","state":"ready","execution_owner":"build","requirements":["INT-001"],"depends_on":[],"release_group":"cli","artifacts":["docs/initiatives/published-draft-finalization/README.md","docs/initiatives/published-draft-finalization/SOURCE.plan.json","docs/specs/dbsctr_v3_lifecycle/PROFILE.md"]}
+  ],
+  "release_groups": [
+    {"id":"cli","members":["recover-draft-finalization"],"state":"ready"}
+  ]
+}
