@@ -4,11 +4,65 @@ Discovery proposal. The operator selected end-to-end delegation, durable
 managed source, reusable worker test results, and one review of the selected
 plan. No builder or grant is activated by this document.
 
+The [same-repository marker test](CHILD-WRITER-READINESS.md#marker-test-routing-overlap-and-feedback)
+verified concurrent work and result collection for two Herdr-launched
+OpenCode Build sessions in separate Worktrunk worktrees. The operator chose
+the [one-worker draft-PR proof](HERDR-LOCAL-WORKER.md), followed by the
+[four-worker qualification](HERDR-FOUR-WORKERS.md). Four separately
+approved top-level Build sessions completed cycles in one repository;
+their drafts merged serially. Three Build intervals overlapped for
+12.8 seconds and four focused test processes for 0.92 seconds. This
+qualifies the supervised procedure; it is not a throughput benchmark.
+
+## Production readiness
+
+Use the ordinary OpenCode conversation: Discovery in Plan mode, then
+DBSCTR in Build mode. No Discover-Coordinator agent is required.
+At the end of Discovery the operator approves the complete selected plan
+once, including slices that must wait for prerequisites. Bind that decision
+to the reviewed plan; Build consumes it without asking the operator to paste
+each slice's digest. A changed scope requires a new decision. Build uses
+one named Herdr tab and Worktrunk checkout per top-level worker. The primary
+announces the tab and branch for each slice and reads its result by session
+ID. DBSCTR gate evidence and verified draft heads establish delivery.
+
+1. **Merge managed instructions.** Refresh the planning draft #359 against
+   current `main`. Preserve the newer Initiative manifest and README,
+   reconcile the lifecycle changelog, and update the handoff and its
+   instruction tests for same-repository work. Include an explicit shell
+   workdir/branch check, optional timing, and resuming the original session
+   and cycle after interruption. Verify dependencies or shared writes
+   cause serialization and that operators can find the worker tabs.
+   Run publication and instruction-contract checks and exact-candidate CI.
+   Draft #373 has separate adapter regression coverage; it is useful but
+   does not install the workflow or block the supervised instructions.
+2. **Deploy the merged workflow to all managed hosts.** The distribution
+   owner inventories the targets and previews the skills and their runtime
+   dependencies on each host,
+   preserves live sessions and local edits, applies only the approved
+   delta, and verifies the installed files against that revision. Linux CI
+   verifies source; it is not a receipt for the operator's macOS install.
+3. **Accept the installed workflow.** From a fresh Plan/Build conversation
+   on each target, plan disjoint work without a delegation reminder.
+   Observe named tabs, distinct worktrees, matching sessions and Cycle
+   Records, result collection and serial publication. Exercise interrupted
+   readback without launching a duplicate. Record installed revision,
+   outcome and rollback to the prior managed instructions. These are
+   the Deploy and Operate checks for daily use.
+
+**Batch authorization is a first-release requirement.** Before deployment,
+the release needs the existing grant owner to cover draft-only batches,
+the controller to admit disjoint same-target writers and reject conflicts,
+and restart/revocation tests that prevent duplicate effects. Qualify
+attributable gate evidence and the installed coordinator on the target.
+Worktree selection is not write confinement. Defer native child ownership
+to a later feasibility experiment; the first release uses top-level workers.
+
 ## The operator journey
 
 Discovery shows what can run independently, what must wait, and why. The
 operator reviews the selected work, delivery choices and limits once. Build
-offers each ready slice to a qualified native builder without another request
+offers each ready slice to a top-level Build worker without another request
 to delegate. The builder follows the normal DBSCTR cycle for that slice,
 including its test and review gates, draft PR or other approved output, CI
 feedback and bounded repair. A fresh session can read how many slices have
@@ -27,9 +81,10 @@ for a **separately qualified writer role**. Research, Plan, docs writers and
 ordinary coding helpers keep their contracts. A provider-specific coding
 helper is not a qualified slice writer merely because it is named a builder.
 Use the selected runtime's native agent mechanism and provider restrictions.
-Prefer a dedicated subagent profile for the writer. A separate primary after
-a session fork must meet exactly the same writer checks. If neither form can
-be qualified, report that fact instead of manufacturing a native identity.
+The original proposal preferred a dedicated subagent. A separate primary,
+whether started fresh in a worktree or forked, must meet the same writer
+checks. The marker test informs that choice; it does not qualify either
+form to own a cycle.
 
 ## Ownership and dependencies
 
