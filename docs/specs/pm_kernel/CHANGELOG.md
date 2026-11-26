@@ -1,5 +1,9 @@
 # PM Kernel Changelog
 
+- `HERDR-QUAD-PM-REFRESH-001`: Reconcile draft #376 with the protected base
+  containing #375 and revalidate the PM regression alongside the incoming
+  Codex test. No PM runtime, deployment, or merge is part of this refresh.
+
 ## 2026-11-25 - HERDR-QUAD-PM-001 Quoted List Regression
 
 - Added regression coverage for quoted list members `"true"`, `"01"`, and
