@@ -1,5 +1,22 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-26 — Check stable musl linkage before the Herdr build
+
+- Invoke the pinned linker through a stable Rust option. Link and run a
+  minimal static musl executable before either full build.
+
+## 2026-11-26 — Resume pinned Zig downloads in Herdr proof CI
+
+- Resume interrupted downloads within a fixed budget. Require exact size
+  and SHA-256 before extracting the pinned toolchain.
+
+## 2026-11-25 — Stage the RRW-007K Herdr build proof
+
+- Add an isolated draft CI lane for two clean, pinned Linux x86_64 builds.
+  Compare binary checksums and smoke-test the matched bytes. CI artifacts
+  are temporary test evidence; no runtime pin, installer, or deployment
+  changes.
+
 ## 2026-11-25 — Reconcile historical shadow source
 
 - Reconcile PR #371 with the protected base, including the Initiative section
