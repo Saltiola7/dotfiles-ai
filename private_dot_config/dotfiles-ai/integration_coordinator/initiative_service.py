@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 import json
 from pathlib import Path, PurePosixPath
 import re
+from typing import Literal
 
 from . import core, initiative_authority as authority, initiative_controller as controller, initiative_forgejo as forgejo_fixture
 from . import lifecycle as l
@@ -31,6 +32,7 @@ class RuntimeRecipe:
     writer_agent: str
     slices: tuple[SliceRecipe, ...]
     forgejo: forgejo_fixture.Fixture | None = None
+    credential_source: Literal["osxkeychain", "systemd"] = "osxkeychain"
 
     def slice(self, identifier: str) -> SliceRecipe:
         for item in self.slices:
@@ -40,8 +42,12 @@ class RuntimeRecipe:
 
     @property
     def digest(self) -> str:
-        provider = ({"schema_version": 1, "github_account": self.github_account} if self.forgejo is None
-                    else {"schema_version": 2, "forgejo": self.forgejo.digest})
+        if self.forgejo is None:
+            provider = {"schema_version": 1, "github_account": self.github_account}
+        elif self.credential_source == "systemd":
+            provider = {"schema_version": 3, "forgejo": self.forgejo.digest, "credential_source": self.credential_source}
+        else:
+            provider = {"schema_version": 2, "forgejo": self.forgejo.digest}
         return l.digest({**provider, "authority_checkout": str(self.authority_checkout),
                          "manifest_path": self.manifest_path, "writer_agent": self.writer_agent,
                          "slices": [asdict(item) for item in self.slices]})
@@ -69,9 +75,14 @@ def read_recipe(custody: l.Custody) -> RuntimeRecipe:
     value = l.object_value(json.loads(raw, object_pairs_hook=l.no_duplicates))
     version = value.get("schema_version")
     common = {"schema_version", "authority_checkout", "manifest_path", "writer_agent", "slices"}
-    if type(version) is not int or version not in {1, 2} or set(value) != common | {
-            "github_account" if version == 1 else "forgejo"}:
+    provider_fields = {1: {"github_account"}, 2: {"forgejo"}, 3: {"forgejo", "credential_source"}}
+    if type(version) is not int or version not in provider_fields or set(value) != common | provider_fields[version]:
         raise ValueError("initiative_recipe_invalid")
+    credential_source: Literal["osxkeychain", "systemd"] = "osxkeychain"
+    if version == 3:
+        if value["credential_source"] != "systemd":
+            raise ValueError("initiative_recipe_credential_source_invalid")
+        credential_source = "systemd"
     checkout = Path(l.text(value["authority_checkout"], 4096))
     if (not checkout.is_absolute() or checkout != checkout.resolve() or checkout.as_posix() != value["authority_checkout"]):
         raise ValueError("initiative_recipe_checkout_invalid")
@@ -110,7 +121,7 @@ def read_recipe(custody: l.Custody) -> RuntimeRecipe:
                                   _portable_path(item["plan_path"]), l.hex_value(item["plan_digest"])))
     if len({item.branch for item in slices}) != len(slices) or len({item.cycle_id for item in slices}) != len(slices):
         raise ValueError("initiative_recipe_slice_duplicate")
-    return RuntimeRecipe(checkout, manifest, account, agent, tuple(slices), fixture)
+    return RuntimeRecipe(checkout, manifest, account, agent, tuple(slices), fixture, credential_source)
 
 
 def bind_recipe(recipe: RuntimeRecipe, native_binding: dict) -> dict:
@@ -141,6 +152,7 @@ class StartPreview:
                 "recipe_digest": self.recipe.digest, "authority_checkout": str(self.recipe.authority_checkout),
                 **({"github_account": self.recipe.github_account} if self.recipe.forgejo is None else
                    {"forgejo_fixture_digest": self.recipe.forgejo.digest}),
+                **({"credential_source": self.recipe.credential_source} if self.recipe.credential_source == "systemd" else {}),
                 "writer_agent": self.recipe.writer_agent,
                 "slice_plans": [asdict(self.recipe.slice(identifier)) for identifier in self.snapshot["selected"]]}
 
