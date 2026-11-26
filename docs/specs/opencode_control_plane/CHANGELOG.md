@@ -1,5 +1,11 @@
 # OpenCode Control Plane Changelog
 
+## 2026-11-25 — HERDR-QUAD-OPENCODE-001
+
+- Give each inherited slash command a named parameterized test case so route
+  overrides identify the affected command. Preserve the inheritance assertion
+  and separate provider-specific agent/model checks; no runtime changes.
+
 ## 2026-11-15 — Reconciliation and CI budget headroom
 
 - Reconciled the completion-journey PR with #321's equivalent fixture-clock
