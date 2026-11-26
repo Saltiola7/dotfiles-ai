@@ -1,5 +1,9 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-26 — Reconcile draft recovery with the Forgejo deadline fix
+
+- Preserve both contracts without changing the recovery CLI.
+
 ## 2026-11-26 — Refresh draft recovery with native delegation
 
 - Preserve draft recovery while validating the incoming delegation guidance
@@ -17,6 +21,14 @@
 
 - Refresh the draft on the OpenCode routing test update; recovery behavior
   and CLI bytes remain unchanged.
+
+## 2026-11-26 — Bound guarded Forgejo preconditions by approval expiry
+
+- Allow the private fixture owner time to verify guarded merge preconditions
+  within the original approval. Keep ordinary provider timeouts and protected
+  merge authorization intact. No managed activation.
+- Reconcile this fix with the advanced protected base and verify the
+  deadline against the combined source tree.
 
 ## NATIVE-SLICE-PLAN-REFRESH-001 — Plan and Build handoff
 

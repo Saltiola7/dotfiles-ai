@@ -11,10 +11,15 @@ import re
 import subprocess
 import sys
 import tempfile
+from typing import cast
 
 from . import core, forgejo, forgejo_ci as ci, forgejo_merge as merge, lifecycle as l, runtime as r
 from .initiative_controller import Activation
 from .initiative_forgejo import Fixture
+
+
+_PROVIDER_TIMEOUT = 25
+_MERGE_PRECONDITIONS_TIMEOUT = 180 + 2  # Owner broker budget plus relay overhead.
 
 
 class Bridge:
@@ -37,10 +42,15 @@ class Bridge:
             with tempfile.TemporaryDirectory(prefix="forgejo-fixture-") as temp, tempfile.TemporaryFile() as output:
                 executable = Path(temp) / "provider.py"
                 executable.write_bytes(program)
+                timeout: float = _PROVIDER_TIMEOUT
+                if operation == "merge_preconditions":
+                    now = _active_expiry(request.get("expires_at"))
+                    expires_at = cast(int, request["expires_at"])
+                    timeout = min(expires_at, now + _MERGE_PRECONDITIONS_TIMEOUT) - now
                 result = subprocess.run([sys.executable, "-I", "-B", str(executable)], input=invocation,
                     cwd=self.custody.directory, env={"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
                                                      "LC_ALL": "C", "PYTHONIOENCODING": "utf-8"},
-                    stdout=output, stderr=subprocess.DEVNULL, timeout=25, check=False)
+                    stdout=output, stderr=subprocess.DEVNULL, timeout=timeout, check=False)
                 output.seek(0)
                 data = output.read(l.MAX_PRIVATE_BYTES + 1)
             if result.returncode or len(data) > l.MAX_PRIVATE_BYTES:
@@ -50,6 +60,8 @@ class Bridge:
                     or type(value["schema_version"]) is not int or value["schema_version"] != 1
                     or value["fixture_digest"] != self.fixture.digest):
                 raise core.Invalid("initiative_forgejo_bridge_response_unbound")
+            if operation == "merge_preconditions":
+                _active_expiry(request.get("expires_at"))
             return value["result"]
         except (OSError, ValueError, subprocess.SubprocessError):
             raise core.Unavailable("initiative_forgejo_bridge_unavailable") from None
@@ -209,7 +221,9 @@ def _time(value: object) -> datetime | None:
     return None if value is None else l.initiative_time(value)
 
 
-def _active_expiry(expires_at: int) -> None:
+def _active_expiry(expires_at: object) -> float:
     core._integer(expires_at)
-    if expires_at <= int(datetime.now(UTC).timestamp()):
+    now = datetime.now(UTC).timestamp()
+    if cast(int, expires_at) <= now:
         raise core.Unavailable("initiative_forgejo_bridge_approval_expired")
+    return now
