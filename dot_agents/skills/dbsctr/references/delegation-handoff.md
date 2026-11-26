@@ -56,3 +56,11 @@ After interruption, reopen the original session by session ID and read its
 checkout and Cycle Record before continuing. Verify gate evidence and the
 published head before accepting delivery. Publish drafts serially; if main
 advances, reconcile and verify fresh exact-candidate CI before protected merge.
+
+For top-level slice workers, select the route from the orchestrating agent.
+From `build-claude`, start each worker as `build-claude` with an explicit
+`google-vertex/claude-sonnet-5-5@default` model override and medium variant;
+the orchestrator keeps its Opus default. From native `build`, start `build`
+with `openai/gpt-6.2-sol` and medium variant. Verify agent, provider, model
+and variant by session readback before handing off the slice. Do not invoke
+a model-pinned slash command that would override the worker selection.
