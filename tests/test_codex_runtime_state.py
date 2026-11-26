@@ -138,6 +138,23 @@ def test_version_two_uses_prior_not_incoming_owned_fingerprint(tmp_path):
         core.project(source, target)
 
 
+def test_native_status_line_order_and_unicode_survive_later_managed_change(tmp_path):
+    core, source, target, config = previous_projection(tmp_path)
+    status_line = ['cwd', '模型', 'model', 'état', '🚀']
+    runtime = '\n[tui]\nstatus_line = ["cwd", "模型", "model", "état", "🚀"]\n'
+    (target / 'config.toml').write_text(config + runtime)
+    core.project(source, target)
+    adopted = tomllib.loads((target / 'config.toml').read_text())
+    assert adopted['model'] == 'managed'
+    assert adopted['tui']['status_line'] == status_line
+
+    (source / 'config.toml').write_text(config.replace('"managed"', '"updated"'))
+    core.project(source, target)
+    updated = tomllib.loads((target / 'config.toml').read_text())
+    assert updated['model'] == 'updated'
+    assert updated['tui']['status_line'] == status_line
+
+
 def test_native_state_round_trips_on_managed_change(tmp_path):
     core, source, target, config = previous_projection(tmp_path)
     runtime = '\n[tui]\nstatus_line = ["model", "cwd"]\ntheme = "téšt"\n' + (
