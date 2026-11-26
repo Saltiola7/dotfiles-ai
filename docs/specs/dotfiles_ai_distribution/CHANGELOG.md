@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-26 — Resume pinned Zig downloads in Herdr proof CI
+
+- Resume interrupted downloads within a fixed budget. Require exact size
+  and SHA-256 before extracting the pinned toolchain.
+
 ## 2026-11-25 — Stage the RRW-007K Herdr build proof
 
 - Add an isolated draft CI lane for two clean, pinned Linux x86_64 builds.

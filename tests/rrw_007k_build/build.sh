@@ -18,8 +18,7 @@ fetch() {
 
 fetch "https://codeload.github.com/herdrdev/herdr/tar.gz/$pin" "$work/dl/source.tar.gz" \
     364730fe096f2f79749c3e7d7204951406437ecb8161b8d93b6fc42ccde9100d
-fetch https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz "$work/dl/zig.tar.xz" \
-    70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
+timeout -k 5s 540s bash "$recipe/fetch-zig.sh" "$work/dl/zig.tar.xz"
 fetch "https://static.rust-lang.org/dist/2026-06-30/rust-std-1.96.1-$target.tar.xz" "$work/dl/std.tar.xz" \
     94192fe7e10f11e8595f2a29ebda182da0f786797fe908f44fbf80213cd845ac
 printf '%s  %s\n' ebd2b8f59f9712bf39841e2073d784d95612b3d86eab857b03c29f18432a95e6 \
