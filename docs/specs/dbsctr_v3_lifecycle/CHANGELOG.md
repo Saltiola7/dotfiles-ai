@@ -1,5 +1,12 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## DRAFT-WORKER-BATCH-001 — One approval for draft workers
+
+Add batch preview, chat acceptance, registration and recovery for disjoint
+workers. Verify route readback and publish drafts under a shared target lock.
+Fixture coverage includes three sessions and projected documents. Installed
+operator-host acceptance is pending.
+
 ## NATIVE-SLICE-PLAN-REFRESH-001 — Plan and Build handoff
 
 Describe one review of the selected plan, explicit checkout verification
