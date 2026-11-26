@@ -257,9 +257,15 @@ jobs:
               return items if envelope.get("total_count") == len(items) else []
 
           def archive(identifier):
+              return download(f"/actions/artifacts/{identifier}/zip", 32 * MIB)
+
+          def download(path, limit, *, prefix=False):
+              def read(response):
+                  return response.read(limit) if prefix else bounded(response, limit)
+
               try:
-                  with client.open(request(f"/actions/artifacts/{identifier}/zip"), timeout=10) as response:
-                      return bounded(response, 32 * MIB)
+                  with client.open(request(path), timeout=10) as response:
+                      return read(response)
               except HTTPError as error:
                   with error:
                       if error.code != 302:
@@ -271,7 +277,7 @@ jobs:
                   # Only this authenticated API redirect is followed, without
                   # forwarding the token or following further redirects.
                   with client.open(Request(location), timeout=10) as response:
-                      return bounded(response, 32 * MIB)
+                      return read(response)
 
           def retain(item, destination, required, optional=()):
               size = item.get("size_in_bytes")
@@ -338,30 +344,118 @@ jobs:
               return (isinstance(path, str) and path.split("@", 1)[0] == f".github/workflows/{filename}"
                       and isinstance(repository, dict) and repository.get("full_name") == repo)
 
+          CHECKOUT = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+          QUALIFIED_TEST = {
+              "5ee958676db035871ca196571b2c874723be94b3",  # historical PR #369 sample
+              "35ae7e2116103e61072a0aba21770da5ea9e75e8",  # protected base after #365
+          }
+          WORKERS = {f"Full suite (3.14, partition {shard})" for shard in range(4)}
+          SUMMARY = "test (3.14)"
+
+          def checkout_evidence(job, run):
+              steps = records(job, "steps")
+              if (not numeric(job.get("id")) or job.get("run_id") != run.get("id")
+                      or job.get("run_attempt") != run.get("run_attempt")
+                      or job.get("head_sha") != run.get("head_sha")
+                      or job.get("workflow_name") != "test" or job.get("status") != "completed"
+                      or len(steps) < 2 or steps[0].get("name") != "Set up job"
+                      or steps[0].get("number") != 1 or steps[1].get("name") != f"Run {CHECKOUT}"
+                      or steps[1].get("number") != 2 or steps[1].get("conclusion") != "success"):
+                  return None
+              start, end = (steps[1].get(key) for key in ("started_at", "completed_at"))
+              if not all(isinstance(t, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", t)
+                         for t in (start, end)):
+                  return None
+              try:
+                  data = download(f"/actions/jobs/{job['id']}/logs", 128 * 1024, prefix=True)
+              except (OSError, HTTPException, ValueError):
+                  return None
+              # Accept only the first action's checkout records, not later test output.
+              active = False
+              fetches, changes, result = [], [], []
+              expect_oid = False
+              for line in data.split(b"\n")[:-1]:
+                  stamp, _, body = line.rstrip(b"\r").partition(b" ")
+                  if not re.fullmatch(rb"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z", stamp):
+                      continue
+                  second = stamp[:19].decode() + "Z"
+                  if second > end:
+                      break
+                  if second < start:
+                      continue
+                  if body.startswith(b"##[group]Run "):
+                      if active or body != f"##[group]Run {CHECKOUT}".encode():
+                          break
+                      active = True
+                      continue
+                  if not active:
+                      continue
+                  if expect_oid:
+                      if re.fullmatch(rb"[0-9a-f]{40}", body):
+                          result.append(body.decode())
+                      expect_oid = False
+                  if re.match(rb"\[command\]/usr/bin/git (?:-c protocol\.version=2 )?fetch ", body):
+                      fetches.extend(re.findall(rb"\+([0-9a-f]{40}):refs/remotes/pull/([1-9][0-9]{0,18})/merge(?= |$)", body))
+                  match = re.fullmatch(rb"\[command\]/usr/bin/git checkout --progress --force refs/remotes/pull/([1-9][0-9]{0,18})/merge", body)
+                  if match:
+                      changes.append(match[1])
+                  expect_oid = body == b"[command]/usr/bin/git log -1 --format=%H"
+              if len(fetches) == len(changes) == len(result) == 1:
+                  tested, number = fetches[0]
+                  if changes[0] == number and result[0] == tested.decode():
+                      return tested.decode(), number.decode()
+              return None
+
           def source(run, jobs):
-              prs = records(run, "pull_requests")
-              run_head = oid(run.get("head_sha"))
-              if len(prs) != 1:
-                  # The native PR run head is sufficient for a note lookup,
-                  # but not for claiming the tested base or merge revision.
-                  return dict(head=run_head, base=None, tested_oid=None)
-              pr = prs[0]
-              head_ref, base_ref = pr.get("head"), pr.get("base")
-              head = oid(head_ref.get("sha")) if isinstance(head_ref, dict) else None
-              base = oid(base_ref.get("sha")) if isinstance(base_ref, dict) else None
-              # Never guess the tested revision from a mutable merge ref or
-              # worker artifacts. Both the run and its jobs can expose only
-              # the PR head. If they disagree on a candidate merge, fail closed.
-              revisions = {oid(run.get("head_sha"))}
-              revisions.update(oid(job.get("head_sha")) for job in records(jobs, "jobs"))
-              candidates = revisions - {None, head, base}
-              if head and base and len(candidates) == 1:
-                  tested = candidates.pop()
-                  commit = get(f"/git/commits/{tested}")
-                  parents = [parent.get("sha") for parent in records(commit, "parents")]
-                  if commit.get("sha") == tested and parents == [base, head]:
-                      return dict(head=head, base=base, tested_oid=tested)
-              return dict(head=head, base=None, tested_oid=None)
+              head = oid(run.get("head_sha"))
+              missing = dict(head=head, base=None, tested_oid=None)
+              entries = records(jobs, "jobs")
+              names = {job.get("name") for job in entries if isinstance(job.get("name"), str)}
+              ids = {str(job.get("id")) for job in entries}
+              if not head or len(entries) != 5 or len(ids) != 5 or names != WORKERS | {SUMMARY}:
+                  return missing
+              evidence = {checkout_evidence(job, run) for job in entries}
+              if len(evidence) != 1 or None in evidence:
+                  return missing
+              tested, number = evidence.pop()
+              commit = get(f"/git/commits/{tested}")
+              parents = [oid(parent.get("sha")) for parent in records(commit, "parents")]
+              if commit.get("sha") != tested or len(parents) != 2 or not parents[0] or parents[1] != head:
+                  return missing
+              base = parents[0]
+              pr = get(f"/pulls/{number}")
+              target = pr.get("base")
+              head_ref = pr.get("head")
+              trusted = oid(os.environ.get("GITHUB_SHA"))
+              repository = get("")
+              run_repo = run.get("head_repository")
+              if (str(pr.get("number")) != number or not isinstance(target, dict) or not isinstance(head_ref, dict)
+                      or not isinstance(target.get("repo"), dict) or target["repo"].get("full_name") != repo
+                      or repository.get("full_name") != repo or repository.get("default_branch") != "main"
+                      or target.get("ref") != "main" or not trusted
+                      or not isinstance(head_ref.get("repo"), dict)
+                      or not isinstance(run_repo, dict) or not numeric(run_repo.get("id"))
+                      or head_ref["repo"].get("id") != run_repo["id"]
+                      or head_ref.get("ref") != run.get("head_branch")):
+                  return missing
+              for linked in records(run, "pull_requests"):
+                  linked_head, linked_base = linked.get("head"), linked.get("base")
+                  if (str(linked.get("number")) != number or not isinstance(linked_head, dict)
+                          or not isinstance(linked_base, dict)
+                          or linked_head.get("sha") != head or linked_base.get("sha") != base
+                          or linked_base.get("ref") != "main"):
+                      return missing
+              ancestry = get(f"/compare/{base}...{trusted}?per_page=1")
+              ancestor = ancestry.get("merge_base_commit")
+              if (ancestry.get("status") not in ("ahead", "identical") or not isinstance(ancestor, dict)
+                      or ancestor.get("sha") != base):
+                  return missing
+              def workflow_blob(revision):
+                  return oid(get(f"/contents/.github/workflows/test.yml?ref={revision}").get("sha"))
+              qualified = workflow_blob(base)
+              if qualified not in QUALIFIED_TEST or workflow_blob(tested) != qualified:
+                  return missing
+              return dict(head=head, base=base, tested_oid=tested)
 
           if not numeric(run_id) or (attempt and not numeric(attempt)):
               raise SystemExit("A numeric test run ID and attempt are required")
@@ -393,7 +487,7 @@ jobs:
                   if len(matches) == 1:
                       retain(matches[0], root / "partitions" / name, ("manifest.json", "junit.xml"))
               head = provenance["head"]
-              if head:
+              if provenance["tested_oid"]:
                   query = urlencode(dict(event="pull_request", status="completed", head_sha=head, per_page=10))
                   runs = get(f"/actions/workflows/validation-shadow.yml/runs?{query}")
                   for candidate in records(runs, "workflow_runs")[:10]:
@@ -403,9 +497,18 @@ jobs:
                           continue
                       matches = [item for item in artifacts(affected_id) if item.get("name") == "validation-affected"]
                       if len(matches) == 1:
-                          retain(matches[0], root / "affected", ("result.json",), ("runtime.json",))
-                          if (root / "affected").exists():
-                              break
+                          with tempfile.TemporaryDirectory(dir=root) as scratch:
+                              selected = Path(scratch) / "affected"
+                              retain(matches[0], selected, ("result.json",), ("runtime.json",))
+                              try:
+                                  result = json.loads((selected / "result.json").read_bytes())
+                              except (OSError, ValueError, RecursionError):
+                                  continue
+                              if (isinstance(result, dict) and result.get("head") == provenance["tested_oid"]
+                                      and result.get("base") == provenance["base"]):
+                                  selected.rename(root / "affected")
+                                  break
+              if head:
                   note(head)
           elif not attempt:
               # Manual dispatch cannot establish even that the run was a PR.

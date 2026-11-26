@@ -1,5 +1,10 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## 2026-11-25 — Refresh Linux credential CI base
+
+- Reconcile PR #372 with protected main at `120b3b73` and retain the
+  approved credential source and hosted validation reporting.
+
 ## 2026-11-25 — Reconcile Linux credentials with section authority
 
 - Reconcile PR #372 with protected main at `f0c671dd`. Preserve both
