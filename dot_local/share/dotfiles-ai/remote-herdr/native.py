@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import selectors
+import signal
 import socket
 import sqlite3
 import stat
@@ -1018,7 +1019,7 @@ class Native:
         finally:
             self._expected_tui_run = None
 
-    def _observe_tui_run(self, previous, prior, run):
+    def _observe_tui_run(self, previous, prior, run, *, replacement=None):
         disk, file = self.snapshot_evidence()
         if not layout.supported_tui_save(disk):
             raise NativeError('TUI workspace directory proof unavailable')
@@ -1063,7 +1064,7 @@ class Native:
         plan = checked_plan({'schema_version': 1, 'spaces': spaces})
         clients = self._coverage(plan, deferred=deferred)
         self._db_sessions(plan)
-        pids, bindings = self._owner_process_proofs(api, facts, clients, run)
+        pids, bindings = self._owner_process_proofs(api, facts, clients, run, replacement=replacement)
         for workspace in view:
             for tab in workspace['tabs']:
                 for pane, item in tab['panes'].items():
@@ -1092,7 +1093,7 @@ class Native:
             raise NativeError('TUI changed during owner observation')
         return {'view': view, 'pids': pids, 'file': file, 'clients': bindings, 'run': run}, disk, plan
 
-    def _owner_process_proofs(self, api, facts, clients, run):
+    def _owner_process_proofs(self, api, facts, clients, run, *, replacement=None):
         expected = {p['pane_id']: (layout._native_session({
             'agent_name': p.get('agent'), 'agent_session': p.get('agent_session')}),
             p.get('foreground_cwd') or p.get('cwd')) for p in api['panes']}
@@ -1129,11 +1130,196 @@ class Native:
             bindings[pane] = {'session_id': client['session_id'], 'cwd': expected[pane][1],
                               'process': next(p for p in pids if p['pid'] == client['pid']),
                               'service': owner, 'run': run}
-        processes.shared_connections(self.proc_root, service, endpoints)
+        if replacement is None:
+            processes.shared_connections(self.proc_root, service, endpoints)
+        else:
+            if owner != replacement:
+                raise NativeError('TUI reconnect backend changed')
+            processes.shared_connections(self.proc_root, service, {}, require_listener=True)
         if (service != self.shared_main_pid() or self._pid_proofs([service]) != [owner]
                 or self._pid_proofs([p['pid'] for p in pids]) != pids):
             raise NativeError('TUI process or shared service changed during observation')
         return pids, bindings
+
+    def _reconnect_service(self):
+        pid = self.shared_main_pid()
+        owner = self._pid_proofs([pid])[0]
+        if os.readlink(self.proc_root / str(pid) / 'exe') != str(self.home / '.opencode/bin/opencode'):
+            raise NativeError('shared service owner unavailable')
+        return owner
+
+    def _reconnect_boundary(self, run, service):
+        self._other_off('tui')
+        if self.selected() != 'tui' or self.tui_run() != run or self._reconnect_service() != service:
+            raise NativeError('TUI reconnect ownership changed')
+        main = self.command(['/usr/bin/systemctl', '--user', 'show', 'remote-herdr-tui.service',
+                             '--property=MainPID', '--value'])
+        if main != str(run['pid']):
+            raise NativeError('TUI reconnect unit owner unproven')
+        processes.shared_connections(self.proc_root, service['pid'], {}, require_listener=True)
+
+    def _reconnect_pane(self, pane, binding, *, idle=False):
+        snapshot = self.tui('session.snapshot', {})['snapshot']
+        rows = [row for row in snapshot['panes'] if row['pane_id'] == pane]
+        if len(rows) != 1 or rows[0].get('restore_error') is not None:
+            raise NativeError('TUI reconnect pane unavailable')
+        row = rows[0]
+        identity = (row.get('agent_session') or {}).get('value')
+        if ((row.get('foreground_cwd') or row.get('cwd')) != binding['cwd']
+                or (identity not in (None, binding['session_id']) if idle else identity != binding['session_id'])):
+            raise NativeError('TUI reconnect pane changed')
+        response = self.tui('pane.process_info', {'pane_id': pane})
+        info = response['process_info']
+        if (response.get('type') != 'pane_process_info' or info['pane_id'] != pane
+                or type(info['shell_pid']) is not int):
+            raise NativeError('TUI reconnect process info unavailable')
+        return info
+
+    def _reconnect_client(self, pane, binding):
+        info = self._reconnect_pane(pane, binding)
+        rows = self.scan({binding['session_id']})
+        if len(rows) != 1:
+            raise NativeError('TUI reconnect exact client unavailable')
+        pid = rows[0]['pid']
+        exe = str(self.home / '.opencode/bin/opencode')
+        argv = self.process_argv(pid)
+        if (pid == info['shell_pid'] or {p['pid'] for p in info['foreground_processes']} != {pid}
+                or self.process_cwd(pid) != binding['cwd'] or argv[0] != exe
+                or os.readlink(self.proc_root / str(pid) / 'exe') != exe
+                or self._session_argv(argv) != binding['session_id']):
+            raise NativeError('TUI reconnect foreground client changed')
+        proof = self._pid_proofs([pid])[0]
+        if proof['start_ticks'] != rows[0]['start_ticks']:
+            raise NativeError('TUI reconnect client identity changed')
+        endpoint = urlsplit(argv[2])
+        return proof, (endpoint.hostname, endpoint.port)
+
+    def _reconnect_pending(self, journal, prior, deadline):
+        pending = journal['pending']
+        if pending is None:
+            return
+        pane = pending['pane']
+        binding = prior['clients'][pane]
+        run, service = journal['run'], journal['service']
+        old = binding['process']
+        self._reconnect_boundary(run, service)
+        if pending['phase'] == 'stop_pending':
+            # A crash before or during the signal is ambiguous until the
+            # previously witnessed client actually exits. Never send it again.
+            self._wait(lambda: self._pids_absent([old]), seconds=8)
+            if self.scan({binding['session_id']}):
+                raise NativeError('TUI reconnect session still present')
+            info = self._reconnect_pane(pane, binding, idle=True)
+            shell = info['shell_pid']
+            shell_proof = self._pid_proofs([shell])
+            argv = self.process_argv(shell)
+            if (not self._idle_tui_shell(argv) or self.process_cwd(shell) != binding['cwd']
+                    or {p['pid'] for p in info['foreground_processes']} != {shell}):
+                raise NativeError('TUI reconnect idle shell unavailable')
+            pending['phase'] = 'launch_pending'
+            self.store.write('tui-reconnect.json', journal)
+            self._reconnect_boundary(run, service)
+            if (self._reconnect_pane(pane, binding, idle=True) != info
+                    or self.process_argv(shell) != argv or self.process_cwd(shell) != binding['cwd']
+                    or self._pid_proofs([shell]) != shell_proof
+                    or self.scan({binding['session_id']})):
+                raise NativeError('TUI reconnect launch boundary changed')
+            if time.monotonic() >= deadline:
+                raise NativeError('TUI reconnect budget exhausted')
+            name = 'rrw-' + hashlib.sha256(pane.encode()).hexdigest()[:24]
+            self.command(['herdr', 'agent', 'start', name, '--kind', 'opencode', '--pane', pane,
+                          '--timeout', '20000', '--', '--session', binding['session_id']],
+                         timeout=max(0.001, min(25, deadline - time.monotonic())))
+        elif pending['phase'] != 'launch_pending':
+            raise NativeError('TUI reconnect phase invalid')
+        if not self._pids_absent([old]):
+            raise NativeError('TUI reconnect old client exit unproven')
+
+        def attached():
+            try:
+                proof, endpoint = self._reconnect_client(pane, binding)
+                if proof == old:
+                    return False
+                processes.shared_connections(self.proc_root, service['pid'], {proof['pid']: endpoint})
+                return self._pid_proofs([proof['pid']]) == [proof]
+            except (OSError, ValueError):
+                return False
+
+        self._wait(attached, seconds=max(0, min(12, deadline - time.monotonic())))
+        self._reconnect_boundary(run, service)
+        journal['pending'] = None
+        self.store.write('tui-reconnect.json', journal)
+
+    @bounded
+    def reconnect_shared_tui(self, plan, prior):
+        """Repair a proven backend replacement; leave all ambiguous effects held."""
+        journal = self.store.read('tui-reconnect.json')
+        run = self.tui_run()
+        if run != prior.get('run'):
+            if journal:
+                raise NativeError('TUI reconnect run changed')
+            return
+        old_owners = {tuple(sorted(binding['service'].items())) for binding in prior['clients'].values()}
+        if len(old_owners) != 1:
+            raise NativeError('TUI reconnect prior backend inconsistent')
+        old_service = dict(old_owners.pop())
+        service = self._reconnect_service()
+        if old_service == service:
+            if journal and (journal['run'] != run or journal['service'] != service or journal['pending']):
+                raise NativeError('TUI reconnect retained intent inconsistent')
+            return
+        deadline = time.monotonic() + 620
+        self._reconnect_boundary(run, service)
+        if old_service.get('boot_id') != run['boot_id'] or not self._pids_absent([old_service]):
+            raise NativeError('TUI reconnect prior backend exit unproven')
+        if journal:
+            if journal['run'] != run or journal['service'] != service or journal['lineage'] != prior['lineage']:
+                raise NativeError('TUI reconnect retained intent inconsistent')
+        else:
+            journal = {'run': run, 'service': service, 'lineage': prior['lineage'], 'pending': None}
+        self._expected_tui_run = run
+        try:
+            self._reconnect_pending(journal, prior, deadline)
+            view, _, _ = self._observe_tui_run(plan, prior, run, replacement=service)
+            if view['view'] != prior['view'] or view['clients'].keys() != prior['clients'].keys():
+                raise NativeError('TUI reconnect witnessed layout changed')
+            for pane, binding in prior['clients'].items():
+                if time.monotonic() >= deadline:
+                    raise NativeError('TUI reconnect budget exhausted')
+                if binding['run'] != run:
+                    raise NativeError('TUI reconnect pane witness run changed')
+                self._reconnect_boundary(run, service)
+                proof, endpoint = self._reconnect_client(pane, binding)
+                try:
+                    processes.shared_connections(self.proc_root, service['pid'], {proof['pid']: endpoint})
+                    continue
+                except processes.SharedAttachmentMissing:
+                    if proof != binding['process']:
+                        raise NativeError('TUI reconnect replacement client unproven') from None
+                fd = os.pidfd_open(proof['pid'])
+                try:
+                    if self._pid_proofs([proof['pid']]) != [proof]:
+                        raise NativeError('TUI reconnect signal identity changed')
+                    self.store.write('tui-observation.json', {**prior, 'hold': True})
+                    journal['pending'] = {'pane': pane, 'phase': 'stop_pending'}
+                    self.store.write('tui-reconnect.json', journal)
+                    self._reconnect_boundary(run, service)
+                    if self._reconnect_client(pane, binding) != (proof, endpoint):
+                        raise NativeError('TUI reconnect stop boundary changed')
+                    if time.monotonic() >= deadline:
+                        raise NativeError('TUI reconnect budget exhausted')
+                    try:
+                        processes.shared_connections(self.proc_root, service['pid'], {proof['pid']: endpoint})
+                    except processes.SharedAttachmentMissing:
+                        pass
+                    else:
+                        raise NativeError('TUI reconnect client reattached before stop')
+                    signal.pidfd_send_signal(fd, signal.SIGTERM)
+                finally:
+                    os.close(fd)
+                self._reconnect_pending(journal, prior, deadline)
+        finally:
+            self._expected_tui_run = None
 
     @staticmethod
     def _checked_boot_id(value):

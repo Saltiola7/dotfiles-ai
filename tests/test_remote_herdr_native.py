@@ -3341,6 +3341,100 @@ def test_k_persists_public_pane_and_actual_server_client_and_service_incarnation
                        'process': backend._pid_proofs([31])[0], 'service': backend._pid_proofs([61])[0]}
 
 
+@pytest.mark.parametrize('phase,old_alive', [('stop_pending', True), ('launch_pending', False)])
+def test_k_reconnect_uncertain_effects_never_replay(backend, monkeypatch, phase, old_alive):
+    owner_edit(backend, saved=True)
+    runtime_controller.Controller(backend.store, backend).restore()
+    prior = backend.store.read('tui-observation.json')
+    pane = next(iter(prior['clients']))
+    original = prior['clients'][pane]['process']
+    service = {**prior['clients'][pane]['service'], 'pid': 62}
+    journal = {'run': prior['run'], 'service': service, 'lineage': prior['lineage'],
+               'pending': {'pane': pane, 'phase': phase}}
+    backend.store.write('tui-reconnect.json', journal)
+    monkeypatch.setattr(backend, '_reconnect_boundary', lambda *_: None)
+    monkeypatch.setattr(backend, '_pids_absent', lambda proofs: proofs == [original] and not old_alive)
+    monkeypatch.setattr(backend, '_reconnect_client', lambda *_: (original, ('127.0.0.1', 4096)))
+    monkeypatch.setattr(backend, 'command', lambda *_a, **_kw: pytest.fail('must not replay launch'))
+
+    def check_once(check, *, seconds):
+        assert not check()
+        raise native.NativeError('test timeout')
+
+    monkeypatch.setattr(backend, '_wait', check_once)
+    with pytest.raises(native.NativeError, match='test timeout'):
+        backend._reconnect_pending(journal, prior, 0)
+    assert backend.store.read('tui-reconnect.json') == journal
+
+
+@pytest.mark.parametrize('fault', [None, 'backend-still-live', 'layout-changed', 'connected'])
+def test_k_reconnect_journals_stop_and_launch_before_effects(backend, monkeypatch, fault):
+    owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    prior = backend.store.read('tui-observation.json')
+    pane, binding = next(iter(prior['clients'].items()))
+    old = binding['process']
+    replacement = {**binding['service'], 'pid': 62}
+    new = {**old, 'pid': 32}
+    endpoint = ('127.0.0.1', 4096)
+    effects = []
+    shell = {'shell_pid': 20, 'foreground_processes': [{'pid': 20}]}
+    proof = {'view': [] if fault == 'layout-changed' else prior['view'], 'clients': {pane: binding}}
+    monkeypatch.setattr(backend, '_reconnect_service', lambda: replacement)
+    monkeypatch.setattr(backend, '_reconnect_boundary', lambda *_: None)
+    monkeypatch.setattr(backend, '_observe_tui_run', lambda *_a, **_kw: (proof, None, None))
+    monkeypatch.setattr(backend, '_reconnect_pane', lambda *_a, **_kw: shell)
+    monkeypatch.setattr(backend, '_reconnect_client',
+                        lambda *_: (new if 'launch' in effects else old, endpoint))
+    monkeypatch.setattr(backend, '_pid_proofs',
+                        lambda pids: [old if pid == old['pid'] else {**new, 'pid': pid} for pid in pids])
+    monkeypatch.setattr(backend, '_pids_absent',
+                        lambda proofs: (proofs == [binding['service']] and fault != 'backend-still-live')
+                        or (proofs == [old] and 'stop' in effects))
+    monkeypatch.setattr(backend, 'scan', lambda _: [])
+    monkeypatch.setattr(backend, 'process_argv', lambda _: ['/bin/sh'])
+    monkeypatch.setattr(backend, 'process_cwd', lambda _: binding['cwd'])
+    monkeypatch.setattr(native.os, 'pidfd_open', lambda pid: os.open('/dev/null', os.O_RDONLY))
+
+    def connections(_root, pid, endpoints):
+        assert pid == replacement['pid']
+        if old['pid'] in endpoints and fault != 'connected':
+            raise native.processes.SharedAttachmentMissing('not attached')
+
+    def stop(_fd, signum):
+        assert signum == native.signal.SIGTERM
+        assert backend.store.read('tui-observation.json')['hold']
+        assert backend.store.read('tui-reconnect.json')['pending'] == {'pane': pane, 'phase': 'stop_pending'}
+        effects.append('stop')
+
+    def launch(argv, *, timeout):
+        assert effects == ['stop']
+        assert argv[-5:] == ['--timeout', '20000', '--', '--session', binding['session_id']]
+        assert argv[argv.index('--pane') + 1] == pane
+        assert timeout > 0
+        assert backend.store.read('tui-reconnect.json')['pending'] == {'pane': pane, 'phase': 'launch_pending'}
+        effects.append('launch')
+
+    monkeypatch.setattr(native.processes, 'shared_connections', connections)
+    monkeypatch.setattr(native.signal, 'pidfd_send_signal', stop)
+    monkeypatch.setattr(backend, 'command', launch)
+    if fault in ('backend-still-live', 'layout-changed'):
+        with pytest.raises(native.NativeError, match='exit unproven|layout changed'):
+            backend.reconnect_shared_tui({}, prior)
+        assert not effects
+        assert backend.store.read('tui-reconnect.json') is None
+        return
+    backend.reconnect_shared_tui({}, prior)
+    if fault == 'connected':
+        assert not effects
+        assert backend.store.read('tui-reconnect.json') is None
+        return
+    assert effects == ['stop', 'launch']
+    assert backend.store.read('tui-reconnect.json')['pending'] is None
+    assert backend.store.read('tui-observation.json')['hold']
+
+
 @pytest.mark.parametrize('fault', ['moved', 'other-run', 'other-directory', None])
 def test_k_deferred_must_retain_independently_proven_public_binding(backend, fault):
     tui, _, _ = owner_edit(backend, saved=True)

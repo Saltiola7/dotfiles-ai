@@ -14,6 +14,10 @@ class ProcessProofError(ValueError):
     """An observation gap blocks target activation, without private diagnostics."""
 
 
+class SharedAttachmentMissing(ProcessProofError):
+    """Observed TCP inventory did not contain a matching shared connection."""
+
+
 def _bounded(fd: int, limit: int) -> bytes:
     if type(limit) is not int or limit < 0:
         raise ProcessProofError('process observation bound invalid')
@@ -258,7 +262,7 @@ def _socket_inodes(directory):
     return sockets
 
 
-def shared_connections(root, service, endpoints):
+def shared_connections(root, service, endpoints, *, require_listener=False):
     """Require both ends of an established loopback flow and the listener.
 
     Read the TCP tables once for the set, not once per pane. No registration,
@@ -289,10 +293,12 @@ def shared_connections(root, service, endpoints):
                 established[inode] = (local, remote)
                 if inode in service_fds:
                     accepted.add((remote, local))
+    if require_listener and not listeners:
+        raise ProcessProofError('shared service listener unavailable')
     for pid, (host, port) in endpoints.items():
         hosts = {'127.0.0.1': {ipv4}, '::1': {ipv6}, 'localhost': loopback}[host]
         flows = (established[i] for i in _socket_inodes(root / str(pid)) if i in established)
         if not any((a, b) in accepted and b in listeners and b.split(b':')[0] in hosts
                    and int(b.split(b':')[1], 16) == port
                    for a, b in flows):
-            raise ProcessProofError('shared service attachment unavailable')
+            raise SharedAttachmentMissing('shared service attachment unavailable')
