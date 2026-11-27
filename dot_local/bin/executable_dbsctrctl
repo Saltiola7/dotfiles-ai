@@ -6958,7 +6958,7 @@ def validate_record_evidence_bindings(root, record):
 
 
 @contextlib.contextmanager
-def evidence_input_descriptor(root, name, *, directory=False):
+def evidence_input_descriptor(root, name, *, directory=False, link=False):
     """Open through directory descriptors; branch-owned symlinks are never followed."""
     with contextlib.ExitStack() as stack:
         descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -6969,7 +6969,8 @@ def evidence_input_descriptor(root, name, *, directory=False):
         for part in parts[:-1]:
             descriptor = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
             stack.callback(os.close, descriptor)
-        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | (os.O_DIRECTORY if directory else 0)
+        flags = (os.O_PATH | os.O_NOFOLLOW if link else
+                 os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | (os.O_DIRECTORY if directory else 0))
         leaf = os.open(parts[-1], flags, dir_fd=descriptor)
         stack.callback(os.close, leaf)
         yield leaf
@@ -19957,6 +19958,27 @@ def evidence_path_blobs(root, paths, index=False, commit=None):
     return result
 
 
+class UnsupportedCheckoutSymlink(RuntimeError):
+    """A link cannot be reproduced inside the bounded checkout."""
+
+
+def evidence_link_target(name: str, target: bytes, directories: set[bytes]) -> str:
+    parts = os.fsencode(name).split(b"/")[:-1]
+    segments = target.split(b"/")
+    if not segments[0] or segments[-1] in {b"", b".", b".."}:
+        raise UnsupportedCheckoutSymlink
+    for segment in segments[:-1]:
+        if segment == b"..":
+            if not parts:
+                raise UnsupportedCheckoutSymlink
+            parts.pop()
+        elif segment not in {b"", b"."}:
+            parts.append(segment)
+            if b"/".join(parts) not in directories:
+                raise UnsupportedCheckoutSymlink
+    return os.fsdecode(b"/".join([*parts, segments[-1]]))
+
+
 def evidence_checkout_snapshot(root, destination=None, *, verified_template=False):
     """Capture native Git views and the nonignored working overlay without checkout filters."""
     def read_git(*arguments):
@@ -19968,11 +19990,15 @@ def evidence_checkout_snapshot(root, destination=None, *, verified_template=Fals
         fail("evidence checkout does not support a split index")
     head = git(root, "rev-parse", "--verify", "HEAD").stdout.strip()
     refs = read_git("for-each-ref", "--format=%(objectname) %(refname)%00%(symref)")
-    index_entries = read_git("ls-files", "--stage", "-z")
-    if any(not entry.startswith((b"100644 ", b"100755 ")) for entry in index_entries.split(b"\0") if entry):
-        fail("evidence checkout requires regular tracked files")
+    index_entries = read_git("ls-files", "--stage", "-z").split(b"\0")
+    tracked = set()
+    for entry in filter(None, index_entries):
+        header, name = entry.split(b"\t", 1)
+        if header.split(b" ", 1)[0] not in {b"100644", b"100755", b"120000"}:
+            fail("evidence checkout contains an unsupported index entry")
+        tracked.add(name)
     index = work_git / "index"
-    names = set(read_git("ls-files", "--cached", "--others", "--exclude-standard", "-z").split(b"\0"))
+    names = tracked | set(read_git("ls-files", "--others", "--exclude-standard", "-z").split(b"\0"))
     names.discard(b"")
     if len(names) > 16384 or len(refs) > 4 * 1024 * 1024:
         fail("evidence checkout exceeds inventory bounds")
@@ -19987,6 +20013,9 @@ def evidence_checkout_snapshot(root, destination=None, *, verified_template=Fals
         if os.path.lexists(common / name):
             metadata[name] = common / name
     state = {}
+    links: dict[str, bytes] = {}
+    files: set[str] = set()
+    directories: set[bytes] = set()
     total = 0
 
     def capture(directory, name, target):
@@ -20052,7 +20081,35 @@ def evidence_checkout_snapshot(root, destination=None, *, verified_template=Fals
                 for part in parts)
                 or PurePosixPath(name).suffix.lower() in {".key", ".pem"}):
             fail("evidence checkout contains an unsupported or private path")
-        state[name] = capture(root, name, destination / name if destination else None)
+        try:
+            state[name] = capture(root, name, destination / name if destination else None)
+        except OSError as exc:
+            if exc.errno != errno.ELOOP:
+                raise
+            if raw not in tracked:
+                raise UnsupportedCheckoutSymlink from None
+            with evidence_input_descriptor(root, name, link=True) as descriptor:
+                if not stat.S_ISLNK(os.fstat(descriptor).st_mode):
+                    raise UnsupportedCheckoutSymlink
+                link = os.readlink(b"", dir_fd=descriptor)
+            links[name] = link
+            state[name] = (0o120000, hashlib.sha256(link).hexdigest())
+            total += len(link)
+            if total > 256 * 1024 * 1024:
+                fail("evidence checkout exceeds byte bound")
+        else:
+            if state[name] is None:
+                continue
+            files.add(name)
+        directories.update(os.fsencode(str(parent)) for parent in PurePosixPath(name).parents
+                           if parent != PurePosixPath("."))
+    for name, link in links.items():
+        if evidence_link_target(name, link, directories) not in files:
+            raise UnsupportedCheckoutSymlink
+        if destination is not None:
+            path = destination / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.symlink_to(os.fsdecode(link))
     return head, refs, state, settings
 
 
@@ -20148,7 +20205,7 @@ def command_record_evidence(args):
                         runtime_capture = True
                 except (RuntimeError, OSError, ValueError, KeyError, UnicodeError):
                     binding_error = "input_capture_unavailable"
-        sandbox_error, missing_authority = None, False
+        sandbox_error, sandbox_reason, missing_authority = None, None, False
         if binding_error is None:
             try:
                 scratch = Path(capture.enter_context(tempfile.TemporaryDirectory(
@@ -20188,6 +20245,9 @@ def command_record_evidence(args):
                 if probe.returncode and not missing_authority:
                     fail("evidence checkout isolation probe failed")
                 policy_file.seek(0)
+            except UnsupportedCheckoutSymlink:
+                sandbox_error = "checkout_isolation_unavailable"
+                sandbox_reason = "unsupported_checkout_symlink"
             except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired):
                 sandbox_error = "checkout_isolation_unavailable"
         started, observed, cutoff, start_error = now(), 0, None, False
@@ -20297,7 +20357,7 @@ def command_record_evidence(args):
         save(path, record)
         print(evidence_id)
         if sandbox_error:
-            fail("evidence isolation: " + sandbox_error)
+            fail("evidence isolation: " + sandbox_error + (f" ({sandbox_reason})" if sandbox_reason else ""))
         if binding_error:
             fail("evidence binding unavailable: " + binding_error)
 

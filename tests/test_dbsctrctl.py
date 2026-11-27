@@ -8,6 +8,7 @@ import importlib.machinery
 import importlib.util
 import io
 import os
+import runpy
 import shutil
 import sqlite3
 import subprocess
@@ -2139,6 +2140,98 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(subprocess.check_output(["git", "show", ":tracked.txt"], cwd=self.repo), b"staged\n")
         record = json.loads(self.record_path().read_text())
         self.assertEqual(record["gates"]["domain"]["result"], "failed", result.stderr)
+
+    def test_checkout_capture_binds_link_and_target_without_nested_sandbox(self):
+        core = runpy.run_path(str(SCRIPT))
+        snapshot = core["evidence_checkout_snapshot"]
+        link = self.repo / "unit"
+        link.symlink_to("tracked.txt")
+        subprocess.run(["git", "add", "unit"], cwd=self.repo, check=True)
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = Path(directory) / "candidate"
+            original = snapshot(self.repo, candidate)
+            self.assertEqual(snapshot(candidate), original)
+            self.assertEqual(os.readlink(candidate / "unit"), "tracked.txt")
+            link.unlink()
+            link.symlink_to("./tracked.txt")
+            self.assertNotEqual(snapshot(self.repo), original)
+            link.unlink()
+            link.symlink_to("tracked.txt")
+            (self.repo / "tracked.txt").write_text("changed target\n")
+            self.assertNotEqual(snapshot(self.repo), original)
+            link.unlink()
+            link.symlink_to("../tracked.txt")
+            with self.assertRaises(core["UnsupportedCheckoutSymlink"]):
+                snapshot(self.repo)
+
+    def test_evidence_preserves_tracked_link_index_and_overlay(self):
+        self.start()
+        link = self.repo / "wants" / "unit"
+        link.parent.mkdir()
+        link.symlink_to("../tracked.txt")
+        subprocess.run(["git", "add", "wants/unit"], cwd=self.repo, check=True)
+        link.unlink()
+        link.symlink_to(".././tracked.txt")
+        (self.repo / "tracked.txt").write_text("working overlay\n")
+        validator = (
+            "import os; from pathlib import Path; from subprocess import check_output; "
+            "p = Path('wants/unit'); assert p.is_symlink(); "
+            "assert os.readlink(p) == '.././tracked.txt'; "
+            "assert p.read_bytes() == b'working overlay\\n'; "
+            "assert check_output(['git', 'show', ':wants/unit']) == b'../tracked.txt'; "
+            "assert check_output(['git', 'ls-files', '-s', 'wants/unit']).startswith(b'120000 ')"
+        )
+        run(self.repo, "record-evidence", "domain", "--authority", "links",
+            "--", sys.executable, "-c", validator)
+        record = json.loads(self.record_path().read_text())
+        self.assertEqual(record["gates"]["domain"]["result"], "passed")
+        link.unlink()
+        run(self.repo, "record-evidence", "domain", "--authority", "links",
+            "--", sys.executable, "-c",
+            "import os; from subprocess import check_output; assert not os.path.lexists('wants/unit'); "
+            "assert check_output(['git', 'show', ':wants/unit']) == b'../tracked.txt'")
+        self.assertEqual(json.loads(self.record_path().read_text())["gates"]["domain"]["result"], "passed")
+
+    def test_evidence_refuses_unsupported_links_before_launch(self):
+        self.start()
+        link = self.repo / "link"
+        other = self.repo / "other"
+        other.symlink_to("tracked.txt")
+        subprocess.run(["git", "add", "other"], cwd=self.repo, check=True)
+        for target in ("/tracked.txt", "../tracked.txt", ".git/HEAD", "missing/../tracked.txt",
+                       "tracked.txt/", "other", "link"):
+            with self.subTest(target=target):
+                link.unlink(missing_ok=True)
+                link.symlink_to(target)
+                subprocess.run(["git", "add", "link"], cwd=self.repo, check=True)
+                result = run(self.repo, "record-evidence", "domain", "--authority", "links",
+                             "--", sys.executable, "-c", "print('started')", ok=False)
+                self.assertIn("checkout_isolation_unavailable", result.stderr)
+                self.assertIn("unsupported_checkout_symlink", result.stderr)
+                record = json.loads(self.record_path().read_text())
+                gate = record["gates"]["domain"]
+                self.assertEqual(gate["result"], "unavailable")
+                self.assertEqual(record["evidence"]["items"][gate["evidence"]]["raw"]["byte_count"], 0)
+        link.unlink()
+        subprocess.run(["git", "add", "-u", "--", "link"], cwd=self.repo, check=True)
+        link.symlink_to("tracked.txt")
+        result = run(self.repo, "record-evidence", "domain", "--authority", "links",
+                     "--", sys.executable, "-c", "print('started')", ok=False)
+        self.assertIn("unsupported_checkout_symlink", result.stderr)
+
+    def test_evidence_rejects_modified_candidate_link(self):
+        self.start()
+        link = self.repo / "link"
+        link.symlink_to("tracked.txt")
+        subprocess.run(["git", "add", "link"], cwd=self.repo, check=True)
+        result = run(self.repo, "record-evidence", "domain", "--authority", "links",
+                     "--", sys.executable, "-c",
+                     "from pathlib import Path; p = Path('link'); p.unlink(); p.symlink_to('./tracked.txt')",
+                     ok=False)
+        self.assertIn("checkout_candidate_modified", result.stderr)
+        self.assertEqual(os.readlink(link), "tracked.txt")
+        record = json.loads(self.record_path().read_text())
+        self.assertEqual(record["gates"]["domain"]["result"], "failed")
 
     def test_evidence_descendants_cannot_write_original_paths(self):
         self.start()
