@@ -1,0 +1,16 @@
+{
+  "profile": "docs/specs/dotfiles_ai_distribution/PROFILE.md",
+  "gates": {
+    "domain": {"applicability": "required"},
+    "behavior": {"applicability": "required"},
+    "spec": {"applicability": "required"},
+    "contract": {"applicability": "required"},
+    "test_driven_implementation": {"applicability": "required"},
+    "refactor": {"applicability": "required"},
+    "review_integrate": {"applicability": "required"},
+    "release": {"applicability": "not_applicable", "reason": "The distribution ships managed source through Git; there is no separately versioned package."},
+    "deploy": {"applicability": "not_applicable", "reason": "The source PR installs nothing on the controller. Exact-target deployment requires merged source and an operator-selected preview."},
+    "operate": {"applicability": "not_applicable", "reason": "Inert service qualification is source evidence. The first real enrollment and consumer preflight belong to the post-merge rollout."},
+    "maintain_retire": {"applicability": "required"}
+  }
+}
