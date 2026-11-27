@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 import json
 from typing import Protocol
 
 from . import core, forgejo, forgejo_ci as ci, forgejo_merge as merge
-from . import initiative_controller as controller, lifecycle as l, runtime as r
+from . import initiative_ci, initiative_controller as controller, lifecycle as l, runtime as r
 from .initiative_authority import initiative_effect_lock
 
 
@@ -208,25 +208,71 @@ class FixtureDelivery:
         return controller.Admission(activation.activation_id, activation.target, digest[:32],
                                     l.digest({"admission": digest})[:32], digest)
 
-    def _candidate(self, source: Source, number: int, pull_id: int) -> merge.MergeIntent:
+    def _expected_candidate(self, source: Source, number: int, pull_id: int) -> merge.MergeIntent:
         binding = self.fixture.binding
         series = r.SourceSeries(binding.repository, number, source.base, source.head, source.entries,
                                 source.record_digest)
+        projection = r.Projection(core.identity(series), source.base, source.head,
+            tuple(core.CommitPair(item.oid, item.oid) for item in source.entries), source.record_digest)
+        parent = source.entries[-2].oid if len(source.entries) > 1 else source.base
+        candidate = r.Candidate(1, projection.source_digest, core.identity(projection), source.head,
+                                source.base, source.head, (parent,), source.tree,
+                                core.identity(self.fixture.plan), self.fixture.plan.policy_digest)
+        return merge.MergeIntent(self.fixture.target, ci.Subject(binding, self.fixture.target_ref, number, candidate),
+                                 source.ref, projection, pull_id)
+
+    def _verify_source(self, source: Source) -> None:
         previous = source.base
         for entry in source.entries:
-            commit = self.ports.commit(binding, entry.oid)
+            commit = self.ports.commit(self.fixture.binding, entry.oid)
             if commit.oid != entry.oid or commit.parents != (previous,):
                 raise core.Conflict("initiative_forgejo_source_not_linear")
             previous = entry.oid
         if commit.tree != source.tree:
             raise core.Conflict("initiative_forgejo_source_tree_changed")
-        projection = r.Projection(core.identity(series), source.base, source.head,
-            tuple(core.CommitPair(item.oid, item.oid) for item in source.entries), source.record_digest)
-        candidate = r.Candidate(1, projection.source_digest, core.identity(projection), source.head,
-                                source.base, source.head, commit.parents, source.tree,
-                                core.identity(self.fixture.plan), self.fixture.plan.policy_digest)
-        return merge.MergeIntent(self.fixture.target, ci.Subject(binding, self.fixture.target_ref, number, candidate),
-                                 source.ref, projection, pull_id)
+
+    def _candidate(self, source: Source, number: int, pull_id: int) -> merge.MergeIntent:
+        self._verify_source(source)
+        return self._expected_candidate(source, number, pull_id)
+
+    def observe_ci(self, activation: controller.Activation, admission: controller.Admission,
+                   read_at: int) -> initiative_ci.Observation | None:
+        """Read CI for the admitted exact native candidate. No protected effect is authorized here."""
+        data = self._admission_data(activation)
+        if data is None:
+            return None
+        if self.observe_admission(activation) != admission:
+            raise core.Conflict("initiative_forgejo_admission_changed")
+        source, number, pull_id = data
+        intent = self._expected_candidate(*data)
+        candidate = initiative_ci.Candidate.exact(intent.subject.candidate)
+        publication = self._publication(source)
+        try:
+            refs = (self.ports.ref(self.fixture.binding, self.fixture.target_ref),
+                    self.ports.ref(self.fixture.binding, source.ref))
+            if refs != (source.base, source.head):
+                return initiative_ci.Observation(candidate, "stale", "native_candidate_changed", read_at, "stale")
+            self._verify_source(source)
+            native = forgejo._object(forgejo._get(self.ports, f"{forgejo._endpoint(publication)}/{number}").value)
+            pull = forgejo._readback_row(publication, native, number)
+            author = forgejo._object(native.get("user")).get("id")
+            if (type(native.get("id")) is not int or native["id"] != pull_id
+                    or type(author) is not int or author != self.fixture.target.actor_id):
+                return initiative_ci.Observation(candidate, "stale", "native_candidate_changed", read_at, "stale")
+            assessment = ci.assess_ci(intent.subject, self.fixture.plan, self.ports, self.ports,
+                                      observed_at=datetime.fromtimestamp(read_at, UTC))
+        except core.Conflict:
+            return initiative_ci.Observation(candidate, "stale", "native_candidate_changed", read_at, "stale")
+        except (OSError, core.Unavailable, core.Ambiguous):
+            return initiative_ci.Observation(candidate, "unavailable", "native_ci_read_unavailable",
+                                             read_at, "unavailable")
+        except core.Invalid:
+            return initiative_ci.Observation(candidate, "unavailable", "native_ci_read_untrusted",
+                                             read_at, "untrusted")
+        observation = ci.initiative_observation(assessment, read_at=read_at)
+        if observation.diagnostic_url is None and len(pull.url) <= 512:
+            observation = replace(observation, diagnostic_url=pull.url)
+        return observation
 
     def _reservation(self, admission: controller.Admission, intent: merge.MergeIntent) -> r.NativeReservation:
         candidate = intent.subject.candidate
@@ -234,6 +280,10 @@ class FixtureDelivery:
         invocation = r.OperatorInvocation(self.fixture.operator_id, scope[:32], admission.receipt_digest, scope)
         return r.NativeReservation("merge", l.digest({"invocation": scope})[:32], invocation,
                                    candidate.generation, core.identity(candidate), candidate.head, candidate.base)
+
+    def _publication(self, source: Source) -> forgejo.Publication:
+        return forgejo.Publication(self.fixture.binding, source.ref, self.fixture.target_ref, source.head,
+                                   source.base, publication_title(source), False, self.fixture.draft_prefixes)
 
     def _publish(self, activation: controller.Activation, source: Source) -> None:
         binding = self.fixture.binding
@@ -253,8 +303,7 @@ class FixtureDelivery:
             raise core.Ambiguous("initiative_forgejo_push_unresolved")
         if self.ports.ref(binding, self.fixture.target_ref) != source.base:
             raise core.Conflict("initiative_forgejo_base_changed")
-        publication = forgejo.Publication(binding, source.ref, self.fixture.target_ref, source.head,
-                                         source.base, publication_title(source), False, self.fixture.draft_prefixes)
+        publication = self._publication(source)
         deadline = None
 
         def before_create() -> None:

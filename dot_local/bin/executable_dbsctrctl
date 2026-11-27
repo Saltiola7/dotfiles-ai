@@ -24272,7 +24272,7 @@ class GitHubInitiativeEvidence:
             fail("Initiative native outcome enrollment changed")
         return root, record, packet, selected, binding["root_oid"]
 
-    def _read(self, activation, admission=None):
+    def _read(self, activation, admission=None, read_at=None):
         owner = integration_lifecycle_owner()
         from integration_coordinator import runtime
         from integration_coordinator.initiative_controller import Admission, Delivery
@@ -24306,6 +24306,9 @@ class GitHubInitiativeEvidence:
                 return observed
             if admission != observed:
                 fail("Initiative native admission changed before delivery")
+            if read_at is not None:
+                candidate = status.ticket.candidate
+                return None if candidate is None else forge.observe_ci(candidate, original.source.pr_number, read_at)
             if status.ticket.state is not runtime.State.DELIVERED:
                 return None
             verified = client.verify_delivered(ticket, obligation.handle)
@@ -24320,12 +24323,15 @@ class GitHubInitiativeEvidence:
     def observe_delivery(self, activation, admission):
         return self._observe(activation, admission)
 
-    def _observe(self, activation, admission=None):
+    def observe_ci(self, activation, admission, read_at):
+        return self._observe(activation, admission, read_at)
+
+    def _observe(self, activation, admission=None, read_at=None):
         integration_lifecycle_owner()
         from integration_coordinator import core
 
         try:
-            return self._read(activation, admission)
+            return self._read(activation, admission, read_at)
         except (core.Conflict, core.Unavailable, core.Invalid):
             raise
         except (OSError, RuntimeError, ValueError, KeyError):
@@ -24431,7 +24437,8 @@ class ManagedInitiativeRuntime:
         names = ("initiative_service.py", "initiative_authority.py", "initiative_controller.py", "lifecycle.py",
                  "operator.py", "controller.py", "client.py", "github.py", "core.py", "runtime.py", "gitproof.py",
                  "initiative_forgejo.py", "initiative_forgejo_bridge.py", "forgejo.py", "forgejo_ci.py",
-                 "forgejo_status.py", "forgejo_merge.py", "draft_worker_batch.py", "draft_slice_projection.py")
+                 "forgejo_status.py", "forgejo_merge.py", "draft_worker_batch.py", "draft_slice_projection.py",
+                 "initiative_ci.py", "initiative_evidence.py", "initiative_repair.py", "initiative_status.py")
         credential_reader = package.parent / "continuous_validation" / "feedback.py"
 
         def digest_file(path):
@@ -25075,13 +25082,26 @@ def initiative_managed_service(root):
                 raise core.Unavailable("initiative_forgejo_protected_step_unavailable") from None
     return InitiativeService(runtime.custody, committed_scope=runtime.committed_scope, live_binding=runtime.live_binding,
         preflight=runtime.preflight, prior_delivery=runtime.prior_delivery, writer=runtime.writer,
-        provider=runtime.provider, registration=runtime, protected_tick=tick, clock=now), runtime.operator_identity
+        provider=runtime.provider, registration=runtime, protected_tick=tick, clock=now,
+        ci_reader=runtime.provider.observe_ci), runtime.operator_identity
 
 
 def command_initiative_auto(args):
+    if args.initiative_action == "status":
+        owner = integration_lifecycle_owner()
+        from integration_coordinator.initiative_service import read_status
+        from integration_coordinator.initiative_status import render_text
+
+        try:
+            report = read_status(owner.Custody(common_git_dir(root_dir()).resolve()), args.grant, clock=now)
+        except (OSError, ValueError, RuntimeError):
+            fail("Initiative status is unavailable from the existing private journal")
+        print(json.dumps(report, sort_keys=True) if args.json else render_text(report))
+        return
     service, operator_identity = initiative_managed_service(root_dir())
     if args.initiative_action == "start":
-        preview = service.preview(tuple(args.slice), operator_id=operator_identity(), expires_at=args.expires_at)
+        preview = service.preview(tuple(args.slice), operator_id=operator_identity(), expires_at=args.expires_at,
+                                  **({"repair_classes": tuple(args.repair)} if args.repair else {}))
         if args.preview:
             print(json.dumps(preview.review, sort_keys=True))
             return
@@ -25093,16 +25113,21 @@ def command_initiative_auto(args):
         print(json.dumps({"grant_digest": grant, "status": "authorized"}))
         return
     previous = None
+    wakeup = args.wakeup
     while True:
-        result = service.resume(args.grant)
+        result = service.resume(args.grant, **({"wakeup": True} if wakeup else {}))
+        wakeup = False
         value = {"state": result.state, "slice_id": result.slice_id,
                  "activation_id": result.activation_id, "reason": result.reason}
+        next_recheck = getattr(result, "next_recheck_at", None)
+        if next_recheck is not None:
+            value["next_recheck_at"] = next_recheck
         if value != previous:
             print(json.dumps(value, sort_keys=True), flush=True)
         if not args.watch or result.state in {"complete", "blocked", "discovery_reopened"}:
             return
         previous = value
-        time.sleep(5)
+        time.sleep(5 if next_recheck is None else max(1, min(60, next_recheck - time.time())))
 
 
 @contextlib.contextmanager
@@ -29156,9 +29181,15 @@ def parser():
     auto_start.add_argument("--slice", action="append", required=True)
     auto_start.add_argument("--expires-at", required=True)
     auto_start.add_argument("--preview", action="store_true")
+    auto_start.add_argument("--repair", action="append", choices=("source_fix", "infrastructure_retry", "none"),
+                            help="select a qualified repair class or explicitly approve zero repairs")
     auto_resume = auto_actions.add_parser("resume", help="continue the exact retained approval")
     auto_resume.add_argument("grant")
     auto_resume.add_argument("--watch", action="store_true", help="continue from this independent controller process")
+    auto_resume.add_argument("--wakeup", action="store_true", help="recheck from native state before the fallback time")
+    auto_status = auto_actions.add_parser("status", help="read the existing private tally")
+    auto_status.add_argument("grant")
+    auto_status.add_argument("--json", action="store_true")
     initiative_auto.set_defaults(func=command_initiative_auto)
     initiative_check = commands.add_parser("initiative-check")
     initiative_check.add_argument("--manifest", required=True)
@@ -29413,7 +29444,7 @@ def main():
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
         args = parser().parse_args()
-        if args.command == "initiative-auto" or (
+        if (args.command == "initiative-auto" and args.initiative_action != "status") or (
                 args.command == "begin" and getattr(args, "forge_credential_source", None) == "systemd"):
             credential_scope.enter_context(_forgejo_systemd_scope())
         if args.command == "validate":
