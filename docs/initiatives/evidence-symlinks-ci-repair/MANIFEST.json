@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "evidence-symlinks-ci-repair",
+  "title": "Refresh the evidence symlink benchmark pin",
+  "state": "ready",
+  "coordinator_repository": "Saltiola7/dotfiles-ai",
+  "contexts": [
+    {"id": "dbsctr_v3_lifecycle", "repository": "Saltiola7/dotfiles-ai", "status": "ready", "depends_on": []}
+  ],
+  "statements": [
+    {
+      "id": "INT-001",
+      "kind": "requirement",
+      "text": "Correct only helper_sha256 in tests/benchmarks/fixtures/cli_workloads.json to match the committed helper on the existing symlink isolation pull request. Preserve benchmark behavior, CI protections and existing isolation policy.",
+      "disposition": "ready",
+      "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/evidence-checkout-isolation.md"]
+    }
+  ],
+  "slices": [
+    {
+      "id": "benchmark-pin",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "ready",
+      "execution_owner": "build",
+      "requirements": ["INT-001"],
+      "depends_on": [],
+      "artifacts": ["docs/specs/dbsctr_v3_lifecycle/features/evidence-checkout-isolation.md"],
+      "release_group": "source-repair"
+    }
+  ],
+  "release_groups": [
+    {"id": "source-repair", "members": ["benchmark-pin"], "state": "planning"}
+  ]
+}
