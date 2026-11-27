@@ -10,6 +10,7 @@ Runtime OpenAPI is checked before the first mutation. Unsupported schemas fail;
 the fixture never fabricates or migrates SQLite rows to satisfy the adapter.
 """
 import ast
+import copy
 import importlib.util
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +18,7 @@ import json
 import os
 import re
 from pathlib import Path
+import selectors
 import signal
 import socket
 import sqlite3
@@ -38,6 +40,7 @@ NATIVE = HOME / '.opencode/bin/opencode'
 ROOT = HOME / '.local/state/dotfiles-ai/herdr-runtime'
 EXPECTED = HOME / 'qualification.json'
 R8_PRIOR_BOOT = HOME / 'qualification-r8-prior-boot.json'
+K_EXPECTED = HOME / 'qualification-k-edits.json'
 STEP = 'initialization'
 
 
@@ -839,7 +842,8 @@ def observe(target, plan):
         backend = Native(HOME, store)
         manifest = store.read('manifest.json')
         require(manifest is not None and manifest['runtime'] == target)
-        difference = semantic_difference(backend._semantic(manifest['plan']), backend._semantic(plan))
+        compare = native_semantic(backend) if target == 'tui' else backend._semantic
+        difference = semantic_difference(compare(manifest['plan']), compare(plan))
         if difference:
             raise CommandFailure('manifest-' + difference)
         STEP = 'observe-' + target + '-verify'
@@ -3109,6 +3113,301 @@ def verify_r8(*, recover):
     print('F07: r8-exact-50-shared-service-clients', 'recovered' if recover else 'second-boot')
 
 
+def k_edited_plan(original, session, ratio):
+    """Independent expected plan; never derive the expected layout from a save."""
+    plan = copy.deepcopy(original)
+    space = plan['spaces'][0]
+    tabs = space['tabs']
+    require(len(tabs) == 24 and len(tabs[1]['panes']) == 2)
+    tabs[1]['panes'].pop()
+    tabs[1]['root'] = {'pane': tabs[1]['panes'][0]['key']}
+    tabs[2]['root']['ratio'] = ratio
+    key = f's0-t{len(tabs)}-p0'
+    tabs.append({'name': 'Later tab', 'root': {'pane': key},
+                 'panes': [{'key': key, 'session_id': session, 'cwd': space['directory']}]})
+    return plan
+
+
+def k_resize(backend, pane, tab, previous):
+    """Use the advertised 0.9.5 pane-targeted cell adjustment."""
+    from layout import _f32
+    tool = BIN / 'herdr'
+    help_text = run(tool, 'pane', 'resize', '--help')
+    require(all(option in help_text for option in ('--pane', '--direction', '--amount')))
+    before = backend.tui('layout.export', {'tab_id': tab})['layout']['root']
+    require(before['direction'] == 'right' and _f32(before['ratio']) == _f32(previous))
+    run(tool, 'pane', 'resize', '--pane', pane, '--direction', 'right', '--amount', '8')
+    root = backend.tui('layout.export', {'tab_id': tab})['layout']['root']
+    require(root['type'] == 'split' and root['direction'] == 'right')
+    ratio = root['ratio']
+    require(0 < ratio < 1 and _f32(ratio) != _f32(previous))
+    return ratio
+
+
+def k_service_only_restart(plan):
+    """F01 owns this effect in the disposable fixture. No TUI quit/start."""
+    global STEP
+    STEP = 'k-service-only-restart'
+    Store, Native = adapter()
+    f01 = load('f01', '/opt/f01/verify-user.py')
+    pid = backend_pid()
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        run_proof = backend.tui_run()
+        old_service = backend._pid_proofs([pid])
+    unit('start', 'remote-herdr-restore.timer')
+    unit('restart', 'opencode-shared.service')
+    new_pid, server = f01.ready(previous=pid)
+    def reconnected():
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            require(backend.tui_run() == run_proof and backend._pids_absent(old_service))
+            clients = backend._coverage(plan)
+            require(len(clients) == 50)
+            return all(f01.connected(c['pid'], urlsplit(server).port) for c in clients)
+    wait(reconnected, seconds=180)
+    unit('stop', 'remote-herdr-restore.timer')
+    wait(lambda: unit('show', 'remote-herdr-restore.service', '-p', 'ActiveState', '--value') == 'inactive')
+    require(backend_pid() == new_pid)
+    return new_pid
+
+
+def k_observe_later(new):
+    """Wait for the regular timer to prove the new pane, before the final edits."""
+    Store, Native = adapter()
+    unit('start', 'remote-herdr-restore.timer')
+    def seen():
+        with Store(ROOT) as store:
+            record = store.read('tui-observation.json')
+            if not record or record['hold']:
+                return False
+            backend = Native(HOME, store)
+            bindings = record['clients'].values()
+            return (record['run'] == backend.tui_run() and len(bindings) == 51
+                    and sum(c['session_id'] == new and c['run'] == record['run'] for c in bindings) == 1)
+    wait(seen, seconds=360)
+    unit('stop', 'remote-herdr-restore.timer')
+    wait(lambda: unit('show', 'remote-herdr-restore.service', '-p', 'ActiveState', '--value') == 'inactive')
+
+
+def k_arm():
+    """Exercise the owner CLI and native shutdown writer on the 50-client TUI."""
+    global STEP
+    Store, Native = adapter()
+    from layout import from_tui_snapshot
+    STEP = 'k-edit-preconditions'
+    # Stop future ticks; let any current owner finish normally.
+    unit('stop', 'remote-herdr-restore.timer')
+    wait(lambda: unit('show', 'remote-herdr-restore.service', '-p', 'ActiveState', '--value') == 'inactive')
+    original = json.loads(EXPECTED.read_text())
+    pid = k_service_only_restart(original)
+    space = original['spaces'][0]
+    closed = space['tabs'][1]['panes'][1]['session_id']
+    resize_target = space['tabs'][2]['panes'][0]['session_id']
+    cwd = space['directory']
+    new = api('post', '/api/session', {'location': {'directory': cwd}, 'title': 'Later fixture',
+              'model': {'id': 'held', 'providerID': 'rrw007f'}})['data']['id']
+    tool = BIN / 'herdr'
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        semantic = native_semantic(backend)
+        require(semantic(store.read('manifest.json')['plan']) == semantic(original))
+        require(len(backend._coverage(original)) == 50 and not backend.scan({new}))
+        prior_boot = store.read('boot.json')['receipt']['txid']
+        journal = hashlib.sha256((ROOT / 'transaction.json').read_bytes()).hexdigest()
+        snapshot = backend.tui('session.snapshot', {})['snapshot']
+        wid = snapshot['workspaces'][0]['workspace_id']
+        def find(session):
+            rows = [p for p in snapshot['panes'] if (p.get('agent_session') or {}).get('value') == session]
+            require(len(rows) == 1 and rows[0]['workspace_id'] == wid)
+            return rows[0]
+        closed_pane = find(closed)['pane_id']
+        resized = find(resize_target)
+        STEP = 'k-create-native-tab-and-agent'
+        result = json.loads(run(tool, 'tab', 'create', '--workspace', wid, '--cwd', cwd,
+                                '--label', 'Later tab', '--no-focus'))
+        created = result.get('result', result)
+        tid, shell = created['tab']['tab_id'], created['root_pane']['pane_id']
+        run(tool, 'agent', 'start', 'opencode', '--cwd', cwd, '--tab', tid, '--no-focus',
+            '--', 'opencode', '--session', new)
+        def new_agent_ready():
+            latest = backend.tui('session.snapshot', {})['snapshot']
+            panes = [p for p in latest['panes'] if p['tab_id'] == tid]
+            return (len(panes) == 2 and any(p['pane_id'] == shell and not p.get('agent') for p in panes)
+                    and any(p['pane_id'] != shell and (p.get('agent_session') or {}).get('value') == new
+                            for p in panes))
+        wait(new_agent_ready)
+        run(tool, 'pane', 'close', shell)
+    k_observe_later(new)
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        witness = store.read('tui-observation.json')
+        require(not witness['hold'] and len(witness['clients']) == 51)
+        run_proof = witness['run']
+        proofs = [binding['process'] for binding in witness['clients'].values()]
+        STEP = 'k-resize-native-split-after-last-tick'
+        ratio = k_resize(backend, resized['pane_id'], resized['tab_id'], space['tabs'][2]['root']['ratio'])
+        STEP = 'k-close-native-owned-pane'
+        run(tool, 'pane', 'close', closed_pane)
+        plan = k_edited_plan(original, new, ratio)
+        wait(lambda: not backend.scan({closed}) and len(backend._coverage(plan)) == 50)
+    STEP = 'k-native-shutdown-save'
+    run(tool, 'session', 'stop', 'default', '--json')
+    wait(lambda: not backend.endpoint_present('tui') and backend.tui_unit_stopped()
+         and backend._pids_absent([run_proof]) and backend._pids_absent(proofs))
+    saved, final_file = backend.snapshot_evidence()
+    require(backend.final_tui_file(run_proof, final_file))
+    require(semantic(from_tui_snapshot(saved)) == semantic(plan))
+    require(not backend.endpoint_present('herdr-core'))
+    # Fixture expectations only; no write to any controller/native state.
+    write(K_EXPECTED, {'plan': plan, 'closed': closed, 'new': new, 'prior_boot': prior_boot,
+                       'exited': proofs, 'journal': journal, 'boots': 0})
+    require(backend_pid() == pid)
+
+
+def k_boot(*, second):
+    global STEP
+    STEP = 'k-second-boot' if second else 'k-first-boot'
+    evidence = json.loads(K_EXPECTED.read_text())
+    require(evidence['boots'] == int(second))
+    plan = evidence['plan']
+    pid = backend_pid()
+    Store, Native = adapter()
+    def completed():
+        with Store(ROOT) as store:
+            return r8_boot_ready(store.read('boot.json'), evidence['prior_boot'], plan,
+                                 native_semantic(Native(HOME, store)))
+    wait(completed, seconds=760)
+    # Give the following observations an uncontended window, after the boot
+    # journal proves the real timer completed its start under its own lock.
+    unit('stop', 'remote-herdr-restore.timer')
+    wait(lambda: unit('show', 'remote-herdr-restore.service', '-p', 'ActiveState', '--value') == 'inactive')
+    captured = observe('tui', plan)
+    with Store(ROOT) as store:
+        backend = Native(HOME, store)
+        require(len(captured['clients']) == 50 and backend._pids_absent(evidence['exited']))
+        require(not backend.scan({evidence['closed']}) and len(backend.scan({evidence['new']})) == 1)
+        require(hashlib.sha256((ROOT / 'transaction.json').read_bytes()).hexdigest() == evidence['journal'])
+        manifest = store.read('manifest.json')
+        require(native_semantic(backend)(store.read(manifest['receipt']['adoption_backup'])['manifest']['plan'])
+                == native_semantic(backend)(json.loads(EXPECTED.read_text())))
+        evidence.update(prior_boot=store.read('boot.json')['receipt']['txid'], boots=evidence['boots'] + 1,
+                        exited=fixture_captured_client_proofs(backend, captured))
+    write(K_EXPECTED, evidence)
+    require(backend_pid() == pid)
+    if second:
+        k_collision()
+        k_same_os_restarts(plan, pid, evidence['closed'])
+    print('F07: edited-layout-exact-clients-50', 'second-boot' if second else 'first-boot')
+
+
+def k_same_os_restarts(plan, service_pid, closed):
+    """Two real clean exits on one Linux boot; interrupt one authorized start."""
+    global STEP
+    from controller import Controller
+    Store, Native = adapter()
+    for interrupted in (False, True):
+        STEP = 'k-interrupted-same-os-start' if interrupted else 'k-first-same-os-start'
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            prior = store.read('boot.json')
+            live = backend.tui_run()
+            witness = store.read('tui-observation.json')
+            require(witness['run'] == live and not witness['hold'] and len(witness['clients']) == 50)
+        run(BIN / 'herdr', 'session', 'stop', 'default', '--json')
+        wait(lambda: backend.tui_unit_stopped() and not backend.endpoint_present('tui')
+             and backend._pids_absent([live]) and backend._pids_absent(witness['pids']))
+        if interrupted:
+            with Store(ROOT) as store:
+                backend = Native(HOME, store)
+                original = backend.command
+                def checkpoint(argv, timeout=30):
+                    if argv == ['/usr/bin/systemctl', '--user', 'start', 'remote-herdr-tui.service']:
+                        raise CommandFailure('k-start-checkpoint')
+                    return original(argv, timeout=timeout)
+                backend.command = checkpoint
+                try:
+                    Controller(store, backend).restore()
+                except CommandFailure as error:
+                    require(error.reason == 'k-start-checkpoint')
+                else:
+                    raise CommandFailure('k-start-checkpoint-missed')
+                require(store.read('boot.json')['status'] == 'start_pending')
+            cli('recover')
+        else:
+            run(BIN / 'remote-herdr', 'restore', timeout=855)
+        capture = observe('tui', plan)
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            new = backend.tui_run()
+            require(live != new and live['boot_id'] == new['boot_id'] and backend._pids_absent([live]))
+            require(r8_boot_ready(store.read('boot.json'), prior['receipt']['txid'], plan, native_semantic(backend)))
+            witness = store.read('tui-observation.json')
+            require(witness['run'] == new and len(witness['clients']) == 50)
+            require(witness['pids'] == capture['pids'] and not backend.scan({closed}))
+        require(backend_pid() == service_pid)
+
+
+def k_collision():
+    global STEP
+    STEP = 'k-prove-background-restore-lock'
+    Store, Native = adapter()
+    from controller import ControllerBusy
+    def held():
+        try:
+            with Store(ROOT):
+                return False
+        except ControllerBusy as busy:
+            backend = Native(HOME, Store(ROOT))
+            pid = int(unit('show', 'remote-herdr-restore.service', '-p', 'MainPID', '--value'))
+            if pid <= 1:
+                return False
+            fd = os.pidfd_open(pid)
+            try:
+                if (backend.process_argv(pid)[-2:] != [str(BIN / 'remote-herdr'), 'restore']
+                        or not backend.background_restore_holds(busy.identity, timeout=3)
+                        or pid != int(unit('show', 'remote-herdr-restore.service', '-p', 'MainPID', '--value'))):
+                    return False
+                return os.dup(fd), busy.identity
+            finally:
+                os.close(fd)
+    before = [(ROOT / file).read_bytes() for file in ('transaction.json', 'boot.json', 'manifest.json')]
+    unit('start', '--no-block', 'remote-herdr-restore.service')
+    fd, identity = wait(held, seconds=30)
+    # Pause only the proved disposable unit's PID (never a TUI, client, or
+    # shared service). Resume even if the waiter's handshake fails.
+    waiter = None
+    try:
+        signal.pidfd_send_signal(fd, signal.SIGSTOP)
+        require(Native(HOME, Store(ROOT)).background_restore_holds(identity, timeout=3))
+        waiter = subprocess.Popen([BIN / 'remote-herdr', 'recover'], cwd=HOME,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        require(waiter.stderr is not None)
+        with selectors.DefaultSelector() as selector:
+            selector.register(waiter.stderr, selectors.EVENT_READ)
+            require(selector.select(12))
+            require(os.read(waiter.stderr.fileno(), 256) == (
+                    b'Herdr recover: waiting for the background restore to release the runtime state\n'))
+    finally:
+        try:
+            signal.pidfd_send_signal(fd, signal.SIGCONT)
+        finally:
+            os.close(fd)
+            if waiter is not None:
+                try:
+                    output = waiter.communicate(timeout=200)
+                finally:
+                    if waiter.poll() is None:
+                        waiter.kill()
+                        waiter.communicate()
+    require(waiter is not None and waiter.returncode == 0 and output == (b'', b''))
+    with Store(ROOT):
+        result = subprocess.run([BIN / 'remote-herdr', 'recover'], capture_output=True, cwd=HOME, timeout=10)
+        require(result.returncode == 75 and not result.stdout and result.stderr == (
+                b'Herdr recover did not run: state held; background restore ownership not proven\n'))
+    require(before == [(ROOT / file).read_bytes() for file in ('transaction.json', 'boot.json', 'manifest.json')])
+
+
 if __name__ == '__main__':
     try:
         os.umask(0o077)
@@ -3117,7 +3416,9 @@ if __name__ == '__main__':
         stages = {'prepare': prepare, 'verify-core': lambda: boot('herdr-core'),
                   'verify-tui': lambda: (boot('tui'), arm_r8()),
                   'verify-r8-recover': lambda: verify_r8(recover=True),
-                  'verify-r8-boot': lambda: verify_r8(recover=False)}
+                  'verify-r8-boot': lambda: (verify_r8(recover=False), k_arm()),
+                  'verify-k-boot': lambda: k_boot(second=False),
+                  'verify-k-second-boot': lambda: k_boot(second=True)}
         stages[sys.argv[1]]()
         print('F07: stage-complete')
     except Exception as error:

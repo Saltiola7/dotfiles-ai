@@ -30,6 +30,7 @@ import protocol
 
 
 LIMIT = 2 * 1024 * 1024
+TUI_VERSION = '0.9.5+rrw.007k.1'
 RUNTIMES = {'tui', 'herdr-core'}
 
 
@@ -92,6 +93,7 @@ class Native:
         self.tui_endpoint = self.home / '.config/herdr/herdr.sock'
         self.run_root = Path(f'/run/user/{os.getuid()}')
         self.poll_seconds = 30.0
+        self._expected_tui_run = None
 
     def _parents(self, path):
         if not path.is_relative_to(self.home):
@@ -133,6 +135,43 @@ class Native:
         except FileNotFoundError:
             return None
 
+    def snapshot_evidence(self):
+        """Order a shutdown save against the witnessed file, never by mtime alone."""
+        def stamp():
+            info = self.snapshot_path.lstat()
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                    or info.st_nlink != 1 or info.st_mode & 0o022 or info.st_size > LIMIT):
+                raise NativeError('private file unsafe or oversized')
+            return info.st_dev, info.st_ino, info.st_size, info.st_ctime_ns, info.st_mtime_ns
+        before = stamp()
+        content = self._read(self.snapshot_path)
+        if stamp() != before:
+            raise NativeError('TUI snapshot changed during observation')
+        return protocol.decode(content), {'device': before[0], 'inode': before[1], 'size': before[2],
+            'ctime_ns': before[3], 'mtime_ns': before[4], 'digest': hashlib.sha256(content).hexdigest()}
+
+    def final_tui_file(self, run, file):
+        """Accept only the native final-save receipt for the expected run."""
+        try:
+            launch = self.tui_launch()
+            final = self._json(self.snapshot_path.with_name('session-final-save.json'))
+        except FileNotFoundError:
+            return False
+        if launch is None:
+            return False
+        invocation = launch.get('invocation')
+        return (launch.get('run') == run and isinstance(invocation, str)
+                and re.fullmatch(r'[0-9a-f]{32}', invocation) is not None
+                and type(final.get('version')) is int
+                and final == {'version': 1, 'invocation': invocation, 'snapshot': 'session.json',
+                              'sha256': file['digest']})
+
+    def tui_launch(self):
+        try:
+            return self._json(self.home / '.local/state/dotfiles-ai/herdr-runtime/tui-launch.json')
+        except FileNotFoundError:
+            return None
+
     def _atomic(self, path, data, mode=0o600):
         self._parents(path)
         if path.is_symlink():
@@ -169,7 +208,7 @@ class Native:
         pins = self._json(self.home / '.config/dotfiles-ai/herdr-runtime.json')
         if (set(pins) != {'schema_version', 'tui_version', 'tui_sha256', 'core_version', 'core_sha256'}
                 or type(pins['schema_version']) is not int or pins['schema_version'] != 1
-                or pins['tui_version'] != '0.9.5' or pins['core_version'] != '0.1.18'
+                or pins['tui_version'] != TUI_VERSION or pins['core_version'] != '0.1.18'
                 or any(not isinstance(pins[k], str) or not re.fullmatch('[0-9a-f]{64}', pins[k])
                        for k in ('tui_sha256', 'core_sha256'))):
             raise NativeError('managed binary pins invalid')
@@ -298,9 +337,12 @@ class Native:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
             peer.settimeout(30)
             peer.connect(str(self.tui_endpoint))
-            _, uid, _ = struct.unpack('3i', peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+            pid, uid, _ = struct.unpack('3i', peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
             if uid != os.getuid():
                 raise NativeError('TUI peer identity mismatch')
+            expected = self._expected_tui_run
+            if expected and (pid != expected['pid'] or self._pid_proofs([pid]) != [expected]):
+                raise NativeError('TUI peer run changed during observation')
             # Request flattens a method enum tagged with method/content=params.
             payload = {'id': request_id, 'method': method, 'params': params}
             peer.sendall(json.dumps(payload).encode() + b'\n')
@@ -690,6 +732,14 @@ class Native:
 
     def _owned_target(self, target, value, replace_target):
         owned = self.store.read('owned-' + target + '.json')
+        if target == 'tui':
+            manifest = self.store.read('manifest.json')
+            if manifest and manifest.get('runtime') == 'tui' and 'adoption_backup' in manifest['receipt']:
+                # The manifest replacement commits K ownership. A previous
+                # switch's exact-file marker must not authorize an older save.
+                # A later proven source stop may have bound the shutdown bytes.
+                if owned is None or owned.get('source_txid') != manifest['txid']:
+                    owned = {'document': manifest['receipt']['document']}
         if owned is not None:
             if owned.get('document') != value:
                 raise NativeError('target has unexplained native edits')
@@ -749,7 +799,7 @@ class Native:
             time.sleep(0.1)
 
     def _api_inventory(self, snapshot):
-        if snapshot.get('version') != '0.9.5' or type(snapshot.get('protocol')) is not int:
+        if snapshot.get('version') != TUI_VERSION or type(snapshot.get('protocol')) is not int:
             raise NativeError('TUI API snapshot schema incompatible')
         for key, maximum in [('workspaces', layout.MAX_SPACES), ('tabs', layout.MAX_TABS),
                              ('panes', layout.MAX_PANES), ('agents', layout.MAX_PANES),
@@ -768,7 +818,7 @@ class Native:
             if wid in seen_spaces:
                 raise NativeError('TUI duplicate workspace')
             seen_spaces.add(wid)
-            item = {'name': space['label'], 'tabs': []}
+            item = {'id': wid, 'name': space['label'], 'tabs': []}
             for tab in [t for t in snapshot['tabs'] if t['workspace_id'] == wid]:
                 tid = tab['tab_id']
                 if tid in seen_tabs:
@@ -811,12 +861,12 @@ class Native:
                     elif views and (views[0].get('agent') is not None or views[0].get('agent_session') is not None):
                         raise NativeError('TUI inconsistent agent view')
                     mapped[pid] = {'cwd': pane.get('foreground_cwd') or pane.get('cwd'), 'session_id': identity}
-                if len(mapped) != tab['pane_count']:
+                if type(tab['pane_count']) is not int or len(mapped) != tab['pane_count']:
                     raise NativeError('TUI pane inventory incomplete')
                 if any(a['pane_id'] not in mapped for a in agents):
                     raise NativeError('TUI unrepresented agent view')
-                item['tabs'].append({'name': tab['label'], 'id': tid, 'panes': mapped})
-            if len(item['tabs']) != space['tab_count']:
+                item['tabs'].append({'name': tab['label'], 'id': tid, 'number': tab['number'], 'panes': mapped})
+            if type(space['tab_count']) is not int or len(item['tabs']) != space['tab_count']:
                 raise NativeError('TUI tab inventory incomplete')
             result.append(item)
         if len(seen_panes) != len(snapshot['panes']) or len(seen_tabs) != len(snapshot['tabs']):
@@ -879,55 +929,207 @@ class Native:
                             or type(api_tab.get('pane_count')) is not int
                             or api_tab['number'] != expected['number'] or tab['panes'] != expected['panes']):
                         raise NativeError('TUI persisted public identity stale')
-                exported = self.tui('layout.export', {'tab_id': tab['id']})
-                if exported.get('type') != 'layout_export' or exported['layout']['tab_id'] != tab['id']:
-                    raise NativeError('TUI layout export incompatible')
-                if binding is not None and exported['layout'].get('workspace_id') != binding['id']:
-                    raise NativeError('TUI layout workspace identity stale')
-                tab_panes = []
-                used = set()
-                public_keys = {}
-
-                def tree(node, depth=1):
-                    if depth > layout.MAX_DEPTH or type(node) is not dict:
-                        raise NativeError('TUI layout unsupported')
-                    if node.get('type') == 'pane':
-                        pid = node.get('pane_id')
-                        if pid not in tab['panes'] or pid in used:
-                            raise NativeError('TUI layout pane coverage incomplete')
-                        used.add(pid)
-                        key = f's{si}-t{ti}-p{len(tab_panes)}'
-                        public_keys[key] = pid
-                        tab_panes.append({'key': key, **tab['panes'][pid]})
-                        if pid not in deferred_pids:
-                            facts = self.tui('pane.process_info', {'pane_id': pid})
-                            if facts.get('type') != 'pane_process_info':
-                                raise NativeError('TUI process proof unavailable')
-                            info = facts['process_info']
-                            if info.get('pane_id') != pid or type(info.get('shell_pid')) is not int:
-                                raise NativeError('TUI process coverage incomplete')
-                            process_info.append(info)
-                        return {'pane': key}
-                    # Pinned schema/common.rs SplitDirection (snake_case).
-                    if node.get('type') != 'split' or node.get('direction') not in ('right', 'down'):
-                        raise NativeError('TUI layout split unsupported')
-                    return {'axis': 'row' if node['direction'] == 'right' else 'column',
-                            'ratio': node['ratio'], 'children': [tree(node['first'], depth + 1), tree(node['second'], depth + 1)]}
-
-                root = tree(exported['layout']['root'])
-                if used != set(tab['panes']):
-                    raise NativeError('TUI layout pane coverage incomplete')
-                def public_tree(node):
-                    if 'pane' in node:
-                        return {'pane': public_keys[node['pane']]}
-                    return {'axis': node['axis'], 'ratio': layout._ratio(node['ratio']),
-                            'children': [public_tree(child) for child in node['children']]}
-                if expected is not None and public_tree(root) != expected['root']:
+                observed, public, facts = self._tui_tab(si, ti, tab, binding and binding['id'], deferred_pids)
+                if expected is not None and public != expected['root']:
                     raise NativeError('TUI persisted topology stale')
-                canonical['tabs'].append({'name': previous['tabs'][ti]['name'], 'root': root, 'panes': tab_panes})
+                process_info.extend(facts)
+                observed['name'] = previous['tabs'][ti]['name']
+                canonical['tabs'].append(observed)
             spaces.append(canonical)
         plan = checked_plan({'schema_version': 1, 'spaces': spaces})
         return plan, snapshot, process_info, deferred
+
+    def _tui_tab(self, si, ti, tab, workspace, deferred_pids):
+        exported = self.tui('layout.export', {'tab_id': tab['id']})
+        if exported.get('type') != 'layout_export' or exported['layout']['tab_id'] != tab['id']:
+            raise NativeError('TUI layout export incompatible')
+        if workspace is not None and exported['layout'].get('workspace_id') != workspace:
+            raise NativeError('TUI layout workspace identity stale')
+        panes, facts, used = [], [], set()
+
+        def tree(node, depth):
+            if depth > layout.MAX_DEPTH or type(node) is not dict:
+                raise NativeError('TUI layout unsupported')
+            if node.get('type') == 'pane':
+                pid = node.get('pane_id')
+                if pid not in tab['panes'] or pid in used:
+                    raise NativeError('TUI layout pane coverage incomplete')
+                used.add(pid)
+                key = f's{si}-t{ti}-p{len(panes)}'
+                panes.append({'key': key, **tab['panes'][pid]})
+                if pid not in deferred_pids:
+                    result = self.tui('pane.process_info', {'pane_id': pid})
+                    if result.get('type') != 'pane_process_info':
+                        raise NativeError('TUI process proof unavailable')
+                    info = result['process_info']
+                    if info.get('pane_id') != pid or type(info.get('shell_pid')) is not int:
+                        raise NativeError('TUI process coverage incomplete')
+                    facts.append(info)
+                return {'pane': key}, {'pane': pid}
+            if node.get('type') != 'split' or node.get('direction') not in ('right', 'down'):
+                raise NativeError('TUI layout split unsupported')
+            axis = 'row' if node['direction'] == 'right' else 'column'
+            ratio = layout._ratio(node['ratio'])
+            children = [tree(node[name], depth + 1) for name in ('first', 'second')]
+            return tuple({'axis': axis, 'ratio': ratio, 'children': [child[i] for child in children]}
+                         for i in (0, 1))
+
+        root, public = tree(exported['layout']['root'], 1)
+        if used != set(tab['panes']):
+            raise NativeError('TUI layout pane coverage incomplete')
+        return {'name': tab['name'], 'root': root, 'panes': panes}, public, facts
+
+    def shared_main_pid(self):
+        result = self.command(['/usr/bin/systemctl', '--user', 'show', 'opencode-shared.service',
+                               '--property=MainPID', '--value'])
+        if not isinstance(result, str) or not re.fullmatch(r'[1-9][0-9]{0,9}', result.strip()):
+            raise NativeError('shared service owner unavailable')
+        return int(result.strip())
+
+    def tui_run(self):
+        """Authenticate the particular listening server, not its socket name."""
+        self._parents(self.tui_endpoint)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+            peer.settimeout(3)
+            peer.connect(str(self.tui_endpoint))
+            pid, uid, _ = struct.unpack('3i', peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+            if uid != os.getuid():
+                raise NativeError('TUI peer identity mismatch')
+            run = self._pid_proofs([pid])[0]
+            executable = self._binary('tui')
+            if (os.readlink(self.proc_root / str(pid) / 'exe') != str(executable)
+                    or self._pid_proofs([pid]) != [run]):
+                raise NativeError('TUI server run unavailable')
+            return run
+
+    @bounded
+    def tui_owner_view(self, previous, prior=None):
+        """Observe owner changes independently of a potentially lagging save.
+
+        Only workspace identity_cwd needs disk evidence. Bind it to the public
+        workspace ID. Never infer it from a display label or a foreground cwd.
+        A generated migration save lacks IDs; it can anchor only an unchanged
+        explicitly named workspace by the existing strict legacy rule.
+        """
+        self._other_off('tui')
+        if self.selected() != 'tui' or not self.endpoint_present('tui'):
+            raise NativeError('selected runtime readiness unavailable')
+        run = self.tui_run()
+        self._expected_tui_run = run
+        try:
+            return self._observe_tui_run(previous, prior, run)
+        finally:
+            self._expected_tui_run = None
+
+    def _observe_tui_run(self, previous, prior, run):
+        disk, file = self.snapshot_evidence()
+        if not layout.supported_tui_save(disk):
+            raise NativeError('TUI workspace directory proof unavailable')
+        disk_plan = layout.from_tui_snapshot(disk)
+        bindings = layout.tui_public_identities(disk)
+        by_id = {b['id']: s for b, s in zip(bindings, disk_plan['spaces']) if b is not None}
+        response = self.tui('session.snapshot', {})
+        if response.get('type') != 'session_snapshot':
+            raise NativeError('TUI snapshot response invalid')
+        api = layout._json_copy(response['snapshot'])
+        inventory, failed, deferred = self._api_inventory(api)
+        view, spaces, facts = [], [], []
+        for si, space in enumerate(inventory):
+            wid = layout._string(space['id'], 512)
+            name = layout._string(space['name'], 512)
+            saved = by_id.get(wid)
+            if saved is None:
+                if (len(inventory) != len(bindings) or bindings[si] is not None
+                        or disk['workspaces'][si].get('custom_name') != name
+                        or sum(s['name'] == name for s in inventory) != 1
+                        or sum(s['name'] == name for s in disk_plan['spaces']) != 1):
+                    raise NativeError('TUI workspace directory proof ambiguous')
+                saved = disk_plan['spaces'][si]
+            workspace = {'name': name, 'directory': saved['directory'], 'tabs': []}
+            observed = {'id': wid, 'label': name, 'directory': saved['directory'], 'tabs': []}
+            view.append(observed)
+            spaces.append(workspace)
+            for ti, tab in enumerate(space['tabs']):
+                if (tab['id'] != wid + ':t' + layout.encode_public_number(tab['number'])
+                        or any(not p.startswith(wid + ':p') for p in tab['panes'])):
+                    raise NativeError('TUI public identity unavailable')
+                canonical, public, info = self._tui_tab(si, ti, tab, wid, failed)
+                workspace['tabs'].append(canonical)
+                observed['tabs'].append({'id': tab['id'], 'number': tab['number'], 'label': tab['name'],
+                                         'root': public, 'panes': tab['panes']})
+                facts.extend(info)
+            count = api['workspaces'][si].get('pane_count')
+            if type(count) is not int or count != sum(len(t['panes']) for t in space['tabs']):
+                raise NativeError('TUI pane inventory incomplete')
+        # Only the disk+API join recovers nullable names. This transient plan
+        # is used for session/process proofs, never as a launch document.
+        plan = checked_plan({'schema_version': 1, 'spaces': spaces})
+        clients = self._coverage(plan, deferred=deferred)
+        self._db_sessions(plan)
+        pids, bindings = self._owner_process_proofs(api, facts, clients, run)
+        for workspace in view:
+            for tab in workspace['tabs']:
+                for pane, item in tab['panes'].items():
+                    if pane not in failed or item['session_id'] is None:
+                        continue
+                    retained = (prior or {}).get('clients', {}).get(pane)
+                    if (not retained or retained['run'] != run or retained['session_id'] != item['session_id']
+                            or retained['cwd'] != item['cwd'] or not self._pids_absent([retained['process']])):
+                        raise NativeError('deferred TUI pane has no matching run binding')
+                    bindings[pane] = retained
+        # The endpoint can change while the individual tab/pane RPCs and /proc
+        # proofs run. Ignore only volatile presentation/agent progress fields.
+        last = self.tui('session.snapshot', {})
+        if (last.get('type') != 'session_snapshot'
+                or self._api_inventory(last['snapshot']) != (inventory, failed, deferred)
+                or last['snapshot']['layouts'] != api['layouts']
+                or self.tui_run() != run
+                or self.snapshot_evidence()[1] != file):
+            raise NativeError('TUI changed during owner observation')
+        return {'view': view, 'pids': pids, 'file': file, 'clients': bindings, 'run': run}, disk, plan
+
+    def _owner_process_proofs(self, api, facts, clients, run):
+        expected = {p['pane_id']: (layout._native_session({
+            'agent_name': p.get('agent'), 'agent_session': p.get('agent_session')}),
+            p.get('foreground_cwd') or p.get('cwd')) for p in api['panes']}
+        pids = self._tui_process_proofs(facts, clients)
+        by_pid = {client['pid']: client for client in clients}
+        public = {}
+        for info in facts:
+            actual = [by_pid[p['pid']] for p in info['foreground_processes'] if p['pid'] in by_pid]
+            want, directory = expected[info['pane_id']]
+            if [c['session_id'] for c in actual] != ([want] if want else []):
+                raise NativeError('TUI per-pane session process coverage incomplete')
+            if actual:
+                public[actual[0]['pid']] = info['pane_id']
+            if not want and (not self._idle_tui_shell(self.process_argv(info['shell_pid']))
+                             or self.process_cwd(info['shell_pid']) != directory):
+                raise NativeError('TUI idle shell proof unavailable')
+        if not clients:
+            return pids, {}
+        executable = str(self.home / '.opencode/bin/opencode')
+        service = self.shared_main_pid()
+        owner = self._pid_proofs([service])[0]
+        if os.readlink(self.proc_root / str(service) / 'exe') != executable:
+            raise NativeError('shared service owner unavailable')
+        endpoints, bindings = {}, {}
+        for client in clients:
+            argv = self.process_argv(client['pid'])
+            if (argv[0] != executable or os.readlink(self.proc_root / str(client['pid']) / 'exe') != executable
+                    or self._session_argv(argv) != client['session_id']
+                    or not any(p['pid'] == client['pid'] and p['start_ticks'] == client['start_ticks'] for p in pids)):
+                raise NativeError('TUI wrapper client proof unavailable')
+            pane = public[client['pid']]
+            endpoint = urlsplit(argv[2])
+            endpoints[client['pid']] = endpoint.hostname, endpoint.port
+            bindings[pane] = {'session_id': client['session_id'], 'cwd': expected[pane][1],
+                              'process': next(p for p in pids if p['pid'] == client['pid']),
+                              'service': owner, 'run': run}
+        processes.shared_connections(self.proc_root, service, endpoints)
+        if (service != self.shared_main_pid() or self._pid_proofs([service]) != [owner]
+                or self._pid_proofs([p['pid'] for p in pids]) != pids):
+            raise NativeError('TUI process or shared service changed during observation')
+        return pids, bindings
 
     @staticmethod
     def _checked_boot_id(value):
@@ -1019,17 +1221,19 @@ class Native:
             raise NativeError('native boot identity changed')
         return True
 
+    @staticmethod
+    def _idle_tui_shell(argv):
+        # The pinned TUI defaults to /bin/sh when exec-tui leaves SHELL unset.
+        return argv == ['/bin/sh'] or (argv and argv[0] in ('/bin/bash', 'bash', '-bash')
+                                       and argv[1:] in ([], ['-l'], ['--login']))
+
     def _tui_process_proofs(self, facts, clients):
         foreground = [p for fact in facts for p in fact.get('foreground_processes', [])]
         known = {p['pid'] for p in clients}
         for proc in foreground:
             # Optional API argv is not proof of the actual foreground program.
             argv = self.process_argv(proc['pid'])
-            is_shell = argv and argv[0] in ('/bin/bash', 'bash', '-bash') and argv[1:] in ([], ['-l'], ['--login'])
-            # Pinned TUI defaults to /bin/sh when exec-tui leaves SHELL unset.
-            # Admit only its idle argv; never sh -c, flags or arbitrary aliases.
-            is_shell = is_shell or argv == ['/bin/sh']
-            if proc['pid'] not in known and not is_shell:
+            if proc['pid'] not in known and not self._idle_tui_shell(argv):
                 raise NativeError('TUI unknown foreground process')
         if any(client['pid'] not in {p['pid'] for p in foreground} for client in clients):
             raise NativeError('TUI session process coverage incomplete')
@@ -1057,8 +1261,8 @@ class Native:
             proofs = self._tui_process_proofs(facts, clients)
             snapshot = self._optional_snapshot()
             value = {'plan': plan, 'api': api, 'clients': clients, 'pids': proofs,
-                     'tui_names': layout.tui_names(snapshot),
-                     'backup': self._backup({'snapshot': snapshot})}
+                      'tui_names': layout.tui_names(snapshot),
+                      'backup': self._backup({'snapshot': snapshot})}
         else:
             document, version = self._document()
             terminals = self._terminals()
@@ -1142,9 +1346,24 @@ class Native:
             clients = self._coverage(live, deferred=deferred)
             if clients != capture['clients'] or self._tui_process_proofs(facts, clients) != capture['pids']:
                 raise NativeError('TUI source process inventory changed after capture')
+            prior = self.store.read('tui-observation.json')
+            candidate = None
+            if prior and not prior['hold']:
+                candidate, disk, _ = self.tui_owner_view(plan, prior)
+                if (candidate['run'] != prior['run'] or candidate['pids'] != capture['pids']
+                        or disk != self._optional_snapshot()):
+                    raise NativeError('TUI source run changed before stop')
             self.command(['herdr', 'session', 'stop', 'default', '--json'], timeout=25)
             # The CLI's success alone is not an observation of process exit.
             self._wait(lambda: not self.endpoint_present(source) and self._pids_absent(capture['pids']))
+            if candidate is not None:
+                self._wait(lambda: self._pids_absent([candidate['run']]))
+                self.absent(sessions(plan), clients)
+                saved, file = self.snapshot_evidence()
+                if (file == candidate['file'] or not layout.tui_save_matches_view(saved, candidate['view'])
+                        or layout.tui_names(saved) != self._captured_tui_names(capture)
+                        or self.snapshot_evidence()[1] != file):
+                    raise NativeError('TUI final file not bound to observed stop')
             observed()
             intent('tui.unit.stop')
             self.command(['/usr/bin/systemctl', '--user', 'stop', 'remote-herdr-tui.service'])
@@ -1223,7 +1442,11 @@ class Native:
                 raise NativeError('TUI saved layout differs from live capture')
             self._backup({'snapshot': snapshot})
             if self.store.read('owned-tui.json') is not None:
-                self.store.write('owned-tui.json', {'document': snapshot})
+                owned = {'document': snapshot}
+                manifest = self.store.read('manifest.json')
+                if manifest and manifest.get('runtime') == 'tui' and 'adoption_backup' in manifest['receipt']:
+                    owned['source_txid'] = manifest['txid']
+                self.store.write('owned-tui.json', owned)
             return final
         if self.store.read('owned-herdr-core.json') is not None:
             self.store.write('owned-herdr-core.json', {'document': layout._json_copy(capture['document'])})
@@ -1338,6 +1561,70 @@ class Native:
         # start observed, recapture/backup is safe; prior backup files are retained.
         return self.prepare(target, plan, txid, replace_target)
 
+    def tui_unit_stopped(self):
+        state = self.command(['/usr/bin/systemctl', '--user', 'show', 'remote-herdr-tui.service',
+                              '--property=ActiveState', '--value'])
+        return isinstance(state, str) and state.strip() in {'inactive', 'failed'}
+
+    @bounded
+    def check_tui_start_file(self, plan, txid, receipt):
+        """Type=exec's last check: the intent authorizes one exact saved file."""
+        if (type(receipt) is not dict or receipt.get('txid') != txid or receipt.get('runtime') != 'tui'
+                or receipt.get('pending') != {'operation': 'tui.start'}):
+            raise NativeError('TUI start intent unavailable')
+        document, file = self.snapshot_evidence()
+        if (document != receipt['document'] or not layout.supported_tui_save(document)
+                or not layout.plans_match_at_native_precision(layout.from_tui_snapshot(document), checked_plan(plan))):
+            raise NativeError('TUI start file changed')
+        if 'start_file' in receipt and file != receipt['start_file']:
+            raise NativeError('TUI start file changed')
+        self._other_off('tui')
+        if self.selected() != 'tui' or self.endpoint_present('tui'):
+            raise NativeError('TUI start selection or endpoint changed')
+        if 'exit_pids' in receipt:
+            if not self._pids_absent(receipt['exit_pids']) or ('exit_run' in receipt
+                    and not self._pids_absent([receipt['exit_run']])):
+                raise NativeError('TUI process exit not proven')
+            self.absent(sessions(plan), [])
+        return file['digest']
+
+    @bounded
+    def background_restore_holds(self, identity, *, timeout):
+        """An active oneshot is not necessarily the process holding this lock."""
+        deadline = time.monotonic() + timeout
+        def main_pid():
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return None
+            value = self.command(['/usr/bin/systemctl', '--user', 'show', 'remote-herdr-restore.service',
+                                  '--property=MainPID', '--value'], timeout=left)
+            if isinstance(value, str) and re.fullmatch('[1-9][0-9]{0,9}', value.strip()):
+                return int(value.strip())
+            return None
+        pid = main_pid()
+        if pid is None or pid <= 1:
+            return False
+        fd = os.open(self.proc_root / 'locks', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            info = os.fstat(fd)
+            if (not stat.S_ISREG(info.st_mode) or info.st_uid not in (0, os.getuid())
+                    or info.st_mode & 0o022):
+                return False
+            with os.fdopen(fd, 'rb', closefd=False) as stream:
+                locks = stream.read(LIMIT + 1)
+        finally:
+            os.close(fd)
+        if len(locks) > LIMIT:
+            return False
+        device, inode = identity
+        for line in locks.splitlines():
+            match = re.fullmatch(rb'\d+:\s+FLOCK\s+ADVISORY\s+WRITE\s+(\d+)\s+'
+                                 rb'([0-9a-fA-F]+):([0-9a-fA-F]+):(\d+)\s+0\s+EOF', line)
+            if match and (int(match[1]), int(match[2], 16), int(match[3], 16), int(match[4])) == (
+                    pid, os.major(device), os.minor(device), inode):
+                return main_pid() == pid
+        return False
+
     @bounded
     def recover_tui(self, plan, txid, receipt, *, preserve_snapshot=False):
         """Reconcile offline write/start using exact bytes and unit ownership."""
@@ -1353,14 +1640,17 @@ class Native:
         pending = receipt.get('pending')
         if pending and pending.get('operation') not in {'tui.write', 'tui.start'}:
             raise NativeError('TUI pending mutation unsupported')
-        state = self.command(['/usr/bin/systemctl', '--user', 'show', 'remote-herdr-tui.service',
-                              '--property=ActiveState', '--value'])
-        if not isinstance(state, str) or state.strip() not in {'inactive', 'failed'}:
+        if not self.tui_unit_stopped():
             # Type=exec can still be starting after its CLI acknowledgement.
             self._wait_ready('tui', plan, receipt)
             receipt['pending'] = None
             self._receipt(receipt)
             return receipt
+        if ('exit_pids' in receipt and not self._pids_absent(receipt['exit_pids'])
+                or 'exit_run' in receipt and not self._pids_absent([receipt['exit_run']])):
+            raise NativeError('TUI process exit not proven')
+        if preserve_snapshot:
+            self._db_sessions(plan)
         self.absent(sessions(plan), [])
         generated = layout.to_tui_snapshot(plan)
         current = self._optional_snapshot()
@@ -1392,6 +1682,10 @@ class Native:
         receipt['document'] = generated
         receipt['pending'] = {'operation': 'tui.start'}
         self._receipt(receipt)
+        if preserve_snapshot and 'tui_lineage' in receipt:
+            if not self.tui_unit_stopped():
+                raise NativeError('TUI recovery unit state changed before start')
+            self.check_tui_start_file(plan, txid, receipt)
         self.command(['/usr/bin/systemctl', '--user', 'start', 'remote-herdr-tui.service'])
         self._wait_ready('tui', plan, receipt)
         receipt['pending'] = None
@@ -1556,14 +1850,32 @@ class Native:
                 self._match_terminal(self._terminal(receipt['terminals'][pane['key']]), pane, receipt['txid'])
             self._safe_live_terminals(plan, receipt)
             receipt.update({'document': document, 'doc_version': version})
+            self._coverage(plan)
         else:
-            live, _, _, deferred = self._tui_live()
+            live, api, facts, deferred = self._tui_live()
             # The pinned TUI reports and saves split ratios as 32-bit floats
             # (RRW-007G-R11). Every other field stays exact.
             if (self._semantic(live, native_ratios=True)
                     != self._semantic(plan, native_ratios=True)):
                 raise NativeError('TUI restored layout differs')
-        self._coverage(plan, deferred=deferred)
+            clients = self._coverage(plan, deferred=deferred)
+            if 'tui_lineage' in receipt:
+                run = self.tui_run()
+                pids, bindings = self._owner_process_proofs(api, facts, clients, run)
+                prior = self.store.read('tui-observation.json') or {}
+                for pane in api['panes']:
+                    identity = (pane.get('agent_session') or {}).get('value')
+                    if identity not in deferred:
+                        continue
+                    binding = prior.get('clients', {}).get(pane['pane_id'])
+                    if (not binding or binding['run'] != run or binding['session_id'] != identity
+                            or binding['cwd'] != (pane.get('foreground_cwd') or pane.get('cwd'))
+                            or not self._pids_absent([binding['process']])):
+                        raise NativeError('deferred TUI pane has no matching run binding')
+                    bindings[pane['pane_id']] = binding
+                if self.tui_run() != run:
+                    raise NativeError('TUI server changed during readiness')
+                receipt['ready_run'] = {'run': run, 'pids': pids, 'clients': bindings}
         self._db_sessions(plan)
         owned = receipt['document']
         self.store.write('owned-' + target + '.json', {'document': owned})

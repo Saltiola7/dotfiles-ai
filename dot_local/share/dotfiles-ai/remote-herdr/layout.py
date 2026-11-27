@@ -249,7 +249,7 @@ def tui_names(value):
             for space in snapshot['workspaces']]
 
 
-def tui_public_identities(value):
+def tui_public_identities(value, *, stored_precision=False):
     """Exact disk-to-API identities, or strict explicit-name legacy fallback.
 
     Reuse the snapshot parser for bounded topology, cwd and session validation.
@@ -292,7 +292,7 @@ def tui_public_identities(value):
             def tree(node):
                 if 'pane' in node:
                     return {'pane': mapping[node['pane']]}
-                return {'axis': node['axis'], 'ratio': node['ratio'],
+                return {'axis': node['axis'], 'ratio': _f32(node['ratio']) if stored_precision else node['ratio'],
                         'children': [tree(child) for child in node['children']]}
             tabs.append({'id': tids[ti], 'number': numbers[ti], 'root': tree(canonical['root']),
                          'panes': {mapping[p['key']]: {'cwd': p['cwd'], 'session_id': p['session_id']}
@@ -502,9 +502,9 @@ def plans_match_at_native_precision(observed, plan):
     return True
 
 
-def matches_tui_shutdown(snapshot, plan):
-    """Recognize a pinned native save without trusting its launch instructions."""
-    actual = from_tui_snapshot(snapshot)
+def supported_tui_save(snapshot):
+    """Only known v3 save fields may be passed through to the native launcher."""
+    from_tui_snapshot(snapshot)  # also validates every supplied launch/resume argv
     if set(snapshot) - {'version', 'workspaces', 'active', 'selected', 'sidebar_width',
                         'sidebar_section_split', 'collapsed_space_keys'}:
         return False
@@ -522,7 +522,40 @@ def matches_tui_shutdown(snapshot, plan):
                         'agent_session', 'agent_resume', 'launch_argv', 'history'}
                         or pane.get('session_id') is not None for pane in tab['panes'].values())):
                 return False
-    observed = _json_copy(actual)
+    return True
+
+
+def tui_save_matches_view(snapshot, view):
+    """Join a shutdown save to an independently observed live public layout.
+
+    API display labels are projections, not nullable naming provenance. Take
+    custom names and workspace identity_cwd only from the disk side of the join.
+    Never substitute an array position, cwd or label for a public identifier.
+    """
+    if not supported_tui_save(snapshot):
+        return False
+    bindings = tui_public_identities(snapshot)
+    if len(bindings) != len(view):
+        return False
+    for space, binding, live in zip(snapshot['workspaces'], bindings, view):
+        if (binding is None or binding['id'] != live['id'] or space['identity_cwd'] != live['directory']
+                or space.get('custom_name') is not None and space['custom_name'] != live['label']
+                or len(binding['tabs']) != len(live['tabs'])):
+            return False
+        for i, (tab, expected, observed) in enumerate(zip(space['tabs'], binding['tabs'], live['tabs'])):
+            label = str(i + 1) if tab.get('custom_name') is None else tab['custom_name']
+            if (observed['label'] != label or expected['id'] != observed['id']
+                    or expected['number'] != observed['number'] or expected['panes'] != observed['panes']
+                    or _ratio_at_native_precision(expected['root']) != _ratio_at_native_precision(observed['root'])):
+                return False
+    return True
+
+
+def matches_tui_shutdown(snapshot, plan):
+    """R8 switch recovery alone may fill missing planned identities."""
+    if not supported_tui_save(snapshot):
+        return False
+    observed = from_tui_snapshot(snapshot)
     for got_space, want_space in zip(observed['spaces'], plan['spaces']):
         for got_tab, want_tab in zip(got_space['tabs'], want_space['tabs']):
             for got, want in zip(got_tab['panes'], want_tab['panes']):

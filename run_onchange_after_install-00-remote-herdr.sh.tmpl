@@ -49,10 +49,13 @@ fi
     echo "remote user environment requires Linux x86_64" >&2
     exit 1
 }
-url={{ .dotfiles_ai.herdr.linux_amd64_asset_url | quote }}
-sha256={{ .dotfiles_ai.herdr.linux_amd64_asset_sha256 | quote }}
+version={{ .dotfiles_ai.herdr.remote_linux_amd64_version | quote }}
+url={{ .dotfiles_ai.herdr.remote_linux_amd64_asset_url | quote }}
+sha256={{ .dotfiles_ai.herdr.remote_linux_amd64_asset_sha256 | quote }}
 {{ end -}}
-if [[ -x $target && ! -L $target && $($target --version 2>/dev/null) == "herdr $version" ]]; then
+if [[ -x $target && ! -L $target ]] &&
+    printf '%s  %s\n' "$sha256" "$target" | sha256sum --check --status &&
+    [[ $("$target" --version 2>/dev/null) == "herdr $version" ]]; then
     exit 0
 fi
 if [[ -x $target ]] && $target status server --json 2>/dev/null | grep -q '"running":true'; then

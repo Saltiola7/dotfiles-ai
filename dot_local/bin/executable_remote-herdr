@@ -1,13 +1,16 @@
 #!/usr/bin/python3 -I
 """Default-session Herdr ownership transfer; never controls OpenCode's backend."""
 import argparse
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import stat
 import sys
 import tomllib
+import uuid
 
 
 class RecoveryDeadline(BaseException):
@@ -53,7 +56,7 @@ def main():
                     or info.st_nlink != 1 or info.st_mode & 0o022):
                 raise ValueError()
         sys.path.insert(0, str(modules))
-        from controller import Controller, Store
+        from controller import Controller, RecoveryContention, Store, TuiNotRestored, recovery_owner
         from native import Native
         import layout
         import protocol
@@ -103,8 +106,33 @@ def main():
             headless_config = root / 'headless-config.toml'
             backend._atomic(headless_config, generated.encode('utf-8'))
             env['HERDR_CONFIG_PATH'] = str(headless_config)
+            if switch_start:
+                txid = journal['txid']
+                if not isinstance(txid, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', txid):
+                    return 78
+                receipt = backend._json(root / ('receipt-' + txid + '.json'))
+                digest = backend.check_tui_start_file(journal['plan'], txid, receipt)
+            else:
+                digest = backend.check_tui_start_file(boot['plan'], boot['receipt']['txid'], boot['receipt'])
+            env['HERDR_PROOF_RESTORE_SHA256'] = digest
+            invocation = uuid.uuid4().hex
+            launch = {'run': backend._pid_proofs([os.getpid()])[0], 'invocation': invocation}
+            backend._atomic(root / 'tui-launch.json', json.dumps(launch).encode('utf-8'))
+            env['HERDR_PROOF_SAVE_INVOCATION'] = invocation
             os.execve(executable, [str(executable), '--session', 'default', 'server'], env)
-        with Store(root) as store:
+        with ExitStack() as stack:
+            store = Store(root)
+            if args.operation == 'recover':
+                signal.signal(signal.SIGALRM, recovery_deadline)
+                signal.alarm(840)  # Overall: lock attribution, bounded wait and recovery.
+                try:
+                    stack.enter_context(recovery_owner(store, Native(home, NoState()).background_restore_holds,
+                                                       lambda label: print(label, file=sys.stderr, flush=True)))
+                except RecoveryContention as error:
+                    print(str(error), file=sys.stderr)
+                    return 75
+            else:
+                stack.enter_context(store)
             backend = Native(home, store)
             controller = Controller(store, backend)
             if args.operation == 'switch':
@@ -120,18 +148,20 @@ def main():
                         imported = layout.validate_plan(value)
                 controller.switch(args.runtime, replace_target=args.replace_target, imported=imported)
             elif args.operation == 'recover':
-                signal.signal(signal.SIGALRM, recovery_deadline)
-                signal.alarm(840)
                 try:
                     controller.recover()
-                finally:
-                    signal.alarm(0)
+                except TuiNotRestored as error:
+                    print(str(error), file=sys.stderr)
+                    return 75
             else:
                 controller.restore()
         return 0
     except (Exception, RecoveryDeadline):
         print('Herdr operation refused or incomplete; retained state requires inspection/recovery', file=sys.stderr)
         return 75
+    finally:
+        if args.operation == 'recover':
+            signal.alarm(0)
 
 
 if __name__ == '__main__':

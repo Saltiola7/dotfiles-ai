@@ -238,3 +238,61 @@ def assert_absent(sessions: set[str], captured: list[dict], root: Path = Path('/
             if error.errno in {errno.ENOENT, errno.ESRCH}:
                 continue
             raise ProcessProofError('source process exit unavailable') from None
+
+
+def _socket_inodes(directory):
+    if task_uid(directory) != os.getuid():
+        raise ProcessProofError('socket ownership unavailable')
+    sockets = set()
+    with os.scandir(directory / 'fd') as entries:
+        for index, entry in enumerate(entries):
+            if index >= MAX_PROCESSES:
+                raise ProcessProofError('socket inventory exceeds bound')
+            try:
+                link = os.readlink(entry.path)
+            except FileNotFoundError:
+                continue  # A vanished FD never provides positive evidence.
+            match = re.fullmatch(r'socket:\[([1-9][0-9]{0,19})\]', link)
+            if match:
+                sockets.add(match[1])
+    return sockets
+
+
+def shared_connections(root, service, endpoints):
+    """Require both ends of an established loopback flow and the listener.
+
+    Read the TCP tables once for the set, not once per pane. No registration,
+    credentials, client environment, network requests or backend mutations.
+    """
+    service_fds = _socket_inodes(root / str(service))
+    accepted, listeners, established = set(), set(), {}
+    ipv4, ipv6 = b'0100007F', b'00000000000000000000000001000000'
+    loopback = {ipv4, ipv6}
+    for table in ('tcp', 'tcp6'):
+        fd = os.open(root / 'net' / table, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            _check_task_file(fd, {0, os.getuid()})
+            rows = _bounded(fd, 2 * 1024 * 1024).splitlines()
+        finally:
+            os.close(fd)
+        for row in rows[1:]:
+            fields = row.split()
+            if len(fields) < 10:
+                raise ProcessProofError('TCP inventory incomplete')
+            local, remote, state = fields[1:4]
+            inode = fields[9].decode('ascii')
+            if local.split(b':')[0] not in loopback or int(fields[7]) != os.getuid():
+                continue
+            if state == b'0A' and inode in service_fds:
+                listeners.add(local)
+            elif state == b'01' and remote.split(b':')[0] in loopback:
+                established[inode] = (local, remote)
+                if inode in service_fds:
+                    accepted.add((remote, local))
+    for pid, (host, port) in endpoints.items():
+        hosts = {'127.0.0.1': {ipv4}, '::1': {ipv6}, 'localhost': loopback}[host]
+        flows = (established[i] for i in _socket_inodes(root / str(pid)) if i in established)
+        if not any((a, b) in accepted and b in listeners and b.split(b':')[0] in hosts
+                   and int(b.split(b':')[1], 16) == port
+                   for a, b in flows):
+            raise ProcessProofError('shared service attachment unavailable')

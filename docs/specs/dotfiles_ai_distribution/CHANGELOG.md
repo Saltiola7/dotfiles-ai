@@ -1,5 +1,17 @@
 # dotfiles-ai Distribution Changelog
 
+## TUI restore after daily layout edits (RRW-007K)
+
+- Adopt proven live edits and the TUI's own shutdown save. Restore later
+  exact clients and retain intentional pane closures across boots.
+- Pin the verified Herdr build for managed-remote Linux x86_64 only.
+  Require the native final-save receipt for edited offline adoption and
+  verify the exact snapshot digest at native cold start.
+- Distinguish bounded contention with the background restore from an
+  unknown lock holder. Keep the existing pacing and process-exit proof.
+- Extend the disposable Linux native qualification to two edited boots
+  and 50 unique clients. Fork A owns live host verification.
+
 ## 2026-11-24 — Rollout scope: the Mac applies by direct apply only
 
 - Clarifies INT-110 of `dbsctr-workflow-convergence` and

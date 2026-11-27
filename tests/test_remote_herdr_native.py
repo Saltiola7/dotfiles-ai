@@ -39,7 +39,7 @@ def backend(tmp_path):
     home.mkdir()
     (home / '.local/bin').mkdir(parents=True)
     (home / '.config/dotfiles-ai').mkdir(parents=True)
-    pins = {'schema_version': 1, 'tui_version': '0.9.5', 'core_version': '0.1.18'}
+    pins = {'schema_version': 1, 'tui_version': native.TUI_VERSION, 'core_version': '0.1.18'}
     for name, key in [('herdr', 'tui'), ('herdr-core', 'core')]:
         path = home / '.local/bin' / name
         path.write_bytes(b'fake reviewed bytes')
@@ -2530,7 +2530,7 @@ class FakeTui:
         # Required fields are present; omitted Option/empty-map/false fields
         # follow serde skip_serializing_if, not an invented minimal schema.
         identity = {'source': 'herdr:opencode', 'agent': 'opencode', 'kind': 'id', 'value': 'ses_abc'}
-        return {'version': '0.9.5', 'protocol': 1,
+        return {'version': native.TUI_VERSION, 'protocol': 1,
                 'focused_workspace_id': 'wid', 'focused_tab_id': 'tid', 'focused_pane_id': 'pid',
                 'workspaces': [{'workspace_id': 'wid', 'number': 1, 'label': 'Space',
                                 'focused': True, 'pane_count': 1, 'tab_count': 1,
@@ -2719,7 +2719,9 @@ FAKE_TUI = '''#!__PYEXECUTABLE__
 import json, os, pathlib, sys
 path = pathlib.Path(os.environ["HERDR_CONFIG_PATH"])
 print(json.dumps({"config": str(path), "mode": oct(path.stat().st_mode & 0o777),
-                  "text": path.read_text(), "argv": sys.argv[1:]}))
+                  "text": path.read_text(), "argv": sys.argv[1:],
+                  "digest": os.environ["HERDR_PROOF_RESTORE_SHA256"],
+                  "invocation": os.environ["HERDR_PROOF_SAVE_INVOCATION"]}))
 '''
 
 
@@ -2744,6 +2746,10 @@ def launcher_home(backend, plan_value, managed):
     (root / 'transaction.json').write_text(json.dumps({
         'schema_version': 1, 'txid': 'launch', 'source': 'herdr-core', 'target': 'tui',
         'phase': 'restore_pending', 'plan': plan_value, 'receipt': None}))
+    document = native.layout.to_tui_snapshot(plan_value)
+    (home / '.config/herdr/session.json').write_text(json.dumps(document))
+    (root / 'receipt-launch.json').write_text(json.dumps({
+        'runtime': 'tui', 'txid': 'launch', 'pending': {'operation': 'tui.start'}, 'document': document}))
     launcher = home / '.local/bin/remote-herdr'
     launcher.write_bytes((SOURCE.parents[2] / 'bin/executable_remote-herdr').read_bytes())
     launcher.chmod(0o755)
@@ -2762,6 +2768,9 @@ def test_r10_launcher_hands_the_tui_a_plan_sized_headless_grid(backend):
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
     assert report['argv'] == ['--session', 'default', 'server']
+    assert report['digest'] == hashlib.sha256(backend.snapshot_path.read_bytes()).hexdigest()
+    launch = backend._json(backend.home / '.local/state/dotfiles-ai/herdr-runtime/tui-launch.json')
+    assert launch['invocation'] == report['invocation']
     assert report['mode'] == '0o600' and report['config'].endswith('/herdr-runtime/headless-config.toml')
     assert report['text'] == (managed.rstrip('\n') + '\n\n[server]\nheadless_cols = 1030\nheadless_rows = 80\n')
 
@@ -2937,7 +2946,7 @@ def test_tui_capture_observational_api_never_written_as_native_file(backend):
     before = backend.snapshot_path.read_bytes()
     captured = backend.capture('tui')
     assert captured['plan'] == plan()
-    assert captured['api']['version'] == '0.9.5'
+    assert captured['api']['version'] == native.TUI_VERSION
     assert backend.snapshot_path.read_bytes() == before
     assert backend.stop('tui', captured) == plan()
     assert json.loads(backend.snapshot_path.read_text())['version'] == 3
@@ -3171,6 +3180,778 @@ def test_tui_invalid_poststop_save_blocks_handoff(backend):
     with pytest.raises(native.NativeError, match='saved layout'):
         backend.stop('tui', captured)
     assert backend.store.read(captured['backup'])['snapshot'] == tui.saved
+
+
+def owner_tui_processes(backend, ticks):
+    synthetic_process(backend, 20, ['/bin/sh'], ticks=ticks)
+    synthetic_process(backend, 31, wrapper_argv(backend, 'ses_later'), ticks=ticks)
+    (backend.proc_root / '31/exe').symlink_to(backend.home / '.opencode/bin/opencode')
+    fds = backend.proc_root / '31/fd'
+    fds.mkdir()
+    (fds / '0').symlink_to('socket:[101]')
+    for pid in (41, 42):
+        synthetic_process(backend, pid, ['/bin/sh'], ticks=ticks)
+    synthetic_process(backend, 60, ['herdr', '--session', 'default', 'server'], ticks=ticks)
+
+
+def owner_edit(backend, *, saved):
+    """A closed agent, a resized/renamed tab and a new exact agent in another tab."""
+    tui = public_tui(backend, 'Space', 'Tab')
+    before = copy.deepcopy(tui.saved)
+    receipt = {'runtime': 'tui', 'txid': 'original', 'document': before, 'pending': None}
+    manifest = {'schema_version': 1, 'runtime': 'tui', 'txid': 'original',
+                'receipt': receipt, 'plan': native.layout.from_tui_snapshot(before)}
+    backend.store.write('manifest.json', manifest)
+    backend.store.write('owned-tui.json', {'document': before})
+    backend.store.write('transaction.json', {'schema_version': 1, 'phase': 'complete', 'txid': 'original'})
+    after = copy.deepcopy(before)
+    space = after['workspaces'][0]
+    tab = space['tabs'][0]
+    agent = tab['panes'].pop('0')
+    agent['agent_session']['value'] = agent['launch_argv'][2] = 'ses_later'
+    space.update(public_tab_numbers=[3, 5], public_pane_numbers={'1': 8, '2': 9, '3': 10})
+    tab.update(custom_name='Renamed', root_pane=1, focused=1, panes={'1': {'cwd': '/work'}, '2': {'cwd': '/work'}},
+               layout={'Split': {'direction': 'Vertical', 'ratio': .375, 'first': {'Pane': 2}, 'second': {'Pane': 1}}})
+    space['tabs'].append({'custom_name': None, 'panes': {'3': agent}, 'layout': {'Pane': 3}, 'root_pane': 3})
+    api = tui.snapshot()
+    api['workspaces'][0].update(pane_count=3, tab_count=2)
+    api['tabs'][0].update(label='Renamed', pane_count=2)
+    api['tabs'].append({**api['tabs'][0], 'number': 5, 'tab_id': 'synthetic:t5', 'label': '2', 'pane_count': 1})
+    later = api['panes'].pop()
+    for item in (later, api['agents'][0]):
+        item.update(pane_id='synthetic:pA', tab_id='synthetic:t5')
+        item['agent_session']['value'] = 'ses_later'
+    api['panes'] = [{'workspace_id': 'synthetic', 'tab_id': 'synthetic:t3', 'pane_id': 'synthetic:p' + n,
+                     'cwd': '/work'} for n in ('8', '9')] + [later]
+    owner_tui_processes(backend, 21)
+    synthetic_process(backend, 61, [str(backend.home / '.opencode/bin/opencode'), 'serve'])
+    (backend.proc_root / '61/exe').symlink_to(backend.home / '.opencode/bin/opencode')
+    backend.tui_run = lambda: backend._pid_proofs([60])[0]
+    backend.shared_main_pid = lambda: 61
+    fds = backend.proc_root / '61/fd'
+    fds.mkdir()
+    for i, inode in enumerate((102, 103)):
+        (fds / str(i)).symlink_to(f'socket:[{inode}]')
+    (backend.proc_root / 'net').mkdir()
+    header = 'sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode\n'
+    def row(local, remote, state, inode):
+        return f'0: {local} {remote} {state} 0:0 0:0 0 {os.getuid()} 0 {inode} 1\n'
+    client, server = '0100007F:A001', '0100007F:1000'
+    (backend.proc_root / 'net/tcp').write_text(header + row(client, server, '01', 101)
+        + row(server, client, '01', 102) + row(server, '00000000:0000', '0A', 103))
+    (backend.proc_root / 'net/tcp6').write_text(header)
+    with sqlite3.connect(backend.database_path()) as db:
+        db.execute('INSERT INTO session VALUES (?, ?)', ('ses_later', '/work'))
+    def rpc(method, params):
+        if method == 'session.snapshot':
+            return {'type': 'session_snapshot', 'snapshot': copy.deepcopy(api)}
+        if method == 'layout.export':
+            tid = params['tab_id']
+            def leaf(n): return {'type': 'pane', 'pane_id': 'synthetic:p' + n}
+            root = leaf('A') if tid == 'synthetic:t5' else {
+                'type': 'split', 'direction': 'down', 'ratio': .375, 'first': leaf('9'), 'second': leaf('8')}
+            return {'type': 'layout_export', 'layout': {'workspace_id': 'synthetic', 'tab_id': tid, 'root': root}}
+        assert method == 'pane.process_info'
+        pane = params['pane_id']
+        pid = {'synthetic:p8': 41, 'synthetic:p9': 42, 'synthetic:pA': 31}[pane]
+        return {'type': 'pane_process_info', 'process_info': {'pane_id': pane, 'shell_pid': 20 if pid == 31 else pid,
+                'foreground_processes': [{'pid': pid}]}}
+    backend.tui = rpc
+    if saved:
+        backend.snapshot_path.write_text(json.dumps(after))
+    return tui, before, after
+
+
+def finish_owner_shutdown(backend, tui, calls=None):
+    tui.active = False
+    ticks = backend.tui_run()['start_ticks'] + 1
+    for directory in backend.proc_root.iterdir():
+        if directory.name.isdigit() and directory.name != '61':
+            import shutil
+            shutil.rmtree(directory)
+    calls = [] if calls is None else calls
+    def command(argv, timeout=30):
+        calls.append(argv)
+        if 'start' in argv:
+            owner_tui_processes(backend, ticks)
+            tui.active = True
+        return 'inactive\n' if 'show' in argv else {}
+    backend.command = command
+    backend._wait_ready = lambda target, plan, receipt: None
+    return calls
+
+
+def observed_stop(backend, tui, snapshot, calls=None):
+    """Simulate the native receipt emitted on graceful shutdown."""
+    backend.snapshot_path.write_text(json.dumps(snapshot))
+    capture = backend.capture('tui')
+    calls = [] if calls is None else calls
+    run = backend.tui_run()
+    invocation = f"{run['start_ticks']:032x}"
+    launch = backend.home / '.local/state/dotfiles-ai/herdr-runtime/tui-launch.json'
+    launch.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    backend._atomic(launch,
+                    json.dumps({'run': run, 'invocation': invocation}).encode())
+    def stop(argv, timeout=30):
+        assert argv == ['herdr', 'session', 'stop', 'default', '--json']
+        finish_owner_shutdown(backend, tui, calls)
+        backend.snapshot_path.write_text(json.dumps(snapshot, indent=2))
+        backend._atomic(backend.snapshot_path.with_name('session-final-save.json'), json.dumps({
+            'version': 1, 'invocation': invocation, 'snapshot': 'session.json',
+            'sha256': hashlib.sha256(backend.snapshot_path.read_bytes()).hexdigest(),
+        }).encode())
+    backend.command = stop
+    backend.stop('tui', capture)
+    assert backend.final_tui_file(run, backend.snapshot_evidence()[1])
+    return calls
+
+
+@pytest.mark.parametrize('fault', ['wrong-owner', 'no-listener', 'wrong-peer', 'no-connection', 'other-port'])
+def test_k_later_client_requires_the_shared_owners_actual_connection(backend, fault):
+    owner_edit(backend, saved=True)
+    initial = backend.store.read('manifest.json')
+    if fault == 'wrong-owner':
+        backend.shared_main_pid = lambda: 41
+    elif fault == 'no-listener':
+        (backend.proc_root / '61/fd/1').unlink()
+    elif fault == 'wrong-peer':
+        table = backend.proc_root / 'net/tcp'
+        table.write_text(table.read_text().replace('1000 0100007F:A001', '1000 0100007F:A002'))
+    elif fault == 'no-connection':
+        (backend.proc_root / '31/fd/0').unlink()
+    else:
+        synthetic_process(backend, 31, wrapper_argv(backend, 'ses_later', server='http://127.0.0.1:4097'))
+    with pytest.raises(ValueError):
+        runtime_controller.Controller(backend.store, backend).restore()
+    assert backend.store.read('manifest.json') == initial
+
+
+def test_k_persists_public_pane_and_actual_server_client_and_service_incarnations(backend):
+    owner_edit(backend, saved=True)
+    runtime_controller.Controller(backend.store, backend).restore()
+    witness = backend.store.read('tui-observation.json')
+    assert witness['run'] == backend._pid_proofs([60])[0]
+    assert set(witness['clients']) == {'synthetic:pA'}
+    binding = witness['clients']['synthetic:pA']
+    assert binding == {'session_id': 'ses_later', 'cwd': '/work', 'run': witness['run'],
+                       'process': backend._pid_proofs([31])[0], 'service': backend._pid_proofs([61])[0]}
+
+
+@pytest.mark.parametrize('fault', ['moved', 'other-run', 'other-directory', None])
+def test_k_deferred_must_retain_independently_proven_public_binding(backend, fault):
+    tui, _, _ = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    witness = backend.store.read('tui-observation.json')
+    api = tui.snapshot()
+    api['panes'][-1]['restore_error'] = 'deferred'
+    synthetic_process(backend, 31, ['/bin/sh'])
+    if fault == 'moved':
+        api['panes'][-1]['pane_id'] = api['agents'][0]['pane_id'] = 'synthetic:pC'
+        rpc = backend.tui
+        def changed(method, params):
+            result = rpc(method, params)
+            if method == 'layout.export' and params['tab_id'] == 'synthetic:t5':
+                result['layout']['root']['pane_id'] = 'synthetic:pC'
+            return result
+        backend.tui = changed
+    elif fault == 'other-run':
+        synthetic_process(backend, 60, ['herdr', '--session', 'default', 'server'], ticks=22)
+    elif fault == 'other-directory':
+        api['panes'][-1]['foreground_cwd'] = '/other'
+    if fault:
+        with pytest.raises(ValueError):
+            control.restore()
+    else:
+        control.restore()
+        assert backend.store.read('tui-observation.json')['clients'] == witness['clients']
+
+
+@pytest.mark.parametrize('saved_live', [False, True])
+def test_k_owner_edits_survive_shutdown_and_second_boot(backend, saved_live):
+    tui, before, after = owner_edit(backend, saved=saved_live)
+    control = runtime_controller.Controller(backend.store, backend)
+    initial = backend.store.read('manifest.json')
+    journal = backend.store.read('transaction.json')
+    disk = backend.snapshot_path.read_bytes()
+    control.restore()
+    assert backend.snapshot_path.read_bytes() == disk and not tui.calls
+    if saved_live:
+        current = backend.store.read('manifest.json')
+        assert current['receipt']['document'] == after and current['plan'] == native.layout.from_tui_snapshot(after)
+        assert backend.store.read(current['receipt']['adoption_backup'])['manifest'] == initial
+    else:
+        # Disk is still from the earlier layout: a witness is not a committed save.
+        assert backend.store.read('manifest.json') == initial
+    after['sidebar_width'] = 45
+    calls = observed_stop(backend, tui, after)
+    disk = backend.snapshot_path.read_bytes()
+    for i in (1, 2):
+        if i == 2:
+            # Second native shutdown writes the same layout again.
+            observed_stop(backend, tui, after, calls)
+        control.restore()
+        assert backend.snapshot_path.read_bytes() == disk
+        assert sum('start' in a for a in calls) == i
+        boot = backend.store.read('boot.json')
+        manifest = backend.store.read('manifest.json')
+        assert boot['status'] == 'complete' and boot['receipt']['pending'] is None
+        assert manifest['plan'] == boot['plan'] == native.layout.from_tui_snapshot(after)
+        assert native.sessions(boot['plan']) == {'ses_later'}
+        assert backend.store.read('transaction.json') == journal
+
+
+@pytest.mark.parametrize('bad', ['store', 'duplicate', 'argv', 'cwd', 'other-pane', 'deferred', 'plain-wrapper', 'exe'])
+def test_k_invalid_later_client_never_partially_adopted_or_launched(backend, bad):
+    tui, before, after = owner_edit(backend, saved=True)
+    if bad == 'store':
+        with sqlite3.connect(backend.database_path()) as db:
+            db.execute('UPDATE session SET directory = ? WHERE id = ?', ('/other', 'ses_later'))
+    elif bad == 'duplicate':
+        synthetic_process(backend, 60, wrapper_argv(backend, 'ses_later'))
+    elif bad in ('argv', 'cwd', 'plain-wrapper'):
+        argv = wrapper_argv(backend, 'ses_later') + (['--extra'] if bad == 'argv' else [])
+        if bad == 'plain-wrapper':
+            argv = ['opencode', '--session', 'ses_later']
+        synthetic_process(backend, 31, argv, cwd='/other' if bad == 'cwd' else '/work')
+    elif bad == 'exe':
+        (backend.proc_root / '31/exe').unlink()
+        (backend.proc_root / '31/exe').symlink_to('/unrelated')
+    elif bad == 'other-pane':
+        real = backend.tui
+        def swapped(method, params):
+            result = real(method, params)
+            if method == 'pane.process_info':
+                for p in result['process_info']['foreground_processes']:
+                    p['pid'] = {31: 41, 41: 31}.get(p['pid'], p['pid'])
+            return result
+        backend.tui = swapped
+    else:
+        tui.snapshot()['panes'][-1]['restore_error'] = 'unavailable'
+        synthetic_process(backend, 31, ['/bin/sh'])
+    control = runtime_controller.Controller(backend.store, backend)
+    previous = copy.deepcopy(backend.store.values)
+    with pytest.raises(ValueError):
+        control.restore()
+    for name, value in previous.items():
+        assert backend.store.read(name) == value
+    # In particular do not start even the previous valid file after a failed
+    # observation: it contains a pane the owner closed during this edit.
+    calls = finish_owner_shutdown(backend, tui)
+    for document in (after, before):
+        backend.snapshot_path.write_text(json.dumps(document))
+        with pytest.raises(ValueError):
+            control.restore()
+    assert not any('start' in a for a in calls) and backend.store.read('boot.json') is None
+
+
+def test_k_same_topology_but_different_public_pane_is_not_the_witness(backend):
+    tui, _, after = owner_edit(backend, saved=False)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    calls = finish_owner_shutdown(backend, tui)
+    after['workspaces'][0]['public_pane_numbers']['3'] += 1
+    backend.snapshot_path.write_text(json.dumps(after))
+    with pytest.raises(ValueError):
+        control.restore()
+    assert not any('start' in a for a in calls) and backend.store.read('boot.json') is None
+
+
+@pytest.mark.parametrize('change', ['old-mtime', 'nullable-name', 'during-geometry'])
+def test_k_stale_or_ambiguous_generation_cannot_replace_proven_live_save(backend, change):
+    tui, _, after = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    if change == 'during-geometry':
+        rpc, calls = backend.tui, []
+        def layout_changed(method, params):
+            result = rpc(method, params)
+            if method == 'session.snapshot':
+                if calls: result['snapshot']['layouts'][0]['zoomed'] = True
+                calls.append(method)
+            return result
+        backend.tui = layout_changed
+        original = backend.store.read('manifest.json')
+        with pytest.raises(ValueError):
+            control.restore()
+        assert backend.store.read('manifest.json') == original
+        return
+    control.restore()
+    original = backend.store.read('manifest.json')
+    calls = finish_owner_shutdown(backend, tui)
+    if change == 'old-mtime':
+        after['sidebar_width'] = 29
+    else:
+        # '2' and null project to the same tab label, but one is explicit.
+        after['workspaces'][0]['tabs'][1]['custom_name'] = '2'
+    backend.snapshot_path.write_text(json.dumps(after))
+    if change == 'old-mtime':
+        os.utime(backend.snapshot_path, ns=(1, 1))
+    with pytest.raises(ValueError):
+        control.restore()
+    assert backend.store.read('manifest.json') == original
+    assert not any('start' in a for a in calls)
+
+
+def test_k_boot_without_live_witness_cannot_trust_replaced_public_pane(backend):
+    tui, before, _ = owner_edit(backend, saved=False)
+    calls = finish_owner_shutdown(backend, tui)
+    before['workspaces'][0]['public_pane_numbers']['0'] += 1
+    backend.snapshot_path.write_text(json.dumps(before))
+    with pytest.raises(ValueError):
+        runtime_controller.Controller(backend.store, backend).restore()
+    assert not any('start' in a for a in calls)
+
+
+def test_k_shutdown_after_edit_requires_a_new_file_even_if_old_content_was_owned(backend):
+    tui, before, _ = owner_edit(backend, saved=False)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    calls = finish_owner_shutdown(backend, tui)
+    # An older file can be copied after the observation and have a new mtime.
+    # Neither a valid later-client row nor a greater timestamp proves its panes.
+    before['workspaces'][0]['tabs'][0]['custom_name'] = 'Another old layout'
+    backend.snapshot_path.write_text(json.dumps(before))
+    with pytest.raises(ValueError):
+        control.restore()
+    assert not any('start' in a for a in calls)
+
+
+def test_k_actual_unknown_shell_with_no_foreground_group_refuses_whole_edit(backend):
+    tui, before, _ = owner_edit(backend, saved=True)
+    rpc = backend.tui
+    def foreign_idle_slot(method, params):
+        result = rpc(method, params)
+        if method == 'pane.process_info' and params['pane_id'] == 'synthetic:p8':
+            result['process_info']['foreground_processes'] = []
+        return result
+    backend.tui = foreign_idle_slot
+    synthetic_process(backend, 41, ['/unrelated'])
+    with pytest.raises(ValueError):
+        runtime_controller.Controller(backend.store, backend).restore()
+    assert backend.store.read('manifest.json')['receipt']['document'] == before and not tui.calls
+
+
+@pytest.mark.parametrize('bad', ['other-executable', 'other-pane'])
+def test_k_reboot_readiness_requires_the_actual_per_pane_wrapper_client(backend, bad):
+    tui, _, _ = owner_edit(backend, saved=True)
+    runtime_controller.Controller(backend.store, backend).restore()
+    manifest = backend.store.read('manifest.json')
+    if bad == 'other-executable':
+        (backend.proc_root / '31/exe').unlink()
+        (backend.proc_root / '31/exe').symlink_to('/unrelated')
+    else:
+        rpc = backend.tui
+        def swap(method, params):
+            result = rpc(method, params)
+            if method == 'pane.process_info':
+                for p in result['process_info']['foreground_processes']:
+                    p['pid'] = {31: 41, 41: 31}.get(p['pid'], p['pid'])
+            return result
+        backend.tui = swap
+    with pytest.raises(ValueError):
+        backend.verify('tui', manifest['plan'], manifest['receipt'])
+    assert not tui.calls
+
+
+@pytest.mark.parametrize('race', ['snapshot', 'client', 'store', 'other-runtime'])
+def test_k_live_edit_still_proves_after_private_backup_before_commit(backend, race):
+    tui, before, after = owner_edit(backend, saved=True)
+    initial = backend.store.read('manifest.json')
+    publish = backend._receipt
+    def race_after_backup(receipt):
+        publish(receipt)
+        if race == 'snapshot':
+            backend.snapshot_path.write_text(json.dumps(before))
+        elif race == 'client':
+            synthetic_process(backend, 31, ['/bin/bash'])
+        elif race == 'store':
+            with sqlite3.connect(backend.database_path()) as db:
+                db.execute('DELETE FROM session WHERE id = ?', ('ses_later',))
+        else:
+            backend.endpoint_present = lambda target: True
+    backend._receipt = race_after_backup
+    with pytest.raises(ValueError):
+        runtime_controller.Controller(backend.store, backend).restore()
+    assert backend.store.read('manifest.json') == initial and not tui.calls
+    assert backend.store.read('owned-tui.json') == {'document': before}
+
+
+def test_k_legacy_boot_journal_is_a_baseline_even_without_manifest(backend):
+    tui, before, after = owner_edit(backend, saved=True)
+    receipt = backend.store.read('manifest.json')['receipt']
+    backend.store.values.clear()
+    backend.store.write('boot.json', {'schema_version': 1, 'runtime': 'tui', 'status': 'complete',
+                                     'plan': native.layout.from_tui_snapshot(before), 'receipt': receipt})
+    calls = finish_owner_shutdown(backend, tui)
+    with pytest.raises(ValueError):
+        runtime_controller.Controller(backend.store, backend).restore()
+    assert not any('start' in a for a in calls) and backend.store.read('manifest.json') is None
+
+
+def test_k_frozen_switch_plan_cannot_overrule_a_conflicting_later_owned_save(backend):
+    tui, before, after = owner_edit(backend, saved=False)
+    backend.store.write('owned-tui.json', {'document': after})
+    calls = finish_owner_shutdown(backend, tui)
+    with pytest.raises(ValueError):
+        runtime_controller.Controller(backend.store, backend).restore()
+    assert backend._optional_snapshot() == before
+    assert not any('start' in a for a in calls) and backend.store.read('boot.json') is None
+
+
+def test_k_no_republication_for_same_public_layout_at_native_precision(backend):
+    _, _, after = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    manifest = backend.store.read('manifest.json')
+    after['workspaces'][0]['tabs'][0]['layout']['Split']['ratio'] += .00000000001
+    backend.snapshot_path.write_text(json.dumps(after))
+    control.restore()
+    assert backend.store.read('manifest.json') == manifest
+
+
+def test_k_a_proven_save_cannot_speak_for_an_unobserved_later_shutdown(backend):
+    tui, before, after = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    calls = finish_owner_shutdown(backend, tui)
+    # No observed write after the live proof. The old file is perfectly valid
+    # even if the owner closed a pane and shutdown never saved it.
+    with pytest.raises(ValueError):
+        control.restore()
+    backend.snapshot_path.write_text(json.dumps(after))
+    with pytest.raises(ValueError):
+        control.restore()
+    assert not any('start' in a for a in calls)
+
+
+def test_k_only_latest_committed_tui_document_is_owned_after_live_adoption(backend):
+    _, before, after = owner_edit(backend, saved=True)
+    runtime_controller.Controller(backend.store, backend).restore()
+    backend._owned_target('tui', after, False)
+    with pytest.raises(native.NativeError):
+        backend._owned_target('tui', before, True)
+
+
+def test_k_completed_boot_only_recover_has_no_remaining_mutation(backend):
+    _, _, after = owner_edit(backend, saved=True)
+    runtime_controller.Controller(backend.store, backend).restore()
+    backend.store.values.pop('transaction.json')
+    receipt = backend.store.read('manifest.json')['receipt']
+    backend.store.write('boot.json', {'schema_version': 1, 'runtime': 'tui', 'status': 'complete',
+                                     'receipt': receipt, 'plan': native.layout.from_tui_snapshot(after)})
+    previous = copy.deepcopy(backend.store.values)
+    runtime_controller.Controller(backend.store, backend).recover()
+    assert backend.store.values == previous
+
+
+@pytest.mark.parametrize('reason', ['held', 'offline', 'unpublished', 'disconnected'])
+def test_k_completed_journal_is_not_evidence_of_a_restored_tui(backend, reason):
+    tui, _, _ = owner_edit(backend, saved=reason != 'unpublished')
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    if reason == 'held':
+        witness = backend.store.read('tui-observation.json')
+        backend.store.write('tui-observation.json', {**witness, 'hold': True})
+    elif reason == 'offline':
+        tui.active = False
+    elif reason == 'disconnected':
+        (backend.proc_root / '31/fd/0').unlink()
+    with pytest.raises(ValueError):
+        control.recover()
+    assert not tui.calls
+
+
+def test_k_same_os_socket_gone_but_server_pid_alive_refuses_boot(backend):
+    tui, _, after = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    server = backend.tui_run()
+    calls = observed_stop(backend, tui, after)
+    synthetic_process(backend, server['pid'], ['/unrelated'], ticks=server['start_ticks'])
+    with pytest.raises(ValueError):
+        control.restore()
+    assert not any('start' in a for a in calls)
+
+
+def test_k_newer_copy_of_last_poll_after_unseen_close_is_not_a_shutdown_receipt(backend):
+    tui, _, earlier = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    # The owner closes the new agent after that tick. Replacing the offline
+    # file with the earlier layout must not bring it back, even with newer
+    # ctime/mtime, a dead server PID, exact public IDs and valid store rows.
+    tui.snapshot()['tabs'].pop()
+    calls = finish_owner_shutdown(backend, tui)
+    backend.snapshot_path.write_text(json.dumps(earlier))
+    with pytest.raises(ValueError):
+        control.restore()
+    assert not any('start' in a for a in calls)
+
+
+@pytest.mark.parametrize('fault', [None, 'stale-invocation', 'replaced-bytes'])
+def test_k_unobserved_native_stop_requires_exact_final_receipt(backend, fault):
+    tui, _, after = owner_edit(backend, saved=False)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    previous = backend.store.read('manifest.json')
+    invocation = 'a' * 32
+    launch = backend.home / '.local/state/dotfiles-ai/herdr-runtime/tui-launch.json'
+    launch.parent.mkdir(mode=0o700, parents=True)
+    backend._atomic(launch, json.dumps({'run': backend.tui_run(), 'invocation': invocation}).encode())
+    calls = finish_owner_shutdown(backend, tui)
+    saved = json.dumps(after).encode()
+    backend._atomic(backend.snapshot_path, saved)
+    backend._atomic(backend.snapshot_path.with_name('session-final-save.json'), json.dumps({
+        'version': 1, 'snapshot': 'session.json',
+        'invocation': 'b' * 32 if fault == 'stale-invocation' else invocation,
+        'sha256': hashlib.sha256(saved).hexdigest(),
+    }).encode())
+    if fault == 'replaced-bytes':
+        backend._atomic(backend.snapshot_path, saved + b'\n')
+    if fault:
+        with pytest.raises(ValueError, match='does not match latest live proof'):
+            control.restore()
+        assert backend.store.read('manifest.json') == previous
+        assert not any('start' in a for a in calls)
+    else:
+        control.restore()
+        assert backend.store.read('manifest.json')['plan'] == native.layout.from_tui_snapshot(after)
+        assert sum('start' in a for a in calls) == 1
+
+
+def test_k_acknowledged_final_stop_can_close_and_resize_since_last_observation(backend):
+    tui, _, after = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    previous = backend.store.read('tui-observation.json')
+    api = tui.snapshot()
+    api['workspaces'][0].update(pane_count=2, tab_count=1)
+    api['tabs'].pop()
+    api['panes'].pop()
+    api['agents'].clear()
+    api['tabs'][0]['label'] = 'After tick'
+    space = after['workspaces'][0]
+    space['tabs'].pop()
+    space['public_tab_numbers'].pop()
+    space['public_pane_numbers'].pop('3')
+    tab = space['tabs'][0]
+    tab['custom_name'] = 'After tick'
+    tab['layout']['Split']['ratio'] = .5625
+    rpc = backend.tui
+    def resized(method, params):
+        result = rpc(method, params)
+        if method == 'layout.export':
+            result['layout']['root']['ratio'] = .5625
+        return result
+    backend.tui = resized
+    calls = observed_stop(backend, tui, after)
+    assert backend.store.read('tui-observation.json') == previous
+    # Inspect the durable boot intent before any fixture client is spawned.
+    def start(argv):
+        assert argv[-2:] == ['start', 'remote-herdr-tui.service']
+        boot = backend.store.read('boot.json')
+        assert boot['plan'] == native.layout.from_tui_snapshot(after)
+        assert not native.sessions(boot['plan'])
+        raise native.NativeError('synthetic start checkpoint')
+    stopped = backend.command
+    backend.command = lambda argv: stopped(argv) if 'show' in argv else start(argv)
+    with pytest.raises(native.NativeError, match='synthetic start checkpoint'):
+        control.restore()
+    assert not any('start' in a for a in calls)
+
+
+def test_k_completed_boot_records_fresh_run_and_clients_before_return(backend):
+    tui, _, after = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    previous = backend.store.read('tui-observation.json')
+    observed_stop(backend, tui, after)
+    control.restore()
+    current = backend.store.read('tui-observation.json')
+    assert current['run'] == backend.tui_run() != previous['run']
+    assert current['clients']['synthetic:pA']['process'] == backend._pid_proofs([31])[0]
+    assert current['pids'] != previous['pids'] and not current['hold']
+
+
+def test_k_interrupted_boot_rebases_native_metadata_and_stamp_as_one_intent(backend):
+    tui, _, after = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    prior = backend.store.read('manifest.json')
+    old_file = backend.snapshot_evidence()[1]
+    boot = {'schema_version': 1, 'runtime': 'tui', 'status': 'start_pending', 'plan': prior['plan'],
+            'receipt': {**prior['receipt'], 'txid': 'next', 'start_file': old_file, 'pending': {'operation': 'tui.start'}}}
+    backend.store.write('boot.json', boot)
+    after['sidebar_width'] = 29
+    backend.snapshot_path.write_text(json.dumps(after))
+    file = backend.snapshot_evidence()[1]
+    def recover(plan, txid, receipt, *, preserve_snapshot):
+        assert preserve_snapshot
+        assert receipt['document'] == after and receipt['start_file'] == file != old_file
+        assert backend.store.read('boot.json')['receipt'] == receipt
+        return {**receipt, 'pending': None}
+    backend.recover_tui = recover
+    control.recover()
+    assert not tui.calls and backend.store.read('boot.json')['status'] == 'complete'
+
+
+def test_k_interrupted_launch_cannot_replay_prelaunch_bytes(backend):
+    tui, _, after = owner_edit(backend, saved=False)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    observed_stop(backend, tui, after)
+    stopped = backend.command
+    launch = backend.home / '.local/state/dotfiles-ai/herdr-runtime/tui-launch.json'
+    def interrupt(argv):
+        if 'start' not in argv:
+            return stopped(argv)
+        backend._atomic(launch, json.dumps({
+            'run': {**backend.store.read('boot.json')['receipt']['exit_run'], 'start_ticks': 999},
+            'invocation': 'b' * 32,
+        }).encode())
+        raise native.NativeError('synthetic launch interrupted')
+    backend.command = interrupt
+    with pytest.raises(native.NativeError, match='synthetic launch interrupted'):
+        control.restore()
+    retained = backend.store.read('boot.json')
+    previous = backend.store.read('manifest.json')
+    saved = backend.snapshot_path.read_bytes()
+    with pytest.raises(ValueError, match='interrupted launch outcome unproven'):
+        control.recover()
+    assert backend.store.read('boot.json') == retained
+    assert backend.store.read('manifest.json') == previous
+    assert backend.snapshot_path.read_bytes() == saved
+
+
+def test_k_observed_clients_must_exit_even_if_their_argv_changed(backend):
+    tui, _, after = owner_edit(backend, saved=False)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    calls = finish_owner_shutdown(backend, tui)
+    synthetic_process(backend, 31, ['/bin/sh'], ticks=21)
+    backend.snapshot_path.write_text(json.dumps(after))
+    with pytest.raises(ValueError):
+        control.restore()
+    assert not any('start' in a for a in calls) and backend.store.read('boot.json') is None
+
+
+@pytest.mark.parametrize('record', ['matching', 'manual', 'waiter', 'wrong-inode', 'no-main', 'shared'])
+def test_k_background_restore_must_actually_own_exact_flock(backend, record):
+    pid = 150
+    key = (os.makedev(8, 10), 752)
+    path = backend.proc_root / 'locks'
+    owner = 151 if record == 'manual' else pid
+    inode = key[1] + (record == 'wrong-inode')
+    mode = 'READ' if record == 'shared' else 'WRITE'
+    path.write_text(f"3: {'-> ' if record == 'waiter' else ''}FLOCK  ADVISORY  {mode} {owner} 08:0a:{inode} 0 EOF\n")
+    def show(argv, timeout):
+        assert argv == ['/usr/bin/systemctl', '--user', 'show', 'remote-herdr-restore.service',
+                        '--property=MainPID', '--value']
+        assert 0 < timeout <= 2
+        return '0\n' if record == 'no-main' else f'{pid}\n'
+    backend.command = show
+    assert backend.background_restore_holds(key, timeout=2) is (record == 'matching')
+
+
+@pytest.mark.parametrize('operation', ['recover', 'restore', 'switch'])
+def test_k_held_lock_cli_diagnostic_is_fixed_and_only_recover_checks_holder(backend, monkeypatch, capsys, operation):
+    import runpy
+    modules = backend.home / '.local/share/dotfiles-ai/remote-herdr'
+    modules.mkdir(parents=True)
+    for name in ('controller', 'native', 'layout', 'protocol', 'processes'):
+        (modules / (name + '.py')).write_bytes((SOURCE / (name + '.py')).read_bytes())
+    monkeypatch.setenv('HOME', str(backend.home))
+    monkeypatch.setitem(sys.modules, 'native', native)
+    monkeypatch.setattr(native, 'Native', lambda *args: backend)
+    seen = []
+    backend.background_restore_holds = lambda *a, **kw: seen.append(True) or False
+    path = SOURCE.parents[2] / 'bin/executable_remote-herdr'
+    monkeypatch.setattr(sys, 'argv', [str(path), operation] + (['tui'] if operation == 'switch' else []))
+    with runtime_controller.Store(backend.home / '.local/state/dotfiles-ai/herdr-runtime') as store:
+        store.write('transaction.json', {'private': 'synthetic'})
+        original = (store.root / 'transaction.json').read_bytes()
+        assert runpy.run_path(str(path))['main']() == 75
+        assert (store.root / 'transaction.json').read_bytes() == original
+    out = capsys.readouterr()
+    generic = 'Herdr operation refused or incomplete; retained state requires inspection/recovery'
+    unknown = 'Herdr recover did not run: state held; background restore ownership not proven'
+    assert out.out == '' and out.err == (unknown if operation == 'recover' else generic) + '\n'
+    assert seen == ([True] if operation == 'recover' else [])
+
+
+@pytest.mark.parametrize('race', ['disk', 'survivor', 'other-endpoint', 'unit'])
+def test_k_adopted_boot_rechecks_after_durable_intent(backend, race):
+    tui, before, after = owner_edit(backend, saved=False)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    calls = observed_stop(backend, tui, after)
+    original = backend.store.read('manifest.json')
+    write = backend.store.write
+    def race_after_write(name, value):
+        write(name, value)
+        if name != 'boot.json' or value.get('status') != 'start_pending':
+            return
+        if race == 'disk':
+            backend.snapshot_path.write_text(json.dumps(before))
+        elif race == 'survivor':
+            synthetic_process(backend, 31, ['/bin/sh'], ticks=21)
+        elif race == 'other-endpoint':
+            backend.endpoint_present = lambda runtime: runtime == 'herdr-core'
+        else:
+            backend.tui_unit_stopped = lambda: False
+    backend.store.write = race_after_write
+    with pytest.raises(ValueError):
+        control.restore()
+    assert backend.store.read('boot.json')['status'] == 'start_pending'
+    assert backend.store.read('manifest.json') == original and not any('start' in a for a in calls)
+    if race != 'unit':  # uncertain exec waits for readiness; no new start
+        with pytest.raises(ValueError):
+            control.recover()
+        assert not any('start' in a for a in calls)
+
+
+@pytest.mark.parametrize('changed', ['closed', 'argv', 'phase', 'id', 'missing'])
+def test_k_unit_exec_requires_the_exact_authorized_document(backend, changed):
+    FakeTui(backend, active=False)
+    receipt = {'txid': 'planned', 'runtime': 'tui', 'pending': {'operation': 'tui.start'},
+               'document': backend._optional_snapshot()}
+    backend.check_tui_start_file(plan(), 'planned', receipt)
+    if changed == 'closed':
+        backend.snapshot_path.write_text(json.dumps(native.layout.to_tui_snapshot(plan(None))))
+    elif changed == 'argv':
+        overwritten = backend._optional_snapshot()
+        overwritten['workspaces'][0]['tabs'][0]['panes']['0']['launch_argv'] = ['unexpected']
+        backend.snapshot_path.write_text(json.dumps(overwritten))
+    elif changed == 'phase':
+        receipt['pending'] = None
+    elif changed == 'id':
+        receipt['txid'] = 'other'
+    else:
+        receipt = None
+    with pytest.raises(ValueError):
+        backend.check_tui_start_file(plan(), 'planned', receipt)
+
+
+@pytest.mark.parametrize('phase', ['start_pending', 'restore_pending', 'verify_pending'])
+def test_k_recover_proven_edit_of_pending_start_without_replaying_start(backend, phase):
+    tui, before, after = owner_edit(backend, saved=True)
+    initial = backend.store.read('manifest.json')
+    receipt = {**initial['receipt'], 'txid': 'interrupted', 'pending': {'operation': 'tui.start'}}
+    if phase == 'start_pending':
+        backend.store.write('boot.json', {'schema_version': 1, 'runtime': 'tui', 'status': phase,
+                                         'plan': initial['plan'], 'receipt': receipt})
+    else:
+        backend.store.write('transaction.json', {'schema_version': 1, 'phase': phase, 'target': 'tui',
+                            'txid': receipt['txid'], 'plan': initial['plan'], 'receipt': receipt})
+    control = runtime_controller.Controller(backend.store, backend)
+    control.recover()
+    current = backend.store.read('manifest.json')
+    assert current['plan'] == native.layout.from_tui_snapshot(after)
+    assert current['receipt']['document'] == after and current['receipt']['pending'] is None
+    assert backend.store.read('transaction.json')['phase'] == 'complete'
+    if phase == 'start_pending':
+        assert backend.store.read('boot.json')['status'] == 'complete'
+    assert not tui.calls
 
 
 @pytest.mark.parametrize('boundary', ['before-stop', 'during-intent'])

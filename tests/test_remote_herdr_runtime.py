@@ -86,7 +86,8 @@ def test_runtime_units_preserve_native_core_and_shared_backend_ownership():
     assert 'ExecStop=' not in service and 'ExecStop=' not in tui
     assert 'herdr-core serve' not in service + timer + tui
     pins = json.loads(render('private_dot_config/dotfiles-ai/herdr-runtime.json.tmpl'))
-    assert pins['tui_version'] == '0.9.5' and len(pins['tui_sha256']) == 64
+    assert pins['tui_version'] == '0.9.5+rrw.007k.1'
+    assert pins['tui_sha256'] == '6d7e395e204a54cea5257a9b397caf34aac7cd53e47a8778861c852252996cd9'
     assert pins['core_version'] == '0.1.18' and len(pins['core_sha256']) == 64
 
 

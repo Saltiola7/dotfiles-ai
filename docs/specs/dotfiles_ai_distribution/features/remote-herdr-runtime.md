@@ -336,6 +336,34 @@ Use synthetic IDs, not live session prefixes or operator paths. Pins, live recov
 rollout, VM/Mac changes, 007H wrapper/config/activation work and 007I editor recovery
 remain outside this slice. Fork A owns the subsequent reviewed live operation.
 
+### Daily edits on the selected TUI (RRW-007K / INT-088)
+
+Restore and verification follow the owner's current tabs, panes, names,
+order, splits and sizes. A later exact OpenCode client is eligible only
+after its pane, working directory, native session and unique process agree.
+An intentionally closed pane leaves the owned plan. The controller joins its
+private live observation to Herdr's final-save receipt, which must match the
+managed invocation and SHA-256 of the exact saved bytes. Herdr verifies
+those bytes again in the buffer it decodes on cold start, before opening
+listeners. An older save, missing receipt, or incomplete observation cannot
+authorize adoption or relaunch of an edited layout.
+Unproven state is retained; a stale plan must not resurrect a closed pane.
+Recovery can retry an already authorized snapshot when startup was
+interrupted before a new launcher recorded its invocation. Once a new
+invocation is recorded, the prior run's receipt cannot prove the new run's
+outcome. If the endpoint is gone and the outcome is unproven, recovery
+holds the boot intent and leaves the owned layout intact.
+The downstream Herdr pin applies only to managed-remote Linux x86_64;
+stock workstation and Mac pins are unchanged.
+
+Manual recovery distinguishes the background restore service holding its
+exact lock from another owner. It waits within a bound for the verified
+service and reports contention without breaking the lock. The existing
+exit proof, private journals, paced start and shared-backend isolation apply.
+The Linux qualification adds a tab and exact client, closes a pane, resizes
+a split and checks 50 unique clients after each of two boots. It also
+exercises the real background/manual overlap. Public outcomes report counts.
+
 ### Completed unrecorded swap (RRW-007G-R5 / INT-082)
 
 A durable create can reach the document while its receipt write never lands: a
@@ -762,6 +790,7 @@ native terminal records or discard OpenCode sessions. No automatic cleanup is ad
 | Retained legacy stop proof with reused PID | Recovery controller | Proven foreign UID or changed start ticks establishes exit, never signaling authority; a matching live identity or ambiguous evidence blocks |
 | Pending in-place repair to completed receipt | Recovery controller | Exact owned live binding, program, process, version and unique client; no native mutation |
 | Offline TUI start with native shutdown save | Recovery controller | Prove snapshot differs only in allowed metadata or omitted planned identities; back up and regenerate before paced start |
+| Edited TUI shutdown save to owned boot intent | Managed launcher, native writer, controller | Bind final bytes to the expected native run and proven clients; verify the same digest at native decode; preserve the saved layout rather than regenerate it |
 | Spawn-failed TUI pane at headless start | Launcher, recovery controller | Plan-derived headless grid keeps panes viable; a deferred failed pane keeps exact identity, gets no process-proof query, its session stays absent elsewhere, and live clients are not disturbed |
 | Full-precision plan ratio printed by the TUI with different 6-decimal rounding | Recovery controller, boot | Compare at native precision wherever a reported or saved TUI layout meets a plan; core documents, TUI-source stops and every other field stay exact |
 | Mixed-ownership process during session discovery | Process seam | Skip: a setuid process can never be a session client; PID proofs stay exact |

@@ -54,6 +54,53 @@ def test_r10_fixture_plan_is_canonical_with_fifty_unique_sessions():
     assert identities == sessions[1:]
 
 
+def test_k_native_fixture_expected_edit_and_double_boot_boundaries():
+    sys.path.insert(0, str(ROOT / 'dot_local/share/dotfiles-ai/remote-herdr'))
+    import layout
+    fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+    sessions = [None] + [f'ses_fixture{i}' for i in range(50)]
+    original = fixture['r8_fixture_plan']('/work', sessions)
+    edited = layout.validate_plan(fixture['k_edited_plan'](original, 'ses_later', .4375))
+    tabs = edited['spaces'][0]['tabs']
+    assert len(tabs) == 25 and len(tabs[-1]['panes']) == 1
+    assert tabs[-1]['panes'][0]['session_id'] == 'ses_later'
+    assert len(tabs[1]['panes']) == 1 and tabs[2]['root']['ratio'] == .4375
+    assert tabs[2]['root']['ratio'] != original['spaces'][0]['tabs'][2]['root']['ratio']
+    clients = [p['session_id'] for t in tabs for p in t['panes'] if p['session_id']]
+    closed = original['spaces'][0]['tabs'][1]['panes'][1]['session_id']
+    assert len(clients) == 50 and set(clients) == set(sessions[1:]) - {closed} | {'ses_later'}
+    assert original == fixture['r8_fixture_plan']('/work', sessions)
+    shell = (FIXTURE / 'boot-smoke.sh').read_text()
+    assert shell.index('verify-k-boot)') < shell.index('verify-k-second-boot)') < shell.index('touch /var/lib/f07/qualified')
+    assert '! -e /run/f07-k-boot' in shell and '! -e /run/f07-k-second-boot' in shell
+
+
+def test_k_native_fixture_must_edit_through_herdr_and_prove_saved_file_and_clients():
+    source = (FIXTURE / 'verify-user.py').read_text()
+    functions = {n.name: ast.get_source_segment(source, n) for n in ast.parse(source).body
+                 if isinstance(n, ast.FunctionDef) and n.name.startswith('k_')}
+    arm = functions['k_arm']
+    assert all(witness in arm for witness in ("'tab', 'create'", "'agent', 'start'", "'pane', 'close'",
+                                               'k_resize(', "'session', 'stop'", 'backend.snapshot_evidence()',
+                                               'backend.final_tui_file(run_proof, final_file)'))
+    assert "cli('restore')" not in arm
+    assert arm.index('k_observe_later(') < arm.index("'pane', 'close', closed_pane") < arm.index("'session', 'stop'")
+    resize = functions['k_resize']
+    assert all(flag in resize for flag in ("'--pane'", "'--direction'", "'--amount'"))
+    assert "'--ratio'" not in resize
+    verify = functions['k_boot']
+    assert all(witness in verify for witness in ('r8_boot_ready(', "observe('tui', plan)",
+                                                  'backend.scan(', 'backend_pid() == pid', "['adoption_backup']"))
+    collision = functions['k_collision']
+    assert 'background_restore_holds' in collision and "'recover'" in collision and 'stderr' in collision
+    assert 'SIGSTOP' in collision and 'SIGCONT' in collision
+    assert 'k_service_only_restart(' in arm and 'k_same_os_restarts(' in functions['k_boot']
+    assert "'restart', 'opencode-shared.service'" in functions['k_service_only_restart']
+    for body in functions.values():
+        assert not any(call in body for call in ('store.write(', 'write(backend.snapshot_path',
+                                                 '.write_text(', '._atomic(', 'to_tui_snapshot('))
+
+
 def test_fixture_failure_diagnostics_never_include_native_output(monkeypatch):
     fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
     def failed(argv, **kwargs):
@@ -1638,10 +1685,11 @@ class QualificationSourceTests(unittest.TestCase):
         docker_run = workflow.split('docker run -d', 1)[1].split('docker exec', 1)[0]
         self.assertNotRegex(docker_run, r'--(?:volume|mount|network)|(?:^|\s)-[vp]\s')
         self.assertNotRegex(workflow, r'git push|gh pr|upload-artifact|secrets\.')
-        stages = re.findall(r'boot-smoke.sh (prepare|verify-core|verify-tui|verify-r8-recover|verify-r8-boot)|docker (restart)', workflow)
+        stages = re.findall(r'boot-smoke.sh (prepare|verify-core|verify-tui|verify-r8-recover|verify-r8-boot|verify-k-boot|verify-k-second-boot)|docker (restart)', workflow)
         self.assertEqual([a or b for a, b in stages],
                          ['prepare', 'restart', 'verify-core', 'restart', 'verify-tui',
-                          'restart', 'verify-r8-recover', 'restart', 'verify-r8-boot'])
+                          'restart', 'verify-r8-recover', 'restart', 'verify-r8-boot',
+                          'restart', 'verify-k-boot', 'restart', 'verify-k-second-boot'])
         self.assertIn('test -f /var/lib/f07/qualified', workflow)
         self.assertIn('docker exec "$probe" bash /opt/f07/kept-probe.sh approved-disposable-container', workflow)
         self.assertLess(workflow.index('bash /opt/f07/kept-probe.sh'),

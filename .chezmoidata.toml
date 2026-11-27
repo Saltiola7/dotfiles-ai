@@ -75,6 +75,9 @@ linux_amd64_asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.
 linux_amd64_asset_sha256 = "14d9e8bc8b4a9e0118d77c32266f76d461f09b40342eb23752960bd89f59929d"
 linux_arm64_asset_url = "https://github.com/herdrdev/herdr/releases/download/v0.9.5/herdr-linux-aarch64"
 linux_arm64_asset_sha256 = "17d7536f2da50859523680ef279dffcac8e4a235f4e46fe8da6c2ec44141897c"
+remote_linux_amd64_version = "0.9.5+rrw.007k.1"
+remote_linux_amd64_asset_url = "https://github.com/Saltiola7/dotfiles-ai/releases/download/herdr-0.9.5%2Brrw.007k.1/herdr-x86_64-unknown-linux-musl"
+remote_linux_amd64_asset_sha256 = "6d7e395e204a54cea5257a9b397caf34aac7cd53e47a8778861c852252996cd9"
 
 [dotfiles_ai.hermes]
 enabled = false

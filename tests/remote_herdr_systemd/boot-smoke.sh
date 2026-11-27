@@ -88,10 +88,26 @@ case ${1:-} in
         ;;
     verify-r8-boot)
         stage=verify-r8-boot-precondition
-        [[ -f /var/lib/f07/r8-recovered && ! -e /run/f07-r8-boot && ! -e /var/lib/f07/qualified ]] || fail
+        [[ -f /var/lib/f07/r8-recovered && ! -e /run/f07-r8-boot && ! -e /var/lib/f07/k-armed && ! -e /var/lib/f07/qualified ]] || fail
         wait_user
         no_login
-        as_user timeout 900 python3 /opt/f07/verify-user.py verify-r8-boot
+        as_user timeout 1800 python3 /opt/f07/verify-user.py verify-r8-boot
+        touch /var/lib/f07/k-armed /run/f07-k-boot
+        ;;
+    verify-k-boot)
+        stage=verify-k-boot-precondition
+        [[ -f /var/lib/f07/k-armed && ! -e /run/f07-k-boot && ! -e /var/lib/f07/k-first ]] || fail
+        wait_user
+        no_login
+        as_user timeout 1100 python3 /opt/f07/verify-user.py verify-k-boot
+        touch /var/lib/f07/k-first /run/f07-k-second-boot
+        ;;
+    verify-k-second-boot)
+        stage=verify-k-second-boot-precondition
+        [[ -f /var/lib/f07/k-first && ! -e /run/f07-k-second-boot && ! -e /var/lib/f07/qualified ]] || fail
+        wait_user
+        no_login
+        as_user timeout 3300 python3 /opt/f07/verify-user.py verify-k-second-boot
         touch /var/lib/f07/qualified
         echo 'F07: native-layout-and-inflight-turn-qualification-complete'
         ;;

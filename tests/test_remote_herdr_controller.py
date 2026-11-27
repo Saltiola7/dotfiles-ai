@@ -100,7 +100,13 @@ def test_complete_journal_recover_only_dispatches_selected_core(tmp_path, select
         before = (store.root / 'transaction.json').read_bytes()
         backend = Backend(store)
         backend.choice = selected
-        c.Controller(store, backend).recover()
+        if selected == 'tui':
+            # No owned TUI manifest: a historical completed switch says nothing
+            # about whether the selected TUI was in fact restored.
+            with pytest.raises(c.ControllerError):
+                c.Controller(store, backend).recover()
+        else:
+            c.Controller(store, backend).recover()
         assert backend.events == (['restore_current'] if selected == 'herdr-core' else [])
         assert (store.root / 'transaction.json').read_bytes() == before
         assert store.read('transaction.json') == journal
@@ -123,6 +129,73 @@ def test_store_refuses_links_duplicates_and_second_owner(tmp_path):
         (store.root / 'duplicate.json').chmod(0o600)
         with pytest.raises(c.ControllerError):
             store.read('duplicate.json')
+
+
+@pytest.mark.parametrize('outcome', ['release', 'timeout', 'other', 'unknown', 'handoff'])
+def test_k_manual_recover_waits_only_for_proven_holder(tmp_path, outcome):
+    c = module()
+    owner = c.Store(tmp_path / 'state')
+    clock, reports, probes = [0.0], [], []
+    with owner:
+        owner.write('transaction.json', {'private': 'retained'})
+        original = (owner.root / 'transaction.json').read_bytes()
+        info = (owner.root / 'owner.lock').stat()
+        waiter = c.Store(owner.root)
+        def background(identity, timeout):
+            probes.append(identity)
+            assert identity == (info.st_dev, info.st_ino)
+            assert 0 < timeout <= 3 - clock[0]
+            with pytest.raises(c.ControllerError):
+                waiter.read('transaction.json')
+            if outcome == 'unknown': raise OSError()
+            return outcome != 'other' and not (outcome == 'handoff' and clock[0] > 0)
+        def sleep(seconds):
+            clock[0] += seconds
+            if outcome == 'release':
+                owner.__exit__(None, None, None)
+        held = c.recovery_owner(waiter, background, reports.append, limit=3, clock=lambda: clock[0], sleep=sleep)
+        if outcome == 'release':
+            with held as store:
+                assert store.read('transaction.json') == {'private': 'retained'}
+                with pytest.raises(c.ControllerBusy):
+                    with c.Store(owner.root):
+                        pytest.fail()
+        else:
+            label = 'wait limit' if outcome == 'timeout' else 'not proven'
+            with pytest.raises(c.RecoveryContention, match=label):
+                with held:
+                    pytest.fail()
+        assert clock[0] == {'release': 1, 'timeout': 3, 'other': 0, 'unknown': 0, 'handoff': 1}[outcome]
+        assert len(reports) == int(outcome not in ('other', 'unknown'))
+        if reports:
+            assert reports == ['Herdr recover: waiting for the background restore to release the runtime state']
+        assert waiter.fd is None and probes
+        assert (owner.root / 'transaction.json').read_bytes() == original
+
+
+def test_k_unsafe_lock_is_not_recover_contention(tmp_path):
+    c = module()
+    root = tmp_path / 'state'
+    root.mkdir(mode=0o700)
+    (root / 'owner.lock').symlink_to(tmp_path / 'missing')
+    with pytest.raises(c.ControllerError) as caught:
+        with c.recovery_owner(c.Store(root), lambda *a, **kw: pytest.fail(), lambda *a: pytest.fail()):
+            pytest.fail()
+    assert not isinstance(caught.value, (c.ControllerBusy, c.RecoveryContention))
+
+
+def test_k_wait_at_deadline_does_not_enter_even_when_holder_just_finished(tmp_path):
+    c = module()
+    owner = c.Store(tmp_path / 'state')
+    ticks = [0.]
+    with owner:
+        def sleep(seconds):
+            ticks[0] += seconds
+            owner.__exit__(None, None, None)
+        with pytest.raises(c.RecoveryContention, match='wait limit'):
+            with c.recovery_owner(c.Store(owner.root), lambda *a, **kw: True, lambda _: None,
+                                  limit=1, clock=lambda: ticks[0], sleep=sleep):
+                pytest.fail()
 
 
 def test_switch_orders_source_stop_before_target_mutations(tmp_path):
@@ -234,12 +307,36 @@ def test_store_large_state_refuses_without_replacing_prior_bytes(tmp_path):
 
 
 class BootBackend(Backend):
+    def __init__(self, store):
+        super().__init__(store)
+        self.active = False
+
     def endpoint_present(self, target):
-        return False
+        return target == 'tui' and self.active
 
     def _optional_snapshot(self):
         import layout
         return layout.to_tui_snapshot(plan())
+
+    def tui_unit_stopped(self):
+        return True
+
+    def _db_sessions(self, value):
+        assert value['spaces'][0]['tabs'][0]['panes'][0]['session_id'] == 'ses_abc'
+
+    def snapshot_evidence(self):
+        import hashlib
+        snapshot = self._optional_snapshot()
+        return snapshot, {'digest': hashlib.sha256(json.dumps(snapshot).encode()).hexdigest(), 'mtime_ns': 10}
+
+    def tui_owner_view(self, value, prior):
+        import layout
+        return ({'view': [], 'pids': [], 'run': {'pid': 20, 'start_ticks': 11}, 'clients': {},
+                 'file': self.snapshot_evidence()[1]}, self._optional_snapshot(),
+                layout.from_tui_snapshot(self._optional_snapshot()))
+
+    def _semantic(self, value, native_ratios=False):
+        return value
 
     def absent(self, sessions, captured):
         self.step('absence')
@@ -255,10 +352,12 @@ class BootBackend(Backend):
             with c.Store(self.store.root):
                 pass
         self.step('ready')
+        self.active = True
 
     def recover_tui(self, value, txid, receipt, *, preserve_snapshot=False):
         assert preserve_snapshot is True
         self.step('recover_boot')
+        self.active = True
         return {**receipt, 'pending': None}
 
 
@@ -267,8 +366,9 @@ def test_tui_boot_checks_absence_and_holds_lock_through_readiness(tmp_path):
     with c.Store(tmp_path / 'state') as store:
         backend = BootBackend(store)
         c.Controller(store, backend).restore()
-        assert backend.events == ['absence', 'unit_start', 'ready']
+        assert backend.events == ['absence', 'absence', 'unit_start', 'ready']
         assert store.read('boot.json')['status'] == 'complete'
+        assert store.read('boot.json')['receipt']['ready_run']['run'] == store.read('tui-observation.json')['run']
 
 
 def test_tui_missing_socket_with_surviving_client_never_starts(tmp_path):
@@ -341,6 +441,17 @@ class NativeRatioBootBackend(BootBackend):
         import native
         self.saved = native_save(owned, reported)
         self.adapter = native.Native(home, store)
+        self.active = False
+
+    def endpoint_present(self, target):
+        return target == 'tui' and self.active
+
+    def command(self, argv):
+        super().command(argv)
+        self.active = True
+
+    def final_tui_file(self, run, file):
+        return False
 
     def _optional_snapshot(self):
         return self.saved
@@ -366,13 +477,13 @@ def test_r11_tui_boot_accepts_the_native_form_of_an_owned_full_precision_ratio(t
         owned_tui(store, owned)
         backend = native_ratio_boot_backend(store, owned, 0.5869565)
         c.Controller(store, backend).restore()
-        assert backend.events == ['absence', 'unit_start', 'ready']
+        assert backend.events == ['absence', 'absence', 'unit_start', 'ready']
         boot = store.read('boot.json')
         assert boot['status'] == 'complete'
         assert boot['plan']['spaces'][0]['tabs'][0]['root']['ratio'] == 0.5869565
         # A real edit of the saved ratio still refuses the boot and never starts the unit.
         backend = native_ratio_boot_backend(store, owned, 0.45)
-        with pytest.raises(c.ControllerError, match='differs from owned layout'):
+        with pytest.raises(c.ControllerError, match='shutdown save does not match'):
             c.Controller(store, backend).restore()
         assert backend.events == []
 
