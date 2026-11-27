@@ -23,6 +23,43 @@ WORKFLOW = ROOT / '.github/workflows/remote-herdr-runtime.yml'
 
 
 class RestoreTimerDrainTests(unittest.TestCase):
+    def test_service_restart_observes_without_taking_controller_lock(self):
+        from types import SimpleNamespace
+
+        restart = runpy.run_path(str(FIXTURE / 'verify-user.py'))['k_service_only_restart']
+        clients = [{'pid': pid} for pid in range(100, 150)]
+        backend = SimpleNamespace(
+            tui_run=lambda: {'pid': 42}, _pid_proofs=lambda pids: pids,
+            _pids_absent=lambda pids: pids == [50], _coverage=lambda _: clients,
+            shared_main_pid=lambda: 51,
+        )
+        calls = []
+        pids = iter((50, 51))
+
+        def locked_store(*_):
+            self.fail('reconnect observer must not contend for the store')
+
+        def native(_home, store):
+            self.assertIsNone(store)
+            return backend
+
+        def wait(check, seconds):
+            self.assertEqual(seconds, 180)
+            self.assertFalse(check())
+            backend.shared_main_pid = lambda: 51
+            self.assertTrue(check())
+
+        backend.shared_main_pid = lambda: 52
+        f01 = SimpleNamespace(ready=lambda previous: (previous + 1, 'http://127.0.0.1:4312'),
+                              connected=lambda pid, port: 100 <= pid < 150 and port == 4312)
+        with patch.dict(restart.__globals__, adapter=lambda: (locked_store, native),
+                        load=lambda *_: f01, backend_pid=lambda: next(pids), wait=wait,
+                        unit=lambda *args: calls.append(args),
+                        stop_restore_ticks=lambda: None, print=lambda *_, **__: None):
+            self.assertEqual(restart({}), 51)
+        self.assertEqual(calls, [('start', 'remote-herdr-restore.timer'),
+                                 ('restart', 'opencode-shared.service')])
+
     def test_later_agent_timer_failure_reports_held_witness_counts(self):
         import contextlib
         from types import SimpleNamespace

@@ -3234,13 +3234,14 @@ def k_service_only_restart(plan):
     """F01 owns this effect in the disposable fixture. No TUI quit/start."""
     global STEP
     STEP = 'k-service-only-restart'
-    Store, Native = adapter()
+    _, Native = adapter()
     f01 = load('f01', '/opt/f01/verify-user.py')
     pid = backend_pid()
-    with Store(ROOT) as store:
-        backend = Native(HOME, store)
-        run_proof = backend.tui_run()
-        old_service = backend._pid_proofs([pid])
+    # This observation uses only native endpoints and /proc. Do not contend
+    # for the controller's journal lock while the timer owns reconciliation.
+    backend = Native(HOME, None)
+    run_proof = backend.tui_run()
+    old_service = backend._pid_proofs([pid])
     STEP = 'k-service-only-restart-command'
     unit('start', 'remote-herdr-restore.timer')
     unit('restart', 'opencode-shared.service')
@@ -3251,29 +3252,30 @@ def k_service_only_restart(plan):
 
     def reconnected():
         nonlocal state, clients_seen, connected
-        state, clients_seen, connected = 'store-busy-or-unavailable', 0, 0
-        with Store(ROOT) as store:
-            backend = Native(HOME, store)
-            state = 'tui-run-changed-or-unavailable'
-            require(backend.tui_run() == run_proof)
-            state = 'prior-service-exit-unproven'
-            require(backend._pids_absent(old_service))
-            state = 'exact-client-coverage-unproven'
-            clients = backend._coverage(plan)
-            clients_seen = len(clients)
-            require(clients_seen == 50)
-            state = 'new-service-connections-unproven'
-            connected = sum(bool(f01.connected(c['pid'], urlsplit(server).port)) for c in clients)
-            return connected == 50
+        state, clients_seen, connected = 'tui-run-changed-or-unavailable', 0, 0
+        require(backend.tui_run() == run_proof)
+        state = 'prior-service-exit-unproven'
+        require(backend._pids_absent(old_service))
+        state = 'exact-client-coverage-unproven'
+        clients = backend._coverage(plan)
+        clients_seen = len(clients)
+        require(clients_seen == 50)
+        state = 'new-service-connections-unproven'
+        connected = sum(bool(f01.connected(c['pid'], urlsplit(server).port)) for c in clients)
+        if connected != 50:
+            return False
+        state = 'runtime-changed-during-observation'
+        return (backend.tui_run() == run_proof and backend.shared_main_pid() == new_pid
+                and backend._coverage(plan) == clients)
 
     try:
         wait(reconnected, seconds=180)
     except RuntimeError:
-        print(f'F07: service-reconnect-{state} exact={clients_seen} connected={connected}', flush=True)
-        raise
+        raise CommandFailure(f'{state}-exact-{clients_seen}-connected-{connected}') from None
     STEP = 'k-service-only-restart-final'
     stop_restore_ticks()
     require(backend_pid() == new_pid)
+    require(backend.tui_run() == run_proof)
     print('F07: service-only-restart-exact-clients-50', flush=True)
     return new_pid
 
