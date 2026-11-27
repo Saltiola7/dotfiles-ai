@@ -23,6 +23,31 @@ WORKFLOW = ROOT / '.github/workflows/remote-herdr-runtime.yml'
 
 
 class RestoreTimerDrainTests(unittest.TestCase):
+    def test_later_agent_timer_failure_reports_held_witness_counts(self):
+        import contextlib
+        from types import SimpleNamespace
+
+        fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        observe = fixture['k_observe_later']
+        run = {'pid': 100}
+        record = {'run': run, 'hold': True, 'clients': {
+            'fixture-pane': {'run': run, 'session_id': 'fixture-session'}}}
+        store = SimpleNamespace(read=lambda _: record)
+
+        def expire(check, *, seconds):
+            self.assertEqual(seconds, 360)
+            self.assertFalse(check())
+            raise RuntimeError()
+
+        with patch.dict(observe.__globals__,
+                        adapter=lambda: (lambda _: contextlib.nullcontext(store),
+                                         lambda *_: SimpleNamespace(tui_run=lambda: run)),
+                        unit=lambda *_: None, wait=expire):
+            with self.assertRaises(fixture['CommandFailure']) as error:
+                observe('fixture-session')
+            self.assertEqual(observe.__globals__['STEP'], 'k-observe-later-timer-witness')
+        self.assertEqual(error.exception.reason, 'clients-1-later-1-hold-1-current-run-1')
+
     def test_v2_registration_is_required_even_when_legacy_assets_exist(self):
         import tempfile
 
