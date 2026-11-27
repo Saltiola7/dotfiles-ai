@@ -5,21 +5,22 @@ Content hashes bind evidence; they do not authenticate humans or prove CI execut
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timedelta
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import stat
 import tempfile
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from .client import VerifiedOutcome
+    from .initiative_ci import Policy
 
 from . import core, runtime
 from .gitproof import GitObjects, Proof, prove_series
@@ -57,6 +58,7 @@ _LINK_KINDS = frozenset({
     "initiative_revocation",
 })
 _INITIATIVE_OPERATIONS = frozenset({"launch", "admit", "merge", "repair"})
+_INITIATIVE_REPAIR_CLASSES = frozenset({"source_fix", "infrastructure_retry"})
 
 
 def canonical(value: object) -> bytes:
@@ -165,6 +167,63 @@ def _initiative_slice_ids(value: object, minimum: int = 0) -> tuple[str, ...]:
     return result
 
 
+class InitiativeRepairPolicy(TypedDict):
+    class_qualifications: dict[str, str]
+    writable_paths: dict[str, list[str]]
+
+
+def initiative_repair_policy(value: object) -> InitiativeRepairPolicy:
+    """Normalize the qualified classes and exact per-slice source write paths."""
+    policy = object_value(value)
+    if set(policy) != {"class_qualifications", "writable_paths"}:
+        raise ValueError("initiative_repair_policy_invalid")
+    route_digests = object_value(policy["class_qualifications"])
+    if not route_digests or route_digests.keys() - _INITIATIVE_REPAIR_CLASSES:
+        raise ValueError("initiative_repair_class_invalid")
+    classes = {name: hex_value(digest) for name, digest in route_digests.items()}
+    path_scopes = object_value(policy["writable_paths"])
+    if bool(path_scopes) != ("source_fix" in classes) or len(path_scopes) > 256:
+        raise ValueError("initiative_repair_writable_scope_invalid")
+    remaining = 256
+    paths: dict[str, list[str]] = {}
+    for key, raw in path_scopes.items():
+        if not isinstance(raw, list) or not 1 <= len(raw) <= remaining:
+            raise ValueError("initiative_repair_writable_scope_invalid")
+        remaining -= len(raw)
+        exact = set()
+        for item in raw:
+            name = text(item, 1024)
+            path = PurePosixPath(name)
+            if (path.is_absolute() or not path.parts or path.as_posix() != name or "\\" in name
+                    or ".." in path.parts or any(part.casefold() == ".git" for part in path.parts)
+                    or name in exact):
+                raise ValueError("initiative_repair_writable_path_invalid")
+            exact.add(name)
+        paths[initiative_slice_id(key)] = sorted(exact)
+    return {"class_qualifications": classes, "writable_paths": paths}
+
+
+def initiative_ci_policy(value: object) -> Policy:
+    """Read the exact enrolled diagnostic policy from private custody."""
+    from .initiative_ci import Policy
+
+    parameters = object_value(value)
+    if set(parameters) != {field.name for field in fields(Policy)}:
+        raise ValueError("initiative_ci_policy_invalid")
+    numeric: dict[str, int] = {}
+    for name, parameter in parameters.items():
+        if type(parameter) is not int:
+            raise ValueError("initiative_ci_policy_invalid")
+        numeric[name] = parameter
+    try:
+        policy = Policy(**numeric)
+    except (TypeError, ValueError):
+        raise ValueError("initiative_ci_policy_invalid") from None
+    if canonical(asdict(policy)) != canonical(parameters):
+        raise ValueError("initiative_ci_policy_invalid")
+    return policy
+
+
 def _validate_initiative_snapshot(value: Mapping[str, object]) -> None:
     initiative_slice_id(value["initiative_id"])
     if re.fullmatch(r"docs/initiatives/[a-z0-9][a-z0-9-]{0,127}/MANIFEST\.json",
@@ -222,13 +281,26 @@ def _validate_initiative_grant(value: Mapping[str, object]) -> None:
     core._integer(repair_limit, minimum=0)
     if ("repair" in operations) != (repair_limit != 0):
         raise ValueError("initiative_grant_repair_limit_invalid")
+    if value["schema_version"] == 2:
+        initiative_ci_policy(value["ci_policy"])
+        policy = value["repair_policy"]
+        if repair_limit not in (0, 1) or (policy is None) != (repair_limit == 0):
+            raise ValueError("initiative_grant_repair_limit_invalid")
+        if policy is not None and policy != initiative_repair_policy(policy):
+            raise ValueError("initiative_repair_policy_noncanonical")
 
 
 def validate(kind: str, value: Mapping[str, object]) -> None:
-    if kind not in _FIELDS or set(value) != set(_FIELDS[kind].split()):
+    if kind not in _FIELDS:
+        raise ValueError("integration_private_fields_invalid")
+    expected = set(_FIELDS[kind].split())
+    if kind == "initiative_grant" and value.get("schema_version") == 2:
+        expected |= {"ci_policy", "repair_policy"}
+    if set(value) != expected:
         raise ValueError("integration_private_fields_invalid")
     if kind in {"initiative_snapshot", "initiative_grant"}:
-        if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+        version = value["schema_version"]
+        if type(version) is not int or not (version == 1 or kind == "initiative_grant" and version == 2):
             raise ValueError("initiative_schema_invalid")
         if kind == "initiative_snapshot":
             _validate_initiative_snapshot(value)

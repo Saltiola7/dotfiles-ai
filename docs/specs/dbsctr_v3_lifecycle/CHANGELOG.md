@@ -1,5 +1,16 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## INITIATIVE-CI-RECOVERY-TALLY — Bound CI recovery across an Initiative
+
+Persist read outcomes, native progress, and the next recheck for an admitted
+candidate. Show the selected slice tally, blocked dependencies, and shared
+repair allowance through read-only text and JSON status.
+
+Reserve one repair across the selected slices before a qualified effect.
+Reconcile uncertain submissions from retained evidence. Repair-enabled grants
+require explicitly qualified native routes. Existing zero-repair recipes retain
+their approval and protected delivery behavior.
+
 ## 2026-11-26 — Reconcile draft recovery with batch launch
 
 - Preserve both contracts and verify the benchmark against the combined CLI.
