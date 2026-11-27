@@ -11,6 +11,32 @@ Reconcile uncertain submissions from retained evidence. Repair-enabled grants
 require explicitly qualified native routes. Existing zero-repair recipes retain
 their approval and protected delivery behavior.
 
+## 2026-11-26 — Reconcile draft recovery with batch launch
+
+- Preserve both contracts and verify the benchmark against the combined CLI.
+
+## 2026-11-26 — Reconcile draft recovery with the Forgejo deadline fix
+
+- Preserve both contracts without changing the recovery CLI.
+
+## 2026-11-26 — Refresh draft recovery with native delegation
+
+- Preserve draft recovery while validating the incoming delegation guidance
+  and model-routing tests.
+
+## 2026-11-26 — Reconcile draft recovery with deferred Discovery
+
+- Preserve both contracts and pin the benchmark fixture to the combined CLI.
+
+## 2026-11-25 — Recover already-published draft finalization
+
+- Close an interrupted draft follow-up after a default advance only when
+  native draft identity and retained reconciliation evidence match. Do not
+  push again, mutate the PR, or grant merge credit.
+
+- Refresh the draft on the OpenCode routing test update; recovery behavior
+  and CLI bytes remain unchanged.
+
 ## DRAFT-WORKER-BATCH-CI-001 — Refresh CLI help expectations
 
 Update the benchmark's expected help output for the draft-worker-batch command.
