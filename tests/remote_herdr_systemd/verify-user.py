@@ -3335,7 +3335,8 @@ def k_arm():
         created = result.get('result', result)
         tid, pane = created['tab']['tab_id'], created['root_pane']['pane_id']
         STEP = 'k-start-native-agent-in-tab'
-        run(tool, 'agent', 'start', 'opencode', '--kind', 'opencode', '--pane', pane,
+        # Agent names are unique across the TUI; kind selects the executable.
+        run(tool, 'agent', 'start', 'rrw-k-later', '--kind', 'opencode', '--pane', pane,
             '--', '--session', new)
         def new_agent_ready():
             latest = backend.tui('session.snapshot', {})['snapshot']
