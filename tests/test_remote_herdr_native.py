@@ -3822,6 +3822,30 @@ def test_k_failed_launch_keeps_the_proven_boot_recoverable(backend):
     assert sum('start' in a for a in calls) == 1
 
 
+def test_k_stop_ignores_a_witness_from_an_earlier_tui_run(backend):
+    tui, _, _ = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    witness = backend.store.read('tui-observation.json')
+    calls = finish_owner_shutdown(backend, tui, [])
+    base = backend.command
+    # A switch started a newer run; no timer tick has observed it yet.
+    owner_tui_processes(backend, witness['run']['start_ticks'] + 5)
+    tui.active = True
+    import shutil
+    def command(argv, timeout=30):
+        if argv == ['herdr', 'session', 'stop', 'default', '--json']:
+            tui.active = False
+            for directory in list(backend.proc_root.iterdir()):
+                if directory.name.isdigit() and directory.name != '61':
+                    shutil.rmtree(directory)
+        return base(argv, timeout)
+    backend.command = command
+    backend.stop('tui', backend.capture('tui'))
+    assert backend.store.read('tui-observation.json') == witness
+    assert not any('start' in argv for argv in calls)
+
+
 def test_k_observed_clients_must_exit_even_if_their_argv_changed(backend):
     tui, _, after = owner_edit(backend, saved=False)
     control = runtime_controller.Controller(backend.store, backend)

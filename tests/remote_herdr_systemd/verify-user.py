@@ -2987,8 +2987,11 @@ def arm_r8():
     from controller import Controller, ControllerError
     with Store(ROOT) as store:
         backend = Native(HOME, store)
+        STEP = 'r8-capture-owned-tui'
         captured = backend.capture('tui')
+        STEP = 'r8-stop-owned-tui'
         backend.stop('tui', captured)
+        STEP = 'r8-confirm-owned-tui-stopped'
         require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
     STEP = 'r8-create-fixture-sessions'
     cwd = str(HOME / 'project alpha')
@@ -3441,9 +3444,43 @@ if __name__ == '__main__':
             'TUI duplicate or failed pane': 'tui-duplicate-or-failed-pane',
             'TUI workspace directory proof ambiguous': 'tui-workspace-ambiguous',
             'session client coverage incomplete or duplicate': 'session-client-coverage',
+            # Fixed source labels of the TUI stop, recovery and boot paths.
+            'TUI source changed after capture': 'tui-source-changed-after-capture',
+            'TUI source process inventory changed after capture': 'tui-source-inventory-changed',
+            'TUI source run changed before stop': 'tui-source-run-changed-before-stop',
+            'TUI final file not bound to observed stop': 'tui-final-file-unbound',
+            'native readiness or stop proof unavailable': 'readiness-or-stop-proof-unavailable',
+            'TUI changed during owner observation': 'tui-changed-during-owner-observation',
+            'TUI snapshot changed during observation': 'tui-snapshot-changed-during-observation',
+            'TUI recovery snapshot has unexplained edits': 'tui-recovery-snapshot-unexplained-edits',
+            'TUI start file changed': 'tui-start-file-changed',
+            'TUI recovery identity mismatch': 'tui-recovery-identity-mismatch',
+            'TUI process exit not proven': 'tui-process-exit-unproven',
+            'TUI boot snapshot has unexplained edits': 'tui-boot-snapshot-unexplained-edits',
+            'TUI API snapshot schema incompatible': 'tui-api-schema-incompatible',
+            'TUI idle shell proof unavailable': 'tui-idle-shell-proof-unavailable',
+            'TUI wrapper client proof unavailable': 'tui-wrapper-client-proof-unavailable',
+            'TUI process or shared service changed during observation': 'tui-process-or-service-changed',
+            'private file unsafe or oversized': 'private-file-unsafe',
+            'TUI recovery unit state changed before start': 'tui-unit-changed-before-start',
+            'TUI boot snapshot differs from owned layout without live proof': 'tui-boot-edit-without-live-proof',
+            'TUI shutdown save does not match latest live proof': 'tui-shutdown-save-unproven',
+            'TUI shutdown not yet proven': 'tui-shutdown-not-proven',
+            'TUI shutdown save not newer than prior launch': 'tui-shutdown-save-not-newer',
+            'TUI boot observation changed': 'tui-boot-boundary-changed',
+            'TUI boot startup uncertain; use recover': 'tui-boot-startup-uncertain',
+            'TUI recovery awaits a matching native save': 'tui-recovery-awaits-native-save',
+            'TUI live endpoint not bound to retained start': 'tui-live-endpoint-unbound',
+            'TUI boot lost its live endpoint': 'tui-boot-lost-endpoint',
+            'TUI boot lost its verified layout': 'tui-boot-lost-layout',
+            'TUI shutdown public binding unavailable': 'tui-shutdown-public-binding-unavailable',
+            'TUI shutdown session binding unavailable': 'tui-shutdown-session-binding-unavailable',
+            'TUI owned records disagree without live proof': 'tui-owned-records-disagree',
+            'unfinished boot startup requires explicit recovery': 'unfinished-boot-needs-recover',
         }
         protocol_labels.update(r1_refusal_labels())
-        if type(error).__name__ == 'NativeError' and str(error) in protocol_labels:
+        # Both classes carry fixed source labels only.
+        if type(error).__name__ in ('NativeError', 'ControllerError') and str(error) in protocol_labels:
             suffix = '-' + protocol_labels[str(error)]
         if type(error).__name__ == 'NativeError' and str(error) == 'native observation or mutation uncertain':
             suffix = '-native-uncertain-origin-' + recovery_origin(

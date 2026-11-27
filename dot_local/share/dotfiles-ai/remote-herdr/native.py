@@ -1345,10 +1345,11 @@ class Native:
                 raise NativeError('TUI source process inventory changed after capture')
             prior = self.store.read('tui-observation.json')
             candidate = None
-            if prior and not prior['hold']:
+            # A witness vouches only for the run it observed. A switch or a
+            # manual start since then leaves that older run's record behind.
+            if prior and not prior['hold'] and prior['run'] == self.tui_run():
                 candidate, disk, _ = self.tui_owner_view(plan, prior)
-                if (candidate['run'] != prior['run'] or candidate['pids'] != capture['pids']
-                        or disk != self._optional_snapshot()):
+                if candidate['pids'] != capture['pids'] or disk != self._optional_snapshot():
                     raise NativeError('TUI source run changed before stop')
             self.command(['herdr', 'session', 'stop', 'default', '--json'], timeout=25)
             # The CLI's success alone is not an observation of process exit.
