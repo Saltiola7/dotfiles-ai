@@ -176,6 +176,8 @@ class Controller:
         self.store.write('transaction.json', journal)
 
     def _clear(self):
+        if self.store.read('tui-reconnect.json'):
+            raise ControllerError('unfinished TUI reconnect requires recovery')
         boot = self.store.read('boot.json')
         if boot and boot.get('status') == 'start_pending':
             raise ControllerError('unfinished boot startup requires explicit recovery')
@@ -243,6 +245,9 @@ class Controller:
     def recover(self):
         """Resume only after observational reconciliation; never repeat stop/run."""
         try:
+            if self.store.read('tui-reconnect.json'):
+                self.restore()
+                return
             journal = self.store.read('transaction.json')
             boot = self.store.read('boot.json')
             if boot and boot.get('status') == 'start_pending':
@@ -413,7 +418,14 @@ class Controller:
         return {**receipt, 'document': snapshot, 'adoption_backup': self.backend._backup(backup)}
 
     def _restore_live_tui(self, manifest):
+        prior = self._tui_observation(manifest)
+        if prior and prior.get('clients'):
+            self.backend.reconnect_shared_tui(manifest['plan'], prior)
+        elif self.store.read('tui-reconnect.json'):
+            raise ControllerError('TUI reconnect witness unavailable')
         snapshot, plan, matched = self._observe_tui(manifest)
+        if self.store.read('tui-reconnect.json'):
+            self.store.write('tui-reconnect.json', {})
         if not matched or not self._edited(manifest, snapshot, plan):
             return
         receipt = self._adoption(manifest, {'runtime': 'tui', 'txid': uuid.uuid4().hex,
@@ -537,7 +549,10 @@ class Controller:
         journal = self.store.read('transaction.json')
         if journal and journal.get('phase') != 'complete':
             raise ControllerError('unfinished switch blocks automatic restore')
+        reconnect = self.store.read('tui-reconnect.json')
         if self.backend.selected() == 'herdr-core':
+            if reconnect:
+                raise ControllerError('TUI reconnect selection changed')
             self.backend.restore_current()
             return
         if self.backend.endpoint_present('herdr-core'):
@@ -559,7 +574,11 @@ class Controller:
         if self.backend.endpoint_present('tui'):
             if manifest is not None:
                 self._restore_live_tui(manifest)
+            elif reconnect:
+                raise ControllerError('TUI reconnect manifest unavailable')
             return  # Never take over a healthy manually started default TUI.
+        if reconnect:
+            raise ControllerError('TUI reconnect requires its live endpoint')
         self._boot_saved_tui(manifest, boot)
 
     def _boot_saved_tui(self, manifest, previous_boot):

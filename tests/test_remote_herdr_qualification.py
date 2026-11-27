@@ -24,6 +24,7 @@ WORKFLOW = ROOT / '.github/workflows/remote-herdr-runtime.yml'
 
 class RestoreTimerDrainTests(unittest.TestCase):
     def test_service_restart_observes_without_taking_controller_lock(self):
+        from contextlib import nullcontext
         from types import SimpleNamespace
 
         restart = runpy.run_path(str(FIXTURE / 'verify-user.py'))['k_service_only_restart']
@@ -35,16 +36,21 @@ class RestoreTimerDrainTests(unittest.TestCase):
         )
         calls = []
         pids = iter((50, 51))
+        drained = []
 
         def locked_store(*_):
-            self.fail('reconnect observer must not contend for the store')
+            self.assertTrue(drained, 'reconnect observer must not contend for the store')
+            witness = {'hold': False, 'run': {'pid': 42},
+                       'clients': {pid: {'service': {'pid': 51}} for pid in range(100, 150)}}
+            return nullcontext(SimpleNamespace(read=lambda name: witness
+                                               if name == 'tui-observation.json' else {}))
 
         def native(_home, store):
             self.assertIsNone(store)
             return backend
 
         def wait(check, seconds):
-            self.assertEqual(seconds, 180)
+            self.assertEqual(seconds, 700)
             self.assertFalse(check())
             backend.shared_main_pid = lambda: 51
             self.assertTrue(check())
@@ -55,7 +61,7 @@ class RestoreTimerDrainTests(unittest.TestCase):
         with patch.dict(restart.__globals__, adapter=lambda: (locked_store, native),
                         load=lambda *_: f01, backend_pid=lambda: next(pids), wait=wait,
                         unit=lambda *args: calls.append(args),
-                        stop_restore_ticks=lambda: None, print=lambda *_, **__: None):
+                        stop_restore_ticks=lambda: drained.append(True), print=lambda *_, **__: None):
             self.assertEqual(restart({}), 51)
         self.assertEqual(calls, [('start', 'remote-herdr-restore.timer'),
                                  ('restart', 'opencode-shared.service')])

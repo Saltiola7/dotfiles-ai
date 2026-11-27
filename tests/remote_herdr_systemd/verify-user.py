@@ -3234,7 +3234,7 @@ def k_service_only_restart(plan):
     """F01 owns this effect in the disposable fixture. No TUI quit/start."""
     global STEP
     STEP = 'k-service-only-restart'
-    _, Native = adapter()
+    Store, Native = adapter()
     f01 = load('f01', '/opt/f01/verify-user.py')
     pid = backend_pid()
     # This observation uses only native endpoints and /proc. Do not contend
@@ -3269,13 +3269,21 @@ def k_service_only_restart(plan):
                 and backend._coverage(plan) == clients)
 
     try:
-        wait(reconnected, seconds=180)
+        # The managed controller relaunches one pane at a time through the
+        # paced wrapper, with a 620-second recovery budget.
+        wait(reconnected, seconds=700)
     except RuntimeError:
         raise CommandFailure(f'{state}-exact-{clients_seen}-connected-{connected}') from None
     STEP = 'k-service-only-restart-final'
     stop_restore_ticks()
     require(backend_pid() == new_pid)
     require(backend.tui_run() == run_proof)
+    with Store(ROOT) as store:
+        require(not store.read('tui-reconnect.json'))
+        witness = store.read('tui-observation.json')
+        require(not witness['hold'] and witness['run'] == run_proof)
+        require(len(witness['clients']) == 50
+                and all(client['service']['pid'] == new_pid for client in witness['clients'].values()))
     print('F07: service-only-restart-exact-clients-50', flush=True)
     return new_pid
 

@@ -363,9 +363,21 @@ Manual recovery distinguishes the background restore service holding its
 exact lock from another owner. It waits within a bound for the verified
 service and reports contention without breaking the lock. The existing
 exit proof, private journals, paced start and shared-backend isolation apply.
+On a shared OpenCode service replacement within the same managed Herdr
+invocation, restore keeps clients already connected to the replacement.
+It can replace a disconnected, previously witnessed exact client in the same
+pane only after proving the old backend exited, the owned layout still
+matches, and the foreground client and directory still match the witness.
+Private stop and launch intents survive interruption; recovery observes
+their outcomes without repeating an uncertain signal or launch.
+Require old-client exit and an empty exact-session inventory before launching
+through the paced wrapper. A changed pane or ambiguous outcome holds recovery;
+no pane is recreated and neither Herdr nor the shared service is restarted.
 The Linux qualification adds a tab and exact client, closes a pane, resizes
 a split and checks 50 unique clients after each of two boots. It also
-exercises the real background/manual overlap. Public outcomes report counts.
+exercises the real background/manual overlap and verifies all 50 clients
+on the replacement backend after restarting only the shared OpenCode service.
+Public outcomes report counts.
 
 ### Completed unrecorded swap (RRW-007G-R5 / INT-082)
 
