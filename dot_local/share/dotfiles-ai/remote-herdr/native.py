@@ -1077,11 +1077,18 @@ class Native:
         # The endpoint can change while the individual tab/pane RPCs and /proc
         # proofs run. Ignore only volatile presentation/agent progress fields.
         last = self.tui('session.snapshot', {})
+        # The live TUI saves on its own schedule. A save landing inside this
+        # observation is harmless unless it changed the saved workspaces the
+        # directory join depends on; the witness names the save on disk at the end.
+        latest, file = self.snapshot_evidence()
         if (last.get('type') != 'session_snapshot'
                 or self._api_inventory(last['snapshot']) != (inventory, failed, deferred)
                 or last['snapshot']['layouts'] != api['layouts']
                 or self.tui_run() != run
-                or self.snapshot_evidence()[1] != file):
+                or layout.tui_names(latest) != layout.tui_names(disk)
+                or layout.tui_public_identities(latest) != layout.tui_public_identities(disk)
+                or [space.get('identity_cwd') for space in latest['workspaces']]
+                != [space.get('identity_cwd') for space in disk['workspaces']]):
             raise NativeError('TUI changed during owner observation')
         return {'view': view, 'pids': pids, 'file': file, 'clients': bindings, 'run': run}, disk, plan
 

@@ -3846,6 +3846,27 @@ def test_k_stop_ignores_a_witness_from_an_earlier_tui_run(backend):
     assert not any('start' in argv for argv in calls)
 
 
+def test_k_live_observation_survives_an_unchanged_native_save_inside_the_window(backend, monkeypatch):
+    tui, _, after = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    rpc, fired = backend.tui, []
+    monkeypatch.setattr(runtime_controller.time, 'sleep',
+                        lambda seconds: pytest.fail('an unchanged save needs no second look'))
+    def saving(method, params):
+        result = rpc(method, params)
+        if method == 'pane.process_info' and not fired:
+            # The TUI autosaves while the controller is mid-observation.
+            fired.append(method)
+            backend.snapshot_path.write_text(json.dumps(after, indent=4))
+        return result
+    backend.tui = saving
+    control.restore()
+    witness = backend.store.read('tui-observation.json')
+    assert fired and not witness['hold'] and witness['file'] == backend.snapshot_evidence()[1]
+    assert backend.store.read('manifest.json')['plan'] == native.layout.from_tui_snapshot(after)
+
+
 def test_k_observed_clients_must_exit_even_if_their_argv_changed(backend):
     tui, _, after = owner_edit(backend, saved=False)
     control = runtime_controller.Controller(backend.store, backend)
