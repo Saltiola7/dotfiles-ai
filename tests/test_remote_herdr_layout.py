@@ -302,7 +302,7 @@ def test_invalid_canonical_refused(layout, change):
 
 
 @pytest.mark.parametrize('field,value', [
-    ('agent_name', 'claude'), ('managed_agent_kind', 'pi'),
+    ('agent_name', 'Invalid name'), ('managed_agent_kind', 'pi'),
     ('agent_session', {'source': 'herdr:pi', 'agent': 'pi', 'kind': 'id', 'value': 'ses_Test0'}),
     ('launch_argv', ['opencode', '--session', 'ses_Contradiction']),
     ('launch_argv', ['sh', '-c', 'opencode --session ses_Test0']),
@@ -311,6 +311,25 @@ def test_invalid_canonical_refused(layout, change):
 def test_native_agent_ambiguity_refused(layout, field, value):
     native = layout.to_tui_snapshot(plan())
     native['workspaces'][0]['tabs'][0]['panes']['0'][field] = value
+    with pytest.raises(ValueError):
+        layout.from_tui_snapshot(native)
+
+
+def test_native_named_managed_opencode_requires_exact_session(layout):
+    native = layout.to_tui_snapshot(plan())
+    pane = native['workspaces'][0]['tabs'][0]['panes']['0']
+    pane.update(agent_name='later-reviewer', managed_agent_kind='opencode')
+    pane.pop('launch_argv')
+    assert layout.from_tui_snapshot(native) == plan()
+    pane['managed_agent_kind'] = 'pi'
+    with pytest.raises(ValueError, match='unsupported agent identity'):
+        layout.from_tui_snapshot(native)
+    pane.pop('managed_agent_kind')
+    with pytest.raises(ValueError, match='unsupported agent identity'):
+        layout.from_tui_snapshot(native)
+    pane['managed_agent_kind'] = 'opencode'
+    pane.pop('agent_session')
+    pane['launch_argv'] = ['opencode', '--session', 'ses_Test0']
     with pytest.raises(ValueError):
         layout.from_tui_snapshot(native)
 

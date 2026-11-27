@@ -3374,6 +3374,10 @@ def test_k_deferred_must_retain_independently_proven_public_binding(backend, fau
 @pytest.mark.parametrize('saved_live', [False, True])
 def test_k_owner_edits_survive_shutdown_and_second_boot(backend, saved_live):
     tui, before, after = owner_edit(backend, saved=saved_live)
+    later = after['workspaces'][0]['tabs'][1]['panes']['3']
+    later.update(agent_name='later-reviewer', managed_agent_kind='opencode')
+    if saved_live:
+        backend.snapshot_path.write_text(json.dumps(after))
     control = runtime_controller.Controller(backend.store, backend)
     initial = backend.store.read('manifest.json')
     journal = backend.store.read('transaction.json')
