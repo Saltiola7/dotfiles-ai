@@ -70,11 +70,11 @@ def register(case, capsys):
     return case.core.load(case.root)
 
 
-def advance_default(case):
+def advance_default(case, content="Accepted default.\n"):
     core, source = case.core, case.fixture.repo
     current = core.branch(source)
     core.git(source, "switch", "main")
-    (source / "accepted.txt").write_text("Accepted default.\n")
+    (source / "accepted.txt").write_text(content)
     core.git(source, "add", "accepted.txt")
     core.git(source, "commit", "-m", "Accepted default")
     core.git(source, "push", "origin", "main")
@@ -390,6 +390,57 @@ def test_followup_uncertain_push_retry_observes_existing_tip_without_repush(foll
     assert record["delivery"]["pull_request"]["number"] == 17
     assert case.core.git(case.root, "rev-parse", "HEAD").stdout == head
     assert pushes == [True]
+
+
+@pytest.mark.parametrize("remote_state", ["published", "stale_pr", "ready_pr", "unpublished"])
+def test_followup_draft_recovery_after_default_advance(followup, capsys, monkeypatch, remote_state):
+    case = followup
+    core = case.core
+    case.pull["draft"] = True
+    qualified_base = advance_default(case)
+    register(case, capsys)
+    core.command_reconcile_target(SimpleNamespace(mode="prepare", json=True))
+    staged = json.loads(capsys.readouterr().out)["staged_paths"]
+    changelog = "docs/specs/test/CHANGELOG.md"
+    (case.root / changelog).write_text("Reviewed draft recovery.\n")
+    commit_and_close(case, sorted({changelog, *staged}))
+    original_push = core.push_github_branch
+
+    def interrupted(*args):
+        if remote_state != "unpublished":
+            original_push(*args)
+        raise RuntimeError("Interrupted publication")
+
+    path, record = core.load(case.root)
+    monkeypatch.setattr(core, "push_github_branch", interrupted)
+    with pytest.raises(RuntimeError, match="Interrupted publication"):
+        core.finish_push(case.root, path, record)
+
+    def forbidden(*args):
+        raise AssertionError("Recovery tried to push or invoke a PR write route")
+
+    monkeypatch.setattr(core, "push_github_branch", forbidden)
+    monkeypatch.setattr(core, "github_json", forbidden)
+    if remote_state == "stale_pr":
+        case.pull["head"]["sha"] = case.published
+    elif remote_state == "ready_pr":
+        case.pull["draft"] = False
+    assert advance_default(case, "Later default.\n") != qualified_base
+    _, stored = core.load(case.root)
+    before = path.read_bytes()
+    if remote_state != "published":
+        with pytest.raises(RuntimeError):
+            core.finish_push(case.root, path, stored)
+        assert path.read_bytes() == before
+        return
+
+    core.finish_push(case.root, path, stored)
+    assert stored["state"] == "completed"
+    assert stored["delivery"]["pull_request"]["draft"] is True
+    assert "publication" not in stored and "merge_completion" not in stored
+    completed = path.read_bytes()
+    core.finish_push(case.root, path, stored)
+    assert path.read_bytes() == completed
 
 
 def test_followup_preserves_completed_prior_cycle_bytes(followup, capsys):
