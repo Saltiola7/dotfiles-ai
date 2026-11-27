@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-26 — Refresh Herdr build qualification
+
+- Reconcile the build-only draft with the published-draft finalization
+  baseline without changing the producer recipe, pins, or smoke test.
+
 ## 2026-11-26 — Requalify the Herdr build proof on current main
 
 - Reconcile the build-only draft with the draft-worker batch baseline.
