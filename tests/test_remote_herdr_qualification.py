@@ -116,6 +116,8 @@ def test_k_native_fixture_must_edit_through_herdr_and_prove_saved_file_and_clien
                                                'k_resize(', "'session', 'stop'", 'backend.snapshot_evidence()',
                                                'backend.final_tui_file(run_proof, final_file)'))
     assert "cli('restore')" not in arm
+    assert "'agent', 'start', 'opencode', '--kind', 'opencode', '--pane', pane" in arm
+    assert "'--', '--session', new" in arm
     assert arm.index('k_observe_later(') < arm.index("'pane', 'close', closed_pane") < arm.index("'session', 'stop'")
     resize = functions['k_resize']
     assert all(flag in resize for flag in ("'--pane'", "'--direction'", "'--amount'"))
