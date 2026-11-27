@@ -364,6 +364,58 @@ def cli(*args):
         raise CommandFailure('controller-' + label) from None
 
 
+def tui_refusal_labels():
+    """Fixed source labels of the TUI stop, recovery and boot paths."""
+    return {
+        'TUI source changed after capture': 'tui-source-changed-after-capture',
+        'TUI source process inventory changed after capture': 'tui-source-inventory-changed',
+        'TUI source run changed before stop': 'tui-source-run-changed-before-stop',
+        'TUI final file not bound to observed stop': 'tui-final-file-unbound',
+        'native readiness or stop proof unavailable': 'readiness-or-stop-proof-unavailable',
+        'TUI changed during owner observation': 'tui-changed-during-owner-observation',
+        'TUI snapshot changed during observation': 'tui-snapshot-changed-during-observation',
+        'TUI recovery snapshot has unexplained edits': 'tui-recovery-snapshot-unexplained-edits',
+        'TUI start file changed': 'tui-start-file-changed',
+        'TUI recovery identity mismatch': 'tui-recovery-identity-mismatch',
+        'TUI process exit not proven': 'tui-process-exit-unproven',
+        'TUI boot snapshot has unexplained edits': 'tui-boot-snapshot-unexplained-edits',
+        'TUI API snapshot schema incompatible': 'tui-api-schema-incompatible',
+        'TUI idle shell proof unavailable': 'tui-idle-shell-proof-unavailable',
+        'TUI wrapper client proof unavailable': 'tui-wrapper-client-proof-unavailable',
+        'TUI process or shared service changed during observation': 'tui-process-or-service-changed',
+        'private file unsafe or oversized': 'private-file-unsafe',
+        'TUI recovery unit state changed before start': 'tui-unit-changed-before-start',
+        'TUI boot snapshot differs from owned layout without live proof': 'tui-boot-edit-without-live-proof',
+        'TUI shutdown save does not match latest live proof': 'tui-shutdown-save-unproven',
+        'TUI shutdown not yet proven': 'tui-shutdown-not-proven',
+        'TUI shutdown save not newer than prior launch': 'tui-shutdown-save-not-newer',
+        'TUI boot observation changed': 'tui-boot-boundary-changed',
+        'TUI boot startup uncertain; use recover': 'tui-boot-startup-uncertain',
+        'TUI recovery awaits a matching native save': 'tui-recovery-awaits-native-save',
+        'TUI live endpoint not bound to retained start': 'tui-live-endpoint-unbound',
+        'TUI boot lost its live endpoint': 'tui-boot-lost-endpoint',
+        'TUI boot lost its verified layout': 'tui-boot-lost-layout',
+        'TUI shutdown public binding unavailable': 'tui-shutdown-public-binding-unavailable',
+        'TUI shutdown session binding unavailable': 'tui-shutdown-session-binding-unavailable',
+        'TUI owned records disagree without live proof': 'tui-owned-records-disagree',
+        'unfinished boot startup requires explicit recovery': 'unfinished-boot-needs-recover',
+    }
+
+
+def refusal_slug(error):
+    """A fixed source label as a slug, or `unlabelled`; never other text.
+
+    `NativeError` and `ControllerError` carry source-literal labels only.
+    Anything outside a strict label alphabet, and every other class, is withheld.
+    """
+    if type(error).__name__ not in ('NativeError', 'ControllerError'):
+        return 'unlabelled'
+    text = str(error)
+    if not re.fullmatch(r"[A-Za-z0-9 :;,'_.-]{1,120}", text):
+        return 'unlabelled'
+    return tui_refusal_labels().get(text) or re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
+
+
 def r1_refusal_labels():
     """Exact source refusals only; never interpolate native error payloads."""
     return {
@@ -3201,7 +3253,23 @@ def k_arm():
     STEP = 'k-edit-preconditions'
     # Stop future ticks; let any current owner finish normally.
     unit('stop', 'remote-herdr-restore.timer')
-    wait(lambda: unit('show', 'remote-herdr-restore.service', '-p', 'ActiveState', '--value') == 'inactive')
+    try:
+        wait(lambda: unit('show', 'remote-herdr-restore.service', '-p', 'ActiveState', '--value') == 'inactive')
+    except RuntimeError:
+        # systemd properties and one fixed source label only: never journal or native text.
+        state = '-'.join(re.sub(r'[^A-Za-z0-9-]', '_', unit('show', 'remote-herdr-restore.service',
+                                                              '-p', value, '--value').strip())
+                        for value in ('ActiveState', 'Result', 'ExecMainStatus'))
+        Store, Native = adapter()
+        from controller import Controller
+        try:
+            with Store(ROOT) as store:
+                Controller(store, Native(HOME, store)).restore()
+            reason = 'succeeded'
+        except Exception as error:
+            reason = refusal_slug(error)
+        print('F07: restore-service-' + state + '-manual-' + reason, file=sys.stderr)
+        raise
     original = json.loads(EXPECTED.read_text())
     pid = k_service_only_restart(original)
     space = original['spaces'][0]
@@ -3444,41 +3512,9 @@ if __name__ == '__main__':
             'TUI duplicate or failed pane': 'tui-duplicate-or-failed-pane',
             'TUI workspace directory proof ambiguous': 'tui-workspace-ambiguous',
             'session client coverage incomplete or duplicate': 'session-client-coverage',
-            # Fixed source labels of the TUI stop, recovery and boot paths.
-            'TUI source changed after capture': 'tui-source-changed-after-capture',
-            'TUI source process inventory changed after capture': 'tui-source-inventory-changed',
-            'TUI source run changed before stop': 'tui-source-run-changed-before-stop',
-            'TUI final file not bound to observed stop': 'tui-final-file-unbound',
-            'native readiness or stop proof unavailable': 'readiness-or-stop-proof-unavailable',
-            'TUI changed during owner observation': 'tui-changed-during-owner-observation',
-            'TUI snapshot changed during observation': 'tui-snapshot-changed-during-observation',
-            'TUI recovery snapshot has unexplained edits': 'tui-recovery-snapshot-unexplained-edits',
-            'TUI start file changed': 'tui-start-file-changed',
-            'TUI recovery identity mismatch': 'tui-recovery-identity-mismatch',
-            'TUI process exit not proven': 'tui-process-exit-unproven',
-            'TUI boot snapshot has unexplained edits': 'tui-boot-snapshot-unexplained-edits',
-            'TUI API snapshot schema incompatible': 'tui-api-schema-incompatible',
-            'TUI idle shell proof unavailable': 'tui-idle-shell-proof-unavailable',
-            'TUI wrapper client proof unavailable': 'tui-wrapper-client-proof-unavailable',
-            'TUI process or shared service changed during observation': 'tui-process-or-service-changed',
-            'private file unsafe or oversized': 'private-file-unsafe',
-            'TUI recovery unit state changed before start': 'tui-unit-changed-before-start',
-            'TUI boot snapshot differs from owned layout without live proof': 'tui-boot-edit-without-live-proof',
-            'TUI shutdown save does not match latest live proof': 'tui-shutdown-save-unproven',
-            'TUI shutdown not yet proven': 'tui-shutdown-not-proven',
-            'TUI shutdown save not newer than prior launch': 'tui-shutdown-save-not-newer',
-            'TUI boot observation changed': 'tui-boot-boundary-changed',
-            'TUI boot startup uncertain; use recover': 'tui-boot-startup-uncertain',
-            'TUI recovery awaits a matching native save': 'tui-recovery-awaits-native-save',
-            'TUI live endpoint not bound to retained start': 'tui-live-endpoint-unbound',
-            'TUI boot lost its live endpoint': 'tui-boot-lost-endpoint',
-            'TUI boot lost its verified layout': 'tui-boot-lost-layout',
-            'TUI shutdown public binding unavailable': 'tui-shutdown-public-binding-unavailable',
-            'TUI shutdown session binding unavailable': 'tui-shutdown-session-binding-unavailable',
-            'TUI owned records disagree without live proof': 'tui-owned-records-disagree',
-            'unfinished boot startup requires explicit recovery': 'unfinished-boot-needs-recover',
         }
         protocol_labels.update(r1_refusal_labels())
+        protocol_labels.update(tui_refusal_labels())
         # Both classes carry fixed source labels only.
         if type(error).__name__ in ('NativeError', 'ControllerError') and str(error) in protocol_labels:
             suffix = '-' + protocol_labels[str(error)]

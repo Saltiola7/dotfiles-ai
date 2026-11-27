@@ -6,9 +6,16 @@ import struct
 import sys
 
 import pytest
+from remote_herdr_test_namespace import trusted_fixture_anchors
 
 SOURCE = Path(__file__).parents[1] / 'dot_local/share/dotfiles-ai/remote-herdr'
 sys.path.insert(0, str(SOURCE))
+
+
+@pytest.fixture(autouse=True)
+def fixture_system_ownership():
+    with trusted_fixture_anchors():
+        yield
 
 
 def module():

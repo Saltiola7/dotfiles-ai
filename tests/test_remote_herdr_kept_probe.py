@@ -77,7 +77,9 @@ class PrivateReadTests(unittest.TestCase):
                       '/home/fixture/.local /home/fixture/.local/bin', script)
 
     def test_private_read_and_symlink_mode_bounds(self):
-        with tempfile.TemporaryDirectory() as temporary:
+        from remote_herdr_test_namespace import trusted_fixture_anchors
+
+        with trusted_fixture_anchors(), tempfile.TemporaryDirectory() as temporary:
             parent = Path(temporary).resolve()
             parent.chmod(0o700)
             target = parent / 'terminals.json'

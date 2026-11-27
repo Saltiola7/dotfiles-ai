@@ -11,6 +11,13 @@ import subprocess
 import sys
 
 import pytest
+from remote_herdr_test_namespace import trusted_fixture_anchors
+
+
+@pytest.fixture(autouse=True)
+def fixture_system_ownership():
+    with trusted_fixture_anchors():
+        yield
 
 
 SOURCE = Path(__file__).resolve().parents[1] / 'dot_local/share/dotfiles-ai/remote-herdr'
@@ -2753,7 +2760,8 @@ def launcher_home(backend, plan_value, managed):
     launcher = home / '.local/bin/remote-herdr'
     launcher.write_bytes((SOURCE.parents[2] / 'bin/executable_remote-herdr').read_bytes())
     launcher.chmod(0o755)
-    return subprocess.run(['/usr/bin/python3', '-I', str(launcher), 'exec-tui'],
+    runner = Path(__file__).with_name('remote_herdr_test_namespace.py')
+    return subprocess.run(['/usr/bin/python3', '-I', str(runner), str(launcher), 'exec-tui'],
                           text=True, capture_output=True, timeout=30,
                           env={'HOME': str(home), 'PATH': '/usr/bin:/bin'})
 
@@ -3844,6 +3852,27 @@ def test_k_stop_ignores_a_witness_from_an_earlier_tui_run(backend):
     backend.stop('tui', backend.capture('tui'))
     assert backend.store.read('tui-observation.json') == witness
     assert not any('start' in argv for argv in calls)
+
+
+def test_k_live_observation_survives_an_unchanged_native_save_inside_the_window(backend, monkeypatch):
+    tui, _, after = owner_edit(backend, saved=True)
+    control = runtime_controller.Controller(backend.store, backend)
+    control.restore()
+    rpc, fired = backend.tui, []
+    monkeypatch.setattr(runtime_controller.time, 'sleep',
+                        lambda seconds: pytest.fail('an unchanged save needs no second look'))
+    def saving(method, params):
+        result = rpc(method, params)
+        if method == 'pane.process_info' and not fired:
+            # The TUI autosaves while the controller is mid-observation.
+            fired.append(method)
+            backend.snapshot_path.write_text(json.dumps(after, indent=4))
+        return result
+    backend.tui = saving
+    control.restore()
+    witness = backend.store.read('tui-observation.json')
+    assert fired and not witness['hold'] and witness['file'] == backend.snapshot_evidence()[1]
+    assert backend.store.read('manifest.json')['plan'] == native.layout.from_tui_snapshot(after)
 
 
 def test_k_observed_clients_must_exit_even_if_their_argv_changed(backend):

@@ -382,20 +382,27 @@ class Controller:
         prior = self._tui_observation(manifest) or {'lineage': lineage}
         if not prior.get('hold'):
             self.store.write('tui-observation.json', {**prior, 'hold': True})
-        witness, snapshot, live = self.backend.tui_owner_view(manifest['plan'], prior)
-        plan = layout.from_tui_snapshot(snapshot)
-        matched = layout.tui_save_matches_view(snapshot, witness['view'])
-        # A migration writer has only explicit labels and no public identities.
-        # It may confirm the exact already-owned document; it cannot prove an
-        # edited save. The shutdown writer must join via its public IDs.
-        legacy = (not matched and snapshot == manifest['receipt'].get('document')
-                  and all(b is None for b in layout.tui_public_identities(snapshot))
-                  and self._same_tui_plan(plan, live))
+        # The live TUI saves on its own schedule. A save that lands in the last
+        # instant of an observation only means the save must be looked at again.
+        for attempt in range(3):
+            witness, snapshot, live = self.backend.tui_owner_view(manifest['plan'], prior)
+            plan = layout.from_tui_snapshot(snapshot)
+            matched = layout.tui_save_matches_view(snapshot, witness['view'])
+            # A migration writer has only explicit labels and no public
+            # identities. It may confirm the exact already-owned document; it
+            # cannot prove an edited save. The shutdown writer must join via
+            # its public IDs.
+            legacy = (not matched and snapshot == manifest['receipt'].get('document')
+                      and all(b is None for b in layout.tui_public_identities(snapshot))
+                      and self._same_tui_plan(plan, live))
+            if self.backend.snapshot_evidence()[1] == witness['file']:
+                break
+            time.sleep(0.5)
+        else:
+            raise ControllerError('TUI snapshot changed during observation')
         observation = {'lineage': lineage, 'hold': False, **witness, 'legacy': legacy}
         if matched or legacy:
             observation['names'] = layout.tui_names(snapshot)
-        if self.backend.snapshot_evidence()[1] != witness['file']:
-            raise ControllerError('TUI snapshot changed during observation')
         self.store.write('tui-observation.json', observation)
         return snapshot, plan, matched or legacy
 
