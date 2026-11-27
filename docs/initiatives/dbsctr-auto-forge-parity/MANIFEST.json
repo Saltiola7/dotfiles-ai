@@ -165,6 +165,13 @@
       "text": "Default newly approved qualified Auto grants to one shared repair across the selected slices for an in-scope source fix or a verified infrastructure retry. Preserve explicit zero-repair grants and historical identities.",
       "disposition": "ready",
       "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md"]
+    },
+    {
+      "id": "INT-024",
+      "kind": "decision",
+      "text": "Qualify installed Auto on a protected private Forgejo target first. Retain the shared-repair and explicit zero-repair contracts. Qualify GitHub separately on an eligible protected target.",
+      "disposition": "ready",
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/initiatives/dbsctr-auto-forge-parity/README.md"]
     }
   ],
   "contexts": [
@@ -235,7 +242,7 @@
     {
       "id": "ci-recovery-and-tally",
       "context": "dbsctr_v3_lifecycle",
-      "state": "ready",
+      "state": "delivered",
       "execution_owner": "build",
       "requirements": ["INT-006", "INT-007", "INT-008", "INT-009", "INT-010", "INT-011", "INT-014", "INT-023"],
       "depends_on": ["initiative-continuation", "forgejo-ci"],
@@ -245,12 +252,22 @@
     {
       "id": "auto-qualification",
       "context": "dbsctr_v3_lifecycle",
-      "state": "discovering",
+      "state": "ready",
       "execution_owner": "build",
-      "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-005", "INT-006", "INT-007", "INT-008", "INT-009", "INT-010", "INT-011", "INT-012", "INT-013", "INT-014", "INT-015", "INT-016", "INT-017", "INT-018", "INT-019", "INT-020", "INT-021", "INT-023"],
+      "requirements": ["INT-001", "INT-002", "INT-003", "INT-004", "INT-005", "INT-006", "INT-007", "INT-008", "INT-009", "INT-010", "INT-011", "INT-012", "INT-013", "INT-014", "INT-015", "INT-016", "INT-017", "INT-018", "INT-019", "INT-020", "INT-021", "INT-023", "INT-024"],
       "depends_on": ["forgejo-merge", "ci-recovery-and-tally"],
       "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/README.md", "docs/initiatives/dbsctr-auto-forge-parity/DELIVERY-PREFERENCE.md", "docs/initiatives/dbsctr-auto-forge-parity/FORGEJO-PARITY.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/specs/dotfiles_ai_distribution/PROFILE.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
       "release_group": "auto-delivery"
+    },
+    {
+      "id": "github-auto-qualification",
+      "context": "dbsctr_v3_lifecycle",
+      "state": "deferred",
+      "execution_owner": "build",
+      "requirements": ["INT-001", "INT-021", "INT-023", "INT-024"],
+      "depends_on": ["auto-qualification"],
+      "artifacts": ["docs/initiatives/dbsctr-auto-forge-parity/README.md", "docs/initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md", "docs/specs/dbsctr_v3_lifecycle/PROFILE.md"],
+      "release_group": "github-qualification"
     }
   ],
   "release_groups": [
@@ -258,6 +275,11 @@
       "id": "auto-delivery",
       "members": ["delivery-preference", "forgejo-pr", "forgejo-ci", "forgejo-merge", "initiative-continuation", "ci-recovery-and-tally", "auto-qualification"],
       "state": "planning"
+    },
+    {
+      "id": "github-qualification",
+      "members": ["github-auto-qualification"],
+      "state": "deferred"
     }
   ]
 }

@@ -1,5 +1,13 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## FORGEJO-FIRST-AUTO-QUALIFICATION — Connect verified Forgejo CI retries
+
+Connect the shared Initiative allowance to the enrolled Forgejo producer's
+same-source retry route. Bind the failed required check, correction, and
+successor attempt through the existing private bridge. Preserve the zero-repair
+restart control and read-only progress. Prioritize installed qualification on
+protected Forgejo and track GitHub qualification separately.
+
 ## INITIATIVE-CI-RECOVERY-TALLY — Bound CI recovery across an Initiative
 
 Persist read outcomes, native progress, and the next recheck for an admitted

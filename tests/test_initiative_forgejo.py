@@ -478,3 +478,143 @@ def test_managed_forgejo_begin_and_verified_local_completion_use_schema_six(
     (worktree / paths[0]).write_text("Unapproved checkout change.\n")
     with pytest.raises(RuntimeError, match="worktree is not clean"):
         runtime._forgejo_source(activation, recipe.forgejo)
+
+
+@pytest.fixture
+def retry_evidence(custody):
+    from dataclasses import replace
+    from datetime import UTC, datetime
+
+    from integration_coordinator import initiative_forgejo as auto
+    from integration_coordinator.runtime import SourceEntry
+
+    native = Fixture()
+    native.transport.status = "failure"
+    fixture = auto.parse_fixture(fixture_document(native))
+    target = controller.Target(fixture.binding.origin, fixture.binding.repository, TARGET)
+    grant = controller.Approval("a" * 64, target, "b" * 64, "c" * 64, (controller.Slice("slice-a"),))
+    launch = controller.Launch("d" * 64, BASE, str(custody.common.parent), "RETRY-A", "build")
+    activation = controller.Activation.from_launch(grant, "slice-a", launch, managed=True)
+    source = auto.Source(SOURCE, BASE, HEAD, TREE, (
+        SourceEntry(PREVIOUS, "discovery_import"),
+        SourceEntry(HEAD, "phase", ("refactor",)),
+    ), "e" * 64)
+
+    class Ports:
+        binding = fixture.binding
+
+        def __init__(self):
+            self.calls = []
+            self.after_receipt = lambda: None
+
+        def ref(self, binding, ref):
+            self.calls.append(("ref", ref))
+            return native.objects.ref(binding, ref)
+
+        def commit(self, binding, oid):
+            self.calls.append(("commit", oid))
+            return native.objects.commit(binding, oid)
+
+        def request(self, method, path, body=None):
+            assert method == "GET" and body is None
+            self.calls.append((method, path))
+            if path == PULL:
+                return forgejo.Response(200, {
+                    **native.transport.pull(), "title": auto.publication_title(source),
+                    "user": native.transport.open_changes.get("user", {"id": ACTOR}),
+                })
+            return native.transport.request(method, path, body)
+
+        def current_execution(self, subject, check):
+            old = native.reader.execution
+            receipt = replace(old.receipts[0], subject=subject, conclusion="failure")
+            result = replace(old, subject=subject, receipts=(receipt,))
+            self.after_receipt()
+            return result
+
+    def forbidden(*args):
+        pytest.fail("retry evidence must not read writer state or authorize a protected effect")
+
+    ports = Ports()
+    delivery = auto.FixtureDelivery(custody, fixture, ports, forbidden, forbidden)
+    delivery._write(activation, "source", asdict(source))
+    delivery._write(activation, "admission", {
+        "source": core.identity(source), "number": 7, "pull_id": PULL_ID,
+    })
+    admission = delivery.observe_admission(activation)
+    assert admission is not None
+    return native, ports, delivery, activation, admission, datetime.now(UTC)
+
+
+def test_retry_assessment_keeps_the_exact_required_failure_read_only(retry_evidence):
+    native, ports, delivery, activation, admission, observed_at = retry_evidence
+    path = delivery._path(activation, "admission").parent
+    before = {row.name: row.read_bytes() for row in path.iterdir()}
+
+    result = delivery.retry_assessment(activation, admission, observed_at=observed_at)
+    assert result is not None and result.state == "failed"
+    assert result.subject.pull_number == 7
+    assert result.subject.candidate.base == BASE and result.subject.candidate.tested_oid == HEAD
+    assert result.subject.candidate.tested_parents == (PREVIOUS,)
+    assert result.subject.candidate.tree == TREE
+    assert result.checks[0].receipt.subject == result.subject
+    assert result.checks[0].receipt.invocation == native.reader.execution.invocation
+    assert ports.calls.count(("GET", PULL)) == 2
+    assert {row.name: row.read_bytes() for row in path.iterdir()} == before
+    assert native.transport.writes == []
+
+
+@pytest.mark.parametrize("timing", ["before_reads", "during_receipt"])
+def test_retry_assessment_refuses_a_claimed_merge(retry_evidence, timing):
+    _, ports, delivery, activation, admission, observed_at = retry_evidence
+
+    def claim():
+        delivery._write(activation, "merge-claim", {"operation_id": "1" * 32, "intent": "2" * 64})
+
+    if timing == "before_reads":
+        claim()
+    else:
+        ports.after_receipt = claim
+
+    assert delivery.retry_assessment(activation, admission, observed_at=observed_at) is None
+    assert ports.calls.count(("GET", PULL)) == (0 if timing == "before_reads" else 1)
+    assert delivery._read(activation, "merge-claim") is not None
+
+
+@pytest.mark.parametrize("change", [
+    "head", "base", "pull_id", "closed_pull", "actor", "non_linear", "head_during_read", "pull_during_read",
+])
+def test_retry_assessment_rejects_candidate_and_pr_drift(retry_evidence, change):
+    from dataclasses import replace
+
+    native, ports, delivery, activation, admission, observed_at = retry_evidence
+    if change == "head":
+        native.objects.refs[SOURCE] = "9" * 40
+    elif change == "base":
+        native.objects.refs[TARGET] = "9" * 40
+    elif change == "pull_id":
+        native.transport.open_changes["id"] = PULL_ID + 1
+    elif change == "closed_pull":
+        native.transport.open_changes["state"] = "closed"
+    elif change == "actor":
+        native.transport.open_changes["user"] = {"id": REVIEWER}
+    elif change == "non_linear":
+        native.objects.commits[HEAD] = replace(native.objects.commits[HEAD], parents=(BASE,))
+    elif change == "head_during_read":
+        ports.after_receipt = lambda: native.objects.refs.update({SOURCE: "9" * 40})
+    elif change == "pull_during_read":
+        ports.after_receipt = lambda: native.transport.open_changes.update(draft=True)
+
+    with pytest.raises(core.Conflict):
+        delivery.retry_assessment(activation, admission, observed_at=observed_at)
+    assert native.transport.writes == []
+
+
+def test_retry_assessment_refuses_another_admission_before_native_reads(retry_evidence):
+    from dataclasses import replace
+
+    _, ports, delivery, activation, admission, observed_at = retry_evidence
+    with pytest.raises(core.Conflict, match="admission_changed"):
+        delivery.retry_assessment(activation, replace(admission, receipt_digest="f" * 64),
+                                  observed_at=observed_at)
+    assert ports.calls == []
