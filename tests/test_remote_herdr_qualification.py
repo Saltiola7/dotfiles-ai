@@ -240,6 +240,9 @@ def test_k_native_fixture_must_edit_through_herdr_and_prove_saved_file_and_clien
     collision = functions['k_collision']
     assert 'background_restore_holds' in collision and "'recover'" in collision and 'stderr' in collision
     assert 'SIGSTOP' in collision and 'SIGCONT' in collision
+    assert 'wait(held, seconds=30, interval=0.025)' in collision
+    assert collision.index('paused = True') < collision.index("STEP = 'k-recheck-paused-background-lock'")
+    assert 'if paused:' in collision
     assert 'k_service_only_restart(' not in arm and 'k_same_os_restarts(' in verify
     assert verify.index("'F07: edited-layout-exact-clients-50'") < verify.index('k_service_only_restart(plan)')
     assert "'restart', 'opencode-shared.service'" in functions['k_service_only_restart']

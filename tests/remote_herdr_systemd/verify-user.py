@@ -444,7 +444,7 @@ def r1_refusal_labels():
     }
 
 
-def wait(check, seconds=120):
+def wait(check, seconds=120, *, interval=1):
     global STEP
     deadline = time.monotonic() + seconds
     failure = None
@@ -457,7 +457,7 @@ def wait(check, seconds=120):
             failure = (STEP, error.reason)
         except Exception:
             pass  # Observations only; never retry native mutations.
-        time.sleep(1)
+        time.sleep(interval)
     if failure is not None:
         STEP, reason = failure
         raise CommandFailure(reason) from None
@@ -3571,14 +3571,21 @@ def k_collision():
             finally:
                 os.close(fd)
     before = [(ROOT / file).read_bytes() for file in ('transaction.json', 'boot.json', 'manifest.json')]
+    STEP = 'k-start-background-restore-for-contention'
     unit('start', '--no-block', 'remote-herdr-restore.service')
-    fd, identity = wait(held, seconds=30)
+    STEP = 'k-observe-background-restore-lock'
+    fd, identity = wait(held, seconds=30, interval=0.025)
     # Pause only the proved disposable unit's PID (never a TUI, client, or
     # shared service). Resume even if the waiter's handshake fails.
     waiter = None
+    paused = False
     try:
+        STEP = 'k-pause-proven-background-owner'
         signal.pidfd_send_signal(fd, signal.SIGSTOP)
+        paused = True
+        STEP = 'k-recheck-paused-background-lock'
         require(Native(HOME, Store(ROOT)).background_restore_holds(identity, timeout=3))
+        STEP = 'k-manual-recover-reports-background-wait'
         waiter = subprocess.Popen([BIN / 'remote-herdr', 'recover'], cwd=HOME,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         require(waiter.stderr is not None)
@@ -3589,7 +3596,8 @@ def k_collision():
                     b'Herdr recover: waiting for the background restore to release the runtime state\n'))
     finally:
         try:
-            signal.pidfd_send_signal(fd, signal.SIGCONT)
+            if paused:
+                signal.pidfd_send_signal(fd, signal.SIGCONT)
         finally:
             os.close(fd)
             if waiter is not None:
@@ -3599,11 +3607,14 @@ def k_collision():
                     if waiter.poll() is None:
                         waiter.kill()
                         waiter.communicate()
+    STEP = 'k-manual-recover-finishes-after-release'
     require(waiter is not None and waiter.returncode == 0 and output == (b'', b''))
+    STEP = 'k-manual-recover-refuses-unrelated-owner'
     with Store(ROOT):
         result = subprocess.run([BIN / 'remote-herdr', 'recover'], capture_output=True, cwd=HOME, timeout=10)
         require(result.returncode == 75 and not result.stdout and result.stderr == (
                 b'Herdr recover did not run: state held; background restore ownership not proven\n'))
+    STEP = 'k-contention-preserves-owned-records'
     require(before == [(ROOT / file).read_bytes() for file in ('transaction.json', 'boot.json', 'manifest.json')])
 
 
