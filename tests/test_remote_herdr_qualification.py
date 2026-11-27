@@ -189,12 +189,17 @@ def test_k_native_fixture_must_edit_through_herdr_and_prove_saved_file_and_clien
     assert "'agent', 'start', 'rrw-k-later', '--kind', 'opencode', '--pane', pane" in arm
     assert "'--', '--session', new" in arm
     assert arm.index('k_observe_later(') < arm.index("'pane', 'close', closed_pane") < arm.index("'session', 'stop'")
+    assert (arm.index('k_observe_later(')
+            < arm.index("prior_manifest = manifest_digest(store.read('manifest.json'))")
+            < arm.index("'pane', 'close', closed_pane"))
     resize = functions['k_resize']
     assert all(flag in resize for flag in ("'--pane'", "'--direction'", "'--amount'"))
     assert "'--ratio'" not in resize
     verify = functions['k_boot']
     assert all(witness in verify for witness in ('r8_boot_ready(', "observe('tui', plan)",
                                                   'backend.scan(', 'backend_pid() == pid', "['adoption_backup']"))
+    assert "manifest_digest(store.read(manifest['receipt']['adoption_backup'])['manifest'])" in verify
+    assert "== evidence['prior_manifest']" in verify
     collision = functions['k_collision']
     assert 'background_restore_holds' in collision and "'recover'" in collision and 'stderr' in collision
     assert 'SIGSTOP' in collision and 'SIGCONT' in collision
@@ -1088,6 +1093,8 @@ def test_observation_diagnostics_separate_coverage_and_native_ownership():
                    'client-cgroup', 'no-persistent-units', 'exclusive-endpoint'):
         assert "STEP = 'observe-herdr-core-" + suffix + "'" in owners
     assert "wait(lambda: f01.connected(client['pid'], port), seconds=30)" in observe
+    assert "raise CommandFailure('directory-mismatch')" in observe
+    assert "STEP = 'observe-tui-unit-active'" in observe
 
 
 class CapturedClientProofTests(unittest.TestCase):
