@@ -117,3 +117,18 @@ def test_effective_managed_files_include_pins_only_for_remote(remote):
                  '.local/share/dotfiles-ai/remote-herdr/controller.py',
                  '.config/systemd/user/remote-herdr-restore.timer'):
         assert (path in managed) is remote
+
+
+def test_tui_installer_digest_skip_is_confined_to_the_managed_remote():
+    path = 'run_onchange_after_install-00-remote-herdr.sh.tmpl'
+    renders = {remote: render(path, remote=remote, options={'linux_workstation': {'enabled': not remote}})
+               for remote in (True, False)}
+    for script in renders.values():
+        subprocess.run(['bash', '-n'], input=script, text=True, check=True)
+    verified = 'printf \'%s  %s\\n\' "$sha256" "$target" | sha256sum --check --status'
+    legacy = 'if [[ -z ${managed_remote:-} && -x $target && ! -L $target && $($target --version 2>/dev/null) == "herdr $version" ]]; then'
+    assert 'managed_remote=1' in renders[True] and verified in renders[True]
+    assert '0.9.5+rrw.007k.1' in renders[True]
+    # Stock workstation installs never set the flag: version-only skip, upstream pin.
+    assert 'managed_remote=1' not in renders[False] and legacy in renders[False]
+    assert 'rrw.007k' not in renders[False] and 'herdrdev/herdr/releases/download/v0.9.5' in renders[False]

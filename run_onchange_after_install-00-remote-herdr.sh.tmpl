@@ -52,10 +52,15 @@ fi
 version={{ .dotfiles_ai.herdr.remote_linux_amd64_version | quote }}
 url={{ .dotfiles_ai.herdr.remote_linux_amd64_asset_url | quote }}
 sha256={{ .dotfiles_ai.herdr.remote_linux_amd64_asset_sha256 | quote }}
+managed_remote=1
 {{ end -}}
-if [[ -x $target && ! -L $target ]] &&
+# Only the managed remote skips on the installed digest as well as the version.
+if [[ -n ${managed_remote:-} && -x $target && ! -L $target ]] &&
     printf '%s  %s\n' "$sha256" "$target" | sha256sum --check --status &&
     [[ $("$target" --version 2>/dev/null) == "herdr $version" ]]; then
+    exit 0
+fi
+if [[ -z ${managed_remote:-} && -x $target && ! -L $target && $($target --version 2>/dev/null) == "herdr $version" ]]; then
     exit 0
 fi
 if [[ -x $target ]] && $target status server --json 2>/dev/null | grep -q '"running":true'; then
