@@ -3197,19 +3197,40 @@ def k_service_only_restart(plan):
         backend = Native(HOME, store)
         run_proof = backend.tui_run()
         old_service = backend._pid_proofs([pid])
+    STEP = 'k-service-only-restart-command'
     unit('start', 'remote-herdr-restore.timer')
     unit('restart', 'opencode-shared.service')
+    STEP = 'k-service-only-restart-ready'
     new_pid, server = f01.ready(previous=pid)
+    STEP = 'k-service-only-reconnect'
+    state, clients_seen, connected = 'not-observed', 0, 0
+
     def reconnected():
+        nonlocal state, clients_seen, connected
+        state, clients_seen, connected = 'store-busy-or-unavailable', 0, 0
         with Store(ROOT) as store:
             backend = Native(HOME, store)
-            require(backend.tui_run() == run_proof and backend._pids_absent(old_service))
+            state = 'tui-run-changed-or-unavailable'
+            require(backend.tui_run() == run_proof)
+            state = 'prior-service-exit-unproven'
+            require(backend._pids_absent(old_service))
+            state = 'exact-client-coverage-unproven'
             clients = backend._coverage(plan)
-            require(len(clients) == 50)
-            return all(f01.connected(c['pid'], urlsplit(server).port) for c in clients)
-    wait(reconnected, seconds=180)
+            clients_seen = len(clients)
+            require(clients_seen == 50)
+            state = 'new-service-connections-unproven'
+            connected = sum(bool(f01.connected(c['pid'], urlsplit(server).port)) for c in clients)
+            return connected == 50
+
+    try:
+        wait(reconnected, seconds=180)
+    except RuntimeError:
+        print(f'F07: service-reconnect-{state} exact={clients_seen} connected={connected}', flush=True)
+        raise
+    STEP = 'k-service-only-restart-final'
     stop_restore_ticks()
     require(backend_pid() == new_pid)
+    print('F07: service-only-restart-exact-clients-50', flush=True)
     return new_pid
 
 
@@ -3262,7 +3283,7 @@ def k_arm():
     # Stop future ticks; let any current owner finish normally.
     stop_restore_ticks()
     original = json.loads(EXPECTED.read_text())
-    pid = k_service_only_restart(original)
+    pid = backend_pid()
     space = original['spaces'][0]
     closed = space['tabs'][1]['panes'][1]['session_id']
     resize_target = space['tabs'][2]['panes'][0]['session_id']
@@ -3356,10 +3377,11 @@ def k_boot(*, second):
                         exited=fixture_captured_client_proofs(backend, captured))
     write(K_EXPECTED, evidence)
     require(backend_pid() == pid)
+    print('F07: edited-layout-exact-clients-50', 'second-boot' if second else 'first-boot', flush=True)
     if second:
         k_collision()
         k_same_os_restarts(plan, pid, evidence['closed'])
-    print('F07: edited-layout-exact-clients-50', 'second-boot' if second else 'first-boot')
+        k_service_only_restart(plan)
 
 
 def k_same_os_restarts(plan, service_pid, closed):
