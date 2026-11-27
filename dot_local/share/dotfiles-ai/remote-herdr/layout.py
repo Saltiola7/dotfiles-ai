@@ -194,13 +194,17 @@ def _argv_session(value):
 
 def _native_session(pane):
     identities = []
-    marked = False
-    for field in ('agent_name', 'managed_agent_kind'):
-        if pane.get(field) is not None:
-            if pane[field] != 'opencode':
-                _fail('unsupported agent identity')
-            marked = True
+    name = pane.get('agent_name')
+    kind = pane.get('managed_agent_kind')
     native = pane.get('agent_session')
+    if kind not in (None, 'opencode'):
+        _fail('unsupported agent identity')
+    # A managed agent's user-chosen name is not its executable kind.
+    # Only native OpenCode session metadata can authorize that named form.
+    if name not in (None, 'opencode') and (
+            kind != 'opencode' or native is None or not isinstance(name, str)
+            or re.fullmatch(r'[a-z][a-z0-9_-]{0,31}', name) is None):
+        _fail('unsupported agent identity')
     if native is not None:
         _object(native, ('source', 'agent', 'kind', 'value'))
         if (native['source'], native['agent'], native['kind']) != ('herdr:opencode', 'opencode', 'id'):
@@ -217,7 +221,7 @@ def _native_session(pane):
         identities.append(_argv_session(resume['argv']))
     if len(set(identities)) > 1:
         _fail('contradictory OpenCode session identities')
-    if marked and not identities:
+    if (name is not None or kind is not None) and not identities:
         _fail('agent has no explicit session identity')
     return identities[0] if identities else None
 

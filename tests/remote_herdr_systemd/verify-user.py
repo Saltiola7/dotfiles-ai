@@ -3276,6 +3276,36 @@ def k_service_only_restart(plan):
     return new_pid
 
 
+def later_witness_diagnostic(Store, Native):
+    """Read-only follow-up; never clear the hold or substitute for the timer."""
+    labels = tui_refusal_labels() | {
+        'TUI unknown foreground process': 'unknown-foreground',
+        'TUI session process coverage incomplete': 'process-coverage',
+        'TUI per-pane session process coverage incomplete': 'pane-process-coverage',
+        'TUI agent identity not live': 'agent-not-live',
+        'TUI unsupported or unknown agent': 'agent-identity',
+        'unsupported agent identity': 'saved-agent-identity',
+        'contradictory OpenCode session identities': 'contradictory-session',
+        'session client coverage incomplete or duplicate': 'client-coverage',
+        'session client directory mismatch': 'client-directory',
+        'session client executable or identity unsupported': 'client-argv',
+        'OpenCode session identity or directory unavailable': 'database-session-directory',
+        'shared service attachment unavailable': 'shared-attachment',
+        'shared service owner unavailable': 'shared-owner',
+        'native observation or mutation uncertain': 'native-uncertain',
+    }
+    try:
+        with Store(ROOT) as store:
+            manifest = store.read('manifest.json')
+            witness = store.read('tui-observation.json')
+            view, disk, _ = Native(HOME, store).tui_owner_view(manifest['plan'], witness)
+            from layout import tui_save_matches_view
+            return ('readback-matching-save' if tui_save_matches_view(disk, view['view'])
+                    else 'readback-unmatched-save')
+    except Exception as error:
+        return labels.get(str(error), 'unclassified')
+
+
 def k_observe_later(new):
     """Wait for the regular timer to prove the new pane, before the final edits."""
     global STEP
@@ -3301,7 +3331,9 @@ def k_observe_later(new):
     except CommandFailure:
         raise
     except RuntimeError:
-        raise CommandFailure('clients-%d-later-%d-hold-%d-current-run-%d' % counts) from None
+        diagnostic = later_witness_diagnostic(Store, Native)
+        raise CommandFailure(('clients-%d-later-%d-hold-%d-current-run-%d' % counts)
+                             + '-probe-' + diagnostic) from None
     STEP = 'k-observe-later-drain-timer'
     stop_restore_ticks()
 

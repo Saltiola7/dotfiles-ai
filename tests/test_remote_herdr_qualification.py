@@ -42,11 +42,29 @@ class RestoreTimerDrainTests(unittest.TestCase):
         with patch.dict(observe.__globals__,
                         adapter=lambda: (lambda _: contextlib.nullcontext(store),
                                          lambda *_: SimpleNamespace(tui_run=lambda: run)),
-                        unit=lambda *_: None, wait=expire):
+                        unit=lambda *_: None, wait=expire,
+                        later_witness_diagnostic=lambda *_: 'client-directory'):
             with self.assertRaises(fixture['CommandFailure']) as error:
                 observe('fixture-session')
             self.assertEqual(observe.__globals__['STEP'], 'k-observe-later-timer-witness')
-        self.assertEqual(error.exception.reason, 'clients-1-later-1-hold-1-current-run-1')
+        self.assertEqual(error.exception.reason, 'clients-1-later-1-hold-1-current-run-1-probe-client-directory')
+
+    def test_later_witness_diagnostic_does_not_publish_unknown_errors(self):
+        import contextlib
+        from types import SimpleNamespace
+
+        probe = runpy.run_path(str(FIXTURE / 'verify-user.py'))['later_witness_diagnostic']
+        store = SimpleNamespace(read=lambda _: {'plan': {}})
+        for message, expected in [
+            ('TUI unknown foreground process', 'unknown-foreground'),
+            ('private diagnostic', 'unclassified'),
+        ]:
+            with self.subTest(expected=expected):
+                def refuse(*_):
+                    raise ValueError(message)
+
+                self.assertEqual(probe(lambda _: contextlib.nullcontext(store),
+                                       lambda *_: SimpleNamespace(tui_owner_view=refuse)), expected)
 
     def test_v2_registration_is_required_even_when_legacy_assets_exist(self):
         import tempfile
