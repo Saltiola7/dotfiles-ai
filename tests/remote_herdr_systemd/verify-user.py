@@ -63,6 +63,7 @@ def run(*argv, timeout=90, env=None):
         # registration, provider messages and command arguments remain withheld.
         reason = 'command-exit-' + str(result.returncode)
         hooks = {'install-00-remote-herdr.sh', 'install-00z-remote-herdr-core.sh',
+                 'install-herdr-skill.sh',
                  'install-01-remote-opencode.sh', 'install-04-remote-opencode-service.sh',
                  'install-05-remote-herdr-runtime.sh'}
         match = re.search(r'chezmoi: ([a-z0-9.-]+\.sh): exit status ([0-9]{1,3})', result.stderr)
@@ -2748,6 +2749,9 @@ def prepare_fixture(provider):
     write(opencode_config / 'opencode.json', provider.config())
     STEP = 'install-apply'
     run(BIN / 'chezmoi', '-c', CONFIG, '-S', SOURCE, 'apply', timeout=600)
+    STEP = 'verify-installed-opencode-tui-integration'
+    require((opencode_config / 'herdr-tui-session.js').is_file())
+    require((opencode_config / 'tui.jsonc').is_file())
     # Pause only the disposable timer during serial fixture manipulation.
     STEP = 'pause-restore-timer'
     unit('stop', 'remote-herdr-restore.timer', 'remote-herdr-restore.service')

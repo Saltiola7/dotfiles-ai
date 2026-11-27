@@ -1667,6 +1667,7 @@ class QualificationSourceTests(unittest.TestCase):
             'tests/remote_herdr_systemd/boot-smoke.sh',
             'tests/remote_herdr_systemd/verify-user.py',
             'run_onchange_after_install-00-remote-herdr.sh.tmpl',
+            'run_onchange_after_install-herdr-skill.sh.tmpl',
             'run_onchange_after_install-00z-remote-herdr-core.sh.tmpl',
             'run_onchange_after_install-01-remote-opencode.sh.tmpl',
             'run_after_install-04-remote-opencode-service.sh.tmpl',

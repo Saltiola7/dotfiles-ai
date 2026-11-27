@@ -6,7 +6,11 @@ exit 0
 {{ end -}}
 
 HERDR={{ .dotfiles_ai.herdr.executable | quote }}
+{{ if and .dotfiles_ai.remote_user_environment.enabled (eq .chezmoi.os "linux") (eq .chezmoi.arch "amd64") -}}
+VERSION={{ .dotfiles_ai.herdr.remote_linux_amd64_version | quote }}
+{{ else -}}
 VERSION={{ .dotfiles_ai.herdr.version | quote }}
+{{ end -}}
 case "$HERDR" in "~/"*) HERDR="$HOME/${HERDR#\~/}" ;; esac
 [[ -x "$HERDR" ]] || { echo "Herdr executable is unavailable" >&2; exit 1; }
 [[ "$("$HERDR" --version)" == "herdr $VERSION" ]] \
