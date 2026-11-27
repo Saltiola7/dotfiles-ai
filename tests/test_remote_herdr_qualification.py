@@ -16,44 +16,42 @@ import tomllib
 import unittest
 from unittest.mock import patch
 
-import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / 'tests/remote_herdr_systemd'
 WORKFLOW = ROOT / '.github/workflows/remote-herdr-runtime.yml'
 
 
-@pytest.mark.parametrize(('state', 'pid', 'result', 'status', 'outcome'), [
-    ('inactive', '0', 'success', '0', 'inactive'),
-    ('failed', '0', 'exit-code', '75', 'prior-refusal'),
-    ('failed', '99', 'exit-code', '75', False),
-    ('failed', '0', 'timeout', '75', False),
-    ('failed', '0', 'exit-code', '1', False),
-    ('activating', '0', 'success', '0', False),
-])
-def test_fixture_drains_restore_ticks_without_clearing_or_replaying_them(
-        monkeypatch, capsys, state, pid, result, status, outcome):
-    drain = runpy.run_path(str(FIXTURE / 'verify-user.py'))['stop_restore_ticks']
-    calls = []
+class RestoreTimerDrainTests(unittest.TestCase):
+    def test_fixture_drains_restore_ticks_without_clearing_or_replaying_them(self):
+        drain = runpy.run_path(str(FIXTURE / 'verify-user.py'))['stop_restore_ticks']
+        for state, pid, result, status, outcome in (
+            ('inactive', '0', 'success', '0', 'inactive'),
+            ('failed', '0', 'exit-code', '75', 'prior-refusal'),
+            ('failed', '99', 'exit-code', '75', False),
+            ('failed', '0', 'timeout', '75', False),
+            ('failed', '0', 'exit-code', '1', False),
+            ('activating', '0', 'success', '0', False),
+        ):
+            with self.subTest(state=state, pid=pid, result=result, status=status):
+                calls, messages = [], []
 
-    def unit(*args):
-        calls.append(args)
-        if args[0] == 'show':
-            return (f'ActiveState={state}\nMainPID={pid}\n'
-                    f'Result={result}\nExecMainStatus={status}')
+                def unit(*args):
+                    calls.append(args[:2])
+                    if args[0] == 'show':
+                        return (f'ActiveState={state}\nMainPID={pid}\n'
+                                f'Result={result}\nExecMainStatus={status}')
 
-    def wait(check):
-        assert check() == outcome
-        return outcome
+                def wait(check):
+                    self.assertEqual(check(), outcome)
+                    return outcome
 
-    monkeypatch.setitem(drain.__globals__, 'unit', unit)
-    monkeypatch.setitem(drain.__globals__, 'wait', wait)
-    drain()
-    assert [args[:2] for args in calls] == [
-        ('stop', 'remote-herdr-restore.timer'), ('show', 'remote-herdr-restore.service')]
-    assert capsys.readouterr().out.strip() == (
-        'F07: restore-service-quiescent-after-refusal' if outcome == 'prior-refusal' else '')
+                with patch.dict(drain.__globals__, unit=unit, wait=wait, print=messages.append):
+                    drain()
+                self.assertEqual(calls, [
+                    ('stop', 'remote-herdr-restore.timer'), ('show', 'remote-herdr-restore.service')])
+                self.assertEqual(messages, ['F07: restore-service-quiescent-after-refusal']
+                                 if outcome == 'prior-refusal' else [])
 
 
 def test_r8_second_boot_requires_fresh_completed_expected_receipt():
