@@ -23,6 +23,18 @@ WORKFLOW = ROOT / '.github/workflows/remote-herdr-runtime.yml'
 
 
 class RestoreTimerDrainTests(unittest.TestCase):
+    def test_agent_start_failure_reports_only_a_known_native_code(self):
+        fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
+        for code, expected in [('agent_pane_busy', 'herdr-agent-pane-busy'),
+                               ('private-native-text', 'command-exit-1')]:
+            with self.subTest(code=code), patch.object(subprocess, 'run') as invoke:
+                invoke.return_value = subprocess.CompletedProcess(
+                    [], 1, 'private-stdout',
+                    json.dumps({'error': {'code': code, 'message': 'private-stderr'}}))
+                with self.assertRaises(fixture['CommandFailure']) as failure:
+                    fixture['run'](fixture['BIN'] / 'herdr', 'agent', 'start')
+                self.assertEqual(failure.exception.reason, expected)
+
     def test_fixture_drains_restore_ticks_without_clearing_or_replaying_them(self):
         drain = runpy.run_path(str(FIXTURE / 'verify-user.py'))['stop_restore_ticks']
         for state, pid, result, status, outcome in (

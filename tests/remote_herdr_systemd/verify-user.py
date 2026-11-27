@@ -68,10 +68,33 @@ def run(*argv, timeout=90, env=None):
         match = re.search(r'chezmoi: ([a-z0-9.-]+\.sh): exit status ([0-9]{1,3})', result.stderr)
         if match and match[1] in hooks:
             reason = match[1] + '-exit-' + match[2]
+        if argv[:3] == (BIN / 'herdr', 'agent', 'start'):
+            reason = agent_start_refusal(result.stderr) or reason
         raise CommandFailure(reason)
     if len(result.stdout) + len(result.stderr) > 2 * 1024 * 1024:
         raise CommandFailure('output-bound')
     return result.stdout.strip()
+
+
+def agent_start_refusal(stderr):
+    """Only publish known native codes, not the response message or data."""
+    known = {
+        'agent_pane_not_found', 'agent_pane_busy', 'agent_pane_unavailable',
+        'agent_start_input_failed', 'agent_name_taken', 'agent_start_failed',
+        'agent_kind_mismatch', 'agent_not_ready', 'agent_name_not_found',
+        'agent_start_transport_failed', 'timeout', 'agent_wait_timeout',
+        'invalid_agent_name', 'invalid_agent_argument', 'invalid_agent_timeout',
+        'unsupported_agent_kind',
+    }
+    if len(stderr) > 65536:
+        return None
+    try:
+        response = json.loads(stderr)
+    except (ValueError, RecursionError):
+        return None
+    error = response.get('error') if isinstance(response, dict) else None
+    code = error.get('code') if isinstance(error, dict) else None
+    return 'herdr-' + code.replace('_', '-') if isinstance(code, str) and code in known else None
 
 
 def load(name, path):
