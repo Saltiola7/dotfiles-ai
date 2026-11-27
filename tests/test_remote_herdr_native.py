@@ -11,6 +11,13 @@ import subprocess
 import sys
 
 import pytest
+from remote_herdr_test_namespace import trusted_fixture_anchors
+
+
+@pytest.fixture(autouse=True)
+def fixture_system_ownership():
+    with trusted_fixture_anchors():
+        yield
 
 
 SOURCE = Path(__file__).resolve().parents[1] / 'dot_local/share/dotfiles-ai/remote-herdr'
@@ -2753,7 +2760,8 @@ def launcher_home(backend, plan_value, managed):
     launcher = home / '.local/bin/remote-herdr'
     launcher.write_bytes((SOURCE.parents[2] / 'bin/executable_remote-herdr').read_bytes())
     launcher.chmod(0o755)
-    return subprocess.run(['/usr/bin/python3', '-I', str(launcher), 'exec-tui'],
+    runner = Path(__file__).with_name('remote_herdr_test_namespace.py')
+    return subprocess.run(['/usr/bin/python3', '-I', str(runner), str(launcher), 'exec-tui'],
                           text=True, capture_output=True, timeout=30,
                           env={'HOME': str(home), 'PATH': '/usr/bin:/bin'})
 
