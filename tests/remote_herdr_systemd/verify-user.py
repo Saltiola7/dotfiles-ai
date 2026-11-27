@@ -3278,18 +3278,31 @@ def k_service_only_restart(plan):
 
 def k_observe_later(new):
     """Wait for the regular timer to prove the new pane, before the final edits."""
+    global STEP
+    STEP = 'k-observe-later-start-timer'
     Store, Native = adapter()
     unit('start', 'remote-herdr-restore.timer')
+    STEP = 'k-observe-later-timer-witness'
+    counts = (0, 0, 0, 0)
+
     def seen():
+        nonlocal counts
         with Store(ROOT) as store:
             record = store.read('tui-observation.json')
-            if not record or record['hold']:
+            if not record:
                 return False
-            backend = Native(HOME, store)
             bindings = record['clients'].values()
-            return (record['run'] == backend.tui_run() and len(bindings) == 51
-                    and sum(c['session_id'] == new and c['run'] == record['run'] for c in bindings) == 1)
-    wait(seen, seconds=360)
+            matches = sum(c['session_id'] == new and c['run'] == record['run'] for c in bindings)
+            same_run = record['run'] == Native(HOME, store).tui_run()
+            counts = (len(bindings), matches, int(bool(record['hold'])), int(same_run))
+            return not record['hold'] and same_run and len(bindings) == 51 and matches == 1
+    try:
+        wait(seen, seconds=360)
+    except CommandFailure:
+        raise
+    except RuntimeError:
+        raise CommandFailure('clients-%d-later-%d-hold-%d-current-run-%d' % counts) from None
+    STEP = 'k-observe-later-drain-timer'
     stop_restore_ticks()
 
 
@@ -3371,10 +3384,11 @@ def k_arm():
         try:
             wait(new_agent_ready)
         except RuntimeError:
-            print('F07: later-agent-observation tab-panes=%d target-panes=%d reported=%d' % counts,
-                  flush=True)
-            raise
+            # Keep the measurements on the terminal failure line, so the
+            # container's stdout/stderr forwarding cannot separate them.
+            raise CommandFailure('tab-panes-%d-target-panes-%d-reported-%d' % counts) from None
     k_observe_later(new)
+    STEP = 'k-validate-later-witness-after-drain'
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         witness = store.read('tui-observation.json')
