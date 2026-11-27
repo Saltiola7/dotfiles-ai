@@ -17,6 +17,7 @@ COPY private_dot_config/systemd/user/opencode-shared.service private_dot_config/
 COPY private_dot_config/herdr/config.toml.tmpl /opt/f01/source/private_dot_config/herdr/
 COPY private_dot_config/dotfiles-ai/herdr-core.json.tmpl private_dot_config/dotfiles-ai/herdr-runtime.json.tmpl /opt/f01/source/private_dot_config/dotfiles-ai/
 COPY run_onchange_after_install-00-remote-herdr.sh.tmpl run_onchange_after_install-00z-remote-herdr-core.sh.tmpl run_onchange_after_install-01-remote-opencode.sh.tmpl run_after_install-04-remote-opencode-service.sh.tmpl run_after_install-05-remote-herdr-runtime.sh.tmpl /opt/f01/source/
+COPY run_onchange_after_install-herdr-skill.sh.tmpl /opt/f01/source/
 COPY dot_local/bin/executable_remote-user-bootstrap /opt/f01/bootstrap.py
 COPY tests/remote_opencode_systemd/verify-user.py /opt/f01/verify-user.py
 COPY tests/remote_herdr_systemd/boot-smoke.sh tests/remote_herdr_systemd/verify-user.py /opt/f07/

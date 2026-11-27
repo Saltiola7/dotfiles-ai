@@ -16,9 +16,9 @@ import pytest
 ROOT = Path(__file__).parents[1]
 
 
-def render(path, *, remote=True, options=None):
+def render(path, *, remote=True, options=None, os_name='linux', arch='amd64'):
     data = tomllib.loads((ROOT / '.chezmoidata.toml').read_text())
-    data['chezmoi'] = {'os': 'linux', 'arch': 'amd64'}
+    data['chezmoi'] = {'os': os_name, 'arch': arch}
     data['dotfiles_ai']['remote_user_environment']['enabled'] = remote
     for name, values in (options or {}).items():
         data['dotfiles_ai'].setdefault(name, {}).update(values)
@@ -175,6 +175,21 @@ def test_remote_herdr_skill_and_integration_are_selected():
     assert 'exit 0' not in script.split('HERDR=', 1)[0]
     config = tomllib.loads(render('private_dot_config/herdr/config.toml.tmpl'))
     assert config['session']['resume_agents_on_restore'] is True
+
+
+@pytest.mark.parametrize(('os_name', 'arch', 'remote', 'version'), [
+    ('linux', 'amd64', True, '0.9.5+rrw.007k.1'),
+    ('linux', 'amd64', False, '0.9.5'),
+    ('linux', 'arm64', True, '0.9.5'),
+    ('darwin', 'arm64', False, '0.9.5'),
+])
+def test_herdr_skill_hook_uses_downstream_pin_only_on_managed_linux_amd64(os_name, arch, remote, version):
+    script = render('run_onchange_after_install-herdr-skill.sh.tmpl', remote=remote,
+                    options={'linux_workstation': {'enabled': not remote and os_name == 'linux'}},
+                    os_name=os_name, arch=arch)
+    assert f'VERSION="{version}"' in script.splitlines()
+    assert ('integration install opencode' in script) is remote
+    subprocess.run(['/bin/bash', '-n'], input=script, text=True, check=True)
 
 
 @pytest.mark.parametrize('kind', ['binary_symlink', 'binary_directory', 'parent_symlink'])

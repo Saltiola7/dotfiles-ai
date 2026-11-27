@@ -354,7 +354,10 @@ rewritten by a run without a proven shutdown save fails the receipt digest
 or run identity; recovery then holds the boot intent and leaves the owned
 layout intact.
 The downstream Herdr pin applies only to managed-remote Linux x86_64;
-stock workstation and Mac pins are unchanged.
+stock workstation and Mac pins are unchanged. The managed skill hook
+checks the same downstream version before installing Herdr's OpenCode
+integration. The disposable fixture runs this hook so later clients
+report their exact session through the native integration.
 
 Manual recovery distinguishes the background restore service holding its
 exact lock from another owner. It waits within a bound for the verified
