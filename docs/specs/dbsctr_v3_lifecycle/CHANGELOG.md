@@ -1,5 +1,26 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## EVIDENCE-SYMLINKS-CI-REPAIR-001 — Refresh the benchmark helper pin
+
+- Match the benchmark fixture checksum to the committed helper without
+  changing benchmark behavior or CI protections. The exact benchmark smoke
+  test passed on Python 3.14; the isolated check verified that only the pin
+  changed.
+- Repair commit: `d2029cd4`. No installation, release, or gate exceptions.
+  Intended Final Push: update existing draft PR #389 into `main`.
+
+## EVIDENCE-SYMLINKS-001 — Preserve local links in evidence checkouts
+
+- Reproduce tracked relative symlinks to captured regular files without
+  following source links, flattening their targets or changing isolation.
+  Unsupported links fail before validation with a bounded reason.
+- Local capture receipts and native Linux CLI tests cover staged and working
+  link state, mutation rejection and unchanged descendant write isolation.
+  Required hosted checks remain part of protected merge review.
+- Gate commits: `7347dc3b` and `513dddf0`. No release, installation or gate
+  exceptions. Intended Final Push: feature branch and draft PR into `main`.
+  Managed installation and first-consumer retry remain separate.
+
 ## FORGEJO-FIRST-AUTO-QUALIFICATION — Connect verified Forgejo CI retries
 
 Connect the shared Initiative allowance to the enrolled Forgejo producer's
