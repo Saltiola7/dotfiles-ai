@@ -1,5 +1,14 @@
 # Changelog — DBSCTR V3 Lifecycle
 
+## EVIDENCE-SYMLINKS-CI-REPAIR-001 — Refresh the benchmark helper pin
+
+- Match the benchmark fixture checksum to the committed helper without
+  changing benchmark behavior or CI protections. The exact benchmark smoke
+  test passed on Python 3.14; the isolated check verified that only the pin
+  changed.
+- Repair commit: `d2029cd4`. No installation, release, or gate exceptions.
+  Intended Final Push: update existing draft PR #389 into `main`.
+
 ## EVIDENCE-SYMLINKS-001 — Preserve local links in evidence checkouts
 
 - Reproduce tracked relative symlinks to captured regular files without
