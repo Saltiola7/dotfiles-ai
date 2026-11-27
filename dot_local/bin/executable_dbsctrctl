@@ -24438,7 +24438,8 @@ class ManagedInitiativeRuntime:
                  "operator.py", "controller.py", "client.py", "github.py", "core.py", "runtime.py", "gitproof.py",
                  "initiative_forgejo.py", "initiative_forgejo_bridge.py", "forgejo.py", "forgejo_ci.py",
                  "forgejo_status.py", "forgejo_merge.py", "draft_worker_batch.py", "draft_slice_projection.py",
-                 "initiative_ci.py", "initiative_evidence.py", "initiative_repair.py", "initiative_status.py")
+                 "initiative_ci.py", "initiative_evidence.py", "initiative_repair.py", "initiative_status.py",
+                 "initiative_forgejo_repair.py")
         credential_reader = package.parent / "continuous_validation" / "feedback.py"
 
         def digest_file(path):
@@ -25062,15 +25063,21 @@ def initiative_managed_service(root):
 
     recipe = runtime.recipe()
     tick = runtime.protected_tick
+    repair_route = None
     fixture = recipe.forgejo
     if fixture is not None:
         from integration_coordinator.initiative_forgejo import FixtureDelivery
         from integration_coordinator.initiative_forgejo_bridge import Bridge
+        from integration_coordinator.initiative_forgejo_repair import ForgejoRetry
+        from integration_coordinator.initiative_repair import INFRASTRUCTURE
 
-        delivery = FixtureDelivery(runtime.custody, fixture, Bridge(runtime.custody, fixture),
+        bridge = Bridge(runtime.custody, fixture)
+        delivery = FixtureDelivery(runtime.custody, fixture, bridge,
                                    lambda activation: runtime._forgejo_source(activation, fixture),
                                    runtime._forgejo_authorize)
         runtime.provider = delivery
+        if recipe.repair_policy is not None and INFRASTRUCTURE in recipe.repair_policy["class_qualifications"]:
+            repair_route = ForgejoRetry(runtime.custody, delivery, bridge, now)
         def tick(_recipe, activation):
             from integration_coordinator import core
 
@@ -25083,7 +25090,7 @@ def initiative_managed_service(root):
     return InitiativeService(runtime.custody, committed_scope=runtime.committed_scope, live_binding=runtime.live_binding,
         preflight=runtime.preflight, prior_delivery=runtime.prior_delivery, writer=runtime.writer,
         provider=runtime.provider, registration=runtime, protected_tick=tick, clock=now,
-        ci_reader=runtime.provider.observe_ci), runtime.operator_identity
+        ci_reader=runtime.provider.observe_ci, repair_route=repair_route), runtime.operator_identity
 
 
 def command_initiative_auto(args):

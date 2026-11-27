@@ -16,6 +16,7 @@ from typing import cast
 from . import core, forgejo, forgejo_ci as ci, forgejo_merge as merge, lifecycle as l, runtime as r
 from .initiative_controller import Activation
 from .initiative_forgejo import Fixture
+from .initiative_repair import Failure, INFRASTRUCTURE, Request
 
 
 _PROVIDER_TIMEOUT = 25
@@ -47,6 +48,9 @@ class Bridge:
                     now = _active_expiry(request.get("expires_at"))
                     expires_at = cast(int, request["expires_at"])
                     timeout = min(expires_at, now + _MERGE_PRECONDITIONS_TIMEOUT) - now
+                elif operation == "retry_submit":
+                    expires_at = int(l.initiative_time(request.get("expires_at")).timestamp())
+                    timeout = min(_PROVIDER_TIMEOUT, expires_at - _active_expiry(expires_at))
                 result = subprocess.run([sys.executable, "-I", "-B", str(executable)], input=invocation,
                     cwd=self.custody.directory, env={"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
                                                      "LC_ALL": "C", "PYTHONIOENCODING": "utf-8"},
@@ -62,6 +66,8 @@ class Bridge:
                 raise core.Invalid("initiative_forgejo_bridge_response_unbound")
             if operation == "merge_preconditions":
                 _active_expiry(request.get("expires_at"))
+            elif operation == "retry_submit":
+                _active_expiry(int(l.initiative_time(request.get("expires_at")).timestamp()))
             return value["result"]
         except (OSError, ValueError, subprocess.SubprocessError):
             raise core.Unavailable("initiative_forgejo_bridge_unavailable") from None
@@ -195,6 +201,49 @@ class Bridge:
         return ci.ExecutionReceipt(subject, row["context"], row["status_id"], row["producer_digest"],
             r.Invocation(**l.object_value(row["invocation"])), row["executed"], row["conclusion"],
             _time(row["completed_at"]), row["provider"])
+
+    def _retry_activation(self, activation: Activation) -> dict[str, str]:
+        if (type(activation) is not Activation or not activation.managed
+                or (activation.target.origin, activation.target.repository, activation.target.target_ref)
+                != (self.binding.origin, self.binding.repository, self.fixture.target_ref)):
+            raise core.Conflict("initiative_forgejo_retry_target_changed")
+        return {"activation_id": activation.activation_id, "grant_id": activation.grant_id,
+                "slice_id": activation.slice_id}
+
+    def _retry_request(self, activation: Activation, request: Request) -> dict[str, object]:
+        scope = self._retry_activation(activation)
+        if (type(request) is not Request or scope != {
+                "activation_id": request.activation_id, "grant_id": request.grant_id, "slice_id": request.slice_id}
+                or request.correction.kind != INFRASTRUCTURE):
+            raise core.Conflict("initiative_forgejo_retry_request_unbound")
+        return {**scope, "request": asdict(request), "request_digest": core.identity(request)}
+
+    def retry_qualification(self) -> str | None:
+        value = self._call("retry_qualification")
+        return None if value is None else l.hex_value(value)
+
+    def retry_correction(self, activation: Activation, failure: Failure) -> str | None:
+        scope = self._retry_activation(activation)
+        if type(failure) is not Failure:
+            raise core.Invalid("initiative_forgejo_retry_failure_invalid")
+        value = self._call("retry_correction", **scope, failure=asdict(failure))
+        return None if value is None else l.hex_value(value)
+
+    def retry_verify(self, activation: Activation, request: Request) -> bool:
+        value = self._call("retry_verify", **self._retry_request(activation, request))
+        if type(value) is not bool:
+            raise core.Invalid("initiative_forgejo_retry_verification_unproved")
+        return value
+
+    def retry_submit(self, activation: Activation, request: Request, expires_at: str) -> dict | None:
+        fields = self._retry_request(activation, request)
+        _active_expiry(int(l.initiative_time(expires_at).timestamp()))
+        value = self._call("retry_submit", **fields, expires_at=expires_at)
+        return None if value is None else l.object_value(value)
+
+    def retry_readback(self, activation: Activation, request: Request) -> dict | None:
+        value = self._call("retry_readback", **self._retry_request(activation, request))
+        return None if value is None else l.object_value(value)
 
     def preconditions(self, intent: merge.MergeIntent, reservation: r.NativeReservation,
                       activation: Activation, expires_at: int) -> merge.MergePreconditions | None:

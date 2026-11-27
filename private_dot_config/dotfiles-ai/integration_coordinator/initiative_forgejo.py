@@ -235,32 +235,45 @@ class FixtureDelivery:
         self._verify_source(source)
         return self._expected_candidate(source, number, pull_id)
 
+    def _confirmed_admission(self, activation: controller.Activation,
+                             admission: controller.Admission) -> tuple[Source, int, int] | None:
+        data = self._admission_data(activation)
+        if data is not None and self.observe_admission(activation) != admission:
+            raise core.Conflict("initiative_forgejo_admission_changed")
+        return data
+
+    def _open_pull(self, source: Source, number: int, pull_id: int) -> forgejo.PullRequest:
+        binding = self.fixture.binding
+        if (self.ports.ref(binding, self.fixture.target_ref), self.ports.ref(binding, source.ref)) != (
+                source.base, source.head):
+            raise core.Conflict("initiative_forgejo_candidate_refs_changed")
+        publication = self._publication(source)
+        native = forgejo._object(forgejo._get(self.ports, f"{forgejo._endpoint(publication)}/{number}").value)
+        pull = forgejo._readback_row(publication, native, number)
+        author = forgejo._object(native.get("user")).get("id")
+        if (type(native.get("id")) is not int or native["id"] != pull_id
+                or type(author) is not int or author != self.fixture.target.actor_id):
+            raise core.Conflict("initiative_forgejo_admitted_pull_changed")
+        return pull
+
+    def _assess_open_pull(self, intent: merge.MergeIntent, source: Source, *,
+                          observed_at: datetime) -> tuple[ci.Assessment, forgejo.PullRequest]:
+        pull = self._open_pull(source, intent.subject.pull_number, intent.pull_request_id)
+        self._verify_source(source)
+        assessment = ci.assess_ci(intent.subject, self.fixture.plan, self.ports, self.ports,
+                                  observed_at=observed_at)
+        return assessment, pull
+
     def observe_ci(self, activation: controller.Activation, admission: controller.Admission,
                    read_at: int) -> initiative_ci.Observation | None:
         """Read CI for the admitted exact native candidate. No protected effect is authorized here."""
-        data = self._admission_data(activation)
+        data = self._confirmed_admission(activation, admission)
         if data is None:
             return None
-        if self.observe_admission(activation) != admission:
-            raise core.Conflict("initiative_forgejo_admission_changed")
-        source, number, pull_id = data
         intent = self._expected_candidate(*data)
         candidate = initiative_ci.Candidate.exact(intent.subject.candidate)
-        publication = self._publication(source)
         try:
-            refs = (self.ports.ref(self.fixture.binding, self.fixture.target_ref),
-                    self.ports.ref(self.fixture.binding, source.ref))
-            if refs != (source.base, source.head):
-                return initiative_ci.Observation(candidate, "stale", "native_candidate_changed", read_at, "stale")
-            self._verify_source(source)
-            native = forgejo._object(forgejo._get(self.ports, f"{forgejo._endpoint(publication)}/{number}").value)
-            pull = forgejo._readback_row(publication, native, number)
-            author = forgejo._object(native.get("user")).get("id")
-            if (type(native.get("id")) is not int or native["id"] != pull_id
-                    or type(author) is not int or author != self.fixture.target.actor_id):
-                return initiative_ci.Observation(candidate, "stale", "native_candidate_changed", read_at, "stale")
-            assessment = ci.assess_ci(intent.subject, self.fixture.plan, self.ports, self.ports,
-                                      observed_at=datetime.fromtimestamp(read_at, UTC))
+            assessment, pull = self._assess_open_pull(intent, data[0], observed_at=datetime.fromtimestamp(read_at, UTC))
         except core.Conflict:
             return initiative_ci.Observation(candidate, "stale", "native_candidate_changed", read_at, "stale")
         except (OSError, core.Unavailable, core.Ambiguous):
@@ -273,6 +286,22 @@ class FixtureDelivery:
         if observation.diagnostic_url is None and len(pull.url) <= 512:
             observation = replace(observation, diagnostic_url=pull.url)
         return observation
+
+    def retry_assessment(self, activation: controller.Activation, admission: controller.Admission, *,
+                         observed_at: datetime) -> ci.Assessment | None:
+        """Read current retry evidence while a claimed merge still blocks any retry."""
+        data = self._confirmed_admission(activation, admission)
+        if data is None or self._read(activation, "merge-claim") is not None:
+            return None
+        source, number, pull_id = data
+        if source.base != activation.launch.base_head or source.ref == self.fixture.target_ref:
+            raise core.Conflict("initiative_forgejo_source_unbound")
+        intent = self._expected_candidate(*data)
+        assessment, _ = self._assess_open_pull(intent, source, observed_at=observed_at)
+        if self._read(activation, "merge-claim") is not None:
+            return None
+        self._open_pull(source, number, pull_id)
+        return assessment if self._read(activation, "merge-claim") is None else None
 
     def _reservation(self, admission: controller.Admission, intent: merge.MergeIntent) -> r.NativeReservation:
         candidate = intent.subject.candidate
