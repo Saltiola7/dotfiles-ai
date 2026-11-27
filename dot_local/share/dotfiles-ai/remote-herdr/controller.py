@@ -478,12 +478,6 @@ class Controller:
         current, file = self.backend.snapshot_evidence()
         replay = (pending and file == manifest['receipt'].get('start_file')
                   and snapshot == manifest['receipt']['document'] and witness['run'] == manifest['receipt'].get('exit_run'))
-        if replay:
-            launch = self.backend.tui_launch()
-            # Once a new launcher recorded intent, the old bytes cannot
-            # prove what that invocation did before losing its endpoint.
-            if launch is not None and launch.get('run') != witness['run']:
-                raise ControllerError('TUI interrupted launch outcome unproven')
         if (snapshot != current or not layout.supported_tui_save(snapshot)
                 or not replay and not self.backend.final_tui_file(witness['run'], file)):
             raise ControllerError('TUI shutdown save does not match latest live proof')

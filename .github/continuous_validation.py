@@ -1,6 +1,8 @@
 """Repository-owned Python checks for the opt-in advisory runner."""
 
+import argparse
 import ast
+import fnmatch
 import hashlib
 import importlib.util
 import json
@@ -10,19 +12,34 @@ import platform
 import re
 import selectors
 import shutil
+import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 LIMIT = 1024 * 1024
+ROOT = Path(__file__).resolve().parents[1]
 UV = ["uv", "run", "--python", "3.14", "--frozen", "--group", "test"]
 INSTRUCTIONS = [
     *UV, "pytest", "tests/test_portable_distribution.py::test_public_tree_has_no_maintainer_identifiers",
     "tests/test_opencode_control_plane.py", "tests/test_dbsctr_lifecycle.py", "-q",
 ]
-SWIFT = [*UV, "pytest", "tests/test_herdr_launchagent.py::test_herdr_host_swift_source_compiles_with_warnings_as_errors", "-q"]
 PORTABLE = ["uv", "run", "--frozen", "--no-sync", "pytest", "tests/test_continuous_validation.py", "tests/test_continuous_validation_feedback.py", "tests/test_continuous_validation_dagger.py", "tests/test_continuous_validation_identity.py", "tests/test_continuous_validation_activation.py", "tests/test_dotfiles_validation_adapter.py", "-q"]
+ADAPTER_TESTS = [*UV, "pytest", "tests/test_continuous_validation_dotfiles_adapter.py", "tests/test_dotfiles_validation_adapter.py", "-q"]
+LIFECYCLE_TESTS = [*UV, "pytest", "tests/test_dbsctrctl.py", "tests/test_evidence_reuse.py", "-q"]
+TRIGGERS = ("edit", "affected", "checkpoint", "manual")
+BASES = ("affected", "broad", "full")
+OWNERSHIP = "validation-ownership.json"
+OWNERSHIP_DIGEST = "63c40ce2111c918b873dfde1f8edd2f8fcfa3cc92f440e310fa35e19268d8e07"
+OWNERSHIP_FIELDS = {"schema_version", "components", "dependencies", "broad_check_ids"}
+# Changed paths that select the broad set even when a later table maps them.
+ALWAYS_BROAD = (".github/workflows/**", ".github/actions/**", "uv.lock", "pyproject.toml",
+                "private_dot_config/dotfiles-ai/continuous_validation/dagger_runtime/pyproject.toml",
+                "private_dot_config/dotfiles-ai/continuous_validation/dagger_runtime/uv.lock",
+                "tests/ci_shard.py", "tests/fixtures/**", "tests/benchmarks/**")
+MAX_PATHS = 16384
 
 
 def _identity_module():
@@ -101,25 +118,26 @@ def _architecture():
     return {"aarch64": "arm64", "x86_64": "amd64"}.get(platform.machine().lower(), platform.machine().lower())
 
 
-def _lane(os_name, config):
+def _lane(python, config):
     root = Path(__file__).resolve().parents[1]
     locks = {name: hashlib.sha256((root / name).read_bytes()).hexdigest()
              for name in ("pyproject.toml", "uv.lock") if (root / name).is_file()}
     pins = config.get("dagger", {})
-    return {"os": os_name, "architecture": _architecture(),
-            "python": pins.get("python_version", "3.14") if os_name == "linux" else "3.14",
+    return {"os": "linux", "architecture": _architecture(), "python": python,
             "tools": {"uv": pins.get("uv_version", "identity unresolved")}, "dependencies": locks}
 
 
 def describe(config=None):
     config = _config(config or {})
-    native = _lane("darwin", config)
+    pins = config.get("dagger", {})
+    native = _lane("3.14", config)
     checks = [
         ("dotfiles.syntax", "cheap", "native", {**native, "python": platform.python_version()}, 60, {"kind": "syntax"}),
         ("dotfiles.instructions", "cheap", "native", native, 180, {"argv": INSTRUCTIONS}),
+        ("dotfiles.adapter", "cheap", "native", native, 600, {"argv": ADAPTER_TESTS}),
+        ("dotfiles.lifecycle", "cheap", "native", native, 600, {"argv": LIFECYCLE_TESTS}),
         ("dotfiles.full", "expensive", "native", native, 2700, {"argv": [*UV, "pytest", "--maxfail=1"]}),
-        ("dotfiles.swift", "expensive", "native", native, 180, {"argv": SWIFT}),
-        ("dotfiles.portable", "expensive", "dagger", _lane("linux", config), 600, {"argv": PORTABLE}),
+        ("dotfiles.portable", "expensive", "dagger", _lane(pins.get("python_version", "3.14"), config), 600, {"argv": PORTABLE}),
     ]
     return {"schema_version": 1, "adapter_id": "dotfiles.continuous-validation",
             "input_patterns": ["**", ".github/**", ".coveragerc*", ".chezmoi*"],
@@ -129,17 +147,117 @@ def describe(config=None):
                        for identity, kind, backend, lane, timeout, settings in checks]}
 
 
+def _text(value, maximum=512):
+    if (not isinstance(value, str) or not 1 <= len(value.encode()) <= maximum
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)):
+        raise ValueError("invalid_ownership_table")
+    return value
+
+
+def _pattern(value):
+    """One owned-path pattern, with the rules of the lifecycle's CI-mapping reader."""
+    parts = _text(value).split("/")
+    if (any(part in ("", ".", "..", ".dbsctr") for part in parts)
+            or any(character in value for character in "\\!{}[]")
+            or any("**" in part and part != "**" for part in parts)):
+        raise ValueError("invalid_ownership_table")
+    return value
+
+
+def _changed_paths(value):
+    """Relative changed paths; pattern characters are never accepted as paths."""
+    def valid(item):
+        return (isinstance(item, str) and 0 < len(item.encode()) <= 512
+                and not any(ord(character) < 32 or ord(character) == 127 for character in item)
+                and not any(part in ("", ".", "..") for part in item.split("/"))
+                and not any(character in item for character in "\\!{}[]*?"))
+    if (not isinstance(value, list) or len(value) > MAX_PATHS or not all(valid(item) for item in value)
+            or len(set(value)) != len(value)):
+        raise ValueError("invalid_changed_paths")
+    return value
+
+
+def _matches(pattern, path):
+    """Segment rules of the lifecycle's affected-CI reader; `**` spans directories."""
+    pieces = path.split("/")
+    positions = {0}
+    for segment in pattern.split("/"):
+        if segment == "**":
+            positions = set(range(min(positions), len(pieces) + 1)) if positions else set()
+        else:
+            positions = {index + 1 for index in positions
+                         if index < len(pieces) and fnmatch.fnmatchcase(pieces[index], segment)}
+    return len(pieces) in positions
+
+
+def _ownership():
+    """The repository's one ownership table, bound to this adapter through its digest."""
+    raw = Path(__file__).resolve().with_name(OWNERSHIP).read_bytes()
+    if len(raw) > 65536 or hashlib.sha256(raw).hexdigest() != OWNERSHIP_DIGEST:
+        raise ValueError("ownership_table_changed")
+    table = json.loads(raw)
+    known = {check["id"] for check in describe()["checks"]}
+    try:
+        components, edges = table["components"], table["dependencies"]
+        identifiers = [component["id"] for component in components]
+        valid = (set(table) == OWNERSHIP_FIELDS and table["schema_version"] == 1
+                 and isinstance(components, list) and 1 <= len(components) <= 1024
+                 and isinstance(edges, list) and len(set(identifiers)) == len(identifiers)
+                 and set(table["broad_check_ids"]) <= set(known)
+                 and all(set(component) == {"id", "owned_path_patterns", "check_ids"}
+                         and component["id"] == _text(component["id"])
+                         and len({(_pattern(pattern)) for pattern in component["owned_path_patterns"]})
+                         == len(component["owned_path_patterns"]) and component["owned_path_patterns"]
+                         and set(component["check_ids"]) <= set(known) for component in components)
+                 and all(set(edge) == {"consumer", "dependency"} and edge["consumer"] in identifiers
+                         and edge["dependency"] in identifiers for edge in edges))
+    except (KeyError, TypeError, AttributeError):
+        valid = False
+    if not valid:
+        raise ValueError("invalid_ownership_table")
+    return table
+
+
+def selection(trigger, changed_paths):
+    """One selection function of the trigger, the changed paths and the ownership table."""
+    if not isinstance(trigger, str) or trigger not in TRIGGERS:
+        raise ValueError("invalid_trigger")
+    changed = _changed_paths(changed_paths)
+    order = [check["id"] for check in describe()["checks"]]
+    if trigger in {"checkpoint", "manual"}:
+        return {"checks": order, "basis": "full", "complete": True}
+    table = _ownership()
+    owned, broad = set(), False
+    for path in changed:
+        owners = {component["id"] for component in table["components"]
+                  if any(_matches(pattern, path) for pattern in component["owned_path_patterns"])}
+        broad = broad or not owners or any(_matches(pattern, path) for pattern in ALWAYS_BROAD)
+        owned |= owners
+    consumers = {}
+    for edge in table["dependencies"]:
+        consumers.setdefault(edge["dependency"], set()).add(edge["consumer"])
+    pending = list(owned)
+    while pending:
+        for consumer in consumers.get(pending.pop(), ()):
+            if consumer not in owned:
+                owned.add(consumer)
+                pending.append(consumer)
+    chosen = (set(table["broad_check_ids"]) if broad
+              else {check for component in table["components"] if component["id"] in owned for check in component["check_ids"]})
+    return {"checks": [check for check in order if check in chosen], "basis": "broad" if broad else "affected", "complete": False}
+
+
 def select(request):
     if (not isinstance(request, dict) or request.get("schema_version") != 1
             or set(request) - {"schema_version", "snapshot", "base", "trigger", "changed_paths", "config"}
-            or request.get("trigger") not in {"edit", "checkpoint", "manual"}):
+            or not isinstance(request.get("trigger"), str) or request["trigger"] not in TRIGGERS):
         raise ValueError("invalid selection request")
     _config(request.get("config", {}))
-    checks = ["dotfiles.syntax", "dotfiles.instructions", "dotfiles.full"]
-    if request["trigger"] in {"checkpoint", "manual"}:
-        checks += ["dotfiles.swift", "dotfiles.portable"]
-    return {"schema_version": 1, "checks": checks,
-            "reason": "full_validation_at_checkpoint", "complete": request["trigger"] != "edit"}
+    chosen = selection(request["trigger"], request.get("changed_paths", []))
+    reason = ("full_validation_at_checkpoint" if chosen["basis"] == "full"
+              else "broad_fallback_for_unowned_change" if chosen["basis"] == "broad"
+              else "affected_by_changed_paths")
+    return {"schema_version": 1, **chosen, "reason": reason}
 
 
 def _result(identity, status, code=None, *, exit_code=None, runtime=None, tests=None):
@@ -162,6 +280,13 @@ def _snapshot(request):
     subprocess.run(["git", "cat-file", "-e", request["base"] + "^{commit}"], cwd=root,
                    capture_output=True, timeout=10, check=True)
     return root
+
+
+def _changed(root, base):
+    """Changed paths of the mapped-base diff, exactly as the runner derives them."""
+    result = subprocess.run(["git", "diff", "--name-only", "-z", base + "...HEAD"], cwd=root,
+                            capture_output=True, timeout=30, check=True)
+    return [name.decode() for name in result.stdout.split(b"\0") if name]
 
 
 def _environment():
@@ -236,12 +361,46 @@ def _syntax(root):
     return failed
 
 
+def _native(check, root, log_path):
+    """Run one Linux-native check where the host provides its declared lane."""
+    identity = check["id"]
+    if platform.system().lower() != check["lane"]["os"]:
+        return _result(identity, "unavailable", "native_lane_unavailable")
+    runtime = {"os": check["lane"]["os"], "architecture": _architecture(), "python": platform.python_version(), "tools": {}}
+    if identity == "dotfiles.syntax":
+        failures = _syntax(root)
+        _artifacts(log_path)
+        _syntax_log(log_path, failures)
+        runtime["test_identity"] = _identity_module().not_applicable()
+        return _result(identity, "failed" if failures else "passed", "python_syntax_error" if failures else None,
+                       exit_code=1 if failures else 0, runtime=runtime)
+    if not shutil.which("uv") or not shutil.which("python3.14"):
+        return _result(identity, "unavailable", "native_python_toolchain_unavailable")
+    artifacts = _artifacts(log_path)
+    junit = artifacts / "junit.xml"
+    code, error = _run([*check["configuration"]["argv"], "--junitxml=" + str(junit)], root, log_path, check["timeout_seconds"])
+    interpreter = root / ".venv/bin/python"
+    if interpreter.is_file():
+        probe = subprocess.run([str(interpreter), "-c", "import platform; print(platform.python_version())"],
+                               cwd=root, env=_environment(), capture_output=True, text=True, timeout=5)
+        if probe.returncode == 0 and re.fullmatch(r"3\.14\.[0-9]+", probe.stdout.strip()):
+            runtime["python"] = probe.stdout.strip()
+        elif not error:
+            return _result(identity, "unavailable", "native_python_runtime_mismatch", runtime=runtime)
+    if error:
+        return _result(identity, "unavailable", error, runtime=runtime)
+    if code < 0:
+        return _result(identity, "unavailable", "native_process_crashed", exit_code=128-code, runtime=runtime)
+    return _with_identities(_result(identity, "passed" if code == 0 else "failed", "pytest_failed" if code else None,
+                                    exit_code=code, runtime=runtime), junit, root)
+
+
 def execute(request):
     identity = request.get("check", {}).get("id", "invalid") if isinstance(request, dict) else "invalid"
     try:
         if (not isinstance(request, dict) or request.get("schema_version") != 1
                 or set(request) - {"schema_version", "snapshot", "base", "trigger", "check", "log_path", "config"}
-                or request.get("trigger") not in {"edit", "checkpoint", "manual"}):
+                or not isinstance(request.get("trigger"), str) or request["trigger"] not in TRIGGERS):
             raise ValueError("invalid execution request")
         config = _config(request.get("config", {}))
         check = next((item for item in describe(config)["checks"] if item["id"] == identity), None)
@@ -249,11 +408,14 @@ def execute(request):
             raise ValueError("descriptor changed")
         if check["class"] == "expensive" and request["trigger"] == "edit":
             return _result(identity, "unavailable", "checkpoint_required")
+        pins, helper = config.get("dagger", {}), config.get("dagger_helper_argv", [])
+        if check["backend"] == "dagger" and (not {"engine", "image", "python_version", "uv_version"} <= pins.keys() or not helper):
+            return _result(identity, "unavailable", "dagger_runtime_unconfigured")
+        root = _snapshot(request)
+        if (request["trigger"] not in {"checkpoint", "manual"}
+                and identity not in selection(request["trigger"], _changed(root, request["base"]))["checks"]):
+            return _result(identity, "unavailable", "selection_mismatch")
         if check["backend"] == "dagger":
-            pins, helper = config.get("dagger", {}), config.get("dagger_helper_argv", [])
-            if not {"engine", "image", "python_version", "uv_version"} <= pins.keys() or not helper:
-                return _result(identity, "unavailable", "dagger_runtime_unconfigured")
-            root = _snapshot(request)
             artifacts = _artifacts(request["log_path"])
             payload = {**request, "log_path": str(artifacts / "dagger.log"), "check": {**check, "configuration": {
                 **pins, "platform": "linux/" + check["lane"]["architecture"],
@@ -268,55 +430,213 @@ def execute(request):
             if value.get("schema_version") != 1 or value.get("check_id") != identity or value.get("status") not in {"passed", "failed", "unavailable", "interrupted"}:
                 raise ValueError("invalid helper result")
             return _with_identities(value, artifacts / ".ci-select/junit.xml", root)
-        if platform.system() != "Darwin":
-            return _result(identity, "unavailable", "native_macos_required")
-        root = _snapshot(request)
-        runtime = {"os": "darwin", "architecture": _architecture(), "python": platform.python_version(), "tools": {}}
-        if identity == "dotfiles.syntax":
-            failures = _syntax(root)
-            _artifacts(request["log_path"])
-            _syntax_log(request["log_path"], failures)
-            runtime["test_identity"] = _identity_module().not_applicable()
-            return _result(identity, "failed" if failures else "passed", "python_syntax_error" if failures else None,
-                           exit_code=1 if failures else 0, runtime=runtime)
-        if not shutil.which("uv") or not shutil.which("python3.14"):
-            return _result(identity, "unavailable", "native_python_toolchain_unavailable")
-        artifacts = _artifacts(request["log_path"])
-        junit = artifacts / "junit.xml"
-        code, error = _run([*check["configuration"]["argv"], "--junitxml=" + str(junit)],
-                           root, request["log_path"], check["timeout_seconds"])
-        interpreter = root / ".venv/bin/python"
-        if interpreter.is_file():
-            probe = subprocess.run([str(interpreter), "-c", "import platform; print(platform.python_version())"],
-                                   cwd=root, env=_environment(), capture_output=True, text=True, timeout=5)
-            if probe.returncode == 0 and re.fullmatch(r"3\.14\.[0-9]+", probe.stdout.strip()):
-                runtime["python"] = probe.stdout.strip()
-            elif not error:
-                return _result(identity, "unavailable", "native_python_runtime_mismatch", runtime=runtime)
-        if error:
-            return _result(identity, "unavailable", error, runtime=runtime)
-        if code < 0:
-            return _result(identity, "unavailable", "native_process_crashed", exit_code=128-code, runtime=runtime)
-        return _with_identities(_result(identity, "passed" if code == 0 else "failed", "pytest_failed" if code else None,
-                                       exit_code=code, runtime=runtime), junit, root)
+        return _native(check, root, request["log_path"])
     except (ValueError, KeyError, OSError, subprocess.SubprocessError, json.JSONDecodeError, TypeError):
         return _result(identity, "unavailable", "adapter_execution_unavailable")
 
 
-def main():
+def _checkout(base, root):
+    """A clean plain checkout at a base inside its own history; runs Git only."""
+    def git(*arguments):
+        return subprocess.run(["git", *arguments], cwd=root, capture_output=True, timeout=60)
+    if not isinstance(base, str) or not base or len(base) > 512 or base.startswith("-") or any(ord(c) < 32 or ord(c) == 127 for c in base):
+        raise ValueError("base_unknown")
+    if not root.is_dir() or str(Path(git("rev-parse", "--show-toplevel").stdout.decode().strip()).resolve()) != str(root.resolve()):
+        raise ValueError("checkout_required")
+    if git("status", "--porcelain", "--untracked-files=all").stdout.strip():
+        raise ValueError("checkout_dirty")
+    resolved = git("rev-parse", "--verify", "--quiet", base + "^{commit}")
+    if resolved.returncode:
+        raise ValueError("base_unknown")
+    resolved = resolved.stdout.decode().strip()
+    if git("merge-base", "--is-ancestor", resolved, "HEAD").returncode:
+        raise ValueError("base_not_in_history")
+    return resolved, git("rev-parse", "HEAD").stdout.decode().strip(), _changed(root, resolved)
+
+
+def plan(base, trigger="affected", *, root=None):
+    """The selection and each selected command for a clean checkout; nothing is executed."""
+    resolved, head, changed = _checkout(base, ROOT if root is None else root)
+    chosen = selection(trigger, changed)
+    return {"schema_version": 1, "kind": "dotfiles-validation-plan", "adapter_id": "dotfiles.continuous-validation",
+            "base": resolved, "head": head, "trigger": trigger, "selection": chosen,
+            "checks": [{"id": check["id"], "class": check["class"], "backend": check["backend"], "lane": check["lane"],
+                        "argv": check["configuration"].get("argv")}
+                       for check in describe()["checks"] if check["id"] in chosen["checks"]]}
+
+
+def _budgeted_native(check, root, log_path, deadline):
+    if time.monotonic() >= deadline:
+        return None
+    log_path.parent.mkdir(mode=0o700, exist_ok=True)
+    if os.name != "posix":
+        return _native(check, root, log_path)
+    # Keep all native work (including syntax scanning and identity collection)
+    # inside one owned group, without changing the managed execution path.
+    worker = (
+        "import json, runpy, sys; from pathlib import Path; "
+        "check, root, log = json.load(sys.stdin); "
+        "print(json.dumps(runpy.run_path(sys.argv[1])['_native'](check, Path(root), log)))"
+    )
+    process = subprocess.Popen([sys.executable, "-IB", "-c", worker, str(Path(__file__).resolve())],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                               start_new_session=True)
     try:
-        if len(sys.argv) != 2 or sys.argv[1] not in {"describe", "select", "execute"}:
+        data, _ = process.communicate(json.dumps([check, str(root), str(log_path)]).encode(),
+                                      timeout=max(0, deadline - time.monotonic()))
+    except subprocess.TimeoutExpired:
+        return None
+    finally:
+        # Kill the group even if the worker has exited: a check may have left
+        # descendants behind (e.g. after its own per-check timeout).
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        finally:
+            process.stdin.close()
+            process.stdout.close()
+            process.wait(timeout=5)
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, process.args)
+    return json.loads(data)
+
+
+def _write_budget_result(target, value, *, first):
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, temporary = tempfile.mkstemp(dir=target.parent)
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(json.dumps(value, sort_keys=True) + "\n")
+        if first:
+            # Publish the first complete file without replacing another writer's result.
+            try:
+                os.link(temporary, target)
+            except FileExistsError as error:
+                raise ValueError("output_exists") from error
+        else:
+            os.replace(temporary, target)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def run(base, output, trigger="affected", *, root=None, budget_seconds=None):
+    """Execute the selected Linux-native checks, optionally checkpointing within a deadline."""
+    if budget_seconds is not None and (type(budget_seconds) is not int or not 1 <= budget_seconds <= 900):
+        raise ValueError("arguments_invalid")
+    deadline = None if budget_seconds is None else time.monotonic() + budget_seconds
+    root = ROOT if root is None else root
+    resolved, head, changed = _checkout(base, root)
+    chosen = selection(trigger, changed)
+    target = Path(output).absolute()
+    if ".." in target.parts or target.is_symlink():
+        raise ValueError("output_invalid")
+    if target.resolve().is_relative_to(root.resolve()):
+        raise ValueError("output_inside_checkout")
+    if os.path.lexists(target):
+        raise ValueError("output_exists")
+    logs = target.parent / (target.name + ".logs")
+    executed, skipped, native = [], {}, []
+    for check in describe()["checks"]:
+        identity = check["id"]
+        if identity not in chosen["checks"]:
+            continue
+        if check["backend"] != "native":
+            skipped[identity] = "dagger_lane"
+        elif check["class"] == "expensive" and trigger == "edit":
+            skipped[identity] = "checkpoint_required"
+        else:
+            native.append(check)
+    value = {"schema_version": 1, "kind": "dotfiles-validation-run", "adapter_id": "dotfiles.continuous-validation",
+             "base": resolved, "head": head, "trigger": trigger, "selection": chosen,
+             "executed": executed}
+
+    def report_skips():
+        value["not_executed"] = [{"id": identity, "reason": skipped[identity]}
+                                 for identity in chosen["checks"] if identity in skipped]
+
+    exhausted = False
+    report_skips()
+    if deadline is not None:
+        _write_budget_result(target, value, first=True)
+    for index, check in enumerate(native):
+        log = logs / (check["id"] + ".log")
+        result = _native(check, root, log) if deadline is None else _budgeted_native(check, root, log, deadline)
+        if deadline is not None and result is None:
+            exhausted = True
+            skipped.update((item["id"], "budget_exhausted") for item in native[index:])
+            report_skips()
+            _write_budget_result(target, value, first=False)
+            break
+        executed.append(result)
+        if deadline is not None:
+            _write_budget_result(target, value, first=False)
+    if deadline is None:
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        descriptor = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(json.dumps(value, sort_keys=True) + "\n")
+    statuses = {item["status"] for item in executed}
+    return (1 if "failed" in statuses else 2 if exhausted or statuses - {"passed"} else 0), value, target
+
+
+def _command(argv):
+    """`plan` and `run` serve a plain checkout; neither needs DBSCTR or an enrollment."""
+    parser = argparse.ArgumentParser(prog="continuous_validation.py", add_help=False)
+    parser.add_argument("action", choices=("plan", "run"))
+    parser.add_argument("--base", required=True)
+    parser.add_argument("--trigger", default="affected", choices=TRIGGERS)
+    parser.add_argument("--output")
+    parser.add_argument("--budget-seconds", type=int)
+    parser.add_argument("--json", action="store_true")
+    try:
+        args = parser.parse_args(argv)
+        if args.action == "plan":
+            if args.budget_seconds is not None:
+                raise ValueError("arguments_invalid")
+            value = plan(args.base, args.trigger)
+            if args.json:
+                print(json.dumps(value, sort_keys=True))
+            else:
+                print("basis:", value["selection"]["basis"])
+                for check in value["checks"]:
+                    print("selected:", check["id"])
+                    print("command:", " ".join(check["argv"]) if check["argv"] else "tracked-file Python syntax scan")
+            return 0
+        if not args.output:
+            raise ValueError("arguments_invalid")
+        code, value, target = run(args.base, args.output, args.trigger, budget_seconds=args.budget_seconds)
+        print(json.dumps({**{name: value[name] for name in ("schema_version", "kind", "base", "head", "trigger", "selection")},
+                          "output": str(target), "executed": [item["check_id"] for item in value["executed"]],
+                          "not_executed": value["not_executed"]}, sort_keys=True))
+        return code
+    except SystemExit:
+        code = "arguments_invalid"
+    except ValueError as error:
+        code = str(error) if re.fullmatch(r"[a-z][a-z0-9_]{0,63}", str(error)) else "adapter_protocol_invalid"
+    except (OSError, TypeError, KeyError, subprocess.SubprocessError):
+        code = "adapter_protocol_invalid"
+    print(json.dumps({"schema_version": 1, "error": code}))
+    return 2
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if argv and argv[0] in {"plan", "run"}:
+        return _command(argv)
+    try:
+        if len(argv) != 2 or argv[1] not in {"describe", "select", "execute"}:
             raise ValueError("action required")
         raw = sys.stdin.buffer.read(LIMIT + 1)
         if len(raw) > LIMIT:
             raise ValueError("input limit")
         request = json.loads(raw)
-        if sys.argv[1] == "describe":
+        if argv[1] == "describe":
             if not isinstance(request, dict) or set(request) - {"schema_version", "config"} or request.get("schema_version") != 1:
                 raise ValueError("invalid describe request")
             value = describe(request.get("config", {}))
         else:
-            value = globals()[sys.argv[1]](request)
+            value = globals()[argv[1]](request)
         print(json.dumps(value, sort_keys=True))
         return 0
     except (ValueError, OSError, TypeError):

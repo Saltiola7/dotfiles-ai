@@ -2103,6 +2103,83 @@ class DbsctrctlTest(unittest.TestCase):
         self.assertEqual(envelope["urls"], [])
         self.assertNotIn("environment", json.dumps(record))
 
+    def test_formatter_cannot_pass_by_rewriting_the_validation_candidate(self):
+        self.start()
+        tracked = self.repo / "tracked.txt"
+        tracked.write_text("staged\n")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=self.repo, check=True)
+        tracked.write_text("unstaged\n")
+        tracked.chmod(0o755)
+        branch = subprocess.check_output(["git", "symbolic-ref", "HEAD"], cwd=self.repo).strip()
+        subprocess.run(["git", "symbolic-ref", "refs/remotes/example/HEAD", branch.decode()],
+                       cwd=self.repo, check=True)
+        untracked = self.repo / "extra.txt"
+        untracked.write_text("untracked input\n")
+        validator = (
+            "import sys; from pathlib import Path; from subprocess import check_output; "
+            "p = Path('tracked.txt'); assert p.read_text() == 'unstaged\\n'; "
+            "assert p.stat().st_mode & 0o111; "
+            "assert check_output(['git', 'show', ':tracked.txt']) == b'staged\\n'; "
+            "assert check_output(['git', 'symbolic-ref', 'refs/remotes/example/HEAD']).startswith(b'refs/heads/'); "
+            "assert Path('extra.txt').read_text() == 'untracked input\\n'; "
+            "sys.argv[1] == 'format' and p.write_text('formatted\\n')"
+        )
+        run(self.repo, "record-evidence", "domain", "--authority", "read-only",
+            "--", sys.executable, "-c", validator, "read")
+        record = json.loads(self.record_path().read_text())
+        self.assertEqual(record["gates"]["domain"]["result"], "passed")
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "record-evidence", "domain", "--authority", "formatter",
+             "--", sys.executable, "-c", validator, "format"],
+            cwd=self.repo, env=isolated_env(), capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(tracked.read_text(), "unstaged\n")
+        self.assertEqual(tracked.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(untracked.read_text(), "untracked input\n")
+        self.assertEqual(subprocess.check_output(["git", "show", ":tracked.txt"], cwd=self.repo), b"staged\n")
+        record = json.loads(self.record_path().read_text())
+        self.assertEqual(record["gates"]["domain"]["result"], "failed", result.stderr)
+
+    def test_evidence_descendants_cannot_write_original_paths(self):
+        self.start()
+        source = self.repo / "tracked.txt"
+        index = Path(subprocess.check_output(
+            ["git", "rev-parse", "--path-format=absolute", "--git-path", "index"],
+            cwd=self.repo, text=True,
+        ).strip())
+        marker = self.git_common / "refs" / "evidence-write"
+        original_index = index.read_bytes()
+        worker = (
+            "import sys\n"
+            "from pathlib import Path\n"
+            "for name in sys.argv[1:]:\n"
+            "    try:\n"
+            "        Path(name).write_text('changed')\n"
+            "    except OSError:\n"
+            "        continue\n"
+            "    raise AssertionError('protected path writable')\n"
+        )
+        run(self.repo, "record-evidence", "domain", "--authority", "descendant",
+            "--", sys.executable, "-c",
+            "import subprocess, sys; subprocess.run([sys.executable, '-c', *sys.argv[1:]], check=True)",
+            worker, str(source), str(index), str(marker))
+        record = json.loads(self.record_path().read_text())
+        self.assertEqual(record["gates"]["domain"]["result"], "passed")
+        self.assertEqual(source.read_text(), "base\n")
+        self.assertEqual(index.read_bytes(), original_index)
+        self.assertFalse(marker.exists())
+
+    def test_evidence_refuses_unreproducible_index_before_launch(self):
+        self.start()
+        subprocess.run(["git", "update-index", "--split-index"], cwd=self.repo, check=True)
+        proc = run(self.repo, "record-evidence", "domain", "--authority", "split index",
+                   "--", sys.executable, "-c", "print('ok')", ok=False)
+        self.assertIn("checkout_isolation_unavailable", proc.stderr)
+        record = json.loads(self.record_path().read_text())
+        gate = record["gates"]["domain"]
+        self.assertEqual(gate["result"], "unavailable")
+        self.assertEqual(record["evidence"]["items"][gate["evidence"]]["raw"]["byte_count"], 0)
+
     def _assert_evidence_rerun_reopens_success(self, outcome, *, exception=False):
         self.start()
 

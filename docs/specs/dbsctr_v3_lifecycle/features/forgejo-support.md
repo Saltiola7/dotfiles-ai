@@ -666,6 +666,45 @@ and evidence; material drift requires renewed authority under the canonical
 contract. Verify returned merge object, ordered parents, head inclusion and gate
 ancestry before recording success. Query uncertain outcomes before retry.
 
+#### Managed Initiative fixture owner
+
+The schema-2 private Initiative runtime recipe selects a Forgejo fixture. It
+carries the binding, protected target, source ancestry root, operator and
+ordinary provider actor, protection and guard digests, independent required CI
+plan, draft title prefixes and the approved provider program digest. The
+GitHub recipe retains its schema-1 format. The Forgejo Cycle Record retains
+schema 6 and its native local-only completion contract.
+
+The controller opens the repository owner's `forgejo-fixture-provider.py` in
+the private integration custody. Its SHA-256 must match the recipe. The
+controller runs a private copy with bounded JSON input, output, and runtime.
+Keep credential resolution in the fixture owner. Task source and native
+provider output carry no program selectors or secret values. The fixture
+owner verifies its own authenticated roles and live native evidence.
+
+Guarded merge preconditions allow up to 182 seconds for the owner broker
+and relay. The controller caps that wait at the original approval expiry
+and checks expiry again before accepting the result. Other operations
+keep the 25-second process budget, including the ordinary merge request.
+
+| Operation | Qualified fixture owner result |
+| --- | --- |
+| `attest` | Current private repository ID and version, ordinary actor and approving operator, source root, independent CI plan and effective guard, dispatcher and protection digests. The controller also verifies current target ancestry. |
+| `ref`, `commit`, `ancestor` | Exact authenticated refs and raw Git object relationships with replacements and grafts disabled. Missing refs have an explicit null result. |
+| `push_feature` | Create the owned feature ref from the completed object with the expected previous ref absent and the supplied deadline active. Confirm the exact remote object by readback. |
+| `http` | Bounded repository-local Forgejo v15 responses. Use read-only PR and status calls, ready PR creation, and an immediate ordinary merge. For writes, recheck the supplied base, head and deadline at submission. |
+| `ci_execution` | The independent producer's current attempt and execution receipts, bound to the exact candidate, context and definition. |
+| `merge_preconditions` | A current independent review and exact active repository guard enrollment for the retained intent and reservation. Any fixture grant it provisions uses the supplied activation, original grant, and expiry ceiling. |
+
+The schema-1 JSON request envelope includes `fixture_digest`, `binding`,
+`target_ref`, `operation`, and its typed `request` fields. The response includes
+schema version 1, the same `fixture_digest`, and `result`. JSON errors, provider
+unavailability, changed role or program bytes, and missing evidence hold the
+affected slice. The controller retains claims before native writes and verifies
+ordinary merge parents, tree, and current target inclusion by readback.
+The installed qualification selects and verifies the private provider program,
+credentials, CI producer and running guard before approving a live run.
+
 ## Failure, recovery, rollback, and maintenance
 
 | Condition | Required result and recovery |

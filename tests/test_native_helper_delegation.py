@@ -12,7 +12,7 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from test_opencode_control_plane import OC, ROOT, rendered_config
+from test_opencode_control_plane import DATA, OC, ROOT, rendered_config
 from test_opencode_v2_control_plane import Provider
 
 
@@ -32,7 +32,7 @@ def test_native_controls_inherit_models_and_plan_cannot_delegate_writes():
         "*": "deny", "general": "allow", "explore": "allow", "scout": "allow", "discovery-writer": "allow"}
     assert agents["plan"]["permission"]["task"] == {
         "*": "deny", "explore": "allow", "scout": "allow"}
-    assert agents["plan"]["model"] == "openai/gpt-6.1-sol-fast"
+    assert agents["plan"]["model"] == "openai/gpt-6.2-astra"
     for name in ("general", "explore"):
         assert "model" not in agents.get(name, {})
     for name in ("scout", "discovery-writer"):
@@ -69,6 +69,36 @@ def test_discovery_delegates_docs_not_implementation():
     assert '.config/opencode/agents/discovery-writer-vertex.md' in ignored
 
 
+def test_delegation_handoff_is_available_in_both_managed_roles(tmp_path):
+    """An operator with only the installed skills can plan and route the work."""
+    # Use real managed selection; a copied fixture would miss an ignored guide.
+    target = tmp_path / ".agents" / "skills"
+    reference = Path("references/delegation-handoff.md")
+    files = [target / role / "SKILL.md" for role in ("discovery", "dbsctr")]
+    applied = subprocess.run(
+        ["chezmoi", "-S", ROOT, "-D", tmp_path, "--config", "/dev/null",
+         "--config-format", "toml", "--override-data", json.dumps(DATA),
+         "--cache", tmp_path / "cache", "--persistent-state", tmp_path / "state",
+         "apply", "--parent-dirs", "--exclude", "scripts", *files, target / "dbsctr" / reference],
+        text=True, capture_output=True, timeout=30,
+    )
+    assert applied.returncode == 0, applied.stderr
+    for role in ("discovery", "dbsctr"):
+        entry = target / role / "SKILL.md"
+        [link] = re.findall(r"\[[^\]]+\]\(([^)]+delegation-handoff\.md)\)", entry.read_text())
+        guide = (entry.parent / link).resolve()
+        assert guide == (target / "dbsctr" / reference).resolve()
+    body = guide.read_text()
+    for expected in ("prerequisite", "shared resource", "one writer", "separate sessions",
+                     "draft PR", "required CI", "blocked", "qualified", "receipt",
+                     "batch authorization is unavailable", "before launch",
+                     "top-level Build session", "named Herdr tab", "explicit\nworkdir",
+                     "original session by session ID", "Cycle Record"):
+        assert expected in body
+    # Planning must not widen the effective grant to make an example runnable.
+    assert rendered_config()["agent"]["general"]["permission"]["bash"]["*dbsctrctl*"] == "deny"
+
+
 def test_shared_instructions_allow_helpers_but_keep_primary_cycle_ownership():
     for path in ("dot_agents/skills/discovery/SKILL.md",
                  "dot_agents/skills/dbsctr/SKILL.md"):
@@ -95,7 +125,7 @@ def test_deployed_host_helper_configuration_matches_source():
     expected = rendered_config()["agent"]
     for name in ("build", "build-rnd", "plan", "general"):
         assert installed["agent"][name]["permission"]["task"] == expected[name]["permission"]["task"]
-    assert installed["agent"]["plan"]["model"] == "openai/gpt-6.1-sol-fast"
+    assert installed["agent"]["plan"]["model"] == "openai/gpt-6.2-astra"
     assert (home / '.config/opencode/AGENTS.md').read_bytes() == (
         ROOT / '.chezmoitemplates/agent-activation.md').read_bytes()
     sources = [OC / 'agents' / f'{name}.md' for name in (

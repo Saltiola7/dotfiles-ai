@@ -1,5 +1,28 @@
 # OpenCode Control Plane Changelog
 
+## MODEL-ROUTES-001 — Shared planning and worker defaults
+
+Ship native Plan and Build model/variant defaults in the managed config and
+document explicit provider-matched model selection for top-level workers.
+
+## 2026-11-25 — HERDR-QUAD-OPENCODE-REFRESH-002
+
+- Reconcile draft #378 with the base containing #374 and revalidate
+  command routing and the incoming reconciliation-evidence tests. No
+  runtime change or deployment is part of this refresh.
+
+## 2026-11-25 — HERDR-QUAD-OPENCODE-REFRESH-001
+
+- Reconcile draft #378 with the protected base containing #375–#377 and
+  revalidate the command-routing and incoming worker regressions. No
+  runtime change or deployment is part of this refresh.
+
+## 2026-11-25 — HERDR-QUAD-OPENCODE-001
+
+- Give each inherited slash command a named parameterized test case so route
+  overrides identify the affected command. Preserve the inheritance assertion
+  and separate provider-specific agent/model checks; no runtime changes.
+
 ## 2026-11-15 — Reconciliation and CI budget headroom
 
 - Reconciled the completion-journey PR with #321's equivalent fixture-clock

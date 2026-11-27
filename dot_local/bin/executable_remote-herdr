@@ -10,7 +10,6 @@ import signal
 import stat
 import sys
 import tomllib
-import uuid
 
 
 class RecoveryDeadline(BaseException):
@@ -57,7 +56,7 @@ def main():
                 raise ValueError()
         sys.path.insert(0, str(modules))
         from controller import Controller, RecoveryContention, Store, TuiNotRestored, recovery_owner
-        from native import Native
+        from native import Native, tui_invocation
         import layout
         import protocol
         root = home / '.local/state/dotfiles-ai/herdr-runtime'
@@ -115,10 +114,8 @@ def main():
             else:
                 digest = backend.check_tui_start_file(boot['plan'], boot['receipt']['txid'], boot['receipt'])
             env['HERDR_PROOF_RESTORE_SHA256'] = digest
-            invocation = uuid.uuid4().hex
-            launch = {'run': backend._pid_proofs([os.getpid()])[0], 'invocation': invocation}
-            backend._atomic(root / 'tui-launch.json', json.dumps(launch).encode('utf-8'))
-            env['HERDR_PROOF_SAVE_INVOCATION'] = invocation
+            # Herdr's shutdown save receipts these exact bytes to this process.
+            env['HERDR_PROOF_SAVE_INVOCATION'] = tui_invocation(backend._pid_proofs([os.getpid()])[0])
             os.execve(executable, [str(executable), '--session', 'default', 'server'], env)
         with ExitStack() as stack:
             store = Store(root)

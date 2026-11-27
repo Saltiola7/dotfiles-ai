@@ -8,11 +8,10 @@ and Forgejo merge qualification in an isolated protected homelab repository.
 Implementation, deployment, and remote actions remain separate delivery steps
 under the applicable lifecycle approvals.
 
-DBSCTR already has per-PR coordinated delivery on GitHub. Its Forgejo registration
-route currently supports local completion. Forgejo itself supports pull requests,
-required commit statuses, branch protections, and merges. The deployed baseline
-supports expected-head verification through the merge API. Binding merge to the
-tested base as well will require a separately qualified server-side guarantee.
+DBSCTR has per-PR coordinated delivery on GitHub and a Forgejo local completion
+route. The Forgejo adapters support pull requests, exact required CI evidence, and
+protected merge. The deployed Forgejo merge API verifies the expected source head.
+The qualified repository-scoped guard binds the merge to the tested base.
 
 The first outcome is one approved Initiative delivered across its selected
 slices with the same user-facing Draft PR and Auto choices on either qualified
@@ -52,14 +51,32 @@ slices have landed on `main`. [Delivery preference PR](https://github.com/Saltio
 [Forgejo PR parity PR](https://github.com/Saltiola7/dotfiles-ai/pull/350) ·
 [Forgejo CI parity PR](https://github.com/Saltiola7/dotfiles-ai/pull/351)
 
-An isolated v15 repository now has verified green and red statuses from a
-separate Mac CI identity. A restarted receipt reader accepted both exact
-results and rejected missing, stale, and misattributed evidence. The
-protected-merge source slice is ready for launch review. The guarded native
-merge demonstration requires approval for the exact fixture roles, branch
-protection, and hook installation. Initiative continuation still needs proof
-that a qualified native writer can open a new slice after the originating
-session closes.
+An earlier isolated v15 repository verified green and red statuses from a
+separate CI identity. A restarted receipt reader accepted both exact results and
+rejected missing, stale, and misattributed evidence. The guarded merge source
+has landed with all required GitHub checks passing. The approved guard is
+installed on the private test repository and passed the 31-case harness on
+its native Git runtime. The live fixture passed eight cases, including a stale
+competing merge and lost-response reconciliation.
+[Forgejo merge source PR](https://github.com/Saltiola7/dotfiles-ai/pull/352)
+
+Six of seven Forgejo-first delivery slices have met their acceptance criteria.
+In the protected Forgejo continuation test on native Linux, slice A landed through independent
+required CI and the ordinary guarded merge. The originating OpenCode session
+closed before the controller restarted. The same grant and journal authorized
+one first launch of dependent slice B from A's protected landing. Independent
+readback verified both deliveries. This establishes installed Forgejo
+continuation in the enrolled fixture.
+[Initiative continuation source PR](https://github.com/Saltiola7/dotfiles-ai/pull/357) ·
+[GitHub managed composition PR](https://github.com/Saltiola7/dotfiles-ai/pull/362)
+
+CI recovery and tally has landed. Its approved contract covers one shared
+repair for an in-scope source fix or a verified infrastructure retry on a
+qualified target. It also covers a private read-only tally for progress,
+evidence age, next action and budget. Installed Forgejo qualification comes
+first. GitHub qualification remains a separate follow-up with its own
+protected test repository and authorization.
+[CI recovery and tally PR](https://github.com/Saltiola7/dotfiles-ai/pull/386)
 
 | Slice | Depends on | Acceptance evidence |
 | --- | --- | --- |
@@ -67,9 +84,10 @@ session closes.
 | `forgejo-pr` | Existing local Forgejo identity | Provider adapter and fixture coverage for draft and ready PRs, idempotent lookup, and exact head and repository identity. |
 | `forgejo-ci` | `forgejo-pr` | Normalized candidate-bound CI evidence and diagnostic status, including incomplete and paginated results. |
 | `forgejo-merge` | `forgejo-ci` | Protected isolated fixture proves ordinary-actor merge, stale-base rejection, and lost-response reconciliation. |
-| `initiative-continuation` | `delivery-preference` | One exact Initiative grant, durable ordered dispatch, a qualified native writer after session close, and correct handling of material drift. |
-| `ci-recovery-and-tally` | `initiative-continuation`, `forgejo-ci` | Existing queue exposes per-slice outcomes and diagnostic progress, with bounded repair and an eligible independent slice able to continue. |
-| `auto-qualification` | `forgejo-merge`, `ci-recovery-and-tally` | The same end-to-end acceptance scenarios pass on qualified GitHub and Forgejo targets. |
+| `initiative-continuation` | `delivery-preference`, `forgejo-merge` | One exact grant and two dependent slices delivered through protected private Forgejo. Close the originating session and restart the controller before the second launch. Verify durable dispatch and material drift handling. |
+| `ci-recovery-and-tally` | `initiative-continuation`, `forgejo-ci` | One shared repair for qualified source or infrastructure failures, fenced rechecks and actionable stall evidence, and one read-only text and JSON tally. |
+| `auto-qualification` | `forgejo-merge`, `ci-recovery-and-tally` | Qualify the current installed release on private Forgejo and native Linux. Verify protected continuation, one shared attempt for a qualified repair class, fresh CI, and private status readback. |
+| `github-auto-qualification` | `auto-qualification` | Deferred. Verify installed Auto on a separately enrolled protected GitHub target. |
 
 Work on the preference and Forgejo adapter is independent at the contract level.
 Build must serialize edits to shared lifecycle entry points and tests. A

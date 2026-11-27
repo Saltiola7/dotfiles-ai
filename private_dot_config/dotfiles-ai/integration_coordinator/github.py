@@ -9,6 +9,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 import base64
 import binascii
+from contextlib import AbstractContextManager, ExitStack
 import datetime as dt
 import hashlib
 import io
@@ -22,6 +23,7 @@ import urllib.request
 import zipfile
 
 from . import core as c
+from . import initiative_ci
 from . import runtime as r
 
 MAX_JSON = 4 * 1024 * 1024
@@ -680,6 +682,17 @@ class FailedChecks(c.Unavailable):
         super().__init__("native_checks_failed")
 
 
+class _RequiredRunPending(c.Unavailable):
+    def __init__(self, run: Mapping[str, object], context: str) -> None:
+        self.context = context
+        self.native_state = run.get("status")
+        self.run_id = run.get("id")
+        self.attempt = run.get("run_attempt")
+        self.started = run.get("run_started_at")
+        self.created = run.get("created_at")
+        super().__init__("native_checks_pending")
+
+
 class SourceChanged(c.Unavailable):
     """Positive same-PR lifecycle fact, never a transport/identity inference.
 
@@ -697,6 +710,13 @@ class NativeRejection(c.Conflict):
         super().__init__("native_mutation_rejected")
 
 
+class InitiativeGuard(Protocol):
+    """Private live authority held through the exact native request."""
+
+    def __call__(self, operation: str, ticket: r.Ticket, obligation: r.Obligation,
+                 reservation: r.NativeReservation | None) -> AbstractContextManager[None]: ...
+
+
 def verify_introduction(values: Sequence[object], repository: str, pr_number: int, merged_at: str) -> str:
     if len(values) != 1: raise c.Unavailable("native_introducing_pr_ambiguous")
     item = _object(values[0]); base = _object(item.get("base"))
@@ -711,7 +731,8 @@ class GitHub:
     """Actual authority adapter; disabled enrollment never grants mutations."""
 
     def __init__(self, transport: Transport, enrollment: Enrollment, proof: ProofPort | None = None,
-                 plan: CheckPlan | None = None, *, policy_path: str | None = None) -> None:
+                 plan: CheckPlan | None = None, *, policy_path: str | None = None,
+                 initiative_guard: InitiativeGuard | None = None) -> None:
         if policy_path is not None:
             if (not isinstance(policy_path, str) or not policy_path.endswith(".json")
                     or any(part in {".git", ".dbsctr"} for part in PurePosixPath(policy_path).parts)):
@@ -722,6 +743,7 @@ class GitHub:
         self.enrollment = enrollment
         self.proof = proof
         self.plan = plan
+        self.initiative_guard = initiative_guard
         self._objects: dict[str, object] = {}
 
     def _path(self, path: str) -> str:
@@ -975,7 +997,7 @@ class GitHub:
             raise c.Unavailable("native_guard_drift")
         return TargetGuards(target.checks, target.code_scanning, fingerprint)
 
-    def _current_enrollment(self) -> None:
+    def _current_enrollment(self) -> bool:
         # Import the existing policy owner lazily, never a callback or module
         # named by provider data. No constructor/default-off path performs I/O.
         from .controller import parse_config, policy_identity
@@ -991,15 +1013,35 @@ class GitHub:
         if (not selected.enabled or selected.enrollment != self.enrollment or selected.check_plan != self.plan
                 or policy_identity(selected) != self.enrollment.policy_digest):
             raise c.Unavailable("current_enrollment_revoked_or_changed")
+        return selected.initiative_local
 
-    def _live(self) -> None:
+    def _live(self) -> bool:
         if not self.enrollment.enabled: raise c.Unavailable("coordinator_disabled")
         if self.enrollment.native_guard_digest is None: raise c.Unavailable("native_guard_pin_missing")
         if self.policy_path is None: raise c.Unavailable("current_enrollment_binding_missing")
-        self._current_enrollment()
+        return self._current_enrollment()
+
+    def _initiative_access(self, local: bool) -> InitiativeGuard | None:
+        if local and self.initiative_guard is None:
+            raise c.Unavailable("initiative_private_authority_required")
+        return self.initiative_guard if local else None
 
     def append(self, request: r.AppendRequest) -> str:
-        self._live()
+        guard = self._initiative_access(self._live())
+        admission: tuple[r.Ticket, r.Obligation] | None = None
+        if guard is not None:
+            action = request.state.action
+            assert action is not None
+            if (action.kind in {"repair_owner", "supersede", "validation_repair", "projection", "operator"}
+                    or action.kind == "reserve_native" and (action.args[2] != "merge"
+                    or not isinstance(action.args[4], r.OperatorInvocation))):
+                raise c.Unavailable("initiative_local_operation_unqualified")
+            if action.kind == "admit":
+                ticket, obligation, _proof = action.args
+                assert isinstance(ticket, r.Ticket) and isinstance(obligation, r.Obligation)
+                if ticket.delivery_mode != "ordinary" or ticket.guarded_refresh or len(request.parents) != 1:
+                    raise c.Unavailable("initiative_local_operation_unqualified")
+                admission = ticket, obligation
         if (request.control_branch != self.enrollment.control_branch or request.state.target.repository != self.enrollment.repository
                 or request.state.target.root_oid != self.enrollment.root_oid or request.state.target.policy_digest != self.enrollment.policy_digest):
             raise c.Conflict("control_append_binding")
@@ -1031,12 +1073,23 @@ class GitHub:
                 handle = path.rsplit("/", 1)[-1][:-5]
                 if handle not in old_obligations and existing is not None: raise c.Conflict("obligation_handle_reused")
         if len(request.parents) == 1:
-            try:
-                result = _object(self.transport.request("POST", "graphql", {"query": "mutation($input:CreateCommitOnBranchInput!){createCommitOnBranch(input:$input){commit{oid} ref{target{oid}}}}", "variables": {"input": request.graphql()}}))
-            except ApiFailure as error:
-                if error.status in {401, 403, 404, 409, 422}: raise c.Conflict("control_append_rejected") from None
-                raise c.Ambiguous("control_append_uncertain") from None
-            if result.get("errors"):
+            payload: dict[str, object] = {
+                "query": "mutation($input:CreateCommitOnBranchInput!){createCommitOnBranch(input:$input){commit{oid} ref{target{oid}}}}",
+                "variables": {"input": request.graphql()},
+            }
+            result: dict[str, object] | None = None
+            with ExitStack() as stack:
+                if admission is not None and guard is not None:
+                    try:
+                        stack.enter_context(guard("admit", *admission, None))
+                    except OSError:
+                        raise c.Unavailable("initiative_private_authority_unavailable") from None
+                try:
+                    result = _object(self.transport.request("POST", "graphql", payload))
+                except ApiFailure as error:
+                    if error.status in {401, 403, 404, 409, 422}: raise c.Conflict("control_append_rejected") from None
+                    raise c.Ambiguous("control_append_uncertain") from None
+            if result is None or result.get("errors"):
                 raise c.Ambiguous("control_append_uncertain")
             value = _object(_object(result.get("data")).get("createCommitOnBranch"))
             commit = _oid(_object(value.get("commit")).get("oid"))
@@ -1177,8 +1230,11 @@ class GitHub:
         _integer(run.get("run_attempt"))
         return run
 
-    def _success(self, value: Mapping[str, object], *, kind: str) -> None:
-        if value.get("status") != "completed": raise c.Unavailable("native_checks_pending")
+    def _success(self, value: Mapping[str, object], *, kind: str, required_context: str | None = None) -> None:
+        if value.get("status") != "completed":
+            if required_context is not None:
+                raise _RequiredRunPending(value, required_context)
+            raise c.Unavailable("native_checks_pending")
         conclusion = _text(value.get("conclusion"), 64)
         if conclusion in {"failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"}:
             raise FailedChecks(_hash({"kind": kind, "native": dict(value)}))
@@ -1282,7 +1338,8 @@ class GitHub:
             workflow = self.file_at(candidate.tested_oid, binding.workflow_path)
             if workflow is None or hashlib.sha256(workflow).hexdigest() != producer.workflow_digest:
                 raise c.Unavailable("native_workflow_source_changed")
-            self._success(run, kind="workflow_run")
+            required = CheckRequirement(binding.context, binding.app_id) in guards.checks
+            self._success(run, kind="workflow_run", required_context=binding.context if required else None)
             run_id, attempt = _integer(run.get("id")), _integer(run.get("run_attempt"))
             jobs = self.pages(f"actions/runs/{run_id}/attempts/{attempt}/jobs", "jobs", limit=1024)
             found = [_object(job) for job in jobs if _object(job).get("name") == binding.context]
@@ -1316,6 +1373,72 @@ class GitHub:
         self._candidate_facts(candidate, pr_number)
         if self.observe_policy().digest != guards.digest: raise c.Unavailable("native_guard_drift")
         return c.Qualification(c.identity(candidate), candidate.plan_digest, candidate.policy_digest, guards.digest, tuple(evidence))
+
+    def observe_ci(self, candidate: r.Candidate, pr_number: int, read_at: int) -> initiative_ci.Observation:
+        """Read the current exact candidate using unchanged protected check qualification."""
+        exact = initiative_ci.Candidate.exact(candidate)
+        c._integer(pr_number)
+        pull_url = f"https://github.com/{self.enrollment.repository}/pull/{pr_number}"
+        try:
+            proof = self.qualify(candidate, pr_number)
+        except _RequiredRunPending as pending:
+            known = pending.native_state
+            state: initiative_ci.State
+            if known in ("queued", "requested", "waiting"):
+                state = "queued"
+            elif known == "in_progress":
+                state = "running"
+            else:
+                state = "pending"
+            try:
+                run_id, attempt = _integer(pending.run_id), _integer(pending.attempt)
+            except c.Invalid:
+                return initiative_ci.Observation(exact, "unavailable", "native_ci_read_untrusted",
+                                                 read_at, "untrusted")
+            moment = pending.started
+            if state != "running":
+                moment = pending.created if state == "queued" and attempt == 1 else None
+            began = None
+            if moment is not None:
+                try:
+                    stamp = int(_time(moment).timestamp())
+                    if 0 <= stamp <= read_at:
+                        began = stamp
+                except (c.Invalid, OSError, ValueError, OverflowError):
+                    pass
+            context = pending.context if pending.context.isprintable() else None
+            run_url = f"https://github.com/{self.enrollment.repository}/actions/runs/{run_id}"
+            return initiative_ci.Observation(exact, state, "native_checks_" + state, read_at, check=context,
+                                             run_id=run_id, attempt=attempt, native_progress_at=began,
+                                             diagnostic_url=run_url,
+                                             native_state=known if isinstance(known, str) and known.isprintable() and
+                                                                  len(known) <= 64 else None)
+        except FailedChecks:
+            # A workflow conclusion alone does not identify a failed required job or its independent receipt.
+            return initiative_ci.Observation(exact, "unavailable", "native_failed_check_unproved", read_at,
+                                             "untrusted", diagnostic_url=pull_url, native_state="failure")
+        except SourceChanged:
+            return initiative_ci.Observation(exact, "stale", "native_candidate_changed", read_at, "stale")
+        except (c.Invalid, c.Conflict, c.Ambiguous):
+            return initiative_ci.Observation(exact, "unavailable", "native_ci_read_untrusted", read_at, "untrusted")
+        except OSError:
+            return initiative_ci.Observation(exact, "unavailable", "native_ci_read_unavailable", read_at, "unavailable")
+        except c.Unavailable as error:
+            reason = str(error)
+            if reason in {"native_candidate_changed", "native_workflow_source_changed", "native_attempt_changed",
+                          "native_guard_drift"}:
+                return initiative_ci.Observation(exact, "stale", reason, read_at, "stale")
+            if reason in {"native_run_missing", "native_check_missing", "native_job_missing_or_ambiguous"}:
+                return initiative_ci.Observation(exact, "missing", reason, read_at, diagnostic_url=pull_url)
+            if reason == "native_checks_pending":
+                return initiative_ci.Observation(exact, "pending", reason, read_at, diagnostic_url=pull_url)
+            if reason in {"native_read_unavailable", "native_policy_unavailable", "native_receipt_unavailable"}:
+                return initiative_ci.Observation(exact, "unavailable", reason, read_at, "unavailable")
+            return initiative_ci.Observation(exact, "unavailable", "native_ci_read_untrusted", read_at, "untrusted")
+        if (type(proof) is not c.Qualification or proof.candidate_digest != exact.digest
+                or (proof.plan_digest, proof.policy_digest) != (candidate.plan_digest, candidate.policy_digest)):
+            return initiative_ci.Observation(exact, "unavailable", "native_ci_read_untrusted", read_at, "untrusted")
+        return initiative_ci.Observation(exact, "passed", "required_checks_passed", read_at, diagnostic_url=pull_url)
 
     def _approval_required(self) -> bool:
         review: list[dict[str, object]] = []
@@ -1382,8 +1505,9 @@ class GitHub:
         if decision != "APPROVED" and not (decision is None and not approval_required):
             raise c.Unavailable("ordinary_merge_review_unsatisfied")
 
-    def _fence(self, ticket: r.Ticket, reservation: r.NativeReservation, *, mutation: bool) -> str:
-        self._live(); self.observe_policy()
+    def _fence(self, ticket: r.Ticket, reservation: r.NativeReservation, *, mutation: bool) -> tuple[str, bool]:
+        local = self._live()
+        self.observe_policy()
         head, files = self.read_control()
         state = r.load_snapshot(files)
         current = state.ticket(ticket.handle)
@@ -1399,7 +1523,7 @@ class GitHub:
             raise c.Conflict("retention_contains_control_root")
         if any(not self._ancestor(source, head) for source in retained):
             raise c.Unavailable("native_source_custody_missing")
-        return head
+        return head, local
 
     def _refresh_proof(self, ticket: r.Ticket, reservation: r.NativeReservation) -> r.RefreshResult:
         native = self.observe_pr(ticket.source.pr_number)
@@ -1414,7 +1538,8 @@ class GitHub:
         if reservation.kind != "refresh": raise c.Conflict("native_mutation_kind")
         try:
             if not ticket.guarded_refresh: raise c.Unavailable("guarded_refresh_not_authorized")
-            self._fence(ticket, reservation, mutation=True)
+            _, local = self._fence(ticket, reservation, mutation=True)
+            if local: raise c.Unavailable("initiative_local_operation_unqualified")
             native = self.observe_pr(ticket.source.pr_number)
         except (c.Unavailable, c.Conflict, c.Invalid) as error:
             raise NativeRejection(_hash({"reservation": c.identity(reservation), "no_call": type(error).__name__})) from None
@@ -1483,21 +1608,36 @@ class GitHub:
         if reservation.uncertain: raise c.Ambiguous("native_prior_effect_unresolved")
         if reservation.kind != "merge" or ticket.candidate is None: raise c.Conflict("native_mutation_kind")
         candidate = ticket.candidate
-        try:
-            self._fence(ticket, reservation, mutation=True)
-            if candidate.head != reservation.expected_head or candidate.base != reservation.expected_base:
-                raise c.Conflict("native_merge_reservation_unbound")
-            if ticket.projection is None or self.projection(ticket.source, candidate.head, candidate.base) != ticket.projection:
-                raise c.Unavailable("native_merge_projection_changed")
-            # Native strict CI remains the atomic current-base guard during the
-            # request; all local checks below are still before any mutation.
-            self.qualify(candidate, ticket.source.pr_number)
-            self._delivery_authority(ticket, candidate)
-            self._fence(ticket, reservation, mutation=True)
-            self._candidate_facts(candidate, ticket.source.pr_number)
-        except (c.Unavailable, c.Conflict, c.Invalid) as error:
-            raise NativeRejection(_hash({"reservation": c.identity(reservation), "no_call": type(error).__name__})) from None
-        response = _object(self._write("PUT", f"pulls/{ticket.source.pr_number}/merge", {"sha": candidate.head, "merge_method": "rebase"}))
+        response: dict[str, object] | None = None
+        with ExitStack() as stack:
+            try:
+                _, local = self._fence(ticket, reservation, mutation=True)
+                guard = self._initiative_access(local)
+                if guard is not None and (ticket.delivery_mode != "ordinary" or ticket.guarded_refresh
+                        or ticket.predecessor is not None or not isinstance(reservation.invocation, r.OperatorInvocation)):
+                    raise c.Unavailable("initiative_local_operation_unqualified")
+                if candidate.head != reservation.expected_head or candidate.base != reservation.expected_base:
+                    raise c.Conflict("native_merge_reservation_unbound")
+                if ticket.projection is None or self.projection(ticket.source, candidate.head, candidate.base) != ticket.projection:
+                    raise c.Unavailable("native_merge_projection_changed")
+                # GitHub strict checks also enforce the currently protected base during the request.
+                self.qualify(candidate, ticket.source.pr_number)
+                self._delivery_authority(ticket, candidate)
+                head, _ = self._fence(ticket, reservation, mutation=True)
+                self._candidate_facts(candidate, ticket.source.pr_number)
+                if guard is not None:
+                    payload = self.file_at(head, "integration/v2/obligations/" + ticket.obligation_handle + ".json")
+                    obligation = None if payload is None else r.decode("obligation", payload)
+                    if (not isinstance(obligation, r.Obligation) or obligation.handle != ticket.obligation_handle
+                            or obligation.current_ticket != ticket.handle or obligation.repair_count
+                            or obligation.repair_owner is not None):
+                        raise c.Conflict("initiative_merge_obligation_changed")
+                    stack.enter_context(guard("merge", ticket, obligation, reservation))
+            except (c.Unavailable, c.Conflict, c.Invalid, OSError) as error:
+                raise NativeRejection(_hash({"reservation": c.identity(reservation), "no_call": type(error).__name__})) from None
+            response = _object(self._write("PUT", f"pulls/{ticket.source.pr_number}/merge",
+                                           {"sha": candidate.head, "merge_method": "rebase"}))
+        if response is None: raise c.Ambiguous("native_merge_outcome_uncertain")
         if response.get("merged") is False:
             raise NativeRejection(_hash({"reservation": c.identity(reservation), "response": response}))
         if response.get("merged") is not True: raise c.Ambiguous("native_merge_outcome_uncertain")

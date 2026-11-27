@@ -495,9 +495,11 @@ def test_provider_and_primary_contracts():
     assert {"google-vertex-anthropic", "lmstudio"} <= set(config["provider"])
     assert not {"headroom", "headroom-lmstudio"} & set(config["provider"])
     assert "gpt-5.6-sol-pro" not in config["provider"]["openai"]["models"]
-    assert config["model"] == "openai/gpt-6-astra"  # Native Build remains a model-flexible control.
-    assert config["agent"]["plan"]["model"] == "openai/gpt-6.1-sol-fast"
-    assert config["agent"]["plan"]["variant"] == "medium" and config["small_model"] == "openai/gpt-6-luna"
+    assert config["model"] == "openai/gpt-6-astra"
+    assert config["agent"]["build"]["model"] == "openai/gpt-6.2-sol"
+    assert config["agent"]["build"]["variant"] == "medium"
+    assert config["agent"]["plan"]["model"] == "openai/gpt-6.2-astra"
+    assert config["agent"]["plan"]["variant"] == "max" and config["small_model"] == "openai/gpt-6-luna"
     assert {"effect": "deny", "action": "provider.use", "resource": "anthropic"} in config["experimental"]["policies"]
 
 
@@ -567,10 +569,15 @@ def test_oauth_incompatible_pro_agents_are_absent():
     assert "claude-opus-4-8" not in text(".chezmoitemplates/opencode.json.tmpl")
 
 
-def test_commands_inherit_current_agent():
-    for name in ("discovery", "dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit"):
-        body = (OC / f"commands/{name}.md").read_text()
-        assert "\nagent:" not in body and "\nsubtask:" not in body
+@pytest.mark.parametrize("name", [
+    "discovery", "dbsctr", "qa", "dbsctr-review", "incident", "dbsctr-performance-audit",
+])
+def test_commands_inherit_current_agent(name):
+    body = (OC / f"commands/{name}.md").read_text()
+    assert "\nagent:" not in body and "\nsubtask:" not in body
+
+
+def test_provider_specific_commands_select_agent_and_model():
     for name, agent, model in (("dbsctr-gpt", "build-gpt", "openai/gpt-6.1-sol-fast"),
                                ("dbsctr-claude", "build-claude", "google-vertex/claude-opus-5-5@default")):
         body = (OC / f"commands/{name}.md").read_text()

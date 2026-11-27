@@ -348,11 +348,11 @@ those bytes again in the buffer it decodes on cold start, before opening
 listeners. An older save, missing receipt, or incomplete observation cannot
 authorize adoption or relaunch of an edited layout.
 Unproven state is retained; a stale plan must not resurrect a closed pane.
-Recovery can retry an already authorized snapshot when startup was
-interrupted before a new launcher recorded its invocation. Once a new
-invocation is recorded, the prior run's receipt cannot prove the new run's
-outcome. If the endpoint is gone and the outcome is unproven, recovery
-holds the boot intent and leaves the owned layout intact.
+A launch that fails without rewriting the authorized snapshot leaves its
+receipt valid, so recovery can adopt and relaunch that exact file. A file
+rewritten by a run without a proven shutdown save fails the receipt digest
+or run identity; recovery then holds the boot intent and leaves the owned
+layout intact.
 The downstream Herdr pin applies only to managed-remote Linux x86_64;
 stock workstation and Mac pins are unchanged.
 

@@ -1,5 +1,50 @@
 # DBSCTR V3 Lifecycle
 
+For a prepared GitHub Initiative, `draft-worker-batch preview` binds the selected
+slices and worker routes to one expiring draft-only approval. Build may accept
+the operator-reviewed digest and resume its durable grant. See the
+[batch contract](../../initiatives/native-slice-builders/DRAFT-WORKER-BATCH.md).
+
+[Completion at verified merge](features/draft-merge-completion.md) specifies
+the plan-bound `draft_pr` contract, implemented in source: publication freezes
+the source and frees the checkout; a verified native merge can be recorded
+while delivery proof is pending. The coordinator consumes frozen publication
+rather than waiting for completion. A cycle uses it only when its approved plan
+binds the contract; v1 receipts remain the route for historical records.
+
+The same [Initiative handoff](../../initiatives/dbsctr-workflow-convergence/BUILD-HANDOFF.md#publication-and-evidence)
+sequences [isolated evidence commands](features/evidence-checkout-isolation.md),
+[section-scoped document authority](features/initiative-section-authority.md),
+[reconciled gate reuse](features/reconciled-gate-reuse.md) and
+[later-slice document declarations](features/deferred-discovery-documents.md).
+
+[Initiative Auto continuation](../../initiatives/dbsctr-auto-forge-parity/INITIATIVE-AUTO.md)
+defines the private grant and execution contract. The source owner combines
+committed material and an enrolled target with a controller, native writer, and
+provider proof. The controller reserves the target and verifies native session
+and dispatch identity before the managed Begin path can register a fresh slice.
+The private execution journal keeps uncertain requests reserved for readback.
+Normal Draft PR and follow-up registration preserve their existing approval
+paths. A live two-slice demonstration after the originating session closes is
+required to qualify the installed controller and writer for Auto.
+
+Managed Start reviews and confirms one exact scope through
+`dbsctrctl initiative-auto start`. Resume uses the retained grant and journal
+through `dbsctrctl initiative-auto resume`. Its watch option runs the same
+controller in an independent process. The repository owner supplies the
+private runtime recipe and installed qualification under common-Git custody.
+The recipe binds the authority checkout, manifest, named operator account,
+writer agent and committed applicability plan for each prepared Worktrunk
+checkout. The qualifier binds the running controller and writer source to
+the exact OpenCode v2 service.
+
+The controller parks the exact first Build request in a fresh primary native
+session, registers Begin, and releases that request from the native inbox.
+The local-only GitHub enrollment rechecks the original grant immediately
+before coordinator admission and protected merge. Previously issued effects
+can still be observed after mutation authority stops. Use a separately
+qualified exclusive writer service for the installed two-slice restart test.
+
 [Post-delivery receipts](features/post-delivery-receipts.md) specifies how a
 completed draft delivery can be linked to a later verified merge and individual
 review outcomes without changing the original Cycle Record. It distinguishes
@@ -346,6 +391,15 @@ Source acceptance exercises these boundaries with synthetic fixture ports.
 Native fixture qualification and consumer activation each require the
 corresponding guard, identity, branch protection, and operating evidence.
 
+## Managed Forgejo fixture source interface
+
+Initiative Auto can use the Forgejo local Build proof with the shared private
+controller and journal. The controller owns the ready pull request and the
+guarded handoff after the exact required checks. Use the explicitly enrolled
+private provider owner and retain approvals and native submission claims in
+repository custody. The installed two-slice restart demonstration is the next
+acceptance step. [Provider contract](features/forgejo-support.md#managed-initiative-fixture-owner)
+
 ## Workflow regression source interface
 
 `WORKFLOW-REGRESSION-TELEMETRY` extends the existing CLI/evidence/phase owners;
@@ -658,6 +712,22 @@ check. Hosted lanes run on Linux runners with one qualified Worktrunk tool
 version per lane; test outcomes, worker bounds and native merge protections
 remain. Exact approval and provenance requirements remain unchanged.
 
+[Execution evidence reuse](features/execution-evidence-reuse.md) defines the
+local workflow: `dbsctrctl validate` can capture receipts on settled edits in
+an enrolled active cycle without changing gates. At a checkpoint, use the
+read-only `dbsctrctl evidence-plan --gate GATE`, then
+`dbsctrctl reference-evidence GATE --of ID` for an admissible passing
+execution that covers the gate's obligation (with `--path` for a receipt).
+Use `dbsctrctl record-evidence` for remaining required work, including stale
+work that must be rerun. A plan is not a gate decision; each gate retains its
+own evidence and predecessor rules. If reuse is unavailable, use the existing
+direct authority when permitted or report the capability gap.
+
+Reuse does not change required advanced-base union validation, final-source
+validation, or native hosted CI and merge protections. A private evidence export
+is not forge proof; publication requires separate operator approval. This
+contract does not establish installed qualification, live adoption, or savings.
+
 Checkout-independent continuation and explicit unfinished-cycle release have
 [approved corrective Discovery](../../initiatives/dbsctr-delivery-lifecycle/CHECKOUT-INDEPENDENT-CONTINUATION.md).
 Its exact identity/protocol contract and approved repair-first ordering settle
@@ -823,7 +893,7 @@ Adjacent contexts:
 | Phase Span | Private metadata describing one lifecycle phase or operation's timing, dependencies, ownership, and result without retaining its payload. |
 | Autonomous Interval | Complete helper-timestamped work or internal-wait time included in autonomous runtime. |
 | Excluded Pause | Complete helper-timestamped `operator_wait` or `external_wait` time excluded from autonomous runtime. |
-| Execution DAG | A primary-derived dependency graph whose independently owned ready nodes may execute concurrently after deterministic validation. |
+| Execution DAG | A primary-derived dependency graph whose independently owned ready nodes may execute concurrently after deterministic validation. Discovery's [delegation handoff](../../initiatives/native-slice-builders/BUILDER-HANDOFF.md) recommends owners and runnable groups; actual dispatch uses current native permissions and the existing admission policy. |
 | Backlog Integrity Finding | A report-only fixed-commit finding that a lifecycle backlog violates the canonical Active or Completed table contract. |
 | Operational Follow-up | Dated, owned work that remains Active until external time or evidence makes truthful completion possible. |
 | Worktree Inventory | Read-only local report of DBSCTR-owned cycle worktrees, allocated bytes, lifecycle state, and cleanup blockers. |

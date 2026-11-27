@@ -2769,8 +2769,8 @@ def test_r10_launcher_hands_the_tui_a_plan_sized_headless_grid(backend):
     report = json.loads(result.stdout)
     assert report['argv'] == ['--session', 'default', 'server']
     assert report['digest'] == hashlib.sha256(backend.snapshot_path.read_bytes()).hexdigest()
-    launch = backend._json(backend.home / '.local/state/dotfiles-ai/herdr-runtime/tui-launch.json')
-    assert launch['invocation'] == report['invocation']
+    boot_id, pid, ticks = report['invocation'].split(':')
+    assert len(boot_id) == 36 and boot_id.count('-') == 4 and pid.isdigit() and ticks.isdigit()
     assert report['mode'] == '0o600' and report['config'].endswith('/herdr-runtime/headless-config.toml')
     assert report['text'] == (managed.rstrip('\n') + '\n\n[server]\nheadless_cols = 1030\nheadless_rows = 80\n')
 
@@ -3287,11 +3287,7 @@ def observed_stop(backend, tui, snapshot, calls=None):
     capture = backend.capture('tui')
     calls = [] if calls is None else calls
     run = backend.tui_run()
-    invocation = f"{run['start_ticks']:032x}"
-    launch = backend.home / '.local/state/dotfiles-ai/herdr-runtime/tui-launch.json'
-    launch.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    backend._atomic(launch,
-                    json.dumps({'run': run, 'invocation': invocation}).encode())
+    invocation = native.tui_invocation(run)
     def stop(argv, timeout=30):
         assert argv == ['herdr', 'session', 'stop', 'default', '--json']
         finish_owner_shutdown(backend, tui, calls)
@@ -3688,22 +3684,22 @@ def test_k_newer_copy_of_last_poll_after_unseen_close_is_not_a_shutdown_receipt(
     assert not any('start' in a for a in calls)
 
 
-@pytest.mark.parametrize('fault', [None, 'stale-invocation', 'replaced-bytes'])
+@pytest.mark.parametrize('fault', [None, 'stale-invocation', 'other-run', 'replaced-bytes'])
 def test_k_unobserved_native_stop_requires_exact_final_receipt(backend, fault):
     tui, _, after = owner_edit(backend, saved=False)
     control = runtime_controller.Controller(backend.store, backend)
     control.restore()
     previous = backend.store.read('manifest.json')
-    invocation = 'a' * 32
-    launch = backend.home / '.local/state/dotfiles-ai/herdr-runtime/tui-launch.json'
-    launch.parent.mkdir(mode=0o700, parents=True)
-    backend._atomic(launch, json.dumps({'run': backend.tui_run(), 'invocation': invocation}).encode())
+    run = backend.tui_run()
+    invocation = {'stale-invocation': 'f' * 32,
+                  'other-run': native.tui_invocation({**run, 'start_ticks': run['start_ticks'] + 1}),
+                  }.get(fault, native.tui_invocation(run))
     calls = finish_owner_shutdown(backend, tui)
     saved = json.dumps(after).encode()
     backend._atomic(backend.snapshot_path, saved)
     backend._atomic(backend.snapshot_path.with_name('session-final-save.json'), json.dumps({
         'version': 1, 'snapshot': 'session.json',
-        'invocation': 'b' * 32 if fault == 'stale-invocation' else invocation,
+        'invocation': invocation,
         'sha256': hashlib.sha256(saved).hexdigest(),
     }).encode())
     if fault == 'replaced-bytes':
@@ -3795,32 +3791,35 @@ def test_k_interrupted_boot_rebases_native_metadata_and_stamp_as_one_intent(back
     assert not tui.calls and backend.store.read('boot.json')['status'] == 'complete'
 
 
-def test_k_interrupted_launch_cannot_replay_prelaunch_bytes(backend):
+def test_k_failed_launch_keeps_the_proven_boot_recoverable(backend):
     tui, _, after = owner_edit(backend, saved=False)
     control = runtime_controller.Controller(backend.store, backend)
     control.restore()
+    previous = backend.tui_run()
     observed_stop(backend, tui, after)
-    stopped = backend.command
-    launch = backend.home / '.local/state/dotfiles-ai/herdr-runtime/tui-launch.json'
-    def interrupt(argv):
-        if 'start' not in argv:
-            return stopped(argv)
-        backend._atomic(launch, json.dumps({
-            'run': {**backend.store.read('boot.json')['receipt']['exit_run'], 'start_ticks': 999},
-            'invocation': 'b' * 32,
-        }).encode())
-        raise native.NativeError('synthetic launch interrupted')
-    backend.command = interrupt
-    with pytest.raises(native.NativeError, match='synthetic launch interrupted'):
+    ticks, failing, calls = previous['start_ticks'] + 1, True, []
+    def command(argv, timeout=30):
+        if 'start' in argv and failing:
+            # exec-tui started a server that died before readiness or a save.
+            raise native.NativeError('synthetic launch failed')
+        calls.append(argv)
+        if 'start' in argv:
+            owner_tui_processes(backend, ticks)
+            tui.active = True
+        return 'inactive\n' if 'show' in argv else {}
+    backend.command = command
+    with pytest.raises(native.NativeError, match='synthetic launch failed'):
         control.restore()
-    retained = backend.store.read('boot.json')
-    previous = backend.store.read('manifest.json')
+    assert backend.store.read('boot.json')['status'] == 'start_pending'
     saved = backend.snapshot_path.read_bytes()
-    with pytest.raises(ValueError, match='interrupted launch outcome unproven'):
-        control.recover()
-    assert backend.store.read('boot.json') == retained
-    assert backend.store.read('manifest.json') == previous
-    assert backend.snapshot_path.read_bytes() == saved
+    failing = False
+    control.recover()
+    boot = backend.store.read('boot.json')
+    manifest = backend.store.read('manifest.json')
+    assert boot['status'] == 'complete' and boot['receipt']['pending'] is None
+    assert manifest['plan'] == boot['plan'] == native.layout.from_tui_snapshot(after)
+    assert backend.snapshot_path.read_bytes() == saved and native.sessions(boot['plan']) == {'ses_later'}
+    assert sum('start' in a for a in calls) == 1
 
 
 def test_k_observed_clients_must_exit_even_if_their_argv_changed(backend):

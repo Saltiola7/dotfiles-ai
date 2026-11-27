@@ -70,7 +70,7 @@ class LocalClient:
     """Consume the existing validated coordinator table and the shared wire policy."""
 
     def __init__(self, transport: g.Transport, coordinator: Mapping[str, object],
-                 proof: g.ProofPort | None = None) -> None:
+                 proof: g.ProofPort | None = None, *, initiative_guard: g.InitiativeGuard | None = None) -> None:
         allowed = {"schema_version", "enabled", "protocol_version", "strategy", "remote_repository",
                    "target_ref", "control_ref", "policy_path", "policy_digest", "guarded_refresh"}
         required = allowed - {"strategy", "guarded_refresh"}
@@ -82,6 +82,7 @@ class LocalClient:
             raise c.Unavailable("local_coordinator_not_enrolled")
         self.transport = transport
         self.proof = proof
+        self.initiative_guard = initiative_guard
         self.repository = g._text(coordinator["remote_repository"], 201)
         c._repository(self.repository)
         self.target_ref = g._text(coordinator["target_ref"], 260)
@@ -134,7 +135,7 @@ class LocalClient:
                 or enrollment.policy_digest != self.policy_digest or h.policy_identity(config) != self.policy_digest):
             raise c.Unavailable("local_remote_policy_mismatch")
         native = g.GitHub(self.transport, enrollment, self.proof, config.check_plan,
-                          policy_path=self.policy_path)
+                          policy_path=self.policy_path, initiative_guard=self.initiative_guard)
         # Contents API can follow repository symlinks. Independently require the
         # exact regular Git blob at one actual default-branch commit.
         head = native.ref(default)
@@ -164,6 +165,8 @@ class LocalClient:
         if not isinstance(obligation, r.Obligation):
             raise c.Invalid("source_request_types")
         config, native = self.configuration()
+        if config.initiative_local:
+            raise c.Unavailable("initiative_private_authority_required")
         assert config.enrollment is not None and config.workflow_id is not None
         if repair is not None:
             native.observe_policy()

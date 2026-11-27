@@ -129,6 +129,12 @@ refuses or enters existing supported reconciliation; no force push. Preserve the
 existing finalizing/idempotent retry path after uncertain push outcomes: query the
 native ref/PR before retrying and distinguish the original approved prefix from
 the exact already-pushed recorded tip. No duplicate PR, commit or record completion.
+For an interrupted ordinary draft follow-up whose exact recorded tip is already
+published, a later default advance does not bar local closure. Verify the
+recorded final reconciliation and gate evidence against its original base,
+verify the current default descends from that base, and recheck the exact open
+draft and feature ref before closing. This path performs no push or PR write.
+Unpublished work still requires current-base reconciliation before publication.
 Historical reads remain offline and do not probe credentials or recreate cycles.
 
 ## Validation and delivery
@@ -194,7 +200,7 @@ admission, custody, delivery or activation. Tables below are their Text Equivale
 |---|---|
 | No new cycle | Exact approved/native-matching launch creates active follow-up; drift refuses |
 | Active follow-up | Reviewed reconciliation and evidence permit finalizing; failures retain active work |
-| Finalizing | Verified exact push permits completed feature delivery; uncertainty remains retryable |
+| Finalizing | Verified exact push permits completed feature delivery; an already-published exact draft may close locally against retained reconciliation proof after a descendant default advance; uncertainty refuses |
 | Prior completed cycles | Historical only; no transition, evidence replacement or deletion |
 
 | Custody transfer | Preserved boundary |
@@ -202,4 +208,5 @@ admission, custody, delivery or activation. Tables below are their Text Equivale
 | Native observation to launch digest | Exact PR/head/default identities, not credentials or consent inference |
 | Operator approval to new record | Caller-reported consent and versioned binding; prior records untouched |
 | Gate execution to feature push | Helper-owned evidence and owned first-parent commits; imports distinguished |
+| Already-published draft to local closure | Exact native ref and draft tip, retained qualification base, and descendant current default; no remote write or merge proof |
 | Feature delivery to ultimate merge | Fresh native CI/base guards; no inherited merge/install/delete authority |

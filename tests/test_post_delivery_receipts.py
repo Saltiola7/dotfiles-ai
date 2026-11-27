@@ -36,9 +36,8 @@ def git_input(*arguments, cwd, text):
                           input=text).stdout.strip()
 
 
-@pytest.fixture
-def delivered(cycle, monkeypatch, capsys):
-    """A draft delivery that Final Push can complete with stubbed publication."""
+def transport(cycle, monkeypatch, capsys):
+    """Stub publication only; Git, custody and synthetic GitHub reads stay real."""
     core = cycle.core
     cycle.primary = Path(cycle.fixture.temp.name) / "repo"
     cycle.capsys = capsys
@@ -75,6 +74,12 @@ def delivered(cycle, monkeypatch, capsys):
     return cycle
 
 
+@pytest.fixture
+def delivered(cycle, monkeypatch, capsys):
+    """A draft delivery that Final Push can complete with stubbed publication."""
+    return transport(cycle, monkeypatch, capsys)
+
+
 def evidence(ws, gate, *, paths=(), code=0, authority="fixture"):
     arguments = ["record-evidence", gate, "--authority", authority]
     for path in paths:
@@ -108,12 +113,12 @@ def required_gates(ws, root=None):
             if ws.core.load(root or ws.root)[1]["gates"][gate]["applicability"] == "required"]
 
 
-def prepare(ws, *, deferred=DEFERRED, review=None):
+def prepare(ws, *, deferred=DEFERRED, review=None, extra=()):
     """Gate evidence, one Gate Commit and artifact reviews; the cycle stays active."""
     core, root = ws.core, ws.root
     (root / "tracked.txt").write_text("Delivered fixture change\n")
     (root / "docs/specs/test/CHANGELOG.md").write_text("Delivered fixture change.\n")
-    paths = ["tracked.txt", "docs/specs/test/CHANGELOG.md"]
+    paths = ["tracked.txt", "docs/specs/test/CHANGELOG.md", *extra]
     for gate in required_gates(ws):
         # A Gate Commit lists a gate only when its evidence carries the commit's paths.
         evidence(ws, gate, paths=() if gate in deferred else paths, code=1 if gate in deferred else 0)
@@ -500,12 +505,15 @@ def test_active_and_externally_completed_records_keep_their_own_routes(delivered
     assert "external completion receipt" in rejected(delivered, "--preview")
 
 
-def test_unflagged_completion_is_unchanged_for_a_final_push_delivery(delivered):
+def test_unflagged_completion_observes_a_final_push_delivery_without_completing_it(delivered):
+    """The unflagged exact-ID route observes a historical delivery; an append still needs exact approval."""
     deliver(delivered)
     land(delivered)
+    before = delivered.path.read_bytes()
     assert delivered.invoke("complete-external", "--cycle-id", "cycle-1", "--pr-number", str(NUMBER),
                             "--expected-head", delivered.pr_head, "--expected-merge", delivered.merge) == 1
-    assert "already externally completed record" in delivered.capsys.readouterr().err
+    assert "exact receipt digest and agent-confirmed approval" in delivered.capsys.readouterr().err
+    assert delivered.path.read_bytes() == before
 
 
 def test_invalid_selections_are_refused_before_any_native_read(delivered):
@@ -758,10 +766,17 @@ def test_review_options_are_refused_outside_the_post_delivery_mode(delivered):
     land(delivered)
     plain = ["complete-external", "--cycle-id", "cycle-1", "--pr-number", str(NUMBER),
              "--expected-head", delivered.pr_head, "--expected-merge", delivered.merge, "--preview"]
+    active = plain[:1] + plain[3:]  # without an exact ID only the active-cycle route remains
     for option in (["--review-evidence", "operate:abc:cycle-2:ev-1"], ["--owner-review", "operate:abc"],
                    ["--expected-receipt-digest", "0" * 64], ["--approval", "agent-confirmed"]):
-        assert "require --post-delivery" in rejected_argv(delivered, [*plain, *option])
-    assert "requires --post-delivery" in rejected_argv(delivered, ["status", "--cycle-id", "cycle-1", "--json"])
+        assert "require --post-delivery" in rejected_argv(delivered, [*active, *option])
+    # An observed exact ID accepts the review selectors and reports a malformed one.
+    assert "does not match a deferred condition" in rejected_argv(delivered, [*plain, "--owner-review", "operate:abc"])
+    before = snapshot(delivered)
+    assert delivered.invoke("status", "--cycle-id", "cycle-1", "--json") == 0
+    stored = json.loads(delivered.capsys.readouterr().out)
+    assert stored["state"] == "completed" and stored["publication"] is None and stored["observations"] == []
+    assert snapshot(delivered) == before
     assert "cannot be combined" in rejected(
         delivered, "--delivery-segment", f"{NUMBER}:{delivered.pr_head}:{delivered.merge}")
 

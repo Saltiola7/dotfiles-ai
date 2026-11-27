@@ -19,7 +19,7 @@ Existing independent-review requirements and the retained reviewer profile remai
 - Given Build-Claude with its configured primary model, when it delegates,
   only Vertex Claude helpers are eligible. Primary defaults to Opus 5.5 high;
   coding, exploration, scouting and docs helpers use Sonnet 5.5 medium.
-- Given Build-GPT, primary defaults to GPT-6.1 Sol Fast medium. Coding, scouting
+- Given Build-GPT, primary defaults to GPT-6.2 Astra Max. Coding, scouting
   and docs helpers use GPT-6.1 Sol medium; exploration uses GPT-5.6 Terra low.
   The retained OpenAI reviewer remains Astra medium. An explicit same-provider
   primary model change does not change helper assignments.
@@ -27,7 +27,7 @@ Existing independent-review requirements and the retained reviewer profile remai
   inherit the session-selected model. No fixed-model helpers are automatically
   selected. General remains a native coding helper with child recursion and
   lifecycle/Git mutation commands denied.
-- Given native Plan, default to GPT-6.1 Sol Fast medium; only model-inheriting
+- Given native Plan, default to GPT-6.2 Astra Max; only model-inheriting
   Explore and Scout may run. Child tools remain read-only even if parent grants
   a request. General, builders and docs writers are not eligible.
 - Given Discovery-Coordinator, Explore, Scout and Discovery Writer inherit the

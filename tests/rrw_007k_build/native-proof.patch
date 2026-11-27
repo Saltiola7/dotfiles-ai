@@ -1,0 +1,308 @@
+--- a/src/persist/io.rs
++++ b/src/persist/io.rs
+@@ -2,4 +2,5 @@
+ use std::path::{Path, PathBuf};
+
++use sha2::{Digest, Sha256};
+ use tracing::warn;
+
+@@ -44,18 +45,59 @@
+
+ pub(super) fn save_to_path(path: &Path, snapshot: &SessionSnapshot) -> std::io::Result<()> {
+-    save_json_to_path(path, snapshot)
++    save_primary(path, snapshot, None)
++}
++
++pub(super) fn save_primary(
++    path: &Path,
++    snapshot: &SessionSnapshot,
++    invocation: Option<&str>,
++) -> std::io::Result<()> {
++    let bytes = serde_json::to_vec_pretty(snapshot)?;
++    commit_bytes(path, &bytes, false)?;
++    if let Some(invocation) = invocation {
++        let proof = serde_json::to_vec(&serde_json::json!({
++            "version": 1,
++            "invocation": invocation,
++            "snapshot": "session.json",
++            "sha256": format!("{:x}", Sha256::digest(&bytes)),
++        }))?;
++        commit_bytes(&path.with_file_name("session-final-save.json"), &proof, true)?;
++    }
++    Ok(())
+ }
+
+ fn save_json_to_path<T: serde::Serialize>(path: &Path, snapshot: &T) -> std::io::Result<()> {
+-    let target = resolve_write_target(path)?;
++    commit_bytes(path, &serde_json::to_vec_pretty(snapshot)?, false)
++}
++
++fn commit_bytes(path: &Path, bytes: &[u8], private: bool) -> std::io::Result<()> {
++    let target = if private {
++        path.to_path_buf()
++    } else {
++        resolve_write_target(path)?
++    };
+     if let Some(parent) = target.parent() {
+         std::fs::create_dir_all(parent)?;
+     }
+-    let json = serde_json::to_string_pretty(snapshot)?;
+-    let tmp_path = target.with_extension("json.tmp");
+-    let mut temporary = std::fs::File::create(&tmp_path)?;
++    let tmp_path = if private {
++        target.with_extension(format!(
++            "json.{}.{}.tmp",
++            std::process::id(),
++            std::time::SystemTime::now()
++                .duration_since(std::time::UNIX_EPOCH)
++                .unwrap_or_default()
++                .as_nanos(),
++        ))
++    } else {
++        target.with_extension("json.tmp")
++    };
++    let mut temporary = if private {
++        crate::platform::create_private_state_file(&tmp_path)?
++    } else {
++        std::fs::File::create(&tmp_path)?
++    };
+     // A rename can survive a hard crash before unflushed file contents reach disk.
+     let result = temporary
+-        .write_all(json.as_bytes())
++        .write_all(bytes)
+         .and_then(|()| temporary.sync_all());
+     drop(temporary);
+@@ -133,4 +175,20 @@
+ }
+
++pub(crate) fn load_verified(expected: &str) -> std::io::Result<SessionSnapshot> {
++    load_verified_from_path(&session_path(), expected)
++}
++
++fn load_verified_from_path(path: &Path, expected: &str) -> std::io::Result<SessionSnapshot> {
++    let bytes = std::fs::read(path)?;
++    if format!("{:x}", Sha256::digest(&bytes)) != expected {
++        return Err(std::io::Error::new(
++            std::io::ErrorKind::InvalidData,
++            "session snapshot does not match the required digest",
++        ));
++    }
++    let content = std::str::from_utf8(&bytes).map_err(std::io::Error::other)?;
++    parse_snapshot(content).map_err(std::io::Error::other)
++}
++
+ pub fn load_history() -> Option<SessionHistorySnapshot> {
+     let path = session_history_path();
+@@ -202,4 +260,53 @@
+     }
+
++    #[test]
++    fn final_save_proof_identifies_the_exact_decoded_buffer() {
++        let path = temp_session_path("final-proof");
++        let receipt_path = path.with_file_name("session-final-save.json");
++        let mut snapshot = empty_snapshot();
++        save_to_path(&path, &snapshot).unwrap();
++        assert!(!receipt_path.exists());
++        snapshot.sidebar_width = Some(39);
++        save_primary(&path, &snapshot, Some("fixture-invocation")).unwrap();
++        let receipt: serde_json::Value =
++            serde_json::from_slice(&std::fs::read(&receipt_path).unwrap()).unwrap();
++        assert_eq!(receipt["invocation"], "fixture-invocation");
++        assert_eq!(receipt["version"], 1);
++        assert_eq!(receipt["snapshot"], "session.json");
++        let digest = receipt["sha256"].as_str().unwrap();
++        assert_eq!(
++            load_verified_from_path(&path, digest).unwrap().sidebar_width,
++            Some(39)
++        );
++        let mut replacement = std::fs::read(&path).unwrap();
++        replacement.push(b'\n');
++        std::fs::write(&path, &replacement).unwrap();
++        assert!(parse_snapshot(std::str::from_utf8(&replacement).unwrap()).is_ok());
++        assert!(load_verified_from_path(&path, digest).is_err());
++        assert_eq!(std::fs::read(&path).unwrap(), replacement);
++        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
++    }
++
++    #[test]
++    fn final_save_proof_is_not_published_if_primary_commit_fails() {
++        let path = temp_session_path("failed-primary");
++        std::fs::create_dir_all(&path).unwrap();
++        assert!(save_primary(&path, &empty_snapshot(), Some("fixture-invocation")).is_err());
++        assert!(!path.with_file_name("session-final-save.json").exists());
++        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
++    }
++
++    #[test]
++    fn failed_final_receipt_publication_leaves_the_primary_save() {
++        let path = temp_session_path("failed-receipt");
++        let receipt_path = path.with_file_name("session-final-save.json");
++        std::fs::create_dir_all(&receipt_path).unwrap();
++        assert!(save_primary(&path, &empty_snapshot(), Some("fixture-invocation")).is_err());
++        assert!(parse_snapshot(&std::fs::read_to_string(&path).unwrap()).is_ok());
++        assert!(receipt_path.is_dir());
++        assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 2);
++        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
++    }
++
+     fn history_snapshot(secret: &str) -> SessionHistorySnapshot {
+         SessionHistorySnapshot {
+--- a/src/persist.rs
++++ b/src/persist.rs
+@@ -12,4 +12,5 @@
+
+ pub use self::io::{clear_history, load, load_history};
++pub(crate) use self::io::load_verified;
+ pub use self::restore::restore;
+ pub(crate) use self::restore::restored_worktree_space_membership;
+--- a/src/persist/writer.rs
++++ b/src/persist/writer.rs
+@@ -41,7 +41,20 @@
+         history: Option<&SessionHistorySnapshot>,
+     ) {
++        self.save_with_final_proof(snapshot, history, None);
++    }
++
++    pub(crate) fn save_with_final_proof(
++        &mut self,
++        snapshot: &SessionSnapshot,
++        history: Option<&SessionHistorySnapshot>,
++        invocation: Option<&str>,
++    ) {
+         let result = self.preserve_unloaded().and_then(|()| {
+             self.preserve_snapshot_history();
+-            super::io::save_to_path(&self.path, snapshot)
++            if invocation.is_some() {
++                super::io::save_primary(&self.path, snapshot, invocation)
++            } else {
++                super::io::save_to_path(&self.path, snapshot)
++            }
+         });
+         if let Err(err) = result {
+--- a/src/app/session.rs
++++ b/src/app/session.rs
+@@ -94,4 +94,8 @@
+
+     pub(crate) fn save_session_now(&mut self) {
++        self.save_session_inline(None);
++    }
++
++    fn save_session_inline(&mut self, invocation: Option<&str>) {
+         if let Some(thread) = self.session_save_thread.take() {
+             let _ = thread.join();
+@@ -103,5 +107,9 @@
+         }
+
+-        run_session_save_job(self.capture_session_save_job(), &self.session_writer);
++        run_session_save_job_with_proof(
++            self.capture_session_save_job(),
++            &self.session_writer,
++            invocation,
++        );
+         self.pane_exit_checkpoint_pending = false;
+         self.session_save_deadline = None;
+@@ -131,5 +139,6 @@
+             return;
+         }
+-        self.save_session_now();
++        let invocation = std::env::var("HERDR_PROOF_SAVE_INVOCATION").ok();
++        self.save_session_inline(invocation.as_deref().filter(|id| !id.is_empty()));
+     }
+ }
+@@ -139,4 +148,12 @@
+     writer: &std::sync::Mutex<crate::persist::SessionWriter>,
+ ) {
++    run_session_save_job_with_proof(job, writer, None);
++}
++
++fn run_session_save_job_with_proof(
++    job: SessionSaveJob,
++    writer: &std::sync::Mutex<crate::persist::SessionWriter>,
++    invocation: Option<&str>,
++) {
+     let mut writer = match writer.lock() {
+         Ok(writer) => writer,
+@@ -148,5 +165,11 @@
+     match job {
+         SessionSaveJob::Clear => writer.clear(),
+-        SessionSaveJob::Save { snapshot, history } => writer.save(&snapshot, history.as_ref()),
++        SessionSaveJob::Save { snapshot, history } => {
++            if invocation.is_some() {
++                writer.save_with_final_proof(&snapshot, history.as_ref(), invocation);
++            } else {
++                writer.save(&snapshot, history.as_ref());
++            }
++        }
+     }
+ }
+--- a/src/app/mod.rs
++++ b/src/app/mod.rs
+@@ -406,4 +406,15 @@
+         event_hub: crate::api::EventHub,
+     ) -> std::io::Result<Self> {
++        Self::try_new_with_snapshot(config, policy, config_diagnostic, api_rx, event_hub, None)
++    }
++
++    pub(crate) fn try_new_with_snapshot(
++        config: &Config,
++        policy: AppPolicy,
++        config_diagnostic: Option<String>,
++        api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
++        event_hub: crate::api::EventHub,
++        verified_snapshot: Option<crate::persist::SessionSnapshot>,
++    ) -> std::io::Result<Self> {
+         let prefix_keys = config.prefix_keys();
+         crate::kitty_graphics::set_enabled(config.kitty_graphics_enabled());
+@@ -415,5 +426,12 @@
+         let mut restored_terminals = std::collections::HashMap::new();
+         let mut restored_terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+-        let snapshot = policy.restore_session.then(crate::persist::load).flatten();
++        let snapshot = if policy.restore_session {
++            verified_snapshot.or_else(crate::persist::load)
++        } else {
++            if verified_snapshot.is_some() {
++                return Err(std::io::Error::other("verified restore requires restore policy"));
++            }
++            None
++        };
+         let mut plugin_installation_leases = crate::plugin_installations::Leases::new();
+         let mut plugin_installation_cleanup_allowed = true;
+--- a/src/server/headless/bootstrap.rs
++++ b/src/server/headless/bootstrap.rs
+@@ -7,4 +7,8 @@
+     let args: Vec<String> = std::env::args().collect();
+     let handoff_import = args.get(2).map(String::as_str) == Some("--handoff-import");
++    let required_digest = std::env::var_os("HERDR_PROOF_RESTORE_SHA256");
++    if handoff_import && required_digest.is_some() {
++        return Err(io::Error::other("verified restore does not support handoff import"));
++    }
+     let process_context = crate::platform::prepare_server_process(handoff_import);
+     init_logging();
+@@ -41,4 +45,14 @@
+     let server_stop = crate::server::shutdown::ServerStop::default();
+
++    // Decode exactly once, before publishing either endpoint. Do not move
++    // workspace creation ahead of the existing API socket ownership check.
++    let verified_snapshot = required_digest
++        .map(|digest| {
++            let digest = digest.into_string()
++                .map_err(|_| io::Error::other("invalid verified restore digest"))?;
++            crate::persist::load_verified(&digest)
++        })
++        .transpose()?;
++
+     // Start the JSON API socket server.
+     let _api_server = match api::start_server_with_stop_control(
+@@ -63,5 +77,5 @@
+     let result = rt.block_on(async {
+         // Create the App (with AppState, event channels, etc.).
+-        let mut app = app::App::try_new(
++        let mut app = app::App::try_new_with_snapshot(
+             &loaded_config.config,
+             app::AppPolicy::PRODUCTION,
+@@ -69,4 +83,5 @@
+             api_rx,
+             event_hub,
++            verified_snapshot,
+         )?;
+         seed_startup_workspace_if_empty(&mut app);

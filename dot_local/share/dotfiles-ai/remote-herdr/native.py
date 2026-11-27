@@ -73,6 +73,13 @@ def runtime(value):
     return value
 
 
+def tui_invocation(run):
+    """Per-launch identity the managed launcher hands its server. Herdr's
+    final-save receipt echoes it, so the controller keeps no launch record.
+    """
+    return '{}:{}:{}'.format(run.get('boot_id'), run.get('pid'), run.get('start_ticks'))
+
+
 def checked_plan(value):
     try:
         return layout.validate_plan(value)
@@ -153,24 +160,14 @@ class Native:
     def final_tui_file(self, run, file):
         """Accept only the native final-save receipt for the expected run."""
         try:
-            launch = self.tui_launch()
             final = self._json(self.snapshot_path.with_name('session-final-save.json'))
         except FileNotFoundError:
             return False
-        if launch is None:
-            return False
-        invocation = launch.get('invocation')
-        return (launch.get('run') == run and isinstance(invocation, str)
-                and re.fullmatch(r'[0-9a-f]{32}', invocation) is not None
-                and type(final.get('version')) is int
-                and final == {'version': 1, 'invocation': invocation, 'snapshot': 'session.json',
+        # A failed relaunch leaves this proof valid only while the file it
+        # named is untouched; any other run or any rewritten byte fails here.
+        return (type(final.get('version')) is int
+                and final == {'version': 1, 'invocation': tui_invocation(run), 'snapshot': 'session.json',
                               'sha256': file['digest']})
-
-    def tui_launch(self):
-        try:
-            return self._json(self.home / '.local/state/dotfiles-ai/herdr-runtime/tui-launch.json')
-        except FileNotFoundError:
-            return None
 
     def _atomic(self, path, data, mode=0o600):
         self._parents(path)

@@ -137,6 +137,8 @@
   },
   "agent": {
     "build": {
+      "model": "openai/gpt-6.2-sol",
+      "variant": "medium",
       "permission": {
         "bash": {
           "*dbsctrctl begin*": "allow",
@@ -166,8 +168,8 @@
       }
     },
     "plan": {
-      "model": "openai/gpt-6.1-sol-fast",
-      "variant": "medium",
+      "model": "openai/gpt-6.2-astra",
+      "variant": "max",
       "permission": {
         "edit": "deny",
         "bash": {
@@ -179,6 +181,7 @@
           "*dbsctrctl inspect*": "allow",
           "*dbsctrctl initiative-check*": "allow",
           "*dbsctrctl initiative-receipt*": "allow",
+          "dbsctrctl draft-worker-batch preview *": "allow",
           "*dbsctrctl workspace-remove-check*": "allow",
           "*wt *": "deny",
           "*wt list*": "allow",

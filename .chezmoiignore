@@ -197,6 +197,11 @@ install-dbsctr-quality-services.sh
 .local/bin/pm-psql
 .local/bin/pm-jira
 .config/dotfiles-ai/*
+!.config/dotfiles-ai/integration_coordinator
+!.config/dotfiles-ai/integration_coordinator/*.py
+!.config/dotfiles-ai/continuous_validation
+.config/dotfiles-ai/continuous_validation/*
+!.config/dotfiles-ai/continuous_validation/feedback.py
 {{ if .dotfiles_ai.remote_user_environment.enabled }}
 !.config/dotfiles-ai/workflow-policy.json
 !.config/dotfiles-ai/herdr-core.json
