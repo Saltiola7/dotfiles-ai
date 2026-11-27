@@ -402,20 +402,6 @@ def tui_refusal_labels():
     }
 
 
-def refusal_slug(error):
-    """A fixed source label as a slug, or `unlabelled`; never other text.
-
-    `NativeError` and `ControllerError` carry source-literal labels only.
-    Anything outside a strict label alphabet, and every other class, is withheld.
-    """
-    if type(error).__name__ not in ('NativeError', 'ControllerError'):
-        return 'unlabelled'
-    text = str(error)
-    if not re.fullmatch(r"[A-Za-z0-9 :;,'_.-]{1,120}", text):
-        return 'unlabelled'
-    return tui_refusal_labels().get(text) or re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
-
-
 def r1_refusal_labels():
     """Exact source refusals only; never interpolate native error payloads."""
     return {
@@ -3151,6 +3137,7 @@ def verify_r8(*, recover):
                                      native_semantic(backend))
 
         wait(ready, seconds=760)
+        stop_restore_ticks()
     observe('tui', plan)
     with Store(ROOT) as store:
         backend = Native(HOME, store)
@@ -3221,8 +3208,7 @@ def k_service_only_restart(plan):
             require(len(clients) == 50)
             return all(f01.connected(c['pid'], urlsplit(server).port) for c in clients)
     wait(reconnected, seconds=180)
-    unit('stop', 'remote-herdr-restore.timer')
-    wait(lambda: unit('show', 'remote-herdr-restore.service', '-p', 'ActiveState', '--value') == 'inactive')
+    stop_restore_ticks()
     require(backend_pid() == new_pid)
     return new_pid
 
@@ -3241,8 +3227,30 @@ def k_observe_later(new):
             return (record['run'] == backend.tui_run() and len(bindings) == 51
                     and sum(c['session_id'] == new and c['run'] == record['run'] for c in bindings) == 1)
     wait(seen, seconds=360)
+    stop_restore_ticks()
+
+
+def stop_restore_ticks():
+    """Drain the oneshot; a prior refusal is not a running lock owner."""
     unit('stop', 'remote-herdr-restore.timer')
-    wait(lambda: unit('show', 'remote-herdr-restore.service', '-p', 'ActiveState', '--value') == 'inactive')
+
+    def idle():
+        properties = dict(line.split('=', 1) for line in unit(
+            'show', 'remote-herdr-restore.service', '-p', 'ActiveState', '-p', 'MainPID',
+            '-p', 'Result', '-p', 'ExecMainStatus').splitlines())
+        if properties.get('MainPID') != '0':
+            return False
+        if properties.get('ActiveState') == 'inactive':
+            return 'inactive'
+        if (properties.get('ActiveState') == 'failed' and properties.get('Result') == 'exit-code'
+                and properties.get('ExecMainStatus') == '75'):
+            return 'prior-refusal'
+        return False
+
+    if wait(idle) == 'prior-refusal':
+        # Do not clear the failure or run restore. The caller must still prove
+        # its boot, client coverage or live observation independently.
+        print('F07: restore-service-quiescent-after-refusal')
 
 
 def k_arm():
@@ -3252,24 +3260,7 @@ def k_arm():
     from layout import from_tui_snapshot
     STEP = 'k-edit-preconditions'
     # Stop future ticks; let any current owner finish normally.
-    unit('stop', 'remote-herdr-restore.timer')
-    try:
-        wait(lambda: unit('show', 'remote-herdr-restore.service', '-p', 'ActiveState', '--value') == 'inactive')
-    except RuntimeError:
-        # systemd properties and one fixed source label only: never journal or native text.
-        state = '-'.join(re.sub(r'[^A-Za-z0-9-]', '_', unit('show', 'remote-herdr-restore.service',
-                                                              '-p', value, '--value').strip())
-                        for value in ('ActiveState', 'Result', 'ExecMainStatus'))
-        Store, Native = adapter()
-        from controller import Controller
-        try:
-            with Store(ROOT) as store:
-                Controller(store, Native(HOME, store)).restore()
-            reason = 'succeeded'
-        except Exception as error:
-            reason = refusal_slug(error)
-        print('F07: restore-service-' + state + '-manual-' + reason, file=sys.stderr)
-        raise
+    stop_restore_ticks()
     original = json.loads(EXPECTED.read_text())
     pid = k_service_only_restart(original)
     space = original['spaces'][0]
@@ -3351,8 +3342,7 @@ def k_boot(*, second):
     wait(completed, seconds=760)
     # Give the following observations an uncontended window, after the boot
     # journal proves the real timer completed its start under its own lock.
-    unit('stop', 'remote-herdr-restore.timer')
-    wait(lambda: unit('show', 'remote-herdr-restore.service', '-p', 'ActiveState', '--value') == 'inactive')
+    stop_restore_ticks()
     captured = observe('tui', plan)
     with Store(ROOT) as store:
         backend = Native(HOME, store)
