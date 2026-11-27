@@ -3306,21 +3306,20 @@ def k_arm():
             return rows[0]
         closed_pane = find(closed)['pane_id']
         resized = find(resize_target)
-        STEP = 'k-create-native-tab-and-agent'
+        STEP = 'k-create-native-tab'
         result = json.loads(run(tool, 'tab', 'create', '--workspace', wid, '--cwd', cwd,
                                 '--label', 'Later tab', '--no-focus'))
         created = result.get('result', result)
-        tid, shell = created['tab']['tab_id'], created['root_pane']['pane_id']
-        run(tool, 'agent', 'start', 'opencode', '--cwd', cwd, '--tab', tid, '--no-focus',
-            '--', 'opencode', '--session', new)
+        tid, pane = created['tab']['tab_id'], created['root_pane']['pane_id']
+        STEP = 'k-start-native-agent-in-tab'
+        run(tool, 'agent', 'start', 'opencode', '--kind', 'opencode', '--pane', pane,
+            '--', '--session', new)
         def new_agent_ready():
             latest = backend.tui('session.snapshot', {})['snapshot']
             panes = [p for p in latest['panes'] if p['tab_id'] == tid]
-            return (len(panes) == 2 and any(p['pane_id'] == shell and not p.get('agent') for p in panes)
-                    and any(p['pane_id'] != shell and (p.get('agent_session') or {}).get('value') == new
-                            for p in panes))
+            return (len(panes) == 1 and panes[0]['pane_id'] == pane
+                    and (panes[0].get('agent_session') or {}).get('value') == new)
         wait(new_agent_ready)
-        run(tool, 'pane', 'close', shell)
     k_observe_later(new)
     with Store(ROOT) as store:
         backend = Native(HOME, store)
