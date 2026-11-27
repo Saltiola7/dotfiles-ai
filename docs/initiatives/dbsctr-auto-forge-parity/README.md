@@ -60,8 +60,8 @@ its native Git runtime. The live fixture passed eight cases, including a stale
 competing merge and lost-response reconciliation.
 [Forgejo merge source PR](https://github.com/Saltiola7/dotfiles-ai/pull/352)
 
-Five of seven slices have met their acceptance criteria. In the protected
-Forgejo continuation test on native Linux, slice A landed through independent
+Six of seven Forgejo-first delivery slices have met their acceptance criteria.
+In the protected Forgejo continuation test on native Linux, slice A landed through independent
 required CI and the ordinary guarded merge. The originating OpenCode session
 closed before the controller restarted. The same grant and journal authorized
 one first launch of dependent slice B from A's protected landing. Independent
@@ -70,11 +70,13 @@ continuation in the enrolled fixture.
 [Initiative continuation source PR](https://github.com/Saltiola7/dotfiles-ai/pull/357) ·
 [GitHub managed composition PR](https://github.com/Saltiola7/dotfiles-ai/pull/362)
 
-CI recovery and tally is ready for an exact Build launch. Its approved contract
-covers one shared repair for an in-scope source fix or a verified infrastructure
-retry on a qualified target. It also covers a private read-only tally for
-progress, evidence age, next action and budget. Final qualification on both
-providers remains in Discovery and depends on that slice.
+CI recovery and tally has landed. Its approved contract covers one shared
+repair for an in-scope source fix or a verified infrastructure retry on a
+qualified target. It also covers a private read-only tally for progress,
+evidence age, next action and budget. Installed Forgejo qualification comes
+first. GitHub qualification remains a separate follow-up with its own
+protected test repository and authorization.
+[CI recovery and tally PR](https://github.com/Saltiola7/dotfiles-ai/pull/386)
 
 | Slice | Depends on | Acceptance evidence |
 | --- | --- | --- |
@@ -84,7 +86,8 @@ providers remains in Discovery and depends on that slice.
 | `forgejo-merge` | `forgejo-ci` | Protected isolated fixture proves ordinary-actor merge, stale-base rejection, and lost-response reconciliation. |
 | `initiative-continuation` | `delivery-preference`, `forgejo-merge` | One exact grant and two dependent slices delivered through protected private Forgejo. Close the originating session and restart the controller before the second launch. Verify durable dispatch and material drift handling. |
 | `ci-recovery-and-tally` | `initiative-continuation`, `forgejo-ci` | One shared repair for qualified source or infrastructure failures, fenced rechecks and actionable stall evidence, and one read-only text and JSON tally. |
-| `auto-qualification` | `forgejo-merge`, `ci-recovery-and-tally` | The same end-to-end acceptance scenarios pass on qualified GitHub and Forgejo targets. |
+| `auto-qualification` | `forgejo-merge`, `ci-recovery-and-tally` | Qualify the current installed release on private Forgejo and native Linux. Verify protected continuation, one shared attempt for a qualified repair class, fresh CI, and private status readback. |
+| `github-auto-qualification` | `auto-qualification` | Deferred. Verify installed Auto on a separately enrolled protected GitHub target. |
 
 Work on the preference and Forgejo adapter is independent at the contract level.
 Build must serialize edits to shared lifecycle entry points and tests. A
