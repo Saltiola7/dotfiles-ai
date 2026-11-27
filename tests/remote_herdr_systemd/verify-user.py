@@ -2736,6 +2736,17 @@ def prepare():
         prepare_fixture(provider)
 
 
+def installed_v2_tui_plugin(config):
+    """Fresh fixture only: check Herdr's native V2 registration, not just V1 assets."""
+    registration = config / 'cli.json'
+    if not registration.is_file():
+        return False
+    value = json.loads(registration.read_text())
+    return (isinstance(value, dict) and isinstance(value.get('plugins'), list)
+            and './herdr-opencode' in value['plugins']
+            and (config / 'herdr-opencode/tui.js').is_file())
+
+
 def prepare_fixture(provider):
     global STEP
     STEP = 'install-bootstrap-config'
@@ -2752,6 +2763,10 @@ def prepare_fixture(provider):
     STEP = 'verify-installed-opencode-tui-integration'
     require((opencode_config / 'herdr-tui-session.js').is_file())
     require((opencode_config / 'tui.jsonc').is_file())
+    # Missing registration can be a deliberate migration deferral. Do not
+    # write preferences or claim the integration works based on asset files.
+    if not installed_v2_tui_plugin(opencode_config):
+        raise CommandFailure('v2-registration-missing')
     # Pause only the disposable timer during serial fixture manipulation.
     STEP = 'pause-restore-timer'
     unit('stop', 'remote-herdr-restore.timer', 'remote-herdr-restore.service')
@@ -3342,12 +3357,23 @@ def k_arm():
         # Agent names are unique across the TUI; kind selects the executable.
         run(tool, 'agent', 'start', 'rrw-k-later', '--kind', 'opencode', '--pane', pane,
             '--', '--session', new)
+        STEP = 'k-observe-native-agent-session'
+        counts = (0, 0, 0)
+
         def new_agent_ready():
+            nonlocal counts
             latest = backend.tui('session.snapshot', {})['snapshot']
             panes = [p for p in latest['panes'] if p['tab_id'] == tid]
+            target = [p for p in panes if p['pane_id'] == pane]
+            counts = (len(panes), len(target), sum(bool(p.get('agent_session')) for p in target))
             return (len(panes) == 1 and panes[0]['pane_id'] == pane
                     and (panes[0].get('agent_session') or {}).get('value') == new)
-        wait(new_agent_ready)
+        try:
+            wait(new_agent_ready)
+        except RuntimeError:
+            print('F07: later-agent-observation tab-panes=%d target-panes=%d reported=%d' % counts,
+                  flush=True)
+            raise
     k_observe_later(new)
     with Store(ROOT) as store:
         backend = Native(HOME, store)

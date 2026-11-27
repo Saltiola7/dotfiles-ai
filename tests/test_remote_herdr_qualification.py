@@ -23,6 +23,21 @@ WORKFLOW = ROOT / '.github/workflows/remote-herdr-runtime.yml'
 
 
 class RestoreTimerDrainTests(unittest.TestCase):
+    def test_v2_registration_is_required_even_when_legacy_assets_exist(self):
+        import tempfile
+
+        registered = runpy.run_path(str(FIXTURE / 'verify-user.py'))['installed_v2_tui_plugin']
+        with tempfile.TemporaryDirectory() as directory:
+            config = Path(directory)
+            (config / 'tui.jsonc').write_text('{}')
+            (config / 'herdr-tui-session.js').touch()
+            plugin = config / 'herdr-opencode'
+            plugin.mkdir()
+            (plugin / 'tui.js').touch()
+            self.assertFalse(registered(config))
+            (config / 'cli.json').write_text('{"plugins":["./herdr-opencode"]}')
+            self.assertTrue(registered(config))
+
     def test_agent_start_failure_reports_only_a_known_native_code(self):
         fixture = runpy.run_path(str(FIXTURE / 'verify-user.py'))
         for code, expected in [('agent_pane_busy', 'herdr-agent-pane-busy'),
