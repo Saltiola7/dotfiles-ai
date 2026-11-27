@@ -1,5 +1,10 @@
 # dotfiles-ai Distribution Changelog
 
+## 2026-11-26 — Refresh Herdr build proof after CI recovery changes
+
+- Requalify against current main without changing the producer recipe,
+  pinned inputs, or native restore smoke test.
+
 ## 2026-11-26 — Refresh Herdr build qualification
 
 - Reconcile the build-only draft with the published-draft finalization

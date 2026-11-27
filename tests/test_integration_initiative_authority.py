@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 import hashlib
 from pathlib import Path
 import sys
@@ -11,6 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "private_dot_config/dotfiles-ai"))
 from integration_coordinator import core, initiative_authority as authority, initiative_controller as controller, lifecycle as l
+from integration_coordinator.initiative_ci import Policy
 from test_integration_initiative_controller import Provider, Writer
 
 
@@ -214,14 +216,138 @@ def test_custody_rejects_wrong_repository_and_changed_snapshot(approved):
 
 def test_a_repair_must_fit_the_approved_attempt_limit(approved):
     custody, snapshot, _, _ = approved
-    grant = proposal(snapshot, allowed_operations=("launch", "admit", "merge", "repair"), repair_limit=1)
-    identity = authority.store_grant(custody, snapshot, grant, expected_approval_digest=l.digest(grant))
+    grant = proposal(snapshot) | {"allowed_operations": ["launch", "admit", "merge", "repair"], "repair_limit": 1}
+    # A historical schema-1 grant had no class-specific qualification or write scope.
+    identity = custody.write("initiative_grant", grant)
     with_repair = (custody, snapshot, grant, identity)
+    assert authority.store_grant(custody, snapshot, grant, expected_approval_digest=l.digest(grant)) == identity
+    unrecorded = grant | {"operator_id": "another-operator"}
+    with pytest.raises(ValueError, match="initiative_repair_policy_required"):
+        authority.store_grant(custody, snapshot, unrecorded, expected_approval_digest=l.digest(unrecorded))
     with pytest.raises(ValueError):
         require(with_repair, operation="repair")
     with pytest.raises(ValueError):
         require(with_repair, operation="repair", repair_attempt=2)
     assert require(with_repair, operation="repair", repair_attempt=1) == grant
+    with pytest.raises(ValueError, match="initiative_repair_policy_unavailable"):
+        require(with_repair, operation="repair", repair_attempt=1, repair_class="infrastructure_retry")
+
+
+
+CI_POLICY = Policy(no_progress_seconds=120, recheck_seconds=15, max_unavailable_backoff_seconds=90,
+                   retention_seconds=1_800)
+SOURCE_QUALIFICATION = "a" * 64
+INFRA_QUALIFICATION = "b" * 64
+SOURCE_PATH = "code/first.py"
+OTHER_PATH = "code/independent.py"
+
+
+def repair_policy():
+    return {
+        "class_qualifications": {"source_fix": SOURCE_QUALIFICATION, "infrastructure_retry": INFRA_QUALIFICATION},
+        "writable_paths": {"first": [SOURCE_PATH], "independent": [OTHER_PATH]},
+    }
+
+
+def repair_proposal(snapshot, **overrides):
+    return proposal(snapshot, **({
+        "allowed_operations": ("launch", "admit", "merge", "repair"), "repair_limit": 1,
+        "ci_policy": CI_POLICY, "repair_policy": repair_policy(),
+    } | overrides))
+
+
+@pytest.fixture
+def approved_repair(approved):
+    custody, snapshot, _, _ = approved
+    grant = repair_proposal(snapshot)
+    identity = authority.store_grant(custody, snapshot, grant, expected_approval_digest=l.digest(grant))
+    return custody, snapshot, grant, identity
+
+
+def repair(approved, **overrides):
+    return require(approved, **({
+        "operation": "repair", "repair_attempt": 1, "repair_class": "source_fix",
+        "repair_qualification_digest": SOURCE_QUALIFICATION, "repair_paths": (SOURCE_PATH,),
+    } | overrides))
+
+
+def test_enrolled_zero_repair_retains_diagnostics_without_repair_authority(approved):
+    custody, snapshot, original, _ = approved
+    assert original["schema_version"] == 1
+    assert "ci_policy" not in original and "repair_policy" not in original
+    enrolled = proposal(snapshot, ci_policy=CI_POLICY)
+    identity = authority.store_grant(custody, snapshot, enrolled, expected_approval_digest=l.digest(enrolled))
+    assert enrolled["schema_version"] == 2 and enrolled["repair_policy"] is None
+    assert l.initiative_ci_policy(enrolled["ci_policy"]) == CI_POLICY
+    assert require((custody, snapshot, enrolled, identity)) == enrolled
+    with pytest.raises(ValueError, match="initiative_operation_unapproved"):
+        repair((custody, snapshot, enrolled, identity))
+
+
+def test_approval_binds_exact_diagnostics_and_per_class_routes(approved_repair):
+    custody, snapshot, grant, identity = approved_repair
+    assert authority.read_grant(l.Custody(custody.common), identity) == (grant, snapshot)
+    assert repair(approved_repair) == grant
+    assert repair(approved_repair, repair_class="infrastructure_retry",
+                  repair_qualification_digest=INFRA_QUALIFICATION, repair_paths=()) == grant
+    assert repair(approved_repair, slice_id="independent", repair_paths=(OTHER_PATH,)) == grant
+    changed_policy = repair_policy()
+    changed_policy["class_qualifications"]["source_fix"] = "c" * 64
+    changed_qualification = repair_proposal(snapshot, repair_policy=changed_policy)
+    changed_diagnostics = repair_proposal(snapshot, ci_policy=replace(CI_POLICY, retention_seconds=3_600))
+    for changed in (changed_qualification, changed_diagnostics):
+        assert l.digest(changed) != l.digest(grant)
+        with pytest.raises(ValueError, match="initiative_approval_changed"):
+            authority.store_grant(custody, snapshot, changed, expected_approval_digest=l.digest(grant))
+
+
+@pytest.mark.parametrize(("overrides", "reason"), (
+    ({"repair_class": None}, "initiative_repair_class_unapproved"),
+    ({"repair_class": "some_other_route"}, "initiative_repair_class_unapproved"),
+    ({"repair_qualification_digest": "c" * 64}, "initiative_repair_qualification_changed"),
+    ({"repair_paths": ()}, "initiative_repair_paths_unapproved"),
+    ({"repair_paths": (OTHER_PATH,)}, "initiative_repair_paths_unapproved"),
+    ({"repair_paths": (SOURCE_PATH, SOURCE_PATH)}, "initiative_repair_paths_unapproved"),
+    ({"slice_id": "second"}, "initiative_repair_paths_unapproved"),
+    ({"repair_class": "infrastructure_retry", "repair_qualification_digest": INFRA_QUALIFICATION},
+     "initiative_repair_paths_unapproved"),
+    ({"repair_attempt": 2}, "initiative_repair_limit_reached"),
+    ({"now": EXPIRES}, "initiative_grant_inactive"),
+))
+def test_repair_rechecks_class_route_and_exact_slice_paths(approved_repair, overrides, reason):
+    with pytest.raises(ValueError, match=reason):
+        repair(approved_repair, **overrides)
+
+
+def test_approval_can_select_only_the_qualified_infrastructure_route(approved):
+    custody, snapshot, _, _ = approved
+    policy = {"class_qualifications": {"infrastructure_retry": INFRA_QUALIFICATION}, "writable_paths": {}}
+    grant = repair_proposal(snapshot, repair_policy=policy)
+    entry = (custody, snapshot, grant,
+             authority.store_grant(custody, snapshot, grant, expected_approval_digest=l.digest(grant)))
+    assert repair(entry, repair_class="infrastructure_retry", repair_qualification_digest=INFRA_QUALIFICATION,
+                  repair_paths=()) == grant
+    with pytest.raises(ValueError, match="initiative_repair_class_unapproved"):
+        repair(entry)
+
+
+def test_repair_approval_rejects_unselected_paths_and_malformed_policy():
+    snapshot = selected_snapshot()
+    policy = repair_policy()
+    policy["writable_paths"]["predecessor"] = [OTHER_PATH]
+    with pytest.raises(ValueError, match="initiative_repair_slice_scope_unapproved"):
+        repair_proposal(snapshot, repair_policy=policy)
+    for path in ("../code/FIX.py", "code/../FIX.py", ".git/config", "/code/FIX.py", "./code/FIX.py"):
+        policy = repair_policy()
+        policy["writable_paths"]["first"] = [path]
+        with pytest.raises(ValueError, match="initiative_repair_writable_path_invalid"):
+            repair_proposal(snapshot, repair_policy=policy)
+    invalid = repair_proposal(snapshot)
+    invalid["ci_policy"]["recheck_seconds"] = True
+    with pytest.raises(ValueError, match="initiative_ci_policy_invalid"):
+        l.validate("initiative_grant", invalid)
+    with pytest.raises(ValueError, match="initiative_repair_policy_required"):
+        repair_proposal(snapshot, ci_policy=None)
 
 
 def test_custody_rejects_unclosed_or_cyclic_snapshot(approved):

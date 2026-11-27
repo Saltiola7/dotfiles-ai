@@ -7,13 +7,18 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator, Mapping
 from contextlib import contextmanager
+from dataclasses import asdict
 import fcntl
 from functools import cache
 import os
 import stat
 import time
+from typing import TYPE_CHECKING
 
 from . import core, initiative_controller as controller, lifecycle as l
+
+if TYPE_CHECKING:
+    from .initiative_ci import Policy
 
 
 _WITHDRAWN = {"deferred", "rejected"}
@@ -122,15 +127,33 @@ def _reviewed_scope(snapshot: dict, binding: Mapping[str, object]) -> None:
             raise ValueError("initiative_selected_scope_unavailable")
 
 
+def _reviewed_repair_scope(snapshot: dict, proposal: dict) -> None:
+    policy = proposal.get("repair_policy")
+    if policy is not None and policy["writable_paths"].keys() - set(snapshot["selected"]):
+        raise ValueError("initiative_repair_slice_scope_unapproved")
+
+
 def grant_proposal(snapshot: dict, *, binding: dict, operator_id: str, approved_at: str, expires_at: str,
-                   allowed_operations: tuple[str, ...], repair_limit: int) -> dict:
+                   allowed_operations: tuple[str, ...], repair_limit: int, ci_policy: Policy | None = None,
+                   repair_policy: l.InitiativeRepairPolicy | None = None) -> dict:
     """Prepare the complete scope for review by the authenticated operator."""
     binding = l.initiative_binding(binding)
     _reviewed_scope(snapshot, binding)
     proposal = {"schema_version": 1, "snapshot_digest": _snapshot_digest(snapshot), "binding": binding,
                 "operator_id": operator_id, "approved_at": approved_at, "expires_at": expires_at,
                 "allowed_operations": list(allowed_operations), "repair_limit": repair_limit}
+    if ci_policy is None:
+        if repair_policy is not None or repair_limit != 0:
+            raise ValueError("initiative_repair_policy_required")
+    else:
+        from .initiative_ci import Policy
+
+        if type(ci_policy) is not Policy:
+            raise ValueError("initiative_ci_policy_invalid")
+        proposal.update(schema_version=2, ci_policy=asdict(ci_policy),
+                        repair_policy=l.initiative_repair_policy(repair_policy) if repair_policy is not None else None)
     l.validate("initiative_grant", proposal)
+    _reviewed_repair_scope(snapshot, proposal)
     return proposal
 
 
@@ -138,9 +161,17 @@ def store_grant(custody: l.Custody, snapshot: dict, proposal: dict, *, expected_
     """Accept the exact proposal digest provided by the operator approval path."""
     l.validate("initiative_grant", proposal)
     _reviewed_scope(snapshot, proposal["binding"])
+    _reviewed_repair_scope(snapshot, proposal)
     if (l.digest(proposal) != l.hex_value(expected_approval_digest)
             or _snapshot_digest(snapshot) != proposal["snapshot_digest"]):
         raise ValueError("initiative_approval_changed")
+    if proposal["schema_version"] == 1 and proposal["repair_limit"] != 0:
+        identity = l.digest({"schema_version": 1, "kind": "initiative_grant", "value": proposal})
+        try:
+            read_grant(custody, identity)
+        except FileNotFoundError:
+            raise ValueError("initiative_repair_policy_required") from None
+        return identity
     custody.write("initiative_snapshot", snapshot)
     return custody.write("initiative_grant", proposal)
 
@@ -149,6 +180,7 @@ def read_grant(custody: l.Custody, identity: str) -> tuple[dict, dict]:
     proposal = custody.read("initiative_grant", identity)
     snapshot = custody.read("initiative_snapshot", l.hex_value(proposal["snapshot_digest"]))
     _reviewed_scope(snapshot, l.initiative_binding(proposal["binding"]))
+    _reviewed_repair_scope(snapshot, proposal)
     return proposal, snapshot
 
 
@@ -162,8 +194,35 @@ def _mutation_stop(custody: l.Custody, identity: str, proposal: dict, binding: d
     return None
 
 
+def _require_repair(proposal: dict, slice_id: str, attempt: int | None, repair_class: str | None,
+                    qualification_digest: str | None, paths: tuple[str, ...]) -> None:
+    if type(attempt) is not int or not 1 <= attempt <= proposal["repair_limit"]:
+        raise ValueError("initiative_repair_limit_reached")
+    policy = proposal.get("repair_policy")
+    if policy is None:
+        if repair_class is not None or qualification_digest is not None or paths:
+            raise ValueError("initiative_repair_policy_unavailable")
+        return
+    if type(repair_class) is not str or repair_class not in policy["class_qualifications"]:
+        raise ValueError("initiative_repair_class_unapproved")
+    if qualification_digest != policy["class_qualifications"][repair_class]:
+        raise ValueError("initiative_repair_qualification_changed")
+    if type(paths) is not tuple:
+        raise ValueError("initiative_repair_paths_unapproved")
+    if repair_class == "source_fix":
+        approved_paths = policy["writable_paths"].get(slice_id, ())
+        if (not 1 <= len(paths) <= len(approved_paths)
+                or any(type(path) is not str or path not in approved_paths for path in paths)
+                or len(set(paths)) != len(paths)):
+            raise ValueError("initiative_repair_paths_unapproved")
+    elif paths:
+        raise ValueError("initiative_repair_paths_unapproved")
+
+
 def require_grant(custody: l.Custody, identity: str, *, binding: dict, current: dict, slice_id: str,
-                  operation: str, now: str, repair_attempt: int | None = None) -> dict:
+                  operation: str, now: str, repair_attempt: int | None = None,
+                  repair_class: str | None = None, repair_qualification_digest: str | None = None,
+                  repair_paths: tuple[str, ...] = ()) -> dict:
     """Recheck the exact live binding and material scope before an authorized effect."""
     proposal, approved = read_grant(custody, identity)
     stopped = _mutation_stop(custody, identity, proposal, binding, now)
@@ -171,8 +230,8 @@ def require_grant(custody: l.Custody, identity: str, *, binding: dict, current: 
         raise ValueError(stopped)
     if operation not in proposal["allowed_operations"]:
         raise ValueError("initiative_operation_unapproved")
-    if operation == "repair" and (type(repair_attempt) is not int or not 1 <= repair_attempt <= proposal["repair_limit"]):
-        raise ValueError("initiative_repair_limit_reached")
+    if operation == "repair":
+        _require_repair(proposal, slice_id, repair_attempt, repair_class, repair_qualification_digest, repair_paths)
     if not same_material(approved, current, slice_id):
         raise ValueError("initiative_material_changed")
     return proposal

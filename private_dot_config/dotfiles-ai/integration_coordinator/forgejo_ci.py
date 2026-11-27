@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Literal, Protocol
 
 from . import core as c
 from . import forgejo
 from . import forgejo_status
+from . import initiative_ci
 from . import runtime as r
 
 
@@ -102,6 +104,7 @@ class CheckAssessment:
     created_at: datetime | None = None
     elapsed_seconds: int | None = None
     receipt: ExecutionReceipt | None = None
+    progress_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -162,8 +165,9 @@ def _assess_check(subject: Subject, check: RequiredCheck, status: forgejo_status
         if execution.receipts != ():
             return replace(result, state="unavailable", reason="execution_phase_conflict")
         phase: CheckState = "queued" if execution.phase == "queued" else "running"
-        return replace(result, state=phase, reason="execution_" + phase,
-                       elapsed_seconds=_elapsed(execution.started_at, now))
+        elapsed = _elapsed(execution.started_at, now)
+        return replace(result, state=phase, reason="execution_" + phase, elapsed_seconds=elapsed,
+                       progress_at=_utc(execution.started_at) if elapsed is not None else None)
     if execution.phase != "completed" or type(execution.receipts) is not tuple:
         return replace(result, state="unavailable", reason="execution_phase_unavailable")
     if status.state == "pending":
@@ -205,7 +209,7 @@ def assess_ci(subject: Subject, plan: CheckPlan, transport: forgejo.Transport,
 
     try:
         statuses = forgejo_status.read_statuses(subject.binding, candidate.tested_oid, transport)
-    except (c.Invalid, c.Conflict, c.Unavailable, c.Ambiguous):
+    except (OSError, c.Invalid, c.Conflict, c.Unavailable, c.Ambiguous):
         return Assessment(subject, "unavailable", "forgejo_statuses_unavailable", (), None)
     required = {check.context for check in plan.checks}
     latest: dict[str, forgejo_status.Status] = {}
@@ -218,3 +222,60 @@ def assess_ci(subject: Subject, plan: CheckPlan, transport: forgejo.Transport,
     if leading.state == "passed":
         return Assessment(subject, "passed", "required_checks_passed", checks, now)
     return Assessment(subject, leading.state, leading.reason, checks, now, leading.context)
+
+
+
+def initiative_observation(assessment: Assessment, *, read_at: int) -> initiative_ci.Observation:
+    """Project existing qualified checks without widening merge or repair evidence."""
+    candidate = initiative_ci.Candidate.exact(assessment.subject.candidate)
+    check = next((row for row in assessment.checks if row.context == assessment.problem_context), None)
+    if check is None:
+        if assessment.state == "passed":
+            return initiative_ci.Observation(candidate, "passed", assessment.reason, read_at)
+        if assessment.state == "stale":
+            return initiative_ci.Observation(candidate, "stale", assessment.reason, read_at, "stale")
+        return initiative_ci.Observation(candidate, "unavailable", assessment.reason, read_at, "unavailable")
+
+    context = check.context if check.context.isprintable() else None
+    link = forgejo_status._diagnostic_url(check.diagnostic_url, assessment.subject.binding)
+    if link is not None and len(link) > 512:
+        link = None
+    native = check.native_state
+    if assessment.state == "failed":
+        receipt = check.receipt
+        if (receipt is None or receipt.subject != assessment.subject or receipt.context != check.context
+                or receipt.provider != "forgejo" or receipt.status_id != check.status_id
+                or receipt.executed is not True or receipt.conclusion not in _FAILURE_STATES
+                or check.native_state not in _FAILURE_STATES
+                or (receipt.invocation.run_id, receipt.invocation.attempt) != (check.run_id, check.attempt)
+                or context is None):
+            return initiative_ci.Observation(candidate, "unavailable", "required_failure_unproved",
+                                             read_at, "untrusted", check=context, native_state=native)
+        evidence = {"kind": "forgejo_initiative_failure", "subject": c.identity(receipt.subject),
+                    "context": receipt.context, "status_id": receipt.status_id,
+                    "producer": receipt.producer_digest, "invocation": c.identity(receipt.invocation),
+                    "conclusion": receipt.conclusion,
+                    "completed_at": receipt.completed_at.isoformat() if receipt.completed_at else None}
+        failure = sha256(c._canonical(evidence)).hexdigest()
+        return initiative_ci.Observation(candidate, "failed", assessment.reason, read_at, check=context,
+                                         run_id=check.run_id, attempt=check.attempt, diagnostic_url=link,
+                                         failure_digest=failure, native_state=native)
+    if assessment.state == "stale":
+        return initiative_ci.Observation(candidate, "stale", assessment.reason, read_at, "stale",
+                                         check=context, native_state=native)
+    if assessment.state == "unavailable":
+        outcome: initiative_ci.ReadOutcome = ("unavailable" if assessment.reason == "execution_reader_unavailable"
+                                               else "untrusted")
+        return initiative_ci.Observation(candidate, "unavailable", assessment.reason, read_at, outcome,
+                                         check=context, native_state=native)
+
+    if assessment.state == "waiting":
+        state: initiative_ci.State = "missing" if check.status_id is None else "pending"
+    else:
+        state = assessment.state
+    progress_at = int(check.progress_at.timestamp()) if check.progress_at is not None else None
+    if progress_at is not None and not 0 <= progress_at <= read_at:
+        progress_at = None
+    return initiative_ci.Observation(candidate, state, assessment.reason, read_at, check=context,
+                                     run_id=check.run_id, attempt=check.attempt, native_progress_at=progress_at,
+                                     diagnostic_url=link, native_state=native)

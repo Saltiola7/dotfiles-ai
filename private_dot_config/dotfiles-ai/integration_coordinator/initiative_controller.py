@@ -278,6 +278,7 @@ class Report:
     slice_id: str | None = None
     activation_id: str | None = None
     reason: str | None = None
+    next_recheck_at: int | None = None
 
 
 _TRANSITIONS = {
@@ -459,6 +460,8 @@ class ExecutionStore:
                       and (type(reason) is str) == (state in {"stopped", "superseded"}),
                       "initiative_execution_transition")
         with self._connect(write=True) as database:
+            if state == "delivered" and self._unsettled_repair(database, execution.activation.activation_id):
+                return False
             updated = database.execute("""
                 UPDATE activation SET state=?, admission=COALESCE(?, admission), delivery=COALESCE(?, delivery), reason=?
                 WHERE id=? AND state=?
@@ -471,6 +474,15 @@ class ExecutionStore:
                              (execution.activation.activation_id, state,
                               proof.receipt_digest if proof is not None else None, reason))
         return True
+
+
+    @staticmethod
+    def _unsettled_repair(database: sqlite3.Connection, activation_id: str) -> bool:
+        exists = database.execute(
+            "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='initiative_repair'").fetchone()
+        return exists is not None and database.execute(
+            "SELECT 1 FROM initiative_repair WHERE activation_id=? AND state <> 'settled'", (activation_id,)
+        ).fetchone() is not None
 
 
 def _session_matches(activation: Activation, session: object) -> bool:

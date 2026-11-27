@@ -23,6 +23,7 @@ import urllib.request
 import zipfile
 
 from . import core as c
+from . import initiative_ci
 from . import runtime as r
 
 MAX_JSON = 4 * 1024 * 1024
@@ -681,6 +682,17 @@ class FailedChecks(c.Unavailable):
         super().__init__("native_checks_failed")
 
 
+class _RequiredRunPending(c.Unavailable):
+    def __init__(self, run: Mapping[str, object], context: str) -> None:
+        self.context = context
+        self.native_state = run.get("status")
+        self.run_id = run.get("id")
+        self.attempt = run.get("run_attempt")
+        self.started = run.get("run_started_at")
+        self.created = run.get("created_at")
+        super().__init__("native_checks_pending")
+
+
 class SourceChanged(c.Unavailable):
     """Positive same-PR lifecycle fact, never a transport/identity inference.
 
@@ -1218,8 +1230,11 @@ class GitHub:
         _integer(run.get("run_attempt"))
         return run
 
-    def _success(self, value: Mapping[str, object], *, kind: str) -> None:
-        if value.get("status") != "completed": raise c.Unavailable("native_checks_pending")
+    def _success(self, value: Mapping[str, object], *, kind: str, required_context: str | None = None) -> None:
+        if value.get("status") != "completed":
+            if required_context is not None:
+                raise _RequiredRunPending(value, required_context)
+            raise c.Unavailable("native_checks_pending")
         conclusion = _text(value.get("conclusion"), 64)
         if conclusion in {"failure", "cancelled", "timed_out", "action_required", "startup_failure", "stale"}:
             raise FailedChecks(_hash({"kind": kind, "native": dict(value)}))
@@ -1323,7 +1338,8 @@ class GitHub:
             workflow = self.file_at(candidate.tested_oid, binding.workflow_path)
             if workflow is None or hashlib.sha256(workflow).hexdigest() != producer.workflow_digest:
                 raise c.Unavailable("native_workflow_source_changed")
-            self._success(run, kind="workflow_run")
+            required = CheckRequirement(binding.context, binding.app_id) in guards.checks
+            self._success(run, kind="workflow_run", required_context=binding.context if required else None)
             run_id, attempt = _integer(run.get("id")), _integer(run.get("run_attempt"))
             jobs = self.pages(f"actions/runs/{run_id}/attempts/{attempt}/jobs", "jobs", limit=1024)
             found = [_object(job) for job in jobs if _object(job).get("name") == binding.context]
@@ -1357,6 +1373,72 @@ class GitHub:
         self._candidate_facts(candidate, pr_number)
         if self.observe_policy().digest != guards.digest: raise c.Unavailable("native_guard_drift")
         return c.Qualification(c.identity(candidate), candidate.plan_digest, candidate.policy_digest, guards.digest, tuple(evidence))
+
+    def observe_ci(self, candidate: r.Candidate, pr_number: int, read_at: int) -> initiative_ci.Observation:
+        """Read the current exact candidate using unchanged protected check qualification."""
+        exact = initiative_ci.Candidate.exact(candidate)
+        c._integer(pr_number)
+        pull_url = f"https://github.com/{self.enrollment.repository}/pull/{pr_number}"
+        try:
+            proof = self.qualify(candidate, pr_number)
+        except _RequiredRunPending as pending:
+            known = pending.native_state
+            state: initiative_ci.State
+            if known in ("queued", "requested", "waiting"):
+                state = "queued"
+            elif known == "in_progress":
+                state = "running"
+            else:
+                state = "pending"
+            try:
+                run_id, attempt = _integer(pending.run_id), _integer(pending.attempt)
+            except c.Invalid:
+                return initiative_ci.Observation(exact, "unavailable", "native_ci_read_untrusted",
+                                                 read_at, "untrusted")
+            moment = pending.started
+            if state != "running":
+                moment = pending.created if state == "queued" and attempt == 1 else None
+            began = None
+            if moment is not None:
+                try:
+                    stamp = int(_time(moment).timestamp())
+                    if 0 <= stamp <= read_at:
+                        began = stamp
+                except (c.Invalid, OSError, ValueError, OverflowError):
+                    pass
+            context = pending.context if pending.context.isprintable() else None
+            run_url = f"https://github.com/{self.enrollment.repository}/actions/runs/{run_id}"
+            return initiative_ci.Observation(exact, state, "native_checks_" + state, read_at, check=context,
+                                             run_id=run_id, attempt=attempt, native_progress_at=began,
+                                             diagnostic_url=run_url,
+                                             native_state=known if isinstance(known, str) and known.isprintable() and
+                                                                  len(known) <= 64 else None)
+        except FailedChecks:
+            # A workflow conclusion alone does not identify a failed required job or its independent receipt.
+            return initiative_ci.Observation(exact, "unavailable", "native_failed_check_unproved", read_at,
+                                             "untrusted", diagnostic_url=pull_url, native_state="failure")
+        except SourceChanged:
+            return initiative_ci.Observation(exact, "stale", "native_candidate_changed", read_at, "stale")
+        except (c.Invalid, c.Conflict, c.Ambiguous):
+            return initiative_ci.Observation(exact, "unavailable", "native_ci_read_untrusted", read_at, "untrusted")
+        except OSError:
+            return initiative_ci.Observation(exact, "unavailable", "native_ci_read_unavailable", read_at, "unavailable")
+        except c.Unavailable as error:
+            reason = str(error)
+            if reason in {"native_candidate_changed", "native_workflow_source_changed", "native_attempt_changed",
+                          "native_guard_drift"}:
+                return initiative_ci.Observation(exact, "stale", reason, read_at, "stale")
+            if reason in {"native_run_missing", "native_check_missing", "native_job_missing_or_ambiguous"}:
+                return initiative_ci.Observation(exact, "missing", reason, read_at, diagnostic_url=pull_url)
+            if reason == "native_checks_pending":
+                return initiative_ci.Observation(exact, "pending", reason, read_at, diagnostic_url=pull_url)
+            if reason in {"native_read_unavailable", "native_policy_unavailable", "native_receipt_unavailable"}:
+                return initiative_ci.Observation(exact, "unavailable", reason, read_at, "unavailable")
+            return initiative_ci.Observation(exact, "unavailable", "native_ci_read_untrusted", read_at, "untrusted")
+        if (type(proof) is not c.Qualification or proof.candidate_digest != exact.digest
+                or (proof.plan_digest, proof.policy_digest) != (candidate.plan_digest, candidate.policy_digest)):
+            return initiative_ci.Observation(exact, "unavailable", "native_ci_read_untrusted", read_at, "untrusted")
+        return initiative_ci.Observation(exact, "passed", "required_checks_passed", read_at, diagnostic_url=pull_url)
 
     def _approval_required(self) -> bool:
         review: list[dict[str, object]] = []
