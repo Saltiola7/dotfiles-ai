@@ -39,7 +39,13 @@ def cycle(monkeypatch, request, capsys):
     core.git(root, "branch", "--set-upstream-to", "origin/main")
     monkeypatch.chdir(root)
     monkeypatch.setattr(core, "root_dir", lambda: root)
-    monkeypatch.setattr(core, "fetch_forgejo_branch", lambda *_args, **_kwargs: base)
+    comparison_sources = []
+
+    def compare(_root, _remote, _identity, _branch, _account, source):
+        comparison_sources.append(source)
+        return base
+
+    monkeypatch.setattr(core, "fetch_forgejo_branch", compare)
     plan = fixture.plan_path()
     receipt = core.initiative_receipt(root / authority_relative, "local", root)
     argv = [
@@ -52,9 +58,16 @@ def cycle(monkeypatch, request, capsys):
         "--expected-plan-digest", core.hashlib.sha256(plan.read_bytes()).hexdigest(),
         "--expected-repository-json", json.dumps(IDENTITY), "--approval", "agent-confirmed",
     ]
+    if getattr(request, "param", None):
+        argv.extend(["--forge-credential-source", request.param])
+        # This fixture tests lifecycle wiring, not executable provenance.
+        # The evidence sandbox does not map the native root-owned Git UID.
+        # The systemd fixture covers the real executable trust check.
+        monkeypatch.setattr(core, "_forgejo_tools", lambda: ("/usr/bin/git", "/usr/lib/git-core"))
     args = core.parser().parse_args([*argv, "--preflight"])
     core.command_begin(args)
     preview = json.loads(capsys.readouterr().out)
+    assert not fixture.record_path().exists()
     args.preflight = False
     args.expected_launch_digest = preview["launch_digest"]
     core.command_begin(args)
@@ -82,7 +95,16 @@ def cycle(monkeypatch, request, capsys):
         return core.main()
 
     return SimpleNamespace(core=core, fixture=fixture, root=root, path=path,
-                           base=base, invoke=invoke, forbidden=forbidden, begin_argv=argv)
+                           base=base, invoke=invoke, forbidden=forbidden, begin_argv=argv,
+                           comparison_sources=comparison_sources, preview=preview)
+
+
+@pytest.mark.parametrize("cycle", ["systemd-broker"], indirect=True)
+def test_broker_preflight_and_registration_share_exact_source(cycle):
+    assert cycle.comparison_sources == ["systemd-broker"] * 3
+    record = json.loads(cycle.path.read_text())
+    assert record["delivery"]["forge"]["credential_source"] == "systemd-broker"
+    assert record["initiative_approval"]["launch_digest"] == cycle.preview["launch_digest"]
 
 
 def test_resume_refuses_new_comparison_base_even_with_fresh_preflight(cycle, monkeypatch, capsys):

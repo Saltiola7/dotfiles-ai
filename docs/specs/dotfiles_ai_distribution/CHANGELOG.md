@@ -1,5 +1,16 @@
 # dotfiles-ai Distribution Changelog
 
+## Forgejo comparison broker
+
+- Add an opt-in, read-only Linux broker for Forgejo comparisons. A separate
+  controller UID holds the token; DBSCTR approval and registration remain in
+  the teammate's checkout.
+- Validate socket activation, encrypted dummy credentials, HTTPS fetch,
+  wrong-UID refusal, and credential replacement in a disposable systemd
+  fixture with SHA-1 and SHA-256 repositories.
+- Source delivery is a draft PR. Live installation and token enrollment are
+  separate administrator operations.
+
 ## 2026-11-26 — Refresh Herdr build proof after CI recovery changes
 
 - Requalify against current main without changing the producer recipe,

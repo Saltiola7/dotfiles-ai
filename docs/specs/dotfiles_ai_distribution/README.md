@@ -1,5 +1,11 @@
 # dotfiles-ai Distribution
 
+[Forgejo controller isolation](features/forgejo-controller-isolation.md) specifies an
+opt-in Linux service for the Forgejo reads used by DBSCTR preflight and approved
+registration. Each enrolled teammate gets a separate non-login controller
+account. On Mac hardware the controller runs in a Linux VM. Enrollment is
+separate from applying dotfiles.
+
 [Lifecycle CLI rollout](features/operator-cli-rollout.md) specifies how to
 qualify the operator CLI fixes on Omarchy desktops and RHEL-family servers
 after verified source delivery.

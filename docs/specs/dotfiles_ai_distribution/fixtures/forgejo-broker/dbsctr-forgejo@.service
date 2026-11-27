@@ -1,0 +1,24 @@
+[Unit]
+Description=DBSCTR read-only Forgejo comparison (%i)
+
+[Service]
+Type=exec
+# Set User and Group to the enrolled non-login controller in an instance drop-in.
+User=dbsctr-forgejo-unconfigured
+ExecStart=/usr/bin/python3 -I -B /usr/local/libexec/dbsctrctl _forgejo-broker-serve %i
+LoadCredentialEncrypted=dbsctr-forgejo:/etc/dbsctr-forgejo/%i.cred
+RuntimeMaxSec=60s
+TimeoutStopSec=2s
+UMask=0077
+NoNewPrivileges=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+TemporaryFileSystem=/tmp:rw,nodev,nosuid,noexec,size=512M,mode=1777
+Environment=TMPDIR=/tmp
+LimitFSIZE=128M
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+StandardOutput=null

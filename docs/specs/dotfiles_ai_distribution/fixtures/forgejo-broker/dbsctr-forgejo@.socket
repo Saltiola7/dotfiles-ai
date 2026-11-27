@@ -1,0 +1,13 @@
+[Unit]
+Description=DBSCTR Forgejo comparison listener (%i)
+
+[Socket]
+ListenStream=/run/dbsctr-forgejo/%i.sock
+Accept=no
+SocketUser=root
+# Set SocketGroup to the enrolled teammate's restricted group in a drop-in.
+SocketGroup=root
+SocketMode=0660
+DirectoryMode=0755
+RemoveOnStop=yes
+Backlog=4

@@ -127,7 +127,8 @@ BACKLOG_COLUMNS = {
 }
 BACKLOG_ACTIVE_STATUSES = {"pending", "in_progress", "blocked", "cancelled"}
 BACKLOG_COMMIT = re.compile(r"(?<![0-9a-f])[0-9a-f]{7,64}(?![0-9a-f])")
-FORGEJO_CREDENTIAL_SOURCES = ("osxkeychain", "systemd")
+FORGEJO_DIRECT_CREDENTIAL_SOURCES = ("osxkeychain", "systemd")
+FORGEJO_CREDENTIAL_SOURCES = (*FORGEJO_DIRECT_CREDENTIAL_SOURCES, "systemd-broker")
 
 
 def fail(message):
@@ -4227,11 +4228,45 @@ def _forgejo_systemd_directory():
         raise RuntimeError("Forgejo systemd credential unavailable") from None
 
 
-def _forgejo_systemd_password(identity, account):
+def _forgejo_broker_credentials():
+    try:
+        uid = os.getuid()
+        directory = Path(os.environ["CREDENTIALS_DIRECTORY"])
+        if (sys.platform != "linux" or uid == 0
+                or directory.parent != Path("/run/credentials")
+                or not re.fullmatch(r"dbsctr-forgejo@[0-9a-f]{64}\.service", directory.name)
+                or directory.resolve(strict=True) != directory):
+            raise ValueError()
+        details = directory.lstat()
+        if (not stat.S_ISDIR(details.st_mode) or details.st_uid not in {0, uid}
+                or details.st_mode & 0o022):
+            raise ValueError()
+        return directory
+    except (KeyError, OSError, RuntimeError, ValueError):
+        fail("Forgejo broker credential unavailable")
+
+
+def _forgejo_broker_credential_mode(fd, details, uid):
+    import struct
+
+    mode = stat.S_IMODE(details.st_mode)
+    if details.st_uid == uid and mode == 0o400:
+        return bool(os.fstatvfs(fd).f_flag & os.ST_RDONLY)
+    if details.st_uid != 0 or mode != 0o440:
+        return False
+    # Linux POSIX ACL xattr version 2. The group-class mode bit is the
+    # ACL mask, not permission for the owning group.
+    acl = os.getxattr(fd, "system.posix_acl_access")
+    unset = 0xFFFFFFFF
+    expected = [(1, 4, unset), (2, 4, uid), (4, 0, unset), (16, 4, unset), (32, 0, unset)]
+    return acl == struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *row) for row in expected)
+
+
+def _forgejo_systemd_password(identity, account, *, broker=False):
     """Read one fixed, scoped credential without exposing file or parser details."""
     maximum = 16 * 1024
     try:
-        directory = _forgejo_systemd_directory()
+        directory = _forgejo_broker_credentials() if broker else _forgejo_systemd_directory()
         parent = os.open(directory, os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC)
         try:
             descriptor = os.open("dbsctr-forgejo", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC,
@@ -4240,8 +4275,12 @@ def _forgejo_systemd_password(identity, account):
             os.close(parent)
         with os.fdopen(descriptor, "rb") as stream:
             details = os.fstat(stream.fileno())
-            if (not stat.S_ISREG(details.st_mode) or details.st_uid != os.getuid() or details.st_nlink != 1
-                    or stat.S_IMODE(details.st_mode) != 0o400 or not 0 < details.st_size <= maximum):
+            if (not stat.S_ISREG(details.st_mode) or details.st_nlink != 1
+                    or not 0 < details.st_size <= maximum):
+                raise ValueError()
+            uid = os.getuid()
+            if not (_forgejo_broker_credential_mode(stream.fileno(), details, uid) if broker else
+                    details.st_uid == uid and stat.S_IMODE(details.st_mode) == 0o400):
                 raise ValueError()
             raw = stream.read(maximum + 1)
             if len(raw) != details.st_size:
@@ -4261,7 +4300,7 @@ def _forgejo_systemd_password(identity, account):
         raise RuntimeError("Forgejo systemd credential unavailable") from None
 
 
-def forgejo_credential_helper(operation, identity, account, credential_source="osxkeychain"):
+def forgejo_credential_helper(operation, identity, account, credential_source="osxkeychain", *, broker=False):
     """Implement the get-only Git helper protocol; native storage is never changed."""
     if operation != "get":
         return
@@ -4294,7 +4333,9 @@ def forgejo_credential_helper(operation, identity, account, credential_source="o
                 "path": identity["repository"] + ".git", "username": account}
     if fields != expected:
         fail("Forgejo credential request mismatch")
-    if credential_source == "systemd":
+    if broker:
+        password = _forgejo_systemd_password(identity, account, broker=True)
+    elif credential_source == "systemd":
         password = _forgejo_systemd_password(identity, account)
     elif credential_source == "osxkeychain":
         query = {"server": parsed.hostname, "port": parsed.port or 0, "protocol": "https",
@@ -4318,18 +4359,19 @@ def forgejo_credential_helper(operation, identity, account, credential_source="o
 
 def forgejo_internal_main(argv):
     """Handle the fixed internal helper before ordinary CLI or lifecycle dispatch."""
-    if argv[:1] != ["_forgejo-credential"]:
+    broker = argv[:1] == ["_forgejo-broker-credential"]
+    if not broker and argv[:1] != ["_forgejo-credential"]:
         return False
     try:
         if len(argv) not in (6, 8) or argv[1] != "--identity-json" or argv[3] != "--account":
             raise ValueError()
         source = "osxkeychain"
         if len(argv) == 8:
-            if argv[5] != "--credential-source" or argv[6] not in FORGEJO_CREDENTIAL_SOURCES:
+            if broker or argv[5] != "--credential-source" or argv[6] not in FORGEJO_DIRECT_CREDENTIAL_SOURCES:
                 raise ValueError()
             source = argv[6]
         operation = argv[-1]
-        if operation == "get" and source == "osxkeychain":
+        if operation == "get" and source == "osxkeychain" and not broker:
             import pwd
             home = pwd.getpwuid(os.getuid()).pw_dir
             if (not isinstance(home, str) or not Path(home).is_absolute()
@@ -4339,29 +4381,286 @@ def forgejo_internal_main(argv):
             # Keychain preferences. Its Git parent keeps the private home.
             os.environ["HOME"] = home
         options = (source,) if len(argv) == 8 else ()
-        forgejo_credential_helper(operation, json.loads(argv[2]), argv[4], *options)
+        if broker:
+            forgejo_credential_helper(operation, json.loads(argv[2]), argv[4], broker=True)
+        else:
+            forgejo_credential_helper(operation, json.loads(argv[2]), argv[4], *options)
     except Exception:
         sys.stdout.write("quit=true\n\n")
         sys.stdout.flush()
     return True
 
 
+def _forgejo_broker_enrollment(uid: int, identity: dict, account: str, ref: str) -> str:
+    value = _forgejo_identity(identity)
+    encoded = json.dumps([uid, value["origin"], value["repository"], account, ref],
+                         ensure_ascii=True, separators=(",", ":")).encode("ascii")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _forgejo_broker_receive(peer, destination, enrollment: str, object_format: str, deadline: float) -> str:
+    """Copy a bounded response to private staging; do not import or update refs."""
+    def read_chunk(size):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise ValueError()
+        peer.settimeout(remaining)
+        return peer.recv(size)
+
+    try:
+        header = bytearray()
+        while len(header) < 1024:
+            byte = read_chunk(1)
+            if byte == b"\n":
+                break
+            if not byte:
+                raise ValueError()
+            header.extend(byte)
+        else:
+            raise ValueError()
+        value = json.loads(header.decode("utf-8"), object_pairs_hook=no_duplicate_keys)
+        width = {"sha1": 40, "sha256": 64}.get(object_format)
+        if (width is None or not isinstance(value, dict)
+                or set(value) != {"version", "enrollment", "object_format", "commit", "size"}
+                or type(value["version"]) is not int or value["version"] != 1
+                or value["enrollment"] != enrollment or value["object_format"] != object_format
+                or not isinstance(value["commit"], str)
+                or not re.fullmatch(rf"[0-9a-f]{{{width}}}", value["commit"])
+                or type(value["size"]) is not int or not 0 < value["size"] <= 128 * 1024 * 1024):
+            raise ValueError()
+        pending = value["size"]
+        while pending:
+            chunk = read_chunk(min(pending, 64 * 1024))
+            if not chunk or destination.write(chunk) != len(chunk):
+                raise ValueError()
+            pending -= len(chunk)
+        if read_chunk(1):
+            raise ValueError()
+        return value["commit"]
+    except (OSError, RuntimeError, ValueError, RecursionError):
+        fail("Forgejo broker response unavailable")
+
+
+def _forgejo_broker_request(enrollment: str, bundle: Path, object_format: str, deadline: float) -> str:
+    if sys.platform != "linux" or not re.fullmatch(r"[0-9a-f]{64}", enrollment):
+        fail("Forgejo broker unavailable")
+    endpoint = Path("/run/dbsctr-forgejo") / (enrollment + ".sock")
+    try:
+        for path in (Path("/"), Path("/run"), endpoint.parent):
+            details = path.lstat()
+            if not stat.S_ISDIR(details.st_mode) or details.st_uid != 0 or details.st_mode & 0o022:
+                fail("Forgejo broker endpoint unavailable")
+        details = endpoint.lstat()
+        if not stat.S_ISSOCK(details.st_mode) or details.st_uid != 0 or details.st_mode & 0o007:
+            fail("Forgejo broker endpoint unavailable")
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+            import struct
+            credentials = struct.Struct("iII")
+            peer.settimeout(max(0.001, deadline - time.monotonic()))
+            peer.connect(str(endpoint))
+            _, uid, _ = credentials.unpack(peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                           credentials.size))
+            if uid != 0:
+                fail("Forgejo broker peer unavailable")
+            peer.settimeout(max(0.001, deadline - time.monotonic()))
+            peer.sendall(b"DBSCTR FORGEJO 1\n")
+            peer.shutdown(socket.SHUT_WR)
+            with bundle.open("xb") as output:
+                return _forgejo_broker_receive(peer, output, enrollment, object_format, deadline)
+    except OSError:
+        fail("Forgejo broker unavailable")
+
+
+def _serve_forgejo_broker(enrollment: str) -> None:
+    import struct
+
+    if (sys.platform != "linux" or os.getuid() == 0
+            or not re.fullmatch(r"[0-9a-f]{64}", enrollment)
+            or os.environ.pop("LISTEN_PID", None) != str(os.getpid())
+            or os.environ.pop("LISTEN_FDS", None) != "1"):
+        fail("Forgejo broker activation unavailable")
+    os.environ.pop("LISTEN_FDNAMES", None)
+    os.set_inheritable(3, False)
+    config = Path("/etc/dbsctr-forgejo") / (enrollment + ".json")
+    for path in (config.parent.parent, config.parent):
+        details = path.lstat()
+        if not stat.S_ISDIR(details.st_mode) or details.st_uid != 0 or details.st_mode & 0o022:
+            fail("Forgejo broker enrollment unavailable")
+    fd = os.open(config, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        details = os.fstat(stream.fileno())
+        if not stat.S_ISREG(details.st_mode) or details.st_uid != 0 or details.st_mode & 0o022:
+            fail("Forgejo broker enrollment unavailable")
+        raw = stream.read(4097)
+    value = json.loads(raw, object_pairs_hook=no_duplicate_keys) if len(raw) <= 4096 else None
+    if (not isinstance(value, dict)
+            or set(value) != {"uid", "controller_uid", "origin", "repository", "account",
+                              "branch", "object_format"}
+            or type(value["uid"]) is not int or not 0 < value["uid"] < 2**32 - 1
+            or type(value["controller_uid"]) is not int or value["controller_uid"] != os.getuid()
+            or value["uid"] == value["controller_uid"] or not isinstance(value["account"], str)
+            or not OPAQUE_ID.fullmatch(value["account"])
+            or not isinstance(value["branch"], str) or not 0 < len(value["branch"]) <= 1024
+            or value["object_format"] not in ("sha1", "sha256")):
+        fail("Forgejo broker enrollment unavailable")
+    identity = _forgejo_identity({"provider": "forgejo", "origin": value["origin"],
+                                  "repository": value["repository"]})
+    ref = "refs/heads/" + value["branch"]
+    if _forgejo_broker_enrollment(value["uid"], identity, value["account"], ref) != enrollment:
+        fail("Forgejo broker enrollment unavailable")
+    with socket.socket(fileno=3) as listener:
+        if (listener.family != socket.AF_UNIX or listener.type != socket.SOCK_STREAM
+                or not listener.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN)
+                or listener.getsockname() != f"/run/dbsctr-forgejo/{enrollment}.sock"):
+            fail("Forgejo broker activation unavailable")
+        listener.settimeout(5)
+        peer, _ = listener.accept()
+        with peer:
+            credentials = struct.Struct("iII")
+            _, uid, _ = credentials.unpack(peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                           credentials.size))
+            if uid != value["uid"]:
+                return
+            request = b"DBSCTR FORGEJO 1\n"
+            start = time.monotonic()
+            data = bytearray()
+            while len(data) <= len(request):
+                remaining = start + 2 - time.monotonic()
+                if remaining <= 0:
+                    fail("Forgejo broker timed out")
+                peer.settimeout(remaining)
+                chunk = peer.recv(len(request) + 1 - len(data))
+                if not chunk:
+                    break
+                data.extend(chunk)
+            if data != request:
+                return
+            _forgejo_broker_reply(peer, enrollment, identity, value, ref, start + 55)
+
+
+def _forgejo_broker_reply(peer, enrollment, identity, value, ref, deadline):
+    git_binary, _ = _forgejo_tools()
+    env = _forgejo_environment()
+    with tempfile.TemporaryDirectory(prefix="dbsctr-forgejo-serve-") as directory:
+        root = Path(directory)
+
+        def run(*args):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                fail("Forgejo broker timed out")
+            return _forgejo_run([git_binary, *args], cwd=root, env=env, timeout=remaining)
+
+        url = identity["origin"] + "/" + identity["repository"] + ".git"
+        if (run("init", "--bare", "--template=", "--object-format=" + value["object_format"]).returncode
+                or run("config", "remote.origin.url", url).returncode):
+            fail("Forgejo broker Git store unavailable")
+        commit = _fetch_forgejo_branch(root, "origin", identity, value["branch"], value["account"],
+                                       "systemd", broker=True)
+        bundle = root / "comparison.bundle"
+        if (run("update-ref", ref, commit).returncode
+                or run("bundle", "create", str(bundle), ref).returncode):
+            fail("Forgejo broker bundle unavailable")
+        with bundle.open("rb") as stream:
+            size = os.fstat(stream.fileno()).st_size
+            if not 0 < size <= 128 * 1024 * 1024:
+                fail("Forgejo broker bundle unavailable")
+
+            def send(data):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    fail("Forgejo broker timed out")
+                peer.settimeout(remaining)
+                peer.sendall(data)
+
+            header = {"version": 1, "enrollment": enrollment, "object_format": value["object_format"],
+                      "commit": commit, "size": size}
+            send(json.dumps(header, separators=(",", ":")).encode("ascii") + b"\n")
+            while chunk := stream.read(64 * 1024):
+                send(chunk)
+
+
+def _fetch_forgejo_broker_branch(root, remote, identity, base_branch, account):
+    deadline = time.monotonic() + 60
+    identity = _forgejo_identity(identity)
+    if not isinstance(account, str) or not OPAQUE_ID.fullmatch(account):
+        fail("Forgejo credential selection unavailable")
+    destinations = forgejo_remote_urls(root, remote, identity)
+    executable, _ = _forgejo_tools()
+    env = _forgejo_environment()
+
+    def run(*args, cwd=root, environment=env, limit=5):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            fail("Forgejo broker timed out")
+        return _forgejo_run([executable, *args], cwd=cwd, env=environment, timeout=min(remaining, limit))
+
+    ref = "refs/heads/" + base_branch
+    tracking = f"refs/remotes/{remote}/{base_branch}"
+    for candidate in (ref, tracking):
+        if len(candidate) > 1024 or run("check-ref-format", candidate).returncode:
+            fail("Forgejo comparison ref unavailable")
+    previous = run("rev-parse", "--verify", "--quiet", tracking)
+    storage = run("rev-parse", "--show-object-format")
+    object_dir = run("rev-parse", "--path-format=absolute", "--git-path", "objects")
+    object_format = storage.stdout.strip()
+    if (previous.returncode not in (0, 1) or storage.returncode or object_dir.returncode
+            or object_format not in {"sha1", "sha256"} or not Path(object_dir.stdout.strip()).is_dir()):
+        fail("Forgejo comparison object store unavailable")
+    with tempfile.TemporaryDirectory(prefix="dbsctr-forgejo-broker-") as directory:
+        private = Path(directory)
+        bundle = private / "comparison.bundle"
+        expected = _forgejo_broker_request(
+            _forgejo_broker_enrollment(os.getuid(), identity, account, ref), bundle, object_format, deadline)
+        stage = private / "stage.git"
+        if run("init", "--bare", "--template=", "--object-format=" + object_format, str(stage),
+               cwd=private).returncode:
+            fail("Forgejo broker staging unavailable")
+        heads = run("bundle", "list-heads", str(bundle), cwd=stage)
+        if heads.returncode or heads.stdout.splitlines() != [f"{expected} {ref}"]:
+            fail("Forgejo broker comparison identity unavailable")
+        if run("bundle", "verify", str(bundle), cwd=stage).returncode:
+            fail("Forgejo broker bundle prerequisites unavailable")
+        fetch = ("-c", "fetch.fsckObjects=true", "-c", "core.hooksPath=/dev/null",
+                       "fetch", "--no-tags", "--no-recurse-submodules", "--no-auto-maintenance",
+                       "--no-write-commit-graph", "--no-write-fetch-head", "--",
+                       str(bundle), f"{ref}:refs/dbsctr-fetch/base")
+        bundle_env = {**env, "GIT_ALLOW_PROTOCOL": "file", "GIT_PROTOCOL_FROM_USER": "1"}
+        imported = run(*fetch, cwd=stage, limit=60, environment=bundle_env)
+        verified = run("cat-file", "-t", expected, cwd=stage)
+        if imported.returncode or verified.returncode or verified.stdout.strip() != "commit":
+            fail("Forgejo broker comparison import unavailable")
+        if forgejo_remote_urls(root, remote, identity) != destinations:
+            fail("Forgejo remote selection changed")
+        if (run("update-ref", "-d", "refs/dbsctr-fetch/base", expected, cwd=stage).returncode
+                or run(*fetch, cwd=stage, limit=60, environment={
+                    **bundle_env, "GIT_OBJECT_DIRECTORY": object_dir.stdout.strip()}).returncode):
+            fail("Forgejo broker comparison promotion unavailable")
+        old = previous.stdout.strip() if previous.returncode == 0 else "0" * len(expected)
+        if run("-c", "core.hooksPath=/dev/null", "update-ref", "--no-deref", tracking,
+               expected, old).returncode:
+            fail("Forgejo comparison ref changed")
+        return expected
+
+
 def fetch_forgejo_branch(root, remote, identity, base_branch, account, credential_source="osxkeychain"):
     """Fetch one comparison ref; filesystem failures retain a fixed safe category."""
     try:
+        if credential_source == "systemd-broker":
+            return _fetch_forgejo_broker_branch(root, remote, identity, base_branch, account)
         return _fetch_forgejo_branch(root, remote, identity, base_branch, account, credential_source)
     except (OSError, ValueError, subprocess.SubprocessError):
         fail("Forgejo transport unavailable")
 
 
-def _fetch_forgejo_branch(root, remote, identity, base_branch, account, credential_source):
+def _fetch_forgejo_branch(root, remote, identity, base_branch, account, credential_source, *, broker=False):
     """Keep source configuration outside the network transport process."""
     import shlex
     identity = _forgejo_identity(identity)
     if (not isinstance(account, str) or not OPAQUE_ID.fullmatch(account)
-            or credential_source not in FORGEJO_CREDENTIAL_SOURCES):
+            or credential_source not in FORGEJO_DIRECT_CREDENTIAL_SOURCES):
         fail("Forgejo credential selection unavailable")
-    credential_directory = _forgejo_systemd_directory() if credential_source == "systemd" else None
+    credential_directory = (_forgejo_broker_credentials() if broker else
+                            _forgejo_systemd_directory() if credential_source == "systemd" else None)
     executable, exec_path = _forgejo_tools()
     environment = _forgejo_environment()
     tracking = f"refs/remotes/{remote}/{base_branch}"
@@ -4400,10 +4699,14 @@ def _fetch_forgejo_branch(root, remote, identity, base_branch, account, credenti
         if result.returncode:
             fail("Forgejo transport initialization unavailable")
         environment.update({"GIT_DIR": str(control), "GIT_OBJECT_DIRECTORY": str(object_path)})
-        helper = "!exec " + shlex.join([_forgejo_trusted_file(sys.executable), "-I", "-B",
-            str(Path(__file__).resolve()), "_forgejo-credential", "--identity-json",
+        helper_args = [_forgejo_trusted_file(sys.executable), "-I", "-B",
+            str(Path(__file__).resolve()),
+            "_forgejo-broker-credential" if broker else "_forgejo-credential", "--identity-json",
             json.dumps(identity, sort_keys=True, separators=(",", ":")), "--account", account,
-            "--credential-source", credential_source])
+        ]
+        if not broker:
+            helper_args.extend(["--credential-source", credential_source])
+        helper = "!exec " + shlex.join(helper_args)
         fetch_environment = environment.copy()
         if credential_directory is not None:
             fetch_environment["CREDENTIALS_DIRECTORY"] = str(credential_directory)
@@ -29493,6 +29796,15 @@ def main():
     try:
         if forgejo_internal_main(sys.argv[1:]):
             return 0
+        if sys.argv[1:2] == ["_forgejo-broker-serve"]:
+            try:
+                if len(sys.argv) != 3:
+                    raise ValueError()
+                _serve_forgejo_broker(sys.argv[2])
+                return 0
+            except (OSError, RuntimeError, ValueError, TypeError, RecursionError):
+                print("dbsctrctl: Forgejo broker request unavailable", file=sys.stderr)
+                return 1
         if sys.argv[1:2] == ["history-source-validate"] and (
                 len(sys.argv) != 4 or sys.argv[2] != "--envelope-json"):
             history_source_fail("invalid_arguments")
