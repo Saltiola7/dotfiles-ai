@@ -982,12 +982,14 @@ def observe(target, plan):
                     STEP = 'observe-' + target + '-session-api-identity'
                     require(data['id'] == pane['session_id'])
                     STEP = 'observe-' + target + '-session-api-directory'
-                    require(data['location']['directory'] == pane['cwd'])
+                    if data['location']['directory'] != pane['cwd']:
+                        raise CommandFailure('directory-mismatch')
         if target == 'herdr-core':
             STEP = 'observe-herdr-core-tui-inactive'
             require(unit('show', 'remote-herdr-tui.service', '-p', 'ActiveState', '--value') == 'inactive')
             transient_owners(backend, clients)
         else:
+            STEP = 'observe-tui-unit-active'
             require(unit('is-active', 'remote-herdr-tui.service') == 'active')
         return capture
 
@@ -3361,6 +3363,10 @@ def stop_restore_ticks():
         print('F07: restore-service-quiescent-after-refusal')
 
 
+def manifest_digest(manifest):
+    return hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()
+
+
 def k_arm():
     """Exercise the owner CLI and native shutdown writer on the 50-client TUI."""
     global STEP
@@ -3425,6 +3431,9 @@ def k_arm():
         backend = Native(HOME, store)
         witness = store.read('tui-observation.json')
         require(not witness['hold'] and len(witness['clients']) == 51)
+        # The timer may already have adopted the added tab before the final
+        # resize/close. Offline adoption must back up the actual prior owner.
+        prior_manifest = manifest_digest(store.read('manifest.json'))
         run_proof = witness['run']
         proofs = [binding['process'] for binding in witness['clients'].values()]
         STEP = 'k-resize-native-split-after-last-tick'
@@ -3443,7 +3452,8 @@ def k_arm():
     require(not backend.endpoint_present('herdr-core'))
     # Fixture expectations only; no write to any controller/native state.
     write(K_EXPECTED, {'plan': plan, 'closed': closed, 'new': new, 'prior_boot': prior_boot,
-                       'exited': proofs, 'journal': journal, 'boots': 0})
+                       'exited': proofs, 'journal': journal, 'boots': 0,
+                       'prior_manifest': prior_manifest})
     require(backend_pid() == pid)
 
 
@@ -3464,17 +3474,22 @@ def k_boot(*, second):
     # journal proves the real timer completed its start under its own lock.
     stop_restore_ticks()
     captured = observe('tui', plan)
+    STEP = 'k-second-boot-client-exit' if second else 'k-first-boot-client-exit'
     with Store(ROOT) as store:
         backend = Native(HOME, store)
         require(len(captured['clients']) == 50 and backend._pids_absent(evidence['exited']))
+        STEP = 'k-boot-closed-and-later-client-coverage'
         require(not backend.scan({evidence['closed']}) and len(backend.scan({evidence['new']})) == 1)
+        STEP = 'k-boot-switch-journal-unchanged'
         require(hashlib.sha256((ROOT / 'transaction.json').read_bytes()).hexdigest() == evidence['journal'])
+        STEP = 'k-boot-exact-prior-manifest-backup'
         manifest = store.read('manifest.json')
-        require(native_semantic(backend)(store.read(manifest['receipt']['adoption_backup'])['manifest']['plan'])
-                == native_semantic(backend)(json.loads(EXPECTED.read_text())))
+        require(manifest_digest(store.read(manifest['receipt']['adoption_backup'])['manifest'])
+                == evidence['prior_manifest'])
         evidence.update(prior_boot=store.read('boot.json')['receipt']['txid'], boots=evidence['boots'] + 1,
                         exited=fixture_captured_client_proofs(backend, captured))
     write(K_EXPECTED, evidence)
+    STEP = 'k-boot-shared-backend-unchanged'
     require(backend_pid() == pid)
     print('F07: edited-layout-exact-clients-50', 'second-boot' if second else 'first-boot', flush=True)
     if second:
