@@ -21,7 +21,7 @@ constants. Preserve original recovery inventories, archives and uncertain operat
 |---|---|---|
 | Valid external volume | Tool/service starts | Intended state and credential boundary selected; functional probe succeeds |
 | Missing/wrong volume | Startup/probe runs | Fail clearly before writes; no empty fallback profile |
-| Intentionally removed PPC DVC data | Inventory runs | Classified as intentional, not clone damage; no automatic hydration |
+| Intentionally removed private-project DVC data | Inventory runs | Classified as intentional, not clone damage; no automatic hydration |
 | Missing Git worktree registration/path | Native inventory runs | Distinguish absent checkout, broken gitdir and retained work; preserve evidence |
 | Optional auth unavailable | Shell starts | Remains usable; integration reports unavailable without secret output |
 | Existing conversations and histories | Runtime is repaired/restarted | Exact identities and correct local databases remain accessible |
@@ -35,7 +35,7 @@ sanitized categories only. A version check alone never proves state access.
 
 - Git/Worktrunk: native worktree inventory, gitdir/backlink checks, non-destructive
   Git reads. Do not prune historical temporary registrations or repair ambiguous
-  ownership automatically. Investigate the known SDS worktree inventory failure.
+  ownership automatically. Investigate known private-project worktree inventory failures.
 - DVC: configuration/cache identity, metadata and requested-target availability;
   no full pull, shared-cache GC or copy fallback. DVC upload remains separately
   approved if metadata/output identities actually change.

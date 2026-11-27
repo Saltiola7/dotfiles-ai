@@ -14,7 +14,7 @@ relations: []
 owns:
   - "Shared Fedora guest package provisioning and Podman/Colima runtime validation"
 reads:
-  - "enterprise-seo-tools Compose, Make, mounts, health endpoints, and retained runtime state"
+  - "Protected workload runtime interfaces and retained state, identified in private inventory"
 parallel_safe: false
 validation:
   - "Focused rendering tests, live guest tooling probes, clean Podman image build, five-service operation, named-volume identity, serialized Colima fallback, and restored Podman health"

@@ -17,8 +17,9 @@ major dependency versions when permitted. Explicit upper bounds and exact pins
 remain authoritative. Widening a constraint or changing a Python minor returns to
 Discovery. Resolve conflicts and runtime incompatibilities before activation.
 
-Exclude enterprise-seo-tools entirely, all production environments and SDS GKE
-production/shared production inputs. Base SDS/development upgrades are in scope.
+Exclude the designated private project entirely and all production environments.
+For other private projects, only explicitly classified development environments
+are in scope; production and shared production inputs remain protected.
 No project code changes, installs or environment syncs occur during inventory.
 
 INT-028 defers content-evidence-workbench and search-taxonomy-lab upgrades until
@@ -41,27 +42,24 @@ upgrade targets merely because a .venv exists. Unknown/shared consumers block
 activation until classified. Do not overwrite another writer's dirty environment.
 
 Existing preliminary inventory covers content-evidence-workbench, search-taxonomy-lab,
-dotfiles, dotfiles-ai, mlc, rbc, tsc, tsc-data and SDS; it is not exhaustive.
-Some tsc environments were repaired by preserving interpreter identity, not upgraded.
+dotfiles, dotfiles-ai and several private project environments; it is not exhaustive.
+Some private project environments were repaired by preserving interpreter identity,
+not upgraded.
 Fresh enumeration must include linked checkouts and guest/tool environments.
 
-## SDS production boundary, verified from source
+## Private project production boundaries
 
-Root pyproject.toml requires Python >=3.14,<3.15 and litellm>=1.83.7. Its explicit
-fastapi<0.137 ceiling documents a Prefect test-harness incompatibility; preserve it.
-Historical environment checks found LiteLLM 1.89.0 incompatible with Python 3.14.
-A previously resolved newer candidate is not a current version selection or runtime pass.
+Keep exact private repository identities, dependency manifests, runtime versions,
+production paths and project-specific validation commands in private inventory.
+For each project, identify which development inputs are shared with production
+before selecting an isolated candidate. Preserve every applicable version ceiling,
+Python minor pin and production-owned manifest without copying their details here.
 
-oci/worker/Dockerfile uses Python 3.12, a pinned uv image, its own manifest/lock,
-and copies lib/, flows/, selected iac/assets and prefect.yaml. Those paths are
-production inputs and off-limits to this maintenance. Protect lib/pyproject.toml
-even if root development resolution would be easier after changing it. CI/iac/adb
-environments are not assumed non-production merely because they are not the worker.
-
-SDS AGENTS.md requires pytest without pytest-xdist, affected-scope Ruff/mypy/coverage
-and declared vulnerability authority. Use mocks rather than live database writes.
-Graph report records an older commit than inspected HEAD; source remains authority.
-Apply the project's graph-update policy only if source code is actually changed.
+Read the selected project's own instructions and CI configuration for its test,
+lint, type-checking and vulnerability authorities. Use credential-free mocks or
+isolated runtime checks; never invoke production flows or write to live databases.
+Historical dependency resolution is preliminary evidence, not current runtime
+qualification. Source remains authoritative when generated metadata is stale.
 
 ## Behavior and validation
 
@@ -81,8 +79,8 @@ tests are required. Record red baseline versus candidate failures distinctly.
 Do not run production flows or acquire production datasets to validate development.
 Use targeted DVC data only if explicitly required and available under existing rules.
 
-Sequence SDS minimal interpreter/dependency compatibility repair first, then the
-broader allowed dependency refresh. Do not mistake a successful full lock solve for
+Sequence each private project's minimal interpreter/dependency compatibility repair
+first, then the broader allowed dependency refresh. Do not mistake a successful full lock solve for
 safe activation. Shared interpreter patch installation is owned by host-tools;
 per-project environment replacement is owned by the project slice.
 
@@ -100,7 +98,7 @@ unknown repositories or issue a launch receipt from this umbrella.
 
 | Concern | Decision |
 |---|---|
-| Boundary | required: inventory classifications and SDS protected-input boundary |
+| Boundary | required: inventory classifications and protected private-input boundaries |
 | Interaction | required: isolate, resolve, runtime-test, activate sequence |
 | State | required: behavior table |
 | Data/trust | not_applicable: no production data movement or calls authorized |

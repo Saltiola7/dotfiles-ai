@@ -46,8 +46,8 @@ IaC Component Graph:
     ↓ (k8s provider)
   create_shared_infra(gke) → SharedInfraOutput (postgres, redis, keda)
     ↓ (connection strings)
-  create_seo_orchestration(shared, identity) → OrchestrationOutput
-    ↓ (Prefect + workers)
+  create_workload(shared, identity) → WorkloadOutput
+    ↓ (application service)
   create_tailnet_access(gke) → AccessOutput (ingress)
 ```
 
@@ -82,8 +82,8 @@ Format:
 - Consequences (tradeoffs accepted)
 ```
 
-Reference ADRs in code comments and IaC component docstrings (e.g., "ADR-006 triple-layer
-deletion protection"). This creates bidirectional traceability.
+Reference ADRs in code comments and IaC component docstrings (e.g., "ADR-NNN stateful
+resource protection"). This creates bidirectional traceability.
 
 ---
 
@@ -112,12 +112,12 @@ Every stateful resource (databases, buckets, volumes) requires documented protec
 
 Example contract:
 ```
-## Identity Contract: seo-worker SA
-- Roles: storage.admin (orchestration bucket), bigquery.jobUser, bigquery.dataEditor (pipeline dataset)
+## Identity Contract: example-worker SA
+- Roles: only the actions required on the example workload's selected resources
 - Binding protection: all protect=True
 - Access method: Workload Identity (no key files)
-- K8s SA: seo-worker in orchestration namespace
-- ADR: ADR-014 (WIF multi-org attribute condition)
+- K8s SA: example-worker in example-workloads namespace
+- ADR: ADR-NNN (identity access boundaries)
 ```
 
 ### Blast-Radius Contracts
@@ -160,7 +160,7 @@ Treat cost like volume bounds in data pipelines:
 
 | Pattern | When to use | Implementation |
 |---------|-------------|----------------|
-| **KEDA Cron Scaler** | Batch workloads with known schedule | ScaledObject with cron trigger (e.g., 23:50-01:30 PT) |
+| **KEDA Cron Scaler** | Batch workloads with known schedule | ScaledObject with cron trigger (e.g., an explicitly configured UTC maintenance window) |
 | **KEDA HTTP Scaler** | Request-driven apps with idle periods | Scale to 0 when no HTTP traffic |
 | **Spot/Preemptible** | Fault-tolerant batch jobs | Node pool with spot VMs + Prefect retries |
 | **Volume detach** | Dev environments | Detach volumes when server stopped |
@@ -211,46 +211,43 @@ Treat cost like volume bounds in data pipelines:
 
 ---
 
-## Worked Example: Shared Django Server (Hetzner + Kamal)
+## Worked Example: Synthetic Application Server
+
+The following values are illustrative, not a deployed environment inventory.
 
 ```
 # Domain (Phase 1)
-Component: django_server (Hetzner cpx11, Debian 12, Ashburn VA)
-Volumes: tsc-postgres-data (10GB ext4), mlc-postgres-data (10GB ext4)
-Network: tsc-firewall (SSH + HTTP/S + ICMP only)
-Deployment: Kamal (rolling, amd64 builder)
-DNS: Cloudflare (proxied, managed separately in dns.py)
-Topology: Single server → 2 Django apps (tsc + mlc) → 2 Postgres volumes
+Component: example_app_server (provider and size selected by the project)
+Volumes: example-web-data, example-api-data
+Network: example-app-firewall
+Deployment: rolling application deployment
+Topology: application server with persistent data volumes
 
 # Contracts (Phase 4)
-Locality: server.location == volume.location == "ash" (invariant)
-Architecture: server_type cpx11 = x86_64 → Kamal builder.arch: amd64 (invariant)
-Firewall: inbound allow SSH(22) + HTTP(80) + HTTPS(443) + ICMP only; all else DROP
-Volume persistence: survives server destruction; automount=True
-Cost ceiling: cpx11 (2 vCPU, 4GB); upgrade requires explicit decision
-State: Postgres data on attached volumes, not ephemeral disk
-Deployment: zero-downtime rolling via Kamal; rollback = `kamal rollback`
-Secrets: .env via 1Password injection; never in git
+Locality: server.location == volume.location
+Architecture: application build target matches server architecture
+Firewall: only explicitly approved management and application ports are reachable
+Volume persistence: survives server replacement
+Cost ceiling: selected by project policy; increases require an explicit decision
+State: persistent data stays outside ephemeral application storage
+Deployment: health checks pass before traffic moves; documented rollback
+Secrets: injected from a secret manager; never in Git
 ```
 
-## Worked Example: GKE Platform (GCP)
+## Worked Example: Synthetic Managed Cluster
 
 ```
 # Domain (Phase 1)
-Components: GKE cluster, GCS buckets (DVC, orchestration, CDN logs),
-  Artifact Registry, Workload Identity SAs, KEDA, Tailnet access
-Topology: see Resource Topology graph above
-Environments: prod (GKE Standard Zonal), dev (Docker Compose local)
-ADRs: 004 (Connect Gateway), 005 (single project/stack), 006 (deletion protection),
-  007 (KEDA cron), 008 (Tailnet-only), 014 (WIF multi-org), 015 (Standard Zonal)
+Components: managed cluster, example storage bucket, workload identities
+Environments: production and isolated development
+ADRs: project-owned decisions for access, retention, scaling and deletion protection
 
 # Contracts (Phase 4)
-Deletion protection: all GCS buckets + volumes have triple-layer (ADR-006)
-Identity: Workload Identity for all pod-to-GCP access (ADR-014)
-Network: private cluster endpoint; access via Connect Gateway (ADR-004) + Tailnet (ADR-008)
-Scale: KEDA cron 23:50-01:30 for nightly batch; scale-to-zero outside window (ADR-007)
-Cost: Standard Zonal (not Autopilot — ADR-015); max 3 worker pods
-Audit: storage data-access audit logging on all buckets with pipeline data
-Registry: us-central1-docker.pkg.dev/project/repo; images tagged with git SHA
-Secrets: Pulumi stack config (encrypted); WIF for runtime access
+Deletion protection: documented safeguards for every stateful resource
+Identity: short-lived workload identity for service access
+Network: private endpoint with explicitly authorized administration access
+Scale: project-defined minimum, maximum and optional idle schedule
+Audit: data-access logging on resources holding protected data
+Registry: example.invalid/project/images; immutable image references
+Secrets: injected at runtime, absent from source and image layers
 ```

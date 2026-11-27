@@ -27,7 +27,7 @@ operator goal or a prerequisite for native executable migration.
 - Restore relocated external state and exact conversations with existing layout.
   Preserve credentials, histories, migration archives, failed attempts and new V2
   work. Never restore an old database over current work.
-- Intentional redundant PPC worktree DVC deletions remain intentional. Check
+- Intentional redundant private-project worktree DVC deletions remain intentional. Check
   metadata and links without full data pulls or cache garbage collection.
 - All durable configuration and external-state routing use chezmoi. Native
   installers own OpenCode and Codex executable updates on the invoked platform.
@@ -37,9 +37,9 @@ operator goal or a prerequisite for native executable migration.
   the tools named earlier. Updates are desired, but version output alone cannot
   establish data health; resolve retired declarations before any blanket apply.
 - Preserve Python minor-version pins while updating patch releases. Exclude
-  enterprise-seo-tools entirely and all production environments. SDS changes are
-  limited to base/development environments; preserve GKE and shared production
-  inputs. Use latest stable dependencies permitted by existing constraints,
+  designated private projects entirely and all production environments. Other private
+  project changes are limited to classified development environments; preserve
+  shared production inputs. Use latest stable dependencies permitted by existing constraints,
   including allowed major versions. Resolve and exercise compatibility before activation.
 - Configure browser MCP servers disconnected by default and manually connectable.
   Restore Tab next-agent and Shift+Tab previous-agent bindings using native V2 IDs.
@@ -82,7 +82,7 @@ must reference each owning repository before implementation.
 | Signed Herdr Host replacement-volume registration and conversation preservation | [Herdr recovery](HERDR-RECOVERY.md) |
 | Both managed guests, boot drift, upgrades and fresh V2 provisioning | [Guests](GUESTS.md) |
 | Native OpenCode/Codex updates and chezmoi/external-state compatibility | [Native updates](NATIVE-UPDATES.md) |
-| Non-production personal/client/tool/guest Python environments and SDS boundaries | [Python upgrades](PYTHON-UPGRADES.md) |
+| Non-production personal/client/tool/guest Python environments and private-project boundaries | [Python upgrades](PYTHON-UPGRADES.md) |
 | Original V2 migration closure, preferences delivery and lifecycle/source reconciliation | [Delivery closure](DELIVERY-CLOSURE.md) |
 | Deferred OpenCode hibernation, retained qualification and activation prerequisites | [Hibernation qualification](HIBERNATION.md) |
 
