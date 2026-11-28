@@ -3341,6 +3341,35 @@ def test_k_persists_public_pane_and_actual_server_client_and_service_incarnation
                        'process': backend._pid_proofs([31])[0], 'service': backend._pid_proofs([61])[0]}
 
 
+@pytest.mark.parametrize('output,valid', [('42\n', True), ('43\n', False), ('42\n43\n', False),
+                                          ('0\n', False), ('042\n', False), ({}, False)])
+def test_k_reconnect_boundary_accepts_only_exact_unit_owner(backend, monkeypatch, output, valid):
+    run = {'pid': 42}
+    service = {'pid': 61}
+    monkeypatch.setattr(backend, '_other_off', lambda target: None)
+    monkeypatch.setattr(backend, 'selected', lambda: 'tui')
+    monkeypatch.setattr(backend, 'tui_run', lambda: run)
+    monkeypatch.setattr(backend, '_reconnect_service', lambda: service)
+    listener_checks = []
+    def connections(root, pid, endpoints, *, require_listener):
+        listener_checks.append((root, pid, endpoints, require_listener))
+    monkeypatch.setattr(native.processes, 'shared_connections', connections)
+
+    def show(argv):
+        assert argv == ['/usr/bin/systemctl', '--user', 'show', 'remote-herdr-tui.service',
+                        '--property=MainPID', '--value']
+        return output
+
+    monkeypatch.setattr(backend, 'command', show)
+    if valid:
+        backend._reconnect_boundary(run, service)
+        assert listener_checks == [(backend.proc_root, 61, {}, True)]
+    else:
+        with pytest.raises(native.NativeError, match='unit owner unproven'):
+            backend._reconnect_boundary(run, service)
+        assert not listener_checks
+
+
 @pytest.mark.parametrize('phase,old_alive', [('stop_pending', True), ('launch_pending', False)])
 def test_k_reconnect_uncertain_effects_never_replay(backend, monkeypatch, phase, old_alive):
     owner_edit(backend, saved=True)

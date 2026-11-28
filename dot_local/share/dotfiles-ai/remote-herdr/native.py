@@ -1154,7 +1154,7 @@ class Native:
             raise NativeError('TUI reconnect ownership changed')
         main = self.command(['/usr/bin/systemctl', '--user', 'show', 'remote-herdr-tui.service',
                              '--property=MainPID', '--value'])
-        if main != str(run['pid']):
+        if not isinstance(main, str) or main.strip() != str(run['pid']):
             raise NativeError('TUI reconnect unit owner unproven')
         processes.shared_connections(self.proc_root, service['pid'], {}, require_listener=True)
 
