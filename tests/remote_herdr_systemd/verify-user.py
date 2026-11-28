@@ -3632,8 +3632,33 @@ def k_collision():
     require(before == [(ROOT / file).read_bytes() for file in ('transaction.json', 'boot.json', 'manifest.json')])
 
 
-def reconnect_smoke():
-    """Advisory only: one container boot, three sessions, real restore unit."""
+def smoke_connections(clients, port):
+    """One TCP snapshot per sample; never print socket or process identities."""
+    inodes = set()
+    for table in ('tcp', 'tcp6'):
+        for row in Path(f'/proc/net/{table}').read_text().splitlines()[1:]:
+            fields = row.split()
+            address, raw_port = fields[2].split(':')
+            if (fields[3] == '01' and int(raw_port, 16) == port
+                    and address in {'0100007F', '00000000000000000000000001000000'}):
+                inodes.add(f'socket:[{fields[9]}]')
+    count = 0
+    for client in clients:
+        try:
+            for fd in Path(f'/proc/{client["pid"]}/fd').iterdir():
+                try:
+                    if os.readlink(fd) in inodes:
+                        count += 1
+                        break
+                except FileNotFoundError:
+                    pass
+        except FileNotFoundError:
+            pass
+    return count
+
+
+def reconnect_smoke(sample):
+    """Advisory only: one container boot, 50 sessions, real restore unit."""
     global STEP
     started = time.monotonic()
 
@@ -3646,17 +3671,14 @@ def reconnect_smoke():
         STEP = 'smoke-seed'
         cwd = HOME / 'project smoke'
         cwd.mkdir(mode=0o700)
-        tabs = []
-        for i in range(3):
-            session = api('post', '/api/session', {
+        sessions = [None]
+        for i in range(50):
+            sessions.append(api('post', '/api/session', {
                 'location': {'directory': str(cwd)}, 'title': f'Smoke {i}',
                 'model': {'id': 'held', 'providerID': 'rrw007f'},
-            })['data']['id']
-            key = f's0-t{i}-p0'
-            tabs.append({'name': f'Smoke {i}', 'root': {'pane': key}, 'panes': [
-                {'key': key, 'cwd': str(cwd), 'session_id': session}]})
-        plan = {'schema_version': 1, 'spaces': [
-            {'name': 'Smoke', 'directory': str(cwd), 'tabs': tabs}]}
+            })['data']['id'])
+        require(len(set(sessions)) == 51)
+        plan = r8_fixture_plan(str(cwd), sessions)
         Store, Native = adapter()
         with Store(ROOT) as store:
             backend = Native(HOME, store)
@@ -3665,19 +3687,18 @@ def reconnect_smoke():
         file = HOME / 'reconnect-smoke-plan.json'
         write(file, plan)
         STEP = 'smoke-import'
-        run(BIN / 'remote-herdr', 'switch', 'tui', '--replace-target', '--from-file', file, timeout=180)
-        observe('tui', plan)
+        run(BIN / 'remote-herdr', 'switch', 'tui', '--replace-target', '--from-file', file, timeout=840)
         STEP = 'smoke-initial-witness'
-        unit('start', 'remote-herdr-restore.service')
+        run('/usr/bin/systemctl', '--user', 'start', 'remote-herdr-restore.service', timeout=120)
         f01 = load('f01', '/opt/f01/verify-user.py')
         with Store(ROOT) as store:
             backend = Native(HOME, store)
             run_proof = backend.tui_run()
             old = store.read('tui-observation.json')
             old_service = backend._pid_proofs([pid])
-            require(not old['hold'] and old['run'] == run_proof and len(old['clients']) == 3)
+            require(not old['hold'] and old['run'] == run_proof and len(old['clients']) == 50)
             require(all(c['service'] == old_service[0] for c in old['clients'].values()))
-        mark('baseline-exact-3')
+        mark('baseline-exact-50')
 
         replaced = time.monotonic()
         STEP = 'smoke-replace-backend'
@@ -3685,12 +3706,32 @@ def reconnect_smoke():
         new_pid, server = f01.ready(previous=pid)
         mark('backend-ready', replaced)
         STEP = 'smoke-restore-unit'
-        unit_failed = False
-        try:
-            run('/usr/bin/systemctl', '--user', 'start', 'remote-herdr-restore.service', timeout=120)
-        except CommandFailure:
-            unit_failed = True
+        command = ['/usr/bin/systemctl', '--user', 'start', 'remote-herdr-restore.service']
+        with subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, cwd=HOME) as child:
+            try:
+                if sample:
+                    observer = Native(HOME, None)
+                    deadline = time.monotonic() + 920
+                    while child.poll() is None and time.monotonic() < deadline:
+                        try:
+                            rows = observer.scan(set(sessions[1:]))
+                            count = smoke_connections(rows, urlsplit(server).port)
+                            mark(f'progress-exact-{len(rows)}-connected-{count}', replaced)
+                        except (OSError, ValueError):
+                            mark('progress-unavailable', replaced)
+                        try:
+                            child.wait(timeout=15)
+                        except subprocess.TimeoutExpired:
+                            pass
+                unit_failed = child.wait(timeout=30 if sample else 930) != 0
+            finally:
+                if child.poll() is None:
+                    child.kill()  # Only the local systemctl CLI; never replay the unit.
         STEP = 'smoke-reconnect-readback'
+        result = unit('show', 'remote-herdr-restore.service', '--property=Result', '--value')
+        outcome = result if result in {'success', 'exit-code', 'timeout', 'signal', 'resources'} else 'other'
+        mark(f'unit-{outcome}', replaced)
         with Store(ROOT) as store:
             backend = Native(HOME, store)
             intent = store.read('tui-reconnect.json')
@@ -3698,6 +3739,9 @@ def reconnect_smoke():
             label = {None: 'none', 'stop_pending': 'stop', 'launch_pending': 'launch'}.get(phase, 'unknown')
             if phase is None and intent:
                 label = 'verify'
+            mark(f'intent-{label}', replaced)
+            rows = backend.scan(set(sessions[1:]))
+            mark(f'final-exact-{len(rows)}-connected-{smoke_connections(rows, urlsplit(server).port)}', replaced)
             if unit_failed:
                 # Read-only retry of the guard, never a second reconnect.
                 boundary = 'unclassified'
@@ -3721,9 +3765,9 @@ def reconnect_smoke():
                         and client['session_id'] == old['clients'][pane]['session_id']
                         and client['cwd'] == old['clients'][pane]['cwd'])
             clients = backend._coverage(plan)
-            connected = sum(bool(f01.connected(c['pid'], urlsplit(server).port)) for c in clients)
+            connected = smoke_connections(clients, urlsplit(server).port)
             mark(f'exact-{len(clients)}-connected-{connected}', replaced)
-            require(len(clients) == connected == 3)
+            require(len(clients) == connected == 50)
         mark('passed')
 
 
@@ -3738,7 +3782,8 @@ if __name__ == '__main__':
                   'verify-r8-boot': lambda: (verify_r8(recover=False), k_arm()),
                   'verify-k-boot': lambda: k_boot(second=False),
                   'verify-k-second-boot': lambda: k_boot(second=True),
-                  'reconnect-smoke': reconnect_smoke}
+                  'reconnect-sampled': lambda: reconnect_smoke(True),
+                  'reconnect-passive': lambda: reconnect_smoke(False)}
         stages[sys.argv[1]]()
         print('F07: stage-complete')
     except Exception as error:
