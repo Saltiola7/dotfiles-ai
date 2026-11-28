@@ -43,7 +43,7 @@ no_login() {
     done
 }
 case ${1:-} in
-    prepare)
+    prepare|reconnect-smoke)
         stage=prepare-precondition
         [[ ! -e /var/lib/f07/prepared ]] || fail
         for ((attempt = 0; attempt < 90; attempt++)); do
@@ -58,6 +58,11 @@ case ${1:-} in
         install -d -o fixture -g fixture -m 0700 /home/fixture/.local/share
         cp -R /opt/f01/source /home/fixture/.local/share/chezmoi-dotfiles-ai
         chown -R fixture:fixture /home/fixture/.local
+        if [[ $1 == reconnect-smoke ]]; then
+            no_login
+            as_user timeout 900 python3 /opt/f07/verify-user.py reconnect-smoke
+            exit
+        fi
         as_user timeout 900 python3 /opt/f07/verify-user.py prepare
         touch /var/lib/f07/prepared /run/f07-core
         ;;

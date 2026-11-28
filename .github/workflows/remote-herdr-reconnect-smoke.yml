@@ -1,0 +1,76 @@
+name: remote-herdr-reconnect-smoke
+
+on:
+  # One benchmark from a fresh isolated ref; not a PR or default-branch check.
+  push:
+    branches: [qual/rrw-007k-reconnect-smoke-benchmark]
+
+permissions:
+  contents: read
+
+jobs:
+  advisory-reconnect-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 3
+      - name: Check fixture source boundaries
+        run: |
+          python3 -m unittest discover -s tests -p test_remote_herdr_qualification.py
+          python3 -m unittest discover -s tests -p test_remote_herdr_kept_probe.py
+      - name: Measure disposable three-client reconnect
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == x86_64 ]] || { echo 'F07-SMOKE: wrong-architecture'; exit 1; }
+          image="f07-smoke-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          scratch=$(mktemp -d)
+          trap 'docker rm -f "$image-before" "$image-fixed" >/dev/null 2>&1 || true; rm -f "$scratch/native.py"; rmdir "$scratch"' EXIT
+          adapter=dot_local/share/dotfiles-ai/remote-herdr/native.py
+          git show "7f80c9eda210907f05a5a46078a821c7df331de3:$adapter" > "$scratch/native.py"
+          started=$SECONDS
+          docker build --pull -f tests/remote_herdr_systemd/Containerfile -t "$image" . \
+            >/dev/null 2>&1 || { echo 'F07-SMOKE: image-build-failed'; exit 1; }
+          echo "F07-SMOKE: image-built seconds=$((SECONDS - started))"
+          verdict=0
+          prior_binary=''
+          for variant in before fixed; do
+            container="$image-$variant"
+            echo "F07-SMOKE: candidate-$variant"
+            docker run -d --name "$container" --privileged --cgroupns=private \
+              --tmpfs /run --tmpfs /run/lock --stop-timeout 40 \
+              "$image" /bin/bash -ec 'mount -o remount,rw /sys/fs/cgroup; exec /sbin/init' \
+              >/dev/null 2>&1 || { echo 'F07-SMOKE: container-boot-failed'; exit 1; }
+            if [[ $variant == before ]]; then
+              docker cp "$scratch/native.py" "$container:/opt/f01/source/$adapter" \
+                >/dev/null 2>&1 || { echo 'F07-SMOKE: baseline-copy-failed'; exit 1; }
+            fi
+            status=0
+            result=$(docker exec "$container" bash /opt/f07/boot-smoke.sh reconnect-smoke 2>&1) || status=$?
+            grep -E '^F07-SMOKE: (installed|baseline-exact-3|backend-ready|restore-refused-intent-(none|stop|launch|verify|unknown)-boundary-(unit-owner|passed|unclassified)|exact-[0-9]+-connected-[0-9]+|passed) seconds=[0-9]+\.[0-9]+$|^F07: (failed-[a-z0-9-]+|shell-invariant-failed-[a-z0-9-]+|stage-complete)$' \
+              <<< "$result" || true
+            binary=$(grep -Ex 'F07: opencode v2\.[0-9]+\.[0-9]+; binary-sha256=[a-f0-9]{64}' <<< "$result" || true)
+            if [[ $variant == before ]]; then
+              if [[ $status == 1 ]] && grep -Eq '^F07-SMOKE: restore-refused-intent-none-boundary-unit-owner seconds=[0-9]+\.[0-9]+$' <<< "$result"; then
+                echo 'F07-SMOKE: baseline-regression-reproduced'
+              else
+                echo 'F07-SMOKE: baseline-regression-unproven'
+                verdict=1
+              fi
+            elif [[ $status != 0 ]] || ! grep -Eq '^F07-SMOKE: exact-3-connected-3 seconds=[0-9]+\.[0-9]+$' <<< "$result"; then
+              echo 'F07-SMOKE: fixed-reconnect-unproven'
+              verdict=1
+            fi
+            if [[ $variant == before ]]; then
+              prior_binary=$binary
+            elif [[ -z $binary || $binary != "$prior_binary" ]]; then
+              echo 'F07-SMOKE: opencode-binary-match-unproven'
+              verdict=1
+            fi
+            docker rm -f "$container" >/dev/null 2>&1
+          done
+          echo "F07-SMOKE: elapsed seconds=$((SECONDS - started))"
+          exit "$verdict"

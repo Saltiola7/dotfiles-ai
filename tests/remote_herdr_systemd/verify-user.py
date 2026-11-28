@@ -2749,7 +2749,7 @@ def installed_v2_tui_plugin(config):
             and (config / 'herdr-opencode/tui.js').is_file())
 
 
-def prepare_fixture(provider):
+def install_fixture(provider):
     global STEP
     STEP = 'install-bootstrap-config'
     bootstrap = load('bootstrap', '/opt/f01/bootstrap.py')
@@ -2802,6 +2802,12 @@ def prepare_fixture(provider):
     STEP = 'session-api-schema'
     spec = api('get', '/openapi.json')
     validate_api_schema(spec)
+    return pid
+
+
+def prepare_fixture(provider):
+    global STEP
+    pid = install_fixture(provider)
     directories = [HOME / 'project alpha', HOME / 'project beta']
     for directory in directories:
         directory.mkdir(mode=0o700)
@@ -3626,6 +3632,101 @@ def k_collision():
     require(before == [(ROOT / file).read_bytes() for file in ('transaction.json', 'boot.json', 'manifest.json')])
 
 
+def reconnect_smoke():
+    """Advisory only: one container boot, three sessions, real restore unit."""
+    global STEP
+    started = time.monotonic()
+
+    def mark(label, since=started):
+        print(f'F07-SMOKE: {label} seconds={time.monotonic() - since:.1f}', flush=True)
+
+    with HeldProvider() as provider:
+        pid = install_fixture(provider)
+        mark('installed')
+        STEP = 'smoke-seed'
+        cwd = HOME / 'project smoke'
+        cwd.mkdir(mode=0o700)
+        tabs = []
+        for i in range(3):
+            session = api('post', '/api/session', {
+                'location': {'directory': str(cwd)}, 'title': f'Smoke {i}',
+                'model': {'id': 'held', 'providerID': 'rrw007f'},
+            })['data']['id']
+            key = f's0-t{i}-p0'
+            tabs.append({'name': f'Smoke {i}', 'root': {'pane': key}, 'panes': [
+                {'key': key, 'cwd': str(cwd), 'session_id': session}]})
+        plan = {'schema_version': 1, 'spaces': [
+            {'name': 'Smoke', 'directory': str(cwd), 'tabs': tabs}]}
+        Store, Native = adapter()
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            require(not backend.endpoint_present('tui') and not backend.endpoint_present('herdr-core'))
+            backend.select('herdr-core')  # Fresh fixture: select the offline import source.
+        file = HOME / 'reconnect-smoke-plan.json'
+        write(file, plan)
+        STEP = 'smoke-import'
+        run(BIN / 'remote-herdr', 'switch', 'tui', '--replace-target', '--from-file', file, timeout=180)
+        observe('tui', plan)
+        STEP = 'smoke-initial-witness'
+        unit('start', 'remote-herdr-restore.service')
+        f01 = load('f01', '/opt/f01/verify-user.py')
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            run_proof = backend.tui_run()
+            old = store.read('tui-observation.json')
+            old_service = backend._pid_proofs([pid])
+            require(not old['hold'] and old['run'] == run_proof and len(old['clients']) == 3)
+            require(all(c['service'] == old_service[0] for c in old['clients'].values()))
+        mark('baseline-exact-3')
+
+        replaced = time.monotonic()
+        STEP = 'smoke-replace-backend'
+        unit('restart', 'opencode-shared.service')
+        new_pid, server = f01.ready(previous=pid)
+        mark('backend-ready', replaced)
+        STEP = 'smoke-restore-unit'
+        unit_failed = False
+        try:
+            run('/usr/bin/systemctl', '--user', 'start', 'remote-herdr-restore.service', timeout=120)
+        except CommandFailure:
+            unit_failed = True
+        STEP = 'smoke-reconnect-readback'
+        with Store(ROOT) as store:
+            backend = Native(HOME, store)
+            intent = store.read('tui-reconnect.json')
+            phase = ((intent or {}).get('pending') or {}).get('phase')
+            label = {None: 'none', 'stop_pending': 'stop', 'launch_pending': 'launch'}.get(phase, 'unknown')
+            if phase is None and intent:
+                label = 'verify'
+            if unit_failed:
+                # Read-only retry of the guard, never a second reconnect.
+                boundary = 'unclassified'
+                try:
+                    backend._reconnect_boundary(run_proof, backend._reconnect_service())
+                except Exception as error:
+                    if type(error).__name__ == 'NativeError' and str(error) == 'TUI reconnect unit owner unproven':
+                        boundary = 'unit-owner'
+                else:
+                    boundary = 'passed'
+                mark(f'restore-refused-intent-{label}-boundary-{boundary}', replaced)
+                raise CommandFailure('restore-unit-refused')
+            require(backend.tui_run() == run_proof and backend._pids_absent(old_service))
+            service = backend._pid_proofs([new_pid])[0]
+            require(backend.shared_main_pid() == new_pid and not intent)
+            witness = store.read('tui-observation.json')
+            require(not witness['hold'] and witness['run'] == run_proof and witness['view'] == old['view'])
+            require(witness['clients'].keys() == old['clients'].keys())
+            for pane, client in witness['clients'].items():
+                require(client['service'] == service and client['run'] == run_proof
+                        and client['session_id'] == old['clients'][pane]['session_id']
+                        and client['cwd'] == old['clients'][pane]['cwd'])
+            clients = backend._coverage(plan)
+            connected = sum(bool(f01.connected(c['pid'], urlsplit(server).port)) for c in clients)
+            mark(f'exact-{len(clients)}-connected-{connected}', replaced)
+            require(len(clients) == connected == 3)
+        mark('passed')
+
+
 if __name__ == '__main__':
     try:
         os.umask(0o077)
@@ -3636,7 +3737,8 @@ if __name__ == '__main__':
                   'verify-r8-recover': lambda: verify_r8(recover=True),
                   'verify-r8-boot': lambda: (verify_r8(recover=False), k_arm()),
                   'verify-k-boot': lambda: k_boot(second=False),
-                  'verify-k-second-boot': lambda: k_boot(second=True)}
+                  'verify-k-second-boot': lambda: k_boot(second=True),
+                  'reconnect-smoke': reconnect_smoke}
         stages[sys.argv[1]]()
         print('F07: stage-complete')
     except Exception as error:

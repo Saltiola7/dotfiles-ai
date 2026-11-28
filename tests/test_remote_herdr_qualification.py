@@ -1923,7 +1923,11 @@ class QualificationSourceTests(unittest.TestCase):
         functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
         prepare = ast.get_source_segment(source, functions['prepare_fixture'])
         assert prepare is not None
-        self.assertLess(prepare.index('provider.config()'), prepare.index("'apply'"))
+        install = ast.get_source_segment(source, functions['install_fixture'])
+        assert install is not None
+        self.assertLess(install.index('provider.config()'), install.index("'apply'"))
+        self.assertLess(prepare.index('install_fixture(provider)'),
+                        prepare.index('inflight_switch(provider, plan, pid)'))
         self.assertLess(prepare.index('inflight_switch(provider, plan, pid)'),
                         prepare.index('interrupted_switch(plan, pid)'))
         proof = ast.get_source_segment(source, functions['inflight_switch'])
